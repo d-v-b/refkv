@@ -74,9 +74,11 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    scaling (BSCALE, `scl_slope`), an axis the source does not declare (HDF5's string axis), a fill
    of zero, a crop to a reader's size, a color conversion and a transposition the output makes stay
    in the facts, for the profile. An array's axes are those the source declares: no frame axis
-   where it gives no frame count, and no samples axis for one sample; a pixel it declares as
-   several samples (TIFF's SamplesPerPixel above 1, NIfTI's RGB24, CZI's Bgr24) has a samples axis,
-   last unless the layout is planar, of `item_bits` per sample.
+   where it gives no frame count, and no samples axis for one sample. A samples axis is there
+   where the format stores or codes samples as an axis of their own (TIFF's SamplesPerPixel above
+   1, which its planar layout and tiles cut; CZI's pixel types, whose codecs make samples), last
+   unless the layout is planar, of `item_bits` per sample; a pixel type that is one element (NIfTI's
+   RGB24, a NumPy subarray, an HDF5 array type) stays one element of its size.
 5. **Declarations are listed** in the format's document, place by place, so that a profile knows
    what each is. A declaration the parser keeps only in facts today gets a place in the same PR.
 6. **Codecs come from the list** that step 0 lands ([§Codecs](#codecs)). A format PR that finds an
@@ -95,12 +97,14 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
 9. **The spec's [§7](../../spec/stored-array.md#7-the-formats)** gets the format's paragraph, in
    NumPy's form: its arrays and keys, shape and axes, `item_bits`, grid and units, chains, fill,
    declarations, and fallbacks. `axes` reversed, here as in NumPy's, means for two or more axes,
-   and covers the axes the source lists; a samples axis the pixel type adds stays last.
+   and covers the axes the source lists; a samples or channel axis the source does not list takes
+   the next position, n, and stays last unless its layout puts it first.
 
 ## Step 0: the shared rules
 
-One PR before the formats, changing spec/stored-array.md, the IR's codec list and checks, and the
-test helpers. It also adds to [§7](../../spec/stored-array.md#7-the-formats) one heading per format,
+One PR before the formats, changing spec/stored-array.md, the IR's codec list and checks, the
+function that names a unit's bytes with `check::finish`'s record of unfolded runs, and the test
+helpers. It also adds to [§7](../../spec/stored-array.md#7-the-formats) one heading per format,
 in the order of [§The formats](#the-formats), each holding a line that the format is not described
 yet, so that each format PR fills its own heading and none appends to the end of the file; and it
 rewords [§1](../../spec/stored-array.md#1-stored-arrays)'s "Today only the NumPy profile describes
@@ -211,7 +215,8 @@ duplicate has are a declaration of it: for TIFF, the parent IFD's pointer-tag en
 ### The test helper
 
 `python/tests/ir/chains.py` decodes a unit through a chain, codec by codec, given the unit's bytes,
-its parameters and its shape. A place's bytes become the parameter's value through a reader each
+its parameters, and the unit's shape with the array's `item_bits` and `pad_from`, as the codec
+contract gives them. A place's bytes become the parameter's value through a reader each
 format registers by (format, codec, parameter), so that the shared decoders take values only and
 no format edits them. Step 0 writes its frame and the codecs
 two or more formats use (the compressors, `tiff_lzw` among them, `shuffle`, `lsb_first`, `jpeg`,
@@ -220,6 +225,8 @@ format PR writes a shared codec's decoding, and a registry that finds a codec's 
 in a module of its own; each format PR adds, in its own module, the codecs only it uses, and edits
 no shared file. Where imagecodecs lacks a codec, the helper says how
 it decodes:
+- `png` and `bmp` where paletted: Pillow for PNG, which keeps the indices, and imagecodecs'
+  `bmp_decode` with `asrgb=False`;
 - `skip`, `fits_quantize`, `lsb_first` and `h5_fletcher32` (HDF5's Fletcher-32 checked over the
   bytes before the checksum, which is then dropped): in Python;
 - `ccitt_t6`: imagecodecs' `ccittfax4_decode`, which makes a byte per pixel, packed into rows of
@@ -370,7 +377,8 @@ Large (about 1,500 lines).
 - **Chains.** `[compression]`, with `tiff_predictor` before it for the compressions that take a
   predictor (not the image codecs: JPEG 2000 is accepted with a Predictor its streams do not use).
   FillOrder 2 stays refused for the compressions libtiff reverses; the PR that lifts that adds
-  `lsb_first(1)`.
+  `lsb_first(1)`. A JPEG 2000 tile that does not begin with a codestream's SOC and SIZ (`FF 4F FF
+  51`) makes its array's chain `source`.
 - **Fallbacks.** No grid for mixed BitsPerSample, YCbCr subsampling outside JPEG, and a tile count
   that does not match the image.
 - **Declarations.** Tags 256, 257, 258, 259, 262, 266, 277, 278, 284, 317, 320, 322, 323, 338, 339,
@@ -408,12 +416,13 @@ Medium, after TIFF.
   tile, its `tiles/<k>` element; the chain the ETS header's compression names, one codec;
   `item_bits` the pixel type's sample size, or what the codec makes. S follows what the codec makes;
   a tile whose decoding cannot make the header's `channels` samples (a 32-bit BMP with no alpha
-  mask under four channels) makes its array's chain `source`.
+  mask under four channels, a paletted tile under three) makes its array's chain `source`.
 - **Fill.** Given, as a place in the `ets` header, when the background's samples are equal and the
   tiles are raw; otherwise `undefined`, with the header among the declarations.
 - **Checker.** Bio-Formats for shapes, tile sizes and decoded tiles (minding BGR and the
-  resolution level), but imagecodecs with no color conversion for JPEG tiles, which Bio-Formats
-  converts to RGB; tifffile for the `.vsi`'s IFDs.
+  resolution level), but only for shapes and tile sizes where its decoding differs from the
+  helper's: imagecodecs with no color conversion for JPEG tiles, which Bio-Formats converts to
+  RGB, and for JPEG 2000 tiles, which it rounds otherwise; tifffile for the `.vsi`'s IFDs.
 
 ### HDF5, NWB and IMS
 
@@ -506,8 +515,8 @@ changed forms. A helper in `gz.rs` serves both, and NumPy's deflated `.npz` memb
 
 Small for plain files and pairs; medium with gzip.
 - **Arrays.** Keyed by `header`. Shape `dim[n]…dim[1]` with `axes` reversed; `item_bits` from the
-  datatype (RGB24 and RGBA32 are samples of 8 bits on a last axis of 3 or 4, which the reversal
-  leaves last: `axes` `[n−1, …, 0, n]`); one empty chain; fill `undefined`.
+  datatype (RGB24 and RGBA32 one element of 24 and 32 bits, by rule 4; the datatype a
+  declaration); one empty chain; fill `undefined`.
 - **Checker.** nibabel.
 
 ### MRC and MRC datasets
@@ -545,14 +554,14 @@ Small-medium.
 
 Medium.
 - **Arrays.** Pixel Data, keyed by `dataset/7FE00010`; each Overlay Data (60xx,3000), keyed by its
-  own element, 1-bit in `[lsb_first(1)]`; under Explicit VR Big Endian, OW data of Bits Allocated 8
-  or less, Overlay Data or Pixel Data, has no grid, since its words swap its bytes; the palette's
+  own element, 1-bit in `[lsb_first(1)]`, or no grid under Explicit VR Big Endian, whose OW words
+  swap its bytes (such Pixel Data is refused today, and stays so); the palette's
   three LUT data elements, each keyed by its own element, and the LUT Data (0028,3006) of the
   Modality and VOI LUT Sequences, keyed as rule 2 says, each described by its VR as stored: OW or US
   gives length / 2 items of 16 bits, OB length items of 8; how its entries sit in those items (8-bit
   entries one or two to a word) is the profile's to read from its descriptor, a declaration where
-  present; and an icon's Pixel Data, keyed by the Icon Image Sequence element as rule 2 says, its
-  frame a run member where the items fold.
+  present; and an icon's Pixel Data, keyed as rule 2 says (the Icon Image Sequence element, where
+  that is in no run), its frame a run member where the items fold.
 - **Shape.** `[N, Rows, Cols, S]`, or `[N, S, Rows, Cols]` for planar native and RLE data, N only
   where Number of Frames is given (kept when 1) and S only above 1, one unit a frame; `item_bits`
   Bits Allocated, or what the codec makes; fill `undefined` (Pixel Padding Value is a declaration).
@@ -592,9 +601,10 @@ Medium-large.
 - **Declarations.** The directory entry and dimensions; a part file's master entry, which no
   element of the part's IR holds, as an extent of the master's object.
 - **Grafts.** `czi_set` is the first graft of many descriptions (about 10^5 in a large slide).
-- **Checker.** czifile's subblock directory and raw segment bytes; the decoding by the helper,
-  since czifile's `decode` swaps BGR to RGB, sets alpha and converts JPEG's colors, and does not
-  decode lossless JPEG (compression 3).
+- **Checker.** czifile's subblock directory and raw segment bytes, and its decoded data for
+  uncompressed, LZW, Zstd and JPEG XR subblocks, with its swap of BGR to RGB undone and alpha left
+  out of the comparison (it sets alpha to 255); JPEG and lossless JPEG, which it decodes with
+  colors converted or not at all, by the helper alone.
 
 ### ND2
 
@@ -603,8 +613,8 @@ Medium.
   loops' counts, as the parser reads it (no N axis where there are no loops, no C axis for one
   component); `item_bits` is `uiBpcInMemory`; fill `undefined`. Frames at or past N, which the
   loops do not place and which have no `pixels` element, are no array the source declares: their
-  `frames/<f>/data` elements stay, and ND2's document lists them as declarations of the array, for
-  a profile to read.
+  `frames/<f>/data` elements stay in the IR outside every description, and ND2's document says
+  so.
 - **Units.** Each frame's `pixels` element, a run member, whose `rows` recipe already drops the
   padding; chain `[zlib]` where compressed.
 - **Checker.** nd2's attributes, frame offsets and `read_frame`.
@@ -613,9 +623,12 @@ Medium.
 
 Medium.
 - **Arrays.** One per image, keyed by the IR element that holds the XML text (`header/xml`;
-  `description/xml` for LOF; `xml` in XLEF), its index the array's position among the arrays that
-  text declares: shape the dimensions' NumberOfElements, slowest
-  first (`axes` where the strides order them otherwise), with the channels as an axis; `item_bits`
+  `description/xml` for LOF), its index the array's position among the arrays that text declares.
+  In an XLEF project, every image lives in a LOF whose IR is grafted in, so its array is that LOF's
+  description, renumbered on graft; the project's `xml` documents are declarations, not keys.
+  Shape the dimensions' NumberOfElements, slowest first (`axes` where the strides order them
+  otherwise), with the channels as an axis (absent for one channel) at position n of the source's
+  list, as rule 9 says; `item_bits`
   the channels' Resolution rounded up to 8, 16, 32 or 64, the Resolution a declaration; fill
   `undefined`. An image whose channels differ in size or resolution is one array per channel. The
   declaration is that element; a character range inside its UTF-16 text is not given.

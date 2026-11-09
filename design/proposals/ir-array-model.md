@@ -435,8 +435,8 @@ size.
 makes its rows run in one direction (undoing alternate rows) and does not transpose: where the mode
 says consecutive points run along columns, that is the array's storage order (shape `[Ni, Nj]`),
 and `axes` `[1, 0]` mark the rows-first case instead, since section 3 lists Ni first
-([ir-format-descriptions.md](ir-format-descriptions.md#codecs)). The grid's axes are the field's rows and columns as section 3
-lists them, or its points for a reduced grid. Which way they point on the earth is the profile's.
+([ir-format-descriptions.md](ir-format-descriptions.md#codecs)). The grid's axes are the array's storage axes (`[Nj, Ni]`,
+or `[Ni, Nj]` columns first), or its points for a reduced grid. Which way they point on the earth is the profile's.
 
 Units may differ from their array in three ways, each a column:
 - **`chain`:** a unit encoded another way. A FITS image quantizes and compresses its tiles
