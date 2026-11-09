@@ -220,7 +220,9 @@ pub enum Place {
 
 /// the source's fill value
 pub enum Fill {
-    /// the source defines none (HDF5's "undefined")
+    /// the source defines none (HDF5's "undefined"), or defines one the IR cannot express, whose
+    /// place is then among `declarations` (the general fallback); a profile tells the two apart
+    /// through the format's list of declaration places
     Undefined,
     /// the source says its format's default (HDF5's "default", which the HDF5 specification
     /// defines as zero bytes)
@@ -289,7 +291,9 @@ Further rules for the map:
 - Exactly one of `element` and `ranges` is set in each row.
 - Null is the only way to write chain 0 and "skips nothing".
 - A rank-0 array has at most one row.
-- The map's entries have their own limit (below). Arrays are fitted in `Ir::arrays` order: one
+- The map's entries have their own limit (below). `Ir::arrays` is sorted by `(element, index)`
+  when the parser describes its arrays, whatever order it walked the source in, and a graft keeps
+  that order, appending a file's arrays with ascending new ids. Arrays are fitted in that order: one
   whose rows would take the map past it falls back to no grid (the general fallback), with no
   chains, no unit parameters and none of its rows, and later arrays are still tried. Which arrays
   fall back follows, in a file IR, from the source alone, and in a store from its files in graft
@@ -544,9 +548,9 @@ share, and the map. They are not in the facts. So:
   A unit can cost a single byte of the source: the HDF5 spike's (below) 4 MB file of 2000 × 2000
   one-byte chunks under an implicit index parses today, and refkv's parser bounds a chunk count
   only at 2^53 − 1 (HDF5's own bound is 2^64). Where no two units share bytes or index entries,
-  every unit has at least one byte of its own or an index entry of several, so a map fits at rank
-  3 or less where an element holds each unit (whole, or a range of it), and at rank 2 or less where
-  `ranges` do. Past that, or where structures share them (two HDF5 headers on one chunk index, TIFF
+  every unit has at least one byte of its own or an index entry of several, so a map fits where
+  each row's rank plus the parameter values it sets is at most 3 for units an element holds (whole,
+  or a range of it), and at most 2 for units `ranges` hold. Past that, or where structures share them (two HDF5 headers on one chunk index, TIFF
   IFDs sharing a StripOffsets array), the arrays that do not fit fall back to no grid. The bound
   counts bytes of the source, so it covers units in space 0 and `ranges`: a unit in a derived
   space (a `.fits.gz` heap's tile) can cost far less than a byte of the source, and its array can
@@ -601,9 +605,10 @@ be read as a source.
   renumbered, join the store's table: one equal to a chain already there takes its position, and
   the rest are appended in order of first use. The store's earlier chains and positions do not
   change, and a chain no remaining description names is not carried;
-- last, the descriptions' limit is checked. A graft never fails on the map's limit. As today it
-  fails, adding nothing, on the IR's room, and now also on the descriptions' limit; the checks run
-  in the store's `check::finish`.
+- last, inside `Ir::graft` and before anything is added, the descriptions' limit is checked, as
+  the IR's room is today. A graft never fails on the map's limit; on the room or the descriptions'
+  limit it fails, adding nothing. The store's `check::finish` later runs only `StoredArray::check`
+  and the map's check.
 
 `placed()` does the same renumbering for HDF5's store facts today.
 
