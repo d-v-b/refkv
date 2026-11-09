@@ -116,7 +116,9 @@ pub enum Place {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#24-the-fill-value>).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Fill {
-    /// the source defines none
+    /// the source defines none, or defines one the IR cannot express, whose place is then among
+    /// the description's `declarations` (the general fallback): a profile tells the two apart
+    /// through the format's list of declaration places
     Undefined,
     /// the source says its format's default
     FormatDefault,
@@ -944,6 +946,28 @@ impl Stored {
         let set: usize = self.map.params.values().map(|c| (0..c.len()).filter(|&k| c.get(k).is_some()).count()).sum();
         let r = self.map.len() + self.map.coords.len() + self.map.range_offset.len() + set;
         (d, r as u64)
+    }
+
+    /// The descriptions in `(element, index)` order, the rows' `array` renumbered with them, so
+    /// that which arrays fall back ([`Stored::fit_map`]) does not depend on the order a parser
+    /// walked its source.
+    pub fn sort_arrays(&mut self) {
+        let mut order: Vec<usize> = (0..self.arrays.len()).collect();
+        order.sort_by_key(|&k| (self.arrays[k].element, self.arrays[k].index));
+        if order.iter().enumerate().all(|(k, &o)| k == o) {
+            return;
+        }
+        let mut at = vec![0u32; order.len()];
+        for (new, &old) in order.iter().enumerate() {
+            at[old] = new as u32;
+        }
+        let mut arrays: Vec<Option<StoredArray>> = std::mem::take(&mut self.arrays).into_iter().map(Some).collect();
+        self.arrays = order.iter().map(|&k| arrays[k].take().unwrap()).collect();
+        for a in self.map.array.iter_mut() {
+            if let Some(&n) = at.get(*a as usize) {
+                *a = n;
+            }
+        }
     }
 
     /// The chains no description names dropped from the table, and the others renumbered (after
@@ -1996,6 +2020,31 @@ mod tests {
         assert_eq!((s.arrays[0].grid.is_some(), s.arrays[1].grid.is_none()), (true, true));
         assert_eq!(s.map.array, [0, 0, 0, 0]);
         crate::check::finish(&mut store).unwrap();
+    }
+
+    /// Describe sorts the arrays by `(element, index)`, their rows following them; a graft keeps
+    /// that order, as it appends a file's arrays with ascending new ids after the store's.
+    #[test]
+    fn the_arrays_are_in_element_and_index_order() {
+        let (mut arrays, mut map) = two_arrays();
+        arrays.reverse();
+        // the second array's rows to element 1, the first's to element 4, to follow them
+        for k in 0..map.len() {
+            map.element[k] = Some(if map.array[k] == 0 { 1 } else { 4 });
+            map.range[k] = None;
+        }
+        let mut file = file_ir();
+        file.describe(arrays, vec![vec![]], map).unwrap();
+        let s = &file.stored;
+        assert_eq!(s.arrays.iter().map(|a| a.element).collect::<Vec<_>>(), [1, 2]);
+        assert_eq!(s.map.array, [0, 0, 0, 0, 1, 1, 1, 1]);
+        assert_eq!(s.map.element[..4], [Some(4); 4]);
+        let mut store = Ir::new_store();
+        let o = store.listing(&[("f.bin".into(), 100), ("g.bin".into(), 100)]).unwrap();
+        store.graft(&file, o[0]).unwrap();
+        store.graft(&file, o[1]).unwrap();
+        let keys: Vec<(u32, Option<u64>)> = store.stored.arrays.iter().map(|a| (a.element, a.index)).collect();
+        assert!(keys.windows(2).all(|w| w[0] < w[1]), "{keys:?}");
     }
 
     /// A graft appends the chains new to the store's table in the order the file's remaining

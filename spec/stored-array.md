@@ -66,12 +66,12 @@ array's alone, and on each element either no description has an index or every o
 n − 1. Within a run, the id is what is computed on; the JSON form also gives the element's path
 ([§2.5](#25-the-json-form)).
 
-Each format's document says how a profile finds, from the facts its parser gives, the key of each
-array's description: the declaring element's id, and the index where the format's kind of element
-carries one. A profile so matches what its facts say of an array to the array's description,
-presented or not. A graft does not touch the facts: a format whose files a store grafts renumbers
-the ids its facts give in its store code, as the HDF5 store's `placed()` renumbers its
-`store.element` ids. The declaring element is in no run's subtree ([§5.1](#51-each-description)),
+Each format's document, and [§7](#7-the-formats) for the formats this document covers, says how a
+profile finds, from the facts its parser gives, the key of each array's description: the
+declaring element's id, and the index where the format's kind of element carries one. A profile so
+matches what its facts say of an array to the array's description, presented or not. A graft does
+not touch the facts: a format whose files a store grafts renumbers the ids its facts give in its
+store code, as the HDF5 store's `placed()` renumbers its `store.element` ids. The declaring element is in no run's subtree ([§5.1](#51-each-description)),
 so its id names one element, which an unfold leaves where it is.
 
 ### 2.2 Places and parameters
@@ -126,7 +126,10 @@ parser knows. The profile reads the declaring structure for the rest, or leaves 
 
 `fill` is one of:
 
-- `undefined`: the source defines none (HDF5's "undefined", and a format that has no fill value);
+- `undefined`: the source defines none (HDF5's "undefined", and a format that has no fill value),
+  or defines one the IR cannot express, whose place is then among the description's
+  `declarations` (the general fallback); a profile tells the two apart through the format's list of
+  declaration places;
 - `format_default`: the source says its format's default (HDF5's "default", which the HDF5
   specification defines as zero bytes);
 - `given`: one decoded element's bytes, ceil(`item_bits` / 8) of them, as a parameter
@@ -191,9 +194,9 @@ A codec's name is one of this list. Each entry gives:
   block layout, not an LZ4 frame; LZF has no header; `zlib` is RFC 1950, with its header and
   Adler-32, not raw deflate). A name never covers two framings, unless a parameter of its entry
   chooses between them (HDF5's bitshuffle filter, whose compression parameter frames its blocks
-  with LZ4 or leaves them bare, would be one entry, `h5_bitshuffle`); otherwise an encoding the
-  sources frame two ways is two entries, and one HDF5 frames its own way has a name of its own,
-  prefixed `h5_` (`h5_lz4`, `h5_szip`);
+  with LZ4 or leaves them bare, would be one entry); otherwise an encoding the sources frame two
+  ways is two entries. An encoding HDF5 frames its own way is named with the prefix `h5_`
+  (`h5_lz4`, `h5_szip`, `h5_bitshuffle`);
 - its parameters, which of them a unit may give as a column and the column's Arrow type;
 - what its decoding makes;
 - for a parameter given as a place, how the parameter is made from those bytes.
@@ -355,14 +358,17 @@ once, plus four per byte of the source; a store's grows by 4 plus four per byte 
 the store lists, as its records do, and not when a file is grafted. Every unit in space 0 has at
 least one byte of its own
 (an HDF5 chunk of an implicit index may be a single byte), or an index entry of several, so where
-no two units share bytes or index entries, a map whose units are held by elements of space 0 (with
-or without a `range`) fits at rank 3 or less, and one whose units are in `ranges` fits at rank 2 or
-less. A unit in a derived space can cost far less than a byte of the source, and has no such
-guarantee; nor has a source whose structures share bytes or index entries (two HDF5 object headers
-on one chunk index, TIFF IFDs sharing a StripOffsets array).
+no two units share bytes or index entries, a map fits where each row's rank, plus the
+unit-parameter values it sets, is at most 3 for a unit held by an element of space 0 (with or
+without a `range`), or at most 2 for a unit in `ranges`. A unit in a derived space can cost far
+less than a byte of the source, and has no such guarantee; nor has a source whose structures share
+bytes or index entries (two HDF5 object headers on one chunk index, TIFF IFDs sharing a
+StripOffsets array).
 
 The chunk map's limit never rejects a run, and never cuts an array's rows short, which a profile
-would read as units the source does not hold. Arrays are tried in `Ir::arrays` order; one whose rows
+would read as units the source does not hold. Arrays are tried in `Ir::arrays` order, which
+describe sorts by `(element, index)` and a graft keeps (it appends a file's arrays with ascending
+new ids); one whose rows
 do not fit in what remains of the limit keeps none of them, and falls back: its description has no
 grid, no chains and no unit parameters, and the map no row of it. Later arrays are still tried, and
 the run goes on. In a file IR, which arrays fall back follows from the source alone; in a store,

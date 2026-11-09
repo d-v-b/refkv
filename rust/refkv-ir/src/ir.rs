@@ -218,8 +218,9 @@ pub struct Budget {
     pub spent_elements: u64,
     pub spent_read: u64,
     pub spent_reads: u64,
-    /// the entries of stored arrays' descriptions, and of the chunk map (rows, coordinates and
-    /// ranges), apart from the IR's room (`array::Stored::weights`; spec/stored-array.md §6
+    /// the entries of stored arrays' descriptions, and of the chunk map (each row, coordinate,
+    /// `ranges` item and set unit-parameter value; a row's `range` is none), apart from the IR's
+    /// room (`array::Stored::weights`; spec/stored-array.md §6
     /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>)
     pub descriptions: u64,
     pub rows: u64,
@@ -379,7 +380,8 @@ impl Ir {
     /// An object of `size` bytes under `parent` (the root or a directory) of a store IR: its
     /// extent is `(0, size)` of its own source. The budgets grow with it: the records, elements
     /// and stored-array descriptions by 4, and one per 4 of its bytes; the chunk map by 4, and
-    /// four entries per byte.
+    /// four entries per byte; the bytes read by two per byte; and the reads by 1, and one per 64
+    /// bytes.
     pub fn object(&mut self, parent: u32, name: &str, nidx: u64, size: u64) -> Res<u32> {
         if !self.store {
             return Err("an object in a file IR".into());
@@ -686,7 +688,10 @@ impl Ir {
             return Err("internal: the IR's arrays described twice".into());
         }
         let mut stored = crate::array::Stored { arrays, chains, map, ..Default::default() };
-        // the map's limit never rejects: an array whose rows would pass it falls back
+        // the arrays in (element, index) order, so that which fall back follows from the source
+        // alone; then the map's limit, which never rejects: an array whose rows would pass it
+        // falls back
+        stored.sort_arrays();
         let room = self.budget.as_ref().map_or(u64::MAX, |b| b.rows.saturating_sub(b.spent_rows));
         let r = stored.fit_map(room);
         stored.drop_unnamed_chains();
