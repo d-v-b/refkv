@@ -71,7 +71,9 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    offset in the target), where they lie inside it; where they do not, the nearest element whose
    extent encloses them, with a `range` (and `member` where needed), which works in a derived space
    too; `ranges` of the object that holds them where no element does, or where the bytes lie in more
-   than one span (a DICOM frame of several fragments), even inside an element. No unit is named
+   than one span (a DICOM frame of several fragments), even inside an element. In a derived space,
+   which `ranges` cannot address, a unit whose bytes no single element encloses in one span cannot
+   be named, and its array has no grid. No unit is named
    through a recipe that joins bytes the source does not hold together (rule 1).
 4. **No typing.** `item_bits` is the element's size as the source stores it, or as the chain's
    first codec (decoded last) makes it ([§Step 0](#step-0-the-shared-rules)). Data type names,
@@ -226,24 +228,29 @@ apart. Values the stream codes elsewhere (GRIB's bitmap, in section 6) are not f
 
 A decoder that does otherwise makes other bytes. The array's `item_bits` is the samples' size, and
 the precision the source declares (BitsPerSample 12) is a declaration. A profile converts colors
-from the declarations (TIFF's Photometric) when it presents them; where the format declares no
-color space (CZI's and VSI's JPEG tiles), the parser names the array's first unit's JFIF and Adobe
-segments (one, both, or none) as declarations, ranges of that unit, which are what the profile
-reads. An array of more than one unit (VSI's) also gives its `jpeg` those places as `jfif` and
-`adobe` (each absent where the first unit has none) with `check_markers` true, so that a later unit
-whose segments differ fails to decode rather than showing other colors; a CZI subblock, one unit,
-needs no such check, and its chain stays shared by every subblock of its encoding. In the same way,
-where an image codec's stream itself says its samples' sign (JPEG 2000's SIZ), the parser names the
-first unit's such header as a declaration, beside the format's own (TIFF's SampleFormat, DICOM's
-Pixel Representation), so that a profile sees where they disagree.
+from the declarations (TIFF's Photometric) when it presents them; where the format declares no color
+space (CZI's and VSI's JPEG tiles), the parser names the array's first unit's JFIF and Adobe
+segments (one, both, or none) and its frame header (SOF), whose component ids say RGB or YCbCr where
+no marker does, as declarations, ranges of that unit, which are what the profile reads. An array of
+more than one unit (VSI's) also gives its `jpeg` those places as `jfif` and `adobe` (each absent
+where the first unit has none) and its SOF's component ids as `components`, with `check_markers`
+true, so that a later unit whose segments or component ids differ fails to decode rather than
+showing other colors; a CZI subblock, one unit, needs no such check, and its chain stays shared by
+every subblock of its encoding. In the same way, where an image codec's stream itself says its
+samples' sign (JPEG 2000's SIZ), the parser names the first unit's such header as a declaration,
+beside the format's own (TIFF's SampleFormat, DICOM's Pixel Representation), so that a profile sees
+where they disagree.
 
 An image codec decodes its frame at the unit's shape. The format sets its grid so that the unit's
 shape is the frame's: a TIFF whose last JPEG strip holds a frame of the full RowsPerStrip has the
 edge `full`, which the parser learns by reading that strip's SOF, the other strips following the
 tags; a frame that differs from them is caught by the checker, not the parser. A frame matches the
-unit where its blocks (a JPEG's MCU rows and columns) are the ones the unit's shape needs, whatever
-size its header declares, more or less (NDPI's frame a row short, the parser's `Frame::covers`);
-decoding is always at the unit's shape, and reads the rows its data holds.
+unit where its blocks (a JPEG's MCU rows and columns) are the ones the unit's shape needs and its
+header declares as many rows and columns as the unit or fewer (NDPI's frame a row short), decoding
+at the unit's shape reading the rows its data holds. A frame that declares more than its unit would
+be cropped, so it is a decoding error; a parser that reads the frame's size (NDPI, TIFF's last
+strip, VSI's first tile, CZI) takes the frame's size for the unit where it is the larger, the
+format's own size then a declaration, as CZI does.
 
 ### `lsb_first`
 
@@ -264,20 +271,21 @@ Step 0 adds to `array.rs` one function that names a unit's bytes, or any place a
 declaration, a codec parameter, a fill), in the finished IR as rule 3 says (a run member's element
 with `member`; an alias's target, alone or with a moved `range`; the nearest enclosing element with
 a `range`; `ranges` where no element encloses the bytes or they lie in more than one span; or none
-inside a derived space where no element encloses them), with its tests, so that no format writes it.
-`Ir::fold` frees a folded member's ids during parsing, so a parser records a unit in a run as (run
-root, j, member 0's element) when its fold succeeds, never the id its emitter returned.
-`check::finish` records each run it unfolds (the run's root, the first id of its copies, and the
-member's size), which the IR does not keep today, so that the function finds member j's copy of an
-element a parser cached as (root, j, element); a test has finish unfold a run that a description
-names. An alias the parser made itself (`Ir::alias`, which has no extent of its own) is named by its
-target's elements. Where it stands for part of an array's storage (a TIFF IFD's strips shared with
-another IFD's), the array it belongs to is still an array, whose rows name the target's units. Where
-it stands for a whole declaring structure (a pointer IFD that repeats another, a CZI subblock a
-second directory entry names), there is one array, the target's, and the bytes only the duplicate
-has are a declaration of it: for TIFF, the pointer-tag entry in the parent IFD that led to it again
-(SubIFDs, Exif, GPS, Interoperability, GlobalParameters or a private tag of IFD type), since both
-names lead to one IFD; for CZI, the second `directory/entries/<i>`.
+inside a derived space where no element encloses them in one span, the array then having no grid),
+with its tests, so that no format writes it. `Ir::fold` frees a folded member's ids during parsing,
+so a parser records a unit in a run as (run root, j, member 0's element) when its fold succeeds,
+never the id its emitter returned. `check::finish` records each run it unfolds (the run's root, the
+first id of its copies, and the member's size), which the IR does not keep today, so that the
+function finds member j's copy of an element a parser cached as (root, j, element); a test has
+finish unfold a run that a description names. An alias the parser made itself (`Ir::alias`, which
+has no extent of its own) is named by its target's elements. Where it stands for part of an array's
+storage (a TIFF IFD's strips shared with another IFD's), the array it belongs to is still an array,
+whose rows name the target's units. Where it stands for a whole declaring structure (a pointer IFD
+that repeats another, a CZI subblock a second directory entry names), there is one array, the
+target's, and the bytes only the duplicate has are a declaration of it: for TIFF, the pointer-tag
+entry in the parent IFD that led to it again (SubIFDs, Exif, GPS, Interoperability, GlobalParameters
+or a private tag of IFD type), since both names lead to one IFD; for CZI, the second
+`directory/entries/<i>`.
 
 ### The test helper
 
@@ -344,11 +352,13 @@ as a place, its bytes being the format's to read.
 An array whose description would pass the descriptions' limit falls back as one does at the map's
 limit: it loses its chains, unit parameters and grid, keeping the rest (its key, shape, `axes`,
 `item_bits`, `pad_from`, fill and declarations), and later arrays are still tried; only a
-description that cannot fit even so refuses the run, which a graft does the same way. Arrays are
-tried in `Ir::arrays` order, after the map's fit: an array that fell back at the map's limit is not
-tried again; an array's cost is its own entries and those of the chains it is the first remaining
-description to name; a fallen-back array's rows, columns and chains are dropped and the chain table
-pruned again, so a later array that names a chain it shared pays for it. So a source
+description that cannot fit even so refuses the run, which a graft does the same way. It takes two
+passes, after the map's fit. First every array is charged its fallen-back cost, and only where that
+total passes the limit is the run refused. Then, in `Ir::arrays` order, each array keeps its full
+description (its chains, unit parameters and grid, and the chains it is the first remaining
+description to name) while the remainder allows, and falls back otherwise; an array that fell back
+at the map's limit stays fallen back; a fallen-back array's rows, columns and chains are dropped and
+the chain table pruned again, so a later array that names a chain it shared pays for it. So a source
 such as a GRIB file of many small fields over a shared section 3 is not refused for its
 descriptions; one whose fallen-back descriptions still pass the limit (HDF5 headers sharing rank-32
 dataspaces) still is, and rule 8's PRs name the arrays that fall back.
@@ -404,7 +414,7 @@ bytes (JPEG XL's codestream and container); step 0 adds that to
 
 | Codec | Takes | Parameters | Used by |
 | --- | --- | --- | --- |
-| `jpeg` | an ISO 10918-1 stream, any process | `tables` (optional; an abbreviated table stream, TIFF's tag 347): `place`; `jfif`, `adobe` (optional; the first unit's JFIF and Adobe segments, where it has them; VSI): `place`; `check_markers` (optional, false; every unit's JFIF and Adobe segments must then equal those two, or be absent where they are): `bool`; `header` (optional; the stream up to its first scan, the unit being one restart interval's entropy-coded segment, its RSTn marker excluded, decoded as after a restart; NDPI): `place` | TIFF, NDPI, VSI, DICOM, CZI |
+| `jpeg` | an ISO 10918-1 stream, any process | `tables` (optional; an abbreviated table stream, TIFF's tag 347): `place`; `jfif`, `adobe` (optional; the first unit's JFIF and Adobe segments, where it has them; VSI): `place`; `components` (optional; the first unit's SOF component ids; VSI): `int[]`, `place`; `check_markers` (optional, false; every unit's JFIF and Adobe segments and component ids must then equal those, or be absent where they are): `bool`; `header` (optional; the stream up to its first scan, the unit being one restart interval's entropy-coded segment, its RSTn marker excluded, decoded as after a restart; NDPI): `place` | TIFF, NDPI, VSI, DICOM, CZI |
 | `jpegls` | an ISO 14495-1 stream | | DICOM |
 | `jpeg2k` | an ISO 15444-1 codestream (15444-15's high throughput included), not a JP2 file | `main_header` (optional; the unit is then one tile's tile-parts, with their SOT): `place` | TIFF, VSI, DICOM, SAFE |
 | `jpegxr` | a JPEG XR file in its T.832 container (starting `II BC 01`); decoding makes the samples in its pixel format's order | | NDPI, CZI |

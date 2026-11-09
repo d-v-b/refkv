@@ -45,7 +45,7 @@ Interpreting it is left to the profile. A typed vocabulary in the IR (data type 
 layouts, enumerations) would be translation work, which belongs to profiles, and every name in it
 would be a chance to bend the source toward an output.
 
-**Two places hold output decisions today.** Each goes when its format adopts the description; the
+**Three places hold output decisions today.** Each goes when its format adopts the description; the
 mirror's forms may change with them:
 - **TIFF and VSI-TIFF's JPEG prefix.** An Adobe marker, and the JPEGTables without their SOI and
   EOI, sit in the IR's shared data, and recipes splice them into units (`["shared", k]`,
@@ -60,6 +60,11 @@ mirror's forms may change with them:
   several tiles. The heap becomes one element, each tile a chunk map row naming its range within
   that element, and the projection makes the same cut, so neither the output nor the IR's element
   count grows.
+- **ND2's `rows` recipe.** A padded frame's `pixels` element joins its rows, dropping the padding
+  between them ([rust/refkv-ir/src/nd2.rs](../../rust/refkv-ir/src/nd2.rs)), bytes the source does
+  not hold together; its description names each row as a range instead
+  ([ir-format-descriptions.md](ir-format-descriptions.md#nd2)), and its plan PR moves the join to
+  the projection.
 
 ## The gap
 
@@ -709,7 +714,7 @@ one array is stored. This changes two things in profile-plugins:
      refkv's. It also stops listing an array's units once they alone pass the map's limit, which the
      parser knows from the source's size before it reads, and lets that array fall back: the
      spike's parser built 1.76 GB of chunks before its map was refused.
-   - TIFF's plan PR replaces the JPEG prefix.
+   - TIFF's plan PR replaces the JPEG prefix, and ND2's moves its `rows` recipe to the projection.
    - FITS's describe-only PR records each tile's chain; its plan PR moves `tile_cut` to the
      projection.
    - GRIB's describe-only PR describes a field with a bitmap as its coded values, leaving their
