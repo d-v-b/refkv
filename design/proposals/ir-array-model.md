@@ -561,8 +561,10 @@ share, and the map. They are not in the facts. So:
 - **They count against limits** of their own, in new `Budget` fields, never against the IR's
   room (`records` and `elements`), with entries as `spec/stored-array.md` defines them:
   - the descriptions, at 2^22 entries once, plus 4 and one per 4 bytes for each object (in a file
-    IR, the source). No source is promised to fit: a rank-32 HDF5 dataset whose header shares its
-    messages can pass it, and is refused;
+    IR, the source). An array that would pass it falls back as at the map's limit
+    ([ir-format-descriptions.md](ir-format-descriptions.md#the-descriptions-limit-falls-back-too)),
+    but no source is promised to fit: a rank-32 HDF5 dataset whose header shares its messages can
+    pass it even so, and is refused;
   - the chunk map, at 2^22 entries once, plus 4 and four per byte for each object. Each row,
     each of its coordinates, each item of its `ranges` and each parameter value it sets is an
     entry; a row's `range` is part of the row.
@@ -583,7 +585,8 @@ share, and the map. They are not in the facts. So:
   210 MB at the 2^22 floor, plus about 76 bytes per row while Python holds an export. A parameter
   column also has a null slot on every row that does not set it, about 16 bytes a row per column;
   the list allows only a few such columns (FITS's ZSCALE, ZZERO and dither seed among them). The
-  descriptions' limit still refuses; no corpus file comes near it. `memory()` includes both.
+  descriptions' limit still refuses what cannot fit after falling back; no corpus file comes near
+it. `memory()` includes both.
   `digest()` covers the descriptions and each row's values, not the Arrow layout: the columns in a fixed order (the named ones, then the parameter
   columns by name) and a dictionary's keys as their strings.
 - **The facts' `arrays` key stays** as NumPy, safetensors and IMS use it today, until each format's
@@ -630,8 +633,9 @@ be read as a source.
   the rest are appended in order of first use. The store's earlier chains and positions do not
   change, and a chain no remaining description names is not carried;
 - last, inside `Ir::graft` and before anything is added, the descriptions' limit is checked, as
-  the IR's room is today. A graft never fails on the map's limit; on the room or the descriptions'
-  limit it fails, adding nothing. The store's `check::finish` later runs only `StoredArray::check`
+  the IR's room is today, the file's arrays falling back as they do at describe. A graft never fails
+  on the map's limit; on the room, or the descriptions' limit after falling back, it fails, adding
+  nothing. The store's `check::finish` later runs only `StoredArray::check`
   and the map's check.
 
 `placed()` does the same renumbering for HDF5's store facts today.
@@ -685,8 +689,7 @@ one array is stored. This changes two things in profile-plugins:
      until the format's plan replaces them;
    - compares its outputs before and after, byte for byte, and keeps them unchanged apart from
      what profile-plugins' own step changes (sizing decisions by the largest source index) and any
-     crafted source the descriptions' limit refuses and any array that falls back at the map's
-     limit (none in the corpus), which it names; the
+     array that falls back at the map's or the descriptions' limit (none in the corpus), which it names; the
      mirror's forms may change, and each PR names those changes.
 
    Some format PRs carry extra work:

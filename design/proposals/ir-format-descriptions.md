@@ -56,9 +56,9 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    `declared_by` does. A format whose IRs are grafted renumbers it in its store code. Where the
    facts do not record the declaring element (HDF5's `objects/<i>`, GRIB's `messages/<i>`), the PR
    adds it. A key is never in a run's subtree: an array declared inside a
-   sequence of items (DICOM's icons, CZI's walked segments) is keyed by the items' nearest ancestor
-   outside any run, its index the array's position among the arrays that ancestor declares, in the
-   source's order, whether or not the items fold.
+   sequence of items (DICOM's icons, CZI's walked segments) is keyed by the sequence's own element,
+   the items' parent, its index the array's position among the arrays that sequence declares, in
+   the source's order, whether or not the items fold.
 3. **Descriptions are built on the finished IR.** `check::finish` may make an element an alias or
    unfold a run, so a parser that cached element ids while parsing finds them again after finish.
    A row names the unit's bytes as finish leaves them: a run member's element with `member`; and
@@ -140,9 +140,10 @@ stream codes more than one component (or, for `webp`, where the samples axis has
 alpha the stream may leave out); leading axes of 1 (a frame's, a level's) are not the frame's.
 Decoding a unit whose stream does not match its codec's entry or the unit's shape (a paletted PNG
 under `png`, a frame whose blocks do not cover the unit's shape, another number of components than
-the samples axis, samples of another size than `item_bits`, a set of JFIF and Adobe segments other
-than the one `jpeg`'s `markers` names) is an error, never a different result, so that a file the
-parser sampled only in part cannot be decoded silently into other bytes.
+the samples axis, samples of another size than `item_bits`, under `jpeg`'s `check_markers` a JFIF or
+Adobe segment other than its `jfif` or `adobe` names, or one where it names none) is an error, never
+a different result, so that a file the parser sampled only in part cannot be decoded silently into
+other bytes.
 
 [§3.1](../../spec/stored-array.md#31-chains)'s sentence "a codec sees only a unit's bytes and
 parameters, never its coordinates, so a parameter that depends on the unit's position is a column
@@ -175,7 +176,8 @@ the IR holds no default the source does not write
 A codec that makes elements rather than restoring stored bytes (the image codecs, GRIB's unpacking,
 DICOM's RLE) states them in its entry. The image codecs make the samples their stream declares,
 little-endian: an integer stream's in the smallest of 8, 16 or 32 bits that holds its precision (a
-precision above 32 bits, which JPEG 2000 allows, gives the array no grid), a float stream's at its
+precision above 32 bits, which JPEG 2000 allows, gives the array no grid; a signed stream's samples
+two's complement, sign-extended into the container), a float stream's at its
 own width; interleaved, the components on the last axis, in their coded order, whatever the stream's
 or the format's planar setting; with every component at full resolution. A transform that is part of
 the codec's coding is undone (JPEG 2000's multiple component transform, JPEG-LS's color transform,
@@ -224,10 +226,13 @@ the precision the source declares (BitsPerSample 12) is a declaration. A profile
 from the declarations (TIFF's Photometric) when it presents them; where the format declares no
 color space (CZI's and VSI's JPEG tiles), the parser names the array's first unit's JFIF and Adobe
 segments (one, both, or none) as declarations, ranges of that unit, which are what the profile
-reads. An array of more than one unit (VSI's) also gives its `jpeg` those places as `markers`, an
-empty list where there are none, so that a later unit whose segments differ fails to decode rather
-than showing other colors; a CZI subblock, one unit, needs no such check, and its chain stays shared
-by every subblock of its encoding.
+reads. An array of more than one unit (VSI's) also gives its `jpeg` those places as `jfif` and
+`adobe` (each absent where the first unit has none) with `check_markers` true, so that a later unit
+whose segments differ fails to decode rather than showing other colors; a CZI subblock, one unit,
+needs no such check, and its chain stays shared by every subblock of its encoding. In the same way,
+where an image codec's stream itself says its samples' sign (JPEG 2000's SIZ), the parser names the
+first unit's such header as a declaration, beside the format's own (TIFF's SampleFormat, DICOM's
+Pixel Representation), so that a profile sees where they disagree.
 
 An image codec decodes its frame at the unit's shape. The format sets its grid so that the unit's
 shape is the frame's: a TIFF whose last JPEG strip holds a frame of the full RowsPerStrip has the
@@ -283,7 +288,8 @@ decoding; each format PR adds, in its own module, the codecs only it uses, and e
 file. How the helper decodes where imagecodecs lacks a codec, in step 0's modules or a format's:
 - `png` of gray under 8 bits: imagecodecs' samples, which come scaled to 8 bits, divided back by
   255 / (2^b − 1);
-- `bmp` otherwise: imagecodecs, its R, G, B reversed to the stored B, G, R;
+- `bmp` otherwise: imagecodecs, its first three samples reversed to the stored B, G, R, alpha kept
+  last;
 - `jpegxr`: imagecodecs, which gives R, G, B (and A) for an RGB and a BGR pixel format alike, its
   first three samples reversed, alpha kept last, for a BGR or BGRA pixel format and kept for the
   others;
@@ -328,9 +334,10 @@ as a place, its bytes being the format's to read.
 
 An array whose description would pass the descriptions' limit falls back as one does at the map's
 limit: it loses its chains, unit parameters and grid, keeping its key, shape and declarations, and
-later arrays are still tried; only a description that cannot fit even so refuses the run. So a
-source that parses today, such as a GRIB file of many small fields over a shared section 3, is never
-refused for its descriptions, and rule 8's PRs name the arrays that fall back.
+later arrays are still tried; only a description that cannot fit even so refuses the run, which a
+graft does the same way. So a source such as a GRIB file of many small fields over a shared section
+3 is not refused for its descriptions; one whose fallen-back descriptions still pass the limit (HDF5
+headers sharing rank-32 dataspaces) still is, and rule 8's PRs name the arrays that fall back.
 
 ## Codecs
 
@@ -338,7 +345,7 @@ A name follows [§3.2](../../spec/stored-array.md#32-the-list): it states the by
 decoding takes, its framing included, and covers two framings only where a parameter chooses. This
 list supersedes the sketch in [ir-array-model.md](ir-array-model.md#codecs). Each parameter is given
 as `name: kinds`, where a kind is a value's JSON type (`int`, `str`, `bool`, `float`, `int[]`, or
-`any`), `place` or `place[]` (a list of places), or `column` with its Arrow type; a parameter is
+`any`), `place`, or `column` with its Arrow type; a parameter is
 required unless marked optional. Configuration the source gives once may be a value only where step
 0 allows one. A name also covers two framings where their standard tells them apart by their first
 bytes (JPEG XL's codestream and container); step 0 adds that to
@@ -383,7 +390,7 @@ bytes (JPEG XL's codestream and container); step 0 adds that to
 
 | Codec | Takes | Parameters | Used by |
 | --- | --- | --- | --- |
-| `jpeg` | an ISO 10918-1 stream, any process | `tables` (optional; an abbreviated table stream, TIFF's tag 347): `place`; `markers` (optional; the JFIF and Adobe segments the array's first unit has, possibly none, which every unit's must equal; VSI): `place[]`; `header` (optional; the stream up to its first scan, the unit being one restart interval's entropy-coded segment, its RSTn marker excluded, decoded as after a restart; NDPI): `place` | TIFF, NDPI, VSI, DICOM, CZI |
+| `jpeg` | an ISO 10918-1 stream, any process | `tables` (optional; an abbreviated table stream, TIFF's tag 347): `place`; `jfif`, `adobe` (optional; the first unit's JFIF and Adobe segments, where it has them; VSI): `place`; `check_markers` (optional, false; every unit's JFIF and Adobe segments must then equal those two, or be absent where they are): `bool`; `header` (optional; the stream up to its first scan, the unit being one restart interval's entropy-coded segment, its RSTn marker excluded, decoded as after a restart; NDPI): `place` | TIFF, NDPI, VSI, DICOM, CZI |
 | `jpegls` | an ISO 14495-1 stream | | DICOM |
 | `jpeg2k` | an ISO 15444-1 codestream (15444-15's high throughput included), not a JP2 file | `main_header` (optional; the unit is then one tile's tile-parts, with their SOT): `place` | TIFF, VSI, DICOM, SAFE |
 | `jpegxr` | a JPEG XR file in its T.832 container (starting `II BC 01`); decoding makes the samples in its pixel format's order | | NDPI, CZI |
@@ -579,7 +586,7 @@ Medium-large (about 500 lines).
 - **Unit.** The field's section 7 element, in `[grib_unpack]`, whose places are its own: each field
   has a chain of its own, about 13 description entries, within the descriptions' limit of one per
   four bytes for any field of 52 bytes or more; a smaller field repeated over a shared section 3
-  falls back by step 0's rule, never refusing the file.
+  falls back by step 0's rule rather than refusing the file.
 - **Fallbacks.** A field left out for its meaning is described fully. One whose packing or grid
   template refkv does not unpack has no grid, its elements' size unknown, its template's number
   among its declarations; one with a bitmap indicator 1–253 has no grid.
