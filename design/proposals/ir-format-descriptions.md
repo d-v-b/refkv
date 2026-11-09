@@ -19,9 +19,9 @@ spike described every HDF5 dataset without it
 ([ir-array-model.md](ir-array-model.md#order-of-work)). Landing them first tests every format's
 description against its reference reader before any plan reads it, and settles the codec list once.
 
-A describe-only PR changes no output. It changes the IR mirror's forms only where a declaration
-or unit needs a place the IR does not have (a gzipped header, [§Gzipped files](#gzipped-files)),
-and names each such change.
+A describe-only PR changes no output. It changes the IR mirror (its rows, forms and view) only where
+a declaration or unit needs a place the IR does not have (a gzipped header, [§Gzipped
+files](#gzipped-files)), and names each such change.
 
 ### In scope
 
@@ -90,9 +90,9 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    decoding does. One test per refusal and per fallback. Fixtures the corpus lacks are crafted in
    the fixture generators, where the reference library or the generator can write them.
 8. **No output change.** `just cli-identical` and the fixture comparison show no change but the
-   mirror forms the PR names, which only the change above allows; the PR names those, any fixture
-   whose array falls back at the map's limit, and any crafted source the descriptions' limit refuses
-   (none in the corpus).
+   mirror's rows, forms and view the PR names, which only the change above allows; the PR names
+   those, any fixture whose array falls back at the map's limit, and any crafted source the
+   descriptions' limit refuses (none in the corpus).
 9. **The spec's [§7](../../spec/stored-array.md#7-the-formats)** gets the format's paragraph, in
    NumPy's form: its arrays and keys, shape and axes, `item_bits`, grid and units, chains, fill,
    declarations, and fallbacks. The source's list of axes, against which
@@ -132,7 +132,8 @@ chunk's specification. These describe what the chain ends in. A codec other than
 first, whose decoding makes bytes of another width (FITS's Rice), has that width as a parameter of
 its own. A codec still never sees the unit's coordinates. An image codec's frame is the unit
 shape's last two axes, or the two before the last where the last is a samples axis, which it is
-exactly where the stream codes more than one component (or, for `webp`, where `alpha` adds one);
+exactly where the stream codes more than one component (or, for `webp`, where the samples axis
+has four, the fourth an alpha the stream may leave out);
 leading axes of 1 (a frame's, a level's) are not the frame's. Decoding a unit whose stream does
 not match its codec's entry or the unit's shape (a paletted PNG under `png`, a frame of another
 size, another number of components than the samples axis) is an error, never a different result,
@@ -186,9 +187,15 @@ since other decoders differ and the checks compare bytes:
   reads holds, so the codec fixes one order; a 32-bit BMP keeps its fourth sample where its alpha
   mask is set and drops the unused byte where it is not.
 
+A `source` array keeps its shape and `item_bits` as the source codes its elements; where no single
+`item_bits` or samples axis can be stated, it has no grid instead, as a TIFF of mixed
+BitsPerSample has none ([§2](../../spec/stored-array.md#2-the-description) allows `item_bits` to be
+absent only without a grid).
+
 A paletted PNG or BMP tile carries its palette (PNG's PLTE, BMP's color table) in its own bytes,
 where no place names it and tiles may differ, so its array's chain is `source` (the general
-fallback), unlike a TIFF's ColorMap, one place its description names.
+fallback), its elements the indices, one sample, unlike a TIFF's ColorMap, one place its
+description names.
 
 A codec's decoding may leave information its stream codes unexpressed only where the unit's bytes
 keep it, and its entry names what is left out: EER's sub-pixel positions, LERC's validity mask,
@@ -196,10 +203,10 @@ JPEG's chroma at its coded resolution. A profile that wants it decodes the unit 
 decoder.
 
 A JPEG 2000 codestream whose components are sampled differently is the exception: OpenJPEG takes
-it for sYCC and converts it to RGB, a color conversion with no option to leave it, so its array's
-chain is `source` (the general fallback), its units still rows. So is an image codestream whose
-components differ in precision or signedness (JPEG 2000's SIZ, JPEG XL's extra channels), since
-one array has one `item_bits`.
+it for sYCC and converts it to RGB, a color conversion with no option to leave it, and its
+components at their coded sizes make no one array, so its array has no grid. So does an image
+codestream whose components differ in precision or signedness (JPEG 2000's SIZ, JPEG XL's extra
+channels), since one array has one `item_bits`.
 
 A codec may give a stated value at a point its stream codes no value for (LERC's zero at a masked
 pixel, WebP's opaque alpha where the stream has none) only where the stream's own mask, flag or code
@@ -280,7 +287,9 @@ file. How the helper decodes where imagecodecs lacks a codec, in step 0's module
   and its client data written as HDF5 would;
 - `grib_unpack`: a message reassembled from section 5, the unit and the field's section 3 (a
   declaration), with sections 0, 1, 4, 6 (indicator 255, since a bitmapped field's array is its
-  coded values) and 8 made up for the reassembly, decoded by eccodes; PNG packing, on which eccodes
+  coded values) and 8 made up for the reassembly, decoded by eccodes, with its `missingValue` set
+  to section 5's primary substitute under missing-value management 1; management 2, whose two
+  substitutes eccodes merges, decoded in Python, as PNG packing is; PNG packing, on which eccodes
   aborts for 1, 2 and 4 bits, decoded in Python (`png_decode` of section 7, whose samples of b
   bits come scaled to 8 and are divided back by 255 / (2^b − 1), then the arithmetic of
   [conventions §12](../../spec/conventions.md#12-grib-messages));
@@ -355,7 +364,7 @@ container); step 0 adds that to [§3.2](../../spec/stored-array.md#32-the-list)'
 | `jpeg2k` | an ISO 15444-1 codestream (15444-15's high throughput included), not a JP2 file | `main_header` (optional; the unit is then one tile's tile-parts, with their SOT): `place` | TIFF, VSI, DICOM, SAFE |
 | `jpegxr` | a JPEG XR file in its T.832 container (starting `II BC 01`); decoding makes the samples in its pixel format's order | | NDPI, CZI |
 | `jpegxl` | an ISO 18181-1 codestream or its 18181-2 container, which their first bytes tell apart | | TIFF |
-| `webp` | a WebP file; decoding makes an alpha sample, opaque where the stream leaves it out, when `alpha` says the array has one | `alpha` (optional, false): `bool`, `place` (TIFF: SamplesPerPixel 4) | TIFF |
+| `webp` | a WebP file; decoding makes an alpha sample, opaque where the stream leaves it out, where the unit's samples axis has four | | TIFF |
 | `png` | a PNG file; gray of 1, 2 or 4 bits decodes to its stored values, not scaled to 8 (a paletted one is `source`) | | VSI |
 | `bmp` | a BMP file; decoding makes B, G, R as stored, top row first, and a 32-bit one its fourth sample only where its alpha mask is set (a paletted one is `source`) | | VSI |
 | `lerc` | a LERC2 blob | | TIFF, in `[lerc, zlib]` or `[lerc, zstd]` as LercParameters say |
@@ -460,8 +469,9 @@ Medium, after TIFF.
   `item_bits` the pixel type's sample size, or what the codec makes; S the header's `channels`.
   For PNG and BMP the parser reads the first tile's header (PNG's color type and bit depth, BMP's
   bit count and alpha mask), as TIFF reads its last JPEG strip's SOF, and gives the array `source`
-  where that tile is paletted or cannot make `channels` samples (a 32-bit BMP with no alpha mask
-  under four channels); the other tiles follow it, and one that differs is
+  where that tile is paletted (its elements then the indices, one sample, and no grid where
+  `channels` is not 1) or cannot make `channels` samples (a 32-bit BMP with no alpha mask under
+  four channels, no grid); the other tiles follow it, and one that differs is
   caught by the checker.
 - **Fill.** Given, as a place in the `ets` header, when the background's samples are equal and the
   tiles are raw; otherwise `undefined`, with the header among the declarations.
@@ -476,11 +486,12 @@ Large (about 2,500 lines), from the spike's branch, about 70% of which carries o
 - **Arrays.** Every visited object with a layout message, keyed by its `objects/<i>` struct, and
   each attribute, keyed by its own attribute message's element: one unit, its value's element, in an
   empty chain. A chunked dataset's grid is `Each(chunk)` under `full`, one row per index entry, its
-  chain the filter pipeline; a chunk's `skips` are the mask the parser's `chunks()` returns, which
-  is the chunk's own filter mask, with every filter's bit set for a partial edge chunk where the
-  layout message's don't-filter-partial-chunks flag is set (`raw_edges`, since HDF5 records that
-  in the layout and not in the chunk's mask); the PR adds a crafted fixture written under
-  `H5Pset_chunk_opts` through ctypes. A compact or contiguous dataset is one unit.
+  chain the filter pipeline; a chunk's `skips` are the low n bits (n the pipeline's filter count) of
+  the mask the parser's `chunks()` returns, which is the chunk's own filter mask, with every
+  filter's bit set for a partial edge chunk where the layout message's don't-filter-partial-chunks
+  flag is set (`raw_edges`, since HDF5 records that in the layout and not in the chunk's mask); the
+  PR adds a crafted fixture written under `H5Pset_chunk_opts` through ctypes. A compact or
+  contiguous dataset is one unit.
 - **Spike rework.** `shape: None` for the null dataspace; the codec names above; `source` with the
   filter's name; filter configuration as places in the filter message's client data, which HDF5's
   document says how to read; the spike's second filter parser folded into `parse_filters`; an
@@ -544,8 +555,8 @@ Medium-large (about 500 lines).
   has a chain of its own, about 13 description entries, within the descriptions' limit of one per
   four bytes for any field of 52 bytes or more.
 - **Fallbacks.** A field left out for its meaning is described fully. One whose packing or grid
-  template refkv does not unpack is `source` with the template's number; one with a bitmap
-  indicator 1–253 has no grid.
+  template refkv does not unpack has no grid, its elements' size unknown, its template's number
+  among its declarations; one with a bitmap indicator 1–253 has no grid.
 - **Checker.** eccodes, whose values keep the stored order (alternate rows still reversed), shaped
   `[Ni, Nj]` with no transpose where columns come first; for a field with a bitmap, the values at
   the points the bitmap leaves, in order. The four fixtures eccodes cannot
@@ -562,11 +573,13 @@ Validating the mirror's view of the header re-derives the stream, while the pars
 start. Validation re-derives a space with `Transform::rederive`, which decodes the whole stream, and
 [conventions §8.8](../../spec/conventions.md#88-canonical-form) allows `deflate` no shown values, so
 step 0 revises both: the gunzip and `deflate` forms gain an optional prefix length, the whole stream
-when absent (as a `.fits.gz`'s stays), so that re-derivation validates only the prefix the parser
-read (NumPy reads a deflated member only as far as its header), and a `deflate` space may hold shown
-values. The format PRs then only call the helper, and each names the mirror's changed forms. The
-same helper serves NumPy's deflated `.npz` members, whose `header` and `data` become children of
-their derived space in a small PR of their own after step 0, which NumPy's plan PR then follows.
+when absent (as a `.fits.gz`'s stays), and a `deflate` space may hold shown values. The prefix is a
+value of the source alone, the inflated length up to the end of the last shown value in the derived
+space (NIfTI's `vox_offset`, MRC's 1024 plus its extended header, a `.npz` member's header end),
+never the parser's read window, so that two builds make one mirror. The format PRs then only call
+the helper, and each names the mirror's changed forms. The same helper serves NumPy's deflated
+`.npz` members, whose `header` and `data` become children of their derived space in a small PR of
+their own after step 0, which NumPy's plan PR then follows.
 
 ### NIfTI
 
@@ -632,7 +645,7 @@ Medium.
 - **Codecs.** `jpeg`, `jpegls`, `jpeg2k`, `dicom_rle`, and `lsb_first(1)` for 1-bit data.
 - **Checker.** pydicom: `generate_frames` for encapsulated rows' bytes and Pixel Data's offsets for
   native ones; `pixel_array` (or `iter_pixels`) with `raw=True` for the decoding; a JPEG 2000 frame
-  whose components are sampled differently is `source` (step 0), checked on its rows' bytes alone.
+  whose components are sampled differently makes its array have no grid (step 0).
   The PR adds pylibjpeg with its libjpeg and openjpeg plugins and pyjpegls to the dev group, since
   pydicom has no decoder installed for the corpus's lossless JPEG, JPEG-LS and HTJ2K files. pydicom
   would then decode baseline and extended JPEG with pylibjpeg's libjpeg, another codebase with its

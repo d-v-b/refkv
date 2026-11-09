@@ -575,7 +575,7 @@ share, and the map. They are not in the facts. So:
   or a range of it), and at most 2 for units `ranges` hold. Past that, or where structures share them (two HDF5 headers on one chunk index, TIFF
   IFDs sharing a StripOffsets array), the arrays that do not fit fall back to no grid. The bound
   counts bytes of the parsed source, so it covers units in space 0 and `ranges` into the parsed
-  source. A unit in a derived space (a `.fits.gz` heap's tile), or in `ranges` into another object
+  source. A unit in a derived space (a gzipped NIfTI's voxels), or in `ranges` into another object
   (an HDF5 external file), can cost far less than a byte of the parsed source, and its array can
   fall back at any rank. No source that parses today is refused for its map. The cost is memory,
   by part as built: about 93 bytes a row, 8 a coordinate and 24 a `ranges` item (109 for a
