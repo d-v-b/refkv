@@ -67,10 +67,12 @@ n − 1. Within a run, the id is what is computed on; the JSON form also gives t
 ([§2.5](#25-the-json-form)).
 
 Each format's document says how a profile finds, from the facts its parser gives, the key of each
-array's description: the declaring element's IR path, the path the description's JSON form gives,
-and the index where the format's kind of element carries one. A profile so matches what its facts
-say of an array to the array's description, presented or not. A graft re-roots the path under the
-file's object as it re-roots the facts' element references (`placed()` of a store's facts).
+array's description: the declaring element's id, and the index where the format's kind of element
+carries one. A profile so matches what its facts say of an array to the array's description,
+presented or not. A graft does not touch the facts: a format whose files a store grafts renumbers
+the ids its facts give in its store code, as the HDF5 store's `placed()` renumbers its
+`store.element` ids. The declaring element is in no run's subtree ([§5.1](#51-each-description)),
+so its id names one element, which an unfold leaves where it is.
 
 ### 2.2 Places and parameters
 
@@ -380,9 +382,11 @@ neither, and compiles no Arrow code.
 **NumPy** ([spec/zarrify/npy.md](zarrify/npy.md)). A `.npy` file's array, and each stored
 (method 0) `.npz` member's whose header was read, is a stored array, keyed by its `header` element,
 with no index; that element is its one declaration (its `descr`, `fortran_order` and `shape`). The
-facts give its key's path: a `.npy` file's is `header`; the member at position i of the facts'
-`own.members` (the archive's central directory order), presented or not, has
-`entries/<i>/data/header`, and a presented member's entry of the facts' `arrays` is the one of
+facts give its key: `declared_by` is the id of a `.npy` file's `header` element (a list of one),
+or, for a `.npz` archive, a list of one id per member of the facts' `own.members` in their order
+(the archive's central directory's), presented or not: its `header` element's
+(`entries/<i>/data/header`), or null for a member with no description (a deflated one, or one
+whose header was not read). A presented member's entry of the facts' `arrays` is the member of
 `own.members` with its `path`.
 `shape` is the header's, reversed for a Fortran-order array of two or more axes, whose `axes` then
 give the header's order; `item_bits` is eight times the size of an element of its `descr` as NumPy

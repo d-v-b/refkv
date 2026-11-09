@@ -536,8 +536,13 @@ impl Npy {
     fn done(&mut self) -> Result<Step, String> {
         self.phase = Phase::Done;
         let mut arrays = Vec::new();
+        // the element keying each array's description (spec/stored-array.md §2.1
+        // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>): a `.npy`
+        // file's one, or each member's of `own.members`, null for one with none
+        let mut declared_by: Vec<Option<u32>> = Vec::new();
         let own = if let Some(a) = self.array.take() {
             let (data, reached) = a.emit(&mut self.ir, 0)?;
+            declared_by.push(reached.as_ref().map(|r| r.header));
             self.reached.extend(reached);
             arrays.push(a.facts("array", data, None));
             json!({"kind": "npy", "array": a.header_json()})
@@ -551,12 +556,14 @@ impl Npy {
                 let s = zip::emit_local(&mut self.ir, i as u64, e, name.as_deref())?;
                 let read = m.array.as_ref().filter(|a| a.raw.is_some() && e.method == 0);
                 let mut data = None;
+                let mut key = None;
                 if e.cs > 0 {
                     match read {
                         Some(a) => {
                             let d = self.ir.struct_(s, "data", NO_INDEX, 0, Some((e.ds, e.cs)))?;
                             let reached;
                             (data, reached) = a.emit(&mut self.ir, d)?;
+                            key = reached.as_ref().map(|r| r.header);
                             self.reached.extend(reached);
                         }
                         // its preamble and header, which the stream holds, are in the source metadata
@@ -589,11 +596,12 @@ impl Npy {
                     j.insert("header".into(), h);
                 }
                 members.push(J::Object(j));
+                declared_by.push(key);
             }
             self.rules.check("arrays", rules::env([("count", num(arrays.len() as f64)), ("reasons", text(&reasons.join(", ")))]))?;
             json!({"kind": "npz", "members": members})
         };
-        let mut facts = json!({"own": own, "arrays": arrays, "copy_threshold": crate::out::copy_threshold()});
+        let mut facts = json!({"own": own, "arrays": arrays, "declared_by": declared_by, "copy_threshold": crate::out::copy_threshold()});
         self.asked.put(&mut facts);
         self.facts = facts;
         Ok(Step::Done)

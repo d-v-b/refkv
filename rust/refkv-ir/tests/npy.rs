@@ -90,11 +90,11 @@ fn every_accepted_fixtures_arrays_are_described_as_its_facts_give_them() {
     assert!(described > 30 && ungridded > 0, "{described} described, {ungridded} with no grid");
 }
 
-/// Each array's description is found from the facts (spec/stored-array.md §2.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>): a `.npy` file's at
-/// `header`; a `.npz` member's, presented or not, at `entries/<i>/data/header` for its position i
-/// in the facts' `own.members`, which a presented array's entry of `arrays` names by its `path`; a
-/// deflated member has none.
+/// Each array's description is found from the facts by its key (spec/stored-array.md §2.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>): `declared_by` gives
+/// the element keying a `.npy` file's array, or each member's of `own.members` in order, presented
+/// or not, null for one with no description (a deflated member's), and a presented array's entry
+/// of `arrays` is the member of `own.members` with its `path`.
 #[test]
 fn every_fixtures_descriptions_are_found_from_its_facts() {
     let dir = common::fixtures().join("npy");
@@ -104,26 +104,31 @@ fn every_fixtures_descriptions_are_found_from_its_facts() {
     for path in names.iter().filter(|p| !p.file_name().unwrap().to_str().unwrap().contains("reject")) {
         let at = path.display().to_string();
         let (ir, facts) = refkv_ir::parse_bytes::<Npy>(&std::fs::read(path).unwrap()).unwrap();
-        let by_path: std::collections::HashMap<String, &refkv_ir::array::StoredArray> =
-            ir.stored.arrays.iter().map(|d| (ir.path(d.element), d)).collect();
+        let keys: Vec<Option<u32>> = facts["declared_by"].as_array().unwrap().iter().map(|k| k.as_u64().map(|k| k as u32)).collect();
+        let by_element: std::collections::HashMap<u32, &refkv_ir::array::StoredArray> = ir.stored.arrays.iter().map(|d| (d.element, d)).collect();
+        // each key names a description of no index, and every description has a key
+        for k in keys.iter().flatten() {
+            assert!(by_element.get(k).is_some_and(|d| d.index.is_none()), "{at}: {k}");
+        }
+        assert_eq!(keys.iter().flatten().count(), ir.stored.arrays.len(), "{at}");
+        found += ir.stored.arrays.len();
         let Some(members) = facts["own"].get("members").and_then(|m| m.as_array()) else {
-            assert_eq!(by_path.keys().collect::<Vec<_>>(), ["header"], "{at}");
-            assert!(by_path["header"].index.is_none(), "{at}");
-            found += 1;
+            assert_eq!(keys.len(), 1, "{at}");
+            assert_eq!(ir.path(keys[0].unwrap()), "header", "{at}");
             continue;
         };
+        assert_eq!(keys.len(), members.len(), "{at}");
         for a in facts["arrays"].as_array().unwrap() {
             let i = members.iter().position(|m| m.get("path") == Some(&a["path"])).unwrap();
-            let key = format!("entries/{i}/data/header");
-            assert_eq!(by_path.contains_key(&key), a.get("deflate").is_none(), "{at}: {key}");
+            assert_eq!(keys[i].is_some(), a.get("deflate").is_none(), "{at}: member {i}");
         }
-        for (i, m) in members.iter().enumerate() {
-            let key = format!("entries/{i}/data/header");
+        for (i, (m, k)) in members.iter().zip(&keys).enumerate() {
             let described = m.get("header").is_some() && m["method"].as_u64() == Some(0);
-            assert_eq!(by_path.get(&key).map(|d| d.index), described.then_some(None), "{at}: {key}");
-            found += usize::from(described);
+            assert_eq!(k.is_some(), described, "{at}: member {i}");
+            if let Some(k) = k {
+                assert_eq!(ir.path(*k), format!("entries/{i}/data/header"), "{at}");
+            }
         }
-        assert_eq!(by_path.len(), members.iter().filter(|m| m.get("header").is_some() && m["method"].as_u64() == Some(0)).count(), "{at}");
     }
     assert!(found > 40, "{found}");
 }
