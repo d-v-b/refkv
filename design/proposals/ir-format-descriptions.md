@@ -128,16 +128,16 @@ then edits.
 
 A codec's decoding is given the unit's decoded shape (its grid unit, cut at the array's end under
 `short`, whole under `full`) and the array's `item_bits` and `pad_from`, as Zarr gives a codec its
-chunk's specification. These describe what the chain ends in. A codec other than the chain's
-first, whose decoding makes bytes of another width (FITS's Rice), has that width as a parameter of
-its own. A codec still never sees the unit's coordinates. An image codec's frame is the unit
-shape's last two axes, or the two before the last where the last is a samples axis, which it is
-exactly where the stream codes more than one component (or, for `webp`, where the samples axis
-has four, the fourth an alpha the stream may leave out);
-leading axes of 1 (a frame's, a level's) are not the frame's. Decoding a unit whose stream does
-not match its codec's entry or the unit's shape (a paletted PNG under `png`, a frame of another
-size, another number of components than the samples axis) is an error, never a different result,
-so that a file the parser sampled only in part cannot be decoded silently into other bytes.
+chunk's specification. These describe what the chain ends in. A codec other than the chain's first,
+whose decoding makes bytes of another width (FITS's Rice), has that width as a parameter of its own.
+A codec still never sees the unit's coordinates. An image codec's frame is the unit shape's last two
+axes, or the two before the last where the last is a samples axis, which it is exactly where the
+stream codes more than one component (or, for `webp`, where the samples axis has four, the fourth an
+alpha the stream may leave out); leading axes of 1 (a frame's, a level's) are not the frame's.
+Decoding a unit whose stream does not match its codec's entry or the unit's shape (a paletted PNG
+under `png`, a frame whose blocks do not cover the unit's shape, another number of components than
+the samples axis) is an error, never a different result, so that a file the parser sampled only in
+part cannot be decoded silently into other bytes.
 
 [§3.1](../../spec/stored-array.md#31-chains)'s sentence "a codec sees only a unit's bytes and
 parameters, never its coordinates, so a parameter that depends on the unit's position is a column
@@ -216,14 +216,16 @@ apart. Values the stream codes elsewhere (GRIB's bitmap, in section 6) are not f
 A decoder that does otherwise makes other bytes. The array's `item_bits` is the samples' size, and
 the precision the source declares (BitsPerSample 12) is a declaration. A profile converts colors
 from the declarations (TIFF's Photometric) when it presents them; where the format declares no
-color space (CZI's and VSI's JPEG tiles), the stream's own JFIF or Adobe marker is what it reads.
+color space (CZI's and VSI's JPEG tiles), the parser names the array's first unit's JFIF or Adobe
+segment as a declaration, a range of that unit, which is what the profile reads.
 
 An image codec decodes its frame at the unit's shape. The format sets its grid so that the unit's
 shape is the frame's: a TIFF whose last JPEG strip holds a frame of the full RowsPerStrip has the
 edge `full`, which the parser learns by reading that strip's SOF, the other strips following the
-tags; a frame that differs from them is caught by the checker, not the parser. Where a stream's MCUs
-cover the unit's shape but its header declares less (NDPI's frame that is a row short), decoding at
-the unit's shape reads the rows its data holds.
+tags; a frame that differs from them is caught by the checker, not the parser. A frame matches the
+unit where its blocks (a JPEG's MCU rows and columns) are the ones the unit's shape needs, whatever
+size its header declares, more or less (NDPI's frame a row short, the parser's `Frame::covers`);
+decoding is always at the unit's shape, and reads the rows its data holds.
 
 ### `lsb_first`
 
@@ -271,7 +273,9 @@ decoding; each format PR adds, in its own module, the codecs only it uses, and e
 file. How the helper decodes where imagecodecs lacks a codec, in step 0's modules or a format's:
 - `png` of gray under 8 bits: imagecodecs' samples, which come scaled to 8 bits, divided back by
   255 / (2^b − 1);
-- `bmp` and `jpegxr` otherwise: imagecodecs, its R, G, B reversed to the stored order;
+- `bmp` otherwise: imagecodecs, its R, G, B reversed to the stored B, G, R;
+- `jpegxr`: imagecodecs, which gives R, G, B for an RGB and a BGR pixel format alike, its samples
+  reversed for a BGR or BGRA pixel format and kept for the others;
 - `skip`, `fits_quantize`, `lsb_first` and `h5_fletcher32` (HDF5's Fletcher-32 checked over the
   bytes before the checksum, which is then dropped): in Python;
 - `ccitt_t6`: imagecodecs' `ccittfax4_decode`, which makes a byte per pixel, packed into rows of
@@ -293,8 +297,8 @@ file. How the helper decodes where imagecodecs lacks a codec, in step 0's module
   aborts for 1, 2 and 4 bits, decoded in Python (`png_decode` of section 7, whose samples of b
   bits come scaled to 8 and are divided back by 255 / (2^b − 1), then the arithmetic of
   [conventions §12](../../spec/conventions.md#12-grib-messages));
-- `jpeg` with `header`: the header, its SOF set to the unit's shape, the interval and an EOI spliced
-  into one stream;
+- `jpeg`: the stream with its SOF set to the unit's shape, so that every stream decodes at it;
+  with `header`, the header so set, the interval and an EOI spliced into one stream;
 - `jpeg2k` with `main_header`: the main header, the tile-parts and an EOC spliced, decoded by
   OpenJPEG through imagecodecs, and the tile cropped from the image.
 
