@@ -71,8 +71,9 @@ profile finds, from the facts its parser gives, the key of each array's descript
 declaring element's id, and the index where the format's kind of element carries one. A profile so
 matches what its facts say of an array to the array's description, presented or not. A graft does
 not touch the facts: a format whose files a store grafts renumbers the ids its facts give in its
-store code, as the HDF5 store's `placed()` renumbers its `store.element` ids. The declaring element is in no run's subtree ([§5.1](#51-each-description)),
-so its id names one element, which an unfold leaves where it is.
+store code, as the HDF5 store's `placed()` renumbers its `store.element` ids. The declaring element
+is in no run's subtree ([§5.1](#51-each-description)), so its id names one element, which an unfold
+leaves where it is.
 
 ### 2.2 Places and parameters
 
