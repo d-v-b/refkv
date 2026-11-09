@@ -76,19 +76,19 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    be named, and its array has no grid. No unit is named
    through a recipe that joins bytes the source does not hold together
    ([§1](../../spec/stored-array.md#1-stored-arrays): no byte the source does not hold).
-4. **No typing.** `item_bits` is the element's size as the source stores it, or as the chain's
-   first codec (decoded last) makes it ([§Step 0](#step-0-the-shared-rules)). Data type names,
-   scaling (BSCALE, `scl_slope`), an axis the source does not declare (HDF5's string axis), a fill
-   of zero, a crop to a reader's size, a color conversion and a transposition the output makes stay
-   in the facts, for the profile. An array's axes are those the source declares: a declared frame
-   count adds its axis even at 1 (DICOM's Number of Frames), and none where no count is given; a
-   samples axis comes only above one sample. A samples axis is there where the format stores or
-   codes samples as an axis of their own: TIFF's SamplesPerPixel, which its planar layout and tiles
-   cut, and a pixel type some of whose encodings a codec decodes into samples (CZI's Bgr24, raw in
-   one subblock and JPEG in another), which then has the axis in every encoding, so that a file's
-   arrays of one pixel type share a shape. It sits last unless the layout is planar, of `item_bits`
-   per sample. A pixel type stored only as one element (NIfTI's RGB24, a NumPy subarray, an HDF5
-   array type) stays one element of its size.
+4. **No typing.** `item_bits` is the element's size as the source stores it, or as the chain's first
+   codec (decoded last) makes it ([§Step 0](#step-0-the-shared-rules)). Data type names, scaling
+   (BSCALE, `scl_slope`), an axis the source does not declare (HDF5's string axis), a fill of zero,
+   a crop to a reader's size, a color conversion and a transposition the output makes stay in the
+   facts, for the profile. An array's axes are those the source declares: a declared frame count
+   adds its axis even at 1 (DICOM's Number of Frames), and none where no count is given; a samples
+   axis comes only above one sample. A samples axis is there where the format stores or codes
+   samples as an axis of their own: TIFF's SamplesPerPixel, which its planar layout and tiles cut,
+   and a pixel type some of whose encodings a codec decodes into samples (CZI's Bgr24, raw in one
+   subblock and JPEG in another), which then has the axis in every encoding, so that a file's arrays
+   of one pixel type share a shape. It sits where its layout puts it in storage order (rule 9), of
+   `item_bits` per sample. A pixel type stored only as one element (NIfTI's RGB24, a NumPy subarray,
+   an HDF5 array type) stays one element of its size.
 5. **Declarations are listed** in the format's document, place by place, so that a profile knows
    what each is. A declaration the parser keeps only in facts today gets a place in the same PR.
 6. **Codecs come from the list** that step 0 lands ([§Codecs](#codecs)). A format PR that finds an
@@ -135,7 +135,10 @@ formats](#the-formats), each holding a line that the format is not described yet
 format PR fills its own heading and none appends to the end of the file; and it rewords
 [§1](../../spec/stored-array.md#1-stored-arrays)'s "Today only the NumPy profile describes its
 arrays" to point at [§7](../../spec/stored-array.md#7-the-formats)'s headings, which no format PR
-then edits.
+then edits, and scopes §1's "Every array a parser reaches has a description" to the formats §7
+heads, naming the exceptions: the store profiles, whose array documents stand in; coded streams,
+which wait for a description of their own; and DICOM series, whose description comes with
+profile-plugins' step 4.
 
 ### A codec sees the unit's shape
 
@@ -234,17 +237,19 @@ apart. Values the stream codes elsewhere (GRIB's bitmap, in section 6) are not f
 
 A decoder that does otherwise makes other bytes. The array's `item_bits` is the samples' size, and
 the precision the source declares (BitsPerSample 12) is a declaration. A profile converts colors
-from the declarations (TIFF's Photometric) when it presents them; where the format declares no color
-space refkv can read (CZI's JPEG tiles; VSI's, whose ETS `colorspace` field is a declaration of
-unknown meaning), the parser names the array's first unit's JFIF and Adobe
-segments (one, both, or none) and its frame header (SOF), whose component ids say RGB or YCbCr where
-no marker does, as declarations, ranges of that unit, which are what the profile reads. An array of
-more than one unit (VSI's) also gives its `jpeg` those places as `jfif` and `adobe` (each absent
-where the first unit has none) and its SOF's component ids as `components`, with `check_markers`
-true, so that a later unit whose segments or component ids differ fails to decode rather than
-showing other colors; a CZI subblock, one unit, needs no such check, and its chain stays shared by
-every subblock of its encoding. In the same way, where an image codec's stream itself says its
-samples' sign (JPEG 2000's SIZ), the parser names the first unit's such header as a declaration,
+from the declarations when it presents them. For every array in `jpeg`, the parser names the array's
+first unit's JFIF and Adobe segments (one, both, or none) and its frame header (SOF), whose
+component ids say RGB or YCbCr where no marker does, as declarations, ranges of that unit, by step
+0's segment scanner, beside the format's own color space where it declares one (TIFF's Photometric,
+DICOM's Photometric Interpretation), so that a profile sees where they disagree; where the format
+declares none refkv can read (CZI's JPEG tiles; VSI's, whose ETS `colorspace` field is a declaration
+of unknown meaning), they are what the profile reads. An array of more than one unit whose format
+declares no color space (VSI's) also gives its `jpeg` those places as `jfif` and `adobe` (each
+absent where the first unit has none) and its SOF's component ids as `components`, with
+`check_markers` true, so that a later unit whose segments or component ids differ fails to decode
+rather than showing other colors; a CZI subblock, one unit, needs no such check, and its chain stays
+shared by every subblock of its encoding. In the same way, where an image codec's stream itself says
+its samples' sign (JPEG 2000's SIZ), the parser names the first unit's such header as a declaration,
 beside the format's own (TIFF's SampleFormat, DICOM's Pixel Representation), so that a profile sees
 where they disagree.
 
@@ -253,8 +258,12 @@ shape is the frame's: a TIFF whose last JPEG strip holds a frame of the full Row
 edge `full`, which the parser learns by reading that strip's SOF, the other strips following the
 tags; a frame that differs from them is caught by the checker, not the parser. A frame matches the
 unit where its header declares exactly the unit's size; a baseline frame whose every scan is
-interleaved may also declare fewer rows or columns within the same MCU rows and columns (NDPI's
-frame a row short), decoding at the unit's shape reading the rows its data holds. Any other frame
+interleaved, or which has one component, may also declare fewer rows or columns within the same
+MCU rows and columns (NDPI's frame a row short), decoding at the unit's shape reading the rows its
+data holds. These rules are for a stream's own SOF; under `jpeg`'s `header`, whose SOF declares the
+whole strip and not the restart interval that is the unit, the unit's shape takes the place of the
+header's size, once the header is checked to be baseline with one interleaved scan whose MCU and
+restart interval give the unit's shape. Any other frame
 (one that declares more, which would be cropped, or a progressive or non-interleaved one of another
 size, whose scans' block counts follow the declared size) is a decoding error. A parser that reads
 the frame's size (NDPI, TIFF's last strip, VSI's first tile) takes the frame's size for the unit
@@ -342,10 +351,10 @@ it uses, and edits no shared file. How the helper decodes where imagecodecs lack
   7, whose samples of b bits come scaled to 8 and are divided back by 255 / (2^b − 1), then the
   arithmetic of [conventions §12](../../spec/conventions.md#12-grib-messages));
 - `jpeg`: the stream's SOF read first and compared with the unit, raising where the frame does not
-  match it as step 0 says; the SOF set to the unit's shape only in the one case that allows a
-  smaller frame (a baseline, interleaved frame a row or column short), so that it decodes at the
-  unit; with `header`, the header so checked and set, the interval and an EOI spliced into one
-  stream;
+  match it as step 0 says; the SOF set to the unit's shape only in the case that allows a smaller
+  frame (a baseline frame, interleaved or of one component, fewer rows or columns within the same
+  MCU rows and columns), so that it decodes at the unit; with `header`, the header checked as step 0
+  says and its SOF's size set to the unit's, the interval and an EOI spliced into one stream;
 - `jpeg2k` with `main_header`: the main header, the tile-parts and an EOC spliced, decoded by
   OpenJPEG through imagecodecs, and the tile cropped from the image.
 
@@ -427,7 +436,7 @@ bytes (JPEG XL's codestream and container); step 0 adds that to
 
 | Codec | Takes | Parameters | Used by |
 | --- | --- | --- | --- |
-| `jpeg` | an ISO 10918-1 stream, any process | `tables` (optional; an abbreviated table stream, TIFF's tag 347): `place`; `jfif`, `adobe` (optional; the first unit's JFIF and Adobe segments, where it has them; VSI): `place`; `components` (optional; the first unit's SOF component ids; VSI): `int[]`, `place`; `check_markers` (optional, false; every unit's JFIF and Adobe segments and component ids must then equal those, or be absent where they are): `bool`; `header` (optional; the stream up to its first scan, the unit being one restart interval's entropy-coded segment, its RSTn marker excluded, decoded as after a restart; NDPI): `place` | TIFF, NDPI, VSI, DICOM, CZI |
+| `jpeg` | an ISO 10918-1 stream, any process | `tables` (optional; an abbreviated table stream, TIFF's tag 347): `place`; `jfif`, `adobe` (optional; the first unit's JFIF and Adobe segments, where it has them; VSI): `place`; `components` (optional; the first unit's SOF component ids; VSI): `int[]`, `place`; `check_markers` (optional, false; every unit's JFIF and Adobe segments and component ids must then equal those, or be absent where they are): `bool`; `header` (optional; the stream up to its first scan, the unit being one restart interval's entropy-coded segment, its RSTn marker excluded, decoded as after a restart, the unit's shape taking the place of the header SOF's size; NDPI): `place` | TIFF, NDPI, VSI, DICOM, CZI |
 | `jpegls` | an ISO 14495-1 stream | | DICOM |
 | `jpeg2k` | an ISO 15444-1 codestream (15444-15's high throughput included), not a JP2 file | `main_header` (optional; the unit is then one tile's tile-parts, with their SOT): `place` | TIFF, VSI, DICOM, SAFE |
 | `jpegxr` | a JPEG XR file in its T.832 container (starting `II BC 01`); decoding makes the samples in its pixel format's order | | NDPI, CZI |
@@ -514,12 +523,14 @@ Medium, after TIFF.
 - **Units.** With McuStarts, each restart interval is a unit, a range of the strip element, on
   `[Each(mh), Each(R·mw), Each(3)]`, `full`, as tifffile reads NDPI, in `[jpeg(header)]`. Without
   them, the strip, in `[jpeg]`, where its frame covers the IFD's MCU rows and columns within 65535
-  (the parser's `Frame::covers`); an image whose frame does not has no grid. McuStarts whose count
+  (the parser's `Frame::covers`) and the strip is one interleaved scan or of one component; an
+  image whose frame does not has no grid. McuStarts whose count
   does not match the grid are refused, as today.
 - **JPEG XR IFDs** take `item_bits` and samples from the first stream's PixelFormat, whose range is
   a declaration. A macro or map IFD whose stream the parser does not read has no grid.
 - **Checker.** tifffile, comparing McuStarts by hand: tifffile reads them only with tag 271, which
-  the fixtures lack, and adding it would change their outputs.
+  the fixtures lack, and adding it would change their outputs; strips whose frame is not the IFD's
+  size, on which tifffile raises, are checked by hand too, against the decode with the SOF set.
 
 ### VSI
 
@@ -755,8 +766,11 @@ Medium.
 - **Arrays.** One, keyed by `chunks/ImageAttributesLV!`: shape `[N, H, W, C]`, N the product of
   the loops' counts, which declare the file's frames (no N axis where there are no loops), no C axis
   for one component; the loops are declarations; `item_bits` is `uiBpcInMemory`; fill `undefined`.
-  Frames at or past N, which the loops do not declare, stay bytes outside every description, as the
-  parser leaves them (their `frames/<f>/data` elements), and ND2's document says so.
+  Frames at or past N, which the loops do not place but whose pixels `ImageAttributesLV!` declares,
+  are arrays too, as CZI's walked segments are: each `[H, W, C]`, keyed by rule 2 (the `frames`
+  element), its unit a `range` of its `frames/<f>/data` element past the 8-byte timestamp (one a
+  row where rows are padded), in the main array's chain; placing them, or leaving them out, is the
+  plan's.
 - **Units.** Each frame's `frames/<f>/pixels` element (with `member` where it is in a run), which
   starts after the timestamp: the element alone where its rows are not padded or it is compressed
   (its recipe then the identity), and one unit a row where they are padded, each a `range`
