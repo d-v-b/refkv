@@ -935,7 +935,9 @@ and changing an output is a cost only to the fixtures.
 3. **One format at a time**, NumPy, then TIFF, then HDF5, each in two PRs.
    The first lists its known structures, specifies its description and
    tests it against tifffile, NumPy or h5py (TIFF's extending [§3](../../spec/zarrify/tiff.md#3-ome-xml) to every
-   `Image`). The second sorts its facts and checks against them, moves the
+   `Image`); each format's first PR may land before step 2
+   ([ir-format-descriptions.md](ir-format-descriptions.md)). The second
+   sorts its facts and checks against them, moves the
    parser's decisions and their reads into its plan, sizes its decisions by
    the largest source index (changing the outputs near the limit), deletes
    its facts, adds the routines it needs, and adds its tests, which pass

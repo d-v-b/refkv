@@ -649,10 +649,15 @@ one array is stored. This changes two things in profile-plugins:
    - the two edits to profile-plugins.
 
    Only NumPy emits descriptions yet, and no output changes.
-2. **Each format, inside the build tools' format PRs.** Profile-plugins' step 3 reworks NumPy, then
-   TIFF, then HDF5 into descriptions and plans, and its step 4 the others
-   ([profile-plugins.md](profile-plugins.md#order-of-work)). Each of those PRs:
-   - describes its format's arrays, adds its codecs to the list, and has its projection read them;
+2. **Each format, in two PRs.** The first describes the format's arrays, adds its codecs to the
+   list and tests the description against the format's reference reader, with no output changed.
+   Every format's first PR lands before the plan's machine
+   ([ir-format-descriptions.md](ir-format-descriptions.md)), and takes the extra work below that a
+   description needs (HDF5's fill value and listing, GRIB's NaN). The second is the build tools'
+   format PR: profile-plugins' step 3 reworks NumPy, then TIFF, then HDF5 into plans, and its step 4
+   the others ([profile-plugins.md](profile-plugins.md#order-of-work)), with the rest of the extra
+   work (TIFF's JPEG prefix, FITS's `tile_cut`). Each of those PRs:
+   - has its projection read its format's description;
    - moves the typing its facts did (a fixed string's added axis, a default fill) into the format's
      plan;
    - gives unreachable declarations a place (NumPy's `.npz` headers; NIfTI's gzipped header);
