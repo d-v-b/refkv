@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
@@ -293,7 +294,7 @@ def read(document: str) -> Stored:
     undescribed: bool | tuple[str, ...]
     if isinstance(mark, list):
         undescribed = tuple(string(k, f"undescribed[{n}]") for n, k in enumerate(sequence(mark, "undescribed")))
-        twice = sorted({k for k in undescribed if undescribed.count(k) > 1})
+        twice = sorted(k for k, n in Counter(undescribed).items() if n > 1)
         if twice:
             raise ValueError(f"undescribed: {', '.join(twice)} listed twice")
     else:
