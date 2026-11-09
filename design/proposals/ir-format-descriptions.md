@@ -74,17 +74,21 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    than one span (a DICOM frame of several fragments), even inside an element. In a derived space,
    which `ranges` cannot address, a unit whose bytes no single element encloses in one span cannot
    be named, and its array has no grid. No unit is named
-   through a recipe that joins bytes the source does not hold together (rule 1).
+   through a recipe that joins bytes the source does not hold together
+   ([§1](../../spec/stored-array.md#1-stored-arrays): no byte the source does not hold).
 4. **No typing.** `item_bits` is the element's size as the source stores it, or as the chain's
    first codec (decoded last) makes it ([§Step 0](#step-0-the-shared-rules)). Data type names,
    scaling (BSCALE, `scl_slope`), an axis the source does not declare (HDF5's string axis), a fill
    of zero, a crop to a reader's size, a color conversion and a transposition the output makes stay
-   in the facts, for the profile. An array's axes are those the source declares: no frame axis
-   where it gives no frame count, and no samples axis for one sample. A samples axis is there
-   where the format stores or codes samples as an axis of their own (TIFF's SamplesPerPixel above
-   1, which its planar layout and tiles cut; CZI's pixel types, whose codecs make samples), last
-   unless the layout is planar, of `item_bits` per sample; a pixel type that is one element (NIfTI's
-   RGB24, a NumPy subarray, an HDF5 array type) stays one element of its size.
+   in the facts, for the profile. An array's axes are those the source declares: a declared frame
+   count adds its axis even at 1 (DICOM's Number of Frames), and none where no count is given; a
+   samples axis comes only above one sample. A samples axis is there where the format stores or
+   codes samples as an axis of their own: TIFF's SamplesPerPixel, which its planar layout and tiles
+   cut, and a pixel type some of whose encodings a codec decodes into samples (CZI's Bgr24, raw in
+   one subblock and JPEG in another), which then has the axis in every encoding, so that a file's
+   arrays of one pixel type share a shape. It sits last unless the layout is planar, of `item_bits`
+   per sample. A pixel type stored only as one element (NIfTI's RGB24, a NumPy subarray, an HDF5
+   array type) stays one element of its size.
 5. **Declarations are listed** in the format's document, place by place, so that a profile knows
    what each is. A declaration the parser keeps only in facts today gets a place in the same PR.
 6. **Codecs come from the list** that step 0 lands ([§Codecs](#codecs)). A format PR that finds an
@@ -125,8 +129,8 @@ function that names a unit's bytes with `check::finish`'s record of unfolded run
 helper that gives a gzip or deflate stream one derived element ([§Gzipped files](#gzipped-files))
 with the revisions of [conventions §8.8](../../spec/conventions.md#88-canonical-form) and
 `Transform` it needs, the codec contract below, a JPEG segment scanner that finds a stream's JFIF
-or Adobe segment for the parsers that declare one, and the test helpers. It also adds to
-[§7](../../spec/stored-array.md#7-the-formats) one heading per format, in the order of [§The
+and Adobe segments and its SOF for the parsers that declare them, and the test helpers. It also adds
+to [§7](../../spec/stored-array.md#7-the-formats) one heading per format, in the order of [§The
 formats](#the-formats), each holding a line that the format is not described yet, so that each
 format PR fills its own heading and none appends to the end of the file; and it rewords
 [§1](../../spec/stored-array.md#1-stored-arrays)'s "Today only the NumPy profile describes its
@@ -145,8 +149,10 @@ stream codes more than one component (or, for `webp`, where the samples axis has
 alpha the stream may leave out); leading axes of 1 (a frame's, a level's) are not the frame's.
 Decoding a unit whose stream does not match its codec's entry or the unit's shape (a paletted PNG
 under `png`, a frame whose blocks do not cover the unit's shape, another number of components than
-the samples axis, samples of another size than `item_bits`, under `jpeg`'s `check_markers` a JFIF or
-Adobe segment other than its `jfif` or `adobe` names, or one where it names none) is an error, never
+the samples axis, samples of another size than `item_bits`, a frame that declares more rows or
+columns than the unit, under `jpeg`'s `check_markers` a JFIF or Adobe segment or component ids other
+than it names, or one where it names none, and a JPEG 2000 or JPEG XL stream whose components
+differ from one another in sampling, precision or signedness) is an error, never
 a different result, so that a file the parser sampled only in part cannot be decoded silently into
 other bytes.
 
@@ -229,7 +235,8 @@ apart. Values the stream codes elsewhere (GRIB's bitmap, in section 6) are not f
 A decoder that does otherwise makes other bytes. The array's `item_bits` is the samples' size, and
 the precision the source declares (BitsPerSample 12) is a declaration. A profile converts colors
 from the declarations (TIFF's Photometric) when it presents them; where the format declares no color
-space (CZI's and VSI's JPEG tiles), the parser names the array's first unit's JFIF and Adobe
+space refkv can read (CZI's JPEG tiles; VSI's, whose ETS `colorspace` field is a declaration of
+unknown meaning), the parser names the array's first unit's JFIF and Adobe
 segments (one, both, or none) and its frame header (SOF), whose component ids say RGB or YCbCr where
 no marker does, as declarations, ranges of that unit, which are what the profile reads. An array of
 more than one unit (VSI's) also gives its `jpeg` those places as `jfif` and `adobe` (each absent
@@ -245,12 +252,14 @@ An image codec decodes its frame at the unit's shape. The format sets its grid s
 shape is the frame's: a TIFF whose last JPEG strip holds a frame of the full RowsPerStrip has the
 edge `full`, which the parser learns by reading that strip's SOF, the other strips following the
 tags; a frame that differs from them is caught by the checker, not the parser. A frame matches the
-unit where its blocks (a JPEG's MCU rows and columns) are the ones the unit's shape needs and its
-header declares as many rows and columns as the unit or fewer (NDPI's frame a row short), decoding
-at the unit's shape reading the rows its data holds. A frame that declares more than its unit would
-be cropped, so it is a decoding error; a parser that reads the frame's size (NDPI, TIFF's last
-strip, VSI's first tile, CZI) takes the frame's size for the unit where it is the larger, the
-format's own size then a declaration, as CZI does.
+unit where its header declares exactly the unit's size; a baseline frame whose every scan is
+interleaved may also declare fewer rows or columns within the same MCU rows and columns (NDPI's
+frame a row short), decoding at the unit's shape reading the rows its data holds. Any other frame
+(one that declares more, which would be cropped, or a progressive or non-interleaved one of another
+size, whose scans' block counts follow the declared size) is a decoding error. A parser that reads
+the frame's size (NDPI, TIFF's last strip, VSI's first tile) takes the frame's size for the unit
+where it is the larger, the format's own size then a declaration; CZI takes the frame's size whether
+larger or smaller, as its document says.
 
 ### `lsb_first`
 
@@ -298,10 +307,11 @@ bytes become the parameter's value through a reader each format registers by (fo
 parameter), so that the shared decoders take values only and no format edits them. Step 0 writes its
 frame, a registry that finds a codec's decoder by its name in a module of its own, every compressor
 of [§Codecs](#codecs) (`tiff_lzw` among them), `shuffle`, `lsb_first`, and the image codecs several
-formats use (`jpeg`, `jpeg2k`, `jpegxr`, with `jpeg`'s `header` and `jpeg2k`'s `main_header`
-variants), so that no format PR writes a shared codec's decoding; each format PR adds, in its own
-module, the codecs only it uses, and edits no shared file. How the helper decodes where imagecodecs
-lacks a codec, in step 0's modules or a format's:
+formats use (`jpeg` with every parameter of its entry, `tables`, `header`, `jfif`, `adobe`,
+`components` and the `check_markers` comparison; `jpeg2k` with `main_header`; `jpegxr`), so that no
+format PR writes a shared codec's decoding; each format PR adds, in its own module, the codecs only
+it uses, and edits no shared file. How the helper decodes where imagecodecs lacks a codec, in step
+0's modules or a format's:
 - `png` of gray under 8 bits: imagecodecs' samples, which come scaled to 8 bits, divided back by
   255 / (2^b − 1);
 - `bmp` otherwise: imagecodecs, its first three samples reversed to the stored B, G, R, alpha kept
@@ -331,8 +341,11 @@ lacks a codec, in step 0's modules or a format's:
   packing, on which eccodes aborts for 1, 2 and 4 bits, decoded in Python (`png_decode` of section
   7, whose samples of b bits come scaled to 8 and are divided back by 255 / (2^b − 1), then the
   arithmetic of [conventions §12](../../spec/conventions.md#12-grib-messages));
-- `jpeg`: the stream with its SOF set to the unit's shape, so that every stream decodes at it;
-  with `header`, the header so set, the interval and an EOI spliced into one stream;
+- `jpeg`: the stream's SOF read first and compared with the unit, raising where the frame does not
+  match it as step 0 says; the SOF set to the unit's shape only in the one case that allows a
+  smaller frame (a baseline, interleaved frame a row or column short), so that it decodes at the
+  unit; with `header`, the header so checked and set, the interval and an EOI spliced into one
+  stream;
 - `jpeg2k` with `main_header`: the main header, the tile-parts and an EOC spliced, decoded by
   OpenJPEG through imagecodecs, and the tile cropped from the image.
 
