@@ -19,9 +19,9 @@ spike described every HDF5 dataset without it
 ([ir-array-model.md](ir-array-model.md#order-of-work)). Landing them first tests every format's
 description against its reference reader before any plan reads it, and settles the codec list once.
 
-A describe-only PR changes no output but the IR mirror changes it names: the mirror (its rows,
-forms and view), which every output carries, changes only where
-a declaration or unit needs a place the IR does not have (a gzipped header, [§Gzipped
+A describe-only PR changes no output but the IR mirror changes it names: the mirror (its rows, forms
+and view), which every built-in profile's output carries (a layout plugin may leave it out), changes
+only where a declaration or unit needs a place the IR does not have (a gzipped header, [§Gzipped
 files](#gzipped-files)), and names each such change.
 
 ### In scope
@@ -38,7 +38,8 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
 - **DICOM series**, whose store form is composed in Python and has no IR of its own; it gets its
   description when profile-plugins' step 4 gives it a store IR that grafts the files' IRs.
 - **Each format's plan PR**: moving FITS's `tile_cut` to the projection, replacing TIFF's JPEG
-  prefix, and deleting facts the descriptions duplicate. Until then a fact and a description say
+  prefix, moving ND2's `rows` recipe (which joins a padded frame's rows) to its projection, and
+  deleting facts the descriptions duplicate. Until then a fact and a description say
   the same thing twice; each describe-only PR lists the facts its description duplicates.
 - **Lifting a parser's refusals.** What a parser refuses today stays refused, and its arrays and
   codecs wait for the PR that lifts the refusal; among them FITS's HCOMPRESS, PLIO,
@@ -52,14 +53,15 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    unpresented HDF5 dataset, an HDF5 attribute, a CZI subblock the plan leaves out, a DICOM icon. An
    array whose storage the IR does not model has no grid
    ([§2.3](../../spec/stored-array.md#23-the-grid)).
-2. **The facts give each description's key**, the declaring element's id, as NumPy's
-   `declared_by` does. A format whose IRs are grafted renumbers it in its store code. Where the
-   facts do not record the declaring element (HDF5's `objects/<i>`, GRIB's `messages/<i>`), the PR
-   adds it. A key is never in a run's subtree: an array declared inside a
-   sequence of items (DICOM's icons, CZI's walked segments) is keyed by its nearest ancestor that
-   lies inside no item of any sequence, which no fold can put in a run, its index the array's
-   position among the arrays declared beneath that ancestor, in the source's order. That ancestor
-   is fixed by the source's structure, so the key is the same whether or not any items fold.
+2. **The facts give each description's key**, the declaring element's id, as NumPy's `declared_by`
+   does. A format whose IRs are grafted renumbers it in its store code. Where the facts do not
+   record the declaring element (HDF5's `objects/<i>`, GRIB's `messages/<i>`), the PR adds it. A key
+   is never in a run's subtree: an array declared inside a sequence of items (DICOM's icons, CZI's
+   walked segments) is keyed by its nearest ancestor that lies inside no item of any sequence, which
+   no fold can put in a run, its index the array's position among the arrays that element keys
+   (those its sequences' items declare), in the source's order; arrays keyed elsewhere beneath it
+   (CZI's directory subblocks) do not count. That ancestor is fixed by the source's structure, so
+   the key is the same whether or not any items fold.
 3. **Descriptions are built on the finished IR.** `check::finish` may make an element an alias or
    unfold a run, so a parser that cached element ids while parsing finds them again after finish.
    A row names the unit's bytes as finish leaves them: a run member's element with `member`; and
@@ -68,9 +70,8 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    its recipe is the identity and the bytes are all of it, else with a `range`, its offset moved
    by the alias's offset in the target), where they lie inside it; where they do not, the nearest
    element whose extent encloses them, with a `range` (and `member` where needed), which works in
-   a derived space too; `ranges` of the object that holds them only where no element does. A unit
-   named through its element's recipe (ND2's padded `pixels`) whose element became an alias has no
-   grid, since the target cannot carry the recipe.
+   a derived space too; `ranges` of the object that holds them only where no element does. No unit
+   is named through a recipe that joins bytes the source does not hold together (rule 1).
 4. **No typing.** `item_bits` is the element's size as the source stores it, or as the chain's
    first codec (decoded last) makes it ([§Step 0](#step-0-the-shared-rules)). Data type names,
    scaling (BSCALE, `scl_slope`), an axis the source does not declare (HDF5's string axis), a fill
@@ -261,8 +262,8 @@ safetensors' F4 and F6 use it.
 Step 0 adds to `array.rs` one function that names a unit's bytes, or any place a parser cached (a
 declaration, a codec parameter, a fill), in the finished IR as rule 3 says
 (a run member's element with `member`; an alias's target, alone or with a moved `range`; the
-nearest enclosing element with a `range`; `ranges` where no element encloses the bytes; or none,
-where the unit was named through its element's recipe), with its tests, so that no format
+nearest enclosing element with a `range`; `ranges` where no element encloses the bytes; or none
+inside a derived space where no element encloses them), with its tests, so that no format
 writes it. `Ir::fold` frees a folded member's ids during parsing, so a parser records a unit in a
 run as (run root, j, member 0's element) when its fold succeeds, never the id its emitter returned.
 `check::finish` records each run it unfolds (the run's root, the first id of its copies,
@@ -280,15 +281,16 @@ since both names lead to one IFD; for CZI, the second `directory/entries/<i>`.
 ### The test helper
 
 `python/tests/ir/chains.py` decodes a unit through a chain, codec by codec, given the unit's bytes,
-its parameters, and the unit's shape with the array's `item_bits` and `pad_from`, as the codec
-contract gives them. A place's bytes become the parameter's value through a reader each
-format registers by (format, codec, parameter), so that the shared decoders take values only and
-no format edits them. Step 0 writes its frame, a registry that finds a codec's decoder by its name
-in a module of its own, every compressor of [§Codecs](#codecs) (`tiff_lzw` among them), `shuffle`,
+its parameters, and the unit's shape with the array's `item_bits` and `pad_from`, and, for the
+decoders that rebuild a container (GRIB's message, HDF5's one-chunk file), the array's declarations,
+as the codec contract gives them. A place's bytes become the parameter's value through a reader each
+format registers by (format, codec, parameter), so that the shared decoders take values only and no
+format edits them. Step 0 writes its frame, a registry that finds a codec's decoder by its name in a
+module of its own, every compressor of [§Codecs](#codecs) (`tiff_lzw` among them), `shuffle`,
 `lsb_first`, and the image codecs several formats use (`jpeg`, `jpeg2k`, `jpegxr`, with `jpeg`'s
 `header` and `jpeg2k`'s `main_header` variants), so that no format PR writes a shared codec's
-decoding; each format PR adds, in its own module, the codecs only it uses, and edits no shared
-file. How the helper decodes where imagecodecs lacks a codec, in step 0's modules or a format's:
+decoding; each format PR adds, in its own module, the codecs only it uses, and edits no shared file.
+How the helper decodes where imagecodecs lacks a codec, in step 0's modules or a format's:
 - `png` of gray under 8 bits: imagecodecs' samples, which come scaled to 8 bits, divided back by
   255 / (2^b − 1);
 - `bmp` otherwise: imagecodecs, its first three samples reversed to the stored B, G, R, alpha kept
@@ -605,7 +607,7 @@ Medium-large (about 500 lines).
 A gzipped NIfTI or MRC file's header and voxels lie in the stream, which no element holds today.
 Their PRs give the file one derived element over its bytes in space 0, by step 0's `gz.rs` helper,
 with `header` and the voxels in its derived space, as
-[ir-array-model.md](ir-array-model.md#what-an-array-is) planned and as a `.fits.gz` already has.
+[ir-array-model.md](ir-array-model.md#the-description) planned and as a `.fits.gz` already has.
 Validating the mirror's view of the header re-derives the stream, while the parser reads only its
 start. Validation re-derives a space with `Transform::rederive`, which decodes the whole stream, and
 [conventions §8.8](../../spec/conventions.md#88-canonical-form) allows `deflate` no shown values, so
@@ -723,11 +725,12 @@ Medium.
   file numbers them (`ImageDataSeq|f!`, F the largest f plus one), no C axis for one component;
   the loops, whose product the facts use, are declarations, for a profile to factor F by;
   `item_bits` is `uiBpcInMemory`; fill `undefined`.
-- **Units.** Each frame's `pixels` element, a run member, whose `rows` recipe already drops the
-  padding; a frame past the loops' count, which has no `pixels` element, a `range` of its
-  `frames/<f>/data` element past the 8-byte timestamp, the array having no grid where such a
-  frame's rows are padded or its bytes cut short; chain `[zlib]` where compressed; a missing frame
-  has no row.
+- **Units.** Each frame a `range` of its `frames/<f>/data` element (with `member` where it is in a
+  run) past the 8-byte timestamp: the whole frame where its rows are not padded, and one unit a row
+  where they are, as LIF's padded rows are, the grid then `Each(1)` on the rows, not through the
+  `pixels` element's `rows` recipe, which joins rows the source does not hold together; a frame
+  whose bytes are cut short makes the array have no grid; chain `[zlib]` where compressed (no
+  compressed frame has padded rows); a missing frame has no row.
 - **Checker.** nd2's attributes, frame offsets and `read_frame`.
 
 ### LIF and XLEF
