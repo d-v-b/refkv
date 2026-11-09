@@ -148,8 +148,8 @@ format's store code to renumber in the facts, as HDF5's `placed()` renumbers `st
 (`Ir::graft` does not touch the facts). The declaring element is in no run's subtree, so an unfold
 never moves a key. The key stays when a format's PR removes the facts the description replaces. An
 HDF5 spike had to match datasets to descriptions by object header address, since HDF5's facts give
-each node its address and its chunks but not its `objects/<i>` element; HDF5's PR gives each
-dataset node that element's id.
+each node its address and its chunks but not its `objects/<i>` element; HDF5's describe-only PR
+gives each dataset node that element's id.
 
 ## The description
 
@@ -260,11 +260,11 @@ A function that turns a source's type declaration into a Zarr data type (a NumPy
 NumPy and `.npz`) lives in the profiles' shared tooling, not in the core.
 
 A declaration must be reachable. Where a parser reads it but keeps it only in facts today, the
-format's PR gives it a place:
+format's describe-only PR gives it a place:
 - a gzipped NIfTI becomes one derived element over the file in space 0, the only claim on those
   bytes, with `header`, its extender and extensions, and `voxels` (from `vox_offset`) in its derived
   space. Validating the mirror's view of such a header re-derives the stream, and the parser reads
-  only its start; NIfTI's PR keeps validation to the stream's start, or says that cost is taken;
+  only its start; NIfTI's describe-only PR keeps validation to the stream's start, or says that cost is taken;
 - a deflated `.npz` member gets `header` and `data` children in its derived space.
 
 **Arrays whose storage the IR does not model.** These have a description with `grid: None`, no
@@ -445,7 +445,7 @@ Units may differ from their array in three ways, each a column:
   in the image's values as ZBITPIX declares them, big-endian, as `fits_quantize`'s entry states. One
   in `UNCOMPRESSED_DATA`, if a later PR lifts today's rejection of it, a third chain. A null pixel
   mask's chain is the compressor ZMASKCMP names. The parser picks the column per tile today but
-  keeps only the tile's range; FITS's PR records the chain.
+  keeps only the tile's range; FITS's describe-only PR records the chain.
 - **`skips`:** codecs the unit skips (HDF5's cases, above).
 - **A parameter column:** a parameter whose value varies by unit, such as a FITS tile's ZSCALE. It
   is nullable, and set exactly on the rows whose array lists it for the row's chain and that do not

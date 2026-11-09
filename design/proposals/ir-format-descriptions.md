@@ -65,10 +65,11 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    where the unit's element became an alias, the unit's own bytes (the whole element, or its
    range) found in the alias's target: the target, named as the unit itself would be (alone where
    its recipe is the identity and the bytes are all of it, else with a `range`, its offset moved
-   by the alias's offset in the target), where they lie inside it; `ranges` of the object that
-   holds them (the parsed source in a file IR) where they do not; no grid where that would be
-   inside a derived space, or where the unit was named through its element's recipe (ND2's padded
-   `pixels`), which the target cannot carry.
+   by the alias's offset in the target), where they lie inside it; where they do not, the nearest
+   element whose extent encloses them, with a `range` (and `member` where needed), which works in
+   a derived space too; `ranges` of the object that holds them only where no element does. A unit
+   named through its element's recipe (ND2's padded `pixels`) whose element became an alias has no
+   grid, since the target cannot carry the recipe.
 4. **No typing.** `item_bits` is the element's size as the source stores it, or as the chain's
    first codec (decoded last) makes it ([§Step 0](#step-0-the-shared-rules)). Data type names,
    scaling (BSCALE, `scl_slope`), an axis the source does not declare (HDF5's string axis), a fill
@@ -117,7 +118,9 @@ A codec's decoding is given the unit's decoded shape (its grid unit, cut at the 
 `short`, whole under `full`) and the array's `item_bits` and `pad_from`, as Zarr gives a codec its
 chunk's specification. These describe what the chain ends in. A codec other than the chain's
 first, whose decoding makes bytes of another width (FITS's Rice), has that width as a parameter of
-its own. A codec still never sees the unit's coordinates.
+its own. A codec still never sees the unit's coordinates. An image codec's frame is the unit
+shape's last two axes, or the two before the last where a samples axis is last; leading axes of 1
+(a frame's, a level's) are not the frame's.
 
 [§3.1](../../spec/stored-array.md#31-chains)'s sentence "a parameter that depends on the unit's
 position is a column its parser computes" becomes: a parameter that depends on the unit's
@@ -199,9 +202,9 @@ be TIFF's FillOrder 2, which TIFF refuses today for the compressions libtiff rev
 ### Naming a unit's bytes
 
 Step 0 adds to `array.rs` one function that names a unit's bytes in the finished IR as rule 3 says
-(a run member's element with `member`; an alias's target, alone or with a moved `range`; `ranges` of
-the object that holds them; or none inside a derived space, or where the unit was named through
-its element's recipe), with its tests, so that no format
+(a run member's element with `member`; an alias's target, alone or with a moved `range`; the
+nearest enclosing element with a `range`; `ranges` where no element encloses the bytes; or none,
+where the unit was named through its element's recipe), with its tests, so that no format
 writes it. `Ir::fold` frees a folded member's ids during parsing, so a parser records a unit in a
 run as (run root, j, member 0's element) when its fold succeeds, never the id its emitter returned.
 `check::finish` records each run it unfolds (the run's root, the first id of its copies,
@@ -222,13 +225,12 @@ since both names lead to one IFD; for CZI, the second `directory/entries/<i>`.
 its parameters, and the unit's shape with the array's `item_bits` and `pad_from`, as the codec
 contract gives them. A place's bytes become the parameter's value through a reader each
 format registers by (format, codec, parameter), so that the shared decoders take values only and
-no format edits them. Step 0 writes its frame and the codecs
-two or more formats use (the compressors, `tiff_lzw` among them, `shuffle`, `lsb_first`, `jpeg`,
-`jpeg2k`, `jpegxr`, with `jpeg`'s `header` and `jpeg2k`'s `main_header` variants), so that no
-format PR writes a shared codec's decoding, and a registry that finds a codec's decoder by its name
-in a module of its own; each format PR adds, in its own module, the codecs only it uses, and edits
-no shared file. Where imagecodecs lacks a codec, the helper says how
-it decodes:
+no format edits them. Step 0 writes its frame, a registry that finds a codec's decoder by its name
+in a module of its own, every compressor of [§Codecs](#codecs) (`tiff_lzw` among them), `shuffle`,
+`lsb_first`, and the image codecs several formats use (`jpeg`, `jpeg2k`, `jpegxr`, with `jpeg`'s
+`header` and `jpeg2k`'s `main_header` variants), so that no format PR writes a shared codec's
+decoding; each format PR adds, in its own module, the codecs only it uses, and edits no shared
+file. How the helper decodes where imagecodecs lacks a codec, in step 0's modules or a format's:
 - `png` and `bmp` where paletted: Pillow for PNG, which keeps the indices, and imagecodecs'
   `bmp_decode` with `asrgb=False`;
 - `skip`, `fits_quantize`, `lsb_first` and `h5_fletcher32` (HDF5's Fletcher-32 checked over the
@@ -308,7 +310,7 @@ codestream and container); step 0 adds that to
 | `h5_fletcher32` | checks and drops HDF5's appended checksum | | HDF5 (3) |
 | `h5_nbit` | HDF5's N-bit unpacking | `parameters` (the filter's client data, which describes the element's packed fields): `int[]`, `place` | HDF5 (5) |
 | `h5_scaleoffset` | HDF5's scale-offset decoding | `parameters` (the filter's client data): `int[]`, `place` | HDF5 (6) |
-| `tiff_predictor` | undoes horizontal (2) or floating-point (3) differencing along each row | `predictor`: `int`, `place`; `planar_configuration` (optional, 1): `int`, `place`; `byte_order` (`little` or `big`): `str`, `place` | TIFF |
+| `tiff_predictor` | undoes horizontal (2) or floating-point (3) differencing along each row | `predictor`: `int`, `place`; `planar_configuration` (optional, 1): `int`, `place`; `byte_order` (little or big, read from its place): `place` | TIFF |
 | `fits_quantize` | makes big-endian floats of `item_bits` from big-endian 4-byte integers | `method` (optional, NO_DITHER; ZQUANTIZ's name): `str`, `place`; `scale`, `zero`: `place`, `column` Float64; `seed` (optional, given only under a subtractive dither; the tile's 0-based index plus ZDITHER0, the codec entering the random table at (`seed` − 1) mod 10000): `column` Int64; `zblank` (optional): `place`, `column` Int64 | FITS |
 | `lsb_first` | as step 0 | `bits`: `int` | DICOM, MRC, safetensors |
 
@@ -333,7 +335,8 @@ codestream and container); step 0 adds that to
   makes the tile their SOT's `Isot` names, alone, at the place the file puts it; the tile's
   partition, precincts and code-blocks stay the file's.
 - `lerc` makes the blob's own data type, little-endian. A blob's validity mask is not made: a
-  masked pixel's bytes are zero, and the mask stays in the unit's bytes for a profile to read.
+  masked pixel's bytes are zero, and the mask stays in the unit's bytes for a profile to read;
+  TIFF's document names it there.
 - `dicom_rle` rebuilds each sample from its byte planes, so it makes planar samples of Bits
   Allocated / 8 bytes, little-endian.
 - `grib_unpack` makes 64-bit floats, little-endian, by the unpacking, placement and ordering of
@@ -435,8 +438,12 @@ Large (about 2,500 lines), from the spike's branch, about 70% of which carries o
 - **Arrays.** Every visited object with a layout message, keyed by its `objects/<i>` struct, and
   each attribute, keyed by its own attribute message's element: one unit, its value's element, in
   an empty chain. A chunked dataset's grid is `Each(chunk)` under `full`, one row per index entry,
-  its chain the filter pipeline and each chunk's filter mask its `skips` (a partial edge chunk
-  stored unfiltered skipping every filter); a compact or contiguous one is one unit.
+  its chain the filter pipeline; a chunk's `skips` are its filter mask's bits, and every filter
+  for a partial edge chunk where the layout message's don't-filter-partial-chunks flag is set,
+  which HDF5 records there and not in the chunk's mask (the doc comment at
+  `rust/refkv-ir/src/hdf5/mod.rs:1843` says otherwise, and the PR checks today's code against it,
+  with a crafted fixture written under `H5Pset_chunk_opts` through ctypes); a compact or
+  contiguous one is one unit.
 - **Spike rework.** `shape: None` for the null dataspace; the codec names above; `source` with the
   filter's name; filter configuration as places in the filter message's client data, which HDF5's
   document says how to read; the spike's second filter parser folded into `parse_filters`; an
@@ -467,8 +474,8 @@ Medium-large (about 1,000 lines).
   `.npy`'s, of |BITPIX| (|ZBITPIX|) bits; rows `[NAXIS2]` of 8·NAXIS1 bits; heap `[H]` of 8. Fill
   `undefined`; BLANK, BSCALE and BZERO are declarations.
 - **Units.** An image, rows or heap is one unit, its element, but a compressed image's heap,
-  which `tile_cut` splits into `heap/<j>` elements, is `ranges`, or has no grid inside a
-  `.fits.gz`'s derived space. A compressed image's are its tiles,
+  which `tile_cut` splits into `heap/<j>` elements, is its HDU's `hdus/<i>` element with a
+  `range`, which works in a `.fits.gz`'s derived space too. A compressed image's are its tiles,
   `Each(ZTILEj)`, `short`: each a range of today's `heap/<j>` element, or the element alone where
   the tile is all of it. The describe-only PR keeps `tile_cut`. An absent tile has no row.
 - **Chains.** Chain 0 is `[fits_quantize, compressor]` for a quantized image, else `[compressor]`,
@@ -608,21 +615,23 @@ Medium-large.
   element of the part's IR holds, as an extent of the master's object.
 - **Grafts.** `czi_set` is the first graft of many descriptions (about 10^5 in a large slide).
 - **Checker.** czifile's subblock directory and raw segment bytes, and its decoded data for
-  uncompressed, LZW, Zstd and JPEG XR subblocks, with its swap of BGR to RGB undone and alpha left
-  out of the comparison (it sets alpha to 255); JPEG and lossless JPEG, which it decodes with
+  uncompressed, LZW, Zstd and JPEG XR subblocks: for uncompressed and LZW ones, its swap of BGR to
+  RGB undone and alpha left out (it sets alpha to 255); for Zstd, the swap `zstd1_decode` makes
+  undone; JPEG XR compared as it is, alpha included; JPEG and lossless JPEG, which it decodes with
   colors converted or not at all, by the helper alone.
 
 ### ND2
 
 Medium.
-- **Arrays.** One, keyed by `chunks/ImageAttributesLV!`: shape `[N, H, W, C]`, N the product of the
-  loops' counts, as the parser reads it (no N axis where there are no loops, no C axis for one
-  component); `item_bits` is `uiBpcInMemory`; fill `undefined`. Frames at or past N, which the
-  loops do not place and which have no `pixels` element, are no array the source declares: their
-  `frames/<f>/data` elements stay in the IR outside every description, and ND2's document says
-  so.
+- **Arrays.** One, keyed by `chunks/ImageAttributesLV!`: shape `[F, H, W, C]`, the frames as the
+  file numbers them (`ImageDataSeq|f!`, F the largest f plus one), no C axis for one component;
+  the loops, whose product the facts use, are declarations, for a profile to factor F by;
+  `item_bits` is `uiBpcInMemory`; fill `undefined`.
 - **Units.** Each frame's `pixels` element, a run member, whose `rows` recipe already drops the
-  padding; chain `[zlib]` where compressed.
+  padding; a frame past the loops' count, which has no `pixels` element, a `range` of its
+  `frames/<f>/data` element past the 8-byte timestamp, the array having no grid where such a
+  frame's rows are padded or its bytes cut short; chain `[zlib]` where compressed; a missing frame
+  has no row.
 - **Checker.** nd2's attributes, frame offsets and `read_frame`.
 
 ### LIF and XLEF
@@ -636,7 +645,8 @@ Medium.
   otherwise), with the channels as an axis (absent for one channel) at position n of the source's
   list, as rule 9 says; `item_bits`
   the channels' Resolution rounded up to 8, 16, 32 or 64, the Resolution a declaration; fill
-  `undefined`. An image whose channels differ in size or resolution is one array per channel. The
+  `undefined`. An image whose channels differ in size or resolution has no grid, as a TIFF of
+  mixed BitsPerSample has none. The
   declaration is that element; a character range inside its UTF-16 text is not given.
 - **Units.** One per image where its strides nest; where they do not (padded rows, planar channel
   offsets), rows or planes, each the image's element with a `range`; no grid where they do not tile
@@ -666,8 +676,9 @@ Medium.
    or four at a time.
 
 When every format in scope has its description, profile-plugins' steps 3 and 4 are left with
-each one's known structures and plan; DICOM series and the store profiles still get their
-descriptions in step 4, and coded streams in a proposal of their own.
+each one's known structures and plan; DICOM series gets its stored-array description in step 4,
+the store profiles keep their array documents, and coded streams wait for a proposal of their
+own.
 
 ## Alternatives considered
 
