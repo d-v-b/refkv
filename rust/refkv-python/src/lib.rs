@@ -12,7 +12,11 @@ use refkv_ir::tiff::Tiff;
 use refkv_ir::types::{self, Val};
 use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict, PyList};
+use pyo3::types::{PyBytes, PyCapsule, PyDict, PyList};
+use refkv_ir::array::arrow::arrow_array::ffi::FFI_ArrowArray;
+use refkv_ir::array::arrow::arrow_array::ffi_stream::FFI_ArrowArrayStream;
+use refkv_ir::array::arrow::arrow_array::{Array, RecordBatch, RecordBatchIterator, StructArray};
+use refkv_ir::array::arrow::arrow_schema::ffi::FFI_ArrowSchema;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -294,6 +298,19 @@ impl PyIr {
     fn digest(&self) -> u64 {
         self.ir.digest()
     }
+    /// The arrays the source stores (spec/stored-array.md §2.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#25-the-json-form>): one JSON
+    /// document, the chain table and the descriptions.
+    fn stored_arrays(&self) -> String {
+        self.ir.stored.document(&self.ir).to_string()
+    }
+    /// The chunk map (spec/stored-array.md §4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#4-the-chunk-map>): an object
+    /// of the Arrow PyCapsule interface, one record batch.
+    fn chunk_map(&self) -> PyResult<PyChunkMap> {
+        let batch = refkv_ir::array::arrow::batch(&self.ir.stored.map).map_err(|e| Failed::new_err(e.to_string()))?;
+        Ok(PyChunkMap { batch })
+    }
     fn runs_count(&self) -> usize {
         self.ir.runs.len()
     }
@@ -382,6 +399,47 @@ impl PyIr {
         }
         ir.build_children();
         Ok(PyIr::new(ir))
+    }
+}
+
+/// An IR's chunk map as one Arrow record batch, for the Arrow PyCapsule interface
+/// (<https://arrow.apache.org/docs/format/CDataInterface/PyCapsuleInterface.html>): pyarrow,
+/// polars or nanoarrow read it without a copy. A requested schema is ignored: the batch is given
+/// in its own.
+#[pyclass(name = "ChunkMap", module = "refkv._core", frozen)]
+pub struct PyChunkMap {
+    batch: RecordBatch,
+}
+
+fn arrow_err(e: impl std::fmt::Display) -> PyErr {
+    Failed::new_err(e.to_string())
+}
+
+#[pymethods]
+impl PyChunkMap {
+    fn __len__(&self) -> usize {
+        self.batch.num_rows()
+    }
+    /// The schema, a capsule named `arrow_schema`.
+    fn __arrow_c_schema__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyCapsule>> {
+        let schema = FFI_ArrowSchema::try_from(self.batch.schema().as_ref()).map_err(arrow_err)?;
+        PyCapsule::new_with_value(py, schema, c"arrow_schema")
+    }
+    /// The batch as a struct array: capsules named `arrow_schema` and `arrow_array`.
+    #[pyo3(signature = (requested_schema=None))]
+    fn __arrow_c_array__<'py>(&self, py: Python<'py>, requested_schema: Option<Bound<'py, PyAny>>)
+                              -> PyResult<(Bound<'py, PyCapsule>, Bound<'py, PyCapsule>)> {
+        let _ = requested_schema;
+        let schema = FFI_ArrowSchema::try_from(self.batch.schema().as_ref()).map_err(arrow_err)?;
+        let array = FFI_ArrowArray::new(&StructArray::from(self.batch.clone()).to_data());
+        Ok((PyCapsule::new_with_value(py, schema, c"arrow_schema")?, PyCapsule::new_with_value(py, array, c"arrow_array")?))
+    }
+    /// A stream of the one batch, a capsule named `arrow_array_stream`.
+    #[pyo3(signature = (requested_schema=None))]
+    fn __arrow_c_stream__<'py>(&self, py: Python<'py>, requested_schema: Option<Bound<'py, PyAny>>) -> PyResult<Bound<'py, PyCapsule>> {
+        let _ = requested_schema;
+        let reader = RecordBatchIterator::new(vec![Ok(self.batch.clone())], self.batch.schema());
+        PyCapsule::new_with_value(py, FFI_ArrowArrayStream::new(Box::new(reader)), c"arrow_array_stream")
     }
 }
 
@@ -1016,6 +1074,7 @@ fn _set_chunk_frames(n: Option<usize>) {
 #[pyo3(name = "_core")]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyIr>()?;
+    m.add_class::<PyChunkMap>()?;
     m.add_class::<PyNd2>()?;
     m.add_class::<PyCzi>()?;
     m.add_class::<PyTiff>()?;

@@ -132,7 +132,11 @@ fn shared_refs(form: &str) -> Vec<(usize, usize, usize)> {
 /// sorted by their UTF-8 bytes; shared sources numbered by first use (rows in order,
 /// a form's parts in order) and the forms, so renumbered, sorted.
 pub fn canonical(ir: &Ir) -> Result<Ir, String> {
+    // the stored arrays are shared, not copied, by the clone, and left out before the runs are
+    // unfolded: the mirror does not write them (spec/stored-array.md §6
+    // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>)
     let mut x = ir.clone();
+    x.stored = Default::default();
     x.budget = None;
     if x.runs.iter().any(|r| (r.0 as usize) >= x.len() || x.nidx[r.0 as usize] == NO_INDEX) {
         return Err("a run whose root has no name index".into());

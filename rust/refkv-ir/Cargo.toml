@@ -19,6 +19,11 @@ test-hooks = []
 # `routines::typed` gives the coding routines' codecs as its `MetadataV3`, and the core's tests
 # parse every array document refkv writes with it (`cargo test --features zarrs`)
 zarrs = ["dep:zarrs_metadata"]
+# The chunk map as an Arrow record batch (`array::arrow`; spec/stored-array.md §4.1
+# <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#41-the-arrow-schema>), which the
+# Python bindings export through the Arrow PyCapsule interface: only rust/refkv-python enables
+# it, so that the wasm32 module compiles none of Arrow
+arrow = ["dep:arrow-array", "dep:arrow-buffer", "dep:arrow-schema"]
 
 [dependencies]
 miniz_oxide = "0.8"
@@ -41,6 +46,10 @@ serde = "1"
 # a pure-Rust JPEG 2000 decoder, for GRIB's template 5.40 (src/grib/codec/jpeg2000.rs): without
 # its `image` integration, or its SIMD, which leaves the wasm32 module no smaller or faster
 hayro-jpeg2000 = { version = "0.4.1", default-features = false, features = ["std"] }
+# the feature `arrow`'s: arrays, their buffers and the schema, with the C data interface (`ffi`)
+arrow-array = { version = "60.1", optional = true, features = ["ffi"] }
+arrow-buffer = { version = "60.1", optional = true }
+arrow-schema = { version = "60.1", optional = true, features = ["ffi"] }
 
 # build.rs reads the registry's copies (profiles/)
 [build-dependencies]
