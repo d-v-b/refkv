@@ -189,8 +189,11 @@ A codec's name is one of this list. Each entry gives:
 - the exact byte format its decoding takes, its framing included: a header, a trailer, a block
   layout or a checksum the source writes around the encoded bytes (HDF5's LZ4 filter writes its own
   block layout, not an LZ4 frame; LZF has no header; `zlib` is RFC 1950, with its header and
-  Adler-32, not raw deflate). A name never covers two framings: an encoding the sources frame two
-  ways is two entries;
+  Adler-32, not raw deflate). A name never covers two framings, unless a parameter of its entry
+  chooses between them (HDF5's bitshuffle filter, whose compression parameter frames its blocks
+  with LZ4 or leaves them bare, would be one entry, `h5_bitshuffle`); otherwise an encoding the
+  sources frame two ways is two entries, and one HDF5 frames its own way has a name of its own,
+  prefixed `h5_` (`h5_lz4`, `h5_szip`);
 - its parameters, which of them a unit may give as a column and the column's Arrow type;
 - what its decoding makes;
 - for a parameter given as a place, how the parameter is made from those bytes.
