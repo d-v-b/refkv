@@ -602,7 +602,8 @@ be read as a source.
   file's descriptions inside a store can therefore lose grids, depending on the files grafted
   before it, and the store's `digest()` reflects that;
 - then the chains the file's remaining descriptions name, with their `Place::Element` ids
-  renumbered, join the store's table: one equal to a chain already there takes its position, and
+  renumbered and every `Place::Extent`'s null key replaced by the file's key (as above), join the
+  store's table, compared only after both rewrites: one equal to a chain already there takes its position, and
   the rest are appended in order of first use. The store's earlier chains and positions do not
   change, and a chain no remaining description names is not carried;
 - last, inside `Ir::graft` and before anything is added, the descriptions' limit is checked, as
