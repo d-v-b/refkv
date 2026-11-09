@@ -938,7 +938,8 @@ and changing an output is a cost only to the fixtures.
    `Image`), its stored arrays coming from a third PR before both, the
    format's describe-only PR, which may land before step 2
    ([ir-format-descriptions.md](ir-format-descriptions.md)); NumPy's
-   description landed with the stored-array type itself. The second
+   description landed with the stored-array type itself, and its plan PR
+   follows the PR that describes its deflated members. The second
    sorts its facts and checks against them, moves the
    parser's decisions and their reads into its plan, sizes its decisions by
    the largest source index (changing the outputs near the limit), deletes

@@ -264,7 +264,7 @@ format's describe-only PR gives it a place:
 - a gzipped NIfTI becomes one derived element over the file in space 0, the only claim on those
   bytes, with `header`, its extender and extensions, and `voxels` (from `vox_offset`) in its derived
   space. Validating the mirror's view of such a header re-derives the stream, and the parser reads
-  only its start; NIfTI's describe-only PR keeps validation to the stream's start, or says that cost is taken;
+  only its start; NIfTI's describe-only PR keeps validation to the stream's start;
 - a deflated `.npz` member gets `header` and `data` children in its derived space.
 
 **Arrays whose storage the IR does not model.** These have a description with `grid: None`, no
@@ -659,8 +659,8 @@ one array is stored. This changes two things in profile-plugins:
    - NumPy's parser describing its arrays (a `.npy` file's and each stored `.npz` member's),
      checked against NumPy's own reading of each header, with no output changed, so the type meets
      a real format at once. A deflated member gets no description in this step, an exception to
-     "every array the parser reaches" that ends when NumPy's PR gives it `header` and `data`
-     children;
+     "every array the parser reaches" that ends when NumPy's deflated-member PR gives it `header`
+     and `data` children ([ir-format-descriptions.md](ir-format-descriptions.md#gzipped-files));
    - the two edits to profile-plugins.
 
    Only NumPy emits descriptions yet, and no output changes.

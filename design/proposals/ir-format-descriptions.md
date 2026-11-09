@@ -104,13 +104,14 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
 ## Step 0: the shared rules
 
 One PR before the formats, changing spec/stored-array.md, the IR's codec list and checks, the
-function that names a unit's bytes with `check::finish`'s record of unfolded runs, and the test
-helpers. It also adds to [§7](../../spec/stored-array.md#7-the-formats) one heading per format,
-in the order of [§The formats](#the-formats), each holding a line that the format is not described
-yet, so that each format PR fills its own heading and none appends to the end of the file; and it
-rewords [§1](../../spec/stored-array.md#1-stored-arrays)'s "Today only the NumPy profile describes
-its arrays" to point at [§7](../../spec/stored-array.md#7-the-formats)'s headings, which no format
-PR then edits.
+function that names a unit's bytes with `check::finish`'s record of unfolded runs, the `gz.rs`
+helper that gives a gzip or deflate stream one derived element ([§Gzipped files](#gzipped-files)),
+and the test helpers. It also adds to [§7](../../spec/stored-array.md#7-the-formats) one heading per
+format, in the order of [§The formats](#the-formats), each holding a line that the format is not
+described yet, so that each format PR fills its own heading and none appends to the end of the file;
+and it rewords [§1](../../spec/stored-array.md#1-stored-arrays)'s "Today only the NumPy profile
+describes its arrays" to point at [§7](../../spec/stored-array.md#7-the-formats)'s headings, which
+no format PR then edits.
 
 ### A codec sees the unit's shape
 
@@ -119,8 +120,9 @@ A codec's decoding is given the unit's decoded shape (its grid unit, cut at the 
 chunk's specification. These describe what the chain ends in. A codec other than the chain's
 first, whose decoding makes bytes of another width (FITS's Rice), has that width as a parameter of
 its own. A codec still never sees the unit's coordinates. An image codec's frame is the unit
-shape's last two axes, or the two before the last where a samples axis is last; leading axes of 1
-(a frame's, a level's) are not the frame's.
+shape's last two axes, or the two before the last where the last is a samples axis, which it is
+exactly where the stream codes more than one component (or, for `webp`, where `alpha` adds one);
+leading axes of 1 (a frame's, a level's) are not the frame's.
 
 [§3.1](../../spec/stored-array.md#31-chains)'s sentence "a parameter that depends on the unit's
 position is a column its parser computes" becomes: a parameter that depends on the unit's
@@ -422,9 +424,11 @@ Medium, after TIFF.
 - **Grid and chains.** `Each(1)` on each leading axis, then the tile and S, under `full`; one unit a
   tile, its `tiles/<k>` element; the chain the ETS header's compression names, one codec;
   `item_bits` the pixel type's sample size, or what the codec makes; S the header's `channels`.
-  The parser reads no tile's own header, so a tile whose decoding cannot make `channels` samples
-  (a 32-bit BMP with no alpha mask under four channels, a paletted tile under three) is caught by
-  the checker, and VSI's PR falls back to `source` for whatever such files the corpus holds.
+  For PNG and BMP the parser reads the first tile's header (PNG's color type and bit depth, BMP's
+  bit count and alpha mask), as TIFF reads its last JPEG strip's SOF, and gives the array `source`
+  where that tile cannot make `channels` samples (a 32-bit BMP with no alpha mask under four
+  channels, a paletted tile under three); the other tiles follow it, and one that differs is
+  caught by the checker.
 - **Fill.** Given, as a place in the `ets` header, when the background's samples are equal and the
   tiles are raw; otherwise `undefined`, with the header among the declarations.
 - **Checker.** Bio-Formats for shapes, tile sizes and decoded tiles (minding BGR and the
@@ -441,8 +445,9 @@ Large (about 2,500 lines), from the spike's branch, about 70% of which carries o
   its chain the filter pipeline; a chunk's `skips` are its filter mask's bits, and every filter
   for a partial edge chunk where the layout message's don't-filter-partial-chunks flag is set,
   which HDF5 records there and not in the chunk's mask (the doc comment at
-  `rust/refkv-ir/src/hdf5/mod.rs:1843` says otherwise, and the PR checks today's code against it,
-  with a crafted fixture written under `H5Pset_chunk_opts` through ctypes); a compact or
+  `rust/refkv-ir/src/hdf5/mod.rs:1843` says otherwise, though the code beside it, `raw_edges`,
+  already reads the flag; the PR corrects the comment and adds a crafted fixture written under
+  `H5Pset_chunk_opts` through ctypes); a compact or
   contiguous one is one unit.
 - **Spike rework.** `shape: None` for the null dataspace; the codec names above; `source` with the
   filter's name; filter configuration as places in the filter message's client data, which HDF5's
@@ -517,12 +522,13 @@ Medium-large (about 500 lines).
 ### Gzipped files
 
 A gzipped NIfTI or MRC file's header and voxels lie in the stream, which no element holds today.
-Their PRs give the file one derived element over its bytes in space 0, with `header` and the voxels
-in its derived space, as [ir-array-model.md](ir-array-model.md#what-an-array-is) planned and as a
-`.fits.gz` already has. Validating the mirror's view of the header re-derives the stream, while the
-parser reads only its start: the PRs keep validation to the stream's start, and name the mirror's
-changed forms. A helper in `gz.rs` serves both, and NumPy's deflated `.npz` members, whose
-`header` and `data` become children of their derived space in a small PR after NIfTI's.
+Their PRs give the file one derived element over its bytes in space 0, by step 0's `gz.rs` helper,
+with `header` and the voxels in its derived space, as
+[ir-array-model.md](ir-array-model.md#what-an-array-is) planned and as a `.fits.gz` already has.
+Validating the mirror's view of the header re-derives the stream, while the parser reads only its
+start: the PRs keep validation to the stream's start, and name the mirror's changed forms. The same
+helper serves NumPy's deflated `.npz` members, whose `header` and `data` become children of their
+derived space in a small PR of their own after step 0, which NumPy's plan PR then follows.
 
 ### NIfTI
 
@@ -534,7 +540,7 @@ Small for plain files and pairs; medium with gzip.
 
 ### MRC and MRC datasets
 
-Small; medium with gzip; after NIfTI.
+Small; medium with gzip.
 - **Arrays.** Keyed by `header`. Shape `[nz, ny, nx]` with `axes` `[2, 1, 0]`; `item_bits` by mode.
 - **Mode 101.** 4-bit items, `pad_from` 2, chain `[lsb_first(4)]`.
 - **MRC datasets** have no arrays of their own: they reuse the file's description, and the PR
@@ -670,10 +676,9 @@ Medium.
 ## Order of work
 
 1. **Step 0.**
-2. **The formats**, each its own PR to main, in any order but for TIFF before NDPI and VSI, and
-   NIfTI before MRC and NumPy's deflated members. Each touches its own parser, its own paragraph of
-   [§7](../../spec/stored-array.md#7-the-formats) and its document, so they run side by side, three
-   or four at a time.
+2. **The formats**, each its own PR to main, in any order but for TIFF before NDPI and VSI. Each
+   touches its own parser, its own paragraph of [§7](../../spec/stored-array.md#7-the-formats) and
+   its document, so they run side by side, three or four at a time.
 
 When every format in scope has its description, profile-plugins' steps 3 and 4 are left with
 each one's known structures and plan; DICOM series gets its stored-array description in step 4,
