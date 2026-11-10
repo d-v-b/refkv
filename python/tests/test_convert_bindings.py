@@ -168,7 +168,7 @@ def test_a_reference_payload_too_long_for_vzip_is_refused_and_leaves_the_file(tm
 def test_a_failed_conversion_leaves_an_existing_destination(tmp_path):
     refkv.ReferenceStore({"__vz__/n": b"n"}).save_phkv(tmp_path / "a.phkv")
     (tmp_path / "a.vzip").write_bytes(b"previous")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="__vz__/n"):
         refkv.phkv_to_vzip(tmp_path / "a.phkv", tmp_path / "a.vzip")
     assert (tmp_path / "a.vzip").read_bytes() == b"previous"
 
