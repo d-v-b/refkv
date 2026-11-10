@@ -284,7 +284,12 @@ def decoded(names: list[str], unit: bytes, dtype: np.dtype, shape: tuple[int, ..
 
 
 def czifile_reads(segment: czifile.CziSubBlockSegmentData) -> np.ndarray | None:
-    """The subblock's values as czifile reads them; None where it reads none."""
+    """The subblock's values as czifile reads them; None where it reads none. czifile decodes JPEG
+    XR with imagecodecs' JPEG XR decoder, as it does where Windows' WIC is not there: WIC, which
+    it prefers on Windows, reads the float pixel formats otherwise."""
+    entry = segment.directory_entry
+    if entry.compression == czifile.CziCompressionType.JPEGXR:
+        entry.decode = imagecodecs.jpegxr_decode
     try:
         return np.asarray(segment.data())
     except Exception:  # noqa: BLE001  (whatever a decoder raises: czifile reads no values to compare)
