@@ -534,13 +534,24 @@ def make_handler(fixtures: Path, upstream: Upstream, page_size: int = 100, failu
     return Handler
 
 
+class Server(ThreadingHTTPServer):
+    """A `ThreadingHTTPServer` that says nothing of a client that closes its connection first: a
+    zarrifier closes a connection whose bytes it no longer needs, and `socketserver` would print
+    each one's traceback, which is no failure."""
+
+    @override
+    def handle_error(self, request, client_address) -> None:
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
+
+
 class Proxy:
     """Runs the server in a thread; `base` is its URL, ending in "/"."""
 
     def __init__(self, fixtures: Path, cache: Path, port: int = 0, page_size: int = 100) -> None:
         self.failures = Failures()
-        self.server = ThreadingHTTPServer(("127.0.0.1", port),
-                                          make_handler(fixtures, Upstream(cache), page_size, self.failures))
+        self.server = Server(("127.0.0.1", port), make_handler(fixtures, Upstream(cache), page_size, self.failures))
         self.base = f"http://127.0.0.1:{self.server.server_address[1]}/"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
