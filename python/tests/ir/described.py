@@ -34,10 +34,11 @@ class Described:
     out: Output | StoreIrOutput
 
     def key(self, element: int) -> str | None:
-        """The key of the object `element` is in."""
+        """The key of the object `element` is in: the object's path, a store's directories being
+        the elements above its objects."""
         while element and self.ir.kind(element) != Kind.OBJECT:
             element = self.ir.parent(element)
-        return self.ir.name(element) if element else None
+        return self.ir.path(element) if element else None
 
     def at(self, element: int, within: tuple[int, int] | None = None) -> tuple[str | None, int, int]:
         """(object key, offset, length) of an element's extent, or of a range of it."""
@@ -54,6 +55,11 @@ class Described:
             key, start, length = p.object, p.offset, p.length
         return self.objects[key][start:start + length]
 
+    def held(self, at: tuple[str | None, int, int]) -> bytes:
+        """The bytes of (object key, offset, length)."""
+        key, start, length = at
+        return self.objects[key][start:start + length]
+
     def parts(self, row: dict) -> list[tuple[str | None, int, int]]:
         """A row's unit: the ranges of objects that, joined, are its stored bytes."""
         if row["element"] is None:
@@ -67,8 +73,9 @@ class Described:
 
 @cache
 def described(path: Path) -> Described:
-    """The IR of the file at `path`, read with the files beside it that it names (an external
-    file, an external link's target), its descriptions' document checked against the schema."""
+    """The IR of the file at `path`, read with the files beside it or below its directory that it
+    names (an external file, an external link's target, a detached data file), its descriptions'
+    document checked against the schema."""
     _, out = _zarrify(str(path), scope=str(path.parent))
     core = out.ir
     assert core is not None
@@ -77,6 +84,7 @@ def described(path: Path) -> Described:
     rows: dict[int, list[dict]] = {}
     for r in pa.record_batch(core.chunk_map()).to_pylist():
         rows.setdefault(r["array"], []).append(r)
-    keys = [ir.name(c) for c in ir.children(0) if ir.kind(c) == Kind.OBJECT]
+    # a store's objects by their keys, relative to the file's directory; a file's IR has none
+    keys = [key for key, _, _ in ir.object_bases()]
     objects: dict[str | None, bytes] = {k: (path.parent / k).read_bytes() for k in keys} or {None: path.read_bytes()}
     return Described(ir, ir.stored_arrays(), rows, objects, out)

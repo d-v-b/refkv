@@ -40,8 +40,7 @@ import pytest
 from described import Described, described
 from ir_helpers import FIXTURES
 
-from refkv.ir.kind import Kind
-from refkv.ir.stored import Each, ElementPlace, Place, Source
+from refkv.ir.stored import Each, ElementPlace, Source
 
 FILES = sorted(p for p in (FIXTURES / "nrrd").iterdir() if p.suffix in (".nrrd", ".nhdr") and "reject" not in p.name)
 # what pynrrd raises of data it does not read: its own error, zlib's, and NumPy's of bytes that
@@ -53,40 +52,9 @@ type Range = tuple[str, int, int]
 """(object key, offset, length): bytes of a file of the input"""
 
 
-@dataclass(frozen=True)
-class Input:
-    """A NRRD input's descriptions, with its store's objects: each object's key by its element,
-    and each file's bytes by its key."""
-
-    d: Described
-    keys: dict[int, str]
-    files: dict[str, bytes]
-
-    def where(self, element: int, within: tuple[int, int] | None = None) -> Range:
-        """The bytes of an element's extent, or of a range of it."""
-        start, length = self.d.ir.extent(element)
-        if within is not None:
-            start, length = start + within[0], within[1]
-        while self.d.ir.kind(element) != Kind.OBJECT:
-            element = self.d.ir.parent(element)
-        return self.keys[element], start, length
-
-    def held(self, at: Range) -> bytes:
-        key, offset, length = at
-        return self.files[key][offset:offset + length]
-
-    def placed(self, place: Place) -> bytes:
-        """The bytes at a place: an element's, or a range of them."""
-        assert isinstance(place, ElementPlace)
-        return self.held(self.where(place.element, place.range))
-
-
-def read_input(path: Path) -> Input:
-    """The input whose header file is at `path`, its data file beside it."""
-    d = described(path)
-    objects = [i for i in range(len(d.ir)) if d.ir.kind(i) == Kind.OBJECT]
-    keys = {i: key for i, (key, _, _) in zip(objects, d.ir.object_bases(), strict=True)}
-    return Input(d, keys, {key: (path.parent / key).read_bytes() for key in keys.values()})
+def files(d: Described) -> dict[str, bytes]:
+    """A NRRD input's files by their keys: a NRRD is always a store, so each has one."""
+    return {key: data for key, data in d.objects.items() if key is not None}
 
 
 @dataclass
@@ -188,31 +156,31 @@ def field_of(line: bytes) -> tuple[str, str]:
     return identifier.lower(), descriptor.strip()
 
 
-def decoded(inp: Input, unit: bytes) -> bytes:
+def decoded(inp: Described, unit: bytes) -> bytes:
     """A unit's bytes taken through the array's chain, from its last codec to its first."""
-    (a,) = inp.d.stored.arrays
-    for codec in reversed(inp.d.stored.chains[a.chains[0]]):
+    (a,) = inp.stored.arrays
+    for codec in reversed(inp.stored.chains[a.chains[0]]):
         if codec.name == "gzip":
             # every member's bytes, joined
             unit = gzip.decompress(unit)
         elif codec.name == "skip":
             length = codec.parameters["length"]
             assert isinstance(length, Source)
-            unit = unit[int(inp.placed(length.place)):]
+            unit = unit[int(inp.place(length.place)):]
         else:
             raise AssertionError(f"the codec {codec.name}")
     return unit
 
 
-def check(path: Path, inp: Input, wrote: bytes | None, seen: Counter) -> list[str]:
+def check(path: Path, inp: Described, wrote: bytes | None, seen: Counter) -> list[str]:
     """What differs between the description of the input at `path` and pynrrd's reading of it.
     `wrote` is the array's bytes, for an input the test wrote that pynrrd refuses."""
-    d = inp.d
+    d = inp
     if d.stored.undescribed or len(d.stored.arrays) != 1:
         return [f"{len(d.stored.arrays)} descriptions, undescribed {d.stored.undescribed}"]
     (a,) = d.stored.arrays
     rows = d.rows.get(0, [])
-    header = pynrrd_header(path, inp.files)
+    header = pynrrd_header(path, files(inp))
     sizes = [int(n) for n in header["sizes"]]
     skip = int(header.get("byte skip", header.get("byteskip", 0)))
     gz = header["encoding"] in ("gzip", "gz")
@@ -221,7 +189,7 @@ def check(path: Path, inp: Input, wrote: bytes | None, seen: Counter) -> list[st
     seen[f"arrays of {len(sizes)} axes"] += 1
 
     # the key: the header file's object
-    if inp.keys.get(a.element) != path.name or a.index is not None:
+    if inp.key(a.element) != path.name or a.index is not None:
         said.append(f"keyed by {a.path} with the index {a.index}, not by the header file's object")
 
     # the declarations: the lines of the type and of the endian, as pynrrd reads them
@@ -231,8 +199,8 @@ def check(path: Path, inp: Input, wrote: bytes | None, seen: Counter) -> list[st
         if not isinstance(p, ElementPlace) or p.range is not None or p.member is not None:
             said.append(f"a declaration {p} that is no whole element")
             continue
-        key, start, length = inp.where(p.element)
-        whole, before = inp.files[key][start:start + length], inp.files[key][:start]
+        key, start, length = inp.at(p.element)
+        whole, before = inp.objects[key][start:start + length], inp.objects[key][:start]
         # a line of the header file: it starts the file or follows a line end, and ends with its own
         if key != path.name or before[-1:] not in (b"", b"\n") or whole.count(b"\n") != 1 or whole[-1:] != b"\n":
             said.append(f"a declaration at {(key, start, length)} that is no line of the header")
@@ -242,7 +210,7 @@ def check(path: Path, inp: Input, wrote: bytes | None, seen: Counter) -> list[st
     seen["arrays of one byte, with no endian"] += "endian" not in header
 
     # the shape, the axes' order and the sample size
-    stored, listed, reads = referenced(path, inp.files, skip if gz else 0, seen)
+    stored, listed, reads = referenced(path, files(inp), skip if gz else 0, seen)
     if stored is None or listed is None:
         if wrote is None:
             return [*said, "pynrrd reads no array"]
@@ -287,19 +255,19 @@ def check(path: Path, inp: Input, wrote: bytes | None, seen: Counter) -> list[st
         if not isinstance(length, Source) or not isinstance(length.place, ElementPlace) or length.place.range is None:
             return [*said, f"a skip of the length {length}"]
         # the descriptor of the byte skip's line, as pynrrd reads it
-        line = inp.held(inp.where(length.place.element))
-        at = inp.where(length.place.element, length.place.range)
+        line = inp.held(inp.at(length.place.element))
+        at = inp.at(length.place.element, length.place.range)
         offset, count = length.place.range
         if (at[0] != path.name or field_of(line)[0] not in ("byte skip", "byteskip")
                 or line[offset:offset + count].decode() != field_of(line)[1] or int(inp.held(at)) != skip):
             said.append(f"a skip of the length {inp.held(at)!r} of the line {line!r}, pynrrd's byte skip {skip}")
 
     # the row: the bytes pynrrd reads the data from
-    at = inp.where(row["element"])
+    at = inp.at(row["element"])
     if reads != [at]:
         said.append(f"the unit at {at}, pynrrd reads {reads}")
     seen["arrays of a data file"] += at[0] != path.name
-    seen["units with bytes of the file after them"] += at[1] + at[2] < len(inp.files[at[0]])
+    seen["units with bytes of the file after them"] += at[1] + at[2] < len(inp.objects[at[0]])
 
     # the unit, decoded through the chain: the array's bytes
     if decoded(inp, inp.held(at)) != want:
@@ -314,7 +282,7 @@ def compared(path: Path, wrote: bytes | None = None) -> tuple[tuple[str, ...], C
     """What differs between the description of the input at `path` and pynrrd, and what the
     comparison saw."""
     seen: Counter = Counter()
-    return tuple(check(path, read_input(path), wrote, seen)), seen
+    return tuple(check(path, described(path), wrote, seen)), seen
 
 
 @pytest.mark.parametrize("path", FILES, ids=[p.name for p in FILES])
@@ -437,11 +405,11 @@ def test_a_stream_of_more_bytes_than_the_arrays_is_described_as_one_of_as_many(t
     for name, more in (("as_many", b""), ("more", b"and more")):
         (tmp_path / name).mkdir()
         (tmp_path / name / "a.nrrd").write_bytes(top + gzip.compress(data + more))
-    exact, longer = read_input(tmp_path / "as_many" / "a.nrrd"), read_input(tmp_path / "more" / "a.nrrd")
+    exact, longer = described(tmp_path / "as_many" / "a.nrrd"), described(tmp_path / "more" / "a.nrrd")
     assert compared(tmp_path / "as_many" / "a.nrrd")[0] == ()
-    assert longer.d.stored == exact.d.stored
-    assert longer.d.rows == exact.d.rows
-    (row,) = longer.d.rows[0]
-    assert decoded(longer, longer.held(longer.where(row["element"]))) == data + b"and more"
+    assert longer.stored == exact.stored
+    assert longer.rows == exact.rows
+    (row,) = longer.rows[0]
+    assert decoded(longer, longer.held(longer.at(row["element"]))) == data + b"and more"
     with pytest.raises(REFUSALS):
-        pynrrd_data(tmp_path / "more" / "a.nrrd", longer.files, "C", Log())
+        pynrrd_data(tmp_path / "more" / "a.nrrd", files(longer), "C", Log())

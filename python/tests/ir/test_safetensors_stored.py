@@ -34,7 +34,6 @@ from collections import Counter
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
-from typing import override
 
 import jsonschema
 import numpy as np
@@ -57,17 +56,6 @@ STORES = sorted(p for p in (FIXTURES / "safetensors").iterdir() if p.is_dir())
 SPACE = " \t\n\r"
 
 
-@dataclass(frozen=True)
-class StoreDescribed(Described):
-    """A store's IR with its stored arrays: an object's key is its element's path."""
-
-    @override
-    def key(self, element: int) -> str | None:
-        while element and self.ir.kind(element) != Kind.OBJECT:
-            element = self.ir.parent(element)
-        return self.ir.path(element) if element else None
-
-
 @cache
 def described_store(root: Path) -> Described:
     """The IR of the store at the directory `root`, zarrified in the profile's store form, its
@@ -80,7 +68,7 @@ def described_store(root: Path) -> Described:
         rows.setdefault(r["array"], []).append(r)
     objects: dict[str | None, bytes] = {p.relative_to(root).as_posix(): p.read_bytes()
                                         for p in root.rglob("*") if p.is_file()}
-    return StoreDescribed(ir, ir.stored_arrays(), rows, objects, out)
+    return Described(ir, ir.stored_arrays(), rows, objects, out)
 
 
 def read(path: Path) -> Described:
