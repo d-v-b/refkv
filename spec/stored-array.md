@@ -30,8 +30,9 @@ with no grid, [§2.3](#23-the-grid)).
 
 Every array a parser reaches has a description, whether or not its profile presents it. Each
 format's document lists the structures that are its stored arrays and what each of their
-declarations is. Today the NumPy, HDF5, IMS, TIFF, QPTIFF and NDPI parsers describe their arrays,
-and the MP4 parser its tracks' samples ([§7](#7-the-formats)).
+declarations is. A format whose parser describes its arrays has a paragraph in
+[§7](#7-the-formats), which says what of the format is described and what is not yet; the parser
+of a format with no paragraph there describes nothing.
 
 ## 2. The description
 

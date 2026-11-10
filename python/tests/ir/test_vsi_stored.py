@@ -81,22 +81,17 @@ write_fixtures = vsi_generator()
 
 @dataclass(frozen=True)
 class Slide:
-    """A slide's descriptions, with its store's objects: each object's key by its element, and
-    each file's bytes by its key. (`Described` reads a key as a name under the root, which a tile
-    file's is not.)"""
+    """A slide's descriptions, with its store's files, each one's bytes by its key. A slide is
+    always a store, so every place has a key."""
 
     d: Described
-    keys: dict[int, str]
     files: dict[str, bytes]
 
     def where(self, element: int, within: tuple[int, int] | None = None) -> Range:
         """The bytes of an element's extent, or of a range of it."""
-        start, length = self.d.ir.extent(element)
-        if within is not None:
-            start, length = start + within[0], within[1]
-        while self.d.ir.kind(element) != Kind.OBJECT:
-            element = self.d.ir.parent(element)
-        return self.keys[element], start, length
+        key, start, length = self.d.at(element, within)
+        assert key is not None
+        return key, start, length
 
     def held(self, at: Range) -> bytes:
         key, offset, length = at
@@ -116,9 +111,7 @@ class Slide:
 def read_slide(path: Path) -> Slide:
     """The slide whose `.vsi` file is at `path`, its tile files beside it."""
     d = described(path)
-    objects = [i for i in range(len(d.ir)) if d.ir.kind(i) == Kind.OBJECT]
-    keys = {i: key for i, (key, _, _) in zip(objects, d.ir.object_bases(), strict=True)}
-    return Slide(d, keys, {key: (path.parent / key).read_bytes() for key in keys.values()})
+    return Slide(d, {key: data for key, data in d.objects.items() if key is not None})
 
 
 # ---- the files, read here as spec/zarrify/vsi.md lays them out

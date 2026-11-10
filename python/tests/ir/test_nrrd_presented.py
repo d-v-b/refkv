@@ -25,7 +25,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from test_nrrd_stored import FILES, Input, read_input
+from described import Described, described
+from test_nrrd_stored import FILES
 
 from refkv._narrow import JSON, at, integer, mapping, sequence, string
 from refkv.ir.store import StoreIrOutput
@@ -46,10 +47,10 @@ def descriptor(line: bytes, identifier: str) -> str:
     return text.strip()
 
 
-def check(inp: Input, seen: Counter) -> list[str]:
+def check(inp: Described, seen: Counter) -> list[str]:
     """What differs between the array the profile wrote of an input and what the input's
     description gives by the profile's rules."""
-    d, out = inp.d, inp.d.out
+    d, out = inp, inp.out
     assert isinstance(out, StoreIrOutput), "a NRRD input is read as a store"
     (a,) = d.stored.arrays
     (row,) = d.rows[0]
@@ -84,7 +85,7 @@ def check(inp: Input, seen: Counter) -> list[str]:
         seen["arrays of one byte"] += 1
         codecs.append({"name": "bytes"})
     else:
-        endian = descriptor(inp.placed(a.declarations[1]), "endian").lower()
+        endian = descriptor(inp.place(a.declarations[1]), "endian").lower()
         seen[f"arrays of {endian}-endian elements"] += 1
         codecs.append({"name": "bytes", "configuration": {"endian": endian}})
     chain = d.stored.chains[a.chains[0]]
@@ -93,7 +94,7 @@ def check(inp: Input, seen: Counter) -> list[str]:
             length = codec.parameters["length"]
             assert isinstance(length, Source)
             seen["arrays of a skip in the stream"] += 1
-            codecs.append({"name": "refkv.skip", "configuration": {"length": int(inp.placed(length.place))}})
+            codecs.append({"name": "refkv.skip", "configuration": {"length": int(inp.place(length.place))}})
         elif codec.name == "gzip":
             codecs.append({"name": "gzip", "configuration": {"level": 1}})
         else:
@@ -104,8 +105,8 @@ def check(inp: Input, seen: Counter) -> list[str]:
     # the chunks, of the one unit: its bytes cut, or the stream whole
     if a.grid.axes != tuple(Each(n) for n in a.shape) or row["range"] is not None or row["element"] is None:
         return [*said, f"grid {a.grid} and row {row}, not one unit of the whole array"]
-    key, offset, length = inp.where(row["element"])
-    seen["arrays of a data file"] += inp.keys[a.element] != key
+    key, offset, length = inp.at(row["element"])
+    seen["arrays of a data file"] += inp.key(a.element) != key
     padding = 0
     want: dict[str, list[tuple]] = {}
     if chain:
@@ -153,7 +154,7 @@ def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
     """What differs between the array the profile wrote of the input at `path` and the input's
     description, and what the comparison saw."""
     seen: Counter = Counter()
-    return tuple(check(read_input(path), seen)), seen
+    return tuple(check(described(path), seen)), seen
 
 
 @pytest.mark.parametrize("path", FILES, ids=[p.name for p in FILES])
