@@ -56,7 +56,7 @@ use serde_json::{Value as J, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[path = "tiff/stored.rs"]
-mod stored;
+pub(crate) mod stored;
 
 const TABLE: [u16; 24] = [
     256, 257, 258, 259, 262, 266, 270, 273, 277, 278, 279, 282, 283, 284, 296, 317, 322, 323, 324, 325, 330, 339, 347, 530,
@@ -352,7 +352,7 @@ struct SetState {
 
 /// An entry of a tile or strip table, as the IR holds it.
 #[derive(Clone, Copy, PartialEq)]
-enum Unit {
+pub(crate) enum Unit {
     /// its `data` element, and whether the element's form frames it with a JPEG prefix
     Held(u32, bool),
     /// of no bytes at offset 0, as a sparse file's writer leaves a unit out: the IR has no element
