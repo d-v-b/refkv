@@ -227,11 +227,12 @@ A chain's codec has only its entry's parameters.
 | --- | --- | --- | --- | --- |
 | `source` | the bytes the source's encoding wrote, framed as the source frames them | `format`: the profile's name; `id`: the source's id for the encoding, as the source gives it; `name`: the source's own name for the encoding, where it gives one (an HDF5 filter's optional name); `parameters`: its parameters, as the source gives them (a value, or a place that holds them) | none | what the source's encoding decodes to, elements of `item_bits` bits where the description gives it, and of the size that encoding gives them otherwise; the profile maps it or leaves the array out |
 | `zlib` | a zlib stream ([RFC 1950](https://www.rfc-editor.org/rfc/rfc1950)) | none | none | the bytes it inflates to |
+| `gzip` | a gzip stream ([RFC 1952](https://www.rfc-editor.org/rfc/rfc1952)): one member, or several one after another | none | none | the bytes its members inflate to, joined |
 | `zstd` | a Zstandard frame ([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878)) | none | none | the frame's content |
 | `bzip2` | a bzip2 stream | none | none | the bytes it decompresses to |
 | `lzf` | one LZF block with no header; its decoded length is not stored | none | none | the block's bytes |
 | `blosc` | a Blosc 1 chunk, with its 16-byte header | none | none | the chunk's bytes |
-| `shuffle` | the bytes of elements of `element_size` bytes each: every element's first byte, then every element's second, and so on, then the bytes past the last whole element as they are | `element_size`: a place of one value | none | the elements' bytes, each element's together |
+| `shuffle` | the bytes of elements of `element_size` bytes each: every element's first byte, then every element's second, and so on, then the bytes past the last whole element as they are | `element_size`: a place of one value, or a value where the source has no field for it | none | the elements' bytes, each element's together |
 | `h5_fletcher32` | bytes, then their Fletcher-32 checksum as HDF5 computes it (4 bytes) | none | none | the bytes before the checksum |
 | `h5_lz4` | the layout of HDF5's LZ4 filter (32004): the decoded length (8 bytes, big-endian), a block size (4 bytes, big-endian), then each block as its stored length (4 bytes, big-endian) and an [LZ4 block](https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md), or the block's bytes as they are where the stored length is the block's own | none | none | the blocks' bytes, joined |
 | `h5_szip` | what HDF5's SZIP filter (4) writes | `options`, `pixels_per_block`, `bits_per_pixel`, `pixels_per_scanline`: each a place of one value | none | what the filter decodes it to |
@@ -255,6 +256,8 @@ A chain's codec has only its entry's parameters.
 | `hevc` | one access unit of an HEVC stream (ITU-T H.265), stored as `h264`'s | as `h264`'s, `setup` a place of an HEVCDecoderConfigurationRecord (an `hvcC` box's payload) | as `h264`'s | as `h264`'s |
 | `av1` | one temporal unit of an AV1 stream, as [AV1-ISOBMFF](https://aomediacodec.github.io/av1-isobmff/) stores a sample: its OBUs, each with its size | as `h264`'s, `setup` a place of an AV1CodecConfigurationRecord (an `av1C` box's payload) | as `h264`'s | as `h264`'s |
 | `vp9` | one frame or superframe of a VP9 stream | as `h264`'s, `setup` a place of a VPCodecConfigurationRecord (a `vpcC` box's payload) | as `h264`'s | as `h264`'s |
+| `fits_rice` | one unit's stream of FITS's Rice coding (`RICE_1`, FITS Standard 4.0 section 10.4.1, as cfitsio's `fits_rcomp` writes it), its bits most significant first: a first value of `byte_pix` bytes; then the unit's pixels in blocks of `block_size`, each block a code of 3, 4 or 5 bits (for a `byte_pix` of 1, 2 or 4) and its pixels' differences, each pixel less the one before it (the first less the first value), a difference d mapped to 2d where it is not negative and to −2d − 1 where it is. A code of 0 has no more bits, every difference of its block 0; the highest code (7, 15 or 26) has each mapped difference in 8 × `byte_pix` bits; any other code c has each as its bits above its low c − 1 in unary (as many 0 bits, then a 1), then its low c − 1 bits | `block_size`, `byte_pix`: each a place of a card; absent, 32 and 4 | none | the unit's pixels, each an integer of `byte_pix` bytes, big-endian: the sums of the differences, modulo 2^(8 × `byte_pix`) |
+| `fits_quantize` | the integers FITS's quantization makes of a unit's floats (FITS Standard 4.0 section 10.2), each 4 bytes, big-endian, two's complement | `method`: a place of a card whose value is the dither's name, `NO_DITHER`, `SUBTRACTIVE_DITHER_1` or `SUBTRACTIVE_DITHER_2`; absent, `NO_DITHER`. `scale`, `zero`: columns. `seed`: a column, under a dither. `zblank`, the integer of a pixel of no value: a column, or a place of a card whose value it is; absent, there is none | `scale`, `zero`: `Float64`; `seed`, `zblank`: `Int64` | floats of `item_bits` bits (32 or 64), big-endian, an integer I's being NaN where I is `zblank`; else 0 where I is −2147483646 under `SUBTRACTIVE_DITHER_2`; else I × `scale` + `zero` without a dither, and (I − R + 0.5) × `scale` + `zero` under one, computed in binary64, each operation rounded, in that order, then rounded to the element's size. R is the dither's next random number, of the 10,000 cfitsio's `fits_init_randoms` makes (from s = 1, s ← 16807 × s mod (2^31 − 1) each time, the number s / (2^31 − 1) as a binary32): a unit starts at the number at floor(500 × N), N the number at (`seed` − 1) mod 10000, and takes one for each pixel, whatever its integer; after the last number it takes up the N after its own (after the last, the first) and goes on from floor(500 × N) |
 
 A place parameter of an HDF5 filter's codec holds client data values of the filter, as its filter
 pipeline message stores them: each 4 bytes, an unsigned integer, little-endian. A place of a TIFF
@@ -634,6 +637,100 @@ has TIFF 6.0's default.
 **QPTIFF** ([spec/zarrify/qptiff.md](zarrify/qptiff.md)). A QPTIFF is read as a TIFF, and its
 IFDs' images are described as a TIFF's, by the same code; its facts' levels give `declared_by`
 likewise.
+
+**FITS** ([spec/zarrify/fits.md](zarrify/fits.md)). Every HDU with an axis (`NAXIS` above 0) has
+descriptions, whether or not the profile presents them, keyed by its `header` element
+(`hdus/<i>/header`), a kind of element that may declare several arrays: each of an HDU's has an
+index. An image (the primary HDU, or an `IMAGE` extension) has one array, index 0; a table
+(`TABLE` or `BINTABLE`) two, its rows (0) and its heap (1); a tile-compressed image (a `BINTABLE`
+with `ZIMAGE = T`) three, its image (0) and its table's rows (1) and heap (2). The facts give the
+key: each HDU's `declared_by` is the id of its header, or null for an HDU of no axes, which holds
+no array. In a compressed file ([zarrify/fits.md §2.1](zarrify/fits.md#21-a-compressed-file))
+the headers and the units' elements are in the `stream` element's space: a unit's bytes are the
+decoded file's.
+
+- **Declarations.** One, the header's element: its cards give the array's axes and what its
+  elements are (`BITPIX`, `BSCALE`, `BZERO` and `BLANK`; a table's `TFORMn`; a tile-compressed
+  image's `Z` cards). A parameter given as a place of a card is the card's 80 bytes, a range of
+  the header's element, and is the card's value (FITS Standard 4.0 section 4.2), an integer or a
+  string.
+- **An image.** `shape` is `NAXISn` to `NAXIS1`, the slowest first, and for two or more axes
+  `axes` is their reverse, since the header lists `NAXIS1` first. `item_bits` is |`BITPIX`|. It
+  is one unit in an empty chain: each axis `Each` of its length, or an empty `List` for an axis
+  of length 0, under `short`. Its row is the HDU's `data` element, or, where the HDU's data is
+  longer than the image (an `IMAGE` extension whose `PCOUNT` is not 0, or whose `GCOUNT` is not
+  1), the range of that element that holds the image, its first bytes, as astropy reads it; an
+  image of no elements has no row. The elements are as stored, big-endian: `BSCALE` and `BZERO`
+  are the profile's.
+- **A table's rows** are an array of shape [`NAXIS2`], a row an element: `item_bits` is 8 ×
+  `NAXIS1`. It is one unit, the `rows` element, in an empty chain, gridded as an image, with no
+  row where the rows have no bytes. What a row's bytes are (its columns' fields, an ASCII
+  table's text) is the profile's, from the header's `TFORMn` and `TBCOLn`. Rows of no bytes
+  (`NAXIS1` of 0) have no `item_bits` and no grid; nor have a binary table's rows where its
+  `TFORMn` are not all forms the profile reads
+  ([zarrify/fits.md §4.1](zarrify/fits.md#41-rows-as-a-struct)) or their fields' bytes are not
+  `NAXIS1` in all, since readers do not agree on where such a row is: the standard's rows are
+  `NAXIS1` bytes each, as the profile cuts them, and astropy's the fields' bytes, one row after
+  another. An ASCII table's row is `NAXIS1` characters, which its fields need not fill.
+- **A table's heap** is the `H` bytes from `THEAP` to the end of the data
+  ([zarrify/fits.md §4.3](zarrify/fits.md#43-the-heap)), of shape [`H`] and `item_bits` 8: one
+  unit, the `heap` element, in an empty chain. An empty heap is described too, with no row; an
+  ASCII table's is empty unless its `PCOUNT` is not 0. Which of its bytes a row's descriptor
+  names is the profile's.
+- **A tile-compressed image's image** has `shape` `ZNAXISn` to `ZNAXIS1`, `axes` as an image's,
+  and `item_bits` |`ZBITPIX`|. Its grid is its tiles: `Each` of `ZTILEn` to `ZTILE1` (with the
+  defaults of [zarrify/fits.md §3.3](zarrify/fits.md#33-tile-compressed-images)), under `short`,
+  an edge tile cut to the image. Each row of its table that holds a tile is a row of the chunk
+  map, at the tile's coordinates (the table's rows are the tiles in storage order, `ZNAXIS1`'s
+  fastest): the tile's bytes in the heap, a range of the element of its chunk of the heap
+  (`hdus/<i>/heap/<j>`, [zarrify/fits.md §6.1](zarrify/fits.md#61-elements)), or that element
+  alone where the tile is all of it. A table row with both descriptors empty holds no tile, and
+  has no row.
+  - **The first chain** is that of a tile in `COMPRESSED_DATA`, by `ZCMPTYPE`: `fits_rice` for
+    `RICE_1` and `RICE_ONE`, its `block_size` and `byte_pix` the places of the `ZVALi` cards of
+    the parameters `BLOCKSIZE` and `BYTEPIX`
+    ([zarrify/fits.md §3.3](zarrify/fits.md#33-tile-compressed-images)), each absent where the
+    header has no such card; `gzip` for `GZIP_1`; `shuffle`, then `gzip`, for `GZIP_2`, the
+    shuffle's `element_size` a value, the bytes of an element (4 under quantization), for which
+    the header has no card; and no codec for `NOCOMPRESS`.
+  - **Quantization.** A float image (`ZBITPIX` below 0) whose table has the columns `ZSCALE` and
+    `ZZERO` is quantized: `fits_quantize` is the first codec of its first chain, before those
+    above, which then code 4-byte integers. Its `method` is the place of the `ZQUANTIZ` card,
+    absent with the card. Its unit parameters are `scale` and `zero`, the table row's `ZSCALE`
+    and `ZZERO`; under a dither, `seed`, the tile's index (from 0) plus `ZDITHER0`; and, where
+    the table has a `ZBLANK` column, `zblank`, the row's. Without that column, `zblank` is the
+    place of the header's `ZBLANK` card, else of its `BLANK` card where that is an integer, as
+    astropy reads it, else absent.
+  - **The second chain.** A tile in `GZIP_COMPRESSED_DATA` is a gzip stream of its elements as
+    an image stores them, never quantized. Where the table has that column and the first chain
+    is not `gzip` alone, the description has a second chain, `gzip`, which those tiles' rows
+    name, setting no unit parameter; where the first chain is `gzip` alone, they are in it.
+  - **`source`.** A `RICE_1` image whose `BYTEPIX` (4 where absent) is not the bytes of an
+    element (not 4, where quantized), or whose elements are floats that are not quantized, has
+    the one codec `source` as its first chain, with `format` `fits` and `id` the `ZCMPTYPE`
+    card's string, and no unit parameters: `fits_rice` makes integers of `BYTEPIX` bytes, which
+    are then not the image's elements. astropy converts their values to the image's type; the
+    profile's codec does not.
+  - **A tile's width.** A `GZIP_1`, `GZIP_2` or `NOCOMPRESS` tile, and one in
+    `GZIP_COMPRESSED_DATA`, is described as holding its elements at their own size (4-byte
+    integers under quantization), as the profile reads it. astropy takes the size of a tile's
+    values from its decoded length, and converts those of a tile stored at another size: the
+    parser reads no tile, so no description tells such a tile from the others.
+  - **No grid** for an image that readers do not agree on, which keeps its shape, `item_bits`
+    and declaration: an integer image whose table has the columns `ZSCALE` and `ZZERO` (astropy
+    scales its values where there is no dither and refuses it where there is one; the profile
+    reads them as stored); a float image without those columns whose header has a `ZSCALE` or a
+    `ZZERO` card (cfitsio takes the cards as every tile's and dequantizes; astropy and the
+    profile read the values as stored) or a `ZBLANK` or a `BLANK` card (astropy makes a stored
+    value equal to it NaN; the profile reads it as stored); an image that is not quantized whose
+    table has a `ZBLANK` column; a quantized image with neither that column nor a `ZBLANK` card
+    whose `BLANK` card is no integer; and an image whose table's rows are not its columns'
+    fields (as a table's, above), whose descriptors are then not where the parser read them.
+  - **Its table's rows and heap** are described as a binary table's: the rows one unit, the
+    `table` element; the heap one unit, the range of the HDU's element (`hdus/<i>`) that holds
+    it, since its bytes are in the elements of its tiles' chunks.
+- **The fill value** is `undefined`: FITS has none. `BLANK`, the stored value of a pixel with
+  none, is a declaration.
 
 **NDPI** ([spec/zarrify/ndpi.md](zarrify/ndpi.md)). An NDPI is read by the TIFF parser in NDPI's
 layout, and every IFD that declares a size is described as a TIFF's, keyed likewise, the macro

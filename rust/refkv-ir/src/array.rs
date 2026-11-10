@@ -171,6 +171,7 @@ const fn fixed(name: &'static str) -> ParamEntry {
 pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "source", parameters: &[fixed("format"), fixed("id"), fixed("name"), fixed("parameters")] },
     CodecEntry { name: "zlib", parameters: &[] },
+    CodecEntry { name: "gzip", parameters: &[] },
     CodecEntry { name: "zstd", parameters: &[] },
     CodecEntry { name: "bzip2", parameters: &[] },
     CodecEntry { name: "lzf", parameters: &[] },
@@ -199,6 +200,19 @@ pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "hevc", parameters: PICTURE },
     CodecEntry { name: "av1", parameters: PICTURE },
     CodecEntry { name: "vp9", parameters: PICTURE },
+    CodecEntry { name: "fits_rice", parameters: &[fixed("block_size"), fixed("byte_pix")] },
+    CodecEntry { name: "fits_quantize", parameters: FITS_QUANTIZE },
+];
+
+/// The parameters of FITS's quantization of floats: its dither's name, and for each tile, as a
+/// column, its scale and zero, where it enters the dither's random numbers, and its blank value
+/// (which a header gives once instead).
+const FITS_QUANTIZE: &[ParamEntry] = &[
+    fixed("method"),
+    ParamEntry { name: "scale", column: Some(ColumnType::Float64) },
+    ParamEntry { name: "zero", column: Some(ColumnType::Float64) },
+    ParamEntry { name: "seed", column: Some(ColumnType::Int64) },
+    ParamEntry { name: "zblank", column: Some(ColumnType::Int64) },
 ];
 
 /// The parameters of a codec of a video stream's pictures: its configuration, the plane of a
