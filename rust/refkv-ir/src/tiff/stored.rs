@@ -62,9 +62,17 @@ impl Tiff {
     /// The one value every entry of an unsigned field of the IFD has (`default` for an IFD without
     /// the field); None where they differ, or the parser does not hold them.
     fn same(&self, f: &Ifd, tag: u16, default: u64) -> Option<u64> {
-        let Some(e) = f.field(tag) else { return Some(default) };
-        let v = self.ints(e, false).filter(|_| unsigned(e.typ))?;
+        if !f.has(tag) {
+            return Some(default);
+        }
+        let v = self.every(f, tag)?;
         v.first().copied().filter(|x| v.iter().all(|y| y == x))
+    }
+
+    /// Every value of an unsigned field of the IFD, where the parser holds them (`ints` reads no
+    /// other type's).
+    fn every(&self, f: &Ifd, tag: u16) -> Option<Vec<u64>> {
+        f.field(tag).filter(|e| unsigned(e.typ)).and_then(|e| self.ints(e, false))
     }
 
     /// The place of a field's value: its `value` element.
@@ -94,10 +102,7 @@ impl Tiff {
         let restoring = im.compression == 1 || im.compression == 32773 || predicted(im.compression).is_some();
         if restoring {
             // stored YCbCr samples that are subsampled are not an array of the image's shape
-            let sub = match f.field(530) {
-                Some(e) => self.ints(e, false).filter(|_| unsigned(e.typ))?,
-                None => vec![2, 2],
-            };
+            let sub = if f.has(530) { self.every(f, 530)? } else { vec![2, 2] };
             if self.first(f, 262) == Some(6) && sub != [1, 1] {
                 return None;
             }
@@ -123,10 +128,12 @@ impl Tiff {
                 _ => None,
             };
         }
-        // JPEG 2000's streams do not use a predictor, and readers pass over one; under the other
-        // compressions libtiff applies none and tifffile applies one, so the bytes are not modeled
+        // an image codec's stream uses no predictor, and libtiff and tifffile pass one over; under
+        // the other compressions libtiff applies none and tifffile applies one, so the bytes are
+        // not modeled
         let jpeg2000 = matches!(im.compression, 33003 | 33004 | 33005 | 34712);
-        if im.predictor != 1 && !jpeg2000 {
+        let image_codec = jpeg2000 || matches!(im.compression, 7 | 50001 | 50002 | 52546 | 65000..=65002);
+        if im.predictor != 1 && !image_codec {
             return None;
         }
         Some(match im.compression {
@@ -139,10 +146,7 @@ impl Tiff {
             50001 if bits == 8 => vec![codec("webp", [])],
             34887 if whole => {
                 let lerc = codec("lerc", []);
-                let outer = match f.field(LERC_PARAMETERS) {
-                    Some(e) => self.ints(e, false).filter(|_| unsigned(e.typ)).and_then(|v| v.get(1).copied()),
-                    None => Some(0),
-                };
+                let outer = if f.has(LERC_PARAMETERS) { self.every(f, LERC_PARAMETERS).and_then(|v| v.get(1).copied()) } else { Some(0) };
                 match outer {
                     Some(0) => vec![lerc],
                     Some(1) => vec![lerc, codec("zlib", [])],
@@ -164,18 +168,21 @@ impl Tiff {
 
     /// The grid of the image of IFD `k`, and a row for each unit its table holds (with no array
     /// yet); None where the tables do not cover the image as its fields say, or a unit lies
-    /// outside the file.
+    /// outside the file, or has no bytes at an offset.
     fn units_of_image(&self, k: usize, im: &Image) -> Option<(Grid, Vec<Row>)> {
         let f = &self.ifds[k];
         // a volume's tiles and strips are not modeled
         if im.w == 0 || im.h == 0 || im.samples == 0 || !matches!(im.planar, 1 | 2) || im.depth != 1 {
             return None;
         }
+        // an image with a tile's size is in tiles, as libtiff and tifffile read it, which take the
+        // strips' tables for its tiles where it has no tables of its own
         let (tiles, strips) = self.set.tiles.get(&k).copied().unwrap_or((None, None));
-        let (s, down, across, edge) = match tiles {
-            Some(s) if f.has(322) && f.has(323) => (s, self.first(f, 323)?, self.first(f, 322)?, Edge::Full),
+        let (s, down, across, edge) = if f.has(322) && f.has(323) {
+            (tiles.or(strips)?, self.first(f, 323)?, self.first(f, 322)?, Edge::Full)
+        } else {
             // a strip is the image's width, of RowsPerStrip rows, at most the image's
-            _ => (strips?, self.first(f, 278).unwrap_or(u32::MAX as u64).min(im.h), im.w, Edge::Short),
+            (strips?, self.first(f, 278).unwrap_or(u32::MAX as u64).min(im.h), im.w, Edge::Short)
         };
         if down == 0 || across == 0 {
             return None;
@@ -196,8 +203,8 @@ impl Tiff {
         for (j, unit) in units.iter().enumerate() {
             let (e, framed) = match *unit {
                 Unit::Held(e, framed) => (e, framed),
-                Unit::Empty => continue,
-                Unit::Outside => return None,
+                Unit::Absent => continue,
+                Unit::Unsized | Unit::Outside => return None,
             };
             let j = j as u64;
             let (plane, at) = (j / (rows * columns), j % (rows * columns));

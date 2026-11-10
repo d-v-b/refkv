@@ -174,12 +174,12 @@ fn more_than_100000_ifds_are_rejected() {
 }
 
 /// What the facts' levels say of their planes against the stored arrays of `ir`: each plane that
-/// has tiles or strips names, in `declared_by`, the one description its IFD's element keys, which
-/// has a grid, and whose rows' elements are the plane's tiles or strips. Returns the planes
-/// checked, and the objects (or the root) that hold them.
-fn planes_name_their_descriptions(name: &str, ir: &refkv_ir::ir::Ir, facts: &serde_json::Value) -> (usize, std::collections::BTreeSet<u32>) {
+/// has tiles or strips names, in `declared_by`, the one description its IFD's element keys, whose
+/// rows' elements are the plane's tiles or strips. Returns the planes checked whose description
+/// has a grid, those whose description has none, and the objects (or the root) that hold them.
+fn planes_name_their_descriptions(name: &str, ir: &refkv_ir::ir::Ir, facts: &serde_json::Value) -> (usize, usize, std::collections::BTreeSet<u32>) {
     let s = &ir.stored;
-    let (mut planes, mut holders) = (0, std::collections::BTreeSet::new());
+    let (mut planes, mut unmodeled, mut holders) = (0, 0, std::collections::BTreeSet::new());
     for (l, lv) in facts["levels"].as_array().unwrap().iter().enumerate() {
         let (units, keys) = (lv["planes"].as_array().unwrap(), lv["declared_by"].as_array().unwrap());
         assert_eq!(units.len(), keys.len(), "{name} level {l}");
@@ -189,25 +189,30 @@ fn planes_name_their_descriptions(name: &str, ir: &refkv_ir::ir::Ir, facts: &ser
             let (Some(unit), Some(key)) = (unit.as_u64(), key.as_u64()) else { continue };
             let described: Vec<usize> = (0..s.arrays.len()).filter(|&k| s.arrays[k].element == key as u32).collect();
             let [k] = described[..] else { panic!("{at}: {} descriptions", described.len()) };
-            assert!(s.arrays[k].grid.is_some(), "{at}");
             let rows: Vec<usize> = (0..s.map.len()).filter(|&r| s.map.array[r] == k as u32).collect();
-            assert!(!rows.is_empty(), "{at}");
+            assert_eq!(rows.is_empty(), s.arrays[k].grid.is_none(), "{at}");
             assert!(rows.iter().all(|&r| ir.parent[s.map.element[r].unwrap() as usize] == unit as u32), "{at}");
             // the IFD is a child of the root, or of the file's object
             assert!(ir.path(key as u32).rsplit('/').nth(1).is_some_and(|n| n == "ifds" || n == "subifds"), "{at}: {}", ir.path(key as u32));
             holders.insert(ir.parent[key as usize]);
-            planes += 1;
+            if s.arrays[k].grid.is_some() {
+                planes += 1;
+            } else {
+                unmodeled += 1;
+            }
         }
     }
-    (planes, holders)
+    (planes, unmodeled, holders)
 }
 
 /// Each plane of each level of an accepted TIFF or QPTIFF fixture names its description by the
 /// description's key, the element of the plane's IFD (spec/stored-array.md §7
-/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>). One presented
+/// plane has a description with no grid: its strip of no bytes at an offset is a chunk the
+/// profile leaves out, and one the IR does not model.
 #[test]
 fn every_accepted_fixtures_planes_name_their_descriptions() {
-    let mut planes = 0;
+    let (mut planes, mut unmodeled, mut skipped) = (0, Vec::new(), Vec::new());
     for dir in ["tiff", "qptiff"] {
         for e in std::fs::read_dir(fixtures().join(dir)).unwrap() {
             let p = e.unwrap().path();
@@ -215,11 +220,24 @@ fn every_accepted_fixtures_planes_name_their_descriptions() {
             if name.contains("reject") || !p.is_file() {
                 continue;
             }
-            // a file the profile rejects under another name, or one that names siblings
-            let Ok((ir, facts)) = parse_bytes::<Tiff>(&std::fs::read(&p).unwrap()) else { continue };
-            planes += planes_name_their_descriptions(&name, &ir, &facts).0;
+            let (ir, facts) = match parse_bytes::<Tiff>(&std::fs::read(&p).unwrap()) {
+                Ok(parsed) => parsed,
+                // a file of a set, which a store run reads (the next test)
+                Err(e) if e.contains("names siblings") => continue,
+                Err(_) => {
+                    skipped.push(name);
+                    continue;
+                }
+            };
+            let (modeled, without, _) = planes_name_their_descriptions(&name, &ir, &facts);
+            planes += modeled;
+            unmodeled.extend(std::iter::repeat_n(name, without));
         }
     }
+    skipped.sort();
+    // the file the profile rejects whose name does not say so
+    assert_eq!(skipped, ["unsupported_predictor_2_float.tif"]);
+    assert_eq!(unmodeled, ["edge_strips_absent.tif"]);
     assert!(planes >= 200, "{planes} planes");
 }
 
@@ -247,7 +265,7 @@ fn a_sets_planes_name_their_descriptions_in_their_files() {
         }
     }
     let (ir, facts, _) = run.finish().unwrap();
-    let (planes, holders) = planes_name_their_descriptions(&key, &ir, &facts);
-    assert!(planes >= 2, "{planes} planes");
+    let (planes, unmodeled, holders) = planes_name_their_descriptions(&key, &ir, &facts);
+    assert!(planes >= 2 && unmodeled == 0, "{planes} planes, {unmodeled} with no grid");
     assert!(holders.len() >= 2 && holders.iter().all(|&o| ir.kind[o as usize] == refkv_ir::ir::OBJECT), "planes in {holders:?}");
 }

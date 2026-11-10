@@ -355,8 +355,12 @@ struct SetState {
 enum Unit {
     /// its `data` element, and whether the element's form frames it with a JPEG prefix
     Held(u32, bool),
-    /// of no bytes: the IR has no element for it
-    Empty,
+    /// of no bytes at offset 0, as a sparse file's writer leaves a unit out: the IR has no element
+    /// for it
+    Absent,
+    /// of no bytes at another offset, which readers do not agree on (libtiff sizes a lone strip
+    /// from the image, and refuses one among others): the IR has no element for it
+    Unsized,
     /// not within the file: the IR has no element for it
     Outside,
 }
@@ -2807,7 +2811,7 @@ impl Tiff {
             };
             let base = json!({
                 "geometry": {"shape": [rows, cols], "samples": one(277).unwrap_or(1),
-                             "bits": f.field(258).and_then(|e| self.ints(e, true)).and_then(|v| v.first().copied())},
+                             "bits": one(258)},
                 "codec": {"compression": one(259).unwrap_or(1)},
             });
             let key = if eo.inline || ec.inline {
@@ -2834,7 +2838,7 @@ impl Tiff {
             let mut units = Vec::with_capacity(offsets.len());
             for (j, (&o, &c)) in offsets.iter().zip(&counts).enumerate() {
                 if c == 0 || !self.within(o, c) {
-                    units.push(if c == 0 { Unit::Empty } else { Unit::Outside });
+                    units.push(if c > 0 { Unit::Outside } else if o == 0 { Unit::Absent } else { Unit::Unsized });
                     continue;
                 }
                 let form = match &framed {
@@ -2853,6 +2857,7 @@ impl Tiff {
                 strips = Some(s);
             }
         }
+        self.set.tiles.insert(k, (tiles, strips));
         Ok((tiles, strips))
     }
 
@@ -2864,7 +2869,6 @@ impl Tiff {
             tiles_of.insert(k, t);
         }
         self.data_keys = by_key;
-        self.set.tiles = tiles_of.clone();
         let lay = self.layout.as_mut().unwrap();
         if self.ndpi {
             // derive_ndpi wrote the levels; a tiled JPEG XR level's chunks are its IFD's tiles
@@ -3049,7 +3053,6 @@ impl Tiff {
         }
     }
 
-    /// The IR, finished (aliases and gaps), and the facts the projection reads.
     /// The finished IR, with the images its IFDs declare described (`stored.rs`), and the facts.
     pub fn finish(mut self) -> Result<(Ir, J), String> {
         let described = if self.phase == Phase::Done { Some(self.described()?) } else { None };

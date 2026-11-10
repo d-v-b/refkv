@@ -6,6 +6,7 @@ tile or strip tifffile lists with its chunk map row (its place), and the values 
 decode to through the row's chain with the values tifffile reads there. A second test asserts
 which cases the fixtures reached."""
 
+import json
 import logging
 import lzma
 import math
@@ -39,10 +40,8 @@ PREDICTED = {5: "tiff_lzw", 8: "zlib", 32946: "zlib", 34925: "xz", 50000: "zstd"
 UNPREDICTED = {1: None, 32773: "packbits"}
 JPEG2000 = {33003, 33004, 33005, 34712}
 EER = {65000: (8, 2, 2), 65001: (7, 2, 2), 65002: None}
-# tifffile reads the strips that follow one of no bytes at other offsets than their table's (this
-# file's strips 2 and 3 hold 30 and 40 at their offsets, and tifffile gives 20 and 30; libtiff
-# refuses the file). Of such a file each unit's place is compared, and not its values
-MISREAD_BY_TIFFFILE = {"edge_strips_absent.tif"}
+# the compressions whose streams use no predictor, under which libtiff and tifffile pass one over
+IMAGE_CODECS = JPEG2000 | {7, 50001, 50002, 52546} | set(EER)
 # the tags that declare what an image's elements are, after the header's byte order
 DECLARING = (258, 262, 320, 338, 339, 529, 530, 532)
 
@@ -50,12 +49,11 @@ DECLARING = (258, 262, 320, 338, 339, 529, 530, 532)
 @dataclass(frozen=True)
 class Image:
     """What tifffile reads of an IFD's fields, in a file of `data` under the key `key` of the IR's
-    objects (None for the parsed file), which tifffile misreads or not (`MISREAD_BY_TIFFFILE`)."""
+    objects (None for the parsed file)."""
 
     page: tifffile.TiffPage
     key: str | None
     data: bytes
-    misread: bool
 
     def first(self, tag: int, default: int) -> int:
         t = self.page.tags.get(tag)
@@ -91,7 +89,8 @@ class Image:
 
     @property
     def tiled(self) -> bool:
-        return all(t in self.page.tags for t in (322, 323, 324, 325))
+        """An image with a tile's size is in tiles, as libtiff and tifffile read it."""
+        return 322 in self.page.tags and 323 in self.page.tags
 
     @property
     def unit(self) -> tuple[int, int]:
@@ -102,8 +101,18 @@ class Image:
 
     @property
     def table(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
-        offsets, counts = (324, 325) if self.tiled else (273, 279)
+        # tiles are listed in the strips' tables where the image has no tables of its own
+        own = self.tiled and 324 in self.page.tags and 325 in self.page.tags
+        offsets, counts = (324, 325) if own else (273, 279)
         return self.every(offsets, ()), self.every(counts, ())
+
+    def lerc_outer(self) -> int:
+        """The second value of LercParameters, the compression of the LERC blob: 0 without the
+        field, and -1 where the field is not two unsigned integers."""
+        t = self.page.tags.get(50674)
+        if t is None:
+            return 0
+        return int(t.value[1]) if t.dtype in (1, 3, 4, 13, 16, 18) and t.count >= 2 else -1
 
     def chain(self) -> tuple[str, ...] | None:
         """The names of the codecs of the image's chain, as this test reads tifffile's fields;
@@ -120,7 +129,7 @@ class Image:
             floats = bits in (32, 64) and formats == {3}
             fits = {1: True, 2: integers, 3: floats}.get(predictor, False)
             return ((() if predictor == 1 else ("tiff_predictor",)) + (PREDICTED[compression],)) if fits else None
-        if predictor != 1 and compression not in JPEG2000:
+        if predictor != 1 and compression not in IMAGE_CODECS:
             return None
         if compression in UNPREDICTED:
             name = UNPREDICTED[compression]
@@ -132,7 +141,7 @@ class Image:
             50002: ("jpegxl",) if bits in (8, 16, 32) else None,
             52546: ("jpegxl",) if bits in (8, 16, 32) else None,
             50001: ("webp",) if bits == 8 else None,
-            34887: {0: ("lerc",), 1: ("lerc", "zlib"), 2: ("lerc", "zstd")}.get((*self.every(50674, (0, 0)), 0, 0)[1])
+            34887: {0: ("lerc",), 1: ("lerc", "zlib"), 2: ("lerc", "zstd")}.get(self.lerc_outer())
             if bits in (8, 16, 32, 64) else None,
         }
         if compression in JPEG2000:
@@ -157,6 +166,9 @@ class Image:
             return "tables of another length"
         if any(n and o + n > len(self.data) for o, n in zip(offsets, counts, strict=True)):
             return "a unit outside the file"
+        # a unit of no bytes is one a sparse file leaves out only where its offset is 0 too
+        if any(o and not n for o, n in zip(offsets, counts, strict=True)):
+            return "a unit of no bytes at an offset"
         return count
 
 
@@ -349,7 +361,15 @@ def check_units(d: Described, im: Image, k: int, theirs: np.ndarray | None, said
         if d.parts(row) != [(im.key, offset, count)]:
             said.append(f"unit {coords} at {d.parts(row)}, tifffile {offset} of {count}")
             continue
-        seen["rows of a range"] += row["range"] is not None
+        # a row names its element alone, but where the element's recipe gives other bytes than the
+        # stored ones: then the range of all its extent names those
+        form = d.ir.form(row["element"])
+        whole = form is not None and json.loads(form)["recipe"] != [["src", 0, None]]
+        if (row["range"] is not None) != whole:
+            said.append(f"unit {coords}: a range {row['range']} of an element of the form {form}")
+            continue
+        seen["rows of a range"] += whole
+        seen["rows of an element"] += not whole
         shape = unit_shape(a, coords)
         seen["units an edge cuts"] += shape != tuple(x.length for x in a.grid.axes if isinstance(x, Each))
         mine = decoded(d, im, a, row, shape)
@@ -358,9 +378,6 @@ def check_units(d: Described, im: Image, k: int, theirs: np.ndarray | None, said
             continue
         if theirs is None:
             seen["units tifffile does not read"] += 1
-            continue
-        if im.misread:
-            seen["units tifffile misreads"] += 1
             continue
         # the unit's region of the image: tifffile's array is (planes, depth, rows, columns, samples)
         r0, c0 = at[0] * rows, at[1] * columns
@@ -426,7 +443,10 @@ def check_image(d: Described, k: int, im: Image, seen: Counter) -> list[str]:
     try:
         theirs = page.asarray().reshape(page.shaped)
     except Exception:  # noqa: BLE001  (whatever a decoder raises: tifffile reads no values to compare)
+        # tifffile reads EER only in a file it takes for an EER file, and no encoding it has no name for
         theirs = None
+        if im.chain() not in (("eer",), ("source",)):
+            said.append("tifffile does not read the image")
     check_units(d, im, k, theirs, said, seen)
     return said
 
@@ -466,7 +486,7 @@ def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
                 if object_key != key:
                     continue
                 tif.filehandle.seek(offset)
-                im = Image(tifffile.TiffPage(tif, 0), key, data, at.name in MISREAD_BY_TIFFFILE)
+                im = Image(tifffile.TiffPage(tif, 0), key, data)
                 seen["images"] += 1
                 said += [f"{at.name}:{d.stored.arrays[k].path}: {s}" for s in check_image(d, k, im, seen)]
     return tuple(said), seen
@@ -487,39 +507,124 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
     for path in FILES:
         seen += compared(path)[1]
     wanted = ["images", "tiled", "strips", "planar", "interleaved", "one sample", "packed samples", "units",
-              "units decoded", "units an edge cuts", "rows of a range", "units longer than their elements",
-              "units tifffile misreads", "jpeg with tables", "eer with places",
+              "units decoded", "units an edge cuts", "rows of a range", "rows of an element",
+              "units longer than their elements", "no grid: a unit of no bytes at an offset", "jpeg with tables",
+              "eer with places",
               *(f"codec {c}" for c in ("tiff_lzw", "zlib", "xz", "zstd", "packbits", "tiff_predictor", "ccitt_t6",
                                        "jpeg", "jpeg2k", "jpegxl", "webp", "lerc", "eer", "source"))]
     assert [w for w in wanted if not seen[w]] == []
+    # the units compared with nothing are EER's, which tifffile does not read in these files, and
+    # those of an encoding the IR has no name for
+    assert seen["units tifffile does not read"] + seen["units not decoded"] == 7
 
 
 # ---- one test for each case no fixture holds, on a file written here
 
 
 def written(tmp_path: Path, second: np.ndarray, tags: dict[int, int] | None = None,
-            edit: Callable[[bytearray, tifffile.TiffPage], None] | None = None, **how) -> Path:
+            edit: Callable[[bytearray, tifffile.TiffPage], None] | None = None, pointer: bool = False, **how) -> Path:
     """A file of two images: one the profile presents, and a larger one it passes over, which
     tifffile wrote from `second` (`how`: its arguments), with a SHORT field of one value for each of
     `tags` (written under a private tag, since tifffile writes none of these itself, and renamed
-    in the file), and then changed by `edit(file, page)`."""
+    in the file), and then changed by `edit(file, page)`. With `pointer`, the second image's IFD is
+    not the first's next: the first's Exif IFD field (34665) leads to it."""
     path = tmp_path / "written.tif"
     private = {60000 + i: tag for i, tag in enumerate(tags or {})}
     extra = [(code, "H", 1, (tags or {})[tag], False) for code, tag in private.items()]
     with tifffile.TiffWriter(path) as w:
-        w.write(np.arange(64 * 64, dtype="u1").reshape(64, 64), tile=(32, 32), metadata=None)
+        w.write(np.arange(64 * 64, dtype="u1").reshape(64, 64), tile=(32, 32), metadata=None,
+                extratags=[(60099, "I", 1, 0, False)] if pointer else [])
         w.write(second, metadata=None, extratags=extra, **how)
     data = bytearray(path.read_bytes())
     with tifffile.TiffFile(path) as tif:
-        page = tif.pages[1]
+        first, page = tif.pages[0], tif.pages[1]
+        assert isinstance(first, tifffile.TiffPage)
         assert isinstance(page, tifffile.TiffPage)
         for code, tag in private.items():
             struct.pack_into("<H", data, page.tags[code].offset, tag)
+        if pointer:
+            exif, next_ifd = first.tags[60099], first.offset + 2 + 12 * len(first.tags)
+            assert struct.unpack_from("<I", data, next_ifd) == (page.offset,)
+            struct.pack_into("<H", data, exif.offset, 34665)
+            struct.pack_into("<I", data, exif.valueoffset, page.offset)
+            struct.pack_into("<I", data, next_ifd, 0)
         if edit is not None:
             edit(data, page)
     path = tmp_path / "changed.tif"
     path.write_bytes(data)
     return path
+
+
+def renamed(old: int, new: int, kind: int | None = None) -> Callable[[bytearray, tifffile.TiffPage], None]:
+    """An edit that gives the page's field `old` the tag `new`, and the field type `kind`."""
+
+    def edit(data: bytearray, page: tifffile.TiffPage) -> None:
+        struct.pack_into("<H", data, page.tags[old].offset, new)
+        if kind is not None:
+            struct.pack_into("<H", data, page.tags[old].offset + 2, kind)
+
+    return edit
+
+
+def test_images_no_fixture_holds_are_described_as_tifffile_reads_them(tmp_path):
+    """Layouts and codecs the fixtures do not have, each written here as a file's second image:
+    every one is described as tifffile reads it, with a grid, and its units decode to tifffile's
+    values."""
+    rng = np.random.default_rng(0)
+
+    def image(shape: tuple[int, ...], dtype: str) -> np.ndarray:
+        return rng.integers(0, 200, shape).astype(dtype)
+
+    def tiles_in_strips_tables(data: bytearray, page: tifffile.TiffPage) -> None:
+        renamed(324, 273)(data, page)
+        renamed(325, 279)(data, page)
+
+    def sparse(data: bytearray, page: tifffile.TiffPage) -> None:
+        # the second of four tiles left out, as a sparse file's writer leaves one
+        for tag in (324, 325):
+            size = struct.calcsize(tifffile.TIFF.DATA_FORMATS[page.tags[tag].dtype])
+            at = page.tags[tag].valueoffset + size
+            data[at:at + size] = bytes(size)
+
+    rgb, planar = {"photometric": "rgb"}, {"photometric": "rgb", "planarconfig": "separate"}
+    cases: dict[str, tuple[dict, dict[str, int]]] = {
+        "planar samples of 1 bit": (
+            {"second": rng.integers(0, 2, (3, 70, 90)).astype(bool), "photometric": "minisblack",
+             "planarconfig": "separate"},
+            {"planar": 1, "packed samples": 1}),
+        "a predictor over planar samples": (
+            {"second": image((3, 70, 90), "u2"), "compression": "zlib", "predictor": True, **planar},
+            {"planar": 1, "codec tiff_predictor": 1}),
+        "a predictor over samples of 32 bits": (
+            {"second": image((70, 90), "u4"), "compression": "lzw", "predictor": True}, {"codec tiff_predictor": 1}),
+        "Deflate as 32946": ({"second": image((70, 90), "u2"), "compression": "adobe_deflate"}, {"codec zlib": 1}),
+        "a predictor JPEG 2000 passes over": (
+            {"second": image((70, 90), "u1"), "compression": "jpeg2000", "tags": {317: 2}}, {"codec jpeg2k": 1}),
+        "interleaved JPEG 2000 of 16 bits": (
+            {"second": image((70, 90, 3), "u2"), "compression": "jpeg2000", **rgb},
+            {"codec jpeg2k": 1, "interleaved": 1}),
+        "a predictor JPEG passes over, and a stream with no tables": (
+            {"second": image((70, 90), "u1"), "compression": "jpeg", "tags": {317: 2}},
+            {"codec jpeg": 1, "rows of an element": 5}),
+        "a predictor WebP passes over": (
+            {"second": image((70, 90, 3), "u1"), "compression": "webp", "tags": {317: 2}, **rgb}, {"codec webp": 1}),
+        "tiles listed in the strips' tables": (
+            {"second": image((70, 90), "u1"), "tile": (64, 64), "edit": tiles_in_strips_tables},
+            {"tiled": 2, "units": 8}),
+        "an image a pointer tag leads to, with a field of a signed type": (
+            {"second": image((70, 90), "i2"), "pointer": True, "edit": renamed(339, 339, 8)},
+            {"strips": 1, "units": 5}),
+        "a tile a sparse file leaves out": (
+            {"second": image((128, 128), "u1"), "tile": (64, 64), "edit": sparse}, {"tiled": 2, "units": 7}),
+    }
+    for name, (how, want) in cases.items():
+        folder = tmp_path / str(len(list(tmp_path.iterdir())))
+        folder.mkdir()
+        said, seen = compared(written(folder, **how))
+        assert said == (), name
+        assert {k: seen[k] for k in ("images", *(k for k in seen if k.startswith("no grid")))} == {"images": 2}, name
+        assert {k: seen[k] for k in want} == want, name
+        assert seen["units decoded"] == seen["units"], name
 
 
 def no_grid(path: Path, reason: str) -> StoredArray:
@@ -620,3 +725,34 @@ def test_an_image_of_no_columns_has_no_grid(tmp_path):
 
     a = no_grid(written(tmp_path, np.zeros((70, 90), "u1"), edit=narrow), "an empty image")
     assert a.shape == (70, 0)
+
+
+def test_a_strip_of_no_bytes_at_an_offset_leaves_its_image_no_grid(tmp_path):
+    """libtiff sizes a lone strip of no bytes from the image, and refuses one among others, and
+    tifffile reads the first as the image and the second as absent: the IR does not say which."""
+
+    def unsized(data: bytearray, page: tifffile.TiffPage) -> None:
+        struct.pack_into("<I", data, page.tags[279].valueoffset, 0)
+
+    no_grid(written(tmp_path, np.zeros((70, 90), "u1"), edit=unsized), "a unit of no bytes at an offset")
+
+
+def a_source_chain(path: Path) -> None:
+    """The second image of the file at `path` has a grid, and one chain: `source`."""
+    said, seen = compared(path)
+    assert said == ()
+    assert (seen["images"], seen["codec source"], seen["units not decoded"]) == (2, 1, 1)
+
+
+def test_lerc_under_a_compression_the_list_has_no_name_for_is_source(tmp_path):
+    def other(data: bytearray, page: tifffile.TiffPage) -> None:
+        at = page.tags[50674].valueoffset
+        assert struct.unpack_from("<2I", data, at) == (4, 0)
+        struct.pack_into("<I", data, at + 4, 3)
+
+    a_source_chain(written(tmp_path, np.zeros((70, 90), "f4"), edit=other, compression="lerc"))
+
+
+def test_lerc_parameters_that_are_not_unsigned_integers_are_source(tmp_path):
+    """LercParameters of a signed type are not read (and do not stop the parse)."""
+    a_source_chain(written(tmp_path, np.zeros((70, 90), "f4"), edit=renamed(50674, 50674, 9), compression="lerc"))
