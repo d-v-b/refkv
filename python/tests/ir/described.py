@@ -12,8 +12,10 @@ from ir_helpers import ROOT
 
 from refkv.ir import Ir
 from refkv.ir.kind import Kind
+from refkv.ir.store import StoreIrOutput
 from refkv.ir.stored import ElementPlace, Place, Stored
 from refkv.zarrify import _zarrify
+from refkv.zarrify.common import Output
 
 pa = pytest.importorskip("pyarrow")
 
@@ -22,13 +24,14 @@ SCHEMA = json.loads((ROOT / "spec" / "stored-array.json").read_text())
 
 @dataclass(frozen=True)
 class Described:
-    """A file's IR, its stored arrays, its chunk map's rows by array, and its objects' bytes by key
-    (a file IR's one object under the key None)."""
+    """A file's IR, its stored arrays, its chunk map's rows by array, its objects' bytes by key
+    (a file IR's one object under the key None), and the output its profile wrote of it."""
 
     ir: Ir
     stored: Stored
     rows: dict[int, list[dict]]
     objects: dict[str | None, bytes]
+    out: Output | StoreIrOutput
 
     def key(self, element: int) -> str | None:
         """The key of the object `element` is in."""
@@ -76,4 +79,4 @@ def described(path: Path) -> Described:
         rows.setdefault(r["array"], []).append(r)
     keys = [ir.name(c) for c in ir.children(0) if ir.kind(c) == Kind.OBJECT]
     objects: dict[str | None, bytes] = {k: (path.parent / k).read_bytes() for k in keys} or {None: path.read_bytes()}
-    return Described(ir, ir.stored_arrays(), rows, objects)
+    return Described(ir, ir.stored_arrays(), rows, objects, out)
