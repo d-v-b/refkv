@@ -141,9 +141,12 @@ parser knows. The profile reads the declaring structure for the rest, or leaves 
 
 ### 2.5 The JSON form
 
-The descriptions cross the bindings as one JSON document, `{"chains": [...], "arrays": [...]}`:
-the chain table, each chain a list of codecs `{"name": …, "parameters": {name: parameter}}`, and
-the descriptions in the IR's order. A description has every member of [§2](#2-the-description),
+The descriptions cross the bindings as one JSON document,
+`{"chains": [...], "arrays": [...], "undescribed": …}`: the chain table, each chain a list of codecs
+`{"name": …, "parameters": {name: parameter}}`; the descriptions in the IR's order; and the mark of
+a source that kept no descriptions at all at the descriptions' limit ([§6](#6-in-the-ir)), in a file
+IR `true` or `false`, in a store IR a list of the keys of the objects whose arrays kept none, empty
+where none is marked. A description has every member of [§2](#2-the-description),
 `null` where it is absent, and `path`, its element's path in the IR. A place is
 `{"element": e, "member": j, "range": [offset, length]}` (`member` and `range` may be null) or
 `{"object": key, "offset": o, "length": n}` (`object` null for the parsed source). A grid is
@@ -265,6 +268,11 @@ Both checks run when a parser adds its descriptions and chunk map to its finishe
 before its descriptions are built, so has none to check). A description or a row they refuse is a
 bug in its parser: an internal error naming the array's element.
 
+They also check the `undescribed` mark ([§6](#6-in-the-ir)): a file IR lists no keys, and one
+marked `true` has no descriptions, chains or rows; a store IR is not marked `true` itself, and its
+list names its objects, once each, none of which holds a description's key or a row's `element`
+(another object's rows may read its bytes).
+
 ### 5.1 Each description
 
 - **Its element and places.** Its element, and every element its places, its fill's and its
@@ -329,7 +337,8 @@ When its IR is finished (after its last fold and rollback, and after `check::fin
 description for each array it reaches and the chunk map's rows from the finished IR, and adds
 them to the IR, which, in order: fits the map to its limit (below); drops from the chain table the
 chains no description names, keeping the others' order, and renumbers the descriptions' positions
-in it; checks the descriptions' limit; sorts the rows; and checks them ([§5](#5-checks)). They are
+in it; fits the descriptions to their limit (below), which falls back the same way and drops the
+chains it leaves unnamed; sorts the rows; and checks them ([§5](#5-checks)). They are
 not in the facts a projection reads, which keep their arrays until each format's projection reads
 the descriptions.
 
@@ -344,8 +353,11 @@ the descriptions.
     name, each with its places' element ids renumbered and then found in the table by its value:
     a chain the table has keeps its position, and a new one is appended, in the order the file's
     descriptions first name them. The table's existing chains and positions are untouched;
-  - it checks the descriptions' limit, last; a graft that fails on it, or on the IR's room, adds
-    nothing to the store.
+  - it fits the file's descriptions, last, to what remains of the store's descriptions' limit, as
+    describe does (below): where even their fallen-back descriptions do not fit, the file joins the
+    store with none, its key added to the store's `undescribed` list, as is the key of a file
+    marked `undescribed` at its own describe. A graft that fails on the IR's room adds nothing to
+    the store.
 
   `element`, every place's element and the `element` column take their new ids; `array` takes the
   description's new position, after the store's; parameter columns of one name join; and the
@@ -380,8 +392,9 @@ index entries (two HDF5 object headers on one chunk index, TIFF IFDs sharing a S
 can pass the limit.
 
 The chunk map's limit never rejects a run, and never cuts an array's rows short, which a profile
-would read as units the source does not hold. Arrays are tried in `Ir::arrays` order: a file IR's
-are in `(element, index)` order, which describe sorts them into; in a store, each graft's arrays
+would read as units the source does not hold. Arrays are tried in the order of the IR's
+descriptions: a file IR's, and a store parser's own, are in `(element, index)` order, which describe
+sorts them into; in a store, each graft's arrays
 keep their relative order and follow those already there, so a store's arrays are in graft order
 (not in key order: a description keyed by a file's root is keyed, in the store, by the file's
 object element, whose id can be below the earlier grafts' ids). One whose rows do not fit in what
@@ -389,14 +402,26 @@ remains of the limit keeps none of them, and falls back: its description has no 
 and no unit parameters, and the map neither a row of it, nor a parameter column only its
 description listed, nor an object key only its rows named. Later arrays are still tried, and the
 run goes on. In a file IR, which arrays fall back follows from the source alone; in a store,
-from its files in graft order. The descriptions' limit, checked after the fit, still rejects the
-run.
+from its files in graft order.
+
+The descriptions' limit never rejects a run either. Where the descriptions and the chain table pass
+what remains of it, two passes follow the map's fit. First every array is charged its fallen-back
+description's cost; where that total passes the limit, the source keeps no descriptions, chains or
+rows at all and is marked `undescribed` ([§2.5](#25-the-json-form)), which a profile reads as a
+source to take as its bytes, never as one with no arrays. Otherwise, in the same order, each array
+keeps its full description (its grid, chains and unit parameters, and the chains it is the first
+kept description to name) while what remains allows, and falls back as at the map's limit
+otherwise; an array that fell back at the map's limit stays fallen back. A fallen-back array's rows
+and the columns and chains only it named are dropped, so a later array that names a chain it shared
+pays for that chain. A store parser that describes its own objects' arrays itself, not by graft,
+keys each of them in one of its objects, and where it keeps none lists the key of every object whose
+arrays it described.
 
 As the map is built, a row holds about 93 bytes of memory, a coordinate 8 and a `ranges` item 24;
 the worst case, rank-1 rows of elements over a shared index at four entries per byte, is about 200
 bytes per byte of the source. A parameter column holds about 16 bytes a row, null or not, for every
-row of the map; the list allows few columns (none yet). Descriptions a check refuses spend none of
-either limit.
+row of the map; the list allows few columns (none yet). Descriptions a check refuses, and those a
+fallback drops, spend none of either limit.
 
 **Bindings.** Python's `refkv._core.Ir` gives the descriptions as the JSON document of
 [§2.5](#25-the-json-form) (`stored_arrays()`, read by `refkv.ir.stored`) and the chunk map as an

@@ -111,8 +111,8 @@ class Ir:
 
     def stored_arrays(self) -> Stored:
         """The arrays the source stores, as the IR describes them (spec/stored-array.md
-        <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md>): the chain table and the
-        descriptions."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md>): the chain table, the
+        descriptions and the `undescribed` mark."""
         return _read_stored(self._core.stored_arrays())
 
     def chunk_map(self) -> _core.ChunkMap:
