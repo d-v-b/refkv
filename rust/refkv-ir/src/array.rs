@@ -175,6 +175,7 @@ pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "zstd", parameters: &[] },
     CodecEntry { name: "bzip2", parameters: &[] },
     CodecEntry { name: "lzf", parameters: &[] },
+    CodecEntry { name: "skip", parameters: &[fixed("length")] },
     CodecEntry { name: "blosc", parameters: &[] },
     CodecEntry { name: "skip", parameters: &[fixed("length")] },
     CodecEntry { name: "shuffle", parameters: &[fixed("element_size")] },
