@@ -309,9 +309,8 @@ impl Tiff {
         let starts = self.starts_of_strip(k, f)?;
         let (_, strips) = self.set.tiles.get(&k).copied()?;
         let [Unit::Held(e, false)] = self.units.get(&strips?)?[..] else { return None };
-        // the frame's components are the image's samples, and the header the strip's bytes
-        // before its first interval
-        if components != im.samples || starts.first() != Some(&header) {
+        // the frame's components are the image's samples
+        if components != im.samples {
             return None;
         }
         let (rows, columns) = (im.h.div_ceil(down), im.w.div_ceil(across));
