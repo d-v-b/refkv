@@ -45,19 +45,26 @@ Interpreting it is left to the profile. A typed vocabulary in the IR (data type 
 layouts, enumerations) would be translation work, which belongs to profiles, and every name in it
 would be a chance to bend the source toward an output.
 
-**Two places hold output decisions today.** Each goes when its format adopts the description; the
+**Three places hold output decisions today.** Each goes when its format adopts the description; the
 mirror's forms may change with them:
 - **TIFF and VSI-TIFF's JPEG prefix.** An Adobe marker, and the JPEGTables without their SOI and
   EOI, sit in the IR's shared data, and recipes splice them into units (`["shared", k]`,
   [conventions §8.5](../../spec/conventions.md#85-forms-and-recipes)). The marker is a synthetic
   byte. In place of the prefix, the `jpeg` codec takes the tables as a parameter naming the
-  JPEGTables tag's bytes, and the color transform the marker conveys as a parameter. Building a
+  JPEGTables tag's bytes; decoding converts no colors, and the profile reads the color transform
+  from the source's declarations (Photometric), so the marker needs no parameter
+  ([ir-format-descriptions.md](ir-format-descriptions.md#codec-made-elements)). Building a
   self-contained JPEG for the output is the projection's.
 - **FITS's `tile_cut`.** The parser cuts a tiled image's tiles into output chunks
   ([rust/refkv-ir/src/fits.rs](../../rust/refkv-ir/src/fits.rs)), so each `heap/<j>` element holds
   several tiles. The heap becomes one element, each tile a chunk map row naming its range within
   that element, and the projection makes the same cut, so neither the output nor the IR's element
   count grows.
+- **ND2's `rows` recipe.** A padded frame's `pixels` element joins its rows, dropping the padding
+  between them ([rust/refkv-ir/src/nd2.rs](../../rust/refkv-ir/src/nd2.rs)), bytes the source does
+  not hold together; its description names each row as a range instead
+  ([ir-format-descriptions.md](ir-format-descriptions.md#nd2)), and its plan PR moves the join to
+  the projection.
 
 ## The gap
 
@@ -100,19 +107,24 @@ holds, but nothing in the core describes an array.
 
 ## What an array is
 
-A **stored array** is one structure that the source itself declares as an array:
+A **stored array** is one structure that the source itself declares as an array; for example
+(each format's full list is in [ir-format-descriptions.md](ir-format-descriptions.md#the-formats)):
 - an HDF5 dataset;
 - one TIFF IFD's image, with a samples axis last (`[rows, columns, samples]`) where the IFD is
   chunky, first (`[samples, rows, columns]`) where it is planar, and none where it has one sample;
 - a NumPy file or `.npz` member;
-- a FITS image HDU, and, where its tiles carry a NULL_PIXEL_MASK, that mask as a second array the
-  HDU declares (the parser rejects such files today; FITS's PR may lift that);
+- a FITS image HDU's image, a table HDU's rows and heap, a compressed image HDU's image, table rows
+  and heap, and, where its tiles carry a NULL_PIXEL_MASK, that mask (the parser rejects such files
+  today, and a later PR may lift that;
+  [ir-format-descriptions.md](ir-format-descriptions.md#fits));
 - a NIfTI image;
 - a safetensors tensor;
 - one CZI subblock;
 - one GRIB field: sections 3 to 7 as they stand at a section 7, since sections 3 to 7 may repeat
   within a message. A regular grid's field has the rows and columns section 3 lists. A grid that
-  lists a number of points per row (a reduced grid), or template 3.101, has one axis of points.
+  lists a number of points per row (a reduced grid), or template 3.101, has one axis of points,
+  and a field with a bitmap one axis of the values it codes
+  ([ir-format-descriptions.md](ir-format-descriptions.md#grib)).
 
 Anything assembled from several of them is the plan's: a TIFF level, an OME image, a CZI level, an
 IMS level.
@@ -127,8 +139,11 @@ declare several arrays, the key always adds the array's index among them, in the
 however many it declares:
 - a safetensors `header` declares every tensor, counted in the header's order without
   `__metadata__`;
-- a GRIB message holds its fields;
-- a FITS image HDU declares the image (0) and, where its tiles carry one, the null pixel mask (1).
+- a GRIB message holds its fields and their bitmaps, in the source's order;
+- a FITS image HDU declares the image (0); a table HDU its rows and heap (0 and 1); a compressed
+  image's HDU declares the image, its
+  table's rows and its heap (0, 1 and 2) and, where its tiles carry one, the null pixel mask (3)
+  ([ir-format-descriptions.md](ir-format-descriptions.md#fits)).
 
 Its JSON form also gives that element's path, for the build tools' description schemas, which name
 structures by path ([profile-plugins.md](profile-plugins.md#the-description)). Within a run, the id
@@ -140,8 +155,8 @@ format's store code to renumber in the facts, as HDF5's `placed()` renumbers `st
 (`Ir::graft` does not touch the facts). The declaring element is in no run's subtree, so an unfold
 never moves a key. The key stays when a format's PR removes the facts the description replaces. An
 HDF5 spike had to match datasets to descriptions by object header address, since HDF5's facts give
-each node its address and its chunks but not its `objects/<i>` element; HDF5's PR gives each
-dataset node that element's id.
+each node its address and its chunks but not its `objects/<i>` element; HDF5's describe-only PR
+gives each dataset node that element's id.
 
 ## The description
 
@@ -252,11 +267,12 @@ A function that turns a source's type declaration into a Zarr data type (a NumPy
 NumPy and `.npz`) lives in the profiles' shared tooling, not in the core.
 
 A declaration must be reachable. Where a parser reads it but keeps it only in facts today, the
-format's PR gives it a place:
+format's describe-only PR gives it a place:
 - a gzipped NIfTI becomes one derived element over the file in space 0, the only claim on those
   bytes, with `header`, its extender and extensions, and `voxels` (from `vox_offset`) in its derived
   space. Validating the mirror's view of such a header re-derives the stream, and the parser reads
-  only its start; NIfTI's PR keeps validation to the stream's start, or says that cost is taken;
+  only its start; step 0's `gz.rs` helper keeps validation to the stream's start, and NIfTI's
+  describe-only PR calls it ([ir-format-descriptions.md](ir-format-descriptions.md#gzipped-files));
 - a deflated `.npz` member gets `header` and `data` children in its derived space.
 
 **Arrays whose storage the IR does not model.** These have a description with `grid: None`, no
@@ -301,7 +317,9 @@ Further rules for the map:
   fall back follows, in a file IR, from the source alone, and in a store from its files in graft
   order. A chain no description names after the fit is dropped from the table, keeping the
   others' order, and positions are renumbered. A fallback does not stop the run. The descriptions'
-  limit, checked after the fit, still refuses it. An array's rows are never cut short, which a profile would read as units the
+  limit, checked after the fit, makes arrays fall back the same way, and where even the fallen-back
+  descriptions pass it, the source keeps no descriptions rather than being refused
+  ([ir-format-descriptions.md](ir-format-descriptions.md#the-descriptions-limit-falls-back-too)). An array's rows are never cut short, which a profile would read as units the
   source does not hold.
 
 One batch per `Ir`, not one per array, because CZI subblocks and GRIB fields are each an array, and
@@ -311,8 +329,7 @@ a file can hold hundreds of thousands of them.
 - **An element**, wherever the parser makes one:
   - HDF5's chunks (`objects/<i>/chunks/<idx>`);
   - TIFF's strips and tiles;
-  - GRIB's section 7;
-  - FITS's tiles, once `tile_cut` moves out.
+  - GRIB's section 7.
 - **Derived spaces.** An element in a derived space gives the unit's inflated bytes: the `data`
   child of a deflated `.npz` member and the `voxels` of a gzipped NIfTI, once they have them. Its transform is the IR's
   ([conventions §8.5](../../spec/conventions.md#85-forms-and-recipes)), not a codec. A unit inside
@@ -320,7 +337,7 @@ a file can hold hundreds of thousands of them.
   whose units lie in a derived space past the IR's room has no grid (the general fallback).
 - **A range of an element**, where the unit is part of one. A range survives a graft without
   object keys, and the check holds it to its element's extent:
-  - a FITS tile within its heap element, including a `.fits.gz` heap in its derived space;
+  - a FITS tile within its heap element;
   - an HDF5 chunk of a dataset with an implicit index the parser does not make chunk elements of
     (it decides by what the image needs), within the dataset's one `data` element;
   - an HDF5 dataset's compact data, within its layout message's `data` element.
@@ -367,7 +384,9 @@ bytes:
 - **Or as a codec makes them.** Some codecs make the elements rather than restore them: GRIB's
   unpacking, FITS's dequantization, JPEG's decoding. Each such codec's entry states the bytes it
   makes, and the profile types them from that entry. GRIB's unpacking makes little-endian float64
-  values, NaN at a point its bitmap masks, as `refkv.grib` decodes today.
+  values, the ones section 7 codes, in stored order; placing a bitmapped field's values, and the
+  value a masked point shows, are its plan's
+  ([ir-format-descriptions.md](ir-format-descriptions.md#codecs)).
 
 Every codec takes bytes to bytes, so HDF5's filters, nbit and scaleoffset among them, keep their
 pipeline order.
@@ -382,10 +401,13 @@ LZF has no header at all.
 gives:
 - its parameters, and which of them may be unit columns;
 - what its decoding makes;
-- for a parameter made from a `Source`, how it is made from those bytes.
+- for a parameter made from a `Source`, how it is made from those bytes (which
+  [ir-format-descriptions.md](ir-format-descriptions.md#parameters-the-source-gives-once) moves to
+  the format's document).
 
 Step 1 lists the codecs NumPy needs (none, once a deflated member's data is an element in its
-derived space). Each format's PR adds its own; the list as it will grow:
+derived space). [ir-format-descriptions.md](ir-format-descriptions.md#codecs) settles the list,
+which its step 0 lands whole; the sketch as it first stood:
 - **Framing and compression:** `zlib`, `gzip`, `deflate` (raw), `lzw`, `packbits`, `zstd`, `jpeg`;
 - **Bytes added by the source:**
   - `fletcher32`: encoding appends the checksum, decoding checks it and drops it;
@@ -412,46 +434,51 @@ numcodecs codec stands for it is the profile's.
 
 **The general fallback.** A source encoding refkv has no name for is the codec `source`, carrying
 the format, the source's id for the encoding, its name where the source gives one, and its
-parameters as the source gives them (an unknown HDF5 filter's id, optional name and client data). The profile maps it or leaves the array out. Its parameters are never unit columns: the list gives them no types, so a column could not be
-typed, and two formats' `source` parameters of one name would collide in a store.
+parameters as the source gives them (an unknown HDF5 filter's id, optional name and client data). The profile maps it or leaves the array out. Its parameters are never unit columns: the list
+types its `parameters` as any JSON value or a place
+([ir-format-descriptions.md](ir-format-descriptions.md#codecs)), so a column could not be typed,
+and two formats' `source` parameters of one name would collide in a store.
 
 **What is not recorded:** parameters only an encoder needs, such as a zlib level or Blosc's block
 size.
 
-**GRIB's scanning mode** is a parameter of `grib_unpack`. The codec makes its rows run in one
-direction (undoing alternate rows) and transposes where the mode says consecutive points run along
-columns, as `refkv.grib` does today. The grid's axes are the field's rows and columns as section 3
-lists them, or its points for a reduced grid. Which way they point on the earth is the profile's.
+**GRIB's scanning mode** is in section 3, a declaration. The codec reorders nothing: alternate rows
+stay as stored, for the plan to reverse, and where the mode says consecutive points run along
+columns, that is the array's storage order (shape `[Ni, Nj]`), and `axes` `[1, 0]` mark the
+rows-first case instead, since section 3 lists Ni first
+([ir-format-descriptions.md](ir-format-descriptions.md#codecs)). The grid's axes are the array's storage axes (`[Nj, Ni]`,
+or `[Ni, Nj]` columns first), or its points for a reduced grid. Which way they point on the earth is the profile's.
 
 Units may differ from their array in three ways, each a column:
 - **`chain`:** a unit encoded another way. A FITS image quantizes and compresses its tiles
   (chain 0: `fits_quantize`, then `fits_rice` or its declared compressor), but a tile stored in
-  `GZIP_COMPRESSED_DATA` is the losslessly compressed values (chain 1: `fits_gzip` alone). Both end
+  `GZIP_COMPRESSED_DATA` is the losslessly compressed values (chain 1: `gzip` alone). Both end
   in the image's values as ZBITPIX declares them, big-endian, as `fits_quantize`'s entry states. One
-  in `UNCOMPRESSED_DATA`, if FITS's PR lifts today's rejection of it, a third chain. A null pixel
+  in `UNCOMPRESSED_DATA`, if a later PR lifts today's rejection of it, a third chain. A null pixel
   mask's chain is the compressor ZMASKCMP names. The parser picks the column per tile today but
-  keeps only the tile's range; FITS's PR records the chain.
+  keeps only the tile's range; FITS's describe-only PR records the chain.
 - **`skips`:** codecs the unit skips (HDF5's cases, above).
 - **A parameter column:** a parameter whose value varies by unit, such as a FITS tile's ZSCALE. It
   is nullable, and set exactly on the rows whose array lists it for the row's chain and that do not
   skip its codec.
   - A parameter is given either in its codec or as a column, never both.
   - A codec whose parameter is a column appears once in its chain.
-  - A codec sees only a unit's bytes and parameters, never its coordinates. A parameter that
-    depends on the unit's position, such as FITS's dither seed (ZDITHER0 plus the tile's index), is
-    a column the parser computes.
+  - A codec sees a unit's bytes, its parameters, its shape and the array's `item_bits` and
+    `pad_from`, never its coordinates
+    ([ir-format-descriptions.md](ir-format-descriptions.md#a-codec-sees-the-units-shape)). A
+    parameter that depends on the unit's position other than through its shape, such as FITS's
+    dither seed (ZDITHER0 plus the tile's index), is a column the parser computes.
 
 **Configuration elsewhere in the source.** A codec may need configuration that the source defines
 once, apart from the units, for many units. Zarr's codecs cannot say this; refkv's can.
 `Param::Source` names the place the parameter is made from, so the description says where the
 configuration is rather than copying it. Examples:
 - a TIFF IFD's JPEGTables, for `jpeg`;
-- a GRIB field's sections 3, 5 and 6, for `grib_unpack`; with bitmap indicator 254, section 6 is an
-  earlier field's;
+- a GRIB field's section 5, for `grib_unpack`;
 - HDF5's fill value message, as `Fill::Given`.
 
 The parser today reads only the fill value message (0x05), and folds an undefined fill, a default
-one and an absent message into one "none". HDF5's PR tells the states apart, and reads the old fill
+one and an absent message into one "none". HDF5's describe-only PR tells the states apart for its description alone, and reads the old fill
 value message (0x04) where the new one is absent, as the HDF5 library does.
 
 ### Checked
@@ -542,8 +569,10 @@ share, and the map. They are not in the facts. So:
 - **They count against limits** of their own, in new `Budget` fields, never against the IR's
   room (`records` and `elements`), with entries as `spec/stored-array.md` defines them:
   - the descriptions, at 2^22 entries once, plus 4 and one per 4 bytes for each object (in a file
-    IR, the source). No source is promised to fit: a rank-32 HDF5 dataset whose header shares its
-    messages can pass it, and is refused;
+    IR, the source). An array that would pass it falls back as at the map's limit
+    ([ir-format-descriptions.md](ir-format-descriptions.md#the-descriptions-limit-falls-back-too)),
+    and no source is promised to fit: a rank-32 HDF5 dataset whose header shares its messages can
+    pass it even so, and its source then keeps no descriptions;
   - the chunk map, at 2^22 entries once, plus 4 and four per byte for each object. Each row,
     each of its coordinates, each item of its `ranges` and each parameter value it sets is an
     entry; a row's `range` is part of the row.
@@ -556,7 +585,7 @@ share, and the map. They are not in the facts. So:
   or a range of it), and at most 2 for units `ranges` hold. Past that, or where structures share them (two HDF5 headers on one chunk index, TIFF
   IFDs sharing a StripOffsets array), the arrays that do not fit fall back to no grid. The bound
   counts bytes of the parsed source, so it covers units in space 0 and `ranges` into the parsed
-  source. A unit in a derived space (a `.fits.gz` heap's tile), or in `ranges` into another object
+  source. A unit in a derived space (a gzipped NIfTI's voxels), or in `ranges` into another object
   (an HDF5 external file), can cost far less than a byte of the parsed source, and its array can
   fall back at any rank. No source that parses today is refused for its map. The cost is memory,
   by part as built: about 93 bytes a row, 8 a coordinate and 24 a `ranges` item (109 for a
@@ -564,7 +593,8 @@ share, and the map. They are not in the facts. So:
   210 MB at the 2^22 floor, plus about 76 bytes per row while Python holds an export. A parameter
   column also has a null slot on every row that does not set it, about 16 bytes a row per column;
   the list allows only a few such columns (FITS's ZSCALE, ZZERO and dither seed among them). The
-  descriptions' limit still refuses; no corpus file comes near it. `memory()` includes both.
+  source whose fallen-back descriptions still pass the descriptions' limit keeps none and is marked
+  `undescribed`; no corpus file comes near it. `memory()` includes both.
   `digest()` covers the descriptions and each row's values, not the Arrow layout: the columns in a fixed order (the named ones, then the parameter
   columns by name) and a dictionary's keys as their strings.
 - **The facts' `arrays` key stays** as NumPy, safetensors and IMS use it today, until each format's
@@ -611,8 +641,9 @@ be read as a source.
   the rest are appended in order of first use. The store's earlier chains and positions do not
   change, and a chain no remaining description names is not carried;
 - last, inside `Ir::graft` and before anything is added, the descriptions' limit is checked, as
-  the IR's room is today. A graft never fails on the map's limit; on the room or the descriptions'
-  limit it fails, adding nothing. The store's `check::finish` later runs only `StoredArray::check`
+  the IR's room is today, the file's arrays falling back as they do at describe. A graft never fails
+  on the map's limit, and where the file's fallen-back descriptions still pass the descriptions'
+  limit, its arrays join the store undescribed; on the room it fails, adding nothing. The store's `check::finish` later runs only `StoredArray::check`
   and the map's check.
 
 `placed()` does the same renumbering for HDF5's store facts today.
@@ -644,31 +675,37 @@ one array is stored. This changes two things in profile-plugins:
    - NumPy's parser describing its arrays (a `.npy` file's and each stored `.npz` member's),
      checked against NumPy's own reading of each header, with no output changed, so the type meets
      a real format at once. A deflated member gets no description in this step, an exception to
-     "every array the parser reaches" that ends when NumPy's PR gives it `header` and `data`
-     children;
+     "every array the parser reaches" that ends when NumPy's deflated-member PR gives it `header`
+     and `data` children ([ir-format-descriptions.md](ir-format-descriptions.md#gzipped-files));
    - the two edits to profile-plugins.
 
    Only NumPy emits descriptions yet, and no output changes.
-2. **Each format, inside the build tools' format PRs.** Profile-plugins' step 3 reworks NumPy, then
-   TIFF, then HDF5 into descriptions and plans, and its step 4 the others
-   ([profile-plugins.md](profile-plugins.md#order-of-work)). Each of those PRs:
-   - describes its format's arrays, adds its codecs to the list, and has its projection read them;
+2. **Each format, a describe-only PR and then the build tools' two.** The describe-only PR describes
+   the format's arrays and tests the description against the format's reference reader, with no
+   output changed but the mirror changes it names, its codecs coming from one shared list; it may land before the plan's machine
+   ([ir-format-descriptions.md](ir-format-descriptions.md)). It gives unreachable declarations a
+   place (NumPy's deflated `.npz` headers; NIfTI's gzipped header), lists in its format's document
+   what each of its `declarations` places is, and takes the extra work below that a description
+   needs (HDF5's fill value and listing, GRIB's coded values of a bitmapped field). Then come the build tools' format PRs:
+   profile-plugins' step 3 reworks NumPy, then TIFF, then HDF5 into plans, and its step 4 the others
+   ([profile-plugins.md](profile-plugins.md#order-of-work)), with the rest of the extra work (TIFF's
+   JPEG prefix, FITS's `tile_cut`). Each format's plan PR:
+   - has its projection read its format's description, falling back to the source's bytes,
+     never refusing, for a source or file marked `undescribed`
+     ([ir-format-descriptions.md](ir-format-descriptions.md#the-descriptions-limit-falls-back-too));
    - moves the typing its facts did (a fixed string's added axis, a default fill) into the format's
      plan;
-   - gives unreachable declarations a place (NumPy's `.npz` headers; NIfTI's gzipped header);
-   - lists in its format's document what each of its `declarations` places is;
    - removes the facts the description replaces, while the rest (such as HDF5's string spans) stay
      until the format's plan replaces them;
    - compares its outputs before and after, byte for byte, and keeps them unchanged apart from
      what profile-plugins' own step changes (sizing decisions by the largest source index) and any
-     crafted source the descriptions' limit refuses and any array that falls back at the map's
-     limit (none in the corpus), which it names; the
+     array that falls back at the map's or the descriptions' limit (none in the corpus), which it names; the
      mirror's forms may change, and each PR names those changes.
 
    Some format PRs carry extra work:
    - HDF5's strings and references are resolved by the plan, which needs the plan's reads
      (profile-plugins' step 2, before its step 3).
-   - HDF5's PR tells the fill value's states apart, and resolves a shared fill value message as
+   - HDF5's describe-only PR tells the fill value's states apart, and resolves a shared fill value message as
      the HDF5 library does. For a fill value whose size is not the element's, it tests what the
      library does. Where a `Given` value of the element's size says the same (a longer value of
      which the library uses the first bytes, as a place over those bytes), the fill is that;
@@ -679,9 +716,11 @@ one array is stored. This changes two things in profile-plugins:
      refkv's. It also stops listing an array's units once they alone pass the map's limit, which the
      parser knows from the source's size before it reads, and lets that array fall back: the
      spike's parser built 1.76 GB of chunks before its map was refused.
-   - TIFF's PR replaces the JPEG prefix.
-   - FITS's PR moves `tile_cut` to the projection and records each tile's chain.
-   - GRIB's PR keeps its NaN at masked points, so its output is unchanged.
+   - TIFF's plan PR replaces the JPEG prefix, and ND2's moves its `rows` recipe to the projection.
+   - FITS's describe-only PR records each tile's chain; its plan PR moves `tile_cut` to the
+     projection.
+   - GRIB's describe-only PR describes a field with a bitmap as its coded values, leaving their
+     placement and the masked points' value (NaN today) to its plan, so its output is unchanged.
 
 Step 1 lands before profile-plugins' step 3, so that NumPy's description, the first, uses the shared
 type rather than an array shape of its own.
