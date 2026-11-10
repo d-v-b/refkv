@@ -481,6 +481,17 @@ fn row_size(w: u64, bits: u64, samples: u64) -> u128 {
     (w as u128 * bits as u128 * samples as u128).div_ceil(8)
 }
 
+/// Whether each strip of StripByteCounts `counts` holds exactly its rows' bytes, `row` bytes a
+/// row (spec/zarrify/tiff.md §4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>):
+/// `rows` rows a strip (at least 1), but the last strip of each sample plane, which holds the
+/// rest of the image's `h` rows (none, for an image of no rows).
+fn strips_hold_their_rows(counts: &[u64], h: u64, rows: u64, row: u128) -> bool {
+    let rows = rows.max(1);
+    let strips = h.div_ceil(rows).max(1);
+    let last = h - rows * (strips - 1);
+    counts.iter().enumerate().all(|(j, &n)| n as u128 == if j as u64 % strips == strips - 1 { last } else { rows } as u128 * row)
+}
+
 /// An EER compression's skip, horizontal and vertical bits (spec/zarrify/tiff.md §4.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>): 8, 2
 /// and 2 for 65000; 7, 2 and 2 for 65001; and tags 65007 to 65009 for 65002, `tag(t, default)`
@@ -2245,15 +2256,12 @@ impl Tiff {
             let (w, h) = (self.req(i0, m0, 256, None)?, self.req(i0, m0, 257, None)?);
             let rows = self.req(i0, m0, 278, Some(u32::MAX as u64))?.min(h).max(1);
             let row = row_size(w, bits, if spp > 1 && planar == 1 { spp } else { 1 });
-            // an image of no rows, which the `image` role rejects, has no strip to index by
-            let strips = h.div_ceil(rows).max(1);
-            whole = !offsets.is_empty() && offsets.len() == counts.len();
-            for (j, (&o, &c)) in offsets.iter().zip(&counts).enumerate() {
-                let r = if (j as u64) % strips == strips - 1 { h - rows * (strips - 1) } else { rows };
-                whole &= c as u128 == r as u128 * row;
-                whole &= j == 0 || offsets[j - 1] as u128 + counts[j - 1] as u128 == o as u128;
-                plane_bytes = plane_bytes.saturating_add(c);
-            }
+            // each strip exactly its rows, and each starting where the one before it ends
+            whole = !offsets.is_empty()
+                && offsets.len() == counts.len()
+                && strips_hold_their_rows(&counts, h, rows, row)
+                && offsets.windows(2).zip(&counts).all(|(o, &c)| o[0] as u128 + c as u128 == o[1] as u128);
+            plane_bytes = counts.iter().fold(0, |sum: u64, &c| sum.saturating_add(c));
             within = offsets.first().is_some_and(|&o| o as u128 + images as u128 * plane_bytes as u128 <= self.size as u128);
         }
         let (frames, channels, slices) = sizes;
@@ -4121,14 +4129,9 @@ impl Tiff {
             if strips < 2 || most < 2 {
                 continue;
             }
-            let last = lv.h - lv.th * (strips - 1);
             let mut whole = true;
             for &k in &lv.ifds {
-                let counts = self.reqs(k, &vals[&k], 279)?;
-                whole &= counts.iter().enumerate().all(|(j, &n)| {
-                    let rows = if j as u64 % strips == strips - 1 { last } else { lv.th };
-                    n as u128 == rows as u128 * row
-                });
+                whole &= strips_hold_their_rows(&self.reqs(k, &vals[&k], 279)?, lv.h, lv.th, row);
             }
             if whole {
                 lv.join = strips.div_ceil(strips.div_ceil(most));
