@@ -1,6 +1,6 @@
 # refkv: a reference value type for key-value stores
 
-Format version: 0 (**provisional**) · Specification revision: 11.7
+Format version: 0 (**provisional**) · Specification revision: 11.8
 
 ## 1. Introduction
 
@@ -1220,7 +1220,11 @@ A binding adds the reasons that come from its backend
 
 ## Appendix A: Complete schema
 
-`CdIndex` is used only by the ZIP binding ([§12](bindings/vzip.md#12-page-index-optional)).
+The messages every store uses, whatever its binding, as
+[spec/proto/refkv.proto](proto/refkv.proto). A binding that needs messages of
+its own defines them in its own package: the ZIP binding's page index is
+`refkv.vzip.v0.CdIndex` ([§12](bindings/vzip.md#12-page-index-optional),
+[spec/proto/vzip.proto](proto/vzip.proto)).
 
 ```proto
 syntax = "proto3";
@@ -1253,22 +1257,5 @@ message Source {
 message SourceTable {
   repeated Source sources = 1;
   optional uint32 revision = 2;
-}
-
-message CdIndex {
-  message Page {
-    string first_key = 1;
-    uint64 offset    = 2;
-    uint64 length    = 3;
-  }
-  message Pinned {
-    string key         = 1;
-    uint64 data_offset = 2;
-    uint64 size        = 3;
-    uint64 csize       = 4;
-    uint32 method      = 5;
-  }
-  repeated Page   pages  = 1;
-  repeated Pinned pinned = 2;
 }
 ```

@@ -39,8 +39,8 @@ NoCodec = _core.NoCodec
 
 # the tags `tiff_data_type` and `tiff_codecs` read: BitsPerSample, Compression,
 # PhotometricInterpretation, FillOrder, SamplesPerPixel, PlanarConfiguration, Predictor,
-# SampleFormat, YCbCrSubSampling, and EER's ImageLength, TileWidth and bits
-_CODING_TAGS = (257, 258, 259, 262, 266, 277, 284, 317, 322, 339, 530, 65007, 65008, 65009)
+# SampleFormat, YCbCrSubSampling, and EER's ImageLength, TileWidth, TileLength and bits
+_CODING_TAGS = (257, 258, 259, 262, 266, 277, 284, 317, 322, 323, 339, 530, 65007, 65008, 65009)
 # the text that spec/zarrify/hdf5.md §6
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes> gives a float JSON has no number for
 _NONFINITE = {"NaN": math.nan, "Infinity": math.inf, "-Infinity": -math.inf}

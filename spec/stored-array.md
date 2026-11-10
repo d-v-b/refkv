@@ -30,8 +30,8 @@ with no grid, [§2.3](#23-the-grid)).
 
 Every array a parser reaches has a description, whether or not its profile presents it. Each
 format's document lists the structures that are its stored arrays and what each of their
-declarations is. Today the NumPy, HDF5, IMS, TIFF and QPTIFF parsers describe their arrays, and
-the MP4 parser its video tracks' ([§7](#7-the-formats)).
+declarations is. Today the NumPy, HDF5, IMS, TIFF, QPTIFF and NDPI parsers describe their arrays,
+and the MP4 parser its tracks' samples ([§7](#7-the-formats)).
 
 ## 2. The description
 
@@ -244,8 +244,10 @@ A chain's codec has only its entry's parameters.
 | `tiff_predictor` | a unit's rows, each differenced along its columns as TIFF's Predictor says: 2, each sample less the same sample of the pixel before it, as unsigned integers of `item_bits` bits in the byte order `byte_order` gives, modulo 2^`item_bits` (TIFF 6.0 §14); 3, the row's samples' most significant bytes, then their next and so on to their least, each byte less an earlier byte of that row of bytes, modulo 256 (Adobe's [TIFF Technical Note 3](http://chriscox.org/TIFFTN3d1.pdf)); that byte is as many places before it as a pixel has samples. A pixel's samples are the unit's last axis where `planar_configuration` is absent or 1 and the unit has three axes, else one | `predictor`, and `planar_configuration` where the image has more than one sample and the field: each a place of a field's one value; `byte_order`: a place of the file's byte order mark | none | the rows' elements, summed back, in the file's byte order |
 | `ccitt_t6` | one ITU-T T.6 (Group 4) stream of the unit's rows | none | none | elements of 1 bit, 1 for a coded black run and 0 for a white one, most significant bit first, each row padded to a whole byte |
 | `jpeg` | one JPEG stream (ISO/IEC 10918-1) of 8-bit samples; with `tables`, an abbreviated stream whose tables `tables` holds | `tables`: a place of an abbreviated stream of tables alone (TIFF's JPEGTables) | none | the frame's samples, one byte each, a pixel's components together in the frame's order, every component at the frame's size. Converting their color space is the profile's, which reads how the source declares it |
+| `jpeg_restart_interval` | the entropy-coded data of one restart interval of a baseline JPEG stream's scan (ISO/IEC 10918-1), without the restart marker or EOI after it | `header`: a place of the stream's header | none | the samples of the interval's MCUs, one byte each, a pixel's components together in the frame's order, every component at the unit's size: the frame header gives the whole stream's size, and a unit's is its grid's. Converting their color space is the profile's, as for `jpeg` |
 | `jpeg2k` | one JPEG 2000 codestream (ISO/IEC 15444-1), bare or in a JP2 file | none | none | the image's samples, of `item_bits` bits, little-endian, a pixel's components together in the codestream's order |
 | `jpegxl` | one JPEG XL codestream (ISO/IEC 18181-1), bare or in its container (18181-2) | none | none | the image's samples, of `item_bits` bits, little-endian, a pixel's channels together |
+| `jpegxr` | one JPEG XR file (ITU-T T.832, in its container) | none | none | the image's samples, of `item_bits` bits, little-endian, a pixel's channels together, in red, green, blue order whichever order its pixel format stores ([zarrify/czi.md §3.1](zarrify/czi.md#31-pixel-types-and-codecs)) |
 | `webp` | one WebP file | none | none | the image's samples, one byte each, a pixel's red, green and blue together, with a fourth, alpha, where the unit's last axis has four: 255 where the stream holds none |
 | `lerc` | one LERC blob | none | none | the blob's values in its own data type, little-endian, a pixel's bands together; a pixel its mask leaves out is as the LERC library decodes it |
 | `eer` | one frame of Electron Event Representation: run lengths of `skip_bits` bits, each with a sub-pixel position of `horizontal_bits` and `vertical_bits` bits | `skip_bits`, `horizontal_bits`, `vertical_bits`: each a value, or a place of a field's one value; absent, 7, 2 and 2 | none | elements of 1 bit, 1 where an event lands on the pixel, most significant bit first, each row padded to a whole byte; the sub-pixel positions are not made |
@@ -258,7 +260,9 @@ A place parameter of an HDF5 filter's codec holds client data values of the filt
 pipeline message stores them: each 4 bytes, an unsigned integer, little-endian. A place of a TIFF
 field's one value holds the field's first value as the file stores it: an unsigned integer of the
 field's type (which its `value` element's type gives), in the file's byte order. A place of the
-byte order mark holds the file's first two bytes, `II` (little-endian) or `MM` (big-endian).
+byte order mark holds the file's first two bytes, `II` (little-endian) or `MM` (big-endian). A
+place of a JPEG stream's header holds the stream's bytes before its scan's data: from its SOI
+through its scan header, with its tables, its frame header and its restart interval between.
 
 `source` is the general fallback: a source encoding refkv has no name for (an unknown HDF5
 filter's id and client data). refkv's names describe the encoding, not the output: which Zarr or
@@ -626,7 +630,42 @@ has TIFF 6.0's default.
 
 **QPTIFF** ([spec/zarrify/qptiff.md](zarrify/qptiff.md)). A QPTIFF is read as a TIFF, and its
 IFDs' images are described as a TIFF's, by the same code; its facts' levels give `declared_by`
-likewise. **NDPI**, which the same parser reads, has no descriptions yet.
+likewise.
+
+**NDPI** ([spec/zarrify/ndpi.md](zarrify/ndpi.md)). An NDPI is read by the TIFF parser in NDPI's
+layout, and every IFD that declares a size is described as a TIFF's, keyed likewise, the macro
+image and the slide map too, with the differences below. The facts give the keys: each level's
+`declared_by` lists, in the order of its `planes`, the id of each plane's IFD.
+
+- **A JPEG strip that McuStarts cuts.** An image of Compression 7 in one strip (interleaved
+  samples of 8 bits, with neither JPEGTables nor a tile size), with McuStarts (65426), whose
+  strip's header the parser read ([zarrify/ndpi.md
+  §7](zarrify/ndpi.md#7-ndpi-profile) reads those of the IFDs of positive Magnification), is cut
+  into the strip's restart intervals, as tifffile reads it. The grid is `Each` of the MCU's
+  height, `Each` of an interval's width (its MCUs times the MCU's width) and `Each` of the
+  samples, under `full`. Each interval is a row: the strip's element, with the `range` from the
+  interval's McuStarts value (with McuStartsHighBytes) to 2 bytes before the next one's, or
+  before the strip's end, which leaves out the restart marker or EOI after it. The chain is
+  `jpeg_restart_interval`, its `header` the range of the strip's element before the first
+  interval.
+- **A JPEG strip read whole.** The image is one strip in a `jpeg` chain, as a TIFF's, without
+  McuStarts, and also where the parser did not read the strip's header (an IFD of no positive
+  Magnification), where the header is not one the profile reads, where its frame's components
+  are not the image's samples, where McuStarts and McuStartsHighBytes do not fit one another,
+  and where McuStarts are not the offsets of the intervals the image's size needs: as many,
+  increasing, within the strip, each interval of at least one byte. A strip's frame may give
+  another size than the image's fields ([zarrify/ndpi.md §4](zarrify/ndpi.md#4-the-image)): the
+  description gives the fields', and the stream decodes to the frame's.
+- **JPEG XR** (Compression 22610). The fields do not say what the streams hold: Hamamatsu
+  writes 8-bit YCbCr of 3 samples whatever they are ([zarrify/ndpi.md
+  §3](zarrify/ndpi.md#3-levels)). Where the parser read the header of the image's first stream
+  (its first tile that holds bytes, or its strip), its pixel format is one the profile reads and
+  its size is the unit's, the image's samples are the stream's: `shape` has the pixel format's
+  samples last, or none for one sample; `item_bits` is the pixel format's, 8 or 16; and the
+  chain is `jpegxr`. The declarations are the fields' all the same. Any other JPEG XR image
+  (an IFD of no positive Magnification, whose stream the parser does not read) is as its fields
+  say, in a `source` chain.
+- **`source`** has `format` `ndpi` in an NDPI.
 
 **IMS** ([spec/zarrify/ims.md](zarrify/ims.md)). An Imaris file's datasets are described as
 HDF5's, by the same code, in a file run; a filter the list has no name for is `source` with

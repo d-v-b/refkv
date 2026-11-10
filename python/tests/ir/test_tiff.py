@@ -959,6 +959,126 @@ def test_an_image_with_neither_tiles_nor_strips_is_rejected(tmp_path):
         via_ir(str(path), "u")
 
 
+def units_tiff(path, data: np.ndarray, tags: dict[int, int | str]):
+    """A little-endian TIFF of one IFD at `path`: the 32 × 32 uint8 `data`, uncompressed, held
+    three times, as 16 × 16 tiles (at 8), as strips of 8 rows (at 1048) and as four units of other
+    bytes, every unit of 256 bytes. `tags` are the IFD's tags beside its size and format: a scalar
+    tag's value, and for a table's tag the units it lists, "tiles", "strips" or "other" (a table of
+    byte counts lists any: "counts"). Every such file holds the same bytes before its IFD."""
+    units = {
+        "tiles": [data[r:r + 16, c:c + 16].tobytes() for r in (0, 16) for c in (0, 16)],
+        "strips": [data[r:r + 8].tobytes() for r in range(0, 32, 8)],
+        "other": [bytes([255]) * 256] * 4,
+    }
+    held = bytearray()
+
+    def put(b: bytes) -> int:
+        held.extend(b)
+        return 8 + len(held) - len(b)
+
+    tables = {name: put(struct.pack("<4I", *[put(u) for u in us])) for name, us in units.items()}
+    tables["counts"] = put(struct.pack("<4I", *[256] * 4))
+    entries = {256: (4, 1, 32), 257: (4, 1, 32), 258: (3, 1, 8), 259: (3, 1, 1), 262: (3, 1, 1), 277: (3, 1, 1)}
+    for tag, value in tags.items():
+        entries[tag] = (3, 1, value) if isinstance(value, int) else (4, 4, tables[value])
+    ifd = struct.pack("<H", len(entries)) + b"".join(struct.pack("<HHII", t, *entries[t]) for t in sorted(entries))
+    path.write_bytes(b"II*\0" + struct.pack("<I", 8 + len(held)) + bytes(held) + ifd + bytes(4))
+    return path
+
+
+TILE_SIZE: dict[int, int | str] = {322: 16, 323: 16}
+TILE_TABLES: dict[int, int | str] = {324: "tiles", 325: "counts"}
+STRIPS_OF_8: dict[int, int | str] = {278: 8, 273: "strips", 279: "counts"}
+# The tags of an IFD beside its size and format (units_tiff), by how the IFD is read: each is
+# the image of the first of its kind.
+TILED: dict[str, dict[int, int | str]] = {
+    "TileOffsets and TileByteCounts": {**TILE_SIZE, **TILE_TABLES},
+    "tiles listed in the strips' tables": {**TILE_SIZE, 273: "tiles", 279: "counts"},
+    "both pairs of tables: its own are read": {**TILE_SIZE, **TILE_TABLES, 273: "other", 279: "counts"},
+}
+IN_STRIPS: dict[str, dict[int, int | str]] = {
+    "StripOffsets and StripByteCounts": STRIPS_OF_8,
+    # libtiff and tifffile read no tiles of the next two: both fail on the first, and on the second
+    # libtiff fails and tifffile reads strips
+    "TileWidth without TileLength": {**STRIPS_OF_8, 322: 16, 324: "strips", 325: "counts"},
+    "TileLength without TileWidth": {**STRIPS_OF_8, 323: 16, 324: "strips", 325: "counts"},
+    "tile tables without a tile size": {**STRIPS_OF_8, 324: "strips", 325: "counts"},
+}
+
+
+def test_an_ifd_with_a_tile_size_is_tiled_and_read_by_its_tile_tables(tmp_path):
+    """§2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#2-the-source>: an IFD
+    with TileWidth and TileLength is tiled, and its tiles are those of TileOffsets and
+    TileByteCounts, or of StripOffsets and StripByteCounts where it has neither, as libtiff and
+    tifffile read it and as its description takes it (test_tiff_stored.py); an IFD without both
+    tags of the size is in strips, whatever tile tables it has. Each IFD here has the documents
+    and the references of the first of its kind, and the image's pixels. So has tifffile's file
+    of tiles with its tables renamed to the strips', which tifffile reads alike."""
+    data = ramp("uint8")
+
+    def layout(path) -> tuple[dict[str, Any], dict, np.ndarray]:
+        """The documents and the references of the file at `path`, zarrified under one URL, and
+        the pixels of its array, read through zarr; its IR is valid and rebuilds the file."""
+        _, out, _ = via_ir(str(path), "https://data.test/image.tif", mirror=False)
+        _, g, _ = zarrified(path, tmp_path, "tiff")
+        return {k: json.loads(v) for k, v in out.bytes_entries.items()}, out.refs, ndarray(g.get_array("0")[...])
+
+    # a tile a chunk; four strips of 256 bytes, which meet in the file, joined into one chunk of one range
+    kinds = [(TILED, [16, 16], {f"0/c/{r}/{c}": [(8 + 256 * (2 * r + c), 256)] for r in (0, 1) for c in (0, 1)}),
+             (IN_STRIPS, [32, 32], {"0/c/0/0": [(1048, 1024)]})]
+    for cases, chunk, references in kinds:
+        first = None
+        for name, tags in cases.items():
+            documents, refs, pixels = layout(units_tiff(tmp_path / "units.tif", data, tags))
+            first = first or documents
+            assert documents == first, name
+            assert at(documents, "0/zarr.json", "chunk_grid", "configuration", "chunk_shape") == chunk, name
+            assert refs == references, name
+            assert np.array_equal(pixels, data), name
+    plain = tiled(tmp_path / "plain.tif", data)
+    renamed = tmp_path / "renamed.tif"
+    renamed.write_bytes(plain.read_bytes())
+    patch_tag(patch_tag(renamed, "TileOffsets", code=273), "TileByteCounts", code=279)
+    assert np.array_equal(tifffile.imread(renamed), data)
+    want, got = layout(plain), layout(renamed)
+    assert got[:2] == want[:2]
+    assert len(got[1]) == 4
+    assert np.array_equal(got[2], data)
+
+
+def test_a_tiled_image_without_tables_is_rejected(tmp_path):
+    path = units_tiff(tmp_path / "n.tif", ramp("uint8"), TILE_SIZE)
+    with pytest.raises(Rejected, match="the tiled image at 3144 has neither tile tables nor strip tables"):
+        via_ir(str(path), "u")
+
+
+@pytest.mark.parametrize(("tables", "missing"), [
+    ({324: "tiles", 273: "tiles", 279: "counts"}, 325),
+    ({325: "counts", 273: "tiles", 279: "counts"}, 324),
+    ({273: "tiles"}, 279),
+    ({279: "counts"}, 273),
+])
+def test_a_tiled_image_with_half_of_its_tile_tables_is_rejected(tables, missing, tmp_path):
+    """§2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#2-the-source>: a tiled
+    IFD with TileOffsets or TileByteCounts and not the other has no tile tables, whatever strip
+    tables it has. (libtiff and tifffile pair the one with the strips' other table, and its
+    description takes the strips' two: the profile presents neither reading.)"""
+    path = units_tiff(tmp_path / "h.tif", ramp("uint8"), {**TILE_SIZE, **tables})
+    with pytest.raises(Rejected, match=f"IFD at 3144 has no tag {missing}"):
+        via_ir(str(path), "u")
+
+
+@pytest.mark.parametrize("size", [{}, {322: 16}, {323: 16}])
+def test_tile_tables_without_a_tile_size_are_not_an_images_strips(size, tmp_path):
+    """§2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#2-the-source>: an IFD
+    without both tags of a tile's size is in strips, and its strips are those of StripOffsets and
+    StripByteCounts alone, as its description takes them. (libtiff and tifffile read the strips of
+    such an IFD from TileOffsets and TileByteCounts where it has them.)"""
+    path = units_tiff(tmp_path / "s.tif", ramp("uint8"), {**size, 278: 8, 324: "strips", 325: "counts"})
+    with pytest.raises(Rejected, match="the image at 3144 has neither tiles nor strips"):
+        via_ir(str(path), "u")
+
+
 def test_an_lzw_last_strip_that_does_not_reach_its_size_is_rejected(tmp_path):
     """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a short
     last LZW strip whose stream ends before the strip's size cannot be continued by a tail."""

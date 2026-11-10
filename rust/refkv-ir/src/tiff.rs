@@ -435,6 +435,9 @@ pub struct Tiff {
     /// each tiles or strips struct's entries, in its tables' order (none for tables of unlike
     /// lengths), for the stored arrays (`stored.rs`)
     units: HashMap<u32, Vec<Unit>>,
+    /// what the layout read of each NDPI image's stream, by IFD, kept past the bytes it was read
+    /// from, for the stored arrays (`stored.rs`)
+    ndpi_streams: HashMap<usize, stored::ReadStream>,
 }
 
 /// The bytes of a row of `w` pixels of `samples` samples of `bits` bits each, which a row of packed
@@ -575,6 +578,7 @@ impl Tiff {
             prefetch: Prefetch::Start,
             order_el: 0,
             units: HashMap::new(),
+            ndpi_streams: HashMap::new(),
         }
     }
 
@@ -799,6 +803,9 @@ impl Tiff {
                             self.layout = Some(l);
                             self.emit_data()?;
                             self.keep_tables();
+                            if self.ndpi {
+                                self.ndpi_streams = self.streams_read();
+                            }
                             self.heads.clear();
                             self.start_pointers();
                             self.phase = Phase::Pointers;
@@ -922,7 +929,7 @@ impl Tiff {
             self.rules = rules::of("ndpi");
             self.hs = 16;
             let s = self.ir.struct_(0, "header", NO_INDEX, 0, Some((0, 12)))?;
-            self.ir.value(s, "byte_order", NO_INDEX, "ascii[2]", 0, (0, 2), Some(&h[..2]))?;
+            self.order_el = self.ir.value(s, "byte_order", NO_INDEX, "ascii[2]", 0, (0, 2), Some(&h[..2]))?;
             self.ir.value(s, "magic", NO_INDEX, "<u2", 0, (2, 2), Some(&h[2..4]))?;
             self.ir.value(s, "first_ifd", NO_INDEX, "<u8", 0, (4, 8), Some(&h[4..12]))?;
             self.next = v;
@@ -1613,6 +1620,13 @@ pub fn tile_forms(base: &J, shared: Option<u32>) -> (String, Option<String>) {
     (form(json!([["src", 0, null]])), shared.map(|x| form(json!([["src", 0, 2], ["shared", x], ["src", 2, null]]))))
 }
 
+/// The element that holds an IFD's chunks, of its (tiles, strips) elements: its strips for an
+/// image in strips (`strips`), and for a tiled one its tiles, which are the strips' element
+/// where the IFD has neither TileOffsets nor TileByteCounts (`Tiff::tile_tables`).
+fn units_element((tiles, strip_tables): (Option<u32>, Option<u32>), strips: bool) -> Option<u32> {
+    if strips { strip_tables } else { tiles.or(strip_tables) }
+}
+
 fn first_int(m: &Vals, tag: u16) -> Option<u64> {
     match m.get(&tag) {
         Some(Loaded::Ints(v)) => v.first().copied(),
@@ -1953,7 +1967,7 @@ impl Tiff {
             (Some((_, e)), _) | (None, Some(e)) => !e.dims.2,
             _ => false,
         };
-        self.chain.iter().map(|k| self.set.tiles.get(k).and_then(|&(t, s)| if strips { s } else { t })).collect()
+        self.chain.iter().map(|k| self.set.tiles.get(k).and_then(|&units| units_element(units, strips))).collect()
     }
 
     /// Each main-chain IFD's element, the key of its image's description.
@@ -1988,9 +2002,9 @@ impl Tiff {
         let across = if lv.strips { 1 } else { lv.w.div_ceil(lv.tw) };
         let down = lv.h.div_ceil(lv.th);
         let per = across as u128 * down as u128;
-        let (ot, ct) = if lv.strips { (273, 279) } else { (324, 325) };
         for &k in &lv.ifds {
             let m = &vals[&k];
+            let (ot, ct) = if lv.strips { (273, 279) } else { self.tile_tables(k) };
             let offsets = self.reqs(k, m, ot)?;
             let counts = self.reqs(k, m, ct)?;
             let (prefix, has_tables, tables_ok) = jpeg_prefix(m, jpeg, spp, photometric);
@@ -2186,17 +2200,31 @@ impl Tiff {
         })
     }
 
+    /// An IFD with a tile's size, TileWidth and TileLength, is tiled, as libtiff and tifffile read
+    /// it and as its description takes it (spec/zarrify/tiff.md §2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#2-the-source>,
+    /// `tiff/stored.rs`).
     fn tiled(&self, k: usize) -> bool {
-        self.ifds[k].has(322) && self.ifds[k].has(324)
+        self.ifds[k].has(322) && self.ifds[k].has(323)
+    }
+
+    /// The tags of the tables that list a tiled IFD's tiles: TileOffsets and TileByteCounts, its
+    /// own tables, or, in an IFD with neither, StripOffsets and StripByteCounts, under which some
+    /// writers list a tiled image's tiles. An IFD with one of its own tables and not the other has
+    /// no tile tables (`check_size`): libtiff and tifffile would pair the one with a strips'
+    /// table, and its description takes the strips' two.
+    fn tile_tables(&self, k: usize) -> (u16, u16) {
+        if self.ifds[k].has(324) || self.ifds[k].has(325) { (324, 325) } else { (273, 279) }
     }
 
     fn check_size(&self, k: usize, m: &Vals) -> Got<()> {
         let w = self.req(k, m, 256, None)?;
         let h = self.req(k, m, 257, None)?;
         let tiled = self.tiled(k);
-        let has_counts = self.ifds[k].has(325);
+        let (ot, ct) = self.tile_tables(k);
+        let (has_offsets, has_counts) = (self.ifds[k].has(ot), self.ifds[k].has(ct));
         let (mut tw, mut th) = (1, 1);
-        if tiled && has_counts && w >= 1 && h >= 1 {
+        if tiled && has_offsets && has_counts && w >= 1 && h >= 1 {
             tw = self.req(k, m, 322, None)?;
             th = self.req(k, m, 323, None)?;
         }
@@ -2207,7 +2235,9 @@ impl Tiff {
                 ("width", num(w as f64)),
                 ("height", num(h as f64)),
                 ("tiled", flag(tiled)),
+                ("has_offsets", flag(has_offsets)),
                 ("has_counts", flag(has_counts)),
+                ("missing", int(if has_offsets { ct } else { ot } as i128)),
                 ("tile_width", num(tw as f64)),
                 ("tile_height", num(th as f64)),
             ]),
@@ -2804,7 +2834,11 @@ impl Tiff {
                 None => self.own_prefix(k),
             };
             let one = |t: u16| f.field(t).filter(|e| unsigned(e.typ)).and_then(|e| self.ints(e, true)).and_then(|v| v.first().copied());
-            let (rows, cols) = if name == "tiles" {
+            // the strips' tables of an IFD with a tile's size and no tiles element list its tiles,
+            // as its description takes them (`tiff/stored.rs`; an NDPI image is tiled by its own
+            // rule, `derive_ndpi`, and has no description)
+            let lists_tiles = name == "tiles" || (!self.ndpi && tiles.is_none() && f.has(322) && f.has(323));
+            let (rows, cols) = if lists_tiles {
                 (one(323), one(322))
             } else {
                 (one(278).or(one(257)), one(256))
@@ -2873,6 +2907,10 @@ impl Tiff {
         if self.ndpi {
             // derive_ndpi wrote the levels; a tiled JPEG XR level's chunks are its IFD's tiles
             for lv in lay.facts["levels"].as_array_mut().into_iter().flatten() {
+                // `declared_by`: each plane's IFD, the key of its stored array's description
+                let ifds = lv.as_object_mut().and_then(|o| o.remove("ifds")).unwrap_or_default();
+                let keys: Vec<J> = ifds.as_array().into_iter().flatten().map(|k| json!(k.as_u64().map(|k| self.ifds[k as usize].el))).collect();
+                lv["declared_by"] = J::Array(keys);
                 for plane in lv["planes"].as_array_mut().into_iter().flatten() {
                     if let Some(k) = plane["tiles_ifd"].as_u64() {
                         plane["tiles"] = json!(tiles_of.get(&(k as usize)).and_then(|t| t.0));
@@ -2887,7 +2925,7 @@ impl Tiff {
             .iter()
             .map(|lv| {
                 // a level's chunks are its IFDs' tiles, or strips
-                let of = |k: &usize| tiles_of.get(k).copied().and_then(|(t, s)| if lv.strips { s } else { t });
+                let of = |k: &usize| tiles_of.get(k).copied().and_then(|units| units_element(units, lv.strips));
                 let (planes, declared_by) = match plan {
                     Some(p) => (
                         p.iter().map(|x| x.filter(|x| x.0 == 0).and_then(|x| of(&chain[x.1]))).collect::<Vec<_>>(),
@@ -3327,6 +3365,22 @@ impl Tiff {
         (v.unsigned_abs() <= MAX_SAFE).then_some(v)
     }
 
+    /// IFD `k`'s McuStarts `starts` with its McuStartsHighBytes `high`, where it has them
+    /// (spec/zarrify/ndpi.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>).
+    fn mcu_starts(&self, k: usize, starts: Vec<u64>, high: Option<&[u64]>) -> McuStarts {
+        let word = self.ifds[k].field(65426).filter(|e| ndpi_high_word(e)).map(|e| e.high);
+        let mut x = McuStarts { starts, same_length: true, high_word: true, added: false };
+        match (high, word) {
+            (Some(h), _) if h.len() != x.starts.len() => x.same_length = false,
+            (Some(h), Some(w)) => x.high_word = h[0] == w,
+            (h, _) => {
+                x.added = h.is_some();
+                x.starts = ndpi::combine(x.starts, h);
+            }
+        }
+        x
+    }
+
     /// The NDPI layout: levels, chunk grids, scales and translation, as facts for
     /// `project/ndpi.rs`. Asks for the values and strip headers not read yet.
     fn derive_ndpi(&self) -> Got<Layout> {
@@ -3357,18 +3411,7 @@ impl Tiff {
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)
         let starts_of = |k: usize, m: &NVals| -> Option<McuStarts> {
             let starts = m.get(&65426).and_then(|v| v.ints())?.to_vec();
-            let high = m.get(&65432).and_then(|v| v.ints());
-            let word = self.ifds[k].field(65426).filter(|e| ndpi_high_word(e)).map(|e| e.high);
-            let mut x = McuStarts { starts, same_length: true, high_word: true, added: false };
-            match (high, word) {
-                (Some(h), _) if h.len() != x.starts.len() => x.same_length = false,
-                (Some(h), Some(w)) => x.high_word = h[0] == w,
-                (h, _) => {
-                    x.added = h.is_some();
-                    x.starts = ndpi::combine(x.starts, h);
-                }
-            }
-            Some(x)
+            Some(self.mcu_starts(k, starts, m.get(&65432).and_then(|v| v.ints())))
         };
         let tiled_of = |k: usize, m: &NVals| {
             let f = &self.ifds[k];
@@ -3687,7 +3730,9 @@ impl Tiff {
                     p
                 })
                 .collect();
-            facts_of_levels.push(json!({"w": w, "h": h, "planes": planes}));
+            // `ifds`: each plane's IFD, which `emit_data` makes `declared_by`
+            let ifds: Vec<usize> = level.iter().map(|&i| levels[i].0).collect();
+            facts_of_levels.push(json!({"w": w, "h": h, "planes": planes, "ifds": ifds}));
             let (sy, sx) = (py.unwrap_or(1.0) * (bh as f64 / h as f64), px.unwrap_or(1.0) * (bw as f64 / w as f64));
             scales.push(if stacked { json!([1, scale_z, sy, sx]) } else { json!([1, sy, sx]) });
         }
@@ -4167,9 +4212,9 @@ impl Tiff {
             } else {
                 lv.w.div_ceil(lv.tw) as u128 * lv.h.div_ceil(lv.th) as u128
             };
-            let (ot, ct) = if lv.strips { (273, 279) } else { (324, 325) };
             for &k in &lv.ifds {
                 let m = &vals[&k];
+                let (ot, ct) = if lv.strips { (273, 279) } else { self.tile_tables(k) };
                 let offsets = self.reqs(k, m, ot)?;
                 let counts = self.reqs(k, m, ct)?;
                 let (prefix, has_tables, tables_ok) = jpeg_prefix(m, jpeg, spp, photometric);
