@@ -81,11 +81,10 @@ write_fixtures = vsi_generator()
 
 @dataclass(frozen=True)
 class Slide:
-    """A slide's descriptions, with its store's objects: each object's key by its element, and
-    each file's bytes by its key. A slide is always a store, so every place has a key."""
+    """A slide's descriptions, with its store's files, each one's bytes by its key. A slide is
+    always a store, so every place has a key."""
 
     d: Described
-    keys: dict[int, str]
     files: dict[str, bytes]
 
     def where(self, element: int, within: tuple[int, int] | None = None) -> Range:
@@ -112,7 +111,7 @@ class Slide:
 def read_slide(path: Path) -> Slide:
     """The slide whose `.vsi` file is at `path`, its tile files beside it."""
     d = described(path)
-    return Slide(d, d.keys, {key: data for key, data in d.objects.items() if key is not None})
+    return Slide(d, {key: data for key, data in d.objects.items() if key is not None})
 
 
 # ---- the files, read here as spec/zarrify/vsi.md lays them out
