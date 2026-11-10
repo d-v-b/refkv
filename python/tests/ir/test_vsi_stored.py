@@ -413,10 +413,11 @@ def check_level(slide: Slide, v: Volume, level: int, seen: Counter) -> list[str]
     seen["fill values given" if given else "fill values the IR does not give"] += 1
     if given:
         fill = a.fill.param if isinstance(a.fill, Given) else None
-        if not isinstance(fill, Source) or slide.where(a.element, (BACKGROUND, size)) != slide.where(
-                *(fill.place.element, fill.place.range) if isinstance(fill.place, ElementPlace) else (0, None)):
+        place = fill.place if isinstance(fill, Source) else None
+        # a range of the ETS header, the array's key
+        if not isinstance(place, ElementPlace) or (place.element, place.range) != (a.element, (BACKGROUND, size)):
             said.append(f"the fill value {a.fill}, not the background's first sample")
-        elif slide.placed(fill.place) != f.background[:size]:
+        elif slide.placed(place) != f.background[:size]:
             said.append("the fill value's place does not hold the background's first sample")
     elif a.fill != "undefined":
         said.append(f"the fill value {a.fill} of a background the IR does not give")
