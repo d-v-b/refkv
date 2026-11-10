@@ -2,7 +2,7 @@
 reader (spec/stored-array.md <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md>)."""
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
 
@@ -25,20 +25,25 @@ SCHEMA = json.loads((ROOT / "spec" / "stored-array.json").read_text())
 @dataclass(frozen=True)
 class Described:
     """A file's IR, its stored arrays, its chunk map's rows by array, its objects' bytes by key
-    (a file IR's one object under the key None), and the output its profile wrote of it."""
+    (a file IR's one object under the key None), the output its profile wrote of it, and each
+    object's key by its element, as the IR gives its objects' keys (none in a file's IR)."""
 
     ir: Ir
     stored: Stored
     rows: dict[int, list[dict]]
     objects: dict[str | None, bytes]
     out: Output | StoreIrOutput
+    keys: dict[int, str] = field(default_factory=dict)
 
     def key(self, element: int) -> str | None:
-        """The key of the object `element` is in: the object's path, a store's directories being
-        the elements above its objects."""
+        """The key of the object `element` is in: the one the IR gives the object, or, of a
+        reader that lists none, the object's path (a store's directories are the elements above
+        its objects, so a key is its object's path but where a name needs quoting)."""
         while element and self.ir.kind(element) != Kind.OBJECT:
             element = self.ir.parent(element)
-        return self.ir.path(element) if element else None
+        if not element:
+            return None
+        return self.keys.get(element, self.ir.path(element))
 
     def at(self, element: int, within: tuple[int, int] | None = None) -> tuple[str | None, int, int]:
         """(object key, offset, length) of an element's extent, or of a range of it."""
@@ -84,7 +89,11 @@ def described(path: Path) -> Described:
     rows: dict[int, list[dict]] = {}
     for r in pa.record_batch(core.chunk_map()).to_pylist():
         rows.setdefault(r["array"], []).append(r)
-    # a store's objects by their keys, relative to the file's directory; a file's IR has none
-    keys = [key for key, _, _ in ir.object_bases()]
-    objects: dict[str | None, bytes] = {k: (path.parent / k).read_bytes() for k in keys} or {None: path.read_bytes()}
-    return Described(ir, ir.stored_arrays(), rows, objects, out)
+    # a store's objects, in the IR's order, with their keys, which are relative to the file's
+    # directory; a file's IR has none
+    bases = ir.object_bases()
+    elements = [i for i in range(len(ir)) if ir.kind(i) == Kind.OBJECT] if bases else []
+    keys = {i: key for i, (key, _, _) in zip(elements, bases, strict=True)}
+    objects: dict[str | None, bytes] = {k: (path.parent / k).read_bytes() for k in keys.values()} or {
+        None: path.read_bytes()}
+    return Described(ir, ir.stored_arrays(), rows, objects, out, keys)
