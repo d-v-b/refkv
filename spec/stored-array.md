@@ -258,6 +258,11 @@ A chain's codec has only its entry's parameters.
 | `jpeg2k_tile` | the tile-parts of one tile of a JPEG 2000 codestream (ISO/IEC 15444-1), in the codestream's order, each from its SOT marker to its end, without the main header before them or the EOC after | `header`: a place of the codestream's main header, its bytes before its first tile-part: from its SOC through the last marker segment before the first SOT | none | the tile's samples, of `item_bits` bits, little-endian, a pixel's components together in the codestream's order: the tile is the one its SOT names, on the grid the header's SIZ gives, and of the unit's size |
 | `lerc` | one LERC blob | none | none | the blob's values in its own data type, little-endian, a pixel's bands together; a pixel its mask leaves out is as the LERC library decodes it |
 | `eer` | one frame of Electron Event Representation: run lengths of `skip_bits` bits, each with a sub-pixel position of `horizontal_bits` and `vertical_bits` bits | `skip_bits`, `horizontal_bits`, `vertical_bits`: each a value, or a place of a field's one value; absent, 7, 2 and 2 | none | elements of 1 bit, 1 where an event lands on the pixel, most significant bit first, each row padded to a whole byte; the sub-pixel positions are not made |
+| `grib_scale` | the integers `X` of a GRIB edition 2 field (FM 92 regulation 92.9.4), as the codec after it in its chain makes them: each of `item_bits` bits, 64, two's complement, little-endian | `reference`: a place of `R`, 4 octets, an IEEE binary32, big-endian (section 5's octets 12–15); `binary_scale` and `decimal_scale`: each a place of `E` or of `D`, 2 octets, an integer whose first bit is its sign and whose other 15, the most significant first, are its magnitude (octets 16–17 and 18–19) | none | floats of `item_bits` bits, binary64, little-endian: `(X × 2^E + R) × 10^−D`, computed in binary64, each operation rounded, in that order, `X` and `R` converted first; `2^E` is 1 multiplied by 2 as many times as `E`'s magnitude (divided, for a negative `E`), and `10^−D` is 1 divided by 10 as many times as `D`'s magnitude (multiplied, for a negative `D`), as ecCodes computes them. The integer −2^63, a missing value of `grib_complex`, makes NaN |
+| `grib_simple` | the data of FM 92's data template 7.0: the unit's integers, each of `bits` bits, the most significant first, one after another, then the bits that fill the last octet | `bits`: a place of one octet, an unsigned integer, from 1 to 63 (section 5's octet 20) | none | the integers, unsigned, as `grib_scale` takes them |
+| `grib_complex` | the data of FM 92's data template 7.2, or, with `differencing`, 7.3, every number the most significant bit first. With `differencing`: as many first values as its order, each an unsigned integer of its descriptors' octets, then the overall minimum of the differences, of as many octets, its first bit its sign and the others its magnitude. Then each group's reference, of `bits` bits; from the next whole octet, each group's coded width; from the next whole octet, each group's scaled length; from the next whole octet, the groups' coded values, each of its group's width, one after another | `bits`: a place of one octet, an unsigned integer, at most 64 (section 5's octet 20); `groups`: a place of section 5's octets 22–47, of data representation template 5.2, of which the codec reads the missing value management (octet 23), the number of groups (32–35), the reference of the groups' widths (36) and the bits of a coded width (37), the reference of the groups' lengths (38–41), their increment (42), the last group's length (43–46) and the bits of a scaled length (47), each an unsigned integer, big-endian; `differencing`: a place of section 5's octets 48–49, of template 5.3: the order of the spatial differencing, 1 or 2, and the octets of each of its descriptors, at most 8 | none | the unit's integers, as `grib_scale` takes them. A group's width is its coded width plus the widths' reference; its length is its scaled length times the increment plus the lengths' reference, and the last group's is the one given. A value is its group's reference plus its coded value. Under missing value management 1 or 2, a coded value whose bits are all 1 (in a group of width 0, a group's reference whose bits are all 1) is a missing value, and under 2 so is one that is 1 less: each makes −2^63. With `differencing`, the values that are not missing are differences, summed back in order: the first ones, as many as the order, are the first values, and each after them is itself plus the overall minimum plus the value before it (order 1), or plus twice the value before it less the one before that (order 2), as ecCodes reads them |
+| `grib_png` | a PNG file ([W3C PNG](https://www.w3.org/TR/png-3/)), as FM 92's data template 7.41 holds one: not interlaced, with no palette, of gray samples of 1, 2, 4, 8 or 16 bits, or of red, green and blue samples of 8 bits, with or without alpha | none | none | the unit's integers, as `grib_scale` takes them: the image's pixels, row after row, each pixel's bits as one unsigned integer, the most significant first (a gray sample; red, green and blue, 24 bits; with alpha after them, 32) |
+| `grib_ccsds` | one stream of CCSDS 121.0-B adaptive entropy coding, as [libaec](https://gitlab.dkrz.de/k202009/libaec) writes it and FM 92's data template 7.42 holds it: unsigned samples of `bits` bits, in blocks of `block_size` samples, `reference_sample_interval` blocks to an interval, with libaec's options `flags` | `bits`: a place of one octet, from 1 to 32 (section 5's octet 20); `flags`: a place of one octet, libaec's flags (octet 22: 8, the samples are preprocessed; 16, the restricted set of code options; 32, each interval ends on a whole octet; 2 and 4 say how a decoder lays its samples out, and nothing of the stream); `block_size`: a place of one octet (octet 23); `reference_sample_interval`: a place of 2 octets (octets 24–25); each an unsigned integer, big-endian | none | the unit's integers, the stream's first samples, as `grib_scale` takes them |
 | `h264` | one access unit of an H.264 stream (ITU-T H.264), as ISO/IEC 14496-15 stores a sample: its NAL units, each after its length, of as many bytes as `setup` says | `setup`: a place of an AVCDecoderConfigurationRecord (an `avcC` box's payload), which holds the parameter sets; `plane`: a value, 0, 1 or 2, the picture's luma plane or one of its two chroma planes (Cb, then Cr); `sync` | `sync`: `UInt64`, 1 where a decoder may start at the unit, else 0 | plane `plane` of the access unit's picture, at the plane's own size: samples of 1 byte, or, of a bit depth above 8, of 2 bytes, little-endian. Its units are a stream ([§3.1](#31-chains)) |
 | `hevc` | one access unit of an HEVC stream (ITU-T H.265), stored as `h264`'s | as `h264`'s, `setup` a place of an HEVCDecoderConfigurationRecord (an `hvcC` box's payload) | as `h264`'s | as `h264`'s |
 | `av1` | one temporal unit of an AV1 stream, as [AV1-ISOBMFF](https://aomediacodec.github.io/av1-isobmff/) stores a sample: its OBUs, each with its size | as `h264`'s, `setup` a place of an AV1CodecConfigurationRecord (an `av1C` box's payload) | as `h264`'s | as `h264`'s |
@@ -953,6 +958,83 @@ has TIFF 6.0's default.
   unit's elements take (a tile stored at a larger sample size than its fields give): the unit's
   are the first, as libtiff and tifffile read them.
 - **The fill value** is `undefined`: TIFF has none.
+
+**GRIB** ([spec/zarrify/grib.md](zarrify/grib.md)). Every message of a GRIB edition 2 file has
+descriptions, whether or not the profile presents its fields, keyed by its element
+(`messages/<i>`), a kind of element that may declare several arrays: each bitmap one of its
+sections 6 holds (indicator 0) and each of its fields (a section 7, with the sections 3, 5 and 6
+in effect at it) is an array, indexed in the order of their sections, a bitmap before its field.
+The file's store parser describes them itself ([§6](#6-in-the-ir)). A field's array is the values
+its section 7 codes, in the file's order: how fields stack into a variable, where on its grid a
+bitmap puts a field's values, and which way a grid's rows run are the profile's. The facts give
+the keys: each entry of `fields` has `declared_by`, the id of its message's element, `array`, the
+index of its values' array, and `mask`, the index of the bitmap that says which points its values
+are (its own, or, under indicator 254, the message's last one before it), or null. Below, an octet
+is numbered from 1 in its section, a section is the element `messages/<i>/sections/<j>`, and `n`
+is section 5's number of values (octets 6–9).
+
+- **Declarations.** A field's: its section 3 (the grid's number of points, its template, `Ni`,
+  `Nj` and the scanning mode); its section 5 (`n`, the data representation template and its
+  octets: the reference value and the scale factors, the type of the original values, complex
+  packing's substitutes for its missing values); the first 6 octets of its section 6, which end
+  with the bitmap indicator (the section's element, or the `header` element of a section that
+  holds more); and, where a bitmap says which points its values are, that bitmap's bits (the
+  `bitmap` element of its section 6). A bitmap's: the section 3 in effect, and the first 6
+  octets of its section 6, likewise.
+- **A bitmap** is a bit for each point of the grid, in the file's order, 1 where the point has a
+  value: `shape` is section 3's number of points (octets 7–10), one axis, and `item_bits` is 1. It
+  is one unit in an empty chain, `Each` of the points (an empty `List` for none) under `short`,
+  and its row is the section's `bitmap` element, the octets after the first 6, or the range of its
+  first octets that hold the points' bits where it holds more. A bitmap whose section holds fewer
+  bits than the grid has points has no grid.
+- **A field's `shape`.** Where every point has a value (indicator 255, and `n` the grid's number
+  of points) and the grid is one whose rows the parser reads (template 3.0, 3.1, 3.10, 3.20, 3.30
+  or 3.40, defined by its template, with no list of the points of each row, and `Ni` × `Nj` its
+  number of points), `shape` is `Nj`, then `Ni`, with `axes` `[1, 0]`, since section 3 gives `Ni`
+  first; or, where the scanning mode's bit 3 (`0x20`) says that consecutive points run along a
+  column, `Ni`, then `Nj`, with no `axes`. Rows that alternate in direction (bit 4, `0x10`) are as
+  the file stores them. Every other field is one axis of its `n` coded values, in order: one on a
+  reduced grid, on a 3.101 grid or on a grid the parser does not read; one whose `n` is not the
+  grid's number of points; and one with a bitmap, of any indicator. A field with a bitmap is the
+  values of the points the bitmap keeps, and no value is made for a point it leaves out: the
+  bitmap's own array, or for a predefined bitmap (indicator 1–253) the indicator, says which they
+  are.
+- **Units.** A field is one unit: each axis `Each` of its length, or an empty `List` for an axis
+  of length 0, under `short`. Its row is its section 7's element with the range of the octets
+  that hold its values, which start after the section's first 5; a field of no values, and one
+  whose values no octet codes, has no row.
+- **IEEE floats** (template 5.4, of the precision 1 or 2 at octet 12) are stored as they are:
+  `item_bits` is 32 or 64, the elements big-endian, the chain empty, and the row's range the
+  `n` values' octets.
+- **A constant field** codes no value: simple packing, JPEG 2000, PNG or CCSDS packing (5.0, 5.40,
+  5.41, 5.42) of a bit width of 0 (octet 20), and complex packing (5.2, 5.3) of no groups (octets
+  32–35). Every value is the reference value `R`, an IEEE binary32, big-endian: `item_bits` is
+  32, the chain is empty, there is no row, and `fill` is given, the place of `R` (section 5's
+  octets 12–15). ecCodes and NCEP's g2c read `R` itself whatever the decimal scale factor `D` is,
+  as their encoders write it, where FM 92's regulation 92.9.4 would give `R × 10^−D`.
+- **A packed field** is the integers its packing codes, which `grib_scale` makes its values of:
+  `item_bits` is 64, and the chain is `grib_scale`, with the places of `R`, `E` and `D` in section
+  5, then the codec of the integers, each parameter a range of section 5
+  ([§3.2](#32-the-list)): `grib_simple` for 5.0 (a bit width of at most 63), the row's range the
+  octets that hold `n` integers; `grib_complex` for 5.2 and for 5.3, with `differencing` (missing
+  value management 0, 1 or 2; widths of at most 64 bits; an order of 1 or 2, and descriptors of at
+  most 8 octets); `jpeg2k` for 5.40, whose codestream's samples, in the image's order whatever its
+  rows, are the unit's integers; `grib_png` for 5.41; and `grib_ccsds` for 5.42 (unsigned samples
+  of at most 32 bits). The row's range, but simple packing's, is all of section 7 after its first
+  5 octets. The parser reads no octet of section 7 after them, so a stream that is not its
+  codec's, or holds other than `n` integers, is not detected. Complex packing's missing values are
+  NaN, whichever of its two kinds they are; their substitutes (section 5's octets 24–31) are among
+  the declarations.
+- **`source`**, with `format` `grib`, `id` the data representation template's number and
+  `parameters` the place of section 5's octets after it (from octet 12), for any other template
+  (the spectral 5.50 and 5.51, 5.61, 5.200), and for one of those above with parameters its codec
+  does not take (IEEE floats of another precision, simple packing of 64 bits, complex packing of
+  other options, signed CCSDS samples, a section 5 shorter than its template's octets). The field
+  then has no `item_bits`, and its row's range is section 7 after its first 5 octets.
+- **No grid** for a field whose section 7 holds fewer octets than its IEEE floats or its simple
+  packing's integers take, and for one of another named packing with values to code and a section
+  7 of 5 octets.
+- **The fill value** is `undefined`, but a constant field's: GRIB has none.
 
 **NIfTI** ([spec/zarrify/nifti.md](zarrify/nifti.md)). A NIfTI file's voxels are one stored
 array, of a single file, of a file gzipped whole and of a header-and-image pair alike, as nibabel
