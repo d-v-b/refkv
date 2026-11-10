@@ -269,3 +269,96 @@ fn a_sets_planes_name_their_descriptions_in_their_files() {
     assert!(planes >= 2 && unmodeled == 0, "{planes} planes, {unmodeled} with no grid");
     assert!(holders.len() >= 2 && holders.iter().all(|&o| ir.kind[o as usize] == refkv_ir::ir::OBJECT), "planes in {holders:?}");
 }
+
+// ---- which IFD is tiled, and the tables that list its tiles (spec/zarrify/tiff.md §2
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#2-the-source>)
+
+type Entry = (u16, u16, u32, u32);
+const TILE_SIZE: [Entry; 2] = [(322, 3, 1, 16), (323, 3, 1, 16)];
+const ROWS_PER_STRIP: Entry = (278, 3, 1, 8);
+const TILE_TABLES: [Entry; 2] = [(324, 4, 4, 1032), (325, 4, 4, 1048)];
+const STRIP_TABLES: [Entry; 2] = [(273, 4, 4, 1032), (279, 4, 4, 1048)];
+
+/// `image()`'s IFD with `with` in place of its tile size and tables. Its four units of 256 bytes
+/// are 16 x 16 tiles and strips of 8 rows alike, and its one pair of tables lists them under
+/// either pair of tags.
+fn units(with: &[Entry]) -> Vec<u8> {
+    let (e, blobs) = image();
+    let e = e.into_iter().filter(|x| !(322..=325).contains(&x.0)).chain(with.iter().copied()).collect();
+    tiff(&[e], &blobs, &[None])
+}
+
+/// An IFD with TileWidth and TileLength is tiled, and its tiles are those of TileOffsets and
+/// TileByteCounts, or of StripOffsets and StripByteCounts where it has neither; an IFD without
+/// both tags of the size is in strips, whatever tile tables it has. The level's chunks, their
+/// element and its members' shape are the IFD's tiles or strips, and its description, which takes
+/// an IFD as tiled by the same tags, has the level's grid over the same element.
+#[test]
+fn an_ifd_is_tiled_by_its_tile_size_and_read_by_its_tile_tables() {
+    use refkv_ir::array::{AxisUnits, Edge};
+    // (the IFD's tile size and tables, whether it is tiled, the element of its chunks)
+    let cases = [
+        ("its own tables", [&TILE_SIZE[..], &TILE_TABLES].concat(), true, "tiles"),
+        ("tiles listed in the strips' tables", [&TILE_SIZE[..], &STRIP_TABLES].concat(), true, "strips"),
+        ("both pairs of tables: its own", [&TILE_SIZE[..], &TILE_TABLES, &STRIP_TABLES].concat(), true, "tiles"),
+        ("strips", [&STRIP_TABLES[..], &[ROWS_PER_STRIP]].concat(), false, "strips"),
+        ("TileWidth without TileLength", [&TILE_SIZE[..1], &TILE_TABLES, &STRIP_TABLES, &[ROWS_PER_STRIP]].concat(), false, "strips"),
+        ("TileLength without TileWidth", [&TILE_SIZE[1..], &TILE_TABLES, &STRIP_TABLES, &[ROWS_PER_STRIP]].concat(), false, "strips"),
+        ("tile tables without a tile size", [&TILE_TABLES[..], &STRIP_TABLES, &[ROWS_PER_STRIP]].concat(), false, "strips"),
+    ];
+    for (name, with, tiled, element) in cases {
+        let data = units(&with);
+        let (ir, facts) = parse_bytes::<Tiff>(&data).unwrap_or_else(|e| panic!("{name}: {e}"));
+        check::check(&ir).unwrap();
+        assert_eq!(rebuilt(&ir, &data), data, "{name}");
+        let lv = &facts["levels"][0];
+        let (rows, columns) = if tiled { (16, 16) } else { (8, 32) };
+        assert_eq!((lv["strips"].as_bool(), lv["th"].as_u64(), lv["tw"].as_u64()), (Some(!tiled), Some(rows), Some(columns)), "{name}");
+        // the plane's chunks: the four members of the element of its tables, each of a unit's shape
+        let unit = lv["planes"][0].as_u64().unwrap() as u32;
+        assert_eq!(ir.path(unit), format!("ifds/0/{element}"), "{name}");
+        let members: Vec<u32> = (0..ir.parent.len() as u32).filter(|&i| ir.parent[i as usize] == unit).collect();
+        assert_eq!(members.len(), 4, "{name}");
+        for &m in &members {
+            let form: serde_json::Value = serde_json::from_str(ir.form(m).unwrap()).unwrap();
+            assert_eq!(form["geometry"]["shape"], serde_json::json!([rows, columns]), "{name}");
+        }
+        // its description: the same grid, over the same element
+        assert_eq!(planes_name_their_descriptions(name, &ir, &facts).0, 1, "{name}");
+        let key = lv["declared_by"][0].as_u64().unwrap() as u32;
+        let grid = ir.stored.arrays.iter().find(|a| a.element == key).unwrap().grid.as_ref().unwrap();
+        assert_eq!(grid.axes, [AxisUnits::Each(rows), AxisUnits::Each(columns)], "{name}");
+        assert_eq!(grid.edge, if tiled { Edge::Full } else { Edge::Short }, "{name}");
+    }
+}
+
+/// A tiled IFD with none of the four tables has no tiles.
+#[test]
+fn a_tiled_ifd_without_tables_is_rejected() {
+    rejects(&units(&TILE_SIZE), "the tiled image at 1064 has neither tile tables nor strip tables");
+}
+
+/// A tiled IFD with one table of a pair and not the other is rejected: one of its own tables is
+/// not paired with a strips' table, as libtiff and tifffile would pair them, nor passed over for
+/// the strips' two, as its description passes it over.
+#[test]
+fn a_tiled_ifd_with_half_of_its_tile_tables_is_rejected() {
+    let cases = [
+        ([&TILE_SIZE[..], &TILE_TABLES[..1], &STRIP_TABLES].concat(), 325),
+        ([&TILE_SIZE[..], &TILE_TABLES[1..], &STRIP_TABLES].concat(), 324),
+        ([&TILE_SIZE[..], &STRIP_TABLES[..1]].concat(), 279),
+        ([&TILE_SIZE[..], &STRIP_TABLES[1..]].concat(), 273),
+    ];
+    for (with, missing) in cases {
+        rejects(&units(&with), &format!("IFD at 1064 has no tag {missing}"));
+    }
+}
+
+/// An IFD without both tags of a tile's size is in strips, and its strips are those of
+/// StripOffsets and StripByteCounts alone: with tile tables only, it has none.
+#[test]
+fn tile_tables_without_a_tile_size_are_not_strips() {
+    for size in [&TILE_SIZE[..0], &TILE_SIZE[..1], &TILE_SIZE[1..]] {
+        rejects(&units(&[size, &TILE_TABLES, &[ROWS_PER_STRIP]].concat()), "the image at 1064 has neither tiles nor strips");
+    }
+}

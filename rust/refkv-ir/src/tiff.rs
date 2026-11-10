@@ -1613,6 +1613,13 @@ pub fn tile_forms(base: &J, shared: Option<u32>) -> (String, Option<String>) {
     (form(json!([["src", 0, null]])), shared.map(|x| form(json!([["src", 0, 2], ["shared", x], ["src", 2, null]]))))
 }
 
+/// The element that holds an IFD's chunks, of its (tiles, strips) elements: its strips for an
+/// image in strips (`strips`), and for a tiled one its tiles, which are the strips' element
+/// where the IFD has neither TileOffsets nor TileByteCounts (`Tiff::tile_tables`).
+fn units_element((tiles, strip_tables): (Option<u32>, Option<u32>), strips: bool) -> Option<u32> {
+    if strips { strip_tables } else { tiles.or(strip_tables) }
+}
+
 fn first_int(m: &Vals, tag: u16) -> Option<u64> {
     match m.get(&tag) {
         Some(Loaded::Ints(v)) => v.first().copied(),
@@ -1953,7 +1960,7 @@ impl Tiff {
             (Some((_, e)), _) | (None, Some(e)) => !e.dims.2,
             _ => false,
         };
-        self.chain.iter().map(|k| self.set.tiles.get(k).and_then(|&(t, s)| if strips { s } else { t })).collect()
+        self.chain.iter().map(|k| self.set.tiles.get(k).and_then(|&units| units_element(units, strips))).collect()
     }
 
     /// Each main-chain IFD's element, the key of its image's description.
@@ -1988,9 +1995,9 @@ impl Tiff {
         let across = if lv.strips { 1 } else { lv.w.div_ceil(lv.tw) };
         let down = lv.h.div_ceil(lv.th);
         let per = across as u128 * down as u128;
-        let (ot, ct) = if lv.strips { (273, 279) } else { (324, 325) };
         for &k in &lv.ifds {
             let m = &vals[&k];
+            let (ot, ct) = if lv.strips { (273, 279) } else { self.tile_tables(k) };
             let offsets = self.reqs(k, m, ot)?;
             let counts = self.reqs(k, m, ct)?;
             let (prefix, has_tables, tables_ok) = jpeg_prefix(m, jpeg, spp, photometric);
@@ -2186,17 +2193,31 @@ impl Tiff {
         })
     }
 
+    /// An IFD with a tile's size, TileWidth and TileLength, is tiled, as libtiff and tifffile read
+    /// it and as its description takes it (spec/zarrify/tiff.md §2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#2-the-source>,
+    /// `tiff/stored.rs`).
     fn tiled(&self, k: usize) -> bool {
-        self.ifds[k].has(322) && self.ifds[k].has(324)
+        self.ifds[k].has(322) && self.ifds[k].has(323)
+    }
+
+    /// The tags of the tables that list a tiled IFD's tiles: TileOffsets and TileByteCounts, its
+    /// own tables, or, in an IFD with neither, StripOffsets and StripByteCounts, under which some
+    /// writers list a tiled image's tiles. An IFD with one of its own tables and not the other has
+    /// no tile tables (`check_size`): libtiff and tifffile would pair the one with a strips'
+    /// table, and its description takes the strips' two.
+    fn tile_tables(&self, k: usize) -> (u16, u16) {
+        if self.ifds[k].has(324) || self.ifds[k].has(325) { (324, 325) } else { (273, 279) }
     }
 
     fn check_size(&self, k: usize, m: &Vals) -> Got<()> {
         let w = self.req(k, m, 256, None)?;
         let h = self.req(k, m, 257, None)?;
         let tiled = self.tiled(k);
-        let has_counts = self.ifds[k].has(325);
+        let (ot, ct) = self.tile_tables(k);
+        let (has_offsets, has_counts) = (self.ifds[k].has(ot), self.ifds[k].has(ct));
         let (mut tw, mut th) = (1, 1);
-        if tiled && has_counts && w >= 1 && h >= 1 {
+        if tiled && has_offsets && has_counts && w >= 1 && h >= 1 {
             tw = self.req(k, m, 322, None)?;
             th = self.req(k, m, 323, None)?;
         }
@@ -2207,7 +2228,9 @@ impl Tiff {
                 ("width", num(w as f64)),
                 ("height", num(h as f64)),
                 ("tiled", flag(tiled)),
+                ("has_offsets", flag(has_offsets)),
                 ("has_counts", flag(has_counts)),
+                ("missing", int(if has_offsets { ct } else { ot } as i128)),
                 ("tile_width", num(tw as f64)),
                 ("tile_height", num(th as f64)),
             ]),
@@ -2804,7 +2827,11 @@ impl Tiff {
                 None => self.own_prefix(k),
             };
             let one = |t: u16| f.field(t).filter(|e| unsigned(e.typ)).and_then(|e| self.ints(e, true)).and_then(|v| v.first().copied());
-            let (rows, cols) = if name == "tiles" {
+            // the strips' tables of an IFD with a tile's size and no tiles element list its tiles,
+            // as its description takes them (`tiff/stored.rs`; an NDPI image is tiled by its own
+            // rule, `derive_ndpi`, and has no description)
+            let lists_tiles = name == "tiles" || (!self.ndpi && tiles.is_none() && f.has(322) && f.has(323));
+            let (rows, cols) = if lists_tiles {
                 (one(323), one(322))
             } else {
                 (one(278).or(one(257)), one(256))
@@ -2887,7 +2914,7 @@ impl Tiff {
             .iter()
             .map(|lv| {
                 // a level's chunks are its IFDs' tiles, or strips
-                let of = |k: &usize| tiles_of.get(k).copied().and_then(|(t, s)| if lv.strips { s } else { t });
+                let of = |k: &usize| tiles_of.get(k).copied().and_then(|units| units_element(units, lv.strips));
                 let (planes, declared_by) = match plan {
                     Some(p) => (
                         p.iter().map(|x| x.filter(|x| x.0 == 0).and_then(|x| of(&chain[x.1]))).collect::<Vec<_>>(),
@@ -4167,9 +4194,9 @@ impl Tiff {
             } else {
                 lv.w.div_ceil(lv.tw) as u128 * lv.h.div_ceil(lv.th) as u128
             };
-            let (ot, ct) = if lv.strips { (273, 279) } else { (324, 325) };
             for &k in &lv.ifds {
                 let m = &vals[&k];
+                let (ot, ct) = if lv.strips { (273, 279) } else { self.tile_tables(k) };
                 let offsets = self.reqs(k, m, ot)?;
                 let counts = self.reqs(k, m, ct)?;
                 let (prefix, has_tables, tables_ok) = jpeg_prefix(m, jpeg, spp, photometric);

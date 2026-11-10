@@ -170,6 +170,27 @@ def test_a_page_of_a_large_tile_table_reads_as_tifffile_reads_it(tmp_path):
     np.testing.assert_array_equal(zarr.open_array(refkv.zarr.store(store), path="1/0", mode="r")[...], values)
 
 
+def test_a_page_of_tiles_listed_in_the_strips_tables_reads_as_tifffile_reads_it(tmp_path):
+    """Page 1 has TileWidth and TileLength, and its tiles are listed under StripOffsets and
+    StripByteCounts: it is tiled (spec/zarrify/tiff.md §2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#2-the-source>), and the layout
+    presents its tiles, the members of the IR's `strips`."""
+    path = two_pages(tmp_path, tile=(16, 16))
+    with tifffile.TiffFile(path) as tf:
+        page = tf.pages[1]
+        assert isinstance(page, tifffile.TiffPage)
+        entries = {strips: page.tags[tiles].offset for tiles, strips in ((324, 273), (325, 279))}
+    with open(path, "r+b") as f:
+        for strips, at in entries.items():
+            f.seek(at)
+            f.write(struct.pack("<H", strips))
+    store = zarrify(str(path), layout=Layout(TiffPages()))
+    got = zarr.open_array(refkv.zarr.store(store), path="1/0", mode="r")
+    assert got.chunks == (16, 16)
+    np.testing.assert_array_equal(got[...], tifffile.imread(path, key=1))
+    np.testing.assert_array_equal(got[...], np.arange(32 * 48, dtype=np.uint8).reshape(32, 48))
+
+
 # ---- the errors: one test each
 
 def two_pages(tmp_path, **second):
