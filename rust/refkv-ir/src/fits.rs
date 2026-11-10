@@ -25,6 +25,9 @@ use crate::transform::Transform;
 use serde_json::{json, Value as J};
 use std::io::{Cursor, Read};
 
+#[path = "fits/stored.rs"]
+mod stored;
+
 /// A FITS block, and a card.
 pub const BLOCK: u64 = 2880;
 pub const CARD: usize = 80;
@@ -956,6 +959,8 @@ impl Fits {
             "cards": records - 1, "data_offset": data_offset, "data_bytes": total, "pad": pad,
             "bitpix": bitpix as i64, "data_type": data_type, "naxis": axes, "pcount": pcount as i64, "gcount": gcount as i64,
             "name": name, "version": version, "table": table, "compression": J::Null, "elements": elements,
+            // the key of its arrays' descriptions (`stored.rs`): its header, where it holds data
+            "declared_by": if empty { J::Null } else { json!(header) },
         }));
         if let Some(c) = comp {
             self.pending = Some(Pending {
@@ -1213,7 +1218,9 @@ impl Fits {
         Ok(())
     }
 
+    /// The finished IR, with its HDUs' arrays described (`stored.rs`), and the facts.
     pub fn finish(mut self) -> Result<(Ir, J), String> {
+        let described = if self.phase == Phase::Done { Some(stored::described(&self.ir, &self.hdus)?) } else { None };
         let mut facts = json!({"hdus": self.hdus, "copy_threshold": crate::out::copy_threshold()});
         if let Some(d) = &self.decoded {
             // the checker fills the source's gaps: this one, special records, is in the space
@@ -1222,7 +1229,11 @@ impl Fits {
             }
             facts["stream"] = json!({"method": method(d.transform), "length": d.length, "size": self.size});
         }
-        sans::finish(self.phase == Phase::Done, self.ir, facts)
+        let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, facts)?;
+        if let Some((arrays, chains, map)) = described {
+            ir.describe(arrays, chains, map)?;
+        }
+        Ok((ir, facts))
     }
 }
 
