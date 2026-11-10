@@ -99,6 +99,16 @@ class Subblock:
         return self.dims["X"][1], self.dims["Y"][1]
 
 
+@dataclass(frozen=True)
+class Planes:
+    """The planes an array's `t`, `c` and `z` axes span: the axes it has, the least `T`, `C` and
+    `Z`, and the extent along each."""
+
+    axes: list[str]
+    lo: tuple[int, int, int]
+    extent: tuple[int, int, int]
+
+
 def jpegxr_size(b: bytes) -> tuple[int, int]:
     """(ImageWidth, ImageHeight) of a JPEG XR file's container."""
     ifd = struct.unpack_from("<I", b, 4)[0]
@@ -205,10 +215,11 @@ def along(axes: list[str], values: dict[str, JSON]) -> list[JSON]:
     return [values[x] for x in axes]
 
 
-def check_array(prefix: str, doc: dict[str, JSON], members: list[Subblock], lo: tuple[int, int, int], axes: list[str],
-                got: dict[str, Range], seen: Counter) -> list[str]:
+def check_array(prefix: str, doc: dict[str, JSON], members: list[Subblock], over: Planes, got: dict[str, Range],
+                seen: Counter) -> list[str]:
     """One array the profile wrote, a level of an image or a tile array, against the subblocks it
-    holds: `lo` and `axes` are its image's, or its own."""
+    holds: `over` are its image's planes, or its own."""
+    axes, lo, extent = over.axes, over.lo, over.extent
     first = members[0]
     said = []
     if doc["dimension_names"] != axes:
@@ -219,8 +230,6 @@ def check_array(prefix: str, doc: dict[str, JSON], members: list[Subblock], lo: 
         said.append(f"samples of {first.item} bytes; the profile's data type {doc['data_type']}")
     if any(s.names == () and s.stored[0] * s.stored[1] * s.samples * s.item > MAX_BAND for s in members):
         return [*said, "a tile in row bands, which the test does not derive"]
-    planes = [s.plane for s in members]
-    extent = [max(p[n] for p in planes) - lo[n] + 1 for n in range(3)]
     if prefix.startswith("tiles/"):
         # one position: every member at one place, of one size and form
         seen["tile arrays"] += 1
@@ -249,8 +258,11 @@ def check_array(prefix: str, doc: dict[str, JSON], members: list[Subblock], lo: 
         column = {s.k: (s.start("X") - x0) // logical[0] for s in members}
         row = {s.k: (s.start("Y") - y0) // logical[1] for s in members}
         m, r = max(column.values()) + 1, max(row.values()) + 1
-        last_w = {s.stored[0] for s in members if column[s.k] == m - 1}.pop()
-        last_h = {s.stored[1] for s in members if row[s.k] == r - 1}.pop()
+        widths = {s.stored[0] for s in members if column[s.k] == m - 1}
+        heights = {s.stored[1] for s in members if row[s.k] == r - 1}
+        if len(widths) != 1 or len(heights) != 1:
+            return [*said, f"a level whose last column is {sorted(widths)} wide and last row {sorted(heights)} high"]
+        (last_w,), (last_h,) = widths, heights
         seen["levels clipped"] += (last_w, last_h) != (wide, high)
         seen["levels of several tiles"] += m * r > 1
         if any(s.coded != s.stored for s in members):
@@ -275,13 +287,14 @@ def check_array(prefix: str, doc: dict[str, JSON], members: list[Subblock], lo: 
     return said
 
 
-def axes_of(members: list[Subblock]) -> tuple[list[str], tuple[int, int, int]]:
-    """The axes of an array over its subblocks' planes, and the least plane along each
-    (spec/zarrify/czi.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#42-images>)."""
+def planes_of(members: list[Subblock]) -> Planes:
+    """The planes of an image, over the subblocks of all its levels, or of a tile array, over its
+    own (spec/zarrify/czi.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#42-images>)."""
     planes = [s.plane for s in members]
     lo, hi = [min(p[n] for p in planes) for n in range(3)], [max(p[n] for p in planes) for n in range(3)]
     several = [hi[0] > lo[0], hi[1] > lo[1] or members[0].samples > 1, hi[2] > lo[2]]
-    return [x for x, has in zip("tcz", several, strict=True) if has] + ["y", "x"], (lo[0], lo[1], lo[2])
+    axes = [x for x, has in zip("tcz", several, strict=True) if has] + ["y", "x"]
+    return Planes(axes, (lo[0], lo[1], lo[2]), (hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1))
 
 
 @cache
@@ -330,20 +343,20 @@ def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
             said.append(f"{prefix}: a subblock of another array too")
         presented |= {s.k for s in members}
         if prefix.startswith("tiles/"):
-            axes, lo = axes_of(members)
+            over = planes_of(members)
         else:
-            # an image's axes and least planes are over the subblocks of all its levels
+            # an image's axes, least planes and extents are over the subblocks of all its levels
             image = prefix.split("/")[0]
             levels = [m for p, m in held.items() if p.split("/")[0] == image and not p.startswith("tiles/")]
             every = [s for m in levels for s in m.values()]
-            axes, lo = axes_of(every)
+            over = planes_of(every)
             group = mapping(json.loads(entries[f"{image}/zarr.json"]))
             own = mapping(group["attributes"]).get("refkv_zarrified")
             series = [dict(s.series) for s in every]
             if any(s != series[0] for s in series) or (own is None) != (not series[0]) or (
                     own is not None and at(own, "czi", "dimensions") != series[0]):
                 said.append(f"{prefix}: a series of {series[0]}; the profile's {own}")
-        said += [f"{prefix}: {s}" for s in check_array(prefix, doc, members, lo, axes, chunks[prefix], seen)]
+        said += [f"{prefix}: {s}" for s in check_array(prefix, doc, members, over, chunks[prefix], seen)]
     for k, a in enumerate(d.stored.arrays):
         if k not in presented:
             seen["descriptions the profile writes nothing of"] += 1
@@ -388,13 +401,22 @@ def test_the_fixtures_hold_every_case_the_profile_is_compared_in():
 
 
 def test_planes_the_fixtures_lack_are_placed_from_their_images_least(tmp_path):
-    """Two images no fixture holds: one whose planes start above 0, so that a chunk's index along
-    `t` is its `T` less the least; and one whose second level has the later of two planes alone,
-    so that the level's chunk is placed from the image's least plane, not the level's own."""
+    """Images no fixture holds: one whose planes start above 0, so that a chunk's index along `t`
+    is its `T` less the least; one whose second level has the later of two planes alone, so that
+    the level's chunk is placed from the image's least plane, not the level's own; and one whose
+    second level has the earlier alone, so that the level is as long along `t` as the image."""
     plane = writer.plane
     later = writer.Czi([plane(1, 0, 0, 0, 8, 8, T=2), plane(1, 0, 0, 0, 8, 8, T=3)])
     levels = writer.Czi([plane(1, 0, 0, 0, 8, 8, T=0), plane(1, 0, 0, 0, 8, 8, T=1),
                          plane(1, 0, 0, 0, 4, 4, wl=8, hl=8, T=1)])
+    shorter = writer.Czi([plane(1, 0, 0, 0, 8, 8, T=0), plane(1, 0, 0, 0, 8, 8, T=1),
+                          plane(1, 0, 0, 0, 4, 4, wl=8, hl=8, T=0)])
+    said, seen = compared(written(tmp_path, "shorter", shorter.build()))
+    assert said == ()
+    assert {k: v for k, v in seen.items() if v} == {"descriptions": 3, "arrays": 2, "levels": 2, "chunks of []": 3}
+    out = described(tmp_path / "shorter" / "shorter.czi").out
+    assert isinstance(out, Output)
+    assert json.loads(out.bytes_entries["0/1/zarr.json"])["shape"] == [2, 4, 4]
     said, seen = compared(written(tmp_path, "later", later.build()))
     assert said == ()
     assert {k: v for k, v in seen.items() if v} == {"descriptions": 2, "arrays": 1, "levels": 1, "chunks of []": 2}
