@@ -430,25 +430,7 @@ impl Hdf5 {
     /// files, as (key, offset, length), in the data's order; None unless a store run found every
     /// file the data lies in and each range lies within its file.
     fn external_ranges(&self, at: u64, total: u128) -> Option<Vec<(String, u64, u64)>> {
-        let found = self.found.as_ref()?;
-        let mut left = total;
-        let mut out = Vec::new();
-        for s in self.slots.get(&at)? {
-            if left == 0 {
-                break;
-            }
-            let key = written_key(&s.name, "", Written::default())?;
-            let size = *found.get(&key)?;
-            let n = if s.size == super::EXTERNAL_UNLIMITED { left } else { (s.size as u128).min(left) };
-            if s.offset as u128 + n > size as u128 {
-                return None;
-            }
-            if n > 0 {
-                out.push((key, s.offset, n as u64));
-            }
-            left -= n;
-        }
-        (left == 0).then_some(out)
+        super::stored::external_ranges(self.slots.get(&at)?, total, self.found.as_ref()?)
     }
 
     /// Whether the dataset at `at` is the dimension scale netCDF-4 writes for a dimension with no
@@ -1210,7 +1192,7 @@ impl Hdf5 {
             .filter_map(|n| n["array"]["store"]["at"].as_u64())
             .collect();
         let room = self.room.unwrap_or(self.limit("walk_elements") + size / self.limit("walk_bytes_per_element"));
-        let mut e = Emit { ir: Ir::new(self.h.file_size()), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must };
+        let mut e = Emit { ir: Ir::new(self.h.file_size()), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must, rec: Default::default() };
         let sb = self.h.sb.clone().ok_or("internal: no superblock")?;
         e.superblock(&sb)?;
         if let Some(ext) = self.extension.take() {
@@ -1252,8 +1234,14 @@ impl Hdf5 {
             }
         }
         // each array's storage element: the struct of its chunks, or its contiguous data
+        let struct_of: HashMap<u64, u32> = order.iter().copied().zip(structs.iter().copied()).collect();
         for n in facts["nodes"].as_array_mut().into_iter().flatten() {
+            let header = n["own"]["address"].as_u64();
             let Some(a) = n.get_mut("array") else { continue };
+            // the key of the dataset's stored-array description: its object's struct
+            if let Some(key) = header.and_then(|h| struct_of.get(&h)) {
+                a["declared_by"] = json!(key);
+            }
             let store = &mut a["store"];
             let Some(at) = store["at"].as_u64() else { continue };
             let el = match store["kind"].as_str() {
@@ -1263,9 +1251,11 @@ impl Hdf5 {
             let Some(&el) = el else { return Err(format!("internal: the storage of the dataset at {at} is not described")) };
             store["element"] = json!(el);
         }
-        let mut ir = e.ir;
+        let super::walk::Emit { mut ir, rec, data_of, .. } = e;
         ir.sort_values();
         crate::check::finish(&mut ir)?;
+        let em = super::stored::Emitted { order: &order, structs: &structs, rec: &rec, data_of: &data_of };
+        super::stored::describe(&mut ir, &mut self.h, &em, &self.visited, &self.slots, self.found.as_ref())?;
         facts["requests"] = json!(self.requests);
         facts["requested"] = json!(self.requested);
         facts["rounds"] = json!(self.rounds);

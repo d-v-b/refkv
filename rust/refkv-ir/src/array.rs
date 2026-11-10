@@ -160,18 +160,29 @@ pub struct CodecEntry {
     pub parameters: &'static [ParamEntry],
 }
 
+/// A parameter no unit gives as a column.
+const fn fixed(name: &'static str) -> ParamEntry {
+    ParamEntry { name, column: None }
+}
+
 /// The IR's codecs. `source` is the general fallback: a source encoding refkv has no name for,
 /// by the format, the source's id for it, the source's own name for it where it gives one (an
 /// HDF5 filter's optional name), and its parameters as the source gives them.
-pub const CODECS: &[CodecEntry] = &[CodecEntry {
-    name: "source",
-    parameters: &[
-        ParamEntry { name: "format", column: None },
-        ParamEntry { name: "id", column: None },
-        ParamEntry { name: "name", column: None },
-        ParamEntry { name: "parameters", column: None },
-    ],
-}];
+pub const CODECS: &[CodecEntry] = &[
+    CodecEntry { name: "source", parameters: &[fixed("format"), fixed("id"), fixed("name"), fixed("parameters")] },
+    CodecEntry { name: "zlib", parameters: &[] },
+    CodecEntry { name: "zstd", parameters: &[] },
+    CodecEntry { name: "bzip2", parameters: &[] },
+    CodecEntry { name: "lzf", parameters: &[] },
+    CodecEntry { name: "blosc", parameters: &[] },
+    CodecEntry { name: "shuffle", parameters: &[fixed("element_size")] },
+    CodecEntry { name: "h5_fletcher32", parameters: &[] },
+    CodecEntry { name: "h5_lz4", parameters: &[] },
+    CodecEntry { name: "h5_szip", parameters: &[fixed("options"), fixed("pixels_per_block"), fixed("bits_per_pixel"), fixed("pixels_per_scanline")] },
+    CodecEntry { name: "h5_nbit", parameters: &[fixed("parameters")] },
+    CodecEntry { name: "h5_scaleoffset", parameters: &[fixed("parameters")] },
+    CodecEntry { name: "h5_bitshuffle", parameters: &[fixed("element_size"), fixed("block_size"), fixed("compression")] },
+];
 
 /// A value of a parameter column.
 #[derive(Clone, Copy, Debug, PartialEq)]

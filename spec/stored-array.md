@@ -30,7 +30,7 @@ with no grid, [§2.3](#23-the-grid)).
 
 Every array a parser reaches has a description, whether or not its profile presents it. Each
 format's document lists the structures that are its stored arrays and what each of their
-declarations is. Today only the NumPy profile describes its arrays
+declarations is. Today the NumPy, HDF5 and IMS parsers describe their arrays
 ([§7](#7-the-formats)).
 
 ## 2. The description
@@ -210,6 +210,21 @@ A chain's codec has only its entry's parameters.
 | Codec | Takes | Parameters | Columns | Decoding makes |
 | --- | --- | --- | --- | --- |
 | `source` | the bytes the source's encoding wrote, framed as the source frames them | `format`: the profile's name; `id`: the source's id for the encoding, as the source gives it; `name`: the source's own name for the encoding, where it gives one (an HDF5 filter's optional name); `parameters`: its parameters, as the source gives them (a value, or a place that holds them) | none | what the source's encoding decodes to; the profile maps it or leaves the array out |
+| `zlib` | a zlib stream ([RFC 1950](https://www.rfc-editor.org/rfc/rfc1950)) | none | none | the bytes it inflates to |
+| `zstd` | a Zstandard frame ([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878)) | none | none | the frame's content |
+| `bzip2` | a bzip2 stream | none | none | the bytes it decompresses to |
+| `lzf` | one LZF block with no header; its decoded length is not stored | none | none | the block's bytes |
+| `blosc` | a Blosc 1 chunk, with its 16-byte header | none | none | the chunk's bytes |
+| `shuffle` | the bytes of elements of `element_size` bytes each: every element's first byte, then every element's second, and so on, then the bytes past the last whole element as they are | `element_size`: a place of one value | none | the elements' bytes, each element's together |
+| `h5_fletcher32` | bytes, then their Fletcher-32 checksum as HDF5 computes it (4 bytes) | none | none | the bytes before the checksum |
+| `h5_lz4` | the layout of HDF5's LZ4 filter (32004): the decoded length (8 bytes, big-endian), a block size (4 bytes, big-endian), then each block as its stored length (4 bytes, big-endian) and an [LZ4 block](https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md), or the block's bytes as they are where the stored length is the block's own | none | none | the blocks' bytes, joined |
+| `h5_szip` | what HDF5's SZIP filter (4) writes | `options`, `pixels_per_block`, `bits_per_pixel`, `pixels_per_scanline`: each a place of one value | none | what the filter decodes it to |
+| `h5_nbit` | what HDF5's N-bit filter (5) writes | `parameters`: a place of every value the filter has, which give the datatype it packs | none | what the filter decodes it to |
+| `h5_scaleoffset` | what HDF5's scale-offset filter (6) writes | `parameters`: a place of every value the filter has | none | what the filter decodes it to |
+| `h5_bitshuffle` | what HDF5's bitshuffle filter (32008) writes ([zarrify/hdf5.md §3.4](zarrify/hdf5.md#34-the-codec-refkvh5_bitshuffle)) | `element_size`, and, where the filter gives them, `block_size` (0: the filter's default) and `compression` (0: the blocks bare; 2: framed with LZ4): each a place of one value | none | the elements' bytes |
+
+A place parameter of an HDF5 filter's codec holds client data values of the filter, as its filter
+pipeline message stores them: each 4 bytes, an unsigned integer, little-endian.
 
 `source` is the general fallback: a source encoding refkv has no name for (an unknown HDF5
 filter's id and client data). refkv's names describe the encoding, not the output: which Zarr or
@@ -455,3 +470,59 @@ its data does not fit) has no grid, nor, by the general fallback ([§1](#1-store
 whose element's bits would pass 2^64 (an array of no elements may be of such a type), whose
 `item_bits` is then absent too. A deflated member's array is not
 described yet: its header and data lie in its stream, which no element holds.
+
+**HDF5** ([spec/zarrify/hdf5.md](zarrify/hdf5.md)). Every object the parser reads whose header has
+a data layout message, and neither a symbol table nor a link info message, is a stored array,
+whether or not a path reaches it or the profile presents it: a dataset. It is keyed by its
+object's element (`objects/<i>`), with no index. The facts give the key: `array.declared_by` of
+each node that is an array is the id of its dataset's object, which the store's `placed()`
+renumbers with `store.element` ([§2.1](#21-keys)). An attribute's value is not described yet.
+
+- **Declarations.** The first is the data of the dataset's datatype message, or, where that
+  message is shared, of the committed datatype's datatype message it names; a header with no one
+  datatype message gives none. Of a dataset the parser did not read, it is the shared message's
+  own data: the description reads no byte the parser did not, so it is the same however the
+  file's bytes were fetched. After it come the fill value messages whose value the description
+  cannot give (below). A message is the element the IR made of its data (`messages/<k>/data`),
+  or, where the IR had no room for one, a range of the source.
+- **`shape`** is the dataspace's current dimensions, absent for a null dataspace and for one that
+  does not read. `axes` is absent: HDF5 stores an array in its declared order.
+- **`item_bits`** is eight times the datatype's size, the bytes of one stored element (for a
+  variable-length type, of its heap reference); absent where the datatype does not read or its
+  size is 0, and for a dataset the parser did not read whose datatype message is shared.
+- **A chunked dataset** whose chunk index and filter pipeline the parser read has the grid of its
+  chunk shape, `Each` on every axis, under `full`, and one chain: its filter pipeline's codecs
+  ([§3.2](#32-the-list)), in the pipeline's order. A filter the list has no name for, or whose
+  client data are fewer than its entry's parameters, is `source`, with `format` `hdf5`, its `id`,
+  its `name` where the message gives one, and `parameters`, a place of all its client data,
+  where it has any. Each chunk the index holds is a row: its element; or, where the chunks of
+  an implicit index are one `data` element, its range of that element (no range where the chunk
+  is all of the element); or, where the IR had no room for its element, its range of the source.
+  `skips` is the chunk's filter mask, less the bits past the pipeline; an edge chunk the dataset
+  stores unfiltered skips every codec. A chunk the index does not hold has no row.
+- **A contiguous or compact dataset** is one unit in an empty chain: each axis `Each` of its
+  length, or an empty `List` for an axis of length 0, under `short`. The row's bytes are the
+  dataset's `data` element, or the range of its layout message's data that holds a compact
+  dataset's (a range of the source where the IR had no room for the element); a dataset of no
+  bytes, and a contiguous one with no address, has no row. A dataset whose stored bytes are not
+  as many as its elements', and a contiguous one whose data runs past the end of the file, has no
+  grid.
+- **A dataset in external files** is one unit likewise, its row's `ranges` the files' ranges in
+  order, each by the sibling key the run resolved for the file. It has a grid only where a store
+  run found every file it reads, each as long as its part; in a file run, which looks for no
+  sibling, it has none.
+- **No grid** also for a virtual dataset, a null dataspace, a chunked dataset whose index the
+  parser did not read, and a dataset of which it did not read the dataspace, the datatype, the
+  layout, the filter pipeline message or the fill value message.
+- **The fill value** has HDF5's three states, as the library's `H5Pfill_value_defined` gives them
+  for the dataset: `undefined` (the message says so, or the header has no fill value message of
+  either type), `format_default` (a fill value is defined and the message holds none: zeros), or
+  `given`, the place of the value's bytes in the message, which are an element as the datatype
+  stores one. The new message (type 5) is read where a header has both. A shared message,
+  several messages of the type read, a message that does not read, or a value whose length is
+  not the datatype's size, leaves `undefined`, with those messages among the declarations.
+
+**IMS** ([spec/zarrify/ims.md](zarrify/ims.md)). An Imaris file's datasets are described as
+HDF5's, by the same code, in a file run; a filter the list has no name for is `source` with
+`format` `hdf5` there too. The facts give each image dataset's key as the sixth
+member of its entry of `images`: the id of its object.
