@@ -178,6 +178,7 @@ pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "blosc", parameters: &[] },
     CodecEntry { name: "skip", parameters: &[fixed("length")] },
     CodecEntry { name: "shuffle", parameters: &[fixed("element_size")] },
+    CodecEntry { name: "lsb_first", parameters: &[fixed("bits")] },
     CodecEntry { name: "h5_fletcher32", parameters: &[] },
     CodecEntry { name: "h5_lz4", parameters: &[] },
     CodecEntry { name: "h5_szip", parameters: &[fixed("options"), fixed("pixels_per_block"), fixed("bits_per_pixel"), fixed("pixels_per_scanline")] },
@@ -2127,6 +2128,20 @@ mod tests {
         let mut s = valid();
         f(&mut s);
         check_with(&with(s), TEST_CODECS).unwrap_err()
+    }
+
+    /// The list names each codec once, and a codec each of its parameters once: two formats' PRs
+    /// that add one codec must add one entry.
+    #[test]
+    fn the_list_names_each_codec_and_parameter_once() {
+        let mut names: Vec<&str> = CODECS.iter().map(|c| c.name).collect();
+        names.sort_unstable();
+        assert_eq!(names.windows(2).find(|w| w[0] == w[1]), None);
+        for c in CODECS {
+            let mut parameters: Vec<&str> = c.parameters.iter().map(|p| p.name).collect();
+            parameters.sort_unstable();
+            assert_eq!(parameters.windows(2).find(|w| w[0] == w[1]), None, "{}", c.name);
+        }
     }
 
     /// Valid descriptions and maps of every kind pass; the map is sorted when built, and each
