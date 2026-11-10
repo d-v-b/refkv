@@ -231,9 +231,8 @@ A chain's codec has only its entry's parameters.
 | `zstd` | a Zstandard frame ([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878)) | none | none | the frame's content |
 | `bzip2` | a bzip2 stream | none | none | the bytes it decompresses to |
 | `lzf` | one LZF block with no header; its decoded length is not stored | none | none | the block's bytes |
-| `skip` | `length` bytes that are none of the unit's elements (a header the source stores in one stream with them), then the elements' bytes | `length`: a value | none | the bytes after the first `length` |
 | `blosc` | a Blosc 1 chunk, with its 16-byte header | none | none | the chunk's bytes |
-| `skip` | `length` bytes that a reader passes over, then the bytes its decoding makes | `length`: a place of the count as the source writes it, in ASCII: decimal digits, a `+` before them allowed (the descriptor of NRRD's `byte skip`) | none | the bytes after the first `length` |
+| `skip` | `length` bytes that a reader passes over, then the bytes its decoding makes | `length`: the count: a value, or a place that holds it as the source writes it in ASCII, decimal digits with a `+` before them allowed (the descriptor of NRRD's `byte skip`) | none | the bytes after the first `length` |
 | `shuffle` | the bytes of elements of `element_size` bytes each: every element's first byte, then every element's second, and so on, then the bytes past the last whole element as they are | `element_size`: a place of one value | none | the elements' bytes, each element's together |
 | `lsb_first` | elements of `bits` bits each, packed from each byte's least significant bit: bit k of the unit is bit k mod 8, counted from the least significant, of byte ⌊k / 8⌋, and an element's first bit is its least significant | `bits`: a value, from 1 to 7, the array's `item_bits` | none | the elements packed most significant bit first, as [§3.1](#31-chains) packs them |
 | `h5_fletcher32` | bytes, then their Fletcher-32 checksum as HDF5 computes it (4 bytes) | none | none | the bytes before the checksum |
@@ -515,6 +514,43 @@ its data does not fit) has no grid, nor, by the general fallback ([§1](#1-store
 whose element's bits would pass 2^64 (an array of no elements may be of such a type), whose
 `item_bits` is then absent too. A deflated member's array is not
 described yet: its header and data lie in its stream, which no element holds.
+
+**MRC** ([spec/zarrify/mrc.md](zarrify/mrc.md)). An MRC file's data is one stored array, keyed by
+the file's `header` element, with no index. The facts give the key: `declared_by` is that element's
+id. The dataset layout ([spec/zarrify/mrc-dataset.md](zarrify/mrc-dataset.md)) is a second layout of
+the same file, and has no description of its own.
+
+- **Declarations.** Ranges of the `header` element, in this order: `machst`, (212, 4), whose first
+  byte gives the byte order of the header's fields and of the values; `mode`, (12, 4); and, of a
+  mode 0 file, whose values' sign they decide
+  ([zarrify/mrc.md §3](zarrify/mrc.md#3-data-types)), `nversion`, (108, 4), IMOD's stamp, (152, 4),
+  and IMOD's flags, (156, 4).
+- **`shape`** is `nz`, `ny` and `nx`, the sections, the rows and the columns, whatever the kind of
+  file ([zarrify/mrc.md §4.1](zarrify/mrc.md#41-the-array)): an image is one section, and a volume
+  stack's sections are those of all its volumes, which the profile cuts by `mz`. `axes` is
+  `[2, 1, 0]`: the header gives `nx` first. The axis map (`mapc`, `mapr`, `maps`) names the axes
+  and reorders no value, so it changes neither.
+- **`item_bits`** is the mode's: 8 for mode 0; 16 for modes 1, 6 and 12; 32 for mode 2, and for
+  mode 3, whose element is a pair of 16-bit integers; 64 for mode 4, a pair of 32-bit floats; and
+  4 for mode 101, with `pad_from` 2, the columns' axis: each row ends on a whole byte.
+- **The grid** is one unit, the whole array: each axis `Each` of its length, under `short`. Its
+  row is the `data` element. The profile's checks
+  ([zarrify/mrc.md §8.1](zarrify/mrc.md#81-header)) leave no axis of length 0, and no data that
+  is not whole in the file, so no array of an MRC file lacks a grid but by the limits of
+  [§6](#6-in-the-ir).
+- **The chain** is empty, but for mode 101's, `lsb_first` with `bits` 4: a row's first value is
+  the low half of its first byte. A row of an odd `nx` ends on half a byte of padding, the high
+  half of its last byte, which decodes to the low half, after the row's last value, as `pad_from`
+  says.
+- **A file gzipped whole** ([zarrify/mrc.md §8.4](zarrify/mrc.md#84-gzipped-files)) has no
+  `header` element: its bytes are the stream, which holds the header. Its array is keyed by its
+  `data` element, the stream, as `declared_by` says, and that element is its one unit. It has no
+  declarations: the header is the first 1024 bytes the stream inflates to, which no place names,
+  the IR having no derived space for them yet. Its `shape`, `item_bits` and `pad_from` are those
+  of the header the parser inflated. Its chain ends with `skip`, then `gzip`: the values are what
+  the stream inflates to, after the header and the extended header. `skip`'s `length`, 1024 plus
+  `nsymbt`, is a value, since no place holds `nsymbt` either.
+- **The fill value** is `undefined`: MRC has none.
 
 **HDF5** ([spec/zarrify/hdf5.md](zarrify/hdf5.md)). Every object the parser reads whose header has
 a data layout message, and neither a symbol table nor a link info message, is a stored array,
