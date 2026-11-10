@@ -50,8 +50,9 @@ fn video(e: &Entry) -> Option<(&'static str, &'static [u8; 4], Sps)> {
 /// What the IR models of how a track's samples are stored: `count` of them, the sync samples
 /// among them `sync`.
 pub(super) fn kind(t: &Track, count: u64, sync: Vec<u64>) -> Kind {
-    // one sample entry describes every sample, or the samples are not one array
-    let one = t.stsd_count == 1 && t.entries.len() == 1 && t.stsc.iter().all(|e| e.2 == 1) && !t.frag_other_entry;
+    // one sample entry describes every sample, whose sizes the parser reads, or the samples are
+    // not one array the IR models
+    let one = !t.stz2 && t.stsd_count == 1 && t.entries.len() == 1 && t.stsc.iter().all(|e| e.2 == 1) && !t.frag_other_entry;
     let Some(e) = t.entries.first().filter(|_| one && count > 0 && &t.handler == b"vide") else { return Kind::Other };
     if e.width == 0 || e.height == 0 {
         return Kind::Other;
