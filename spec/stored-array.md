@@ -231,10 +231,9 @@ A chain's codec has only its entry's parameters.
 | `zstd` | a Zstandard frame ([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878)) | none | none | the frame's content |
 | `bzip2` | a bzip2 stream | none | none | the bytes it decompresses to |
 | `lzf` | one LZF block with no header; its decoded length is not stored | none | none | the block's bytes |
-| `skip` | `length` bytes that are none of the unit's elements (a header the source stores in one stream with them), then the elements' bytes | `length`: a value | none | the bytes after the first `length` |
 | `blosc` | a Blosc 1 chunk, with its 16-byte header | none | none | the chunk's bytes |
-| `skip` | `length` bytes that a reader passes over, then the bytes its decoding makes | `length`: a place of the count as the source writes it, in ASCII: decimal digits, a `+` before them allowed (the descriptor of NRRD's `byte skip`) | none | the bytes after the first `length` |
-| `shuffle` | the bytes of elements of `element_size` bytes each: every element's first byte, then every element's second, and so on, then the bytes past the last whole element as they are | `element_size`: a place of one value | none | the elements' bytes, each element's together |
+| `skip` | `length` bytes that a reader passes over, then the bytes its decoding makes | `length`: the count: a value, or a place that holds it as the source writes it in ASCII, decimal digits with a `+` before them allowed (the descriptor of NRRD's `byte skip`) | none | the bytes after the first `length` |
+| `shuffle` | the bytes of elements of `element_size` bytes each: every element's first byte, then every element's second, and so on, then the bytes past the last whole element as they are | `element_size`: a place of one value, or a value where the source has no field for it | none | the elements' bytes, each element's together |
 | `lsb_first` | elements of `bits` bits each, packed from each byte's least significant bit: bit k of the unit is bit k mod 8, counted from the least significant, of byte ⌊k / 8⌋, and an element's first bit is its least significant | `bits`: a value, from 1 to 7, the array's `item_bits` | none | the elements packed most significant bit first, as [§3.1](#31-chains) packs them |
 | `h5_fletcher32` | bytes, then their Fletcher-32 checksum as HDF5 computes it (4 bytes) | none | none | the bytes before the checksum |
 | `h5_lz4` | the layout of HDF5's LZ4 filter (32004): the decoded length (8 bytes, big-endian), a block size (4 bytes, big-endian), then each block as its stored length (4 bytes, big-endian) and an [LZ4 block](https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md), or the block's bytes as they are where the stored length is the block's own | none | none | the blocks' bytes, joined |
@@ -261,6 +260,8 @@ A chain's codec has only its entry's parameters.
 | `hevc` | one access unit of an HEVC stream (ITU-T H.265), stored as `h264`'s | as `h264`'s, `setup` a place of an HEVCDecoderConfigurationRecord (an `hvcC` box's payload) | as `h264`'s | as `h264`'s |
 | `av1` | one temporal unit of an AV1 stream, as [AV1-ISOBMFF](https://aomediacodec.github.io/av1-isobmff/) stores a sample: its OBUs, each with its size | as `h264`'s, `setup` a place of an AV1CodecConfigurationRecord (an `av1C` box's payload) | as `h264`'s | as `h264`'s |
 | `vp9` | one frame or superframe of a VP9 stream | as `h264`'s, `setup` a place of a VPCodecConfigurationRecord (a `vpcC` box's payload) | as `h264`'s | as `h264`'s |
+| `fits_rice` | one unit's stream of FITS's Rice coding (`RICE_1`, FITS Standard 4.0 section 10.4.1, as cfitsio's `fits_rcomp` writes it), its bits most significant first: a first value of `byte_pix` bytes; then the unit's pixels in blocks of `block_size`, each block a code of 3, 4 or 5 bits (for a `byte_pix` of 1, 2 or 4) and its pixels' differences, each pixel less the one before it (the first less the first value), a difference d mapped to 2d where it is not negative and to −2d − 1 where it is. A code of 0 has no more bits, every difference of its block 0; the highest code (7, 15 or 26) has each mapped difference in 8 × `byte_pix` bits; any other code c has each as its bits above its low c − 1 in unary (as many 0 bits, then a 1), then its low c − 1 bits | `block_size`, `byte_pix`: each a place of a card; absent, 32 and 4 | none | the unit's pixels, each an integer of `byte_pix` bytes, big-endian: the sums of the differences, modulo 2^(8 × `byte_pix`) |
+| `fits_quantize` | the integers FITS's quantization makes of a unit's floats (FITS Standard 4.0 section 10.2), each 4 bytes, big-endian, two's complement | `method`: a place of a card whose value is the dither's name, `NO_DITHER`, `SUBTRACTIVE_DITHER_1` or `SUBTRACTIVE_DITHER_2`; absent, `NO_DITHER`. `scale`, `zero`: columns. `seed`: a column, under a dither. `zblank`, the integer of a pixel of no value: a column, or a place of a card whose value it is; absent, there is none | `scale`, `zero`: `Float64`; `seed`, `zblank`: `Int64` | floats of `item_bits` bits (32 or 64), big-endian, an integer I's being NaN where I is `zblank`; else 0 where I is −2147483646 under `SUBTRACTIVE_DITHER_2`; else I × `scale` + `zero` without a dither, and (I − R + 0.5) × `scale` + `zero` under one, computed in binary64, each operation rounded, in that order, then rounded to the element's size. R is the dither's next random number, of the 10,000 cfitsio's `fits_init_randoms` makes (from s = 1, s ← 16807 × s mod (2^31 − 1) each time, the number s / (2^31 − 1) as a binary32): a unit starts at the number at floor(500 × N), N the number at (`seed` − 1) mod 10000, and takes one for each pixel, whatever its integer; after the last number it takes up the N after its own (after the last, the first) and goes on from floor(500 × N) |
 
 A place parameter of an HDF5 filter's codec holds client data values of the filter, as its filter
 pipeline message stores them: each 4 bytes, an unsigned integer, little-endian. A place of a TIFF
@@ -517,6 +518,43 @@ its data does not fit) has no grid, nor, by the general fallback ([§1](#1-store
 whose element's bits would pass 2^64 (an array of no elements may be of such a type), whose
 `item_bits` is then absent too. A deflated member's array is not
 described yet: its header and data lie in its stream, which no element holds.
+
+**MRC** ([spec/zarrify/mrc.md](zarrify/mrc.md)). An MRC file's data is one stored array, keyed by
+the file's `header` element, with no index. The facts give the key: `declared_by` is that element's
+id. The dataset layout ([spec/zarrify/mrc-dataset.md](zarrify/mrc-dataset.md)) is a second layout of
+the same file, and has no description of its own.
+
+- **Declarations.** Ranges of the `header` element, in this order: `machst`, (212, 4), whose first
+  byte gives the byte order of the header's fields and of the values; `mode`, (12, 4); and, of a
+  mode 0 file, whose values' sign they decide
+  ([zarrify/mrc.md §3](zarrify/mrc.md#3-data-types)), `nversion`, (108, 4), IMOD's stamp, (152, 4),
+  and IMOD's flags, (156, 4).
+- **`shape`** is `nz`, `ny` and `nx`, the sections, the rows and the columns, whatever the kind of
+  file ([zarrify/mrc.md §4.1](zarrify/mrc.md#41-the-array)): an image is one section, and a volume
+  stack's sections are those of all its volumes, which the profile cuts by `mz`. `axes` is
+  `[2, 1, 0]`: the header gives `nx` first. The axis map (`mapc`, `mapr`, `maps`) names the axes
+  and reorders no value, so it changes neither.
+- **`item_bits`** is the mode's: 8 for mode 0; 16 for modes 1, 6 and 12; 32 for mode 2, and for
+  mode 3, whose element is a pair of 16-bit integers; 64 for mode 4, a pair of 32-bit floats; and
+  4 for mode 101, with `pad_from` 2, the columns' axis: each row ends on a whole byte.
+- **The grid** is one unit, the whole array: each axis `Each` of its length, under `short`. Its
+  row is the `data` element. The profile's checks
+  ([zarrify/mrc.md §8.1](zarrify/mrc.md#81-header)) leave no axis of length 0, and no data that
+  is not whole in the file, so no array of an MRC file lacks a grid but by the limits of
+  [§6](#6-in-the-ir).
+- **The chain** is empty, but for mode 101's, `lsb_first` with `bits` 4: a row's first value is
+  the low half of its first byte. A row of an odd `nx` ends on half a byte of padding, the high
+  half of its last byte, which decodes to the low half, after the row's last value, as `pad_from`
+  says.
+- **A file gzipped whole** ([zarrify/mrc.md §8.4](zarrify/mrc.md#84-gzipped-files)) has no
+  `header` element: its bytes are the stream, which holds the header. Its array is keyed by its
+  `data` element, the stream, as `declared_by` says, and that element is its one unit. It has no
+  declarations: the header is the first 1024 bytes the stream inflates to, which no place names,
+  the IR having no derived space for them yet. Its `shape`, `item_bits` and `pad_from` are those
+  of the header the parser inflated. Its chain ends with `skip`, then `gzip`: the values are what
+  the stream inflates to, after the header and the extended header. `skip`'s `length`, 1024 plus
+  `nsymbt`, is a value, since no place holds `nsymbt` either.
+- **The fill value** is `undefined`: MRC has none.
 
 **HDF5** ([spec/zarrify/hdf5.md](zarrify/hdf5.md)). Every object the parser reads whose header has
 a data layout message, and neither a symbol table nor a link info message, is a stored array,
@@ -802,6 +840,100 @@ reads them. The facts give its key: `declared_by` is the id of the element that 
 IFDs' images are described as a TIFF's, by the same code; its facts' levels give `declared_by`
 likewise.
 
+**FITS** ([spec/zarrify/fits.md](zarrify/fits.md)). Every HDU with an axis (`NAXIS` above 0) has
+descriptions, whether or not the profile presents them, keyed by its `header` element
+(`hdus/<i>/header`), a kind of element that may declare several arrays: each of an HDU's has an
+index. An image (the primary HDU, or an `IMAGE` extension) has one array, index 0; a table
+(`TABLE` or `BINTABLE`) two, its rows (0) and its heap (1); a tile-compressed image (a `BINTABLE`
+with `ZIMAGE = T`) three, its image (0) and its table's rows (1) and heap (2). The facts give the
+key: each HDU's `declared_by` is the id of its header, or null for an HDU of no axes, which holds
+no array. In a compressed file ([zarrify/fits.md §2.1](zarrify/fits.md#21-a-compressed-file))
+the headers and the units' elements are in the `stream` element's space: a unit's bytes are the
+decoded file's.
+
+- **Declarations.** One, the header's element: its cards give the array's axes and what its
+  elements are (`BITPIX`, `BSCALE`, `BZERO` and `BLANK`; a table's `TFORMn`; a tile-compressed
+  image's `Z` cards). A parameter given as a place of a card is the card's 80 bytes, a range of
+  the header's element, and is the card's value (FITS Standard 4.0 section 4.2), an integer or a
+  string.
+- **An image.** `shape` is `NAXISn` to `NAXIS1`, the slowest first, and for two or more axes
+  `axes` is their reverse, since the header lists `NAXIS1` first. `item_bits` is |`BITPIX`|. It
+  is one unit in an empty chain: each axis `Each` of its length, or an empty `List` for an axis
+  of length 0, under `short`. Its row is the HDU's `data` element, or, where the HDU's data is
+  longer than the image (an `IMAGE` extension whose `PCOUNT` is not 0, or whose `GCOUNT` is not
+  1), the range of that element that holds the image, its first bytes, as astropy reads it; an
+  image of no elements has no row. The elements are as stored, big-endian: `BSCALE` and `BZERO`
+  are the profile's.
+- **A table's rows** are an array of shape [`NAXIS2`], a row an element: `item_bits` is 8 ×
+  `NAXIS1`. It is one unit, the `rows` element, in an empty chain, gridded as an image, with no
+  row where the rows have no bytes. What a row's bytes are (its columns' fields, an ASCII
+  table's text) is the profile's, from the header's `TFORMn` and `TBCOLn`. Rows of no bytes
+  (`NAXIS1` of 0) have no `item_bits` and no grid; nor have a binary table's rows where its
+  `TFORMn` are not all forms the profile reads
+  ([zarrify/fits.md §4.1](zarrify/fits.md#41-rows-as-a-struct)) or their fields' bytes are not
+  `NAXIS1` in all, since readers do not agree on where such a row is: the standard's rows are
+  `NAXIS1` bytes each, as the profile cuts them, and astropy's the fields' bytes, one row after
+  another. An ASCII table's row is `NAXIS1` characters, which its fields need not fill.
+- **A table's heap** is the `H` bytes from `THEAP` to the end of the data
+  ([zarrify/fits.md §4.3](zarrify/fits.md#43-the-heap)), of shape [`H`] and `item_bits` 8: one
+  unit, the `heap` element, in an empty chain. An empty heap is described too, with no row; an
+  ASCII table's is empty unless its `PCOUNT` is not 0. Which of its bytes a row's descriptor
+  names is the profile's.
+- **A tile-compressed image's image** has `shape` `ZNAXISn` to `ZNAXIS1`, `axes` as an image's,
+  and `item_bits` |`ZBITPIX`|. Its grid is its tiles: `Each` of `ZTILEn` to `ZTILE1` (with the
+  defaults of [zarrify/fits.md §3.3](zarrify/fits.md#33-tile-compressed-images)), under `short`,
+  an edge tile cut to the image. Each row of its table that holds a tile is a row of the chunk
+  map, at the tile's coordinates (the table's rows are the tiles in storage order, `ZNAXIS1`'s
+  fastest): the tile's bytes in the heap, a range of the element of its chunk of the heap
+  (`hdus/<i>/heap/<j>`, [zarrify/fits.md §6.1](zarrify/fits.md#61-elements)), or that element
+  alone where the tile is all of it. A table row with both descriptors empty holds no tile, and
+  has no row.
+  - **The first chain** is that of a tile in `COMPRESSED_DATA`, by `ZCMPTYPE`: `fits_rice` for
+    `RICE_1` and `RICE_ONE`, its `block_size` and `byte_pix` the places of the `ZVALi` cards of
+    the parameters `BLOCKSIZE` and `BYTEPIX`
+    ([zarrify/fits.md §3.3](zarrify/fits.md#33-tile-compressed-images)), each absent where the
+    header has no such card; `gzip` for `GZIP_1`; `shuffle`, then `gzip`, for `GZIP_2`, the
+    shuffle's `element_size` a value, the bytes of an element (4 under quantization), for which
+    the header has no card; and no codec for `NOCOMPRESS`.
+  - **Quantization.** A float image (`ZBITPIX` below 0) whose table has the columns `ZSCALE` and
+    `ZZERO` is quantized: `fits_quantize` is the first codec of its first chain, before those
+    above, which then code 4-byte integers. Its `method` is the place of the `ZQUANTIZ` card,
+    absent with the card. Its unit parameters are `scale` and `zero`, the table row's `ZSCALE`
+    and `ZZERO`; under a dither, `seed`, the tile's index (from 0) plus `ZDITHER0`; and, where
+    the table has a `ZBLANK` column, `zblank`, the row's. Without that column, `zblank` is the
+    place of the header's `ZBLANK` card, else of its `BLANK` card where that is an integer, as
+    astropy reads it, else absent.
+  - **The second chain.** A tile in `GZIP_COMPRESSED_DATA` is a gzip stream of its elements as
+    an image stores them, never quantized. Where the table has that column and the first chain
+    is not `gzip` alone, the description has a second chain, `gzip`, which those tiles' rows
+    name, setting no unit parameter; where the first chain is `gzip` alone, they are in it.
+  - **`source`.** A `RICE_1` image whose `BYTEPIX` (4 where absent) is not the bytes of an
+    element (not 4, where quantized), or whose elements are floats that are not quantized, has
+    the one codec `source` as its first chain, with `format` `fits` and `id` the `ZCMPTYPE`
+    card's string, and no unit parameters: `fits_rice` makes integers of `BYTEPIX` bytes, which
+    are then not the image's elements. astropy converts their values to the image's type; the
+    profile's codec does not.
+  - **A tile's width.** A `GZIP_1`, `GZIP_2` or `NOCOMPRESS` tile, and one in
+    `GZIP_COMPRESSED_DATA`, is described as holding its elements at their own size (4-byte
+    integers under quantization), as the profile reads it. astropy takes the size of a tile's
+    values from its decoded length, and converts those of a tile stored at another size: the
+    parser reads no tile, so no description tells such a tile from the others.
+  - **No grid** for an image that readers do not agree on, which keeps its shape, `item_bits`
+    and declaration: an integer image whose table has the columns `ZSCALE` and `ZZERO` (astropy
+    scales its values where there is no dither and refuses it where there is one; the profile
+    reads them as stored); a float image without those columns whose header has a `ZSCALE` or a
+    `ZZERO` card (cfitsio takes the cards as every tile's and dequantizes; astropy and the
+    profile read the values as stored) or a `ZBLANK` or a `BLANK` card (astropy makes a stored
+    value equal to it NaN; the profile reads it as stored); an image that is not quantized whose
+    table has a `ZBLANK` column; a quantized image with neither that column nor a `ZBLANK` card
+    whose `BLANK` card is no integer; and an image whose table's rows are not its columns'
+    fields (as a table's, above), whose descriptors are then not where the parser read them.
+  - **Its table's rows and heap** are described as a binary table's: the rows one unit, the
+    `table` element; the heap one unit, the range of the HDU's element (`hdus/<i>`) that holds
+    it, since its bytes are in the elements of its tiles' chunks.
+- **The fill value** is `undefined`: FITS has none. `BLANK`, the stored value of a pixel with
+  none, is a declaration.
+
 **NDPI** ([spec/zarrify/ndpi.md](zarrify/ndpi.md)). An NDPI is read by the TIFF parser in NDPI's
 layout, and every IFD that declares a size is described as a TIFF's, keyed likewise, the macro
 image and the slide map too, with the differences below. The facts give the keys: each level's
@@ -837,10 +969,121 @@ image and the slide map too, with the differences below. The facts give the keys
   say, in a `source` chain.
 - **`source`** has `format` `ndpi` in an NDPI.
 
+**safetensors** ([spec/zarrify/safetensors.md](zarrify/safetensors.md)). Every tensor of a header
+that passes the profile's checks ([zarrify/safetensors.md §8.2](zarrify/safetensors.md#82-checks))
+is a stored array, whether or not the profile presents it, keyed by the file's `header` element, a
+kind of element that may declare several arrays: a tensor's index is its position among the
+header's tensors, in the order the header writes them (`__metadata__` is none of them). The facts
+give the key: `declared_by` is the id of the `header` element, and a tensor's index is its position
+in the facts' `own.tensors`, which a presented tensor's entry of the facts' `arrays` gives as
+`index`.
+
+- **The store form** ([zarrify/safetensors.md §9](zarrify/safetensors.md#9-the-store-form))
+  describes each shard's tensors itself, not by graft. A presented shard, described in place, has a
+  file's elements and facts (its entry of the store's facts' `shards` holds them as `facts`), and
+  its tensors are keyed by its own `header`. A shard that is not presented for its key, whose
+  header passed the checks, has no element but its object: its tensors are keyed by that object,
+  also a kind of element that may declare several arrays, with the same indexes, and their places
+  are ranges of it. A shard whose header fails a check has no descriptions. The store's facts'
+  `declared_by` lists, in the order of `own.files`, the id of the element that keys each shard's
+  descriptions, null for a shard with none.
+- **Declarations.** One: the range of the header that holds the entry's `dtype` value, a JSON
+  string as the header writes it, with its quotes and any escapes (of a shard keyed by its
+  object, the same bytes as a range of the object). The format fixes the elements' byte order
+  (little-endian) and their order (the last index varying fastest), which no place declares.
+- **`shape`** is the entry's `shape`, empty for a scalar. `axes` is absent: a tensor is stored in
+  the order of its `shape`.
+- **`item_bits`** is the bits of one element of the `dtype`
+  ([zarrify/safetensors.md §3](zarrify/safetensors.md#3-data-types)), from 4 to 64; a complex
+  number is one element. There is no `pad_from`: a tensor's elements pack unbroken into whole
+  bytes.
+- **The grid.** A tensor is one unit: each axis is `Each` of its length, or an empty `List` for
+  an axis of length 0, under `short`. Its row is its data's element, `tensors/<i>`, or, of a
+  shard keyed by its object, the data's range of the object. A tensor with an axis of length 0
+  holds no bytes, and has no unit and no row.
+- **The chain** is empty for elements of whole bytes. Elements of 4 or 6 bits (`F4`, `F6_E2M3`
+  and `F6_E3M2`) are in `lsb_first`, its `bits` their size: the buffer packs them from each
+  byte's least significant bit
+  ([zarrify/safetensors.md §3.2](zarrify/safetensors.md#32-packed-data-types)). The library
+  reads a tensor's bytes and none of its elements, so this order rests on that section: for `F4`
+  it is the order of PyTorch's `float4_e2m1fn_x2`, which the library writes, and for the 6-bit
+  types, of which no writer was found, the same order by analogy.
+- **The fill value** is `undefined`: safetensors has none.
+- **No grid** for no tensor of a checked header, but at the descriptions' limit's fallback
+  ([§6](#6-in-the-ir)): the checks leave no tensor whose storage the IR does not model, and the
+  chunk map's limit has room for the row of any tensor that holds a byte. A header reaches the
+  descriptions' limit only where its tensors' shapes have more than 2^23 axes in all, each a
+  description's entry and two bytes of the header: tensors then fall back, or the file keeps no
+  descriptions.
+
 **IMS** ([spec/zarrify/ims.md](zarrify/ims.md)). An Imaris file's datasets are described as
 HDF5's, by the same code, in a file run; a filter the list has no name for is `source` with
 `format` `hdf5` there too. The facts give each image dataset's key as the sixth
 member of its entry of `images`: the id of its object.
+
+**ND2** ([spec/zarrify/nd2.md](zarrify/nd2.md)). An ND2 file's frames are one stored array, and
+a frame is a unit of it, not an array of its own: the source names the frames as one sequence
+(the chunks `ImageDataSeq|<f>!`), declares one layout for all of them (`ImageAttributesLV!`) and
+none in a frame's own chunk, and counts them by its experiment's loops. A frame is found by its
+number in the chunk map, as an HDF5 chunk is by its index, and a frame the map does not name is a
+unit the source does not hold. The array is keyed by the `ImageAttributesLV!` chunk's element
+(`chunks/ImageAttributesLV!`), with no index, in every file, whichever frames it holds. Each frame
+chunk the map names at or past the loops' count (a `frames/<f>` of the IR), which the image leaves
+out ([zarrify/nd2.md §4.1](zarrify/nd2.md#41-frames)), is an array of one frame, keyed by the
+`frames` element, a kind of element that may declare several arrays: its index is its position
+among those chunks, in the order of their numbers. The facts give the keys: `declared_by` is the id of the
+`ImageAttributesLV!` chunk's element, and `unplaced` has `declared_by`, the id of `frames`, and
+`count`, the arrays it keys.
+
+- **Declarations.** The `lv` element of the `ImageAttributesLV!` chunk (its data: a lite variant,
+  or the compressed record of one), then that of `ImageMetadataSeqLV|0!` where the file has one
+  with data: the attributes give a sample's size and a pixel's components, and the picture's
+  planes say what each component is. The experiment, which says what a frame's number means,
+  declares nothing of a sample: the profile reads it.
+- **`shape`** is the frames the loops count, N (the product of the loops' counts as
+  [zarrify/nd2.md §3](zarrify/nd2.md#3-metadata) flattens the experiment, 1 with no loops), then
+  `uiHeight`, `uiWidth` and, where `uiComp` is more than 1, `uiComp`, a pixel's components being
+  stored together. The array of a frame past the count has no first axis. `axes` is absent: ND2
+  names its dimensions by member, and lists them in no order.
+- **`item_bits`** is `uiBpcInMemory`: 8, 16 or 32.
+- **The grid** is under `short`. Where a frame's rows are stored end to end (`uiWidthBytes` is the
+  bytes of a row's samples), or the frames are compressed, a frame is a unit: `Each(1)` on the
+  first axis, and `Each` of its length on every other. Where `uiWidthBytes` is more, each row's
+  samples are followed by bytes that are no sample, and a row is a unit, `Each(1)` on the rows'
+  axis too: the source holds one row's samples together and no two rows', so a unit of several
+  rows would either hold bytes that are no element or be bytes a recipe joins
+  ([§1](#1-stored-arrays)).
+- **Rows.** Frame `f` below N, where the map names it, is at `f` on the first axis: its
+  `frames/<f>/pixels` element, which starts after the frame's 8-byte timestamp, with `member`
+  where the frames are a run. Of padded rows, row `r` is the `range` (`r` × `uiWidthBytes`, the
+  bytes of a row's samples) of that element, taken before its recipe, which joins the rows
+  ([§4.2](#42-rows)); one row whose samples end the file is the element alone. A frame past N is
+  a `range` of its `frames/<f>/data` element, which holds the timestamp too: the rows' bytes
+  from 8, or the stream, from 8 to the data's end; or, of padded rows, each row's samples from
+  8 + `r` × `uiWidthBytes`.
+- **The chain** is one for the file: empty, or `zlib` where `eCompression` is 0. The parser
+  inflates no frame: a stream that does not inflate to the frame's bytes is described as one that
+  does.
+- **No grid** for a frame chunk past N that holds no frame as the attributes say: one whose
+  header is no chunk header within the file; one whose header gives fewer bytes of data than the
+  timestamp and `uiHeight` rows of `uiWidthBytes` (of compressed frames, no byte after the
+  timestamp); and one whose rows' samples, or whose stream, the file does not hold to their end.
+  Its description keeps its shape and `item_bits`. Below N the profile rejects such a file. An
+  array whose rows would pass the chunk map's limit ([§6](#6-in-the-ir)) falls back before they
+  are made: frames of padded rows that share their bytes have a row for each row of each.
+- **Where readers differ.** A frame's bytes follow its chunk's name, of the length the chunk's
+  header gives, as the nd2 library's chunk reader reads a chunk; nd2's frame reader takes every
+  frame's name to be 4072 bytes, as NIS-Elements writes it, whatever the header says, and reads
+  the same bytes only of such a file. The header's is the format's own declaration, so the frame
+  keeps its grid. nd2 also counts the loops of some experiments otherwise (it reads a time loop
+  whose periods have no validity list as no period, and the convention as every period), which
+  moves no frame: N says only which frames the first array holds. And nd2 takes as a frame's
+  number whatever Python's `int` reads after `ImageDataSeq|`, where the convention
+  ([zarrify/nd2.md §4.1](zarrify/nd2.md#41-frames)) takes a decimal number without leading zeros:
+  in a file that names both `ImageDataSeq|0!` and `ImageDataSeq|00!`, nd2 reads the second as
+  frame 0, and the description, with the profile, the first. The description follows the
+  convention there, and no file a writer is known to make has such a name.
+- **The fill value** is `undefined`: ND2 has none.
 
 **MP4** ([spec/zarrify/mp4.md](zarrify/mp4.md)). Every track whose handler is `vide` or `soun` has
 descriptions, whether or not the profile zarrifies it, keyed by its `trak` box, a kind of element

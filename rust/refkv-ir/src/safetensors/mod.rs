@@ -8,8 +8,13 @@
 //! Rounds: the file's first 64 KiB, which hold the length and, in every file surveyed, the
 //! header; then the rest of a longer header. No tensor's data is read. The schema
 //! (`schema/safetensors.json`) holds every check, in the profile's order.
+//!
+//! The parser describes every tensor of the header as the file stores it (spec/stored-array.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>), presented or
+//! not, keyed by its `header` element (`stored`).
 
 pub mod store;
+mod stored;
 
 use crate::fed::{Fed, Overlap, uint};
 use crate::ir::*;
@@ -253,16 +258,39 @@ pub fn check(r: &Rules, size: u64, n: u64, raw: Vec<u8>) -> Result<Header, Strin
 }
 
 impl Header {
+    /// What each tensor's description is built from, in the header's order, before its data has
+    /// an element: where the header writes its `dtype`, its shape, its element's bits and its
+    /// data's range of the file.
+    fn reached(&self, r: &Rules) -> Result<Vec<stored::Tensor>, String> {
+        let spans = stored::dtype_spans(&self.raw, METADATA).filter(|s| s.len() == self.tensors.len());
+        let spans = spans.ok_or("internal: the header's dtype values were not found")?;
+        let tensor = |(t, dtype): (&Tensor, (u64, u64))| {
+            let bits = r.entry("types", &t.dtype).and_then(|e| e["bits"].as_u64()).ok_or("internal: an unknown data type")?;
+            let at = (8 + self.n + t.offsets.0, t.offsets.1 - t.offsets.0);
+            Ok(stored::Tensor { dtype, shape: t.shape.clone(), bits, at, element: None })
+        };
+        self.tensors.iter().zip(spans).map(tensor).collect()
+    }
+
+    /// The tensors of a shard the store form does not describe in place, which has no element but
+    /// its object `object`: their descriptions are keyed by it, and their places are ranges of it.
+    fn in_object(&self, r: &Rules, object: u32) -> Result<stored::Tensors, String> {
+        Ok(stored::Tensors { key: object, header_at: 8, tensors: self.reached(r)? })
+    }
+
     /// Its elements under `parent` (the IR's root, or a store's object described in place),
     /// at offsets from the file's start: the length, the header, and every tensor's data, in the
-    /// buffer's order; and the facts the projection reads: the source metadata (`own`), each
-    /// presented tensor (`arrays`), and the groups their paths make (`groups`).
-    pub fn emit(&self, r: &Rules, ir: &mut Ir, parent: u32) -> Result<J, String> {
+    /// buffer's order; the facts the projection reads: the source metadata (`own`), each
+    /// presented tensor (`arrays`), and the groups their paths make (`groups`); and what the
+    /// tensors' descriptions are built from. The facts give each description's key
+    /// (spec/stored-array.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>):
+    /// `declared_by` is the `header` element, and a tensor's index is its position in
+    /// `own.tensors`, which a presented tensor's entry of `arrays` gives as `index`.
+    fn emit(&self, r: &Rules, ir: &mut Ir, parent: u32) -> Result<(J, stored::Tensors), String> {
         let (n, tensors) = (self.n, &self.tensors);
         ir.value(parent, "length", NO_INDEX, "<u8", 0, (0, 8), Some(&n.to_le_bytes()))?;
-        if n > 0 {
-            ir.value(parent, "header", NO_INDEX, &format!("ascii[{n}]"), 0, (8, n), Some(&self.raw))?;
-        }
+        // a checked header is an object, of two bytes at least
+        let header = ir.value(parent, "header", NO_INDEX, &format!("ascii[{n}]"), 0, (8, n), Some(&self.raw))?;
         let mut data = vec![None; tensors.len()];
         for &i in &self.order {
             let t = &tensors[i];
@@ -282,7 +310,7 @@ impl Header {
         let groups: BTreeSet<&str> = tensors.iter().filter_map(|t| t.path.as_deref()).flat_map(groups_of).collect();
         let mut arrays = Vec::new();
         let mut listed = Vec::new();
-        for (t, d) in tensors.iter().zip(&data) {
+        for (i, (t, d)) in tensors.iter().zip(&data).enumerate() {
             let mut j = Map::new();
             j.insert("name".into(), json!(t.name));
             j.insert("dtype".into(), json!(t.dtype));
@@ -296,7 +324,7 @@ impl Header {
                     j.insert("path".into(), json!(p));
                     let ty = r.entry("types", &t.dtype).ok_or("internal: an unknown data type")?;
                     arrays.push(json!({
-                        "path": p, "data": d, "offset": 8 + n + t.offsets.0, "length": t.offsets.1 - t.offsets.0,
+                        "path": p, "index": i, "data": d, "offset": 8 + n + t.offsets.0, "length": t.offsets.1 - t.offsets.0,
                         "dtype": t.dtype, "data_type": ty["dtype"], "bits": ty["bits"], "fill": ty["fill"], "shape": t.shape,
                     }));
                 }
@@ -312,7 +340,12 @@ impl Header {
             own.insert("metadata".into(), m.clone());
         }
         own.insert("tensors".into(), J::Array(listed));
-        Ok(json!({"own": own, "arrays": arrays, "groups": groups}))
+        let mut reached = self.reached(r)?;
+        for (t, d) in reached.iter_mut().zip(data) {
+            t.element = d;
+        }
+        let facts = json!({"own": own, "arrays": arrays, "groups": groups, "declared_by": header});
+        Ok((facts, stored::Tensors { key: header, header_at: 0, tensors: reached }))
     }
 }
 
@@ -331,13 +364,15 @@ pub struct Safetensors {
     rules: &'static Rules,
     asked: Asked,
     facts: J,
+    /// the header's tensors, described at finish
+    reached: Option<stored::Tensors>,
 }
 
 impl Safetensors {
     pub fn new(size: u64) -> Self {
         Safetensors {
             size, phase: Phase::Start, fed: Fed::new(Overlap::MergeKeep), ir: Ir::new(size), rules: rules::of("safetensors"),
-            asked: Asked::default(), facts: J::Null,
+            asked: Asked::default(), facts: J::Null, reached: None,
         }
     }
 
@@ -358,7 +393,8 @@ impl Safetensors {
                     Some(raw) => {
                         let header = check(self.rules, size, n, raw.to_vec())?;
                         self.phase = Phase::Done;
-                        let mut facts = header.emit(self.rules, &mut self.ir, 0)?;
+                        let (mut facts, reached) = header.emit(self.rules, &mut self.ir, 0)?;
+                        self.reached = Some(reached);
                         facts["copy_threshold"] = json!(crate::out::copy_threshold());
                         self.asked.put(&mut facts);
                         self.facts = facts;
@@ -375,8 +411,12 @@ impl Safetensors {
         Ok(self.asked.ask(reads))
     }
 
+    /// The finished IR, with the tensors it reaches described, and the facts.
     pub fn finish(self) -> Result<(Ir, J), String> {
-        sans::finish(self.phase == Phase::Done, self.ir, self.facts)
+        let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
+        let (arrays, chains, map) = stored::described(self.reached.as_slice())?;
+        ir.describe(arrays, chains, map)?;
+        Ok((ir, facts))
     }
 }
 

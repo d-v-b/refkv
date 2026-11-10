@@ -175,7 +175,6 @@ pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "zstd", parameters: &[] },
     CodecEntry { name: "bzip2", parameters: &[] },
     CodecEntry { name: "lzf", parameters: &[] },
-    CodecEntry { name: "skip", parameters: &[fixed("length")] },
     CodecEntry { name: "blosc", parameters: &[] },
     CodecEntry { name: "skip", parameters: &[fixed("length")] },
     CodecEntry { name: "shuffle", parameters: &[fixed("element_size")] },
@@ -205,6 +204,19 @@ pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "hevc", parameters: PICTURE },
     CodecEntry { name: "av1", parameters: PICTURE },
     CodecEntry { name: "vp9", parameters: PICTURE },
+    CodecEntry { name: "fits_rice", parameters: &[fixed("block_size"), fixed("byte_pix")] },
+    CodecEntry { name: "fits_quantize", parameters: FITS_QUANTIZE },
+];
+
+/// The parameters of FITS's quantization of floats: its dither's name, and for each tile, as a
+/// column, its scale and zero, where it enters the dither's random numbers, and its blank value
+/// (which a header gives once instead).
+const FITS_QUANTIZE: &[ParamEntry] = &[
+    fixed("method"),
+    ParamEntry { name: "scale", column: Some(ColumnType::Float64) },
+    ParamEntry { name: "zero", column: Some(ColumnType::Float64) },
+    ParamEntry { name: "seed", column: Some(ColumnType::Int64) },
+    ParamEntry { name: "zblank", column: Some(ColumnType::Int64) },
 ];
 
 /// The parameters of a codec of a video stream's pictures: its configuration, the plane of a
@@ -2118,6 +2130,20 @@ mod tests {
         let mut s = valid();
         f(&mut s);
         check_with(&with(s), TEST_CODECS).unwrap_err()
+    }
+
+    /// The list names each codec once, and a codec each of its parameters once: two formats' PRs
+    /// that add one codec must add one entry.
+    #[test]
+    fn the_list_names_each_codec_and_parameter_once() {
+        let mut names: Vec<&str> = CODECS.iter().map(|c| c.name).collect();
+        names.sort_unstable();
+        assert_eq!(names.windows(2).find(|w| w[0] == w[1]), None);
+        for c in CODECS {
+            let mut parameters: Vec<&str> = c.parameters.iter().map(|p| p.name).collect();
+            parameters.sort_unstable();
+            assert_eq!(parameters.windows(2).find(|w| w[0] == w[1]), None, "{}", c.name);
+        }
     }
 
     /// Valid descriptions and maps of every kind pass; the map is sorted when built, and each
