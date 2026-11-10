@@ -185,6 +185,7 @@ pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "h5_nbit", parameters: &[fixed("parameters")] },
     CodecEntry { name: "h5_scaleoffset", parameters: &[fixed("parameters")] },
     CodecEntry { name: "h5_bitshuffle", parameters: &[fixed("element_size"), fixed("block_size"), fixed("compression")] },
+    CodecEntry { name: "czi_zstd1", parameters: &[] },
     CodecEntry { name: "xz", parameters: &[] },
     CodecEntry { name: "tiff_lzw", parameters: &[] },
     CodecEntry { name: "packbits", parameters: &[] },
