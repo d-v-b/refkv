@@ -81,6 +81,16 @@ def ranges(parts: list) -> list[Range]:
     return out
 
 
+def zero_padded(d: Described, parts: list) -> bool:
+    """Whether a reference's parts that are no ranges of the source are zeros: its literals and its
+    ranges of a data source."""
+    out = d.out
+    data = {i: b for b, i in out.data.items()} if isinstance(out, Output) else dict(enumerate(out.data, 1))
+    padding = [p if isinstance(p, bytes) else data[p[0]][p[1]:p[1] + p[2]]
+               for p in parts if isinstance(p, bytes) or (len(p) == 3 and p[0] != 0)]
+    return not any(any(b) for b in padding)
+
+
 def within(parts: list[Range], start: int, length: int) -> list[Range]:
     """The `length` bytes from `start` of the bytes `parts` join to, as ranges."""
     out = []
@@ -182,7 +192,10 @@ def check_chunked(d: Described, names: list[str], rows: list[dict], p: Presented
     checksum = names.index("h5_fletcher32") if "h5_fletcher32" in names else None
     for coords, row in sorted(by.items()):
         parts = p.chunks.get(coords)
-        if not isinstance(parts, list):
+        if parts is None:
+            continue
+        if isinstance(parts, bytes):
+            said.append(f"chunk {coords} is a bytes entry, not ranges of the source")
             continue
         skips = row["skips"] or 0
         stored = d.parts(row)
@@ -229,7 +242,7 @@ def check_whole(d: Described, rows: list[dict], p: Presented, item: int, seen: C
             same = parts[:len(data)] == data and not any(parts[len(data):])
             seen["chunks copied"] += 1
         else:
-            same = ranges(parts) == want and not any(isinstance(x, bytes) and any(x) for x in parts)
+            same = ranges(parts) == want and zero_padded(d, parts)
         if not same:
             said.append(f"chunk {coords}: {parts if isinstance(parts, list) else '(copied)'}; C order gives {want}")
         seen["chunks cut from data stored whole"] += 1
