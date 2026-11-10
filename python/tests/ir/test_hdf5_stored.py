@@ -594,7 +594,7 @@ def test_a_dataset_the_parser_did_not_read_has_no_shape_and_no_grid(tmp_path):
     for address, shape, bits in ((own, (6, 10), 64), (shared, (6,), 32)):
         k, a = at_address(d, address)
         assert (a.shape, a.item_bits, a.grid is None, len(d.rows[k])) == (shape, bits, False, 1)
-        declared[address] = a.declarations
+        declared[address] = d.place(a.declarations[0])
         _, at = message(d, a, DATASPACE)
         assert data[at] == 1
         data[at] = 9
@@ -610,7 +610,7 @@ def test_a_dataset_the_parser_did_not_read_has_no_shape_and_no_grid(tmp_path):
         assert messages is not None
         # its own message, which a dataset the parser read declares only where it is not shared
         assert place.element in {d.ir.child(m, "data") for m in d.ir.children(messages)}
-        assert (d.place(place) == d.place(declared[address][0])) == (address == own)
+        assert (d.place(place) == declared[address]) == (address == own)
 
 
 def test_filters_no_fixture_holds_are_described_as_h5py_reads_them(tmp_path):
