@@ -291,11 +291,8 @@ class PhkvStore(ReferenceReader):
 
     @override
     async def _value_size(self, key: str) -> int | None:
-        await self._ensure_open()
-        found = await self._blocking(self._store.fetch, key, *_mode(None))
-        if found is None:
-            return None
-        return len(found[1]) if found[0] == "bytes" else _reference(found[1], found[2]).size
+        v = await self.value_async(key)
+        return None if v is None else len(v) if isinstance(v, bytes) else v.size
 
     @override
     async def raw_async(self, key: str) -> bytes | None:

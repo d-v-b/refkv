@@ -44,6 +44,7 @@ virtual-dataset workflow; `help(refkv.refstore)` has its details.
 
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import os
 from importlib.metadata import PackageNotFoundError, version
@@ -55,6 +56,8 @@ from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy, public_s3_url
 from refkv.reader import OffsetRequest, RangeRequest, Stats, SuffixRequest
 from refkv.refstore import ReferenceStore, Summary
+from refkv.uri import file_uri
+from refkv.uri import resolve as resolve_uri
 
 try:
     __version__ = version("refkv")
@@ -108,6 +111,31 @@ def open(url: str, *, binding: str = "vzip", **kwargs: Any) -> VZipStore | PhkvS
     raise ValueError(f"no binding {binding!r}: refkv reads stores with {', '.join(map(repr, BINDINGS))}")
 
 
+def _convert(
+    src: str | os.PathLike[str],
+    dst: str | os.PathLike[str],
+    binding: str,
+    registry: Registry | None,
+    policy: Policy | None,
+    relative_to: str | None,
+) -> ReferenceStore:
+    """The store `src` of `binding`, read under `policy` and `registry`, as a `ReferenceStore`. Unless
+    `relative_to` is given, each source URL that was relative in `src` and resolves to the same
+    place from `dst` is relative again."""
+    options: dict[str, Any] = {"policy": policy or Policy()}
+    if registry is not None:
+        options["registry"] = registry
+    store = open(src, binding=binding, **options)
+    copy = ReferenceStore.from_store(store)
+    if relative_to is None:
+        base = file_uri(os.fspath(dst))
+        sources = [dataclasses.replace(c, url=o.url)
+                   if o.url is not None and c.url is not None and resolve_uri(base, o.url) == c.url else c
+                   for o, c in zip(store.sources, copy.sources, strict=True)]
+        copy = ReferenceStore(copy.mapping, sources, url=copy.url)
+    return copy
+
+
 def vzip_to_phkv(
     src: str | os.PathLike[str],
     dst: str | os.PathLike[str],
@@ -116,15 +144,22 @@ def vzip_to_phkv(
     page_size: int = 4096,
     relative_to: str | None = None,
     policy: Policy | None = None,
+    registry: Registry | None = None,
 ) -> Summary:
     """Convert the vzip archive `src` (a local path or an `http(s)` URL) to a phkv store at the
     local path `dst`, and return the `Summary` of the store written. The keys, bytes values and
     references are the same, and no reference is resolved: the sources are not read. The options
     are `ReferenceStore.save_phkv`'s; what the copy leaves behind is listed in
     `ReferenceStore.from_store`, which reads the whole directory of the archive into memory.
-    `dst` is written only once it is complete, and replaces a file there."""
-    return ReferenceStore.from_store(vzip.open(os.fspath(src))).save_phkv(
-        dst, inline_max=inline_max, page_size=page_size, relative_to=relative_to, policy=policy)
+
+    A source URL that is relative in `src` stays relative if it resolves to the same place from
+    `dst`, else it is written absolute; `relative_to` instead takes that prefix off every URL
+    under it. `policy` and `registry` are the reader's, as for `open`, and `policy` also checks
+    the sources, as for `save_phkv`. `dst` is written only once it is complete, and replaces a
+    file there."""
+    store = _convert(src, dst, "vzip", registry, policy, relative_to)
+    return store.save_phkv(dst, inline_max=inline_max, page_size=page_size, relative_to=relative_to,
+                           policy=policy)
 
 
 def phkv_to_vzip(
@@ -135,17 +170,28 @@ def phkv_to_vzip(
     mirror_refs: bool = True,
     relative_to: str | None = None,
     policy: Policy | None = None,
+    registry: Registry | None = None,
 ) -> Summary:
     """Convert the phkv store `src` (a local path or an `http(s)` URL) to a vzip archive at the
     local path `dst`, and return the `Summary` of the archive written. The keys, bytes values and
     references are the same, and no reference is resolved: the sources are not read. The options
     are `ReferenceStore.save_vzip`'s, whose `page_size` default writes no page index: a store of
     many keys may want `page_size=65536`. What the copy leaves behind is listed in
-    `ReferenceStore.from_store`, which reads the whole store into memory. A key under
-    `__vz__/`, which a vzip archive reserves, is a hidden key in the archive. `dst` is written
-    only once it is complete, and replaces a file there."""
-    return ReferenceStore.from_store(phkv.open(os.fspath(src))).save_vzip(
-        dst, page_size=page_size, mirror_refs=mirror_refs, relative_to=relative_to, policy=policy)
+    `ReferenceStore.from_store`, which reads the whole store into memory. Relative source URLs,
+    `policy`, `registry` and `dst` are as for `vzip_to_phkv`.
+
+    A vzip archive reserves the names under `__vz__/`, which a phkv store does not, so a key
+    there is converted only if a `key` source names it, and then as a hidden key of the archive.
+    Any other is a ValueError naming it, and nothing is written. A phkv store's properties
+    (`mtime`, `mode`, `media_type`) and metadata have no place in an archive and are dropped."""
+    store = _convert(src, dst, "phkv", registry, policy, relative_to)
+    named = {s.key for s in store.sources if s.key is not None}
+    stray = next((k for k in store.mapping if k.startswith("__vz__/") and k not in named), None)
+    if stray is not None:
+        raise ValueError(f"cannot convert {stray!r} to vzip: an archive reserves the names under '__vz__/' "
+                         "(only a key that a source names is kept, as a hidden key)")
+    return store.save_vzip(dst, page_size=page_size, mirror_refs=mirror_refs, relative_to=relative_to,
+                           policy=policy)
 
 
 def __getattr__(name: str) -> ModuleType:

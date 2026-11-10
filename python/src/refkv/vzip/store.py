@@ -440,10 +440,7 @@ class VZipStore(ReferenceReader):
             return None
         e = self._entries[key]
         if kind == "reference":
-            try:
-                ref = cast("Reference", e.ref)  # a reference entry's
-            except ValueError as exc:
-                raise PayloadError(f"{key!r}: {exc}") from None
+            ref = self._reference(key, e)
             start, end = _abs_range(ref.size, request)
             return await self._ref_bytes(ref, start, end)
         start, end = _abs_range(e.size, request)
@@ -457,10 +454,7 @@ class VZipStore(ReferenceReader):
             return None
         e = self._entries[key]
         if kind == "reference":
-            try:
-                return cast("Reference", e.ref)  # a reference entry's
-            except ValueError as exc:
-                raise PayloadError(f"{key!r}: {exc}") from None
+            return self._reference(key, e)
         return await self._body(e, 0, e.size)
 
     @override
@@ -472,8 +466,13 @@ class VZipStore(ReferenceReader):
         e = self._entries[key]
         if kind == "bytes":
             return e.size
+        return self._reference(key, e).size
+
+    @staticmethod
+    def _reference(key: str, e: Entry) -> Reference:
+        """The reference of a reference entry `e`: a PayloadError if its payload is not one."""
         try:
-            return cast("Reference", e.ref).size
+            return cast("Reference", e.ref)
         except ValueError as exc:
             raise PayloadError(f"{key!r}: {exc}") from None
 

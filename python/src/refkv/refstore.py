@@ -340,8 +340,17 @@ class ReferenceStore(ReferenceReader):
         What is not copied: the hidden keys of a vzip archive (the names under `__vz__/`), but
         those a `key` source names; the archive's page index, pins and the order of its entries;
         and whether a value was stored compressed (`compressed` says which keys to compress when
-        it is saved). Other keyword arguments go to the constructor; `url` is the store's.
+        it is saved). A phkv store's properties and metadata are not copied either, and the
+        `Summary` of a vzip archive saved from the copy does not count the hidden keys a `key`
+        source keeps, which a phkv store lists. A vzip archive opened with `resolve=False`, whose
+        listing has the format entries, is a ValueError. Other keyword arguments go to the
+        constructor; `url` is the store's.
+
+        A remote phkv store costs about one lookup per key, so a store of a million keys is a
+        million requests.
         """
+        if getattr(store, "resolve", True) is False:
+            raise ValueError("from_store copies a store as it resolves: open the archive with resolve=True")
         kwargs.setdefault("url", store.url)
         return run(cls._load(store, dict(kwargs)))
 
@@ -355,9 +364,10 @@ class ReferenceStore(ReferenceReader):
             values.update({k: v for k, v in zip(batch, found, strict=True) if v is not None})
         sources = [dataclasses.replace(s, url=resolve_reference(store.url, s.url)) if s.url is not None else s
                    for s in store.sources]
-        for s in sources:  # a `key` source may name a hidden key, which `list` does not give
-            if s.key is not None and s.key not in values and (v := await store.raw_async(s.key)) is not None:
-                values[s.key] = v
+        # a `key` source may name a hidden key, which `list` does not give
+        hidden = sorted({s.key for s in sources if s.key is not None and s.key not in values})
+        found = await asyncio.gather(*(store.raw_async(k) for k in hidden))
+        values.update({k: v for k, v in zip(hidden, found, strict=True) if v is not None})
         return cls(values, sources, **kwargs)
 
     # ------------------------------------------------------------ inspection
