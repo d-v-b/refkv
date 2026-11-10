@@ -32,7 +32,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from described import Described, described
-from ir_helpers import FIXTURES
+from test_nd2_stored import FILES, file_place
 
 from refkv._narrow import JSON, at, boolean, integer, mapping, sequence, string
 from refkv.ir import parse
@@ -40,24 +40,8 @@ from refkv.ir.planner import FileTransport
 from refkv.ir.stored import Each, StoredArray
 from refkv.zarrify.common import Output
 
-FILES = sorted(p for p in (FIXTURES / "nd2").glob("*.nd2") if "reject" not in p.name)
-
 type Parts = list[tuple[int, int]]
 """a chunk's parts: (offset, length) of the file, in order"""
-
-
-def file_place(d: Described, row: dict) -> tuple[int, int]:
-    """(offset, length) in the file of a row's unit: its element's extent, a run's stride further
-    for each member before its own, or its range of that."""
-    start, length = d.ir.extent(row["element"])
-    if row["member"] is not None:
-        root = row["element"]
-        while (run := d.ir._core.run(root)) is None:
-            root = d.ir.parent(root)
-        start += row["member"] * run[1]
-    if row["range"] is not None:
-        start, length = start + row["range"]["offset"], row["range"]["length"]
-    return start, length
 
 
 def lengths(a: StoredArray) -> tuple[int, ...]:
