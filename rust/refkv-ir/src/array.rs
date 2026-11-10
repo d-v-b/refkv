@@ -176,6 +176,7 @@ pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "bzip2", parameters: &[] },
     CodecEntry { name: "lzf", parameters: &[] },
     CodecEntry { name: "blosc", parameters: &[] },
+    CodecEntry { name: "skip", parameters: &[fixed("length")] },
     CodecEntry { name: "shuffle", parameters: &[fixed("element_size")] },
     CodecEntry { name: "h5_fletcher32", parameters: &[] },
     CodecEntry { name: "h5_lz4", parameters: &[] },

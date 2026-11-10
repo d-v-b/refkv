@@ -15,6 +15,13 @@
 //! other rounds: the start of the stream, inflated as far as the header (and as much of the
 //! chain as `SCAN` holds), and its trailer. Its IR is one `data` element, the whole file; what the
 //! stream's start holds is in the facts, as the file's bytes do not show it.
+//!
+//! The parser describes the voxels as the source stores them (spec/stored-array.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>; `nifti/stored.rs`):
+//! one array, one unit, added to the finished IR.
+
+#[path = "nifti/stored.rs"]
+pub(crate) mod stored;
 
 use crate::fed::{Fed, Word};
 use crate::gz;
@@ -116,7 +123,8 @@ pub fn header(raw: &[u8], version: u8) -> Header<'_> {
 }
 
 /// What the checks of a header give (spec/zarrify/nifti.md §7.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#71-header>): its length, its fields, the voxels' data type and samples, the voxel offset, and the voxel data's size.
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#71-header>): its length, its fields, the voxels' data type and samples, the voxel offset, and the voxel data's size;
+/// and, for the voxels' description, the sizes of the header's `n` dimensions in its order and the bits of a voxel.
 pub(crate) struct Checked<'a> {
     pub length: u64,
     pub h: Header<'a>,
@@ -124,6 +132,8 @@ pub(crate) struct Checked<'a> {
     pub samples: u64,
     pub vox: u64,
     pub total: u128,
+    pub dims: Vec<u64>,
+    pub bits: u64,
 }
 
 /// The checks of the header of the given `version` at the start of `got`, of a file of `size` bytes, up to
@@ -164,7 +174,8 @@ pub(crate) fn check_header<'a>(rules: &Rules, got: &'a [u8], version: u8, size: 
     )?;
     let total = sizes[1..6].iter().fold(bits as u128 / 8, |a, &s| a.saturating_mul(s as u128));
     let dtype = spec["dtype"].as_str().unwrap_or("uint8").to_string();
-    Ok(Checked { length, h, dtype, samples, vox: vox as u64, total })
+    let dims = sizes[1..=n as usize].iter().map(|&s| s as u64).collect();
+    Ok(Checked { length, h, dtype, samples, vox: vox as u64, total, dims, bits })
 }
 
 /// The extensions in `block`, which starts at offset `q` of the object `parent` (spec/zarrify/nifti.md §5
@@ -224,6 +235,8 @@ pub struct Nifti {
     gzip: Option<gz::Reader>,
     want: u64,
     facts: J,
+    /// what the voxels' description needs, kept until the IR is finished
+    stored: Option<stored::Voxels>,
 }
 
 impl Nifti {
@@ -242,6 +255,7 @@ impl Nifti {
             gzip: None,
             want: HEAD,
             facts: J::Null,
+            stored: None,
         }
     }
 
@@ -311,7 +325,7 @@ impl Nifti {
     fn head(&mut self, got: &[u8], isize: Option<u32>) -> Res<()> {
         let version = detect(got).ok_or("not a NIfTI-1 or NIfTI-2 single file")?;
         let size = if isize.is_some() { got.len() as u64 } else { self.size };
-        let Checked { length, h, dtype, samples, vox, total, .. } = check_header(self.rules, got, version, size, |length| length + 4)?;
+        let Checked { length, h, dtype, samples, vox, total, dims, bits } = check_header(self.rules, got, version, size, |length| length + 4)?;
         self.rules.check(
             "voxel_data",
             rules::env([
@@ -340,7 +354,9 @@ impl Nifti {
             let voxels = self.ir.data(0, "voxels", NO_INDEX, 0, (0, self.size), &form.to_string())?;
             let extender = got[length as usize..length as usize + 4].to_vec();
             let extensions = if extender[0] != 0 { extensions_in(got, length as usize + 4, vox, h.little) } else { Vec::new() };
-            self.facts = json!({"version": version, "voxels": voxels, "extended": extender[0] != 0,
+            // `declared_by`, the key of the voxels' description: the stream, which holds the header
+            self.stored = Some(stored::Voxels { key: voxels, header: None, data: voxels, dims, bits, skip: Some(vox) });
+            self.facts = json!({"version": version, "voxels": voxels, "extended": extender[0] != 0, "declared_by": voxels,
                                 "gzip": {"skip": vox, "head": gz::head(&got[..length as usize]), "extender": extender, "extensions": extensions},
                                 "copy_threshold": crate::out::copy_threshold()});
             return Ok(());
@@ -359,8 +375,10 @@ impl Nifti {
         self.chaining = ext[0] != 0;
         // the payload past which the projection copies an edge chunk, read once per run
         let copy_threshold = crate::out::copy_threshold();
+        // `declared_by`, the key of the voxels' description: the header
+        self.stored = Some(stored::Voxels { key: header, header: Some(header), data: voxels, dims, bits, skip: None });
         self.facts = json!({"version": version, "header": header, "voxels": voxels, "extended": ext[0] != 0,
-                            "copy_threshold": copy_threshold});
+                            "declared_by": header, "copy_threshold": copy_threshold});
         Ok(())
     }
 
@@ -372,8 +390,14 @@ impl Nifti {
         Ok(())
     }
 
+    /// The finished IR, with its voxels described (`stored.rs`), and the facts.
     pub fn finish(self) -> Result<(Ir, J), String> {
-        sans::finish(self.phase == Phase::Done, self.ir, self.facts)
+        let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
+        if let Some(voxels) = &self.stored {
+            let (arrays, chains, map) = stored::described(voxels)?;
+            ir.describe(arrays, chains, map)?;
+        }
+        Ok((ir, facts))
     }
 }
 

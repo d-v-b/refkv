@@ -6,9 +6,12 @@
 //! for the image file; and the edge chunks the projection copies. The IR is a store's: the header file held,
 //! with the single file's `header`, `extender` and `extensions/<i>`, and the image file described in place,
 //! with `voxels`. The checks are the single file's, but that the voxel offset may be 0 and bounds the image file.
+//! The voxels are described as the single file's are (spec/stored-array.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>), by this store parser itself:
+//! keyed by the `header` in the header file, their one unit the `voxels` in the image file.
 
 use crate::ir::*;
-use crate::nifti::{chain_values, check_header, detect_pair};
+use crate::nifti::{chain_values, check_header, detect_pair, stored};
 use crate::rules::{self, Rules, flag, num, text};
 use crate::store::{StoreParser, StoreStep};
 use serde_json::{Value as J, json};
@@ -37,6 +40,9 @@ pub struct NiftiPair {
     version: u8,
     vox: u64,
     total: u64,
+    /// the sizes of the header's dimensions, in its order, and the bits of a voxel
+    dims: Vec<u64>,
+    bits: u64,
     copies: Vec<(u64, u64)>,
     copied: Vec<(u64, u64, Vec<u8>)>,
     got: HashMap<(usize, u64), Vec<u8>>,
@@ -70,6 +76,8 @@ impl NiftiPair {
             version: 1,
             vox: 0,
             total: 0,
+            dims: Vec::new(),
+            bits: 0,
             copies: Vec::new(),
             copied: Vec::new(),
             got: HashMap::new(),
@@ -87,6 +95,8 @@ impl NiftiPair {
         self.vox = c.vox;
         self.rules.check("voxel_size", rules::env([("total", num(c.total as f64)), ("total_shown", text(&c.total.to_string()))]))?;
         self.total = c.total as u64;
+        self.dims = c.dims;
+        self.bits = c.bits;
         Ok(())
     }
 
@@ -151,9 +161,13 @@ impl NiftiPair {
         }
         ir.sort_values();
         crate::check::finish(&mut ir)?;
+        // the voxels' description, keyed by the header (`declared_by`): the store's own, of its two objects
+        let described = stored::Voxels { key: header, header: Some(header), data: voxels, dims: std::mem::take(&mut self.dims), bits: self.bits, skip: None };
+        let (arrays, chains, map) = stored::described(&described)?;
+        ir.describe(arrays, chains, map)?;
         self.ir = Some(ir);
         let copied: Vec<J> = self.copied.iter().map(|(o, n, b)| json!([o, n, b])).collect();
-        Ok(json!({"version": self.version, "header": header, "voxels": voxels, "extended": extended,
+        Ok(json!({"version": self.version, "header": header, "voxels": voxels, "extended": extended, "declared_by": header,
                   "start": self.vox, "length": self.total, "header_key": self.keys[0].0, "data_key": self.keys[1].0,
                   "copied": copied, "copy_threshold": self.copy_threshold}))
     }
