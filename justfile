@@ -127,18 +127,26 @@ conformance out="conformance/results/latest": impls::build
 
 # Run the spec/bindings/phkv.md conformance suite (conformance/phkv/HARNESS.md): the reference
 # implementation (the Rust core, through Python) and the JavaScript one, which reads only HTTP
-# sources and not Zstandard sections, so the reference writes stored sections for it; then the
-# reference alone, with Zstandard sections. Known gaps are in conformance/phkv/known_gaps.json.
-# (On Windows, add --no-files to the first run: the oracle's file: URLs are POSIX's.)
+# sources, with the reference writing its own sections stored, then DEFLATE-compressed; then both with
+# Zstandard sections, which the JavaScript one cannot read (a listed gap), the reference's default.
+# Known gaps are in conformance/phkv/known_gaps.json and known_gaps_zstd.json.
+# (On Windows, add --no-files to each run: the oracle's file: URLs are POSIX's.)
 conformance-phkv out="conformance/results/phkv":
     uv run python conformance/phkv/run.py --out {{out}}/stored --known-gaps conformance/phkv/known_gaps.json \
         --ref "uv run python -m refkv.phkv.cli --allow-private-hosts --section-codec none" \
         --impl ref="uv run python -m refkv.phkv.cli --allow-private-hosts --section-codec none" \
         --impl js="node --no-warnings conformance/phkv/impls/js/cli.ts --allow-private-hosts" \
         --no-file-sources js
-    uv run python conformance/phkv/run.py --out {{out}}/zstd \
+    uv run python conformance/phkv/run.py --out {{out}}/deflate --known-gaps conformance/phkv/known_gaps.json \
+        --ref "uv run python -m refkv.phkv.cli --allow-private-hosts --section-codec deflate" \
+        --impl ref="uv run python -m refkv.phkv.cli --allow-private-hosts --section-codec deflate" \
+        --impl js="node --no-warnings conformance/phkv/impls/js/cli.ts --allow-private-hosts" \
+        --no-file-sources js
+    uv run python conformance/phkv/run.py --out {{out}}/zstd --known-gaps conformance/phkv/known_gaps_zstd.json \
         --ref "uv run python -m refkv.phkv.cli --allow-private-hosts" \
-        --impl ref="uv run python -m refkv.phkv.cli --allow-private-hosts"
+        --impl ref="uv run python -m refkv.phkv.cli --allow-private-hosts" \
+        --impl js="node --no-warnings conformance/phkv/impls/js/cli.ts --allow-private-hosts" \
+        --no-file-sources js
 
 # Regenerate the synthetic files and stores in fixtures/<format>: every generator
 # fixtures/generators/<format>/write_*.py but those with a line `# fixtures: on demand`, which need

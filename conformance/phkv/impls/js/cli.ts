@@ -91,7 +91,8 @@ async function cmdRead(storePath: string, queriesPath: string, policy: Policy): 
       policy,
     );
   } catch (e) {
-    if (e instanceof RefkvError && e.errorClass !== "archive") throw e;
+    // only an archive error is the rejection of a bad store: any other error is a crash, which the run reports as one
+    if (!(e instanceof RefkvError && e.errorClass === "archive")) throw e;
     process.stdout.write(asciiJson({ open: { ok: false, class: "archive", error: (e as Error).message }, results: [] }) + "\n");
     return 0;
   }

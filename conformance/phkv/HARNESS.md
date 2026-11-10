@@ -11,14 +11,20 @@ about the reader policy applies here, with these changes.
 **What the suite tests.** The hybrid profile ([spec §21](../../spec/bindings/phkv.md#21-hybrid-profile))
 has no cases: the plan in [design/plans/split-bindings.md](../../design/plans/split-bindings.md) drops it.
 The suite checks the container (the superblock, the section directory, the records, the page index),
-the perfect hash and slot table (every key of every store is looked up, through every implementation),
+the perfect hash and slot table (every key of the store that needs several buckets, `many_keys`, is looked
+up through every implementation, and the validator checks the slot table's length and each slot),
 bytes values (stored, inline and out of line, DEFLATE), references (every kind of source: `url`,
 `key`, `data`), and the operations ([spec §22.2](../../spec/bindings/phkv.md#222-operations)).
 
 ## Differences from the vzip interface
 
 - **`read` opens a phkv store**, a local file. Opening a file that is not one, or whose superblock,
-  directory or sections are malformed, is an archive error (the suite's `crafted/` stores).
+  directory or sections are malformed, is an archive error (the suite's `crafted/` stores). Only an
+  archive error counts: any other failure to open is a crash, which the run reports as one. A store with
+  the superblock at a probe distance, and one with a section of an unknown type, must read
+  (`readable/`).
+- **`--allow-scheme SCHEME`**, before the command, is as for the vzip harness: the reference is given
+  `--allow-scheme file` by the runner, for the `files_*` descriptions.
 - **No reserved names.** A phkv store reserves none ([spec §16](../../spec/bindings/phkv.md#16-what-the-phkv-binding-defines)),
   so keys such as `__vz__/hdr`, `__vz__/sources` and `__vz__/index` are ordinary keys: `classify`,
   `get` and `list` see them, a `key` source may name them, and a description may have them.
@@ -37,7 +43,9 @@ bytes values (stored, inline and out of line, DEFLATE), references (every kind o
   A writer that has fixed pages and inlining ignores both (the JavaScript one does). `compress: true`
   means a DEFLATE value ([spec §17.5](../../spec/bindings/phkv.md#175-codecs), codec 1).
 - **Reference payloads** may be as long as 2^24 bytes ([spec §19.3](../../spec/bindings/phkv.md#193-reference-records)),
-  not vzip's 65,519 (the `large_payloads` description).
+  not vzip's 65,519 (the `large_payloads` description). A writer rejects a longer one (the invalid
+  description `payload_over_limit`), and a reader's lookup of a record with one is a payload error (the
+  `payload_over_limit` store, which the runner makes from a one-key store).
 - **The writer's own sections** (the source table, the page index, the perfect hash) may be stored
   with any codec ([spec §17.5](../../spec/bindings/phkv.md#175-codecs)): a reader reads all three.
   The reference writer's CLI takes `--section-codec none|deflate|zstd` before `write`, which the runs of
@@ -53,7 +61,8 @@ As the vzip runner, in three parts (`run.py`):
    open.
 2. **write**: every description written by every implementation; the store validated structurally by
    [phkv_validate.py](phkv_validate.py), which has its own parser (superblock and directory with their
-   CRC-32Cs, sections, the records in key order, the page index, the source table) and shares no code with
+   CRC-32Cs, sections, the records in key order and the stored bytes they point to, the page index with
+   its offsets and first keys, PTRHASH's header, the slot table, the source table) and shares no code with
    an implementation; and read back by every implementation (a cross-read matrix).
 3. **reject**: every invalid description must be rejected, without leaving a file.
 
@@ -63,8 +72,10 @@ and the HTTP sources the runner serves). `--no-file-sources NAME` exempts one im
 `files_*` descriptions, and `--no-files` every implementation (on Windows).
 
 **Known gaps.** `--known-gaps FILE` is a JSON object of `fnmatch` patterns of failing case ids, each with
-its reason ([known_gaps.json](known_gaps.json)). A case that fails and matches one does not fail the run.
-A pattern that matches nothing that fails does: the gap is closed, so remove it. The case ids are
+its reason ([known_gaps.json](known_gaps.json)). A pattern `ID` excuses every failure of the cases it
+matches; `ID@KEY` only their failing queries about keys that match `KEY`, so that the rest of a vector
+stays protected. A failure that no pattern excuses fails the run, and so does a pattern that excuses no
+failure: the gap is closed, so remove it. The case ids are
 `read:<impl>:<vector>`, `cross:<writer>-><reader>:<description>`, `write:<impl>:<description>` and
 `reject:<impl>:<case>`.
 
@@ -75,4 +86,6 @@ A pattern that matches nothing that fails does: the gap is closed, so remove it.
 | `ref` | `python -m refkv.phkv.cli` (the Rust core's reader and writer) | the oracle's reference |
 | `js` | [impls/js/cli.ts](impls/js/cli.ts), over `js/src/phkv.ts` | an independent container reader and writer; reads only HTTP sources |
 
-`just conformance-phkv` runs the suite.
+`just conformance-phkv` runs the suite three times: with the reference writing its own sections stored, with
+DEFLATE (for `js`, which reads those two), and with Zstandard, the reference's default, which `js` cannot
+read ([known_gaps_zstd.json](known_gaps_zstd.json) lists that, and excuses all of `js` in that run).

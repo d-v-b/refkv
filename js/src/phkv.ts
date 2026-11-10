@@ -259,6 +259,9 @@ interface Superblock {
 const safe = (v: bigint, what: string): number =>
   v > BigInt(Number.MAX_SAFE_INTEGER) ? fail("archive", `${what} is too large for this reader`) : Number(v);
 
+/** Whether the four bytes at `at` are the magic: compared as bytes, since arbitrary bytes are not UTF-8. */
+const hasMagic = (bytes: Uint8Array, at: number): boolean => [...MAGIC].every((c, i) => bytes[at + i] === c.charCodeAt(0));
+
 /** The superblock of a standalone store, at the first probe distance that matches (spec §17.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#172-finding-the-superblock>). */
 function findSuperblock(bytes: Uint8Array): Superblock | undefined {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -266,7 +269,7 @@ function findSuperblock(bytes: Uint8Array): Superblock | undefined {
     const at = bytes.length - d - SUPERBLOCK_SIZE;
     if (at < 0) break;
     if (
-      strictUtf8.decode(bytes.subarray(at, at + 4)) !== MAGIC ||
+      !hasMagic(bytes, at) ||
       view.getUint32(at + 60, true) !== crc32c(bytes.subarray(at, at + 60)) ||
       view.getBigUint64(at + 8, true) !== BigInt(d)
     ) {

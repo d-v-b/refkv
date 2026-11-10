@@ -2,8 +2,10 @@
 
 Has its own parser (the superblock, the section directory, the sections, the records and the page
 index) and uses the official protobuf runtime (pbref) for the source table, so it shares no code
-with any implementation. It does not rebuild the perfect hash: the reads of the suite do that, for
-every key, through every implementation. Returns a list of problems (empty = valid).
+with any implementation. It checks the PTRHASH section's header and the SLOTS section's length and
+slots (each record has exactly one slot, with its exact length), but does not rebuild the perfect
+hash: the reads of the suite look up every key of the stores that need several buckets (`many_keys`),
+through every implementation. Returns a list of problems (empty = valid).
 """
 
 from __future__ import annotations
@@ -97,14 +99,19 @@ def _check_sources(table_bytes: bytes, desc: dict, problems: list) -> None:
         problems.append("source table records no revision")
 
 
-def _check_records(records: bytes, desc: dict, key_count: int, problems: list) -> None:
+def _check_records(
+    records: bytes, desc: dict, key_count: int, problems: list, whole: bytes = b"",
+) -> list[tuple[str, int, int]]:
+    """Checks the records; returns each record's (key, start, end) in RECORDS."""
     expected = {e["key"]: e for e in desc["entries"]}
     seen: list[str] = []
+    spans: list[tuple[str, int, int]] = []
     last: bytes | None = None
     p = rank = 0
     while p < len(records):
         start = p
         data = payload = None
+        offset = 0
         try:
             klen, p = _varint(records, p)
             kind, rflags = records[p], records[p + 1]
@@ -116,7 +123,7 @@ def _check_records(records: bytes, desc: dict, key_count: int, problems: list) -
                 codec = records[p]
                 p += 1
                 if not rflags & 1:
-                    _, p = _varint(records, p)  # offset of the stored bytes
+                    offset, p = _varint(records, p)  # offset of the stored bytes, in the file
                 stored_len, p = _varint(records, p)
                 size, p = _varint(records, p)
                 if rflags & 2:
@@ -126,7 +133,7 @@ def _check_records(records: bytes, desc: dict, key_count: int, problems: list) -
                 plen, p = _varint(records, p)
             else:
                 problems.append(f"record at {start}: kind {kind} is not 0, 1 or 2")
-                return
+                return spans
             key = records[p:p + klen].decode("utf-8")
             p += klen
             if kind == 0 and rflags & 1:
@@ -137,16 +144,17 @@ def _check_records(records: bytes, desc: dict, key_count: int, problems: list) -
                 p += plen
         except (ValueError, IndexError, struct.error) as e:
             problems.append(f"record at {start}: malformed: {e}")
-            return
+            return spans
         if p > len(records):
             problems.append(f"record at {start}: extends past the end of RECORDS")
-            return
+            return spans
         if klen < 1 or rflags & ~7 or rflags & 4 or (kind != 0 and rflags & 3) or r != rank:
             problems.append(f"record {key!r}: bad key length, flags or rank")
         if last is not None and key.encode() <= last:
             problems.append(f"record {key!r}: keys are not in strictly increasing UTF-8 order")
         last = key.encode()
         seen.append(key)
+        spans.append((key, start, p))
         rank += 1
         e = expected.get(key)
         if e is None:
@@ -163,6 +171,11 @@ def _check_records(records: bytes, desc: dict, key_count: int, problems: list) -
                 problems.append(f"record {key!r}: size {size}, expected {len(want)}")
             if crc is not None and crc != crc32c(want):
                 problems.append(f"record {key!r}: crc32c is not that of the value")
+            if data is None:  # stored out of line: [offset, offset + stored_len) of the file
+                if offset + stored_len > len(whole):
+                    problems.append(f"record {key!r}: stored bytes [{offset}, +{stored_len}) lie outside the file")
+                else:
+                    data = whole[offset:offset + stored_len]
             if data is not None:
                 value = _decode(data, codec, size, problems, f"value of {key!r}")
                 if value is not None and value != want:
@@ -171,9 +184,14 @@ def _check_records(records: bytes, desc: dict, key_count: int, problems: list) -
         problems.append("the records' keys differ from the description's")
     if len(seen) != key_count:
         problems.append(f"{len(seen)} records, key_count {key_count}")
+    return spans
 
 
-def _check_pages(pages: bytes, records_length: int, problems: list) -> None:
+def _check_pages(pages: bytes, spans: list[tuple[str, int, int]], base: int, problems: list) -> None:
+    """The pages partition RECORDS, which starts at `base` in the file: each page starts where the previous
+    ended, at the record of its first key."""
+    starts = {start: key for key, start, _ in spans}
+    records_length = spans[-1][2] if spans else 0
     q = at = 0
     prev = None
     try:
@@ -181,12 +199,16 @@ def _check_pages(pages: bytes, records_length: int, problems: list) -> None:
             first_length, q = _varint(pages, q)
             first = pages[q:q + first_length]
             q += first_length
-            _, q = _varint(pages, q)  # the page's offset: absolute (<https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#194-page-index>)
+            offset, q = _varint(pages, q)  # the page's offset in the file (<https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#194-page-index>)
             length, q = _varint(pages, q)
             if first_length < 1 or length < 1:
                 problems.append("a page with an empty first key or length")
             if prev is not None and first <= prev:
                 problems.append("page first keys are not strictly increasing")
+            if offset != base + at:
+                problems.append(f"page at {at}: its offset is {offset}, not {base + at}")
+            if starts.get(offset - base) != first.decode("utf-8", "replace"):
+                problems.append(f"page at {offset}: first_key {first!r} is not the key of the record there")
             prev = first
             at += length
     except ValueError as e:
@@ -194,6 +216,44 @@ def _check_pages(pages: bytes, records_length: int, problems: list) -> None:
         return
     if at != records_length:
         problems.append(f"pages cover {at} bytes of RECORDS, which is {records_length} long")
+
+
+def _check_hash(ptrhash: bytes, slots: bytes, spans: list[tuple[str, int, int]], problems: list) -> None:
+    """PTRHASH's header (spec 18.1) and SLOTS: 12 * P * S bytes, a slot per record with its exact length."""
+    if len(ptrhash) < 40:
+        problems.append("PTRHASH is shorter than its header")
+        return
+    hash_id, seed, parts, per_part, buckets = struct.unpack_from("<B7xQQQQ", ptrhash)
+    del seed
+    if hash_id != 1 or ptrhash[1:8] != bytes(7):
+        problems.append("PTRHASH: hash_id is not 1, or a reserved byte is not 0")
+    if not (parts and per_part and buckets):
+        problems.append("PTRHASH: P, S or B is 0")
+        return
+    if parts * per_part < len(spans):
+        problems.append("PTRHASH: P * S is less than the number of keys")
+    if len(ptrhash) != 40 + parts * buckets:
+        problems.append(f"PTRHASH: size {len(ptrhash)} is not 40 + P * B = {40 + parts * buckets}")
+    if len(slots) != 12 * parts * per_part:
+        problems.append(f"SLOTS is {len(slots)} bytes, not 12 * P * S = {12 * parts * per_part}")
+        return
+    by_start = {start: (key, end - start) for key, start, end in spans}
+    used: dict[int, int] = {}
+    for i in range(0, len(slots), 12):
+        offset, length = struct.unpack_from("<QI", slots, i)
+        if length == 0:
+            if offset != 0:
+                problems.append(f"slot {i // 12}: empty with offset {offset}")
+            continue
+        found = by_start.get(offset)
+        if found is None:
+            problems.append(f"slot {i // 12}: offset {offset} is not the start of a record")
+        elif length != found[1] and length != 0xFFFFFFFF:
+            problems.append(f"slot {i // 12}: length {length}, the record of {found[0]!r} is {found[1]} bytes")
+        else:
+            used[offset] = used.get(offset, 0) + 1
+    if len(used) != len(spans) or any(n != 1 for n in used.values()):
+        problems.append(f"{len(used)} records have a slot, {len(spans)} keys: each needs exactly one")
 
 
 def validate(path: Path, desc: dict) -> list[str]:
@@ -223,7 +283,7 @@ def validate(path: Path, desc: dict) -> list[str]:
         problems.append("directory crc32c is wrong")
     if reg_off + reg_len != len(buf):
         problems.append(f"container region [{reg_off}, +{reg_len}) does not end at the end of the superblock")
-    sections: dict[int, list[tuple[int, bytes, int]]] = {}
+    sections: dict[int, list[tuple[int, bytes, int, int]]] = {}
     for i in range(0, dir_len, 40):
         typ, codec, sflags, res1, off, length, size, crc, res2 = struct.unpack_from("<IBBHQQQII", directory, i)
         what = f"section type {typ}"
@@ -241,7 +301,7 @@ def validate(path: Path, desc: dict) -> list[str]:
             problems.append(f"{what}: codec 0 with length {length} != size {size}")
         if typ in STORED_ONLY and codec != 0:
             problems.append(f"{what}: must be stored (codec 0)")
-        sections.setdefault(typ, []).append((codec, stored, size))
+        sections.setdefault(typ, []).append((codec, stored, size, off))
     for typ in ONE_PER_STORE:
         want = 1 if typ == SOURCES or key_count >= 1 else 0
         if len(sections.get(typ, [])) != want:
@@ -251,15 +311,20 @@ def validate(path: Path, desc: dict) -> list[str]:
     if SOURCES not in sections or (key_count and (RECORDS not in sections or PAGES not in sections)):
         return problems
 
-    codec, stored, size = sections[SOURCES][0]
+    codec, stored, size, _ = sections[SOURCES][0]
     raw = _decode(stored, codec, size, problems, "SOURCES")
     if raw is not None:
         _check_sources(raw, desc, problems)
     if key_count:
         records = sections[RECORDS][0][1]
-        _check_records(records, desc, key_count, problems)
-        codec, stored, size = sections[PAGES][0]
+        spans = _check_records(records, desc, key_count, problems, buf)
+        codec, stored, size, _ = sections[PAGES][0]
         pages = _decode(stored, codec, size, problems, "PAGES")
         if pages is not None:
-            _check_pages(pages, len(records), problems)
+            _check_pages(pages, spans, sections[RECORDS][0][3], problems)
+        if PTRHASH in sections and SLOTS in sections:
+            codec, stored, size, _ = sections[PTRHASH][0]
+            ptrhash = _decode(stored, codec, size, problems, "PTRHASH")
+            if ptrhash is not None:
+                _check_hash(ptrhash, sections[SLOTS][0][1], spans, problems)
     return problems

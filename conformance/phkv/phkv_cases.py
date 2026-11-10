@@ -75,7 +75,9 @@ def _self_contained() -> dict[str, dict]:
             {"key": "r", "ranges": [{"source": 0, "offset": 4, "length": 5}]}]},
         "empty": {"sources": [], "entries": []},
         "empty_paged": {"sources": [], "entries": [], "page_size": 100},
-        # payloads past vzip's 65,519-byte limit (a ZIP extra field's), up to phkv's 2^24
+        # payloads past vzip's 65,519-byte limit (a ZIP extra field's), up to phkv's 2^24 (the writer's
+        # rejection above it is `invalid_descriptions`'s `payload_over_limit`, the reader's error the
+        # `payload_over_limit` store of run.py)
         # (<https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#193-reference-records>)
         "large_payloads": {"sources": [], "entries": [
             {"key": "many_ranges", "ranges": [{"data": H(bytes([i % 256]) * 8)} for i in range(7000)]},
@@ -103,9 +105,15 @@ def descriptions(root: Path, http_base: str | None = None) -> dict[str, dict]:
 
 def queries_for(name: str, desc: dict) -> list[dict]:
     if name == "many_keys":
+        # every key is looked up, which is what a wrong pilot or slot for any one of them fails; the
+        # other operations and the ranges, for a few
+        keys = [e["key"] for e in desc["entries"]]
         sub = {**desc, "entries": [desc["entries"][i] for i in (0, 1, 2, 35_000, 69_999, 70_000)]}
-        qs = standard_queries(sub)
-        return [q for q in qs if q["op"] != "list"] + [{"op": "list", "prefix": "m/zarr"}]
+        qs = [q for q in standard_queries(sub) if q["op"] != "list"]
+        qs += [{"op": "get", "key": k} for k in keys]
+        qs += [{"op": "classify", "key": k} for k in keys[::10]]
+        qs += [{"op": "get", "key": f"m/missing/{i}"} for i in range(1000)]  # no key has a slot by luck
+        return [*qs, {"op": "list", "prefix": "m/zarr"}, {"op": "list", "prefix": "m/c/6999"}]
     return standard_queries(desc)
 
 
@@ -113,11 +121,15 @@ def invalid_descriptions(root: Path) -> dict[str, dict]:
     """Descriptions a writer must reject: the vzip suite's less those about vzip's own limits."""
     vzip_only = {"reserved_sources_key", "reserved_index_key", "key_source_names_format_entry",
                  "pinned_reference", "pinned_without_index", "payload_too_large", "payload_over_limit"}
-    # (the last two are valid here: see `large_payloads`)
+    # (the last two are valid here, up to 2^24: see `large_payloads`, and `payload_over_limit` below)
     out = {name: adapt(d) for name, d in vzip_cases.invalid_descriptions(root).items()
            if name not in vzip_only}
     base = {"sources": [], "entries": []}
     out["inline_max_negative"] = {**base, "inline_max": -1}
     out["inline_max_not_an_integer"] = {**base, "inline_max": 1.5}
     out["page_size_zero_with_keys"] = {**base, "page_size": 0, "entries": [{"key": "a", "bytes": "00"}]}
+    # the payload of a reference is at most 2^24 bytes (spec 19.3, 23.1): a literal of 2^24 bytes, with
+    # the payload's own encoding, is over it
+    out["payload_over_limit"] = {**base, "entries": [
+        {"key": "k", "ranges": [{"data": "00" * (1 << 24)}]}]}
     return out

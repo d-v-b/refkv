@@ -27,6 +27,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import zlib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -34,9 +35,10 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "vzip"))
 
 import phkv_cases as cases  # noqa: E402
+import phkv_craft as craft  # noqa: E402
 from http_server import Server  # noqa: E402
 from phkv_model import PhkvModel, deflates_to  # noqa: E402
-from phkv_validate import validate  # noqa: E402
+from phkv_validate import crc32c, validate  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("vzip_run", HERE.parent / "vzip" / "run.py")
 assert _spec is not None
@@ -73,6 +75,8 @@ vzip_run.__dict__["_matches"] = _matches  # grade, in vzip's runner, uses it
 # (spec <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#221-opening>
 # and <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#223-errors>)
 STORE_SUFFIX = ".phkv"
+MAX_PAYLOAD = 1 << 24  # spec 19.3
+FILE_SCHEME = ["--allow-scheme", "file"]  # the reference reads file: sources only when told to
 
 
 def _flip(buf: bytearray, at: int) -> bytes:
@@ -85,6 +89,12 @@ def crafted(base: bytes) -> dict[str, bytes]:
     n = len(base)
     sb = n - 64  # the superblock is the last 64 bytes (distance 0)
     dir_off = int.from_bytes(base[sb + 24:sb + 32], "little")
+    st = craft.parse(base)
+    pages = craft.section(st, craft.PAGES).data
+    ps = craft.pages(pages)
+    ptrhash = craft.section(st, craft.PTRHASH).data
+    sources = craft.section(st, craft.SOURCES)
+    records = craft.section(st, craft.RECORDS).data
     return {
         "empty_file": b"",
         "not_a_store": bytes(range(256)) * 8,
@@ -97,17 +107,62 @@ def crafted(base: bytes) -> dict[str, bytes]:
         "version_1": _with_crc(base, sb, 4, (1).to_bytes(2, "little")),
         "unknown_flag": _with_crc(base, sb, 6, (2).to_bytes(2, "little")),
         "trailing_bytes_after_superblock": base + b"\0" * 7,
+        # the distance names no probe distance: 1000 is not 0 and not 2^k for k in 10..30
+        "distance_not_a_probe_distance": craft.build(st, distance=1000),
+        # sections (spec 17.3 to 17.5, 18, 19.4)
+        "section_codec_reserved": craft.build(craft.with_section(
+            st, craft.PAGES, codec=9, stored=pages, size=len(pages))),
+        "records_with_a_codec": craft.build(craft.with_section(
+            st, craft.RECORDS, codec=1, stored=deflate(records), size=len(records))),
+        "duplicate_sources": craft.build(craft.with_extra(st, sources)),
+        "pages_missing": craft.build(craft.without(st, craft.PAGES)),
+        "slots_missing": craft.build(craft.without(st, craft.SLOTS)),
+        "must_understand_unknown_section": craft.build(craft.with_extra(
+            st, craft.Section(0x80000001, b"?", flags=1))),
+        "sources_crc_mismatch": craft.build(craft.with_section(
+            st, craft.SOURCES, crc=crc32c(sources.data) ^ 1)),
+        "sources_size_mismatch": craft.build(craft.with_section(
+            st, craft.SOURCES, size=len(sources.data) + 1)),
+        "ptrhash_with_a_byte_too_many": craft.build(craft.with_section(
+            st, craft.PTRHASH, data=ptrhash + b"\0")),
+        "ptrhash_with_zero_parts": craft.build(craft.with_section(
+            st, craft.PTRHASH, data=ptrhash[:16] + bytes(8) + ptrhash[24:])),
+        "ptrhash_with_an_unknown_hash": craft.build(craft.with_section(
+            st, craft.PTRHASH, data=b"\x07" + ptrhash[1:])),
+        "slots_with_a_byte_too_many": craft.build(craft.with_section(
+            st, craft.SLOTS, data=craft.section(st, craft.SLOTS).data + b"\0")),
+        "pages_not_contiguous": craft.build(craft.with_section(
+            st, craft.PAGES, data=craft.encode_pages([(k, o, n + (i == 0)) for i, (k, o, n) in enumerate(ps)]))),
+        "pages_first_keys_out_of_order": craft.build(craft.with_section(
+            st, craft.PAGES, data=craft.encode_pages(ps[::-1]))),
     }
 
 
 def _with_crc(base: bytes, sb: int, at: int, value: bytes) -> bytes:
     """`base` with `value` at `at` in its superblock, and the superblock's crc32c made right."""
-    from phkv_validate import crc32c  # noqa: PLC0415
-
     b = bytearray(base)
     b[sb + at:sb + at + len(value)] = value
     b[sb + 60:sb + 64] = crc32c(bytes(b[sb:sb + 60])).to_bytes(4, "little")
     return bytes(b)
+
+
+def readable(base: bytes) -> dict[str, bytes]:
+    """Valid stores made from a valid one, which must read like it: a superblock `D` bytes before the end
+    of the file, at the probe distances (spec
+    <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#172-finding-the-superblock>),
+    and a section of a type the reader does not know, which it skips."""
+    st = craft.parse(base)
+    return {
+        "probe_distance_1024": craft.build(st, distance=1024),
+        "probe_distance_4096": craft.build(st, distance=4096),
+        "probe_distance_1048576": craft.build(st, distance=1 << 20),
+        "unknown_private_section_is_skipped": craft.build(craft.with_extra(st, craft.Section(0x80000001, b"?"))),
+    }
+
+
+def deflate(data: bytes) -> bytes:
+    c = zlib.compressobj(wbits=-15)
+    return c.compress(data) + c.flush()
 
 
 def needs_files(desc: dict) -> bool:
@@ -143,6 +198,23 @@ def build_vectors(root: Path, ref_cli: list[str], http: Server, files: bool = Tr
         qs = [{"op": "get", "key": "meta/zarr.json"}]
         vectors[f"crafted/{name}"] = {"archive": store, "queries": qs, "accepts": [[{"ok": False}]],
                                       "open": "fail", "files": False}
+    same = vectors["selfcontained"]
+    for name, data in readable(base).items():
+        store = vdir / f"readable_{name}{STORE_SUFFIX}"
+        store.write_bytes(data)
+        vectors[f"readable/{name}"] = {**same, "archive": store}
+    # a record whose payload is longer than 2^24 bytes (spec 19.3, 22.3): a payload error on lookup
+    one = vdir / "one_reference.json"
+    one.write_text(json.dumps({"sources": [], "entries": [{"key": "k", "ranges": [{"data": "00"}]}]}))
+    small = vdir / f"one_reference{STORE_SUFFIX}"
+    p = subprocess.run([*ref_cli, "write", str(one), str(small)], capture_output=True, text=True, check=False)
+    if p.returncode:
+        raise RuntimeError(f"reference writer failed on one_reference: {p.stderr}")
+    big = vdir / f"crafted_payload_over_limit{STORE_SUFFIX}"
+    big.write_bytes(craft.oversized_payload_store(small.read_bytes(), MAX_PAYLOAD + 1))
+    qs = [{"op": "get", "key": "k"}, {"op": "get_raw", "key": "k"}]
+    refused = [[{"ok": False, "class": "payload"}]] * 2
+    vectors["payload_over_limit"] = {"archive": big, "queries": qs, "accepts": refused, "open": "ok", "files": False}
     return vectors
 
 
@@ -163,7 +235,9 @@ def main() -> int:
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     impls = {k: shlex.split(v) for k, v in (i.split("=", 1) for i in args.impl)}
-    ref_cli = shlex.split(args.ref)
+    ref_cli = [*shlex.split(args.ref), *FILE_SCHEME]  # the `files_*` descriptions' file: sources
+    if "ref" in impls:
+        impls["ref"] = [*impls["ref"], *FILE_SCHEME]
     readers = {"ref": ref_cli, **impls}
     no_files = set(args.no_file_sources)
 
@@ -274,29 +348,59 @@ def main() -> int:
     return _verdict(report, Path(args.known_gaps) if args.known_gaps else None, out)
 
 
-def failing(report: dict) -> set[str]:
-    """The ids of the cases that failed: `read:ref:basic`, `cross:ref->js:basic`, `write:js:basic`..."""
-    ids = {f"{section}:{k}" for section in ("read", "cross") for k, v in report[section].items() if v["failures"]}
-    ids |= {f"write:{k}" for k, v in report["write"].items() if v["problems"]}
-    ids |= {f"reject:{k}" for k, v in report["reject"].items() if not v["ok"]}
+def failing(report: dict) -> dict[str, list[str | None]]:
+    """The cases that failed, by id (`read:ref:basic`, `cross:ref->js:basic`, `write:js:basic`...), each
+    with the keys of its failing queries (None for a failure that is no query's)."""
+    ids: dict[str, list[str | None]] = {}
+    for section in ("read", "cross"):
+        for k, v in report[section].items():
+            if v["failures"]:
+                ids[f"{section}:{k}"] = [f["query"].get("key") if isinstance(f["query"], dict) else None
+                                         for f in v["failures"]]
+    for k, v in report["write"].items():
+        if v["problems"]:
+            ids[f"write:{k}"] = [None]
+    for k, v in report["reject"].items():
+        if not v["ok"]:
+            ids[f"reject:{k}"] = [None]
     return ids
+
+
+def _gap(pattern: str) -> tuple[str, str | None]:
+    """A known-gap pattern is `<case id glob>`, which covers every failure of the cases it matches, or
+    `<case id glob>@<key glob>`, which covers only their failing queries of such keys."""
+    case, _, key = pattern.partition("@")
+    return case, key or None
 
 
 def _verdict(report: dict, known_path: Path | None, out: Path) -> int:
     """Exit status: 1 for a failure that is not a known gap, or a known gap that no longer fails."""
     ids = failing(report)
-    known = json.loads(known_path.read_text()) if known_path else {}
-    patterns = dict(known)
-    expected = {i for i in ids if any(fnmatch.fnmatch(i, p) for p in patterns)}
-    stale = [p for p in patterns if not any(fnmatch.fnmatch(i, p) for i in ids)]
-    lines = [f"{len(ids)} failing cases, {len(expected)} of them known gaps ({known_path or 'none given'})"]
-    lines += [f"UNEXPECTED {i}" for i in sorted(ids - expected)]
-    lines += [f"KNOWN {i}: " + next(why for p, why in patterns.items() if fnmatch.fnmatch(i, p))
-              for i in sorted(expected)[:40]]
+    patterns = json.loads(known_path.read_text()) if known_path else {}
+    gaps = {p: _gap(p) for p in patterns}
+    used: set[str] = set()
+    why: dict[str, str] = {}
+    unexpected: list[str] = []
+    for i, keys in sorted(ids.items()):
+        for key in keys:
+            hit = next((p for p, (case, k) in gaps.items() if fnmatch.fnmatch(i, case)
+                        and (k is None or (key is not None and fnmatch.fnmatch(key, k)))), None)
+            if hit is None:
+                unexpected.append(i if key is None else f"{i} (query of {key!r})")
+            else:
+                used.add(hit)
+                why[i] = patterns[hit]
+    unexpected = sorted(set(unexpected))
+    stale = [p for p in patterns if p not in used]
+    unexpected_ids = {u.split(" (")[0] for u in unexpected}
+    known = len(ids) - len(unexpected_ids)
+    lines = [f"{len(ids)} failing cases, {known} of them known gaps ({known_path or 'none given'})"]
+    lines += [f"UNEXPECTED {i}" for i in unexpected]
+    lines += [f"KNOWN {i}: {w}" for i, w in sorted(why.items())[:40]]
     lines += [f"STALE known gap {p!r} (nothing it names fails now: remove it)" for p in stale]
     (out / "VERDICT.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
-    return 1 if (ids - expected) or stale else 0
+    return 1 if unexpected or stale else 0
 
 
 if __name__ == "__main__":
