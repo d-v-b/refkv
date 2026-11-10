@@ -227,6 +227,7 @@ A chain's codec has only its entry's parameters.
 | --- | --- | --- | --- | --- |
 | `source` | the bytes the source's encoding wrote, framed as the source frames them | `format`: the profile's name; `id`: the source's id for the encoding, as the source gives it; `name`: the source's own name for the encoding, where it gives one (an HDF5 filter's optional name); `parameters`: its parameters, as the source gives them (a value, or a place that holds them) | none | what the source's encoding decodes to, elements of `item_bits` bits where the description gives it, and of the size that encoding gives them otherwise; the profile maps it or leaves the array out |
 | `zlib` | a zlib stream ([RFC 1950](https://www.rfc-editor.org/rfc/rfc1950)) | none | none | the bytes it inflates to |
+| `gzip` | a gzip stream ([RFC 1952](https://www.rfc-editor.org/rfc/rfc1952)): one member, or several one after another | none | none | the bytes its members inflate to, joined |
 | `zstd` | a Zstandard frame ([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878)) | none | none | the frame's content |
 | `bzip2` | a bzip2 stream | none | none | the bytes it decompresses to |
 | `lzf` | one LZF block with no header; its decoded length is not stored | none | none | the block's bytes |
@@ -241,6 +242,8 @@ A chain's codec has only its entry's parameters.
 | `xz` | an .xz stream | none | none | the bytes it decompresses to |
 | `tiff_lzw` | one TIFF LZW stream (TIFF 6.0 §13: codes packed most significant bit first, with the early change every TIFF writer uses now); or, where its first byte is 0 and its second odd, one of the older form libtiff calls old-style and tells by those bytes (codes packed least significant bit first, the code's width growing one code later) | none | none | the stream's bytes, up to the unit's: decoding stops there, and reads no code after ([zarrify/tiff.md §4.3](zarrify/tiff.md#43-data-types-and-codecs)) |
 | `packbits` | PackBits runs (TIFF 6.0 §9) | none | none | the runs' bytes |
+| `lsb_first` | elements of `bits` bits each, packed least significant bit first: bit k of the unit is bit k mod 8 of byte ⌊k / 8⌋, counted from the least significant, and an element's first bit is its least significant. Where `pad_from` ends a run of elements on a byte, the run's padding follows its last element | `bits`: a value, from 1 to 7 | none | the elements packed most significant bit first, as `item_bits` and `pad_from` say ([§3.1](#31-chains)), a run's padding after its last element |
+| `skip` | `length` bytes that are not the unit's elements (a header the source writes before them), then the elements' bytes | `length`: a value, the count of those bytes | none | the bytes after the first `length` |
 | `tiff_predictor` | a unit's rows, each differenced along its columns as TIFF's Predictor says: 2, each sample less the same sample of the pixel before it, as unsigned integers of `item_bits` bits in the byte order `byte_order` gives, modulo 2^`item_bits` (TIFF 6.0 §14); 3, the row's samples' most significant bytes, then their next and so on to their least, each byte less an earlier byte of that row of bytes, modulo 256 (Adobe's [TIFF Technical Note 3](http://chriscox.org/TIFFTN3d1.pdf)); that byte is as many places before it as a pixel has samples. A pixel's samples are the unit's last axis where `planar_configuration` is absent or 1 and the unit has three axes, else one | `predictor`, and `planar_configuration` where the image has more than one sample and the field: each a place of a field's one value; `byte_order`: a place of the file's byte order mark | none | the rows' elements, summed back, in the file's byte order |
 | `ccitt_t6` | one ITU-T T.6 (Group 4) stream of the unit's rows | none | none | elements of 1 bit, 1 for a coded black run and 0 for a white one, most significant bit first, each row padded to a whole byte |
 | `jpeg` | one JPEG stream (ISO/IEC 10918-1) of 8-bit samples; with `tables`, an abbreviated stream whose tables `tables` holds | `tables`: a place of an abbreviated stream of tables alone (TIFF's JPEGTables) | none | the frame's samples, one byte each, a pixel's components together in the frame's order, every component at the frame's size. Converting their color space is the profile's, which reads how the source declares it |
@@ -511,6 +514,40 @@ its data does not fit) has no grid, nor, by the general fallback ([§1](#1-store
 whose element's bits would pass 2^64 (an array of no elements may be of such a type), whose
 `item_bits` is then absent too. A deflated member's array is not
 described yet: its header and data lie in its stream, which no element holds.
+
+**MRC** ([spec/zarrify/mrc.md](zarrify/mrc.md)). An MRC file's data is one stored array, keyed by
+the file's `header` element, with no index. The facts give the key: `declared_by` is that element's
+id. The dataset layout ([spec/zarrify/mrc-dataset.md](zarrify/mrc-dataset.md)) is a second layout of
+the same file, and has no description of its own.
+
+- **Declarations.** Ranges of the `header` element, in this order: `machst`, (212, 4), whose first
+  byte gives the byte order of the header's fields and of the values; `mode`, (12, 4); and, of a
+  mode 0 file, whose values' sign they decide
+  ([zarrify/mrc.md §3](zarrify/mrc.md#3-data-types)), `nversion`, (108, 4), IMOD's stamp, (152, 4),
+  and IMOD's flags, (156, 4).
+- **`shape`** is `nz`, `ny` and `nx`, the sections, the rows and the columns, whatever the kind of
+  file ([zarrify/mrc.md §4.1](zarrify/mrc.md#41-the-array)): an image is one section, and a volume
+  stack's sections are those of all its volumes, which the profile cuts by `mz`. `axes` is
+  `[2, 1, 0]`: the header gives `nx` first. The axis map (`mapc`, `mapr`, `maps`) names the axes
+  and reorders no value, so it changes neither.
+- **`item_bits`** is the mode's: 8 for mode 0; 16 for modes 1, 6 and 12; 32 for mode 2, and for
+  mode 3, whose element is a pair of 16-bit integers; 64 for mode 4, a pair of 32-bit floats; and
+  4 for mode 101, with `pad_from` 2, the columns' axis: each row ends on a whole byte.
+- **The grid** is one unit, the whole array: each axis `Each` of its length, under `short`. Its
+  row is the `data` element. The profile's checks
+  ([zarrify/mrc.md §8.1](zarrify/mrc.md#81-header)) leave no axis of length 0, and no data that
+  is not whole in the file, so no array of an MRC file lacks a grid but by the limits of
+  [§6](#6-in-the-ir).
+- **The chain** is empty, but for mode 101's, `lsb_first` with `bits` 4: a row's first value is
+  the low half of its first byte.
+- **A file gzipped whole** ([zarrify/mrc.md §8.4](zarrify/mrc.md#84-gzipped-files)) has no
+  `header` element: its bytes are the stream, which holds the header. Its array is keyed by its
+  `data` element, the stream, as `declared_by` says; that element is its one declaration, the
+  header being the first 1024 bytes it inflates to, and its one unit. Its `shape`, `item_bits` and
+  `pad_from` are those of the header the parser inflated. Its chain ends with `skip`, then
+  `gzip`: the values are what the stream inflates to, after the header and the extended header.
+  `skip`'s `length`, 1024 plus `nsymbt`, is a value, since no place of the file holds `nsymbt`.
+- **The fill value** is `undefined`: MRC has none.
 
 **HDF5** ([spec/zarrify/hdf5.md](zarrify/hdf5.md)). Every object the parser reads whose header has
 a data layout message, and neither a symbol table nor a link info message, is a stored array,

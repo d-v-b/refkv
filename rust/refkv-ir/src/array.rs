@@ -171,6 +171,7 @@ const fn fixed(name: &'static str) -> ParamEntry {
 pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "source", parameters: &[fixed("format"), fixed("id"), fixed("name"), fixed("parameters")] },
     CodecEntry { name: "zlib", parameters: &[] },
+    CodecEntry { name: "gzip", parameters: &[] },
     CodecEntry { name: "zstd", parameters: &[] },
     CodecEntry { name: "bzip2", parameters: &[] },
     CodecEntry { name: "lzf", parameters: &[] },
@@ -185,6 +186,8 @@ pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "xz", parameters: &[] },
     CodecEntry { name: "tiff_lzw", parameters: &[] },
     CodecEntry { name: "packbits", parameters: &[] },
+    CodecEntry { name: "lsb_first", parameters: &[fixed("bits")] },
+    CodecEntry { name: "skip", parameters: &[fixed("length")] },
     CodecEntry { name: "tiff_predictor", parameters: &[fixed("predictor"), fixed("planar_configuration"), fixed("byte_order")] },
     CodecEntry { name: "ccitt_t6", parameters: &[] },
     CodecEntry { name: "jpeg", parameters: &[fixed("tables")] },
