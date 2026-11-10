@@ -4,6 +4,10 @@
 //! tile or strip the IR holds. Built from what the parser read, before its IR is finished. An
 //! NDPI's images are described likewise, but for a JPEG strip McuStarts cuts into restart
 //! intervals, each a unit, and a JPEG XR image, whose samples are its stream's.
+//!
+//! What an IFD's fields give of its image (its shape, its chain, its grid and its rows) is read
+//! through [`Fields`], so that a parser that reads IFDs with types of its own (VSI's,
+//! `vsi/stored.rs`) describes its IFDs' images by the same rules.
 
 use super::{type_size, unsigned, Ifd, Tiff, Unit};
 use crate::ndpi;
@@ -52,7 +56,7 @@ pub(super) enum ReadStream {
 }
 
 /// What an IFD's fields say of how its image is stored.
-struct Image {
+pub(crate) struct Image {
     w: u64,
     h: u64,
     depth: u64,
@@ -68,20 +72,167 @@ struct Image {
     jpegxr: bool,
 }
 
+/// An IFD as its image's description reads it: its fields' unsigned values and the places of
+/// their values, as the parser that read the IFD holds them. A field is the first of its tag.
+/// The TIFF parser's IFDs are read through it (`Read`), and so are those of a parser that reads
+/// IFDs with types of its own (VSI's, `vsi/stored.rs`), whose images are so described by the
+/// same rules.
+pub(crate) trait Fields {
+    fn has(&self, tag: u16) -> bool;
+    /// The first value of an unsigned field of the IFD, where the parser holds it.
+    fn first(&self, tag: u16) -> Option<u64>;
+    /// Every value of an unsigned field of the IFD, where the parser holds them.
+    fn every(&self, tag: u16) -> Option<Vec<u64>>;
+    /// The place of a field's value: its `value` element.
+    fn value_place(&self, tag: u16) -> Option<Place>;
+    /// The place of the first value of an unsigned field, which `first` reads: a parameter a
+    /// codec makes from it.
+    fn first_param(&self, tag: u16) -> Option<Param>;
+    /// The place of the file's byte order mark.
+    fn byte_order(&self) -> Place;
+    /// The `format` of a `source` codec of the file's images.
+    fn format(&self) -> &'static str;
+
+    /// The one value every entry of an unsigned field of the IFD has (`default` for an IFD without
+    /// the field); None where they differ, or the parser does not hold them.
+    fn same(&self, tag: u16, default: u64) -> Option<u64> {
+        if !self.has(tag) {
+            return Some(default);
+        }
+        let v = self.every(tag)?;
+        v.first().copied().filter(|x| v.iter().all(|y| y == x))
+    }
+}
+
+/// An IFD of the TIFF parser's.
+struct Read<'a>(&'a Tiff, &'a Ifd);
+
+impl Fields for Read<'_> {
+    fn has(&self, tag: u16) -> bool {
+        self.1.has(tag)
+    }
+    fn first(&self, tag: u16) -> Option<u64> {
+        self.0.first(self.1, tag)
+    }
+    fn every(&self, tag: u16) -> Option<Vec<u64>> {
+        self.0.every(self.1, tag)
+    }
+    fn value_place(&self, tag: u16) -> Option<Place> {
+        self.0.value_place(self.1, tag)
+    }
+    fn first_param(&self, tag: u16) -> Option<Param> {
+        self.0.first_param(self.1, tag)
+    }
+    fn byte_order(&self) -> Place {
+        Place::Element { element: self.0.order_el, member: None, range: None }
+    }
+    fn format(&self) -> &'static str {
+        if self.0.ndpi { "ndpi" } else { "tiff" }
+    }
+}
+
+/// Whether the IFD's image is in tiles: it has a tile's size, as libtiff and tifffile read it.
+pub(crate) fn tiled(f: &dyn Fields) -> bool {
+    f.has(322) && f.has(323)
+}
+
+impl Image {
+    /// What the IFD's fields say of its image; None for an IFD that declares no size, which
+    /// declares no image. `stream` is the samples of an NDPI JPEG XR image's streams and their
+    /// bits, where the streams hold other samples than the fields say: the stream's are the
+    /// image's.
+    pub(crate) fn of(f: &dyn Fields, stream: Option<(u64, u64)>) -> Option<Image> {
+        let (w, h) = (f.first(256)?, f.first(257)?);
+        let (samples, bits) = match stream {
+            Some((samples, bits)) => (samples, Some(bits)),
+            None => (f.first(277).unwrap_or(1), f.same(258, 1).filter(|&b| b >= 1)),
+        };
+        Some(Image {
+            w,
+            h,
+            depth: f.first(IMAGE_DEPTH).unwrap_or(1),
+            samples,
+            planar: if samples > 1 && stream.is_none() { f.first(284).unwrap_or(1) } else { 1 },
+            bits,
+            format: f.same(339, 1),
+            compression: f.first(259).unwrap_or(1),
+            predictor: f.first(317).unwrap_or(1),
+            jpegxr: stream.is_some(),
+        })
+    }
+
+    /// Whether each sample is a plane of its own, whose units the tables list apart.
+    fn planes(&self) -> bool {
+        self.samples > 1 && self.planar == 2
+    }
+
+    /// The image's description before its grid, keyed by its IFD's element `element`: its
+    /// declarations, its shape and its samples' bits.
+    pub(crate) fn array(&self, f: &dyn Fields, element: u32) -> StoredArray {
+        // a volume's planes come before its rows
+        let mut shape = if self.depth == 1 { vec![self.h, self.w] } else { vec![self.depth, self.h, self.w] };
+        if self.planes() {
+            shape.insert(0, self.samples);
+        } else if self.samples != 1 {
+            shape.push(self.samples);
+        }
+        StoredArray {
+            element,
+            index: None,
+            declarations: std::iter::once(f.byte_order()).chain(DECLARING.iter().filter_map(|&t| f.value_place(t))).collect(),
+            shape: Some(shape),
+            axes: None,
+            item_bits: self.bits,
+            pad_from: None,
+            grid: None,
+            chains: Vec::new(),
+            fill: Fill::Undefined,
+            unit_parameters: Vec::new(),
+        }
+    }
+}
+
+/// The descriptions a parser builds, their chains, each once, and their rows.
+#[derive(Default)]
+pub(crate) struct Descriptions {
+    pub(crate) arrays: Vec<StoredArray>,
+    pub(crate) chains: Vec<Chain>,
+    chain_index: BTreeMap<String, u32>,
+    pub(crate) map: ChunkMap,
+}
+
+impl Descriptions {
+    /// The position of `chain` among the chains, which it joins if it is not there.
+    pub(crate) fn chain(&mut self, chain: Chain) -> u32 {
+        let key = J::Array(chain.iter().map(Codec::to_json).collect()).to_string();
+        *self.chain_index.entry(key).or_insert_with(|| {
+            self.chains.push(chain);
+            (self.chains.len() - 1) as u32
+        })
+    }
+
+    /// Adds the description `a` of an IFD's image `im`, with its chain, its grid and its rows
+    /// where the IR models how the image is stored.
+    pub(crate) fn image(&mut self, mut a: StoredArray, im: &Image, stored: Option<(Chain, (Grid, Vec<Row>))>) -> Res<()> {
+        if let Some((chain, (grid, rows))) = stored {
+            let c = self.chain(chain);
+            a.grid = Some(grid);
+            a.chains = vec![c];
+            // samples that are not whole bytes pack unbroken within a row, which ends on a byte
+            a.pad_from = im.bits.filter(|b| b % 8 != 0).map(|_| if im.planes() { 2 } else { 1 });
+            for row in rows {
+                self.map.push(Row { array: self.arrays.len() as u32, ..row })?;
+            }
+        }
+        self.arrays.push(a);
+        Ok(())
+    }
+}
+
 impl Tiff {
     /// The first value of an unsigned field of the IFD, where the parser holds it.
     fn first(&self, f: &Ifd, tag: u16) -> Option<u64> {
         f.field(tag).filter(|e| unsigned(e.typ)).and_then(|e| self.ints(e, true)).and_then(|v| v.first().copied())
-    }
-
-    /// The one value every entry of an unsigned field of the IFD has (`default` for an IFD without
-    /// the field); None where they differ, or the parser does not hold them.
-    fn same(&self, f: &Ifd, tag: u16, default: u64) -> Option<u64> {
-        if !f.has(tag) {
-            return Some(default);
-        }
-        let v = self.every(f, tag)?;
-        v.first().copied().filter(|x| v.iter().all(|y| y == x))
     }
 
     /// Every value of an unsigned field of the IFD, where the parser holds them (`ints` reads no
@@ -106,20 +257,20 @@ impl Tiff {
 
     /// The chain of the image's units; None where the IR does not model how they decode (the
     /// array then has no grid).
-    fn chain_of_image(&self, f: &Ifd, im: &Image) -> Option<Chain> {
+    pub(crate) fn chain_of_image(f: &dyn Fields, im: &Image) -> Option<Chain> {
         let bits = im.bits?;
-        let format = if self.ndpi { "ndpi" } else { "tiff" };
+        let format = f.format();
         let source = || vec![codec("source", [("format", Some(Param::Value(json!(format)))), ("id", Some(Param::Value(json!(im.compression))))])];
         // the bits a row packs most significant first: another fill order is not modeled
-        if self.first(f, 266).unwrap_or(1) != 1 {
+        if f.first(266).unwrap_or(1) != 1 {
             return None;
         }
         let whole = matches!(bits, 8 | 16 | 32 | 64);
         let restoring = im.compression == 1 || im.compression == 32773 || predicted(im.compression).is_some();
         if restoring {
             // stored YCbCr samples that are subsampled are not an array of the image's shape
-            let sub = if f.has(530) { self.every(f, 530)? } else { vec![2, 2] };
-            if self.first(f, 262) == Some(6) && sub != [1, 1] {
+            let sub = if f.has(530) { f.every(530)? } else { vec![2, 2] };
+            if f.first(262) == Some(6) && sub != [1, 1] {
                 return None;
             }
         }
@@ -134,9 +285,9 @@ impl Tiff {
                     let predictor = codec(
                         "tiff_predictor",
                         [
-                            ("predictor", self.first_param(f, 317)),
-                            ("planar_configuration", self.first_param(f, 284).filter(|_| im.samples > 1)),
-                            ("byte_order", Some(Param::Source(Place::Element { element: self.order_el, member: None, range: None }))),
+                            ("predictor", f.first_param(317)),
+                            ("planar_configuration", f.first_param(284).filter(|_| im.samples > 1)),
+                            ("byte_order", Some(Param::Source(f.byte_order()))),
                         ],
                     );
                     fits.then(|| vec![predictor, c])
@@ -156,14 +307,14 @@ impl Tiff {
             1 => Vec::new(),
             32773 => vec![codec("packbits", [])],
             4 if bits == 1 && im.samples == 1 => vec![codec("ccitt_t6", [])],
-            7 if bits == 8 => vec![codec("jpeg", [("tables", self.value_place(f, 347).map(Param::Source))])],
+            7 if bits == 8 => vec![codec("jpeg", [("tables", f.value_place(347).map(Param::Source))])],
             _ if jpeg2000 && matches!(bits, 8 | 16) => vec![codec("jpeg2k", [])],
             50002 | 52546 if matches!(bits, 8 | 16 | 32) => vec![codec("jpegxl", [])],
             50001 if bits == 8 => vec![codec("webp", [])],
             ndpi::JPEGXR if im.jpegxr => vec![codec("jpegxr", [])],
             34887 if whole => {
                 let lerc = codec("lerc", []);
-                let outer = if f.has(LERC_PARAMETERS) { self.every(f, LERC_PARAMETERS).and_then(|v| v.get(1).copied()) } else { Some(0) };
+                let outer = if f.has(LERC_PARAMETERS) { f.every(LERC_PARAMETERS).and_then(|v| v.get(1).copied()) } else { Some(0) };
                 match outer {
                     Some(0) => vec![lerc],
                     Some(1) => vec![lerc, codec("zlib", [])],
@@ -177,36 +328,45 @@ impl Tiff {
                 vec![codec("eer", [("skip_bits", value(skip)), ("horizontal_bits", value(horizontal)), ("vertical_bits", value(vertical))])]
             }
             65002 if bits == 1 && im.samples == 1 => {
-                vec![codec("eer", [("skip_bits", self.first_param(f, 65007)), ("horizontal_bits", self.first_param(f, 65008)), ("vertical_bits", self.first_param(f, 65009))])]
+                vec![codec("eer", [("skip_bits", f.first_param(65007)), ("horizontal_bits", f.first_param(65008)), ("vertical_bits", f.first_param(65009))])]
             }
             _ => source(),
         })
     }
 
-    /// The grid of the image of IFD `k`, and a row for each unit its table holds (with no array
-    /// yet); None where the tables do not cover the image as its fields say, or a unit lies
-    /// outside the file, or has no bytes at an offset.
-    fn units_of_image(&self, k: usize, im: &Image) -> Option<(Grid, Vec<Row>)> {
-        let f = &self.ifds[k];
+    /// The entries of the table of IFD `k`'s image, where the parser holds one: its tiles' for an
+    /// image in tiles that has them, else its strips'.
+    fn table_of_image(&self, k: usize, tiled: bool) -> Option<&[Unit]> {
+        let (tiles, strips) = self.set.tiles.get(&k).copied().unwrap_or((None, None));
+        let s = if tiled { tiles.or(strips)? } else { strips? };
+        self.units.get(&s).map(Vec::as_slice)
+    }
+
+    /// The grid of an image, and a row for each unit its table holds (with no array yet); None
+    /// where the table does not cover the image as its fields say, or a unit lies outside the
+    /// file, or has no bytes at an offset. `table` is the entries of the image's table where the
+    /// parser holds one, its offsets and byte counts of one length: the tiles' for an image in
+    /// tiles ([`tiled`]) that has them, else the strips'. `length` gives the bytes of a unit's
+    /// element.
+    pub(crate) fn units_of_image(f: &dyn Fields, im: &Image, table: Option<&[Unit]>, length: &dyn Fn(u32) -> u64) -> Option<(Grid, Vec<Row>)> {
         // a volume's tiles and strips are not modeled
         if im.w == 0 || im.h == 0 || im.samples == 0 || !matches!(im.planar, 1 | 2) || im.depth != 1 {
             return None;
         }
         // an image with a tile's size is in tiles, as libtiff and tifffile read it, which take the
         // strips' tables for its tiles where it has no tables of its own
-        let (tiles, strips) = self.set.tiles.get(&k).copied().unwrap_or((None, None));
-        let (s, down, across, edge) = if f.has(322) && f.has(323) {
-            (tiles.or(strips)?, self.first(f, 323)?, self.first(f, 322)?, Edge::Full)
+        let (down, across, edge) = if tiled(f) {
+            (f.first(323)?, f.first(322)?, Edge::Full)
         } else {
             // a strip is the image's width, of RowsPerStrip rows, at most the image's
-            (strips?, self.first(f, 278).unwrap_or(u32::MAX as u64).min(im.h), im.w, Edge::Short)
+            (f.first(278).unwrap_or(u32::MAX as u64).min(im.h), im.w, Edge::Short)
         };
         if down == 0 || across == 0 {
             return None;
         }
         let (rows, columns) = (im.h.div_ceil(down), im.w.div_ceil(across));
         let planes = if im.samples > 1 && im.planar == 2 { im.samples } else { 1 };
-        let units = self.units.get(&s)?;
+        let units = table?;
         if rows.checked_mul(columns)?.checked_mul(planes)? != units.len() as u64 {
             return None;
         }
@@ -233,7 +393,7 @@ impl Tiff {
             }
             // a framed tile's element gives its recipe's bytes: the range of all its extent names
             // the stored ones
-            let range = framed.then(|| (0, self.ir.len[e as usize]));
+            let range = framed.then(|| (0, length(e)));
             out.push(Row { coords, element: Some(e), range, ..Row::default() });
         }
         Some((Grid { axes, edge }, out))
@@ -337,81 +497,27 @@ impl Tiff {
 
     /// The descriptions of the images the IFDs declare, their chains and their rows.
     pub(super) fn described(&self) -> Res<(Vec<StoredArray>, Vec<Chain>, ChunkMap)> {
-        let mut arrays: Vec<StoredArray> = Vec::new();
-        let mut chains: Vec<Chain> = Vec::new();
-        let mut chain_index: BTreeMap<String, u32> = BTreeMap::new();
-        let mut map = ChunkMap::default();
+        let mut out = Descriptions::default();
         let mut ks: Vec<usize> = (0..self.ifds.len()).collect();
         ks.sort_by_key(|&k| self.ifds[k].el);
         for k in ks {
             let f = &self.ifds[k];
-            // an IFD that declares no size declares no image
-            let (Some(w), Some(h)) = (self.first(f, 256), self.first(f, 257)) else { continue };
-            let compression = self.first(f, 259).unwrap_or(1);
+            let read = Read(self, f);
             // an NDPI's JPEG XR streams hold other samples than its fields say: the stream's are
             // the image's
             let jpegxr = match self.ndpi_streams.get(&k) {
-                Some(&ReadStream::JpegXr { samples, bits }) if compression == ndpi::JPEGXR => Some((samples, bits)),
+                Some(&ReadStream::JpegXr { samples, bits }) if self.first(f, 259).unwrap_or(1) == ndpi::JPEGXR => Some((samples, bits)),
                 _ => None,
             };
-            let (samples, bits) = match jpegxr {
-                Some((samples, bits)) => (samples, Some(bits)),
-                None => (self.first(f, 277).unwrap_or(1), self.same(f, 258, 1).filter(|&b| b >= 1)),
-            };
-            let im = Image {
-                w,
-                h,
-                depth: self.first(f, IMAGE_DEPTH).unwrap_or(1),
-                samples,
-                planar: if samples > 1 && jpegxr.is_none() { self.first(f, 284).unwrap_or(1) } else { 1 },
-                bits,
-                format: self.same(f, 339, 1),
-                compression,
-                predictor: self.first(f, 317).unwrap_or(1),
-                jpegxr: jpegxr.is_some(),
-            };
-            let planar = im.samples > 1 && im.planar == 2;
-            // a volume's planes come before its rows
-            let mut shape = if im.depth == 1 { vec![h, w] } else { vec![im.depth, h, w] };
-            if planar {
-                shape.insert(0, samples);
-            } else if samples != 1 {
-                shape.push(samples);
-            }
-            let order = Place::Element { element: self.order_el, member: None, range: None };
-            let mut a = StoredArray {
-                element: f.el,
-                index: None,
-                declarations: std::iter::once(order).chain(DECLARING.iter().filter_map(|&t| self.value_place(f, t))).collect(),
-                shape: Some(shape),
-                axes: None,
-                item_bits: im.bits,
-                pad_from: None,
-                grid: None,
-                chains: Vec::new(),
-                fill: Fill::Undefined,
-                unit_parameters: Vec::new(),
-            };
-            let stored = self.chain_of_image(f, &im).and_then(|c| match self.intervals_of_image(k, &im) {
+            // an IFD that declares no size declares no image
+            let Some(im) = Image::of(&read, jpegxr) else { continue };
+            let a = im.array(&read, f.el);
+            let stored = Self::chain_of_image(&read, &im).and_then(|c| match self.intervals_of_image(k, &im) {
                 Some(cut) => Some(cut),
-                None => Some((c, self.units_of_image(k, &im)?)),
+                None => Some((c, Self::units_of_image(&read, &im, self.table_of_image(k, tiled(&read)), &|e| self.ir.len[e as usize])?)),
             });
-            if let Some((chain, (grid, rows))) = stored {
-                let key = J::Array(chain.iter().map(Codec::to_json).collect()).to_string();
-                let c = *chain_index.entry(key).or_insert_with(|| {
-                    chains.push(chain);
-                    (chains.len() - 1) as u32
-                });
-                a.grid = Some(grid);
-                a.chains = vec![c];
-                // samples that are not whole bytes pack unbroken within a row, which ends on a byte
-                a.pad_from = im.bits.filter(|b| b % 8 != 0).map(|_| if planar { 2 } else { 1 });
-                for row in rows {
-                    map.push(Row { array: arrays.len() as u32, ..row })?;
-                }
-            }
-            arrays.push(a);
+            out.image(a, &im, stored)?;
         }
-        Ok((arrays, chains, map))
+        Ok((out.arrays, out.chains, out.map))
     }
 }
