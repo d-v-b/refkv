@@ -1,13 +1,14 @@
 """Conformance-harness CLI (conformance/vzip/HARNESS.md) for the reference implementation.
 
-    python -m refkv.vzip.cli [--allow-private-hosts] read <archive> <queries.json>
+    python -m refkv.vzip.cli [--allow-private-hosts] [--allow-scheme <scheme>]... read <archive> <queries.json>
     python -m refkv.vzip.cli write <description.json> <out>
 
 `read` uses the reader's default policy (spec §6.7
 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>). --allow-private-hosts
 is UNSAFE: it lets the archive's sources reach loopback, private, link-local and
 other special addresses. The harness needs it, since the runner serves its
-HTTP sources on 127.0.0.1.
+HTTP sources on 127.0.0.1. --allow-scheme names a scheme the policy otherwise
+refuses, such as `file`, which the harness needs for its archives' local sources.
 """
 
 from __future__ import annotations
@@ -212,9 +213,13 @@ def _add_entry(w: VZipWriter, e: Mapping[str, JSON], page_size: int | None) -> N
 
 
 def main(argv: list[str]) -> int:
-    policy = None
-    if argv[:1] == ["--allow-private-hosts"]:
-        policy, argv = Policy(allow_private_hosts=True), argv[1:]  # unsafe: asked for by name
+    private = argv[:1] == ["--allow-private-hosts"]  # unsafe: asked for by name
+    argv = argv[1:] if private else argv
+    schemes = set()
+    while argv[:1] == ["--allow-scheme"] and len(argv) > 1:
+        schemes.add(argv[1])
+        argv = argv[2:]
+    policy = Policy(allow_private_hosts=private, schemes=frozenset(schemes))
     if len(argv) == 3 and argv[0] == "read":
         try:
             result = read(argv[1], argv[2], policy)

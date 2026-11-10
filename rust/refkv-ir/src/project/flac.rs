@@ -96,7 +96,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     // (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>)
     for j in 0..count {
         let (o, len) = (ir.start[first + j], ir.len[first + j]);
-        refs.chunk(format!("{ARRAY}/c/{j}/0"), o, len, form, Some(stream_parts(&[(o, len, 0)])), j as u64)?;
+        refs.chunk(format!("{ARRAY}/c/{j}/0"), o, len, form, Some(stream_parts(&[(o, len, 0)])))?;
     }
     refs.out.shard(ARRAY, &[per as u64, 1]);
     let shards = count.div_ceil(per);
@@ -117,7 +117,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
         for (c, k) in chunks {
             if let Chunk::Ranges(parts) = k {
                 // its own ranges, so no form's recipe is read (u32::MAX: none)
-                refs.chunk(format!("{path}/c/{}", c[0]), start, size, u32::MAX, Some(parts), c[0])?;
+                refs.chunk(format!("{path}/c/{}", c[0]), start, size, u32::MAX, Some(parts))?;
             }
         }
     }

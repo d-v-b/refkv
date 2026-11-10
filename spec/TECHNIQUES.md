@@ -180,7 +180,8 @@ names it instead of referencing its chunks twice.
 
 The machinery that made eleven formats agree across two implementations:
 
-- **One rule per value type.** Integers beyond 2^53 become strings. NaN
+- **One rule per value type.** Integers are exact JSON integers at any
+  magnitude (a reader parses those beyond 2^53 as big integers). NaN
   and the infinities become strings. Text is UTF-8 if valid, else a tagged
   ISO 8859-1 reading.
 - **One reading per format.** A generic walker over the format's own
@@ -219,6 +220,7 @@ From [§1](#1-three-kinds-of-information), [§4](#4-numeric-metadata-as-arrays) 
 | N5 | each node's `attributes.json` without its layout members (`dimensions`, `blockSize`, `dataType`, `compression`, `n5`) | none | none |
 | Neuroglancer precomputed | the `info` document, every member, and on each array its scale; scales not presented, each with its reason | none | none |
 | Zarr v2, OME-Zarr | each node's `.zattrs` | none | none |
+| Zarr v3 | none: attributes stay in place, but `refkv_zarrified` and a `zarr_conventions` that would collide | none | none |
 | CZI | the file header (version, GUIDs) | the attachment directory's entries (name, type, GUID, the form of their data), within a 64 KiB budget | the directory as copied typed columns, one per field and dimension; subblock metadata, attachments and unplaced data as families; the metadata XML, attachments (time stamps and focus positions typed, event lists as columns), unreferenced segments and the tail by reference |
 | safetensors | the header's length and `__metadata__`, and every tensor's entry as written (name, `dtype`, shape, `data_offsets`, other members), with its path or the reason it is not presented | none | none; the header and each tensor's data by reference |
 | SAFE | the product's identity (a fixed set of fields, a derived convenience); per band, the values that interpret it (band id, wavelengths, gains, irradiance, quantification and offsets), recorded and not applied; GeoZarr `proj` and `spatial` on the resolution groups | the XML documents as text within a 64 KiB budget, and the keys of the rest | the XML documents past the budget, and each band file's JP2 header, as arrays of bytes; every other file kept whole |

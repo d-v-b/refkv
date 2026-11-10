@@ -2,8 +2,8 @@
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>, §1.5
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): `Store`, its
 prefetch of documents, a store listed over http(s) (`HttpStore`; `HubStore`, a Hugging Face Hub
-repository) or from a local directory (`DirStore`), `open_store`, and the store profile a store's
-root keys select (`choose_profile`).
+repository), with a store the application registered (`RegisteredStore`) or from a local directory
+(`DirStore`), `open_store`, and the store profile a store's root keys select (`choose_profile`).
 """
 
 from __future__ import annotations
@@ -21,9 +21,10 @@ from email.message import Message
 from pathlib import Path
 from typing import Literal, Protocol, override
 
-from refkv._narrow import JSON
+from refkv._narrow import JSON, integer, string
+from refkv.ir.planner import Objects, registered
 from refkv.policy import Policy
-from refkv.reader import _send
+from refkv.reader import Resolver, _send
 from refkv.zarrify.common import UA, Rejected, _retry, _ThreadConnections, follow
 from refkv.zarrify.store.documents import MAX_DOCUMENT, parse_json
 from refkv.zarrify.store.listing import next_link, parse_hub_revision, parse_hub_tree, parse_listing
@@ -464,6 +465,47 @@ class HubStore(HttpStore):
                 raise Rejected(f"the Hub tree's next link {link[:200]!r} was requested already")
 
 
+class RegisteredStore(Store):
+    """A store at a URL under a prefix the application registered a store for (`registry=`,
+    `refkv.reader.Resolver`), such as an `s3://` bucket's: listed with that store's `list`, and
+    its objects read with its `get_range`. `path` is the store URL's path in the registered
+    store; `P` (§1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
+    is that path and a `/`, or empty at the registered store's root. The store makes its own
+    connections, with its own credentials and retries."""
+
+    def __init__(self, url: str, store: Objects, path: str, *, max_objects: int | None = None,
+                 workers: int = WORKERS) -> None:
+        self.workers = workers
+        self.location = url
+        self.url = url
+        self.store = store
+        self.objects = {}
+        self.ignored = []
+        self.folders = []
+        path = path.strip("/")
+        self.prefix = path + "/" if path else ""
+        seen: set[str] = set()
+        for batch in store.list(path or None):
+            listed = [(string(m.get("path"), "path"), integer(m.get("size"), "size")) for m in batch]
+            # a listing by path segments: `a` lists `a/b`, not `ab`
+            self._add([(k, n) for k, n in listed if k.startswith(self.prefix)], self.prefix, seen)
+            if max_objects is not None and self.listed > max_objects:
+                raise StoreLimit(f"the store lists more than {max_objects} objects")
+
+    @override
+    def read(self, key: str) -> bytes:
+        return self.read_range(key, 0, self.objects[key])
+
+    @override
+    def read_range(self, key: str, offset: int, length: int) -> bytes:
+        if length == 0:
+            return b""
+        data = bytes(self.store.get_range(self.prefix + key, start=offset, end=offset + length))
+        if len(data) != length:
+            raise OSError(f"{object_url(self.location, key)}: read {len(data)} bytes at {offset}, not {length}")
+        return data
+
+
 class DirStore(Store):
     """A local directory, read as the store at `url` (§1.5
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)."""
@@ -512,8 +554,10 @@ class DirStore(Store):
 
 def open_store(location: str, url: str | None = None, *, max_objects: int | None = None,
                opener: Opener | None = None, workers: int = WORKERS, policy: Policy | None = None,
-               hub: str | None = None) -> Store:
-    """The store at an http(s) URL ending in `/` (listed and read there under the
+               hub: str | None = None, registry: Resolver | None = None) -> Store:
+    """The store at a URL ending in `/` under a prefix `registry` has a store for, listed and
+    read with that store (`RegisteredStore`). Or the store at another http(s) URL ending in `/`
+    (listed and read there under the
     reader policy `policy`, default `Policy()`, and named `url` in the output if
     given, its documents read by up to `workers` requests at a time): a Hub store
     when it is under the Hub's endpoint (`hub`, else `HF_ENDPOINT`, else
@@ -521,6 +565,13 @@ def open_store(location: str, url: str | None = None, *, max_objects: int | None
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), else an
     S3-style one. Or a local directory served at `url` (§1.2
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), read sequentially."""
+    found = registered(location, registry, policy)
+    if found is not None:
+        listed = RegisteredStore(location, *found, max_objects=max_objects, workers=workers)
+        if url is not None:
+            check_store_url(url)
+            listed.url = url
+        return listed
     if location.startswith(("http://", "https://")):
         repo = hub_repo(location, hub_endpoint(hub))
         kw = {"max_objects": max_objects, "opener": opener, "workers": workers, "policy": policy}
@@ -545,9 +596,12 @@ def choose_profile(store: Store) -> str:
         return "safe"
     if "info" in store.objects:
         return "precomputed"
+    if "zarr.json" in store.objects:
+        return "zarr3"
     if any(k.endswith(".safetensors") for k in store.objects):
         return "safetensors"
     if any(k.endswith(".dcm") for k in store.objects):
         return "dicom"
-    raise Rejected("not an N5, Zarr v2, SAFE, Neuroglancer precomputed or safetensors store: the root has no "
-                   ".zarray, .zgroup, attributes.json, manifest.safe or info, and no key ends in .safetensors")
+    raise Rejected("not a Zarr v3, Zarr v2, N5, SAFE, Neuroglancer precomputed or safetensors store: the root has "
+                   "no zarr.json, .zarray, .zgroup, attributes.json, manifest.safe or info, and no key ends in "
+                   ".safetensors")

@@ -11,9 +11,12 @@
 //! that exists is the stack's tile file; then every tile file's 64-byte SIS header, in
 //! one batch; then every one's ETS header and tile directory, in one batch. The schema
 //! (`schema/vsi.json`) is checked as the profile meets each role. The IR is emitted at the end,
-//! from what was read.
+//! from what was read, and its arrays are then described (`stored.rs`; spec/stored-array.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): each tile
+//! file's levels, and the images of the `.vsi` file's IFDs.
 
 pub mod ets;
+mod stored;
 pub mod tiff;
 pub mod tree;
 
@@ -442,7 +445,10 @@ impl Vsi {
     /// each stack with pixels (a tile file, or an IFD) in the tree's order, then the macro image;
     /// and the IFD images that are not presented, in that order (§4.4
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#44-ifd-images-that-are-not-presented>).
-    fn images(&self, tiles_of: &[Vec<u32>], strips_of: &HashMap<usize, Vec<u32>>) -> Res<(Vec<J>, Vec<J>)> {
+    /// Each image's `declared_by` is the key of its arrays' descriptions (`stored.rs`): its tile
+    /// file's `ets` element, whose arrays are the levels, or its IFD's struct.
+    fn images(&self, tiles_of: &[(u32, Vec<u32>)], strips_of: &HashMap<usize, Vec<u32>>, made: &HashMap<usize, tiff::Emitted>) -> Res<(Vec<J>, Vec<J>)> {
+        let declaring = |k: usize| made.get(&k).map(|m| m.el);
         let mut out = Vec::new();
         let mut left_out = Vec::new();
         for s in &self.stacks {
@@ -463,10 +469,14 @@ impl Vsi {
             });
             if let Some(f) = s.file {
                 let file = &self.files[f];
-                im["ets"] = self.ets_facts(file, &tiles_of[f])?;
+                im["ets"] = self.ets_facts(file, &tiles_of[f].1)?;
+                im["declared_by"] = json!(tiles_of[f].0);
             } else if let Some(k) = s.default_ifd {
                 match self.ifd_facts(k, &s.name, strips_of) {
-                    Ok(ifd) => im["ifd"] = ifd,
+                    Ok(ifd) => {
+                        im["ifd"] = ifd;
+                        im["declared_by"] = json!(declaring(k));
+                    }
                     Err(reason) => {
                         left_out.push(json!({"id": s.id, "name": s.name, "ifd": k, "reason": reason}));
                         continue;
@@ -483,7 +493,7 @@ impl Vsi {
             && let Some(k) = coll.fields.iter().find(|x| x.tag == DEFAULT_SAMPLE_IFD && x.kind == Kind::TiffIfd).and_then(|x| x.tag2)
         {
             match self.ifd_facts(k as usize, MACRO_NAME, strips_of) {
-                Ok(ifd) => out.push(json!({"kind": "macro", "name": MACRO_NAME, "ifd": ifd})),
+                Ok(ifd) => out.push(json!({"kind": "macro", "name": MACRO_NAME, "ifd": ifd, "declared_by": declaring(k as usize)})),
                 Err(reason) => left_out.push(json!({"id": null, "name": MACRO_NAME, "ifd": k, "reason": reason})),
             }
         }
@@ -583,13 +593,15 @@ impl Vsi {
         let mut ir = self.ir.take().ok_or("internal: no IR")?;
         let vsi = self.elems[self.vsi];
         ir.describe_in_place(vsi)?;
-        ir.value(vsi, "header", NO_INDEX, VSI_HEADER_TYPE, 0, (0, 8), Some(&file[..8]))?;
+        let header = ir.value(vsi, "header", NO_INDEX, VSI_HEADER_TYPE, 0, (0, 8), Some(&file[..8]))?;
         let mut regions = Vec::new();
         tree::emit(rules, &mut ir, &file, &tree, vsi, "tree", &mut regions)?;
         let mut strips_of: HashMap<usize, Vec<u32>> = HashMap::new();
+        let mut made: HashMap<usize, tiff::Emitted> = HashMap::new();
         for r in &regions {
-            tiff::emit_region(&mut ir, &file, &self.ifds, r.start, r.end, r.parent, &mut strips_of)?;
+            tiff::emit_region(&mut ir, &file, &self.ifds, r.start, r.end, r.parent, &mut strips_of, &mut made)?;
         }
+        // each tile file's `ets` element, and its tiles' by index
         let mut tiles_of = Vec::with_capacity(self.files.len());
         for f in &self.files {
             let o = self.elems[f.object];
@@ -597,21 +609,32 @@ impl Vsi {
         }
         self.file = file;
         self.tree = Some(tree);
-        let (images, not_presented) = self.images(&tiles_of, &strips_of)?;
+        let (images, not_presented) = self.images(&tiles_of, &strips_of, &made)?;
+        ir.sort_values();
+        crate::check::finish(&mut ir)?;
+        // the arrays, described on the finished IR (`stored.rs`): the parser folds no run, and
+        // names each unit by the element it made of it
+        let (arrays, chains, map) = self.described(&ir, header, &made, &tiles_of)?;
+        // `declared_by`: the key of the description of the image of each IFD of the chain, by its
+        // index (as a stack's `coarse_ifd` and an entry of `not_presented` name an IFD), null for
+        // an IFD with none
+        let described: HashSet<u32> = arrays.iter().map(|a| a.element).collect();
+        let chain = self.ifds.iter().filter(|f| !f.exif).count();
+        let declared_by: Vec<Option<u32>> = (0..chain).map(|k| made.get(&k).map(|m| m.el).filter(|e| described.contains(e))).collect();
+        ir.describe(arrays, chains, map)?;
         let tree = self.tree.as_ref().unwrap();
         let facts = json!({
             "vsi": {"key": self.keys[self.vsi].0, "size": self.keys[self.vsi].1, "ifds": self.ifds.iter().filter(|f| !f.exif).count()},
             "tree": tree::container_json(rules, &self.file, tree),
             "images": images,
             "not_presented": not_presented,
+            "declared_by": declared_by,
             "stacks": self.stacks.iter().map(|s| json!({
                 "id": s.id, "name": s.name, "type": s.stack_type, "external": s.external, "width": s.width, "height": s.height,
                 "tile_file": s.file.map(|f| self.files[f].key.clone()),
             })).collect::<Vec<_>>(),
             "counts": {"ifds": self.ifds.len(), "tileFiles": self.files.len(), "tiles": self.files.iter().map(|f| f.tiles.len()).sum::<usize>(), "batches": self.batches},
         });
-        ir.sort_values();
-        crate::check::finish(&mut ir)?;
         self.ir = Some(ir);
         Ok(facts)
     }
@@ -784,10 +807,12 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, _size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::refused("a VSI file is zarrified as a store run, with its tile files")
     }
-    fn store_run(&self) -> bool {
-        true
-    }
     fn project(&self, _: &crate::ir::Ir, _: &serde_json::Value, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
         Err("a VSI input is zarrified as a store run".into())
     }
+}
+
+/// The parser of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+    Ok(Box::new(Vsi::new(ir, objects, keys)?))
 }

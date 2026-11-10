@@ -10,36 +10,7 @@ How refkv produces this layout as a reference store is the NDPI profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `6cac71ef-dbb2-4acd-b60c-00389aa4238a` ·
 Schema: [schema.json](ndpi/schema.json)
 
-Changed 2026-11-04: images of one Magnification are a level's focal planes, presented as a `z` axis
-ordered by their focal offset, tag 65424, and no longer rejected ([§2](#2-the-source),
-[§3](#3-levels), [§4](#4-the-image)); every kept level has the same offsets, those whose levels hold
-the most pixels, and every other image is left out with its reason, in the root's source metadata
-with the offsets ([§5](#5-source-metadata)); a level's planes share one chunk grid
-([§7](#7-ndpi-profile)).
-
-Changed 2026-10-27: an ASCII value is never in line, whatever its size, and is at its 64-bit
-offset ([§5.1](#51-elements), [§7](#7-ndpi-profile)); McuStartsHighBytes, like the tile tables'
-high bytes, holds the 32-bit values it stores, and McuStarts of one in-line LONG, whose value
-has its entry's high word, MUST have that word in McuStartsHighBytes, which is not added to it
-([§7](#7-ndpi-profile)).
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)).
-
-Changed 2026-10-25: a level may be JPEG XR (Compression 22610), tiled or in one strip, each tile
-or strip a chunk, its data type and samples from the JPEG XR stream header and not the tags
-([§3](#3-levels), [§4](#4-the-image)); the tile tables' high bytes (65324, 65325) extend them
-([§7](#7-ndpi-profile)); the root has the source metadata of [§5](#5-source-metadata), the
-fluorescence filter, wavelength and exposure time, and a single channel's `omero` label is its
-filter's name (d-v-b/refkv#123).
-
-Changed 2026-10-24: a level without McuStarts whose strip's frame header is not the level's size
-has the level's size spliced into the frame header when it needs the same MCU rows and columns,
-and is otherwise not a level (rejected when it is level 0) ([§3](#3-levels),
-[§4](#4-the-image)); the profile reads such a strip's header ([§7](#7-ndpi-profile)).
-
-Changed 2026-10-22: the image has an `omero` member ([§4](#4-the-image)).
+Changes: [changes/ndpi/](changes/ndpi/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
@@ -661,17 +632,16 @@ Clamping repeats the last row or column of intervals in the chunks at the
 image's bottom and right edges; those pixels lie outside the array and are
 not read. (Every interval decodes on its own after a restart marker.)
 Chunk keys are `<level>/c/0/<u>/<v>`, with `<k>/` before `<u>` when there is a `z` axis. The
-references are listed (for [§1.2](../zarrify.md#12-input)'s order of first use) level by level, within
-a level by plane, and within a plane by `u`, then `v`. An image left out has no references, so adds no
-data source.
+data sources are numbered by [§1.2](../zarrify.md#12-input)'s order of first use, over the references
+in the order of their keys. An image left out has no references, so adds no data source.
 
 **Data sources.** Pieces 1 and 3 are the same in every chunk of a level,
 and are held once, in data sources, so that reading a chunk reads only its
 intervals from the file. They sit at the start of the strip, far from most
 intervals, so as ranges of the file they would cost a reader a separate
-request per chunk. By [§1.2](../zarrify.md#12-input)'s order of first use, the first McuStarts level's
-pieces 1 and 3 are sources 1 and 2; a later level adds a source only for a
-piece whose bytes differ from every earlier one, as does a later plane. (In CMU-1.ndpi every level
+request per chunk. By [§1.2](../zarrify.md#12-input)'s order of first use, the pieces 1 and 3 of the
+McuStarts level whose chunk key sorts first are sources 1 and 2; another level adds a source only
+for a piece whose bytes differ from every earlier one, as does another plane. (In CMU-1.ndpi every level
 shares piece 1, its quantization and Huffman tables, and piece 3, DRI and
 SOS, differs by its restart interval.) Both are JPEG markers and tables, not
 pixel data ([§1.2](../zarrify.md#12-input), **Structure only**).
@@ -712,8 +682,7 @@ TileWidth and TileLength (tiled) or `W` and `H` (one strip).
 **Chunks of a JPEG XR level.** Chunk `<level>/c/0/<row>/<column>` (with `<k>/` before `<row>` when
 there is a `z` axis) is the single range of tile `j = row × ceil(W / TileWidth) + column`, or, for a level
 in one strip, `<level>/c/0/0/0` the single range of `S`. A tile of byte count
-0 has no reference. The references are listed level by level, within a
-level by plane, and within a plane by `j`.
+0 has no reference.
 
 <a id="type-ndpijpegxrchunk"></a>**`NdpiJpegXrChunk`**, a chunk of a JPEG XR level, its stream
 as it is:

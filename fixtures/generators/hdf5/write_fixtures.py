@@ -153,6 +153,32 @@ def enums_and_compounds():
         f.create_dataset("with_reference", data=refs)
 
 
+def big_fill_values():
+    """Fill values past 2^53: of an int64, of an enumeration of a uint64 base, and of a compound's
+    int64 member, each a JSON integer exact as Zarr v3 writes it (spec/zarrify/hdf5.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>). Each dataset's
+    second chunk is unallocated, so that it reads as the fill value. And netCDF's `_FillValue`
+    attributes (§6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>)."""
+    with open_file("hdf5_big_fills.h5") as f:
+        f.create_dataset("int64", shape=(4,), dtype="<i8", chunks=(2,), fillvalue=-(2**60))
+        f["int64"][0:2] = [1, 2]
+        # netCDF's _FillValue of one element: an int64 dataset's past 2^53 is xarray's integer
+        f["int64"].attrs["_FillValue"] = np.array([-(2**60)], dtype="<i8")
+        enum = h5py.enum_dtype({"zero": 0, "big": 2**60}, basetype="<u8")
+        f.create_dataset("enum_u64", shape=(4,), dtype=enum, chunks=(2,), fillvalue=np.uint64(2**60))
+        f["enum_u64"][0:2] = np.array([0, 2**60], dtype="<u8")
+        pair = np.dtype([("i", "<i8"), ("f", "<f4")])
+        f.create_dataset("compound", shape=(4,), dtype=pair, chunks=(2,), fillvalue=np.array((2**60, 1.5), dtype=pair))
+        f["compound"][0:2] = np.array([(1, 0.5), (2, 2.5)], dtype=pair)
+    # and a uint8 dataset's of 300, no uint8, is xarray's integer too, as xarray reads it
+    with open_file("hdf5_fill_out_of_range.h5") as f:
+        f.create_dataset("uint8", data=np.arange(4, dtype="u1"))
+        f["uint8"].attrs["_FillValue"] = np.array([300], dtype="<i2")
+        # and a float32's integral value past 2^127, every digit
+        f.create_dataset("int32", data=np.arange(4, dtype="<i4"))
+        f["int32"].attrs["_FillValue"] = np.array([np.finfo("<f4").max], dtype="<f4")
+
+
 def references_and_links(name: str, libver: str):
     """Object references (datasets and attributes) to groups and datasets, a null one, a target
     with two hard links; a region reference (not presented); soft links (absolute, relative,
@@ -329,6 +355,43 @@ def netcdf4():
         g.create_variable("anomaly", ("time", "y"), "f8", data=ramp((4, 2), "<f8"))
 
 
+def phony_dims():
+    """An HDF5 file whose datasets have no dimension scales, which h5netcdf's phony_dims="sort"
+    names: axes of one length shared within a group and numbered across the file, groups before
+    and after the root's datasets, a scalar, fixed-length strings, and a group with a dimension
+    scale beside an unscaled dataset and one whose scale was detached; and a file whose groups track
+    link creation order."""
+    with open_file("hdf5_phony_dims.h5") as f:
+        f["a"] = ramp((3, 4), "<f4")
+        f["b"] = ramp((4, 4), "<i2")
+        f.create_dataset("c", data=ramp((5,), "<f8"), chunks=(2,), compression="gzip")
+        f["scalar"] = np.int32(7)
+        f["text"] = np.array([b"a", b"bb", b"ccc"], dtype="S4")
+        f["z"] = ramp((7,), "<u1")
+        g = f.create_group("g")
+        g["d"] = ramp((3, 4), "<f8")
+        g["e"] = ramp((4,), "<i4")
+        g.create_group("h")["f"] = ramp((2, 2), "<i8")
+        s = f.create_group("scaled")
+        s["x"] = np.arange(3, dtype="<i4")
+        s["x"].make_scale("x")
+        s["u"] = ramp((3, 3), "<f4")
+        s["w"] = ramp((3,), "<f4")
+        s["w"].dims[0].attach_scale(s["x"])
+        s["w"].dims[0].detach_scale(s["x"])
+    # groups that track link creation order, as netCDF-C writes them: h5netcdf takes the members, and
+    # the scales of one length, in creation order
+    with h5py.File(OUT / "hdf5_phony_dims_tracked.h5", "w", track_order=True) as f:
+        f["b"] = ramp((5,), "<f4")
+        f["a"] = ramp((3, 5), "<f4")
+        s = f.create_group("scaled", track_order=True)
+        for name in ("y", "x"):
+            s[name] = np.arange(3, dtype="<i4")
+            s[name].make_scale(name)
+        s["u"] = ramp((3,), "<f4")
+        f.create_group("first", track_order=True)["v"] = ramp((2,), "<f4")
+
+
 def external_files():
     """A file that names siblings: external links to a group and a dataset of another file, and to
     what cannot be followed, and external storage in two raw files (a chunk across them), and in
@@ -503,6 +566,7 @@ def main():
     scalars_and_strings()
     compact_and_layouts()
     enums_and_compounds()
+    big_fill_values()
     references_and_links("hdf5_links_earliest.h5", "earliest")
     references_and_links("hdf5_links_latest.h5", "latest")
     latest()
@@ -511,6 +575,7 @@ def main():
     filter_masks()
     names_and_attributes()
     netcdf4()
+    phony_dims()
     nwb_files()
     external_files()
     user_blocks()

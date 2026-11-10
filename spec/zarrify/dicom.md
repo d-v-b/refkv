@@ -11,33 +11,7 @@ refkv produces this layout as a reference store is the DICOM profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `acf17198-e5a5-48d3-8187-22ec4bb40ea5` ·
 Schema: [schema.json](dicom/schema.json)
 
-Changed 2026-11-04: a store of DICOM files has a form of its own ([§9](#9-the-store-form)): one group per
-series, its files stacked by position, or a slide's levels as multiscales.
-
-Changed 2026-11-04: RLE Lossless, JPEG-LS and HTJ2K are admitted ([§2.1](#21-transfer-syntax)), their
-frames chunks of `imagecodecs_dicomrle`, `imagecodecs_jpegls` and `imagecodecs_htj2k`
-([§4](#4-output)), an RLE frame's header and a JPEG-LS frame's markers read and checked
-([§7.5](#75-frames)). `PALETTE COLOR` is admitted, the indices with the lookup tables as an array of
-their own ([§4.1](#41-the-palette)), as are native `YBR_FULL`, its channels `Y`, `Cb` and `Cr` as
-stored ([§3](#3-the-image)), and JPEG 2000 frames of `YBR_FULL_422`, which decoders convert to RGB
-([§7.5](#75-frames)).
-
-Changed 2026-11-04: Bits Allocated 1 is admitted for native pixel data
-([§3](#3-the-image)), its array `bool` through zarr-extensions' bit-packing `packbits`
-([§4](#4-output)), each frame a chunk where every frame starts on a byte, else one chunk
-([§7.5](#75-frames)).
-
-Changed 2026-10-30: the JPEG Lossless transfer syntaxes, Process 14 and its selection value 1,
-are admitted ([§2.1](#21-transfer-syntax)), their frames chunks of `imagecodecs_ljpeg`
-([§4](#4-output)), each frame's markers up to its first scan read and checked
-([§7.5](#75-frames), **Lossless JPEG**).
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), among them the datasets as JSON
-([`DicomDataset`](#type-dicomdataset), [`DicomAttribute`](#type-dicomattribute)) and a chunk's
-ranges ([`DicomChunk`](#type-dicomchunk)); and the text says, as refkv already wrote it, that
-`S` always has `meta` and `dataset` ([§5.1](#51-the-root)).
+Changes: [changes/dicom/](changes/dicom/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
@@ -488,9 +462,11 @@ The translation:
     valid, else ISO 8859-1, so that its bytes are kept: Specific Character
     Set is not applied, and is in the dataset for a reader who decodes the
     bytes). An empty value is `null`. An `IS` value of the form
-    `[+-]?[0-9]+` is that integer ([conventions §6](../conventions.md#6-source-metadata-as-json)): with more than 16
-    digits without its sign and leading zeros, it is above 2^53 − 1, and
-    is the string of those digits (with a leading `-` if negative). A `DS` value that
+    `[+-]?[0-9]+` is that integer, exact (an
+    [`Integer`](../conventions.md#type-integer)), when it is a valid `IS`: at most
+    12 characters (trimmed), and from −2^31 to 2^31 − 1 (PS3.5 Table 6.2-1); any
+    other is its text, as a value that is no number is
+    ([conventions §6](../conventions.md#6-source-metadata-as-json)). A `DS` value that
     matches the pattern of [§2.2](#22-attributes) is a number when it is one exactly: its
     binary64 value `v` ([spec/zarrify.md §1.3](../zarrify.md#13-arithmetic))
     is finite, and the text's decimal value equals that of the shortest
@@ -646,7 +622,9 @@ element `s/<i>/<p>`, read as above (in little endian when the attribute
 has `"LittleEndian"`). A gathered sequence without items is
 `{"vr": "SQ", "Value": []}`.
 
-The bounds below weigh each column as revision 25 stored it, as an array.
+The bounds below weigh each column as revision 25 stored it, as an array, except that an `IS`
+value has typed values only when every value is a valid `IS` ([§5.2](#52-the-datasets-as-json)),
+where revision 25 took one of up to 19 digits within int64.
 Each value has **typed values**, of a data type:
 
 | value | typed values |
@@ -654,7 +632,7 @@ Each value has **typed values**, of a data type:
 | a numeric VR: `FL`, `FD`, `SL`, `SS`, `UL`, `US`, `SV`, `UV` | its values as `float32`, `float64`, `int32`, `int16`, `uint32`, `uint16`, `int64`, `uint64` respectively, in the byte order in which it is stored |
 | a binary VR: `OB`, `OD`, `OF`, `OL`, `OV`, `OW`, `UN` | its values as `uint8`, `float64`, `float32`, `uint32`, `uint64`, `uint16`, `uint8` respectively, in the byte order in which it is stored |
 | a `DS` value of at most 2^16 bytes whose every value (split and trimmed as above) is a number by the rule above | those numbers as `float64`, in little endian |
-| an `IS` value of at most 2^16 bytes whose every value is of the form `[+-]?[0-9]+` and from −2^63 to 2^63 − 1 | those integers as `int64`, in little endian |
+| an `IS` value of at most 2^16 bytes whose every value is a valid `IS`, which is an integer (above: of the form `[+-]?[0-9]+`, at most 12 characters, from −2^31 to 2^31 − 1) | those integers as `int64`, in little endian |
 | a value of another VR (text, `AT`, the bytes of a sequence), or whose length is not a multiple of its value size | its bytes as stored, as `uint8` |
 
 A

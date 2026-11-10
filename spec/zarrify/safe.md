@@ -10,13 +10,7 @@ How refkv produces this layout as a reference store is the SAFE profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `ef81346c-19e8-42ad-93b0-a279ccaf44c1` ·
 Schema: [schema.json](safe/schema.json)
 
-Changed 2026-11-03, with no change to any output: the radiometric offsets and quantification values are said to be on each spectral
-band, not on `TCI`, as [§6.2](#62-band-arrays) has it.
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), the GeoZarr attributes of the root
-and the resolution groups among them.
+Changes: [changes/safe/](changes/safe/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
@@ -525,7 +519,7 @@ binary fields, which do not apply):
 
 | of the XML | in JSON |
 |---|---|
-| an element's **value** | its text ([§2.1](#21-objects)). If it is a **decimal number** (an optional `-` or `+`, one or more digits, optionally `.` and one or more digits, and optionally `e` or `E`, an optional sign and one or more digits), it is a JSON number: an integer when it has neither a fraction nor an exponent ([conventions §6](../conventions.md#6-source-metadata-as-json): the string of its digits beyond 2^53 − 1), and otherwise its binary64 value (a [`Float`](../conventions.md#type-float), so one that overflows binary64 is `"Infinity"` or `"-Infinity"`). A `+` and leading zeros are not kept. Otherwise the value is the JSON string of the text. Its type is number or string |
+| an element's **value** | its text ([§2.1](#21-objects)). If it is a **decimal number** (an optional `-` or `+`, one or more digits, optionally `.` and one or more digits, and optionally `e` or `E`, an optional sign and one or more digits), it is a JSON number: an integer when it has neither a fraction nor an exponent (an [`Integer`](../conventions.md#type-integer), exact, when it is from −2^63 to 2^64 − 1, a range this convention sets, since the products' metadata, read without its schemas, declares none; any other is the JSON string of the text, [conventions §6](../conventions.md#6-source-metadata-as-json)), and otherwise its binary64 value (a [`Float`](../conventions.md#type-float), so one that overflows binary64 is `"Infinity"` or `"-Infinity"`). A `+` and leading zeros are not kept. Otherwise the value is the JSON string of the text. Its type is number or string |
 | a **measure**, an element with an attribute `unit` | the object `{"value": V, "unit": T}`, a [`SafeMeasure`](#type-safemeasure) |
 | a measure without the attribute `unit` | its value alone |
 | a field that is missing, or found more than once where one is named | absent |
@@ -890,8 +884,10 @@ row:
 [profiles/safe.json](profiles/safe.json)): bytes 0–3 of `H` are
 `50 4B 03 04`, a ZIP local file header.
 
-A zip file that is not a SAFE product is rejected by [§8.4](#84-the-zip-form) or by the
-convention.
+The Zarr v3 profile's zip form is tested first, and takes a zip file whose first local header's
+name does not start with a segment ending in `.SAFE` ([zarr3.md §7.1](zarr3.md#71-choosing-the-profile)),
+so a zip file reaches this profile when its first entry is under a `.SAFE` directory. A zip file
+that is not a SAFE product is rejected by [§8.4](#84-the-zip-form) or by the convention.
 
 ### 8.2 Objects and reading
 

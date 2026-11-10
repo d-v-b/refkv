@@ -22,9 +22,10 @@ sources of its archives on the loopback interface (`127.0.0.1`), which rule
 hosts, and that permission is unsafe, so it is asked for by name: the
 runner is given each implementation's command line with whatever option
 does it, such as the reference's `uv run python -m refkv.vzip.cli
---allow-private-hosts`. The archives are local files, so they may read
-`file` sources by default. The other limits are the implementation's
-defaults.
+--allow-private-hosts`. An implementation that applies rule 1 also needs to read
+the archives' `file` sources, which it refuses by default: the runner gives the
+reference `--allow-scheme file`, and another implementation's command line does the
+same. The other limits are the implementation's defaults.
 
 Every implementation provides one executable (the "CLI") with two commands.
 The conformance runner calls it as a subprocess. All JSON is UTF-8. Byte

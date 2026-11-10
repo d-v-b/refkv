@@ -4,6 +4,7 @@
   "uuid": "06e5809d-4d54-4b72-afd0-6bf61a7b4c85",
   "version": 0,
   "kind": "file",
+  "store_run": {"form": "on_demand", "named": "header file", "section": "75-header-and-image-pairs"},
   "sniff": 60,
   "chosen_by": null,
   "suffixes": [

@@ -154,7 +154,6 @@ fn images(ir: &Ir, facts: &J, refs: &mut Refs) -> Result<u64, String> {
                 (0..channel_chunks).flat_map(move |c| (0..nz).map(move |z| (t, c, z)))
             })
         };
-        let mut piece = 0u64;
         for (f, field) in fields.iter().enumerate() {
             let mut meta = obj(&im["meta"]);
             if !field_dims.is_empty() {
@@ -198,8 +197,7 @@ fn images(ir: &Ir, facts: &J, refs: &mut Refs) -> Result<u64, String> {
                         (0..band).map(|r| Part::Src(first + r * y_stride, row)).collect()
                     };
                     let k = key(&prefix, coords.iter().copied().chain([j, 0]));
-                    refs.chunk(k, start, length, form, Some(parts), piece)?;
-                    piece += 1;
+                    refs.chunk(k, start, length, form, Some(parts))?;
                     chunks += 1;
                 }
             }
@@ -207,4 +205,9 @@ fn images(ir: &Ir, facts: &J, refs: &mut Refs) -> Result<u64, String> {
         }
     }
     Ok(chunks)
+}
+
+/// The projection of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    project_set(ir, facts, url)
 }

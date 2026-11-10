@@ -20,6 +20,7 @@
 
 pub mod file;
 pub mod store;
+pub mod stored;
 pub mod types;
 pub mod walk;
 
@@ -333,9 +334,20 @@ pub fn parse_dataspace(d: &[u8]) -> R<Dataspace> {
     Ok(Dataspace { dims: if kind == 2 { None } else { Some(dims) }, maxdims })
 }
 
-/// The filters of a filter pipeline message, in pipeline order: each identifier and its client
-/// data values.
-pub fn parse_filters(d: Option<&[u8]>) -> R<Vec<(u64, Vec<u32>)>> {
+/// A filter of a filter pipeline message.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Filter {
+    pub id: u64,
+    /// its name, where the message gives one
+    pub name: Option<String>,
+    /// its client data values
+    pub client: Vec<u32>,
+    /// the client data's offset in the message's data
+    pub client_at: u64,
+}
+
+/// The filters of a filter pipeline message, in pipeline order.
+pub fn parse_filters(d: Option<&[u8]>) -> R<Vec<Filter>> {
     let Some(d) = d else { return Ok(Vec::new()) };
     let (version, count) = (le(d, 0, 1)?, le(d, 1, 1)?);
     if version != 1 && version != 2 {
@@ -355,6 +367,7 @@ pub fn parse_filters(d: Option<&[u8]>) -> R<Vec<(u64, Vec<u32>)>> {
         }
         let values = le(d, p as usize + 2, 2)?;
         p += 4;
+        let name_at = p;
         p += if version == 1 { pad8(name_length) } else { name_length };
         let cd = p;
         p += 4 * values + if version == 1 && values % 2 == 1 { 4 } else { 0 };
@@ -365,7 +378,10 @@ pub fn parse_filters(d: Option<&[u8]>) -> R<Vec<(u64, Vec<u32>)>> {
         for k in 0..values {
             client.push(le(d, (cd + 4 * k) as usize, 4)? as u32);
         }
-        ids.push((fid, client));
+        // a name is null-terminated ASCII, padded in version 1
+        let name = &d[name_at as usize..(name_at + name_length) as usize];
+        let name = name.split(|&b| b == 0).next().filter(|n| !n.is_empty()).and_then(|n| std::str::from_utf8(n).ok());
+        ids.push(Filter { id: fid, name: name.map(str::to_string), client, client_at: cd });
     }
     Ok(ids)
 }
@@ -443,6 +459,16 @@ pub fn parse_link(d: &[u8]) -> R<(Vec<u8>, Target)> {
         Some(t) => Ok((name, Target::Hard(t))),
         None => bad("hard link to an undefined address"),
     }
+}
+
+/// A link message's creation order, when it records one.
+fn link_creation_order(d: &[u8]) -> Option<u64> {
+    let flags = le(d, 1, 1).ok()?;
+    let p = 2 + if flags & 8 != 0 { 1 } else { 0 };
+    if flags & 4 == 0 {
+        return None;
+    }
+    le(d, p, 8).ok()
 }
 
 /// (flags, name size, datatype size, dataspace size, name start) of an attribute message.
@@ -638,6 +664,8 @@ pub struct Links {
     pub list: Vec<(Vec<u8>, Target)>,
     pub by_name: HashMap<Vec<u8>, usize>,
     pub storage: LinkStorage,
+    /// each link's creation order, by name, of a group whose link info says it tracks it
+    pub created: Option<HashMap<Vec<u8>, u64>>,
 }
 
 impl Links {
@@ -1071,6 +1099,7 @@ impl H5 {
             Ok(())
         };
         let storage;
+        let mut created: Option<HashMap<Vec<u8>, u64>> = None;
         if let Some(table) = table {
             let (btree, heap) = (address(le(&table, 0, 8)?)?, address(le(&table, 8, 8)?)?);
             let (Some(btree), Some(heap)) = (btree, heap) else { return bad("symbol table with an undefined address") };
@@ -1133,7 +1162,9 @@ impl H5 {
             if le(&info, 0, 1)? != 0 {
                 return bad("unsupported link info message version");
             }
-            let p = 2 + if le(&info, 1, 1)? & 1 != 0 { 8 } else { 0 };
+            let tracked = le(&info, 1, 1)? & 1 != 0;
+            let p = 2 + if tracked { 8 } else { 0 };
+            let mut order: HashMap<Vec<u8>, u64> = HashMap::new();
             let (heap, btree) = (address(le(&info, p, 8)?)?, address(le(&info, p + 8, 8)?)?);
             match heap {
                 None => {
@@ -1143,6 +1174,9 @@ impl H5 {
                                 return bad("shared link message");
                             }
                             let (n, t) = parse_link(&m.data)?;
+                            if let Some(c) = link_creation_order(&m.data) {
+                                order.insert(n.clone(), c);
+                            }
                             add(n, t, &mut list)?;
                         }
                     }
@@ -1173,16 +1207,20 @@ impl H5 {
                     let mut objects = Vec::new();
                     for (o, n, d) in got {
                         let (name, t) = parse_link(&d)?;
+                        if let Some(c) = link_creation_order(&d) {
+                            order.insert(name.clone(), c);
+                        }
                         add(name, t, &mut list)?;
                         objects.push((o, n));
                     }
                     storage = LinkStorage::Dense { heap, index: (*tree).clone(), objects };
                 }
             }
+            created = (tracked && order.len() == list.len()).then_some(order);
         } else {
             return bad(format!("object at {at} is not a group"));
         }
-        Ok(Links { list, by_name, storage })
+        Ok(Links { list, by_name, storage, created })
     }
 
     /// The object header that the link `name` of a group leads to (§7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#73-groups-and-links>).
@@ -1657,7 +1695,7 @@ impl H5 {
         };
         let datatype = parse_datatype(&type_message)?;
         let fill_message = h.message(FILL_VALUE, false)?.map(|d| d.to_vec());
-        let (filters, client_data): (Vec<u64>, Vec<Vec<u32>>) = parse_filters(h.message(FILTERS, false)?)?.into_iter().unzip();
+        let (filters, client_data): (Vec<u64>, Vec<Vec<u32>>) = parse_filters(h.message(FILTERS, false)?)?.into_iter().map(|f| (f.id, f.client)).unzip();
         let layout = h.message(LAYOUT, true)?.unwrap().to_vec();
         let layout_at = h.messages().find(|m| m.ty == LAYOUT).map(|m| m.at).unwrap_or(0);
         let mut fill = match &fill_message {
@@ -2222,6 +2260,11 @@ pub fn show_bytes(b: &[u8]) -> String {
         Ok(s) => format!("{s:?}"),
         Err(_) => format!("{:?}", latin1(b)),
     }
+}
+
+/// The parser of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+    Ok(Box::new(store::Hdf5Store::new(ir, objects, keys)?))
 }
 
 #[cfg(test)]

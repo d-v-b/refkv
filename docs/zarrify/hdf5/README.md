@@ -44,7 +44,8 @@ A Zarr v3 hierarchy that mirrors the file's:
   - contiguous data cut into chunks of at most 1 MiB along the slowest axis;
   - compact data, one range in the object header;
   - chunked data, HDF5's own chunks, with `numcodecs.zlib` for deflate and
-    `numcodecs.shuffle` for shuffle.
+    `numcodecs.shuffle` for shuffle. A chunk of more than 2 GiB, which HDF5 allows, is past a
+    reader's default bytes per `get` ([refkv §6.7](../../../spec/refkv.md#67-reader-policy) rule 5): raise `max_get_bytes` to read it.
 - **Variable-length strings** are `string` arrays with the `vlen-utf8`
   codec, each chunk a list of byte ranges of the file's global heap behind
   literal lengths: no string is copied.

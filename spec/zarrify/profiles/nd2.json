@@ -4,6 +4,7 @@
   "uuid": "59612f14-e314-4207-ba00-8f422ba71490",
   "version": 0,
   "kind": "file",
+  "store_run": null,
   "sniff": 20,
   "chosen_by": null,
   "suffixes": [

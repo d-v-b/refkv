@@ -197,7 +197,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let count = chunks.len();
     let mut zeros = contiguous::Zeros::of(&chunks);
     let mut refs = Refs::new(ir, out);
-    for (piece, (coords, chunk)) in chunks.into_iter().enumerate() {
+    for (coords, chunk) in chunks {
         let k = key("0/c/", axes.iter().map(|x| coords[pos(x)]));
         match chunk {
             Chunk::Ranges(parts) => {
@@ -206,7 +206,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
                     Part::Src(o, len) => Part::Obj(data_key.clone(), o, len),
                     other => other,
                 }).collect();
-                refs.chunk(k, start, length, 0, Some(parts), piece as u64)?;
+                refs.chunk(k, start, length, 0, Some(parts))?;
             }
             Chunk::Copy(o, len, pad) => {
                 let mut b = copied.iter().find(|c| c.0 == o && c.1.len() as u64 == len)
@@ -227,4 +227,9 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         "dataFile": data_key, "chunkShape": chunk_shape, "chunks": count, "orientation": applied, "translation": tr.is_some(),
     }), facts);
     Ok(out)
+}
+
+/// The projection of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    project(ir, facts, url)
 }

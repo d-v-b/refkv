@@ -48,14 +48,14 @@ from collections import Counter
 from collections.abc import AsyncIterator, Callable, Generator, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict, Unpack, override
+from typing import TYPE_CHECKING, BinaryIO, TypedDict, Unpack, override
 
 from refkv._files import replacing
 from refkv.bounds import Bound, derive
 from refkv.bounds import check as check_bounds
 from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Reference, Source, parts
-from refkv.policy import Policy
+from refkv.policy import Policy, _scheme
 from refkv.reader import DEFAULT_CONCURRENCY, Kind, ReferenceReader, Registry, Request, Stats, _abs_range
 from refkv.uri import file_uri, is_uri_reference
 from refkv.uri import resolve as resolve_reference
@@ -173,8 +173,7 @@ class ReferenceStore(ReferenceReader):
 
     - `url`: the base URI that relative source URLs resolve against (spec §5
       <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>). The default,
-      the current directory, makes the store a local one for the reader policy:
-      it may read `file:` sources, like an archive opened from a local path.
+      the current directory.
     - `read_at_open`: the keys a reader fetches when it opens the store, which
       `save_vzip` places where an archive's opening request reads them. The default
       is every `zarr.json` document.
@@ -193,8 +192,8 @@ class ReferenceStore(ReferenceReader):
       the store reads, and `save` does not write them.
     - `registry`, `stats`, `policy`, `max_concurrency`: how references are
       resolved, as for every reference store (`refkv.reader.ReferenceReader`). The
-      default policy, `Policy()`, reads `http(s)` sources on public hosts and,
-      here, local files; it refuses other schemes, such as `s3`, except under
+      default policy, `Policy()`, reads `http(s)` sources on public hosts; it refuses
+      other schemes, such as `file` and `s3`, except `s3` and the like under
       a prefix the `registry` has a store for, such as the
       `ObjectStoreRegistry` given to VirtualiZarr. At most 8 requests are in
       flight by default (`max_concurrency=None` for no cap).
@@ -421,7 +420,12 @@ class ReferenceStore(ReferenceReader):
                     error = str(e)
                 else:
                     try:
-                        check.check(base, resolved)
+                        # A reader chooses whether it reads local files, which a writer cannot know:
+                        # of a file: source, only its host or a prefix list is decided here.
+                        if check.prefixes is None and _scheme(resolved) == "file":
+                            check.check_file_host(resolved)
+                        else:
+                            check.check(resolved)
                         error = None
                     except (ResolutionError, ValueError) as e:
                         error = str(e)
@@ -500,26 +504,34 @@ class ReferenceStore(ReferenceReader):
         path = os.fspath(path)
         sources = self._sources_to_save(path, relative_to, policy)
         page_size = self._page_size if page_size is ... else _page_size(page_size)
+        with bulk(), replacing(path) as f:
+            refs, n_sources, _ = self._write_vzip(f, sources, mirror_refs=mirror_refs, page_size=page_size)
+        return Summary(path, len(self._keys), refs, n_sources, Path(path).stat().st_size)
+
+    def _write_vzip(self, f: BinaryIO, sources: Sequence[Source], *, mirror_refs: bool,
+                    page_size: int | None, compress: bool = True) -> tuple[int, int, dict[str, int]]:
+        """The archive `save_vzip` writes, written to `f`, which it only writes forward: the
+        references written, the sources in its table, and the sizes of its format entries
+        (`VZipWriter.format_sizes`). Without `compress`, no entry is compressed, for an archive's
+        structure alone."""
         from refkv.vzip.archive import VZipWriter  # noqa: PLC0415 (`import refkv` imports no ZIP code)
 
         refs = 0
-        with bulk(), replacing(path) as f, VZipWriter(f, mirror_refs=mirror_refs,
-                                                      page_size=page_size) as w:
+        with VZipWriter(f, mirror_refs=mirror_refs, page_size=page_size) as w:
             index = [w.source(s) for s in sources]  # equal sources share an index
             for k, v in self._values.items():
                 if isinstance(v, bytes):
-                    late, compress = k in self._read_at_open, k in self._compressed
+                    late, deflate = k in self._read_at_open, compress and k in self._compressed
                     if k.startswith(RESERVED_PREFIX):
-                        w.add_hidden(k[len(RESERVED_PREFIX):], v, compress=compress, late=late)
+                        w.add_hidden(k[len(RESERVED_PREFIX):], v, compress=deflate, late=late)
                     else:
-                        w.add_bytes(k, v, compress=compress, late=late)
+                        w.add_bytes(k, v, compress=deflate, late=late)
                 else:
                     w.add_ranges(k, [r if r.data is not None or index[r.source] == r.source else
                                      dataclasses.replace(r, source=index[r.source])
                                      for r in parts(v)])
                     refs += 1
-            n_sources = w.n_sources
-        return Summary(path, len(self._keys), refs, n_sources, Path(path).stat().st_size)
+        return refs, w.n_sources, w.format_sizes
 
     def save_phkv(
         self,

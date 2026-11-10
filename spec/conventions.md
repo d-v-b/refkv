@@ -5,41 +5,7 @@ N5 store, ...) looks like any other Zarr hierarchy. These conventions make
 it describe itself: which source it presents, which format that source is
 in, and everything the source's own header or metadata says. There is one
 convention per source format, each specified in `zarrify/<format>.md` next to
-its JSON Schema `zarrify/<format>/schema.json`. (Changed 2026-10-25: the property is
-`refkv_zarrified`, in place of `refkv_virtualized`, [§2](#2-attributes). Changed 2026-10-26,
-with no change to any output: the shared types are defined in type tables, and each format's
-document tabulates its layout, as [§11.5](#115-layout-tables) says; the mirror's
-`ir/shared/data` is said to be absent when the shared sources total no byte, as refkv already
-wrote it ([§8.2](#82-the-table)); and each convention's JSON Schema requires every member of its
-CMO ([§1](#1-conventions)). Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, in
-place of `zlib`, and every codec's name is zarr-python's, imagecodecs-zarr's, the zarr-extensions
-registry's or refkv's own `refkv.<codec>`, [§3](#3-arrays) (d-v-b/refkv#90). Changed
-2026-10-27: imagecodecs-zarr's `imagecodecs_delta` sums back differences along `x`, a step of its
-own between `transpose` and `bytes`, [§3](#3-arrays). Changed 2026-10-28: the `refkv.stream`
-format `"hevc"` codes HEVC access units, its setup the HEVCDecoderConfigurationRecord
-([§10](#10-coded-streams)). Changed 2026-10-30: imagecodecs-zarr's `imagecodecs_ljpeg` decodes
-a lossless JPEG chunk ([§3](#3-arrays)); refkv's `refkv.skip` drops the NPY header a deflated
-`.npz` member inflates to ([§3](#3-arrays)). Changed 2026-10-30: the codec `refkv.grib`
-decodes a GRIB field's message ([§12](#12-grib-messages)). Changed 2026-10-31: `refkv.grib`
-decodes packing 5.40, JPEG 2000 of the reversible 5/3 transform, where it was an error
-([§12](#12-grib-messages)). Changed 2026-11-01, with no change to any output:
-the document cites its own sections as `§n` links. Changed 2026-11-03, with no change to any
-output: [§2](#2-attributes), [§3](#3-arrays) and [§7](#7-source-values-as-arrays) name what the
-formats' documents already say of their attributes, arrays, codecs and fill values. Changed
-2026-11-04, with no change to any output: a node's attributes may hold other conventions'
-members, such as [spec/provenance.md](provenance.md)'s on the root, which each convention's JSON
-Schema accepts ([§2](#2-attributes)). Changed 2026-11-04: imagecodecs-zarr's `imagecodecs_floatpred`
-undoes TIFF's floating-point predictor, in the place of `bytes` ([§3](#3-arrays)). Changed 2026-11-04:
-imagecodecs-zarr's `imagecodecs_lerc`, `imagecodecs_webp`, `imagecodecs_jpegxl` and `imagecodecs_lzma`
-decode a chunk ([§3](#3-arrays)). Changed 2026-11-04: imagecodecs-zarr's `imagecodecs_packints`,
-`imagecodecs_packbits`, `imagecodecs_ccittfax4` and `imagecodecs_eer` decode a chunk ([§3](#3-arrays)).
-Changed 2026-11-04: a TIFF level whose short last strip cannot be
-padded has the `rectilinear` chunk grid ([§3](#3-arrays)). Changed 2026-11-04: imagecodecs-zarr's
-`imagecodecs_png` and `imagecodecs_bmp` decode a chunk that is one PNG or BMP file, and its
-`imagecodecs_lzw` decodes an LZW chunk that holds exactly the chunk's bytes, as CZI's LZW subblocks
-do ([§3](#3-arrays)). Changed 2026-11-04: [§12](#12-grib-messages) decodes reduced grids and template
-3.101 as one line of points, and [§2](#2-attributes) places the numbers that name a 3.101 grid on its
-group.)
+its JSON Schema `zarrify/<format>/schema.json`. Its changes are in [zarrify/changes/conventions/](zarrify/changes/conventions/), one file per change.
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
@@ -70,6 +36,7 @@ group.)
 | TIFF, OME-TIFF, Aperio SVS | [tiff](zarrify/tiff.md) | `48e9ac4e-1156-4a62-955e-20467d9c2700` |
 | Olympus VSI | [vsi](zarrify/vsi.md) | `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` |
 | Zarr v2 | [zarr2](zarrify/zarr2.md) | `8e792619-d671-4687-ab51-752885dd3ee6` |
+| Zarr v3 | [zarr3](zarrify/zarr3.md) | `95203d0a-6586-426a-b920-3db2f4f1e97e` |
 <!-- /profiles -->
 
 A format's convention specifies the hierarchy's whole **Zarr layout**: which
@@ -167,7 +134,10 @@ other type tables):
 ## 2. Attributes
 
 **Which nodes.** The root node of the hierarchy (the document `zarr.json`)
-always declares its format's convention. Any other node declares it when,
+always declares its format's convention, in an output refkv's profiles write. In an output a
+plugin wrote ([spec/layout.md](layout.md)) the root is the plugin's, and a declaration a node of
+it holds, one kept from the base among them, is the plugin's claim, which refkv neither checks nor
+vouches for. Any other node declares it when,
 and only when, the node has source metadata (below). A node that declares
 it has, in its attributes, the members of a <a id="type-declaration"></a>**`Declaration`**:
 
@@ -253,8 +223,9 @@ taken from the source goes under the key, on the node it belongs to,
 including attributes a source store had (and the conventions they
 declare), so it can neither collide with nor masquerade as the target
 formats' metadata. A source that is itself such a hierarchy therefore
-nests its own record. The HDF5 convention departs from this: a node's attributes are the source's
-own, beside the key ([hdf5 §2.1](zarrify/hdf5.md#21-declaration-and-attributes)).
+nests its own record. The HDF5 and Zarr v3 conventions depart from this: a node's attributes are
+the source's own, beside the key ([hdf5 §2.1](zarrify/hdf5.md#21-declaration-and-attributes),
+[zarr3 §4](zarrify/zarr3.md#4-source-metadata)).
 
 ## 3. Arrays
 
@@ -263,7 +234,7 @@ below. The conventions that say otherwise:
 
 | convention | its arrays |
 |---|---|
-| N5, Zarr v2, OME-Zarr (the store conventions) | are defined by the convention itself |
+| N5, Zarr v2, Zarr v3, OME-Zarr (the store conventions) | are defined by the convention itself; Zarr v3's are the store's own, every codec, data type, fill value and chunk grid passed through ([zarr3 §3](zarrify/zarr3.md#3-arrays)) |
 | Neuroglancer precomputed | have the codec `refkv.precomputed`, a chunk being one chunk object or a whole shard ([precomputed §3.1](zarrify/precomputed.md#31-the-array)) |
 | CZI | have, for clipped levels, the zarr-extensions `rectilinear` chunk grid, and may have the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle` |
 | NDPI | have, for JPEG XR levels, the codec `imagecodecs_jpegxr` |
@@ -360,20 +331,62 @@ of each step, and always one of step 3.
 | 4 | `{"name": "imagecodecs_lzma"}` | the bytes are xz streams |
 
 **Codec names.** Every codec a convention names is one that a reader of Zarr v3 finds by its
-name: zarr-python's own (`bytes`, `transpose`, `gzip`, `zstd`, `blosc`, `sharding_indexed`, `vlen-utf8`, and
-`numcodecs.zlib`, `numcodecs.shuffle` and `numcodecs.delta`, its names for numcodecs' codecs),
-imagecodecs-zarr's (`imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`,
-`imagecodecs_ljpeg`, `imagecodecs_lzw`, `imagecodecs_png`, `imagecodecs_bmp`, `imagecodecs_delta`, `imagecodecs_floatpred`, `imagecodecs_lerc`,
-`imagecodecs_webp`, `imagecodecs_jpegxl`, `imagecodecs_lzma`, `imagecodecs_packints`, `imagecodecs_packbits`,
-`imagecodecs_ccittfax4`, `imagecodecs_eer`, `imagecodecs_lzf`, `imagecodecs_lz4h5`), the
-zarr-extensions registry's (`n5_default`, `packbits`), or refkv's own, which are named `refkv.<codec>`
-(`refkv.stream`, [§10](#10-coded-streams); `refkv.fits_tiles`,
-[fits §3.3](zarrify/fits.md#33-tile-compressed-images); `refkv.tiff_lzw`,
-[qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs); `refkv.skip`,
-[npy §4.4](zarrify/npy.md#44-the-refkvskip-codec); `refkv.grib`, [§12](#12-grib-messages);
-`refkv.precomputed`, [precomputed §6](zarrify/precomputed.md#6-the-codec-refkvprecomputed);
-`refkv.h5_bitshuffle`, [hdf5 §3.4](zarrify/hdf5.md#34-the-codec-refkvh5_bitshuffle)). refkv names a
-codec of its own only where none of the others decodes the chunks as the convention says (QPTIFF's
+name: zarr-python's own (and its names for numcodecs' codecs), imagecodecs-zarr's, the
+zarr-extensions registry's, or refkv's own, which are named `refkv.<codec>`. This table lists them,
+one row per codec, by name; `spec/tools/test_codecs.py` checks that it names every codec the Rust
+core writes:
+
+| codec | whose name | its Python package | specified in |
+|---|---|---|---|
+| `blosc` | zarr-python | zarr-python |  |
+| `bytes` | zarr-python | zarr-python |  |
+| `crc32c` | zarr-python | zarr-python |  |
+| `gzip` | zarr-python | zarr-python |  |
+| `imagecodecs_bmp` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_ccittfax4` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_delta` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_dicomrle` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_eer` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_floatpred` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_htj2k` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_jpeg` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_jpeg2k` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_jpegls` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_jpegxl` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_jpegxr` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_lerc` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_ljpeg` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_lz4h5` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_lzf` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_lzma` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_lzw` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_packbits` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_packints` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_png` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_webp` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `n5_default` | zarr-extensions | refkv |  |
+| `numcodecs.bz2` | zarr-python | zarr-python |  |
+| `numcodecs.delta` | zarr-python | zarr-python |  |
+| `numcodecs.fixedscaleoffset` | zarr-python | zarr-python |  |
+| `numcodecs.lz4` | zarr-python | zarr-python |  |
+| `numcodecs.lzma` | zarr-python | zarr-python |  |
+| `numcodecs.quantize` | zarr-python | zarr-python |  |
+| `numcodecs.shuffle` | zarr-python | zarr-python |  |
+| `numcodecs.zlib` | zarr-python | zarr-python |  |
+| `packbits` | zarr-extensions | refkv |  |
+| `refkv.fits_tiles` | refkv | refkv | [fits §3.3](zarrify/fits.md#33-tile-compressed-images) |
+| `refkv.grib` | refkv | refkv | [§12](#12-grib-messages) |
+| `refkv.h5_bitshuffle` | refkv | refkv | [hdf5 §3.4](zarrify/hdf5.md#34-the-codec-refkvh5_bitshuffle) |
+| `refkv.precomputed` | refkv | refkv | [precomputed §6](zarrify/precomputed.md#6-the-codec-refkvprecomputed) |
+| `refkv.skip` | refkv | refkv | [npy §4.4](zarrify/npy.md#44-the-refkvskip-codec) |
+| `refkv.stream` | refkv | refkv | [§10](#10-coded-streams) |
+| `refkv.tiff_lzw` | refkv | refkv | [qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs) |
+| `sharding_indexed` | zarr-python | zarr-python |  |
+| `transpose` | zarr-python | zarr-python |  |
+| `vlen-utf8` | zarr-python | zarr-python |  |
+| `zstd` | zarr-python | zarr-python |  |
+
+refkv names a codec of its own only where none of the others decodes the chunks as the convention says (QPTIFF's
 LZW streams can run past their tile, which `imagecodecs_lzw` does not allow; no codec of the
 others drops the NPY header a deflated `.npz` member inflates to). refkv's Python
 package provides its own codecs to zarr-python through the `zarr.codecs` entry points, and the
@@ -585,7 +598,7 @@ fields and how each becomes a member of `S`. Unless it says otherwise:
 
   | kind of value | type | JSON |
   |---|---|---|
-  | an integer | <a id="type-integer"></a>`Integer` | a number when its magnitude is at most 2^53 − 1, and otherwise the string of its decimal digits (with a leading `-` if negative) |
+  | an integer | <a id="type-integer"></a>`Integer` | a JSON integer (an optional `-` and decimal digits, without a fraction or an exponent) of its exact value, whatever its magnitude |
   | a floating-point number | <a id="type-float"></a>`Float` | a number, the source's value converted to binary64 exactly (a binary32 value included); NaN, +∞ and −∞ are the strings `"NaN"`, `"Infinity"` and `"-Infinity"`, as Zarr fill values are. −0 may be written as `0` or `-0.0`; the two are equal |
   | a text field | <a id="type-text"></a>`Text` | a **text value**: a string, or the object `{"latin1": T}` (below) |
   | a name taken from the source (an attribute's or a chunk's name) | <a id="type-name"></a>`Name` | a string, read as a text value is but without the tag: UTF-8 if valid, else ISO 8859-1 |
@@ -601,8 +614,25 @@ fields and how each becomes a member of `S`. Unless it says otherwise:
 - **Names from the source.** When two names of one object read alike, the first, in the order the convention
   gives, is kept and the others are left out (their values are not read).
 
-Producers compare these as JSON values: numbers by their binary64 values,
-strings by their characters ([spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)).
+Producers compare these as JSON values: numbers by their values (an integer
+exactly, every digit), strings by their characters
+([spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)).
+
+An `Integer` past 2^53 − 1 in magnitude has more digits than a binary64
+value holds, so a consumer that needs its exact value parses integers as
+big integers. In JavaScript, `JSON.parse` with a reviver that turns into a
+`BigInt` only a number whose source text (`context.source`) matches
+`^-?(0|[1-9][0-9]*)$` and that lies outside −(2^53 − 1) to 2^53 − 1 (any
+other number, one with a fraction or an exponent among them, stays a
+binary64); an engine whose `JSON.parse` gives a reviver no source text needs
+a lossless JSON parser instead. Python's `json` module reads every integer
+exactly. A convention that reads an integer from decimal text reads it within
+the range its format declares for the value (as DICOM declares an `IS`
+value's, and ND2 an XML variant's by its runtype), or, where the format
+declares none, within a range the convention sets and says: an integer
+outside that range is no value of the format, and the convention reads it as
+it reads text that is not a number. An integer of the source's binary fields
+is within its field's width.
 
 These rules apply to values the convention translates from the source's
 bytes. Members copied from a JSON document of the source (a store's
@@ -1066,8 +1096,9 @@ members `$vz`, `$form` and `$partial` below are never a child's):
   (8.1; `""` for the root);
 - data, gaps and aliases of data or gaps are not shown.
 
-Values JSON cannot hold are tagged: `{"$vz": "int", "v": digits}` past
-2^53 − 1, `{"$vz": "float", "v": "NaN" | "Infinity" | "-Infinity"}`,
+An integer is a JSON integer, exact whatever its magnitude, as an
+[`Integer`](#type-integer) is. Values JSON cannot hold are tagged:
+`{"$vz": "float", "v": "NaN" | "Infinity" | "-Infinity"}`,
 `{"$vz": "bytes", "b64": ...}` and `{"$vz": "utf16", "b64": ...}`.
 
 <a id="type-viewdocument"></a>**`ViewDocument`**, a struct's or a derived element's
@@ -1089,7 +1120,6 @@ document, the source metadata of its group:
 | `{"$vz": "group", "path": p}` | a struct or a derived element whose document is the group `refkv_source/p` |
 | `{"$vz": "element", "id": i}` | the spill form: row `i` of the expanded table |
 | `{"$vz": "alias", "path": p}` | an alias whose target is neither data nor a gap |
-| `{"$vz": "int", "v": digits}` | an integer past 2^53 − 1 |
 | `{"$vz": "float", "v": "NaN" \| "Infinity" \| "-Infinity"}` | a float JSON cannot hold |
 | `{"$vz": "bytes", "b64": B}` | bytes |
 | `{"$vz": "utf16", "b64": B}` | UTF-16 that is not text |

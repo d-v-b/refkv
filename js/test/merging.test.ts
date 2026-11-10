@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import { Archive, MERGE_BUSY, MERGE_GAP, MERGE_MAX_WAIT, MERGE_WINDOW, mergedRuns, RefkvError } from "../src/archive.ts";
+import { Archive, coalescedRuns, MERGE_BUSY, MERGE_GAP, MERGE_MAX_WAIT, MERGE_WINDOW, mergedRuns, RefkvError } from "../src/archive.ts";
 import { crc32c } from "../src/deflate.ts";
 import { type ArchiveDesc, writeVzip } from "../src/writer.ts";
 
@@ -58,9 +58,45 @@ const fillers = (n: number) =>
   Array.from({ length: n }, (_, i) => ({ key: `filler${i}`, ...range(200_000 + i * 2 * MERGE_GAP, 10) }));
 
 const range = (offset: number, length: number) => ({ ranges: [{ source: 0, offset: BigInt(offset), length: BigInt(length) }] });
-const spans = (reads: [number, number][], longest = 1 << 20) =>
-  mergedRuns(reads.map(([a, b]) => ({ offset: BigInt(a), end: BigInt(b) })), BigInt(longest)).map((run) =>
+const spans = (reads: [number, number][], longest = 1 << 20, amplification = 4) =>
+  mergedRuns(reads.map(([a, b]) => ({ offset: BigInt(a), end: BigInt(b) })), BigInt(longest), amplification).map((run) =>
     run.map((r) => [Number(r.offset), Number(r.end)]));
+
+test("coalescedRuns closes the narrowest gaps within the limit while the runs fit the budget", () => {
+  const g = Number(GAP);
+  const runs = (reads: [number, number, number][], gap: number, budget: number) =>
+    coalescedRuns(reads.map(([source, a, b]) => ({ source, offset: BigInt(a), end: BigInt(b) })), gap, budget).map(
+      (r) => [r.source, Number(r.offset), Number(r.end)]);
+  const cases: [[number, number, number][], number, number, number[][]][] = [
+    [[[0, 0, 10], [0, 10, 20], [0, 5, 8]], g, 0, [[0, 0, 20]]],
+    [[[0, 0, 1], [0, 100, 101]], g, 1 << 20, [[0, 0, 101]]],
+    [[[0, 0, 1], [0, 100, 101]], g, 100, [[0, 0, 1], [0, 100, 101]]],
+    [[[0, 0, 1], [0, 11, 12], [0, 17, 18]], g, 8, [[0, 0, 1], [0, 11, 18]]],
+    [[[0, 0, 1], [0, 2 + g, 3 + g]], g, 2 ** 30, [[0, 0, 1], [0, 2 + g, 3 + g]]],
+    [[[0, 0, 1], [1, 1, 2]], g, 2 ** 30, [[0, 0, 1], [1, 1, 2]]],
+    [[[0, 0, 1], [0, 1, 2], [0, 3, 4]], 0, 2 ** 30, [[0, 0, 2], [0, 3, 4]]],
+  ];
+  for (const [reads, gap, budget, want] of cases) assert.deepEqual(runs(reads, gap, budget), want);
+});
+
+test("mergedRuns joins reads of one value only where they touch the run", () => {
+  const x = {};
+  const y = {};
+  const runs = (reads: [number, number, object][]) =>
+    mergedRuns(reads.map(([a, b, owner]) => ({ offset: BigInt(a), end: BigInt(b), owner })), 1n << 31n).map((run) =>
+      run.map((r) => [Number(r.offset), Number(r.end)]));
+  // interleaved pieces that touch: one run, each value's gaps filled by the other's pieces
+  assert.deepEqual(runs([[0, 10, x], [10, 20, y], [20, 30, x], [30, 40, y]]).length, 1);
+  // a read inside another value's run joins it
+  assert.deepEqual(runs([[0, 1000, y], [500, 510, x], [600, 610, x]]).length, 1);
+  // two reads of one value a gap apart stay apart, as its own coalescing left them
+  assert.deepEqual(runs([[0, 10, x], [100, 110, x]]), [[[0, 10]], [[100, 110]]]);
+  // a read within the gap of its value's last read, not touching the run, starts a run of its own
+  assert.deepEqual(runs([[0, 10, x], [10, 20, y], [30, 40, x]]).length, 2);
+  // one past the gap of its value's last read, which its value's coalescing could not combine, joins
+  const far = Number(MERGE_GAP) + 1;
+  assert.deepEqual(runs([[0, 10, x], [10, 10 + far, y], [20 + far, 30 + far, x]]).length, 1);
+});
 
 test("mergedRuns groups reads by the gap, the amplification cap and the run's length", () => {
   const g = Number(GAP);
@@ -76,6 +112,8 @@ test("mergedRuns groups reads by the gap, the amplification cap and the run's le
     [[[0, 2 << 20], [2 << 20, (2 << 20) + 1]], [[[0, 2 << 20]], [[2 << 20, (2 << 20) + 1]]]],
   ];
   for (const [reads, runs] of cases) assert.deepEqual(spans(reads), runs);
+  // the policy's maxReadAmplification sets the cap: a larger one makes one run of those small reads
+  assert.deepEqual(spans([[0, 4], [g, g + 4], [2 * g, 2 * g + 4]], 1 << 20, 10_000), [[[0, 4], [g, g + 4], [2 * g, 2 * g + 4]]]);
 });
 
 test("values read at once share requests, each with its own bytes", async () => {

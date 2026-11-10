@@ -9,6 +9,7 @@ import json
 import math
 import warnings
 
+import h5netcdf
 import h5py
 import hdf5plugin  # noqa: F401  (h5py reads the fixtures' third-party filters through it)
 import numpy as np
@@ -18,6 +19,7 @@ import zarr
 from hdmf_zarr.nwb import NWBZarrIO
 from ir_helpers import FIXTURES
 from pynwb import NWBHDF5IO
+from virtualizarr.manifests import ChunkManifest, ManifestArray, ManifestGroup
 from zarr.core.metadata import ArrayV3Metadata
 
 import refkv.zarr
@@ -147,7 +149,7 @@ def test_attributes_and_links_are_hdmf_zarr_members():
     names = ("int", "uint64_big", "float", "array", "text", "texts", "fixed", "latin1", "bool", "empty",
              "compound", "nan_text")
     assert {k: a[k] for k in names} == {
-        "int": -3, "uint64_big": str(2**63 + 5), "float": 0.1, "array": [[0, 1, 2], [3, 4, 5]],
+        "int": -3, "uint64_big": 2**63 + 5, "float": 0.1, "array": [[0, 1, 2], [3, 4, 5]],
         "text": "vlen text", "texts": ["a", "é", ""], "fixed": "fixed", "latin1": {"latin1": "café"}, "bool": True,
         "empty": None, "compound": {"i": 1, "f": 2.5}, "nan_text": "NaN"}
     assert own(opened(FIXTURES / "hdf5" / "hdf5_attributes.h5")[0]["attrs"])["unpresented_attributes"] == {
@@ -180,6 +182,32 @@ def test_float_attributes_read_as_h5py_reads_them():
             assert all(same(g, w) for g, w in zip(got, np.ravel(want[name]).astype(float).tolist(), strict=True)), name
         assert a["compound_inf"] == {"f": math.inf, "s": "NaN"} == {"f": float(want["compound_inf"]["f"]), "s": "NaN"}
     assert a["nan_text"] == "NaN"
+
+
+def test_fill_values_past_2_to_the_53_are_exact_json_integers():
+    """An integer fill value past 2^53 in magnitude, of the data type or of an enumeration's base
+    or a compound's member, is a JSON integer, exact, as Zarr v3 writes it (spec/zarrify/hdf5.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>); h5py reads the
+    unallocated chunks as it (test_datasets_are_what_h5py_reads)."""
+    store = zarrify(str(FIXTURES / "hdf5" / "hdf5_big_fills.h5"))
+    fills = {name: mapping(json.loads(store.get(f"{name}/zarr.json") or b"{}"))["fill_value"]
+             for name in ("int64", "enum_u64", "compound")}
+    assert fills == {"int64": -(2**60), "enum_u64": 2**60, "compound": {"i": 2**60, "f": 1.5}}
+
+
+def test_a_netcdf_fill_value_is_xarray_s_integer():
+    """A `_FillValue` attribute of one integer of an integer dataset is xarray's integer, exactly,
+    past 2^53 too, and one the dataset's type does not have (300 of a uint8 dataset), which xarray
+    reads as it is, where it refuses the attribute's list; and a float's integral value, every digit,
+    past 2^127 too (spec/zarrify/hdf5.md §6
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>)."""
+    float_max = int(np.finfo("<f4").max)  # 340282346638528859811704183484516925440
+    for name, key, want in [("hdf5_big_fills.h5", "int64", -(2**60)), ("hdf5_fill_out_of_range.h5", "uint8", 300),
+                            ("hdf5_fill_out_of_range.h5", "int32", float_max)]:
+        store = zarrify(str(FIXTURES / "hdf5" / name))
+        attrs = mapping(mapping(json.loads(store.get(f"{key}/zarr.json") or b"{}"))["attributes"])
+        assert attrs["_FillValue"] == want, name
+        assert type(attrs["_FillValue"]) is int, name  # every digit, not a float's notation
 
 
 @pytest.mark.parametrize("path", [p for p in ACCEPTED if p.suffix == ".nwb"], ids=lambda p: p.name)
@@ -327,7 +355,7 @@ def test_a_netcdf4_dimension_without_a_variable_is_not_presented():
     ("sst", ["time", "x"]),
     ("time", ["time"]),
     ("_nc4_non_coord_depth", ["time", "depth"]),
-    ("label", ["x", None]),
+    ("label", ["x", "string4"]),
     ("inner/anomaly", ["time", "y"]),
     ("inner/y", ["y"]),
 ])
@@ -339,8 +367,91 @@ def test_dimension_names_come_from_the_scales(name, want):
     assert list(array.metadata.dimension_names or []) == want
 
 
-def test_a_dataset_without_scales_has_no_dimension_names():
-    root, _ = opened(FIXTURES / "hdf5" / "hdf5_numbers.h5")
-    for _, array in root.arrays():
+# the accepted fixtures h5netcdf cannot open: a name or link h5py cannot resolve
+H5NETCDF_REFUSES = {"hdf5_attributes.h5", "hdf5_external.h5", "hdf5_external_target.h5",
+                    "hdf5_links_earliest.h5", "hdf5_links_latest.h5"}
+
+
+def groups(root: zarr.Group) -> list[tuple[str, zarr.Group]]:
+    """The hierarchy's groups but the IR mirror, by path."""
+    out, stack = [], [("", root)]
+    while stack:
+        path, g = stack.pop()
+        out.append((path, g))
+        stack.extend((f"{path}/{n}".lstrip("/"), c) for n, c in g.groups() if n != "refkv_source")
+    return out
+
+
+@pytest.mark.parametrize("path", [p for p in ACCEPTED if p.name not in H5NETCDF_REFUSES], ids=lambda p: p.name)
+def test_dimension_names_are_h5netcdfs(path):
+    """Every array has the dimension names h5netcdf gives its variable with phony_dims="sort",
+    then a fixed-length string's trailing axis."""
+    root, _ = opened(path)
+    with h5netcdf.File(path, "r", phony_dims="sort") as f:
+        stack = [f]
+        while stack:
+            g = stack.pop()
+            stack.extend(g.groups.values())
+            for v in g.variables.values():
+                name = v.name.lstrip("/")
+                if name in UNPRESENTED.get(path.name, {}) or name not in root:  # not presented, or a link
+                    continue
+                array = root[name]
+                assert isinstance(array, zarr.Array)
+                assert isinstance(array.metadata, ArrayV3Metadata)
+                want = [*v.dimensions, *([f"string{v.dtype.itemsize}"] if v.dtype.kind == "S" else [])]
+                assert list(array.metadata.dimension_names or []) == want, name
+
+
+def test_a_linked_dataset_is_numbered_in_the_linking_group(monkeypatch):
+    """What an external link reaches counts among the linking group's members, as h5netcdf counts
+    it (which refuses this file for its dangling links), presented or not: the root's lengths 4
+    (absent_file), 5, 3, 1 (linked_references) and 12, then the linked group's 6, 4, 1 (references)
+    and 2."""
+    path = FIXTURES / "hdf5" / "hdf5_external.h5"
+    monkeypatch.chdir(path.parent)
+    root, _ = opened(path)
+    want = {
+        "linked_dataset": ["phony_dim_1", "phony_dim_2"], "own": ["phony_dim_2"],
+        "spread": ["phony_dim_4", "phony_dim_0"], "linked_group/chunked": ["phony_dim_5", "phony_dim_6"],
+        "linked_group/strings": ["phony_dim_8"],
+    }
+    for name, names in want.items():
+        array = root[name]
         assert isinstance(array.metadata, ArrayV3Metadata)
-        assert array.metadata.dimension_names is None
+        assert list(array.metadata.dimension_names or []) == names, name
+
+
+def test_unscaled_datasets_share_names_by_length_within_a_group():
+    root, _ = opened(FIXTURES / "hdf5" / "hdf5_phony_dims.h5")
+    want = {
+        "a": ["phony_dim_0", "phony_dim_1"], "b": ["phony_dim_1", "phony_dim_2"], "c": ["phony_dim_3"],
+        "text": ["phony_dim_0", "string4"], "z": ["phony_dim_4"], "g/d": ["phony_dim_5", "phony_dim_6"],
+        "g/e": ["phony_dim_6"], "g/h/f": ["phony_dim_7", "phony_dim_8"], "scaled/x": ["x"],
+        "scaled/u": ["x", "phony_dim_10"], "scaled/w": ["x"],
+    }
+    for name, names in want.items():
+        array = root[name]
+        assert isinstance(array.metadata, ArrayV3Metadata)
+        assert list(array.metadata.dimension_names or []) == names, name
+    assert isinstance(root["scalar"].metadata, ArrayV3Metadata)
+    assert root["scalar"].metadata.dimension_names is None
+
+
+@pytest.mark.parametrize("path", ACCEPTED, ids=lambda p: p.name)
+def test_every_array_is_a_variable_of_xarray_and_virtualizarr(path, monkeypatch):
+    """Each group opens as an xarray dataset whose variables are its arrays, by their dimension
+    names, and as a VirtualiZarr virtual dataset, whose variables need dimension names."""
+    monkeypatch.chdir(path.parent)
+    store = refkv.zarr.store(zarrify(str(path)))
+    for name, group in groups(zarr.open_group(store, mode="r")):
+        arrays = dict(group.arrays())
+        ds = xr.open_zarr(store, group=name or None, consolidated=False, zarr_format=3, decode_cf=False)
+        assert set(ds.variables) == set(arrays), name
+        manifests = {}
+        for k, array in arrays.items():
+            assert isinstance(array.metadata, ArrayV3Metadata)
+            assert ds[k].dims == tuple(array.metadata.dimension_names or ()), f"{name}/{k}"
+            empty = ChunkManifest(entries={}, shape=array.cdata_shape)
+            manifests[k] = ManifestArray(metadata=array.metadata, chunkmanifest=empty)
+        assert set(ManifestGroup(arrays=manifests, attributes={}).to_virtual_dataset().variables) == set(arrays), name

@@ -16,12 +16,9 @@ import { currentNames, SOURCE_NODE as LEGACY_NODE } from "../../../conformance/z
 import { zarrifyStore } from "../../src/zarrify/index.ts";
 import { StoreError } from "../../src/zarrify/store.ts";
 import type { ArchiveDesc } from "../../src/writer.ts";
+import { REVISED } from "../revised.ts";
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/zarr2/", import.meta.url));
-// The stores whose verdict the profile changed after the freeze, which the twin does not give
-// (conformance/zarrify/revised.json).
-const REVISED = new Set<string>(JSON.parse(fs.readFileSync(new URL("../../../conformance/zarrify/revised.json",
-  import.meta.url), "utf8")).fixtures);
 
 /** The entries outside refkv_source/ (the frozen twin's, given `legacy`, outside its vzip_source/,
  * its documents read with the current names): documents parsed (the frozen root's revision read

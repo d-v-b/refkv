@@ -78,130 +78,22 @@ pub trait StoreParser: Send + Sync {
         let _ = (written, key);
         Err("internal: this store format's keys are found as written".into())
     }
+    /// Whether the probed key `key` is a sibling whose absence the profile reads as the named
+    /// file having none (GRIB's index files): a run given a scope ([`StoreRun::scope`]) answers
+    /// such a probe outside it absent, and rejects any other.
+    fn optional(&self, key: &str) -> bool {
+        let _ = key;
+        false
+    }
 }
 
-/// The store formats the core reads (the store profiles move onto the IR one by one).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum StoreFormat {
-    /// A Zarr v2 store (`zarr2.rs`; spec/zarrify/zarr2.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md>).
-    Zarr2,
-    /// A Sentinel-2 SAFE product's directory (`safe/`; spec/zarrify/safe.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md>).
-    Safe,
-    /// An N5 container (`n5.rs`; spec/zarrify/n5.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md>).
-    N5,
-    /// An Olympus VSI slide (`vsi/`; spec/zarrify/vsi.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md>): the `.vsi` file, listed
-    /// alone, and the tile files the run probes for.
-    Vsi,
-    /// A NRRD input (`nrrd.rs`; spec/zarrify/nrrd.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md>): the header file, listed
-    /// alone, and a detached header's data file, which the run probes for.
-    Nrrd,
-    /// An HDF5 file that names siblings (`hdf5/store.rs`; spec/zarrify/hdf5.md §8.6
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#86-external-files>): the named
-    /// file, listed alone, and the files its external links and external storage name.
-    Hdf5,
-    /// A NIfTI header-and-image pair (`nifti_pair.rs`; spec/zarrify/nifti.md §7.5
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#75-header-and-image-pairs>): the
-    /// `.hdr` file, listed alone, and the `.img` file, which the run probes for.
-    Nifti,
-    /// A store of safetensors files, such as a model's shards (`safetensors/store.rs`;
-    /// spec/zarrify/safetensors.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md>).
-    Safetensors,
-    /// A GRIB file (`grib/`; spec/zarrify/grib.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md>): the GRIB file, listed
-    /// alone, and its index, which the run probes for.
-    Grib,
-    /// A Neuroglancer precomputed volume (`precomputed.rs`; spec/zarrify/precomputed.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md>).
-    Precomputed,
-    /// A LAS X project (`xlef.rs`; spec/zarrify/lif.md §8
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#8-las-x-documents>): its named
-    /// document, listed alone, and the documents and LOFs the run probes for.
-    Lif,
-    /// A TIFF image across files (`tiff_set.rs`; spec/zarrify/tiff.md §7.4
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#74-several-files>): the named
-    /// file, listed alone, and the files it names, which the run probes for.
-    Tiff,
-    /// A CZI image across numbered files (`czi_set.rs`; spec/zarrify/czi.md §7.9
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>): the named
-    /// file, listed alone, and its parts, which the run probes for.
-    Czi,
-}
+// `StoreFormat`: one variant per profile of the registry with a store run (profiles/; build.rs)
+include!(concat!(env!("OUT_DIR"), "/store_formats.rs"));
 
 impl StoreFormat {
-    pub fn from_name(s: &str) -> Option<StoreFormat> {
-        match s {
-            "zarr2" => Some(StoreFormat::Zarr2),
-            "safe" => Some(StoreFormat::Safe),
-            "n5" => Some(StoreFormat::N5),
-            "vsi" => Some(StoreFormat::Vsi),
-            "nrrd" => Some(StoreFormat::Nrrd),
-            "hdf5" => Some(StoreFormat::Hdf5),
-            "nifti" => Some(StoreFormat::Nifti),
-            "grib" => Some(StoreFormat::Grib),
-            "safetensors" => Some(StoreFormat::Safetensors),
-            "precomputed" => Some(StoreFormat::Precomputed),
-            "lif" => Some(StoreFormat::Lif),
-            "tiff" => Some(StoreFormat::Tiff),
-            "czi" => Some(StoreFormat::Czi),
-            _ => None,
-        }
-    }
-    pub fn name(self) -> &'static str {
-        match self {
-            StoreFormat::Zarr2 => "zarr2",
-            StoreFormat::Safe => "safe",
-            StoreFormat::N5 => "n5",
-            StoreFormat::Vsi => "vsi",
-            StoreFormat::Nrrd => "nrrd",
-            StoreFormat::Hdf5 => "hdf5",
-            StoreFormat::Nifti => "nifti",
-            StoreFormat::Grib => "grib",
-            StoreFormat::Safetensors => "safetensors",
-            StoreFormat::Precomputed => "precomputed",
-            StoreFormat::Lif => "lif",
-            StoreFormat::Tiff => "tiff",
-            StoreFormat::Czi => "czi",
-        }
-    }
     /// The convention the mirror declares.
     pub fn profile(self) -> &'static str {
-        match self {
-            StoreFormat::Zarr2 => "zarr2",
-            StoreFormat::Safe => "safe",
-            StoreFormat::N5 => "n5",
-            StoreFormat::Vsi => "vsi",
-            StoreFormat::Nrrd => "nrrd",
-            StoreFormat::Hdf5 => "hdf5",
-            StoreFormat::Nifti => "nifti",
-            StoreFormat::Grib => "grib",
-            StoreFormat::Safetensors => "safetensors",
-            StoreFormat::Precomputed => "precomputed",
-            StoreFormat::Lif => "lif",
-            StoreFormat::Tiff => "tiff",
-            StoreFormat::Czi => "czi",
-        }
-    }
-    fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {
-        match self {
-            StoreFormat::Zarr2 => Ok(Box::new(crate::zarr2::Zarr2::new(ir, objects, keys)?)),
-            StoreFormat::Safe => Ok(Box::new(crate::safe::Safe::new_store(ir, objects, keys))),
-            StoreFormat::N5 => Ok(Box::new(crate::n5::N5::new(ir, objects, keys))),
-            StoreFormat::Vsi => Ok(Box::new(crate::vsi::Vsi::new(ir, objects, keys)?)),
-            StoreFormat::Nrrd => Ok(Box::new(crate::nrrd::Nrrd::new(ir, objects, keys)?)),
-            StoreFormat::Hdf5 => Ok(Box::new(crate::hdf5::store::Hdf5Store::new(ir, objects, keys)?)),
-            StoreFormat::Nifti => Ok(Box::new(crate::nifti_pair::NiftiPair::new(ir, objects, keys)?)),
-            StoreFormat::Grib => Ok(Box::new(crate::grib::Grib::new(ir, objects, keys)?)),
-            StoreFormat::Safetensors => Ok(Box::new(crate::safetensors::store::SafetensorsStore::new(ir, objects, keys)?)),
-            StoreFormat::Precomputed => Ok(Box::new(crate::precomputed::Precomputed::new(ir, objects, keys))),
-            StoreFormat::Lif => Ok(Box::new(crate::xlef::Xlef::new(ir, objects, keys)?)),
-            StoreFormat::Tiff => Ok(Box::new(crate::tiff_set::TiffSet::new(ir, objects, keys)?)),
-            StoreFormat::Czi => Ok(Box::new(crate::czi_set::CziSet::new(ir, objects, keys)?)),
-        }
+        self.name()
     }
 }
 
@@ -251,6 +143,10 @@ pub struct StoreRun {
     probed: u64,
     /// the keys of the objects so far
     known: std::collections::HashSet<String>,
+    /// the keys the host may be asked to probe ([`StoreRun::scope`]); None: every key
+    scope: Option<Vec<String>>,
+    /// for each probe of the pending batch, whether it is outside the scope (the run answers it)
+    outside: Vec<bool>,
 }
 
 impl StoreRun {
@@ -288,7 +184,36 @@ impl StoreRun {
             probes: Vec::new(),
             answered: 0,
             probed: 0,
+            scope: None,
+            outside: Vec::new(),
         })
+    }
+
+    /// The scope of the input (spec/zarrify.md §1.9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
+    /// **Scope**), before the first poll: the keys besides the listing's the host may be asked to
+    /// probe, each a key or a directory's key followed by `/` (every key below it); none, the
+    /// listing's objects alone. A run without a scope probes any key. A probed key outside it is
+    /// not given to the host: the run answers it absent when the profile calls it optional
+    /// ([`StoreParser::optional`]), and rejects the input otherwise, `out of scope: the input
+    /// names the file "<key>"`, as it does a key the host found by listing (**Case**) outside it.
+    pub fn scope(&mut self, within: Vec<String>) -> Res<()> {
+        if self.stats.batches > 0 || self.done {
+            return Err("internal: the scope given after the first poll".into());
+        }
+        for e in &within {
+            let key = e.strip_suffix('/').unwrap_or(e);
+            if key.is_empty() || key.split('/').any(|s| s.is_empty() || s == "." || s == "..") {
+                return Err(format!("internal: the scope's {e:?} is not a key or a directory's"));
+            }
+        }
+        self.scope = Some(within);
+        Ok(())
+    }
+
+    /// Whether the key `key` is in the scope.
+    fn within(&self, key: &str) -> bool {
+        self.scope.as_ref().is_none_or(|w| w.iter().any(|e| e == key || (e.ends_with('/') && key.starts_with(e.as_str()))))
     }
 
     /// The keys the listing ignores (spec/zarrify.md §1.4
@@ -322,6 +247,28 @@ impl StoreRun {
     /// a batch of probes ([`StoreRun::probes`]): the host answers each with [`StoreRun::found`],
     /// then polls again.
     pub fn poll(&mut self) -> Res<Option<Vec<ObjectRequest>>> {
+        loop {
+            let got = self.step()?;
+            // (a batch of empty ranges alone is an empty list too, with no probes)
+            if got.as_ref().is_none_or(|g| !g.is_empty()) || self.probes.is_empty() {
+                return Ok(got);
+            }
+            // a batch of probes: those outside the scope are the run's to answer, and the host is
+            // given the batch only when one is in it
+            let p = self.parser.as_ref().ok_or("internal: no parser")?;
+            self.outside = self.probes.iter().map(|k| !self.within(k)).collect();
+            if let Some((k, _)) = self.probes.iter().zip(&self.outside).find(|&(k, &o)| o && !p.optional(k)) {
+                return Err(format!("out of scope: the input names the file \"{k}\""));
+            }
+            self.skip()?;
+            if self.answered < self.probes.len() {
+                return Ok(got);
+            }
+        }
+    }
+
+    /// One step of [`StoreRun::poll`].
+    fn step(&mut self) -> Res<Option<Vec<ObjectRequest>>> {
         if self.done {
             return Ok(None);
         }
@@ -329,6 +276,7 @@ impl StoreRun {
             return Err("poll before every probe of the batch was answered".into());
         }
         self.probes.clear();
+        self.outside.clear();
         self.answered = 0;
         // a batch is pending until served, even one of empty ranges only (no request)
         if !self.round.is_empty() || !self.asked.is_empty() {
@@ -362,6 +310,7 @@ impl StoreRun {
                     return Err(format!("budget: the input names more than {} files", crate::beside::MAX_FILES));
                 }
                 self.stats.batches += 1;
+                self.outside = vec![false; keys.len()];
                 self.probes = keys;
                 self.answered = 0;
                 Ok(Some(Vec::new()))
@@ -369,16 +318,25 @@ impl StoreRun {
         }
     }
 
-    /// The keys of the pending batch of probes, in the order the host answers them.
-    pub fn probes(&self) -> &[String] {
-        &self.probes
+    /// The keys of the pending batch of probes the host answers, in order: those in the scope.
+    pub fn probes(&self) -> Vec<String> {
+        self.probes.iter().zip(&self.outside).filter(|&(_, &o)| !o).map(|(k, _)| k.clone()).collect()
     }
 
     /// The answer to the next probe of the batch (in order): the key's size when it exists,
     /// None when it does not. A found key becomes an object of the run, its reads budgeted
     /// like a listed one's.
     pub fn found(&mut self, size: Option<u64>) -> Res<()> {
-        self.answer(size, None)
+        self.answer(size, None)?;
+        self.skip()
+    }
+
+    /// Answers absent the probes outside the scope that come next in the batch.
+    fn skip(&mut self) -> Res<()> {
+        while self.outside.get(self.answered) == Some(&true) {
+            self.answer(None, None)?;
+        }
+        Ok(())
     }
 
     /// The answer to the next probe of the batch when the host found it at another key, by listing
@@ -389,7 +347,11 @@ impl StoreRun {
         if key.is_empty() || key.split('/').any(|s| s.is_empty() || s == "." || s == "..") {
             return Err(format!("internal: the key {key:?} a probe was found at is not a key"));
         }
-        self.answer(Some(size), Some(key))
+        if !self.within(key) {
+            return Err(format!("out of scope: the input names the file \"{key}\""));
+        }
+        self.answer(Some(size), Some(key))?;
+        self.skip()
     }
 
     fn answer(&mut self, size: Option<u64>, at: Option<&str>) -> Res<()> {
@@ -546,11 +508,12 @@ impl StoreRun {
     }
 
     /// Finishes and mirrors: the output (the format's projection, and the mirror under
-    /// `refkv_source` when `mirror`).
-    pub fn into_output(self, url: &str, mirror: bool) -> Res<crate::out::Out> {
+    /// `refkv_source` when `mirror`), sealed for a host that records the ranges' checksums when
+    /// `checksums`.
+    pub fn into_output(self, url: &str, mirror: bool, checksums: bool) -> Result<crate::out::Out, crate::seal::Refusal> {
         let format = self.format;
         let (ir, facts, stats) = self.finish()?;
-        store_output(format, &ir, &facts, stats, url, mirror)
+        store_output(format, &ir, &facts, stats, url, mirror, checksums)
     }
 }
 
@@ -558,23 +521,12 @@ impl StoreRun {
 /// `mirror`, and a summary: the projection's, with the run's counts, the IR's element count
 /// (and, but for SAFE, whose projection counts its objects itself, the format's name and the
 /// IR's object count) and what the mirror's table folded. Then the ignored keys (and a SAFE
-/// directory's empty directories) beside the mirror (`record_ignored`).
-pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str, mirror: bool) -> Res<crate::out::Out> {
-    let mut out = match format {
-        StoreFormat::Zarr2 => crate::project::zarr2::project(ir, facts, url)?,
-        StoreFormat::Safe => crate::project::safe::project(ir, facts, url)?,
-        StoreFormat::N5 => crate::project::n5::project(ir, facts, url)?,
-        StoreFormat::Vsi => crate::project::vsi::project(ir, facts, url, &Default::default())?,
-        StoreFormat::Nrrd => crate::project::nrrd::project(ir, facts, url)?,
-        StoreFormat::Hdf5 => crate::project::hdf5::project_store(ir, facts, url)?,
-        StoreFormat::Nifti => crate::project::nifti::project_pair(ir, facts, url)?,
-        StoreFormat::Grib => crate::project::grib::project(ir, facts, url)?,
-        StoreFormat::Safetensors => crate::project::safetensors::project_store(ir, facts, url)?,
-        StoreFormat::Precomputed => crate::project::precomputed::project(ir, facts, url)?,
-        StoreFormat::Lif => crate::project::lif::project_set(ir, facts, url)?,
-        StoreFormat::Tiff => crate::project::tiff::project_set(ir, facts, url)?,
-        StoreFormat::Czi => crate::project::czi::project_set(ir, facts, url)?,
-    };
+/// directory's empty directories) beside the mirror (`record_ignored`). Last, the output is sealed
+/// (`seal::out`), its url sources the objects of the IR its references use, for a host that
+/// records the ranges' checksums when `checksums`.
+pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str, mirror: bool, checksums: bool)
+                    -> Result<crate::out::Out, crate::seal::Refusal> {
+    let mut out = format.project(ir, facts, url)?;
     crate::shard::refuse(&out)?;
     let mut summary = std::mem::take(&mut out.summary);
     if let Some(m) = summary.as_object_mut() {
@@ -595,6 +547,9 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         out.summary["folded"] = folded.json();
     }
     crate::project::store::record_ignored(&mut out, facts, profile)?;
+    let objects: std::collections::HashMap<String, u64> =
+        ir.sources().objects.iter().map(|&o| (ir.key(o), ir.len[o as usize])).collect();
+    crate::seal::out(&mut out, None, &objects, checksums)?;
     Ok(out)
 }
 
@@ -615,14 +570,27 @@ pub fn run_store(format: StoreFormat, keys: Vec<(String, u64)>, read: &dyn Fn(us
 mod tests {
     use super::*;
 
-    /// A parser that probes `batch` new keys each step, forever.
-    struct Prober { batch: usize, next: usize, ir: Option<Ir> }
+    /// A parser that probes `batch` new keys each step, forever, or for `until` steps (then done);
+    /// the keys it calls optional are those `optional` holds.
+    struct Prober { batch: usize, next: usize, ir: Option<Ir>, until: usize, optional: &'static [&'static str] }
+
+    impl Prober {
+        fn new(batch: usize, ir: Ir) -> Prober {
+            Prober { batch, next: 0, ir: Some(ir), until: usize::MAX, optional: &[] }
+        }
+    }
 
     impl StoreParser for Prober {
         fn step(&mut self) -> Res<StoreStep> {
+            if self.next >= self.until.saturating_mul(self.batch) {
+                return Ok(StoreStep::Done);
+            }
             let keys = (self.next..self.next + self.batch).map(|i| format!("k{i}")).collect();
             self.next += self.batch;
             Ok(StoreStep::Probe(keys))
+        }
+        fn optional(&self, key: &str) -> bool {
+            self.optional.contains(&key)
         }
         fn feed(&mut self, _: usize, _: u64, _: &[u8]) {}
         fn found(&mut self, _: &str, _: usize, _: Option<u64>) -> Res<Option<u32>> {
@@ -636,12 +604,89 @@ mod tests {
     #[test]
     fn a_run_probes_at_most_the_bound_on_files() {
         let mut run = StoreRun::with(StoreFormat::Nrrd, vec![("a".into(), 1)], 1, &|ir, _, _| {
-            Ok(Box::new(Prober { batch: crate::beside::MAX_FILES as usize, next: 0, ir: Some(ir) }))
+            Ok(Box::new(Prober::new(crate::beside::MAX_FILES as usize, ir)))
         }).unwrap();
         assert!(run.poll().unwrap().is_some());
         for _ in 0..crate::beside::MAX_FILES {
             run.found(None).unwrap();
         }
         assert_eq!(run.poll().err().as_deref(), Some("budget: the input names more than 65536 files"));
+    }
+
+    /// A run of a parser that probes two keys a step for two steps (`k0` to `k3`), `optional` of
+    /// them optional, within `scope`.
+    fn scoped(scope: &[&str], optional: &'static [&'static str]) -> StoreRun {
+        let mut run = StoreRun::with(StoreFormat::Nrrd, vec![("a".into(), 1)], 1, &|ir, _, _| {
+            Ok(Box::new(Prober { optional, until: 2, ..Prober::new(2, ir) }))
+        }).unwrap();
+        run.scope(scope.iter().map(|s| s.to_string()).collect()).unwrap();
+        run
+    }
+
+    #[test]
+    #[allow(clippy::type_complexity)]
+    fn a_scoped_run_gives_the_host_the_probes_in_its_scope() {
+        // (scope, optional keys, the batches the host is given)
+        let cases: &[(&[&str], &'static [&'static str], &[&[&str]])] = &[
+            (&["k0", "k1", "k2", "k3"], &[], &[&["k0", "k1"], &["k2", "k3"]]),
+            (&["k1", "k2"], &["k0", "k3"], &[&["k1"], &["k2"]]),
+            (&["k0", "k1"], &["k2", "k3"], &[&["k0", "k1"]]),
+            (&[], &["k0", "k1", "k2", "k3"], &[]),
+        ];
+        for &(scope, optional, want) in cases {
+            let mut run = scoped(scope, optional);
+            let mut given = Vec::new();
+            while run.poll().unwrap().is_some() {
+                let keys = run.probes();
+                for _ in &keys {
+                    run.found(None).unwrap();
+                }
+                given.push(keys);
+            }
+            assert_eq!(given, want, "{scope:?}");
+        }
+    }
+
+    #[test]
+    fn a_key_below_a_directory_of_the_scope_is_in_it() {
+        let mut run = StoreRun::with(StoreFormat::Nrrd, vec![("a".into(), 1)], 1, &|ir, _, _| Ok(Box::new(Prober::new(1, ir))))
+            .unwrap();
+        run.scope(vec!["d/".into(), "k".into()]).unwrap();
+        for (key, want) in [("d/x", true), ("d/e/x", true), ("k", true), ("d", false), ("dx", false), ("k/x", false), ("x", false)] {
+            assert_eq!(run.within(key), want, "{key}");
+        }
+    }
+
+    #[test]
+    fn a_required_probe_outside_the_scope_is_rejected() {
+        let mut run = scoped(&["k0", "k1", "k2"], &[]);
+        assert!(run.poll().unwrap().is_some());
+        run.found(None).unwrap();
+        run.found(None).unwrap();
+        assert_eq!(run.poll().err().as_deref(), Some("out of scope: the input names the file \"k3\""));
+    }
+
+    #[test]
+    fn a_key_found_by_listing_outside_the_scope_is_rejected() {
+        let mut run = scoped(&["k0", "k1"], &[]);
+        assert!(run.poll().unwrap().is_some());
+        assert_eq!(run.found_as(1, "K0").err().as_deref(), Some("out of scope: the input names the file \"K0\""));
+    }
+
+    #[test]
+    fn the_scope_is_given_before_the_first_poll() {
+        let mut run = StoreRun::with(StoreFormat::Nrrd, vec![("a".into(), 1)], 1, &|ir, _, _| Ok(Box::new(Prober::new(1, ir))))
+            .unwrap();
+        assert!(run.poll().unwrap().is_some());
+        assert_eq!(run.scope(Vec::new()).err().as_deref(), Some("internal: the scope given after the first poll"));
+    }
+
+    #[test]
+    fn a_scope_of_no_key_is_refused() {
+        let mut run = StoreRun::with(StoreFormat::Nrrd, vec![("a".into(), 1)], 1, &|ir, _, _| Ok(Box::new(Prober::new(1, ir))))
+            .unwrap();
+        for bad in ["", "/", "a//b", "../a", "./a/"] {
+            assert!(run.scope(vec![bad.into()]).is_err(), "{bad:?}");
+        }
     }
 }

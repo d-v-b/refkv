@@ -50,7 +50,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
                 // (spec/zarrify/ndpi.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)
                 let (tw, th) = (n(&p["tw"]), n(&p["th"]));
                 if p["tiles_ifd"].is_null() {
-                    refs.chunk(format!("{at}0/0"), strip, length, 0, Some(vec![Part::Src(strip, length)]), 0)?;
+                    refs.chunk(format!("{at}0/0"), strip, length, 0, Some(vec![Part::Src(strip, length)]))?;
                 } else {
                     let across = w.div_ceil(tw);
                     let per = across * h.div_ceil(th);
@@ -70,7 +70,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
                     }
                     None => vec![Part::Src(strip, length)],
                 };
-                refs.chunk(format!("{at}0/0"), strip, length, 0, Some(parts), 0)?;
+                refs.chunk(format!("{at}0/0"), strip, length, 0, Some(parts))?;
                 [3, h, w]
             } else {
                 let starts = values(ir, &p["starts"]).ok_or("internal: no McuStarts in the IR")?;
@@ -83,7 +83,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
                 for u in 0..down {
                     for v in 0..across {
                         let parts = g.parts(u, v, g.b, &before, &sof, &after);
-                        refs.chunk(format!("{at}{u}/{v}"), strip, length, 0, Some(parts), u * across + v)?;
+                        refs.chunk(format!("{at}{u}/{v}"), strip, length, 0, Some(parts))?;
                     }
                 }
                 g.chunk_shape()

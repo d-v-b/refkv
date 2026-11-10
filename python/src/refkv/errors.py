@@ -50,6 +50,6 @@ class ResolutionError(RefkvError):
 
 class RequestError(RefkvError):
     """A request is invalid (`start > end`) or exceeds a resource limit of the reader, such as the
-    requests one get may make: that operation fails."""
+    reads or bytes one get may take: that operation fails."""
 
     cls = "request"

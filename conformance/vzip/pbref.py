@@ -1,4 +1,5 @@
-"""vzip messages built with the official protobuf runtime (independent of refkv.pb).
+"""The messages of spec/proto/refkv.proto and spec/proto/vzip.proto, built with the official
+protobuf runtime (independent of refkv.pb).
 
 Used by the conformance kit to compute canonical encodings and to decode
 payloads found in archives under test.
@@ -50,7 +51,9 @@ def _build() -> tuple[Any, Any, Any, Any, Any]:
     tbl.field.add(name="revision", number=2, type=_F.TYPE_UINT32, label=_F.LABEL_OPTIONAL,
                   oneof_index=0, proto3_optional=True)
 
-    idx = fdp.message_type.add(name="CdIndex")
+    # The ZIP binding's own message, in its own file and package (spec/proto/vzip.proto).
+    vfdp = descriptor_pb2.FileDescriptorProto(name="vzip.proto", package="refkv.vzip.v0", syntax="proto3")
+    idx = vfdp.message_type.add(name="CdIndex")
     page = idx.nested_type.add(name="Page")
     for n, i, t in [("first_key", 1, _F.TYPE_STRING), ("offset", 2, _F.TYPE_UINT64),
                     ("length", 3, _F.TYPE_UINT64)]:
@@ -61,15 +64,17 @@ def _build() -> tuple[Any, Any, Any, Any, Any]:
                     ("method", 5, _F.TYPE_UINT32)]:
         pin.field.add(name=n, number=i, type=t, label=_F.LABEL_OPTIONAL)
     idx.field.add(name="pages", number=1, type=_F.TYPE_MESSAGE,
-                  type_name=".refkv.v0.CdIndex.Page", label=_F.LABEL_REPEATED)
+                  type_name=".refkv.vzip.v0.CdIndex.Page", label=_F.LABEL_REPEATED)
     idx.field.add(name="pinned", number=2, type=_F.TYPE_MESSAGE,
-                  type_name=".refkv.v0.CdIndex.Pinned", label=_F.LABEL_REPEATED)
+                  type_name=".refkv.vzip.v0.CdIndex.Pinned", label=_F.LABEL_REPEATED)
 
     pool = descriptor_pool.DescriptorPool()
     pool.Add(fdp)
+    pool.Add(vfdp)
     def get(n):
-        return message_factory.GetMessageClass(pool.FindMessageTypeByName(f"refkv.v0.{n}"))
-    return get("Range"), get("Concat"), get("Source"), get("SourceTable"), get("CdIndex")
+        return message_factory.GetMessageClass(pool.FindMessageTypeByName(n))
+    return (get("refkv.v0.Range"), get("refkv.v0.Concat"), get("refkv.v0.Source"),
+            get("refkv.v0.SourceTable"), get("refkv.vzip.v0.CdIndex"))
 
 
 Range, Concat, Source, SourceTable, CdIndex = _build()

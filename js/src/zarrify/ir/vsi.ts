@@ -12,18 +12,21 @@
 import type { ArchiveDesc } from "../../writer.ts";
 import { HttpResolutionError } from "../../http.ts";
 import { ImageError } from "../common.ts";
+import { type Profile, REGISTRY } from "../profiles.ts";
 import { objectUrl, type Store, StoreError } from "../store.ts";
 import { HttpSource, type HttpSourceOptions, type RangeSource } from "./source.ts";
 import { zarrifyStoreIr } from "./store.ts";
 
 /** The formats whose input is read with the files beside it: each one's title, as a rejection
  * names it. */
-export const BESIDE = { vsi: "VSI", nrrd: "NRRD", grib: "GRIB", tiff: "TIFF", lif: "LIF", czi: "CZI", nifti: "NIfTI", hdf5: "HDF5" } as const;
-export type BesideFormat = keyof typeof BESIDE;
+export const BESIDE: Readonly<Record<Profile, string>> = Object.fromEntries(
+  REGISTRY.filter((e) => e.store_run !== null && e.store_run.form !== "listed").map((e) => [e.name, e.title]));
+export type BesideFormat = Profile;
 /** Those that read a file with the files beside it only when it names some, or for some of their files (spec/zarrify.md §1.9
  * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>): a file
  * run finds out, and starts over (`NamesSiblings`). */
-export const ON_DEMAND: ReadonlySet<string> = new Set<BesideFormat>(["tiff", "lif", "czi", "nifti", "hdf5"]);
+export const ON_DEMAND: ReadonlySet<string> = new Set(
+  REGISTRY.filter((e) => e.store_run?.form === "on_demand").map((e) => e.name));
 
 /** [the directory's URL (ending in `/`), the named file's key (its last segment,
  * percent-decoded)] of an input of the format `title` names (VSI, NRRD). */
@@ -61,6 +64,34 @@ export interface VsiOptions {
   open?: (key: string) => Promise<RangeSource | undefined>;
   http?: HttpSourceOptions;
   mirror?: boolean;
+  /** The ranges will carry checksums (the core's seal measures them). */
+  checksums?: boolean;
+  /** The keys of the input's scope (`scopeKeys`): no file outside it is opened, and an input
+   * that needs one is rejected, naming it. */
+  scope?: string[];
+}
+
+/** The scope of the file input at `url` (spec/zarrify.md §1.9
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>, Scope)
+ * as the keys the core's store run takes: each entry a URL, the input URL's directory or a file
+ * or directory below it. A directory's key ends in `/`; the input itself, always in scope, adds no
+ * key. Undefined when the scope holds the input's directory, every key being in it. The twin of
+ * python/src/refkv/zarrify/store/beside.py's `scope_keys`. */
+export function scopeKeys(url: string, scope: readonly string[]): string[] | undefined {
+  const [dir, named] = splitVsiUrl(url, "the");
+  const keys: string[] = [];
+  for (const e of scope) {
+    if (!e.startsWith(dir)) throw new RangeError(`scope "${e}" is not the input's directory "${dir}" or below it`);
+    let key: string;
+    try {
+      key = decodeURIComponent(e.slice(dir.length));
+    } catch {
+      throw new RangeError(`scope "${e}" is not percent-encoded UTF-8`);
+    }
+    if (key === "") return undefined;
+    if (key !== named) keys.push(key);
+  }
+  return keys;
 }
 
 /** The files of a VSI or NRRD input as a store the run probes: `objects` holds the named file
@@ -111,6 +142,11 @@ export function vsiFiles(url: string, source: RangeSource, options: VsiOptions =
  * sources are the files some reference uses, their sizes pinned. */
 export async function zarrifyVsi(url: string, source: RangeSource, options: VsiOptions = {}, format: BesideFormat = "vsi"): Promise<ArchiveDesc & { summary: Record<string, unknown>; store: Store }> {
   const store = vsiFiles(url, source, options, format);
-  const desc = await zarrifyStoreIr(format, store, { mirror: options.mirror ?? true, concurrency: source.concurrency });
+  const desc = await zarrifyStoreIr(format, store, {
+    mirror: options.mirror ?? true,
+    concurrency: source.concurrency,
+    checksums: options.checksums === true,
+    ...(options.scope !== undefined ? { scope: options.scope } : {}),
+  });
   return { ...desc, store };
 }

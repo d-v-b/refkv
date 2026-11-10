@@ -13,44 +13,7 @@ How refkv produces this layout as a reference store is the QPTIFF profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `329ea136-2f55-4c27-b6f4-8e60ca2109b8` ·
 Schema: [schema.json](qptiff/schema.json)
 
-Changed 2026-11-04: an image of `float32` with Predictor 3 has a layout, as in the TIFF convention,
-which [§4.1](#41-data-types-and-codecs) cites (`imagecodecs_floatpred` in place of `bytes`); no output
-of a file accepted before changed.
-
-Changed 2026-11-03, with no change to any output: the example's channels have the windows sampled from its LZW level.
-
-Changed 2026-10-27: an image of an integer type with Predictor 2 has a layout, as in the TIFF
-convention, which [§4.1](#41-data-types-and-codecs) cites (`imagecodecs_delta` before `bytes`);
-other predictors are still rejected; no output of a file accepted before changed.
-
-Changed 2026-10-27, with no change to the output of the inputs accepted before but the unusual
-ones below: the strip tags, LZW and the padding of a short last strip are now the TIFF
-convention's ([tiff.md §4.3](tiff.md#43-data-types-and-codecs),
-[tiff.md §4.5](tiff.md#45-strips)), which [§2](#2-the-source), [§4.1](#41-data-types-and-codecs)
-and [§4.2](#42-tiles-and-strips) cite; a level whose short last strip cannot be padded is still
-left out here; a strip padded with more than 2^22 zero bytes now rejects the input
-([§4.2](#42-tiles-and-strips)), and a short last LZW strip is read up to `3 × rows × B + 64`
-bytes, as [tiff.md §7.1](tiff.md#71-reading) says, where the whole strip was read (a stream that
-spends more than a Clear code and a literal on each byte it decodes no longer reaches its size);
-the zero padding is a prefix of the output's one zero data source, the same bytes and range as
-before when every padded strip lacks the same count.
-
-Changed 2026-10-27: an LZW tile's or strip's codec is `refkv.tiff_lzw`, refkv's own, in place of
-`imagecodecs_lzw` (imagecodecs-zarr's codec of that name reads the whole stream), and a Deflate
-one's `numcodecs.zlib`, in place of `zlib` ([conventions §3](../conventions.md#3-arrays),
-d-v-b/refkv#90).
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), the root's source metadata and a
-JPEG tile's reference those of the TIFF convention ([`TiffRoot`](tiff.md#type-tiffroot),
-[`TiffChunk`](tiff.md#type-tiffchunk)).
-
-Changed 2026-10-23: each `omero` channel's window is sampled from the coarsest level's data, as
-in the TIFF convention, when refkv decodes its compression (none, LZW, Deflate) and the image is
-not RGB, so that a `float32` channel has a window too, and an integer channel without a sampled
-window has the type's range ([§4.3](#43-arrays)); the profile reads the sampled chunks
-([§7](#7-qptiff-profile)).
+Changes: [changes/qptiff/](changes/qptiff/), one file per change.
 
 Added 2026-10-21.
 
@@ -195,8 +158,10 @@ other predictors.
 
 ### 4.2 Tiles and strips
 
-An IFD is tiled or in strips as [the TIFF convention §2](tiff.md#2-the-source) says (a tiled
-IFD MUST have TileLength and TileByteCounts, with TileWidth and TileLength at least 1), and
+An IFD is tiled or in strips as [the TIFF convention §2](tiff.md#2-the-source) says (an IFD
+with TileWidth and TileLength is tiled, and MUST have both of its tile tables, TileOffsets and
+TileByteCounts or, in an IFD with neither, StripOffsets and StripByteCounts, with TileWidth and
+TileLength at least 1), and
 a level in strips has the rows per strip `R`, the chunks of `R` rows and the padding of a
 short last strip of [the TIFF convention §4.5](tiff.md#45-strips) (its limits on the
 padding and on the bytes an LZW tail reads included, which reject the input whatever the
@@ -442,7 +407,8 @@ convention §4.3](#43-arrays)) is the entry `<level>/c/<coords>`, whose referenc
 
 <a id="type-qptiffchunk"></a>**`QptiffChunk`**, the reference of tile (or strip) `k`, with
 byte count `n > 0`, `offset` TileOffsets (StripOffsets) and `n`
-TileByteCounts`[k]` (StripByteCounts`[k]`):
+TileByteCounts`[k]` (StripByteCounts`[k]`), a tiled IFD's TileOffsets and TileByteCounts being
+its tile tables ([the convention §4.2](#42-tiles-and-strips)):
 
 | part | range | presence | value |
 |---|---|---|---|
@@ -454,9 +420,9 @@ TileByteCounts`[k]` (StripByteCounts`[k]`):
 
 A short last strip thus has, when uncompressed, the ranges `[(0, offset[k], n), Z]`, and
 when LZW, the ranges `[(0, offset[k], p), T]`; any other tile or strip but a JPEG one has the
-single range `(0, offset[k], n)`. The references are
-listed (for [§1.2](../zarrify.md#12-input)'s order of first use) level
-by level, within a level by channel, and within an image by `k`. Besides
-these and the root's and the arrays' `zarr.json`, the archive's entries are
+single range `(0, offset[k], n)`. The sources are numbered by
+[§1.2](../zarrify.md#12-input)'s order of first use, over the references in the order of their
+keys. Besides
+the references and the root's and the arrays' `zarr.json`, the archive's entries are
 those of the source metadata node `refkv_source`, the file's IR mirror
 ([the convention §5](#5-source-metadata), [conventions §8](../conventions.md#8-the-ir-mirror)).

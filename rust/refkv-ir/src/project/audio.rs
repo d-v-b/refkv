@@ -28,7 +28,7 @@ pub fn reservoir_lead(a: usize, reservoir: u64, main: impl Fn(usize) -> u64) -> 
 /// `first + 1`, ... (of the form `form`), `per` frames a chunk of `spf` samples each: chunk q the
 /// frames from its lead-in `lead(a)` to its last (the bytes between frames, which are no frame,
 /// left out: a decoder resyncs on them), the lead-in's samples dropped and frame j's at
-/// (j − a) · `spf`, charged as its first frame a, piece q. Returns the count of chunks.
+/// (j − a) · `spf`, charged as its first frame a. Returns the count of chunks.
 #[allow(clippy::too_many_arguments)]
 pub fn chunks(refs: &mut Refs, ir: &Ir, path: &str, first: usize, count: usize, per: usize, spf: u64, form: u32,
               lead: impl Fn(usize) -> usize) -> Result<usize, String> {
@@ -44,7 +44,7 @@ pub fn chunks(refs: &mut Refs, ir: &Ir, path: &str, first: usize, count: usize, 
             })
             .collect();
         let (o, len) = frame(a);
-        refs.chunk(format!("{path}/c/{q}/0"), o, len, form, Some(stream_parts(&units)), q as u64)?;
+        refs.chunk(format!("{path}/c/{q}/0"), o, len, form, Some(stream_parts(&units)))?;
     }
     Ok(chunks)
 }

@@ -3,8 +3,17 @@
 //!
 //! ```text
 //! vzip convert <url or path> <out.vzip> [--url <source url>] [--checksums] [--allow-private-hosts]
-//!     [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv|hybrid]
+//!     [--scope PATH ...] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv|hybrid]
 //! ```
+//!
+//! `--scope PATH` (repeated for several) says what a file input may read besides itself, when it
+//! names files beside it (an HDF5 file's external storage, a detached NRRD header's data file):
+//! paths written as the input is, each its directory (the default) or a file or directory below it
+//! (spec/zarrify.md §1.9
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
+//! **Scope**). A file the input needs outside it is not opened, and the input is rejected, naming
+//! it; `--scope <the input>` reads the input alone. Give one when the input is untrusted and its
+//! directory holds others' files.
 //!
 //! `--format` chooses the container: a vzip archive (the default), a standalone phkv store, or a
 //! vzip archive that also carries a phkv container (spec/bindings/phkv.md §16.2
@@ -56,10 +65,22 @@ pub enum Fail {
     Other(String),
 }
 
+impl From<refkv_ir::seal::Refusal> for Fail {
+    /// The core's refusal of an output: a rejection, or a failure (status 1), such as a payload
+    /// over the limit only with its checksums (spec/zarrify.md §1.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
+    fn from(r: refkv_ir::seal::Refusal) -> Fail {
+        match r {
+            refkv_ir::seal::Refusal::Rejected(e) => Fail::Rejected(e),
+            refkv_ir::seal::Refusal::Failed(e) => Fail::Other(e),
+        }
+    }
+}
+
 // the store kinds, in the words of `python -m refkv.zarrify`'s usage (python/src/refkv/zarrify/__main__.py)
 const USAGE: &str = "usage: vzip convert <url or path> <out.vzip> [--url <source url>] [--checksums] \
-[--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv|hybrid]\n\
-(a URL ending in / or a directory is an N5, Zarr v2 or OME-Zarr 0.4 store, a Neuroglancer precomputed volume, a Sentinel-2 .SAFE directory, \
+[--allow-private-hosts] [--scope PATH ...] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv|hybrid]\n\
+(a URL ending in / or a directory is a Zarr v3, Zarr v2, OME-Zarr 0.4 or N5 store, a Neuroglancer precomputed volume, a Sentinel-2 .SAFE directory, \
 or a store of safetensors files; a directory needs --url;\n\
 a Hugging Face Hub URL https://huggingface.co/<owner>/<repo>/tree/<rev>/ is listed at its commit,\n\
 at HF_ENDPOINT's Hub if set;\n\
@@ -84,6 +105,8 @@ struct Args {
     url: Option<String>,
     checksums: bool,
     allow_private_hosts: bool,
+    /// what a file input may read besides itself (`--scope`, each a path; None: its directory)
+    scope: Option<Vec<String>>,
     connections: Option<usize>,
     byte_cost: Option<f64>,
     workers: usize,
@@ -115,11 +138,16 @@ fn number<T: std::str::FromStr>(flag: &str, v: &str) -> Result<T, Fail> {
     v.trim().parse().map_err(|_| Fail::Other(format!("{flag} {v:?} is not a number")))
 }
 
-/// `convert`'s arguments, the flags anywhere, as python -m refkv.zarrify reads them.
+/// `convert`'s arguments, the flags anywhere, as python -m refkv.zarrify reads them (but its
+/// `--layout` and `--layout-options`: plugin layouts are Python's).
 fn parse(argv: &[String]) -> Result<Args, Fail> {
     let mut args = argv.to_vec();
     let checksums = flag(&mut args, "--checksums");
     let allow_private_hosts = flag(&mut args, "--allow-private-hosts");
+    let mut scope: Option<Vec<String>> = None;
+    while let Some(p) = take(&mut args, "--scope")? {
+        scope.get_or_insert_with(Vec::new).push(p);
+    }
     // requests at a time to a remote file (default 8); 0 is the default
     let connections = match take(&mut args, "--connections")? {
         None => None,
@@ -138,7 +166,7 @@ fn parse(argv: &[String]) -> Result<Args, Fail> {
         Some(f) => output::Container::parse(&f).ok_or_else(|| Fail::Usage(format!("--format {f:?} is not vzip, phkv or hybrid")))?,
     };
     let [input, out] = <[String; 2]>::try_from(args).map_err(|_| Fail::Usage(USAGE.into()))?;
-    Ok(Args { input, out, url, checksums, allow_private_hosts, connections, byte_cost, workers: workers.max(1) as usize, format })
+    Ok(Args { input, out, url, checksums, allow_private_hosts, scope, connections, byte_cost, workers: workers.max(1) as usize, format })
 }
 
 /// Zarrifies the input, and writes the archive; the summary.
@@ -147,7 +175,8 @@ fn parse(argv: &[String]) -> Result<Args, Fail> {
 /// are the files some reference uses, their sizes pinned.
 fn zarrify_beside(a: &Args, client: &std::sync::Arc<http::Client>, beside: refkv_ir::store::StoreFormat) -> Result<(String, serde_json::Value, output::Archive), Fail> {
     let t = transport::Transport::open(&a.input, client)?;
-    let (out, files) = vsi::zarrify_vsi(&a.input, a.url.as_deref(), t, client, a.connections, beside)?;
+    let scope = a.scope.as_deref().map(|s| vsi::scope_keys(&a.input, s)).transpose()?.flatten();
+    let (out, files) = vsi::zarrify_vsi(&a.input, a.url.as_deref(), t, client, a.connections, beside, a.checksums, scope)?;
     let summary = out.summary.clone();
     let (mut archive, objects) = output::store_archive(out, &files.sizes)?;
     if a.checksums {
@@ -161,12 +190,19 @@ fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
     if a.url.is_none() && std::path::Path::new(&a.input).is_dir() {
         return Err(Fail::Usage("a local directory needs --url, the store URL (ending in /) it is served from".into()));
     }
+    if let Some(scope) = &a.scope {
+        // before anything is read
+        if store::is_store(&a.input) {
+            return Err(Fail::Usage("a store input reads the objects its listing gives: --scope is for a file input".into()));
+        }
+        vsi::scope_keys(&a.input, scope)?;
+    }
     let policy = policy::Policy { allow_private_hosts: a.allow_private_hosts };
     let client = http::Client::new(policy, Duration::from_secs(60));
     let hub = store::hub_endpoint(std::env::var("HF_ENDPOINT").ok().as_deref())?;
     let (fmt, summary, archive) = if store::is_store(&a.input) {
         let s = store::Store::open(&a.input, a.url.as_deref(), &client, a.workers, &hub)?;
-        let (fmt, out) = store::zarrify_store(&s)?;
+        let (fmt, out) = store::zarrify_store(&s, a.checksums)?;
         let summary = out.summary.clone();
         let (mut archive, objects) = output::store_archive(out, &s.listing().objects)?;
         if a.checksums {
@@ -252,13 +288,14 @@ mod tests {
             Args { input: "in.tif".into(), out: "out.vzip".into(), workers: 16, ..Default::default() }
         );
         assert_eq!(
-            parse(&args("--checksums d/ --url http://h/s/ o.vzip --allow-private-hosts --connections 3 --byte-cost 2 --workers 0")).unwrap(),
+            parse(&args("--checksums d/ --url http://h/s/ o.vzip --allow-private-hosts --scope a --connections 3 --scope b --byte-cost 2 --workers 0")).unwrap(),
             Args {
                 input: "d/".into(),
                 out: "o.vzip".into(),
                 url: Some("http://h/s/".into()),
                 checksums: true,
                 allow_private_hosts: true,
+                scope: Some(vec!["a".into(), "b".into()]),
                 connections: Some(3),
                 byte_cost: Some(2e-6),
                 workers: 1,

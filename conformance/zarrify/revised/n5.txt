@@ -1,0 +1,5 @@
+# A store with a node at refkv_source, which the profile rejects whether or not the store has
+# other objects, since the IR's mirror is always there (spec/zarrify/n5.md §6
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>), where the frozen
+# reference rejected it only when there were other objects to keep.
+n5_reject_objects_collision

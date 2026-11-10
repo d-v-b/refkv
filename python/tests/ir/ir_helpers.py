@@ -23,11 +23,19 @@ FIXTURES = Path(__file__).parents[3] / "fixtures"
 ROOT = Path(__file__).parents[3]
 # the frozen reference twins the IR is compared against (refkv_reference)
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify" / "reference"))
+sys.path.append(str(ROOT / "conformance" / "zarrify"))
+# The frozen reference's digit strings of integers past 2^53 - 1, which the shipped code writes as
+# exact JSON integers (compare.py's exact_integers).
+from exact_integers import exact_integers  # noqa: E402
 from refkv_reference import virtualize as reference  # noqa: E402  (the frozen reference)
 from refkv_reference.legacy import SOURCE_NODE as LEGACY_NODE  # noqa: E402
 from refkv_reference.legacy import current_names  # noqa: E402  (a frozen twin's documents with the current names)
 from refkv_reference.revision import DICOM_REVISION, IMS_REVISION, REVISION_25  # noqa: E402
 from refkv_reference.revision import REVISION as FROZEN  # noqa: E402
+
+# The fixtures whose layout the profile changed after the freeze, which the frozen reference
+# does not give (conformance/zarrify/revised/README.md, compare.py's REVISED).
+from revised_fixtures import REVISED as REVISED  # noqa: E402, PLC0414 (the test modules import it from here)
 
 
 def assert_rebuilds(out, data: bytes, tmp_path, name: str = "a.vzip") -> None:
@@ -90,9 +98,6 @@ MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_trunc
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>, spec/zarrify/ndpi.md §4
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>).
 ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
-# The fixtures whose layout the profile changed after the freeze, which the frozen reference
-# does not give (conformance/zarrify/revised.json, compare.py's REVISED).
-REVISED = set(json.loads((ROOT / "conformance" / "zarrify" / "revised.json").read_text())["fixtures"])
 # The profiles whose edge chunks' zero padding is a range of the output's zero data source since
 # the freeze, where the frozen reference pads with a literal range (conformance/zarrify/compare.py's
 # ZERO_PADDED; spec/zarrify/nifti.md §7.2
@@ -117,7 +122,9 @@ def same_hierarchy(a, b) -> None:
     current ones, and its root records that revision (refkv_reference.revision: 20, or 25
     for DICOM, NIfTI, IMS and NDPI), which is dropped: the shipped code records none.
     The members of `b`'s root image the reference does not write (ADDED) are dropped, and
-    the padding of a ZERO_PADDED profile's `b` is read as literal ranges (`literal_padding`)."""
+    the padding of a ZERO_PADDED profile's `b` is read as literal ranges (`literal_padding`). An
+    integer past 2^53 - 1 that the reference writes as the string of its digits (or ND2's tag) is
+    read as the exact integer `b` writes (`exact_integers`)."""
     def node(o):
         # the source metadata node; under its old name only in the frozen reference's output
         return ("refkv_source", LEGACY_NODE) if o is a else ("refkv_source",)
@@ -146,7 +153,8 @@ def same_hierarchy(a, b) -> None:
     def refs(o):
         return {k: v for k, v in (b_refs if o is b else o.refs).items() if not k.startswith(node(o))}
 
-    assert docs(a) == docs(b)
+    ours = docs(b)
+    assert exact_integers(docs(a), ours, safe=profile == "safe") == ours
     assert refs(a) == refs(b)
     assert list(a.data) == b_data
 

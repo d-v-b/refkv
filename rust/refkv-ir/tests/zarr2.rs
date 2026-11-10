@@ -24,7 +24,7 @@ fn output(files: &BTreeMap<String, Vec<u8>>) -> Result<Out, String> {
     let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let (ir, facts, stats) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone())?;
-    store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://data.test/s/", true)
+    store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://data.test/s/", true, false).map_err(String::from)
 }
 
 fn run(name: &str) -> Result<Out, String> {
@@ -171,7 +171,7 @@ fn the_ignored_keys_are_refkv_source_s_member_ignored_in_byte_order() {
         let mut r = StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
         r.ignore(ignored.clone(), Vec::new()).unwrap();
         drive(&mut r, &bytes).unwrap();
-        let out = r.into_output("https://data.test/h/", true).unwrap();
+        let out = r.into_output("https://data.test/h/", true, false).unwrap();
         let own = &doc(&out, "refkv_source/zarr.json")["attributes"]["refkv_zarrified"]["zarr2"];
         let mut sorted = ignored.clone();
         sorted.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
@@ -196,7 +196,7 @@ fn the_ignored_keys_are_refkv_source_s_member_ignored_in_byte_order() {
     let mut r = StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
     r.ignore(vec!["b//c".into(), "./x".into()], Vec::new()).unwrap();
     drive(&mut r, &bytes).unwrap();
-    let out = r.into_output("https://data.test/h/", false).unwrap();
+    let out = r.into_output("https://data.test/h/", false, false).unwrap();
     assert!(!out.entries.iter().any(|e| e.0 == "refkv_source/zarr.json"));
 }
 

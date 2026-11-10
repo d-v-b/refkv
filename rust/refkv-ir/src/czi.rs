@@ -12,13 +12,20 @@
 //! walk over the segments nothing references, a window at a time. The schema
 //! (`schema/czi.json`) is checked as the profile meets each role: a file that
 //! fails is rejected there, and nowhere else. The layout (series, levels, tiles,
-//! row bands) is derived at the end, and checked there.
+//! row bands) is derived at the end, and checked there. Every subblock the parser reads is described
+//! as the source stores it (`czi/stored.rs`; spec/stored-array.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>), once its IR is
+//! finished.
 //!
 //! An image across numbered files (spec/zarrify/czi.md §7.9
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>) has a parser
 //! of this kind per file, driven by the store run of `czi_set.rs`. A file run's parser finds out
 //! after round 3 that its file has siblings, and ends the run (`Step::Beside`).
 
+#[path = "czi/stored.rs"]
+mod stored;
+
+use crate::array::Place;
 use crate::coding::{self, Head};
 use crate::cxml;
 use crate::fed::{Fed, Word};
@@ -131,6 +138,18 @@ struct Sub {
     head: Vec<u8>,
     asked: u64,
     resolved: bool,
+    /// the subblock's struct, the key of its description: this entry's, or, of an entry that names
+    /// a segment an earlier one read, that one's
+    key: Option<u32>,
+    /// its own copy of its entry, the description's declarations: the `entry` value, and the
+    /// `dimensions` value where the copy has any
+    copy_els: Vec<u32>,
+    /// the frame header of the stream of a JpgFile or lossless JPEG subblock, where it has one
+    frame: Option<coding::JpegFrame>,
+    /// whether its data, with no coded size, is a Zstandard frame that declares no content size
+    unsized_frame: bool,
+    /// the value that keeps the data of a subblock with no coded size
+    kept_el: Option<u32>,
 }
 
 pub(crate) struct Placed {
@@ -148,6 +167,8 @@ pub(crate) struct Placed {
     form: (i32, i32, bool),
     layer: Option<(u32, u32)>,
     pub(crate) el: u32,
+    /// the subblock's struct, the key of its description
+    pub(crate) key: u32,
 }
 
 impl Placed {
@@ -263,6 +284,8 @@ pub struct Czi {
     walk_k: u64,
     walk_prev: Option<u32>,
     window: u64,
+    /// whether the file was read to its end: not so of a run that ended for its file's siblings
+    walked: bool,
     facts: Option<J>,
     /// data forms by (pixel type, compression, form flag, coded width, coded height)
     forms: HashMap<(i32, i32, bool, u64, u64), String>,
@@ -331,6 +354,7 @@ impl Czi {
             walk_k: 0,
             walk_prev: None,
             window: 1 << 16,
+            walked: false,
             facts: None,
             forms: HashMap::new(),
             asked: sans::Asked::default(),
@@ -397,14 +421,17 @@ impl Czi {
         planes.add(&self.entries);
     }
 
-    /// The file's IR, the subblocks to place, the entries it has (their indexes in `Placed`) and
-    /// how many of them are subblocks of this file, once its parse is done.
-    pub(crate) fn take_file(&mut self) -> Res<(Ir, Vec<Placed>, usize, usize)> {
+    /// The file's IR with its subblocks described, the subblocks to place, the key of each
+    /// entry's description (the entries are the indexes in `Placed`) and how many of the entries
+    /// are subblocks of this file, once its parse is done.
+    pub(crate) fn take_file(&mut self) -> Res<(Ir, Vec<Placed>, Vec<Option<u32>>, usize)> {
         let placed = self.placed();
         let own = self.entries.iter().filter(|e| !self.elsewhere(e)).count();
         let ir = std::mem::replace(&mut self.ir, Ir::new(0));
-        let (ir, _) = sans::finish(self.phase == Phase::Done, ir, J::Null)?;
-        Ok((ir, placed, self.entries.len(), own))
+        let (mut ir, _) = sans::finish(self.phase == Phase::Done, ir, J::Null)?;
+        // the file's subblocks, described in its own IR: the graft carries them into the store's
+        self.describe(&mut ir)?;
+        Ok((ir, placed, self.keys(), own))
     }
 
     pub(crate) fn is_done(&self) -> bool {
@@ -732,6 +759,7 @@ impl Czi {
                     if matches!(self.role, Role::Alone) {
                         self.facts = Some(self.layout()?);
                     }
+                    self.walked = true;
                     self.phase = Phase::Done;
                 }
                 Phase::Done => return Ok(Step::Done),
@@ -978,10 +1006,13 @@ impl Czi {
             sub.m = m;
             sub.a = a;
             sub.n = n;
+            // the segment's struct keys the subblock's description, whichever entry names it
+            sub.key = Some(if alias { self.ir.target(s) } else { s });
             if !alias {
                 sub.el = Some(s);
                 self.ir.value(s, "sizes", NO_INDEX, "{metadata_size:<i4,attachment_size:<i4,data_size:<i8}", 0, (p + 32, 16), Some(&h[32..48]))?;
-                self.ir.value(s, "entry", NO_INDEX, ENTRY, 0, (p + 48, 32), Some(&h[48..80]))?;
+                let copy = self.ir.value(s, "entry", NO_INDEX, ENTRY, 0, (p + 48, 32), Some(&h[48..80]))?;
+                sub.copy_els.push(copy);
                 // a long header, and the metadata after it when the view shows it
                 let meta = if m > 0 && m as u64 <= crate::mirror::VIEW_VALUE { m as u64 } else { 0 };
                 if self.fed.get(p, 32 + length + meta).is_none() && (32 + length > 288 || meta > 0) {
@@ -1032,7 +1063,8 @@ impl Czi {
             self.subs[i].agrees = agrees;
             let d = (copy.len() as u64 - 32) / 20;
             if d > 0 {
-                self.ir.value(s, "dimensions", NO_INDEX, &format!("{DIMENSION}[{d}]"), 0, (o + 80, 20 * d), Some(&copy[32..]))?;
+                let dimensions = self.ir.value(s, "dimensions", NO_INDEX, &format!("{DIMENSION}[{d}]"), 0, (o + 80, 20 * d), Some(&copy[32..]))?;
+                self.subs[i].copy_els.push(dimensions);
             }
             let p = o + 32 + sub.length;
             if sub.m > 0 {
@@ -1141,8 +1173,18 @@ impl Czi {
                     self.subs[i].asked = want;
                 }
                 Ok(c) => {
+                    // a JPEG stream's frame header, which its description is made from
+                    // (`czi/stored.rs`): the coded size read it from these same bytes
+                    let frame = match e.comp {
+                        coding::JPEG | coding::LJPEG => coding::jpeg_frame_header(&h).ok().flatten(),
+                        _ => None,
+                    };
+                    // and a Zstandard frame of no declared size, which has no coded size
+                    let unsized_frame = c.is_none() && coding::zstd_frame_unsized(e.pt, e.comp, n, &h).unwrap_or(false);
                     let sub = &mut self.subs[i];
                     sub.coded = c;
+                    sub.frame = frame;
+                    sub.unsized_frame = unsized_frame;
                     sub.resolved = true;
                 }
             }
@@ -1169,7 +1211,8 @@ impl Czi {
         let placed = if sub.agrees { sub.coded } else { None };
         let Some((cw, ch, flag, skip)) = placed else {
             if n > 0 {
-                self.ir.value(s, "data", NO_INDEX, &format!("bytes[{n}]"), 0, (start, n), None)?;
+                let kept = self.ir.value(s, "data", NO_INDEX, &format!("bytes[{n}]"), 0, (start, n), None)?;
+                self.subs[i].kept_el = Some(kept);
             }
             return Ok(());
         };
@@ -1633,13 +1676,87 @@ impl Czi {
                 form: (e.pt, e.comp, flag),
                 layer: layer(x.1 as i64, y.1 as i64, x.2 as i64, y.2 as i64),
                 el,
+                key: sub.key.unwrap_or(NONE),
             });
         }
         ps
     }
 
     fn layout(&self) -> Res<J> {
-        self.layout_of(self.placed(), self.entries.len())
+        let mut facts = self.layout_of(self.placed(), self.entries.len())?;
+        facts["declared_by"] = json!(self.keys());
+        Ok(facts)
+    }
+
+    /// `declared_by`: for each entry, in order, the key of its subblock's description, the
+    /// subblock's struct (spec/stored-array.md §7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>); None for an
+    /// entry whose subblock is in another file.
+    pub(crate) fn keys(&self) -> Vec<Option<u32>> {
+        self.subs.iter().map(|s| s.key).collect()
+    }
+
+    /// What the description of each subblock this file's entries read needs, on the finished IR
+    /// `ir` (`czi/stored.rs`).
+    fn reached(&self, ir: &Ir) -> Vec<stored::Reached> {
+        let mut out = Vec::new();
+        for (e, sub) in self.entries.iter().zip(&self.subs) {
+            // an entry that names a segment an earlier one read declares no second array
+            let Some(element) = sub.el else { continue };
+            let size = |l: u8| e.dim(l).map(|d| d.2 as u64);
+            let pixels = match (coding::pixel_type(e.pt), size(b'X'), size(b'Y')) {
+                (Some((_, samples, bytes)), Some(width), Some(height)) if sub.agrees => {
+                    Some(stored::Pixels { height, width, samples, bits: 8 * bytes / samples })
+                }
+                _ => None,
+            };
+            // how its data is encoded, where the parser found the data to be what the entry says:
+            // a JPEG stream by its frame header, any other by its coded size, and a Zstandard
+            // frame that declares no size too
+            let encoding = pixels.and_then(|p| match e.comp {
+                coding::JPEG | coding::LJPEG => stored::jpeg_encoding(e.comp, &p, sub.frame.as_ref()?),
+                _ if sub.coded.is_none() && !sub.unsized_frame => None,
+                coding::UNCOMPRESSED => Some(stored::Encoding::Stored),
+                coding::LZW => Some(stored::Encoding::Lzw),
+                coding::JPEGXR => Some(stored::Encoding::JpegXr),
+                coding::ZSTD0 => Some(stored::Encoding::Zstd),
+                coding::ZSTD1 => Some(stored::Encoding::Zstd1),
+                _ => None,
+            });
+            // an element the finished IR made a second name of another's bytes (its extent lies in
+            // an earlier element's) holds none of its own: its bytes are then named as a range of
+            // the file
+            let own = |d: u32| ir.kind[d as usize] != ALIAS;
+            let span = |d: u32| (ir.start[d as usize], ir.len[d as usize]);
+            // its data's element: the pixels of a subblock with a coded size, or the value that
+            // keeps the data of one without (a stream the profile does not place)
+            let data = encoding.zip(sub.data_el.or(sub.kept_el)).map(|(encoding, d)| {
+                let start = e.pos as u64 + 32 + sub.length + sub.m as u64;
+                // a Zstd1 subblock's unit is its header and its frame, which no one element holds
+                let unit = match e.comp {
+                    coding::ZSTD1 => stored::Unit::Range(start, sub.n as u64),
+                    _ if own(d) => stored::Unit::Element(d),
+                    _ => stored::Unit::Range(span(d).0, span(d).1),
+                };
+                (encoding, unit)
+            });
+            let place = |&d: &u32| match own(d) {
+                true => Place::Element { element: d, member: None, range: None },
+                false => Place::Extent { object: None, offset: span(d).0, length: span(d).1 },
+            };
+            out.push(stored::Reached { element, declarations: sub.copy_els.iter().map(place).collect(), pixels, data });
+        }
+        out
+    }
+
+    /// Adds the subblocks' descriptions to the file's finished IR.
+    fn describe(&self, ir: &mut Ir) -> Res<()> {
+        // a run that ended for its file's siblings read no subblock, or none at all
+        if !self.walked {
+            return Ok(());
+        }
+        let (arrays, chains, map) = stored::described(&self.reached(ir))?;
+        ir.describe(arrays, chains, map)
     }
 
     /// The facts of an image of the subblocks `ps` placed, of `subblocks` subblocks in all: this
@@ -1758,12 +1875,15 @@ impl Czi {
                         json!([s.el, s.plane.0 - lo[0], s.plane.1 - lo[1], s.plane.2 - lo[2], c, j, s.w, s.h])
                     })
                     .collect();
+                // `declared_by`: each cell's subblock's struct, the key of its description
+                let keys: Vec<u32> = lv.cells.iter().map(|c| ps[c.0].key).collect();
                 lvs.push(json!({
                     "shape": axes.iter().map(|a| json!(size.iter().find(|x| x.0 == *a).unwrap().1 as i64)).collect::<Vec<_>>(),
                     "chunks": axes.iter().map(|a| lens(a)).collect::<Vec<_>>(),
                     "factor": lv.factor, "grid": [m, r],
                     "band": {"rows": rows, "per": per},
                     "cells": cells,
+                    "declared_by": keys,
                 }));
             }
             images_json.push(json!({
@@ -1824,6 +1944,8 @@ impl Czi {
                     let s = &ps[k];
                     json!([s.el, s.plane.0 - lo[0], s.plane.1 - lo[1], s.plane.2 - lo[2], 0, 0, s.w, s.h])
                 }).collect::<Vec<_>>(),
+                // `declared_by`: each member's subblock's struct, the key of its description
+                "declared_by": members.iter().map(|&k| ps[k].key).collect::<Vec<_>>(),
             }));
         }
         let (major, minor, primary, file, file_part, _, _, update, _) = self.fields.clone().unwrap();
@@ -1837,12 +1959,16 @@ impl Czi {
         }))
     }
 
-    /// The IR, finished (aliases and gaps), and the facts the projection reads.
-    pub fn finish(self) -> Result<(Ir, J), String> {
-        let mut facts = self.facts.unwrap_or(J::Null);
+    /// The IR, finished (aliases and gaps) with its subblocks described (`czi/stored.rs`), and the
+    /// facts the projection reads.
+    pub fn finish(mut self) -> Result<(Ir, J), String> {
+        let mut facts = self.facts.take().unwrap_or(J::Null);
         self.asked.put(&mut facts);
         facts["held_max"] = json!(self.held_max);
-        sans::finish(self.phase == Phase::Done, self.ir, facts)
+        let ir = std::mem::replace(&mut self.ir, Ir::new(0));
+        let (mut ir, facts) = sans::finish(self.phase == Phase::Done, ir, facts)?;
+        self.describe(&mut ir)?;
+        Ok((ir, facts))
     }
 }
 
@@ -1862,4 +1988,9 @@ impl crate::run::FileProfile for Profile {
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::czi::project(ir, facts, url)
     }
+}
+
+/// The parser of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+    Ok(Box::new(crate::czi_set::CziSet::new(ir, objects, keys)?))
 }

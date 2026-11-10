@@ -10,33 +10,7 @@ below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` ·
 Schema: [schema.json](fits/schema.json)
 
-Changed 2026-11-04: a whole file in gzip or bzip2 (`.fits.gz`, `.fits.bz2`) is accepted, where it
-was rejected: each array is one chunk, the whole stream, with `refkv.skip` stopping at the array's
-end ([§2.1](#21-a-compressed-file)); the root's source metadata has the member `stream`
-([§5.1](#51-the-root)).
-
-Changed 2026-11-04: a binary table's `rows` is a `struct` array over its rows where its columns
-tile its row, and stays bytes otherwise, the reason in its node's `not_struct`; a column's
-`field` names its field ([§4](#4-tables), [§5.2](#52-an-hdus-node)).
-
-Changed 2026-11-03, with no change to any output: a comment card keeps its leading spaces ([§5.3](#53-cards)); tile-compressed images are not
-listed as rejected ([§8](#8-what-the-layout-does-not-express)), and the worked example of a chunk
-cut follows [conventions §7](../conventions.md#7-source-values-as-arrays).
-
-Changed 2026-10-26: an ASCII table's `TNULLn` is its column's `null`, a string, where it was
-`null`, and an integer card of an HDU's or a column's member past 2^53 − 1 is the string of its
-digits, as in the cards, where it was `null` ([§5.2](#52-an-hdus-node)); the layout is
-tabulated, its entries in [Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), and the text says what refkv already
-wrote: a table's `rows` array is present, without chunks, when `NAXIS1 × NAXIS2` is 0
-([§4](#4-tables)); a compression's `dither_seed` is `null` without `ZDITHER0`
-([§5.1](#51-the-root)); a real card value that is not finite in binary64 is `{"text": t}`
-([§5.3](#53-cards)); and a tile-compressed image's summary carries its `compression`
-([§9.5](#95-summary)).
-
-Changed 2026-10-25: an edge chunk's zero padding is a range of the output's one zero data
-source, not a literal range of each reference, so that the archive holds the zeros once
-([§9.4](#94-chunks)); no chunk's values change, nor which chunks are copied.
+Changes: [changes/fits/](changes/fits/), one file per change.
 
 Added 2026-10-24.
 
@@ -515,7 +489,7 @@ members in this order:
 |---|---|---|---|
 | `index` | integer | required | the HDU's number |
 | `cards` | [`FitsCards`](#type-fitscards) | required | the HDU's header's cards ([§5.3](#53-cards)) |
-| `bscale` | number, [`Integer`](../conventions.md#type-integer) or null | optional | for an image: `BSCALE`, the card's number (an integer card past 2^53 − 1 the string of its digits), or `null` when absent or not a number |
+| `bscale` | number, [`Integer`](../conventions.md#type-integer) or null | optional | for an image: `BSCALE`, the card's number (an integer card's exact, whatever its magnitude), or `null` when absent or not a number |
 | `bzero` | number, [`Integer`](../conventions.md#type-integer) or null | optional | for an image: `BZERO`, likewise |
 | `blank` | number, [`Integer`](../conventions.md#type-integer) or null | optional | for an image: `BLANK`, likewise |
 | `bunit` | string or null | optional | for an image: `BUNIT`, the card's string, or `null` |
@@ -559,7 +533,7 @@ A value field's JSON value:
 |---|---|
 | a string in single quotes | a JSON string, with doubled quotes undoubled and trailing spaces trimmed |
 | `T` or `F` | `true` or `false` |
-| an integer (an optional sign and digits) | exactly: a JSON number up to 2^53 − 1 in magnitude, and a string of its digits past that |
+| an integer (an optional sign and digits) | a JSON integer, exact whatever its magnitude ([`Integer`](../conventions.md#type-integer)) |
 | a real | its binary64 value (a `D` exponent read as `E`); `{"text": t}` when that value is not finite (it overflows binary64) |
 | a complex `(r, i)` | `[r, i]` |
 | nothing | `null` |
