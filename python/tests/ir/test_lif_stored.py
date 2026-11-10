@@ -42,7 +42,6 @@ import pytest
 from described import Described, described
 from ir_helpers import FIXTURES, ROOT
 
-from refkv.ir.kind import Kind
 from refkv.ir.stored import Each, ElementPlace, Grid
 
 sys.path.insert(0, str(ROOT / "fixtures" / "generators" / "lif"))
@@ -90,12 +89,7 @@ class Input:
 
     def where(self, element: int, within: tuple[int, int] | None = None) -> Range:
         """The bytes of an element's extent, or of a range of it."""
-        start, length = self.d.ir.extent(element)
-        if within is not None:
-            start, length = start + within[0], within[1]
-        while element and self.d.ir.kind(element) != Kind.OBJECT:
-            element = self.d.ir.parent(element)
-        return (self.keys[element] if element else None), start, length
+        return self.d.at(element, within)
 
     def unit(self, row: dict) -> Range:
         """A row's unit: its element's bytes, or its range of them."""

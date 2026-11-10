@@ -82,8 +82,7 @@ write_fixtures = vsi_generator()
 @dataclass(frozen=True)
 class Slide:
     """A slide's descriptions, with its store's objects: each object's key by its element, and
-    each file's bytes by its key. (`Described` reads a key as a name under the root, which a tile
-    file's is not.)"""
+    each file's bytes by its key. A slide is always a store, so every place has a key."""
 
     d: Described
     keys: dict[int, str]
@@ -91,12 +90,9 @@ class Slide:
 
     def where(self, element: int, within: tuple[int, int] | None = None) -> Range:
         """The bytes of an element's extent, or of a range of it."""
-        start, length = self.d.ir.extent(element)
-        if within is not None:
-            start, length = start + within[0], within[1]
-        while self.d.ir.kind(element) != Kind.OBJECT:
-            element = self.d.ir.parent(element)
-        return self.keys[element], start, length
+        key, start, length = self.d.at(element, within)
+        assert key is not None
+        return key, start, length
 
     def held(self, at: Range) -> bytes:
         key, offset, length = at
