@@ -25,6 +25,7 @@ A second test asserts which cases the fixtures reached, and a third compares ban
 holds, written by rasterio. The parser describes no image with no grid: a band file it does not
 walk to its end is refused with its product, which two more tests hold."""
 
+import importlib.util
 import io
 import json
 import math
@@ -53,6 +54,11 @@ from refkv.zarrify import Rejected, _zarrify
 from refkv.zarrify.common import Output
 
 pa = pytest.importorskip("pyarrow")
+# rasterio runs in a process of its own (rasterio_jp2.py), so it is looked for here, and not
+# imported: where it is not installed, this module's tests are skipped, and with them those of
+# test_safe_presented.py, which imports this module
+if importlib.util.find_spec("rasterio") is None:
+    pytest.skip("rasterio is not installed", allow_module_level=True)
 
 INPUTS = sorted(p for p in (FIXTURES / "safe").iterdir() if "reject" not in p.name)
 SCHEMA = json.loads((ROOT / "spec" / "stored-array.json").read_text())
