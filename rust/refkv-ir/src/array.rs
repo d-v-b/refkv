@@ -191,6 +191,8 @@ pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "packbits", parameters: &[] },
     CodecEntry { name: "tiff_predictor", parameters: &[fixed("predictor"), fixed("planar_configuration"), fixed("byte_order")] },
     CodecEntry { name: "ccitt_t6", parameters: &[] },
+    CodecEntry { name: "jpegls", parameters: &[] },
+    CodecEntry { name: "dicom_rle", parameters: &[] },
     CodecEntry { name: "jpeg", parameters: &[fixed("tables")] },
     CodecEntry { name: "jpeg_restart_interval", parameters: &[fixed("header")] },
     CodecEntry { name: "jpeg2k", parameters: &[] },
