@@ -232,7 +232,9 @@ A chain's codec has only its entry's parameters.
 | `bzip2` | a bzip2 stream | none | none | the bytes it decompresses to |
 | `lzf` | one LZF block with no header; its decoded length is not stored | none | none | the block's bytes |
 | `blosc` | a Blosc 1 chunk, with its 16-byte header | none | none | the chunk's bytes |
+| `skip` | `length` bytes that a reader passes over, then the bytes its decoding makes | `length`: the count: a value, or a place that holds it as the source writes it in ASCII, decimal digits with a `+` before them allowed (the descriptor of NRRD's `byte skip`) | none | the bytes after the first `length` |
 | `shuffle` | the bytes of elements of `element_size` bytes each: every element's first byte, then every element's second, and so on, then the bytes past the last whole element as they are | `element_size`: a place of one value | none | the elements' bytes, each element's together |
+| `lsb_first` | elements of `bits` bits each, packed from each byte's least significant bit: bit k of the unit is bit k mod 8, counted from the least significant, of byte ⌊k / 8⌋, and an element's first bit is its least significant | `bits`: a value, from 1 to 7, the array's `item_bits` | none | the elements packed most significant bit first, as [§3.1](#31-chains) packs them |
 | `h5_fletcher32` | bytes, then their Fletcher-32 checksum as HDF5 computes it (4 bytes) | none | none | the bytes before the checksum |
 | `h5_lz4` | the layout of HDF5's LZ4 filter (32004): the decoded length (8 bytes, big-endian), a block size (4 bytes, big-endian), then each block as its stored length (4 bytes, big-endian) and an [LZ4 block](https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md), or the block's bytes as they are where the stored length is the block's own | none | none | the blocks' bytes, joined |
 | `h5_szip` | what HDF5's SZIP filter (4) writes | `options`, `pixels_per_block`, `bits_per_pixel`, `pixels_per_scanline`: each a place of one value | none | what the filter decodes it to |
@@ -242,8 +244,6 @@ A chain's codec has only its entry's parameters.
 | `xz` | an .xz stream | none | none | the bytes it decompresses to |
 | `tiff_lzw` | one TIFF LZW stream (TIFF 6.0 §13: codes packed most significant bit first, with the early change every TIFF writer uses now); or, where its first byte is 0 and its second odd, one of the older form libtiff calls old-style and tells by those bytes (codes packed least significant bit first, the code's width growing one code later) | none | none | the stream's bytes, up to the unit's: decoding stops there, and reads no code after ([zarrify/tiff.md §4.3](zarrify/tiff.md#43-data-types-and-codecs)) |
 | `packbits` | PackBits runs (TIFF 6.0 §9) | none | none | the runs' bytes |
-| `lsb_first` | elements of `bits` bits each, packed least significant bit first: bit k of the unit is bit k mod 8 of byte ⌊k / 8⌋, counted from the least significant, and an element's first bit is its least significant. Where `pad_from` ends a run of elements on a byte, the run's padding follows its last element | `bits`: a value, from 1 to 7 | none | the elements packed most significant bit first, as `item_bits` and `pad_from` say ([§3.1](#31-chains)), a run's padding after its last element |
-| `skip` | `length` bytes that are not the unit's elements (a header the source writes before them), then the elements' bytes | `length`: a value, the count of those bytes | none | the bytes after the first `length` |
 | `tiff_predictor` | a unit's rows, each differenced along its columns as TIFF's Predictor says: 2, each sample less the same sample of the pixel before it, as unsigned integers of `item_bits` bits in the byte order `byte_order` gives, modulo 2^`item_bits` (TIFF 6.0 §14); 3, the row's samples' most significant bytes, then their next and so on to their least, each byte less an earlier byte of that row of bytes, modulo 256 (Adobe's [TIFF Technical Note 3](http://chriscox.org/TIFFTN3d1.pdf)); that byte is as many places before it as a pixel has samples. A pixel's samples are the unit's last axis where `planar_configuration` is absent or 1 and the unit has three axes, else one | `predictor`, and `planar_configuration` where the image has more than one sample and the field: each a place of a field's one value; `byte_order`: a place of the file's byte order mark | none | the rows' elements, summed back, in the file's byte order |
 | `ccitt_t6` | one ITU-T T.6 (Group 4) stream of the unit's rows | none | none | elements of 1 bit, 1 for a coded black run and 0 for a white one, most significant bit first, each row padded to a whole byte |
 | `jpeg` | one JPEG stream (ISO/IEC 10918-1) of 8-bit samples; with `tables`, an abbreviated stream whose tables `tables` holds | `tables`: a place of an abbreviated stream of tables alone (TIFF's JPEGTables) | none | the frame's samples, one byte each, a pixel's components together in the frame's order, every component at the frame's size. Converting their color space is the profile's, which reads how the source declares it |
@@ -539,14 +539,17 @@ the same file, and has no description of its own.
   is not whole in the file, so no array of an MRC file lacks a grid but by the limits of
   [§6](#6-in-the-ir).
 - **The chain** is empty, but for mode 101's, `lsb_first` with `bits` 4: a row's first value is
-  the low half of its first byte.
+  the low half of its first byte. A row of an odd `nx` ends on half a byte of padding, the high
+  half of its last byte, which decodes to the low half, after the row's last value, as `pad_from`
+  says.
 - **A file gzipped whole** ([zarrify/mrc.md §8.4](zarrify/mrc.md#84-gzipped-files)) has no
   `header` element: its bytes are the stream, which holds the header. Its array is keyed by its
-  `data` element, the stream, as `declared_by` says; that element is its one declaration, the
-  header being the first 1024 bytes it inflates to, and its one unit. Its `shape`, `item_bits` and
-  `pad_from` are those of the header the parser inflated. Its chain ends with `skip`, then
-  `gzip`: the values are what the stream inflates to, after the header and the extended header.
-  `skip`'s `length`, 1024 plus `nsymbt`, is a value, since no place of the file holds `nsymbt`.
+  `data` element, the stream, as `declared_by` says, and that element is its one unit. It has no
+  declarations: the header is the first 1024 bytes the stream inflates to, which no place names,
+  the IR having no derived space for them yet. Its `shape`, `item_bits` and `pad_from` are those
+  of the header the parser inflated. Its chain ends with `skip`, then `gzip`: the values are what
+  the stream inflates to, after the header and the extended header. `skip`'s `length`, 1024 plus
+  `nsymbt`, is a value, since no place holds `nsymbt` either.
 - **The fill value** is `undefined`: MRC has none.
 
 **HDF5** ([spec/zarrify/hdf5.md](zarrify/hdf5.md)). Every object the parser reads whose header has

@@ -237,10 +237,10 @@ impl Mrc {
                               "codec": {"encoding": "gzip", "endian": endian, "skip": offset},
                               "recipe": [["src", 0, null]]});
             let data = self.ir.data(0, "data", NO_INDEX, 0, (0, self.size), &form.to_string())?;
-            // `declared_by`: the key of the array's description, the stream, which holds the header
+            // `declared_by`: the key of the array's description, the stream
             self.reached = Some(reached(data, data, Some(offset)));
-            self.facts = json!({"data": data, "declared_by": data, "data_type": dtype,"gzip": {"skip": offset, "head": gz::head(h.raw)},
-                                "copy_threshold": crate::out::copy_threshold()});
+            self.facts = json!({"data": data, "declared_by": data, "data_type": dtype,
+                                "gzip": {"skip": offset, "head": gz::head(h.raw)}, "copy_threshold": crate::out::copy_threshold()});
             return Ok(());
         }
         let header = self.ir.value(0, "header", NO_INDEX, &h.record_type(), 0, (0, HEADER), Some(h.raw))?;

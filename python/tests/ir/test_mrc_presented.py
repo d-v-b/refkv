@@ -9,7 +9,8 @@ each:
 
 - the data type and the `bytes` codec's byte order, from the description's sample size and the
   fields its declarations name: the machine stamp, the mode and, for mode 0, the three words that
-  give its sign;
+  give its sign (a gzipped file has no declarations, and they are read from the header its key,
+  the stream, inflates to);
 - `packbits` for a chain of `lsb_first`, of the description's bits;
 - the chunk shape and each chunk's range, cutting the description's one unit as contiguous values
   (conventions §7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>),
@@ -158,13 +159,13 @@ def payload(offset: int, length: int, padding: int) -> int:
 
 
 def held_header(d: Described, a: StoredArray) -> bytes:
-    """The file's header: the description's key, or, of a gzipped file, whose key and declaration
-    are the stream, the first bytes the stream inflates to."""
+    """The file's header: the description's key, or, of a gzipped file, whose key is the stream,
+    the first bytes the stream inflates to."""
     (chain,) = a.chains
+    key = d.place(ElementPlace(a.element, None, None))
     if [c.name for c in d.stored.chains[chain]][-1:] == ["gzip"]:
-        (stream,) = a.declarations
-        return gzip.decompress(d.place(stream))[:HEADER]
-    return d.place(ElementPlace(a.element, None, None))
+        return gzip.decompress(key)[:HEADER]
+    return key
 
 
 def derived(d: Described, k: int, seen: Counter) -> Want | str:
@@ -177,10 +178,12 @@ def derived(d: Described, k: int, seen: Counter) -> Want | str:
     codecs_of = list(d.stored.chains[a.chains[0]])
     gzipped = [c.name for c in codecs_of[-2:]] == ["skip", "gzip"]
     stored = codecs_of[:-2] if gzipped else codecs_of
-    # the fields that say what a value is: the declarations, or, of a gzipped file, whose one
-    # declaration is the stream, the header it holds
+    # the fields that say what a value is: the declarations, or, of a gzipped file, which has
+    # none, the header its stream holds
     places = [MACHST, MODE, NVERSION, IMOD_STAMP, IMOD_FLAGS]
     if gzipped:
+        if a.declarations:
+            return f"declarations {a.declarations} of a gzipped file"
         declared = [head[o:o + n] for o, n in places]
     else:
         declared = [d.place(p) for p in a.declarations]

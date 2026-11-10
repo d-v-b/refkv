@@ -4,7 +4,7 @@
 //! `nx` values, one unit, the `data` element. A mode 101 file's values of 4 bits are packed least
 //! significant bit first, a row ending on a byte. A file gzipped whole is keyed by its `data`
 //! element, the stream, which is its one unit: the values follow the header and the extended
-//! header in what it inflates to.
+//! header in what it inflates to, and no place names the header, so it has no declarations.
 
 use super::{FIELDS, IMOD_FLAGS, IMOD_STAMP};
 use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Param, Place, Row, StoredArray};
@@ -47,10 +47,11 @@ fn field(name: &str) -> (u64, u64) {
 
 /// Where the file declares what its values are: of a file whose header is an element, the
 /// machine stamp, which gives the byte order, then `mode`, then, for mode 0, whose sign they
-/// decide, `nversion` and IMOD's stamp and flags; of a gzipped file, the stream, which holds them.
+/// decide, `nversion` and IMOD's stamp and flags. A gzipped file has none: its header is in what
+/// the stream inflates to, which no place names.
 fn declarations(r: &Reached) -> Vec<Place> {
     if r.gzip.is_some() {
-        return vec![Place::Element { element: r.element, member: None, range: None }];
+        return Vec::new();
     }
     let mut ranges = vec![field("machst"), field("mode")];
     if r.mode == 0 {
@@ -115,7 +116,8 @@ mod tests {
     }
 
     /// The fields that declare the values are ranges of the header, by the header's own table of
-    /// fields: the machine stamp and the mode, and for mode 0 the three that decide its sign.
+    /// fields: the machine stamp and the mode, and for mode 0 the three that decide its sign. A
+    /// gzipped file, whose header no place names, has none.
     #[test]
     fn the_declarations_are_the_fields_that_say_what_a_value_is() {
         let ranges = |r: &Reached| -> Vec<(u64, u64)> {
@@ -126,7 +128,7 @@ mod tests {
         };
         assert_eq!(ranges(&reached(2, 32, None)), vec![(212, 4), (12, 4)]);
         assert_eq!(ranges(&reached(0, 8, None)), vec![(212, 4), (12, 4), (108, 4), (152, 4), (156, 4)]);
-        assert_eq!(declarations(&reached(0, 8, Some(1024))), vec![Place::Element { element: 1, member: None, range: None }]);
+        assert_eq!(declarations(&reached(0, 8, Some(1024))), vec![]);
     }
 
     /// The chain is in encoding order: the values packed, then, of a gzipped file, put after the

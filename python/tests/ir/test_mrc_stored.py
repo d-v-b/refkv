@@ -3,7 +3,8 @@
 mrcfile, the reference reader. Every accepted file has one description, and of it:
 
 - its key and its declarations are the header mrcfile reads, and the fields of it that say what a
-  value is, byte for byte (a gzipped file's are its stream, which inflates to that header);
+  value is, byte for byte (a gzipped file's key is its stream, which inflates to that header, and
+  it has no declarations, since no place names what a stream inflates to);
 - its shape is mrcfile's `nz`, `ny` and `nx`, which mrcfile's own array, of two axes for an image
   and four for a volume stack, has the elements of;
 - its sample size is that of mrcfile's data type, its grid one unit of the whole array, and its
@@ -12,7 +13,8 @@ mrcfile, the reference reader. Every accepted file has one description, and of i
 - its one row is at mrcfile's offset, after the header and the extended header mrcfile reads, of
   as many bytes as mrcfile's array (a gzipped file's is the whole file);
 - the row's bytes, decoded through the chain and read as elements of the description's size, in
-  the byte order and of the kind the declarations give, are mrcfile's values.
+  the byte order and of the kind the declarations give (the header's, of a gzipped file), are
+  mrcfile's values.
 
 mrcfile reads no values of mode 3 (complex int16) or mode 101 (4 bits): those arrays are compared
 with the file's own bytes at mrcfile's offset, read as pairs of 16-bit integers, and as rows of
@@ -151,13 +153,13 @@ def check_declarations(d: Described, a: StoredArray, r: Read, seen: Counter) -> 
     said = []
     whole = (None, 0, len(d.objects[None]))
     if r.gzipped:
-        # the stream, which holds the header and is the file
-        seen["gzipped files, whose stream declares them"] += 1
+        # the stream, which holds the header and is the file: no place names the header
+        seen["gzipped files, keyed by their stream"] += 1
         if a.path != "data" or d.at(a.element) != whole:
             said.append(f"a gzipped file's key is {a.path} at {d.at(a.element)}, not its stream")
-        if a.declarations != (ElementPlace(a.element, None, None),):
-            return [*said, f"a gzipped file's declarations are {a.declarations}, not its stream"]
-        if gzip.decompress(d.place(a.declarations[0]))[:HEADER] != r.header.tobytes():
+        if a.declarations != ():
+            said.append(f"a gzipped file's declarations are {a.declarations}, not none")
+        if gzip.decompress(d.place(ElementPlace(a.element, None, None)))[:HEADER] != r.header.tobytes():
             said.append("the stream does not inflate to the header mrcfile reads")
         return said
     if a.path != "header" or d.at(a.element) != (None, 0, HEADER) or d.place(
@@ -184,8 +186,9 @@ def check_values(d: Described, a: StoredArray, r: Read, row: dict, name: str, se
     assert a.shape is not None
     assert a.item_bits is not None
     mode = int(r.header.mode)
-    # the byte order and the mode, as the declarations give them: a gzipped file's are in its stream
-    held = gzip.decompress(d.place(a.declarations[0])) if r.gzipped else None
+    # the byte order and the mode, as the declarations give them: a gzipped file's are in the
+    # header its key, the stream, inflates to
+    held = gzip.decompress(d.place(ElementPlace(a.element, None, None))) if r.gzipped else None
     stamp = held[MACHST[0]:][:4] if held is not None else d.place(a.declarations[0])
     order = {0x44: "<", 0x11: ">"}[stamp[0]]
     declared = held[MODE[0]:][:4] if held is not None else d.place(a.declarations[1])
@@ -300,7 +303,7 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
         "images, which mrcfile reads as two axes": 6,
         "volume stacks, which mrcfile reads as four axes": 3,
         "mode 0 files, with the declarations of their sign": 12,
-        "gzipped files, whose stream declares them": 4,
+        "gzipped files, keyed by their stream": 4,
         "files with an extended header": 5,
         "files with bytes after the data": 1,
         "big-endian files": 8,
@@ -382,7 +385,7 @@ def test_files_no_fixture_holds_are_described_as_mrcfile_reads_them(tmp_path):
         "images, which mrcfile reads as two axes": 1,
         "volume stacks, which mrcfile reads as four axes": 1,
         "mode 0 files, with the declarations of their sign": 1,
-        "gzipped files, whose stream declares them": 3,
+        "gzipped files, keyed by their stream": 3,
         "files with an extended header": 1,
         "big-endian files": 5,
     }
