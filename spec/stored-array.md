@@ -235,6 +235,7 @@ A chain's codec has only its entry's parameters.
 | `blosc` | a Blosc 1 chunk, with its 16-byte header | none | none | the chunk's bytes |
 | `skip` | `length` bytes that a reader passes over, then the bytes its decoding makes | `length`: a place of the count as the source writes it, in ASCII: decimal digits, a `+` before them allowed (the descriptor of NRRD's `byte skip`) | none | the bytes after the first `length` |
 | `shuffle` | the bytes of elements of `element_size` bytes each: every element's first byte, then every element's second, and so on, then the bytes past the last whole element as they are | `element_size`: a place of one value | none | the elements' bytes, each element's together |
+| `lsb_first` | elements of `bits` bits each, packed from each byte's least significant bit: bit k of the unit is bit k mod 8, counted from the least significant, of byte ⌊k / 8⌋, and an element's first bit is its least significant | `bits`: a value, from 1 to 7, the array's `item_bits` | none | the elements packed most significant bit first, as [§3.1](#31-chains) packs them |
 | `h5_fletcher32` | bytes, then their Fletcher-32 checksum as HDF5 computes it (4 bytes) | none | none | the bytes before the checksum |
 | `h5_lz4` | the layout of HDF5's LZ4 filter (32004): the decoded length (8 bytes, big-endian), a block size (4 bytes, big-endian), then each block as its stored length (4 bytes, big-endian) and an [LZ4 block](https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md), or the block's bytes as they are where the stored length is the block's own | none | none | the blocks' bytes, joined |
 | `h5_szip` | what HDF5's SZIP filter (4) writes | `options`, `pixels_per_block`, `bits_per_pixel`, `pixels_per_scanline`: each a place of one value | none | what the filter decodes it to |
@@ -246,6 +247,8 @@ A chain's codec has only its entry's parameters.
 | `packbits` | PackBits runs (TIFF 6.0 §9) | none | none | the runs' bytes |
 | `tiff_predictor` | a unit's rows, each differenced along its columns as TIFF's Predictor says: 2, each sample less the same sample of the pixel before it, as unsigned integers of `item_bits` bits in the byte order `byte_order` gives, modulo 2^`item_bits` (TIFF 6.0 §14); 3, the row's samples' most significant bytes, then their next and so on to their least, each byte less an earlier byte of that row of bytes, modulo 256 (Adobe's [TIFF Technical Note 3](http://chriscox.org/TIFFTN3d1.pdf)); that byte is as many places before it as a pixel has samples. A pixel's samples are the unit's last axis where `planar_configuration` is absent or 1 and the unit has three axes, else one | `predictor`, and `planar_configuration` where the image has more than one sample and the field: each a place of a field's one value; `byte_order`: a place of the file's byte order mark | none | the rows' elements, summed back, in the file's byte order |
 | `ccitt_t6` | one ITU-T T.6 (Group 4) stream of the unit's rows | none | none | elements of 1 bit, 1 for a coded black run and 0 for a white one, most significant bit first, each row padded to a whole byte |
+| `jpegls` | one JPEG-LS stream (ISO/IEC 14495-1), whichever its interleave mode | none | none | the frame's samples, each an unsigned integer of `item_bits` bits, little-endian, a pixel's components together in the frame's order |
+| `dicom_rle` | one frame of DICOM's RLE (PS3.5 [Annex G](https://dicom.nema.org/medical/dicom/current/output/chtml/part05/chapter_G.html)): a header of 16 unsigned 32-bit integers, little-endian, the number of segments and each one's offset in the frame, then the segments, each the PackBits runs of one byte of every sample of one plane, a sample's most significant byte first | none | none | the frame's samples, of `item_bits` bits, little-endian, a pixel's samples a plane each, one after another: the unit's first axis where it has three. The bytes a segment's runs give past its plane's are dropped |
 | `jpeg` | one JPEG stream (ISO/IEC 10918-1) of 8-bit samples; with `tables`, an abbreviated stream whose tables `tables` holds | `tables`: a place of an abbreviated stream of tables alone (TIFF's JPEGTables) | none | the frame's samples, one byte each, a pixel's components together in the frame's order, every component at the frame's size. Converting their color space is the profile's, which reads how the source declares it |
 | `jpeg_restart_interval` | the entropy-coded data of one restart interval of a baseline JPEG stream's scan (ISO/IEC 10918-1), without the restart marker or EOI after it | `header`: a place of the stream's header | none | the samples of the interval's MCUs, one byte each, a pixel's components together in the frame's order, every component at the unit's size: the frame header gives the whole stream's size, and a unit's is its grid's. Converting their color space is the profile's, as for `jpeg` |
 | `jpeg2k` | one JPEG 2000 codestream (ISO/IEC 15444-1), bare or in a JP2 file | none | none | the image's samples, of `item_bits` bits, little-endian, a pixel's components together in the codestream's order |
@@ -603,6 +606,94 @@ the NRRD definition is Teem's, which
 - **No grid** for no input: the profile rejects what it does not read (the text, hex and bzip2
   encodings, the type `block`, several data files), and builds no IR of it.
 - **The fill value** is `undefined`: NRRD has none.
+
+**DICOM** ([spec/zarrify/dicom.md](zarrify/dicom.md)). A DICOM file's stored arrays are its
+Pixel Data (7FE0,0010), each lookup table of a `PALETTE COLOR` image, and each Pixel Data in an
+item of a sequence the parser walks (an icon image's), whether or not the profile presents them.
+The facts give the keys: `declared_by` is the id of the top-level Pixel Data's element;
+`palette.declared_by` lists the ids of the red, green and blue tables' elements, where the tables
+are arrays; and `nested` lists each element that keys the Pixel Data of its items, by its id
+(`declared_by`), with how many it keys (`count`). A series' store form is composed of its files'
+outputs, and has no descriptions of its own. Below, an attribute is the first element of its tag in
+the Pixel Data's own dataset, absent where its value is empty; N is Number of Frames (0028,0008),
+1 without the attribute, and S is Samples per Pixel (0028,0002).
+
+- **The top-level Pixel Data** is keyed by its element (`dataset/7FE00010`), with no index.
+- **Declarations.** The element of the Transfer Syntax UID (`meta/00020010`), which gives the
+  byte order of native samples and names the frames' encoding; then each of these elements of the
+  dataset that has a value, a data element whole (its header, with its VR in explicit VR, and its
+  value): Photometric Interpretation (0028,0004), Bits Allocated (0028,0100), Bits Stored
+  (0028,0101), High Bit (0028,0102), Pixel Representation (0028,0103), Pixel Padding Value
+  (0028,0120), Pixel Padding Range Limit (0028,0121), and the palette's descriptors
+  (0028,1101)–(0028,1103), tables (0028,1201)–(0028,1203) and segmented tables
+  (0028,1221)–(0028,1223).
+- **`shape`** is N, where the dataset has a Number of Frames (an axis of 1 for a value of 1,
+  and no axis without the attribute); then Rows (0028,0010) and Columns (0028,0011); and, for S
+  above 1, S: after Columns where a pixel's samples are stored together, and before Rows where
+  each sample is a plane (native data of Planar Configuration (0028,0006) 1, and RLE data, whose
+  codec makes planes). A whole-slide image's frames are its tiles, and the array is the frames:
+  placing them in the total pixel matrix is the profile's. `axes` is absent: DICOM names its
+  dimensions by tag, and lists them in no order.
+- **`item_bits`** is Bits Allocated.
+- **The grid** is a frame a unit: `Each(1)` on the frames' axis and `Each` of its length on every
+  other, under `short`. Native frames of Bits Allocated 1 follow each other with no padding
+  ([zarrify/dicom.md §7.5](zarrify/dicom.md#75-frames)): where N is above 1 and Rows × Columns is
+  no multiple of 8 they are one unit together, `Each(N)` on the frames' axis.
+- **Rows.** A native frame is the `frames/<f>` element: a member of the run the frames fold into
+  (`frames/0`, with `member` f), or `frames/0` alone where the file holds one unit. The bytes of
+  the value past the frames are no unit's. An encapsulated frame is the data of those of its
+  fragments ([zarrify/dicom.md §7.5](zarrify/dicom.md#75-frames)) that are not empty: the
+  `fragments/<j>` element where one fragment holds it (with an Extended Offset Table, frame f's is
+  `fragments/<f>`), and `ranges` of the source, a fragment's data each, in order, where several
+  do.
+- **The chain** is one, by the transfer syntax
+  ([zarrify/dicom.md §2.1](zarrify/dicom.md#21-transfer-syntax)): empty for native data, or
+  `lsb_first` with `bits` 1 for Bits Allocated 1, in every byte order; `jpeg`, with no `tables`,
+  for JPEG Baseline (1.2.840.10008.1.2.4.50), and for lossless JPEG (.4.57 and .4.70) where every
+  frame's precision, which the parser reads, is 8 bits; `jpegls` for JPEG-LS (.4.80 and .4.81);
+  `jpeg2k` for JPEG 2000 (.4.90 and .4.91); `dicom_rle` for RLE Lossless (1.2.840.10008.1.2.5); and
+  `source`, with `format` `dicom` and `id` the Transfer Syntax UID, for the encodings the list has
+  no entry for: lossless JPEG of any other precision (the list's `jpeg` is of 8-bit samples) and
+  HTJ2K (.4.201 to .4.203). The description follows the attributes: a stream's own frame header is
+  compared with them only where the profile does
+  ([zarrify/dicom.md §7.5](zarrify/dicom.md#75-frames)), and a stream decodes to its own. A JPEG
+  stream of three samples is described as the file holds it, without the marker the profile
+  writes before it.
+- **No grid** for JPEG 2000 frames of Photometric Interpretation `YBR_FULL_422`, which the parser
+  accepts only with chroma components of half the width: a frame's samples are then not an array
+  of the image's shape, and what a decoder makes of them is not the stream's samples (OpenJPEG
+  upsamples the chroma and converts to RGB). The parser refuses what the profile does not read
+  (another transfer syntax, Float Pixel Data, a sparse tiling), and builds no IR of it.
+- **A lookup table** of a `PALETTE COLOR` image whose tables the profile reads
+  ([zarrify/dicom.md §4.1](zarrify/dicom.md#41-the-palette): none segmented) is keyed by its own
+  element (`dataset/00281201`, `dataset/00281202`, `dataset/00281203`), with no index. Its
+  declarations are the Transfer Syntax UID's element and its descriptor's (`dataset/00281101` to
+  `dataset/00281103`); `shape` is its entries, the descriptor's first value (65536 for 0);
+  `item_bits` is 16 where the table's value holds two bytes an entry, else 8; and it is one unit
+  in an empty chain, `Each` of its entries under `short`: the range of the table's element that
+  holds the entries, after its header, the bytes of the value past them left out. Entries of one
+  byte in a table of VR OW under Explicit VR Big Endian, whose 16-bit words that syntax swaps,
+  have no grid. The tables beside a segmented one are not arrays: they are among the Pixel Data's
+  declarations.
+- **A Pixel Data in an item** is keyed by the element of the top-level dataset its items lie in
+  (the sequence `dataset/<tag>`, whatever the depth of the item), a kind of element that may
+  declare several arrays: its index is its position among the Pixel Data of that element's items,
+  in the order of the file, each member of a run of items counted. Its declarations, `shape` and
+  `item_bits` are as the top-level one's, read of its own item's attributes, the declaring
+  elements with `member` where the items are a run; `shape` is absent where Rows, Columns or S is
+  absent or 0, where S is above 1 and Planar Configuration is neither 0 nor 1, and where Number of
+  Frames is not an integer of at least 1, and `item_bits` where Bits Allocated is absent or 0.
+  A value of defined length is native, whatever the transfer syntax (PS3.5
+  [A.4](https://dicom.nema.org/medical/dicom/current/output/chtml/part05/sect_A.4.html)), and has
+  the grid and the chain of native frames, each unit a `range` of the Pixel Data's element, after
+  its header (with `member` in a run), where the profile's rules for the top-level one hold of it
+  ([zarrify/dicom.md §3](zarrify/dicom.md#3-the-image)): Bits Allocated 8, 16 or 32, or 1 with S
+  1; S 1, or 3 with a Photometric Interpretation of `RGB` or `YBR_FULL`; and a value that holds
+  the frames. It has no grid otherwise, nor where its item's byte order is not the transfer
+  syntax's, nor, under Explicit VR Big Endian, for Bits Allocated 1 or 8, whose bytes a VR of OW
+  swaps. A value of undefined length, a fragment sequence the parser does not read as frames, has
+  no grid.
+- **The fill value** is `undefined`: DICOM has none, and Pixel Padding Value is a declaration.
 
 **TIFF** ([spec/zarrify/tiff.md](zarrify/tiff.md)). Every IFD the parser reads (of the main
 chain, a SubIFD, or one another pointer tag leads to) whose ImageWidth (256) and ImageLength (257)
