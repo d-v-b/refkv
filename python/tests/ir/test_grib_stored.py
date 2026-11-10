@@ -36,7 +36,7 @@ import struct
 import zlib
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache
 from pathlib import Path
 
@@ -435,24 +435,19 @@ def expected_shape(held: Held, read: Read) -> tuple[tuple[int, ...], tuple[int, 
     value, else the coded values."""
     k = read.keys
     n, points = k["numberOfValues"], k["numberOfDataPoints"]
+    # a grid of rows: of a template the parser reads, with no list of the points of each row
+    # (ecCodes' key of section 3's octet 11 is spelled so), `Ni` × `Nj` its points
     rows = (k["gridDefinitionTemplateNumber"] in ROWS and k["sourceOfGridDefinition"] == 0
-            and k["numberOfOctectsForNumberOfPoints"] == 0 and "Ni" in k and "Nj" in k and k["Ni"] * k["Nj"] == points)
+            and k["numberOfOctectsForNumberOfPoints"] == 0 and k["Ni"] * k["Nj"] == points)
     if not (rows and held.indicator == 255 and n == points):
         return (n,), None
     return ((k["Ni"], k["Nj"]), None) if k["scanningMode"] & 0x20 else ((k["Nj"], k["Ni"]), (1, 0))
 
 
-def expected_values(held: Held, read: Read, path: Path, seen: Counter) -> np.ndarray:
+def expected_values(read: Read, seen: Counter) -> np.ndarray:
     """A field's coded values, in the file's order, as ecCodes reads them: NaN for a missing
     value, and under a bitmap the values of the points it keeps."""
-    if isinstance(read.values, str):
-        # the generator's values, of every point in the order of rows: these fields have neither
-        # a bitmap nor another scanning mode than rows first
-        assert read.values == "aborts", "ecCodes refuses the values of a field the description decodes"
-        seen["fields ecCodes cannot decode"] += 1
-        assert read.bitmap is None
-        assert read.keys["scanningMode"] == 0
-        return np.load(GRIB / "expected" / f"{path.stem}.{held.index}.npy").ravel()
+    assert not isinstance(read.values, str), "ecCodes refuses the values of a field the description decodes"
     values = read.values if read.bitmap is None else read.values[read.bitmap == 1]
     missing = values == MISSING
     seen["fields with missing values of complex packing"] += bool(missing.any())
@@ -595,7 +590,7 @@ def check_field(d: Described, k: int, path: Path, held: Held, read: Read, seen: 
         if not isinstance(place, ElementPlace) or not placed or a.item_bits != 32 or rows:
             return [*said, f"{a.item_bits} bits, {len(rows)} rows and the fill {a.fill}, of a constant field"]
         value = np.frombuffer(d.place(place), dtype=">f4").astype(np.float64)
-        want = expected_values(held, read, path, seen)
+        want = expected_values(read, seen)
         if len(want) != n or not np.array_equal(np.broadcast_to(value, (n,)), want):
             said.append(f"a fill value of {value}, and ecCodes reads {want[:3]}")
         seen["constant fields whose decimal scale factor is not 0"] += keys["decimalScaleFactor"] != 0
@@ -631,7 +626,7 @@ def check_field(d: Described, k: int, path: Path, held: Held, read: Read, seen: 
     unit = d.unit(rows[0])
     stored = "<f8" if chain else ">f4" if a.item_bits == 32 else ">f8"
     got = np.frombuffer(decoded(d, chain, unit, n), dtype=stored).astype(np.float64)
-    want = expected_values(held, read, path, seen)
+    want = expected_values(read, seen)
     same = got.shape == want.shape and np.array_equal(got, want, equal_nan=True)
     if not same or not np.array_equal(np.signbit(got), np.signbit(want)):
         said.append(f"values {got[:4]}, ecCodes' {want[:4]}")
@@ -671,9 +666,10 @@ def held_against_eccodes(b: bytes, held: list[Held], fields: list[Read], firsts:
     return said
 
 
-def compare(path: Path) -> tuple[tuple[str, ...], Counter]:
+def compare(path: Path, known: dict[int, np.ndarray] | None = None) -> tuple[tuple[str, ...], Counter]:
     """What differs between the descriptions of the file at `path` and ecCodes, and what the
-    comparison saw."""
+    comparison saw. Of a field ecCodes cannot decode, the values are those `known` gives for its
+    number in the file, or those the fixtures' generator wrote for the fixture."""
     d = described(path)
     seen: Counter = Counter()
     if d.stored.undescribed:
@@ -689,10 +685,19 @@ def compare(path: Path) -> tuple[tuple[str, ...], Counter]:
     want = {(f"{path.name}/messages/{h.message}", i) for h in held for i in (h.index, h.own) if i is not None}
     if set(keys) != want or len(keys) != len(d.stored.arrays):
         return (*said, f"arrays keyed {sorted(keys)}, the file's bitmaps and fields {sorted(want)}"), seen
-    for h, r in zip(held, fields, strict=True):
+    for number, (h, read) in enumerate(zip(held, fields, strict=True)):
         message = f"{path.name}/messages/{h.message}"
         at = f"message {h.message}, array {h.index}"
         seen["fields"] += 1
+        r = read
+        if isinstance(read.values, str) and read.values == "aborts":
+            # values of every point in the order of rows: these fields have neither a bitmap nor
+            # another scanning mode than rows first
+            seen["fields ecCodes cannot decode"] += 1
+            assert read.bitmap is None
+            assert read.keys["scanningMode"] == 0
+            given = known[number] if known else np.load(GRIB / "expected" / f"{path.stem}.{h.index}.npy").ravel()
+            r = replace(read, values=given)
         if h.own is not None:
             seen["bitmaps"] += 1
             mask = check_bitmap(d, keys[message, h.own], path.name, h, r)
@@ -768,13 +773,22 @@ def parts(message: bytes) -> list[bytes]:
     return out
 
 
+def section(number: int, body: bytes) -> bytes:
+    """A section: its length, its number and the octets after them."""
+    return struct.pack(">IB", 5 + len(body), number) + body
+
+
+def message_of(like: bytes, sections: list[bytes]) -> bytes:
+    """A message of `sections`, with the discipline of the message `like`."""
+    body = b"".join(sections)
+    return like[:8] + struct.pack(">Q", 16 + len(body) + 4) + body + b"7777"
+
+
 def edited(message: bytes, number: int, edit: Callable[[bytearray], bytes]) -> bytes:
     """The one-field message with the octets of its section `number` after the first 5 replaced
     by what `edit` makes of them, the section's and the message's lengths set again."""
-    sections = [struct.pack(">IB", 5 + len(body), number) + body if s[4] == number else s
-                for s in parts(message) for body in [bytes(edit(bytearray(s[5:]))) if s[4] == number else b""]]
-    body = b"".join(sections)
-    return message[:8] + struct.pack(">Q", 16 + len(body) + 4) + body + b"7777"
+    return message_of(message, [section(number, bytes(edit(bytearray(s[5:])))) if s[4] == number else s
+                                for s in parts(message)])
 
 
 def octets(first: int, value: bytes) -> Callable[[bytearray], bytes]:
@@ -829,7 +843,20 @@ def assert_source(path: Path, template: int) -> None:
     assert [d.parts(r) for r in rows] == [[(path.name, held.s7[0] + 5, held.s7[1] - 5)]]
 
 
-def unstructured() -> bytes:
+def logarithms() -> bytes:
+    """`grib_simple`'s field in a packing the list names no codec for (5.61, simple packing of
+    logarithms), which ecCodes writes and reads."""
+    h = eccodes.codes_new_from_message(fixture("grib_simple"))
+    try:
+        values = eccodes.codes_get_values(h)
+        eccodes.codes_set(h, "packingType", "grid_simple_log_preprocessing")
+        eccodes.codes_set_values(h, values)
+        return eccodes.codes_get_message(h)
+    finally:
+        eccodes.codes_release(h)
+
+
+def unread_grid() -> bytes:
     """A field on a grid of a template the parser does not read (3.140, Lambert azimuthal equal
     area), which ecCodes writes."""
     h = eccodes.codes_grib_new_from_samples("GRIB2")
@@ -843,15 +870,67 @@ def unstructured() -> bytes:
         eccodes.codes_release(h)
 
 
+def regrouped(bits: int) -> bytes:
+    """`grib_simple`'s field in complex packing (5.2), written here: its integers of 12 bits in two
+    groups of 96, the groups' references 0, each of `bits` bits, and their lengths counted in
+    twos (a length increment of 2)."""
+    simple = fixture("grib_simple")
+    s5, s7 = (next(s for s in parts(simple) if s[4] == number) for number in (5, 7))
+    # the values, template 5.2, R, E and D, the references' bits, the type of the values, the
+    # splitting method, no missing values and their substitutes; then 2 groups, their widths 0
+    # and a coded width of 8 bits, their lengths 0 and twice a scaled length of 8 bits, the last 96
+    template = (s5[5:9] + (2).to_bytes(2, "big") + s5[11:19] + bytes([bits, s5[20], 1, 0]) + bytes(8)
+                + (2).to_bytes(4, "big") + bytes([0, 8]) + bytes(4) + bytes([2]) + (96).to_bytes(4, "big") + bytes([8]))
+    data = bytes(-(-2 * bits // 8)) + bytes([12, 12]) + bytes([48, 0]) + s7[5:]
+    return edited(edited(simple, 5, lambda _: template), 7, lambda _: data)
+
+
+def png_of_rows() -> tuple[bytes, np.ndarray]:
+    """A PNG field (5.41) of 12 rows of 15 gray samples of 4 bits, each row ending in 4 bits of
+    padding, which ecCodes cannot decode; and its values. It is made of a field in simple packing
+    of 4 bits that ecCodes writes and reads: the same integers, a pixel each, so the same values."""
+    h = eccodes.codes_new_from_message(fixture("grib_simple"))
+    try:
+        eccodes.codes_set(h, "Ni", 15)
+        eccodes.codes_set(h, "bitsPerValue", 4)
+        eccodes.codes_set_values(h, np.linspace(250.0, 300.0, 180))
+        simple = eccodes.codes_get_message(h)
+        values = np.array(eccodes.codes_get_values(h), dtype=np.float64)
+    finally:
+        eccodes.codes_release(h)
+    s5, s7 = (next(s for s in parts(simple) if s[4] == number) for number in (5, 7))
+    assert (uint(s5[5:9]), s5[19], len(s7)) == (180, 4, 95)
+    # each row: no filter, then its 15 pixels and 4 bits of padding
+    pixels = np.unpackbits(np.frombuffer(s7[5:], dtype=np.uint8)).reshape(12, 60)
+    filters, padding = np.zeros((12, 8), dtype=np.uint8), np.ones((12, 4), dtype=np.uint8)
+    rows = np.packbits(np.concatenate([filters, pixels, padding], axis=1))
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+    png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 15, 12, 4, 0, 0, 0, 0))
+           + chunk(b"IDAT", zlib.compress(rows.tobytes())) + chunk(b"IEND", b""))
+    return edited(edited(simple, 5, octets(10, (41).to_bytes(2, "big"))), 7, lambda _: png), values
+
+
 def test_written_fields_are_described_as_eccodes_reads_them(tmp_path):
-    """Cases the fixtures do not hold, in one file of eleven messages, each read by ecCodes as the
+    """Cases the fixtures do not hold, in one file of 22 messages, each read by ecCodes as the
     fixtures are: a message after padding, at another offset than 0; a bitmap whose section holds
     octets after its points' bits, whose row is the range of the first; a constant field under a
     bitmap; complex packing of no groups, with and without spatial differencing, which ecCodes
     reads as the reference value; a field of fewer values than points with no bitmap, with a
     predefined bitmap (indicator 5), and with indicator 254 and no bitmap before it, each its
-    coded values on one axis; a field of no values, under a bitmap that keeps no point; and a
-    field on a grid the parser does not read, one axis of its values."""
+    coded values on one axis; a field of no values, under a bitmap that keeps no point, in simple
+    packing and in JPEG 2000, which then holds no codestream; a field on a grid the parser does
+    not read, one on a grid that no template defines (section 3's octet 6), and one whose `Ni` ×
+    `Nj` is not its points, each one axis of its values; simple packing and IEEE floats whose
+    section 7 holds octets after the values', whose rows are the ranges of the values' octets
+    alone; a message of two fields under a bitmap that keeps every point, the second by indicator
+    254, each still one axis of its coded values; a negative decimal scale factor; complex
+    packing whose groups' lengths are counted in twos, with references of 8 bits and of none (a
+    bit width of 0, which is no constant field while there are groups); CCSDS samples of 24 bits
+    without libaec's flag of 3 octets a sample; and a PNG image whose rows end in padding bits,
+    which ecCodes cannot decode: its values are those of the simple packing it was made of."""
     bitmap, simple = fixture("grib_bitmap"), fixture("grib_simple")
     constant = edited(edited(bitmap, 5, octets(20, b"\0")), 7, lambda _: b"")
     no_groups = [edited(edited(fixture(name), 5, octets(32, bytes(4))), 7, lambda _: b"")
@@ -861,24 +940,44 @@ def test_written_fields_are_described_as_eccodes_reads_them(tmp_path):
     none_kept = edited(edited(none_kept, 5, octets(6, bytes(4))), 7, lambda _: b"")
     longer = edited(bitmap, 6, lambda body: bytes(body) + b"\0\0")
     predefined, alone = edited(fewer, 6, octets(6, bytes([5]))), edited(fewer, 6, octets(6, bytes([254])))
+    undefined = edited(simple, 3, octets(6, bytes([1])))
+    padded = [edited(fixture(name), 7, lambda body: bytes(body) + b"\0\0\0") for name in ("grib_simple", "grib_ieee32")]
+    full = edited(simple, 6, lambda _: b"\0" + b"\xff" * 24)
+    again = [section(6, b"\xfe") if s[4] == 6 else s for s in parts(simple) if s[4] >= 4]
+    kept = message_of(simple, [*parts(full), *again])
+    ragged = edited(simple, 3, octets(31, (8).to_bytes(4, "big")))
+    negative = edited(simple, 5, octets(18, b"\x80\x01"))
+    no_stream = edited(fixture("grib_jpeg2000_bitmap"), 6, lambda body: bytes(body[:1]) + bytes(len(body) - 1))
+    no_stream = edited(edited(no_stream, 5, octets(6, bytes(4))), 7, lambda _: b"")
+    four_octets = edited(fixture("grib_ccsds_24bit"), 5, octets(22, bytes([12])))
+    png, values = png_of_rows()
     path = written(tmp_path, "written", b"\0\0\0", fixture("grib_ieee64"), longer, constant, *no_groups, fewer,
-                   predefined, alone, none_kept, unstructured())
-    said, seen = compare(path)
+                   predefined, alone, none_kept, unread_grid(), undefined, *padded, kept, ragged, negative,
+                   no_stream, regrouped(8), regrouped(0), four_octets, png)
+    said, seen = compare(path, {22: values})
     assert said == ()
     assert {k: v for k, v in seen.items() if v} == {
-        "fields": 11,
-        "fields at the offsets ecCodes gives": 11,
-        "fields of rows": 4,
-        "fields of coded values, one axis": 7,
-        "bitmaps": 3,
-        "fields under their own bitmap": 3,
+        "fields": 23,
+        "fields at the offsets ecCodes gives": 22,
+        "fields ecCodes gives no offsets of": 1,
+        "fields of rows": 11,
+        "fields of coded values, one axis": 12,
+        "bitmaps": 5,
+        "fields under their own bitmap": 5,
+        "fields under an earlier bitmap": 1,
+        "fields of indicator 254 whose bitmap ecCodes applies": 1,
         "fields of indicator 254 whose bitmap ecCodes leaves": 1,
-        "fields of 5.0, packed": 7,
+        "fields of 5.0, packed": 13,
         "fields of 5.0, constant": 1,
+        "fields of 5.2, packed": 2,
         "fields of 5.2, constant": 1,
         "fields of 5.3, constant": 1,
-        "fields of 5.4, floats": 1,
-        "units decoded": 7,
+        "fields of 5.4, floats": 2,
+        "fields of 5.40, packed": 1,
+        "fields of 5.41, packed": 1,
+        "fields of 5.42, packed": 1,
+        "fields ecCodes cannot decode": 1,
+        "units decoded": 18,
     }
     d = described(path)
     by_message = {int(d.ir.path(a.element).rsplit("/", 1)[1]): k for k, a in enumerate(d.stored.arrays)}
@@ -888,20 +987,17 @@ def test_written_fields_are_described_as_eccodes_reads_them(tmp_path):
     # the field of no values, and the bitmap that keeps no point
     assert (d.stored.arrays[by_message[9]].shape, d.rows.get(by_message[9])) == ((0,), None)
     assert units_of(d.stored.arrays[by_message[9]]) == (0,)
+    # the sections 7 of three octets after their values': the values' octets alone
+    for message, length in ((12, 288), (13, 768)):
+        (row,) = d.rows[by_message[message]]
+        assert (row["range"], d.ir.extent(row["element"])[1]) == ({"offset": 5, "length": length}, 5 + length + 3)
 
 
 def test_a_packing_the_list_has_no_name_for_is_source(tmp_path):
     """A field of a data representation template the list names no codec for (5.61, simple
     packing of logarithms, which ecCodes writes and reads) is one unit of its section 7's data,
     in a `source` chain of the template's number and octets."""
-    h = eccodes.codes_new_from_message(fixture("grib_simple"))
-    try:
-        values = eccodes.codes_get_values(h)
-        eccodes.codes_set(h, "packingType", "grid_simple_log_preprocessing")
-        eccodes.codes_set_values(h, values)
-        path = written(tmp_path, "logarithms", eccodes.codes_get_message(h))
-    finally:
-        eccodes.codes_release(h)
+    path = written(tmp_path, "logarithms", logarithms())
     said, seen = compare(path)
     assert said == ()
     assert seen["fields of 5.61, source"] == 1
