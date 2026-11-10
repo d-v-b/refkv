@@ -516,7 +516,32 @@ impl Tiff {
                 Some(cut) => Some(cut),
                 None => Some((c, Self::units_of_image(&read, &im, self.table_of_image(k, tiled(&read)), &|e| self.ir.len[e as usize])?)),
             });
+            // the planes after the first of an ImageJ stack in one IFD (spec/stored-array.md §7
+            // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>):
+            // each IFD 0's image again, keyed by its `imagej/planes/<p>`, with the ImageDescription
+            // as one more declaration, its rows its own strips
+            let planes = if self.chain.first() == Some(&k) { &self.imagej_planes[..] } else { &[] };
+            let mut later = Vec::new();
+            for (plane, strips) in planes {
+                let declarations = a.declarations.iter().cloned().chain(self.value_place(f, 270)).collect();
+                let shifted = match &stored {
+                    // each of IFD 0's rows is one whole strip's element, as its uncompressed strips
+                    // give them: the plane's row is its own strip's
+                    Some((_, (_, rows))) if rows.len() != strips.len() || rows.iter().any(|r| r.member.is_some() || r.range.is_some() || r.ranges.is_some()) => {
+                        return Err("internal: an ImageJ plane whose strips are not IFD 0's".into())
+                    }
+                    Some((chain, (grid, rows))) => {
+                        let rows = rows.iter().zip(strips).map(|(row, &e)| Row { element: Some(e), ..row.clone() }).collect();
+                        Some((chain.clone(), (grid.clone(), rows)))
+                    }
+                    None => None,
+                };
+                later.push((StoredArray { element: *plane, declarations, ..a.clone() }, shifted));
+            }
             out.image(a, &im, stored)?;
+            for (a, stored) in later {
+                out.image(a, &im, stored)?;
+            }
         }
         Ok((out.arrays, out.chains, out.map))
     }

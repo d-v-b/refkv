@@ -510,18 +510,18 @@ def test_the_fixtures_hold_every_case_the_profile_is_compared_in():
     for path in FILES:
         seen += compared(path)[1]
     assert {k: v for k, v in seen.items() if v} == {
-        "arrays": 158,
+        "arrays": 163,
         "arrays sharded": 18,
         "arrays of a rectilinear grid": 16,
         "arrays across files": 5,
         "arrays of an image the descriptions give no grid": 1,
-        "planes": 281,
+        "planes": 319,
         "planes in tiles": 139,
-        "planes in strips": 142,
+        "planes in strips": 180,
         "planes of several sample planes": 7,
-        "chunks": 1596,
+        "chunks": 1634,
         "inner chunks of shards": 646,
-        "chunks of joined strips": 13,
+        "chunks of joined strips": 37,
         "chunks padded with zeros": 1,
         "chunks of a cut LZW stream": 27,
         "chunks with a JPEG prefix": 45,

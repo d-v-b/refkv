@@ -214,7 +214,8 @@ TIFF tags decide.
 Let `spp` be IFD 0's SamplesPerPixel. Without OME-XML there is one plane,
 IFD 0, except that IFD 0 of EER (Compression 65000, 65001 or 65002) has one plane per main-chain IFD of
 its width, length, tiling and format, in chain order, along `t` (`SizeT` is their count): an EER file
-is a stack of frames. With OME-XML:
+is a stack of frames; and except that an ImageJ hyperstack has the planes its description gives,
+below. With OME-XML:
 
 - `SizeZ` and `SizeT` default to 1; `SizeC` defaults to `spp`.
 - If `spp > 1`: `SizeC` 1 is read as `spp`; any other `SizeC ≠ spp` is
@@ -258,6 +259,28 @@ After all `TiffData` elements are applied, every plane MUST be mapped to an
 existing main-chain IFD, else the input is rejected. (An index past the
 chain that a later mapping replaces is not an error.)
 
+**ImageJ hyperstacks.** Without OME-XML, an IFD 0 whose ImageDescription ([§2](#2-the-source)) starts
+with `ImageJ=` and has a line `images=N`, `N > 1`, makes the file an **ImageJ hyperstack** of `N`
+planes (a Micro-Manager stack file, [§7.5](#75-micro-manager-stacks), is read as one whatever its
+description says). The description's lines `frames=`, `channels=` and `slices=` (each an integer; 1
+without its line, but `slices` is `N` when none of the three has a line) are `SizeT`, `SizeC` and
+`SizeZ`, and MUST multiply to `N`; with `spp > 1` the channels are the samples, so `channels` MUST
+be 1 (an RGB stack ImageJ writes has no `channels` line). `N` MUST be at most 100000. ImageJ orders
+its planes channels first, then slices, then frames: the plane at (z, c, t) is ImageJ's plane
+`p = (t × SizeZ + z) × Cp + c`. The planes lie in one of two layouts, and any other main-chain
+length is rejected:
+
+- **One IFD a plane:** the main chain has `N` IFDs, and plane `p` is main-chain IFD `p` (each
+  MUST have IFD 0's size, tiling and format, [§4.2](#42-pyramid-levels)).
+- **One IFD:** the main chain has one IFD, and the planes after the first follow its strips, with
+  no IFD of their own, as ImageJ writes a stack of more than 4 GB (and tifffile one with
+  `truncate`). IFD 0 MUST have no SubIFDs, be in strips with Compression 1, and its strips MUST
+  each hold exactly their rows (`rows × B` bytes, [§4.5](#45-strips)) and each start where the one
+  before it ends. With `P` the bytes of its strips in all, strip `k` of plane `p` is the
+  `StripByteCounts[k]` bytes at `StripOffsets[k] + p × P`, and `StripOffsets[0] + N × P` MUST be
+  at most the file's size. Every plane has IFD 0's strips, joined and padded as IFD 0's are
+  ([§4.5](#45-strips)).
+
 ### 4.2 Pyramid levels
 
 - If IFD 0 has SubIFDs, there are `1 + s` levels, where `s` is IFD 0's
@@ -279,8 +302,8 @@ tile size, or in strips with the same rows per strip, [§4.5](#45-strips)) and f
 image of every level MUST have IFD 0's format. (The level scan above takes tiled images only;
 planes and SubIFD levels may be in strips.) Without OME-XML and SubIFDs, when IFD 0 is in
 strips, a later main-chain IFD that is not a level and has IFD 0's width, length and format
-(a stack of pages, as ImageJ and tifffile write them) rejects the input: its planes have no
-mapping, and the image would show only the first. (A later IFD whose format cannot be computed,
+(a stack of pages without an ImageJ description, [§4.1](#41-planes)) rejects the input: its planes
+have no mapping, and the image would show only the first. (A later IFD whose format cannot be computed,
 or whose values do not load, does not have IFD 0's. A tiled IFD 0 keeps the rule it had before
 images in strips had a layout: its later pages of its size are not read as planes.)
 
@@ -703,6 +726,8 @@ for BigTIFF) and `C` the entry-count type (`u2`, or `u8`).
 | `…/subifds/<j>` | struct | | SubIFD `j` of the IFD (to depth 4), as an IFD |
 | `…/exif`, `…/gps`, `…/interoperability`, `…/ifd_<tag>` | struct | | the IFD a pointer tag ([§5.2](#52-which-ifds)) leads to (`…/<name>/<j>` when the tag has several values), as an IFD |
 | `ome/planes/<p>` | alias | | plane `p` of the OME-XML ([§4.1](#41-planes)): the main-chain IFD its `TiffData` names |
+| `imagej/planes/<p>` | alias, or struct | | plane `p` of an ImageJ hyperstack ([§4.1](#41-planes)): an alias of its main-chain IFD; of a stack in one IFD, plane 0 is an alias of IFD 0 and each later plane a struct |
+| `imagej/planes/<p>/strips/<j>` | data | | strip `j` of plane `p ≥ 1` of a stack in one IFD: the bytes of IFD 0's strip `j` shifted by `p × P` ([§4.1](#41-planes)), with that strip's form |
 | `gaps/<offset>` | gap | | bytes no other element claims (padding, unused space, image data of tables that do not lie within the file) |
 
 An IFD whose tile (or strip) tables are at the offsets of an earlier IFD's,
@@ -923,7 +948,8 @@ entry `<level>/c/<coords>`, but for a level that shards its strips
 ([zarrify §2.1](../zarrify.md#21-virtual-shards)), each a [`Shard`](../zarrify.md#type-shard) whose
 inner chunks' ranges are their references here. Tile (strip) `k`, with TileByteCounts (StripByteCounts) `n > 0`,
 has the single range `(0, TileOffsets[k], n)` (`StripOffsets[k]`; for JPEG, for a short
-last strip, and for strips that a level joins, see below). Here and below, a tiled IFD's
+last strip, and for strips that a level joins, see below; of plane `p` of an ImageJ stack in one
+IFD, [the convention §4.1](#41-planes), `StripOffsets[k] + p × P`). Here and below, a tiled IFD's
 TileOffsets and TileByteCounts are its tile tables ([the convention §2](#2-the-source)): its
 StripOffsets and StripByteCounts, where it has neither. The sources are numbered by
 [§1.2](../zarrify.md#12-input)'s order of first use, over the references in the order of their

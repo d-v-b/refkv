@@ -174,7 +174,8 @@ fn more_than_100000_ifds_are_rejected() {
 }
 
 /// What the facts' levels say of their planes against the stored arrays of `ir`: each plane that
-/// has tiles or strips names, in `declared_by`, the one description its IFD's element keys, whose
+/// has tiles or strips names, in `declared_by`, the one description its IFD's element keys (or, of a
+/// plane after the first of an ImageJ stack in one IFD, its `imagej/planes/<p>`), whose
 /// rows' elements are the plane's tiles or strips. Returns the planes checked whose description
 /// has a grid, those whose description has none, and the objects (or the root) that hold them.
 fn planes_name_their_descriptions(name: &str, ir: &refkv_ir::ir::Ir, facts: &serde_json::Value) -> (usize, usize, std::collections::BTreeSet<u32>) {
@@ -192,8 +193,10 @@ fn planes_name_their_descriptions(name: &str, ir: &refkv_ir::ir::Ir, facts: &ser
             let rows: Vec<usize> = (0..s.map.len()).filter(|&r| s.map.array[r] == k as u32).collect();
             assert_eq!(rows.is_empty(), s.arrays[k].grid.is_none(), "{at}");
             assert!(rows.iter().all(|&r| ir.parent[s.map.element[r].unwrap() as usize] == unit as u32), "{at}");
-            // the IFD is a child of the root, or of the file's object
-            assert!(ir.path(key as u32).rsplit('/').nth(1).is_some_and(|n| n == "ifds" || n == "subifds"), "{at}: {}", ir.path(key as u32));
+            // the key is an IFD, or a plane after the first of an ImageJ stack in one IFD
+            let one_ifd = facts["imagej"]["one_ifd"].as_bool() == Some(true);
+            let kinds: &[&str] = if p > 0 && one_ifd { &["planes"] } else { &["ifds", "subifds"] };
+            assert!(ir.path(key as u32).rsplit('/').nth(1).is_some_and(|n| kinds.contains(&n)), "{at}: {}", ir.path(key as u32));
             holders.insert(ir.parent[key as usize]);
             if s.arrays[k].grid.is_some() {
                 planes += 1;

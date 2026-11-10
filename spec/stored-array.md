@@ -900,6 +900,13 @@ plane no file of the run holds, and a set's store renumbers them as it does `pla
 ([§2.1](#21-keys)). Below, a field's value is the first of its values, and a field the IFD lacks
 has TIFF 6.0's default.
 
+Each plane after the first of an ImageJ stack in one IFD
+([tiff.md §4.1](zarrify/tiff.md#41-planes)), which IFD 0 and its ImageDescription declare
+together, is a stored array too, keyed by its `imagej/planes/<p>` element, with no index, which
+`declared_by` gives for it. Its description is IFD 0's, whatever that is, with the `value`
+element of IFD 0's ImageDescription (270) as one more declaration, the last; where it has a
+grid, its rows are the plane's own strips, `imagej/planes/<p>/strips/<j>`.
+
 - **Declarations.** The header's `byte_order`, then the `value` element of each of these fields
   the IFD has with a value inside the file: BitsPerSample (258), PhotometricInterpretation (262),
   ColorMap (320), ExtraSamples (338), SampleFormat (339), YCbCrCoefficients (529),
