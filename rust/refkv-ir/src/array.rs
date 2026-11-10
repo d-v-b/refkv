@@ -176,6 +176,7 @@ pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "lzf", parameters: &[] },
     CodecEntry { name: "blosc", parameters: &[] },
     CodecEntry { name: "shuffle", parameters: &[fixed("element_size")] },
+    CodecEntry { name: "lsb_first", parameters: &[fixed("bits")] },
     CodecEntry { name: "h5_fletcher32", parameters: &[] },
     CodecEntry { name: "h5_lz4", parameters: &[] },
     CodecEntry { name: "h5_szip", parameters: &[fixed("options"), fixed("pixels_per_block"), fixed("bits_per_pixel"), fixed("pixels_per_scanline")] },

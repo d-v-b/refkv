@@ -232,6 +232,7 @@ A chain's codec has only its entry's parameters.
 | `lzf` | one LZF block with no header; its decoded length is not stored | none | none | the block's bytes |
 | `blosc` | a Blosc 1 chunk, with its 16-byte header | none | none | the chunk's bytes |
 | `shuffle` | the bytes of elements of `element_size` bytes each: every element's first byte, then every element's second, and so on, then the bytes past the last whole element as they are | `element_size`: a place of one value | none | the elements' bytes, each element's together |
+| `lsb_first` | elements of `bits` bits each, packed from each byte's least significant bit: bit k of the unit is bit k mod 8, counted from the least significant, of byte ⌊k / 8⌋, and an element's first bit is its least significant | `bits`: a value, from 1 to 7, the array's `item_bits` | none | the elements packed most significant bit first, as [§3.1](#31-chains) packs them |
 | `h5_fletcher32` | bytes, then their Fletcher-32 checksum as HDF5 computes it (4 bytes) | none | none | the bytes before the checksum |
 | `h5_lz4` | the layout of HDF5's LZ4 filter (32004): the decoded length (8 bytes, big-endian), a block size (4 bytes, big-endian), then each block as its stored length (4 bytes, big-endian) and an [LZ4 block](https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md), or the block's bytes as they are where the stored length is the block's own | none | none | the blocks' bytes, joined |
 | `h5_szip` | what HDF5's SZIP filter (4) writes | `options`, `pixels_per_block`, `bits_per_pixel`, `pixels_per_scanline`: each a place of one value | none | what the filter decodes it to |
@@ -669,6 +670,53 @@ image and the slide map too, with the differences below. The facts give the keys
   (an IFD of no positive Magnification, whose stream the parser does not read) is as its fields
   say, in a `source` chain.
 - **`source`** has `format` `ndpi` in an NDPI.
+
+**safetensors** ([spec/zarrify/safetensors.md](zarrify/safetensors.md)). Every tensor of a header
+that passes the profile's checks ([zarrify/safetensors.md §8.2](zarrify/safetensors.md#82-checks))
+is a stored array, whether or not the profile presents it, keyed by the file's `header` element, a
+kind of element that may declare several arrays: a tensor's index is its position among the
+header's tensors, in the order the header writes them (`__metadata__` is none of them). The facts
+give the key: `declared_by` is the id of the `header` element, and a tensor's index is its position
+in the facts' `own.tensors`, which a presented tensor's entry of the facts' `arrays` gives as
+`index`.
+
+- **The store form** ([zarrify/safetensors.md §9](zarrify/safetensors.md#9-the-store-form))
+  describes each shard's tensors itself, not by graft. A presented shard, described in place, has a
+  file's elements and facts (its entry of the store's facts' `shards` holds them as `facts`), and
+  its tensors are keyed by its own `header`. A shard that is not presented for its key, whose
+  header passed the checks, has no element but its object: its tensors are keyed by that object,
+  also a kind of element that may declare several arrays, with the same indexes, and their places
+  are ranges of it. A shard whose header fails a check has no descriptions. The store's facts'
+  `declared_by` lists, in the order of `own.files`, the id of the element that keys each shard's
+  descriptions, null for a shard with none.
+- **Declarations.** One: the range of the header that holds the entry's `dtype` value, a JSON
+  string as the header writes it, with its quotes and any escapes (of a shard keyed by its
+  object, the same bytes as a range of the object). The format fixes the elements' byte order
+  (little-endian) and their order (the last index varying fastest), which no place declares.
+- **`shape`** is the entry's `shape`, empty for a scalar. `axes` is absent: a tensor is stored in
+  the order of its `shape`.
+- **`item_bits`** is the bits of one element of the `dtype`
+  ([zarrify/safetensors.md §3](zarrify/safetensors.md#3-data-types)), from 4 to 64; a complex
+  number is one element. There is no `pad_from`: a tensor's elements pack unbroken into whole
+  bytes.
+- **The grid.** A tensor is one unit: each axis is `Each` of its length, or an empty `List` for
+  an axis of length 0, under `short`. Its row is its data's element, `tensors/<i>`, or, of a
+  shard keyed by its object, the data's range of the object. A tensor with an axis of length 0
+  holds no bytes, and has no unit and no row.
+- **The chain** is empty for elements of whole bytes. Elements of 4 or 6 bits (`F4`, `F6_E2M3`
+  and `F6_E3M2`) are in `lsb_first`, its `bits` their size: the buffer packs them from each
+  byte's least significant bit
+  ([zarrify/safetensors.md §3.2](zarrify/safetensors.md#32-packed-data-types)). The library
+  reads a tensor's bytes and none of its elements, so this order rests on that section: for `F4`
+  it is the order of PyTorch's `float4_e2m1fn_x2`, which the library writes, and for the 6-bit
+  types, of which no writer was found, the same order by analogy.
+- **The fill value** is `undefined`: safetensors has none.
+- **No grid** for no tensor of a checked header, but at the descriptions' limit's fallback
+  ([§6](#6-in-the-ir)): the checks leave no tensor whose storage the IR does not model, and the
+  chunk map's limit has room for the row of any tensor that holds a byte. A header reaches the
+  descriptions' limit only where its tensors' shapes have more than 2^23 axes in all, each a
+  description's entry and two bytes of the header: tensors then fall back, or the file keeps no
+  descriptions.
 
 **IMS** ([spec/zarrify/ims.md](zarrify/ims.md)). An Imaris file's datasets are described as
 HDF5's, by the same code, in a file run; a filter the list has no name for is `source` with

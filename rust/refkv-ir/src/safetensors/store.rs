@@ -10,7 +10,7 @@
 //! Rounds: every shard's first 64 KiB and every document whole, then the rest of each header
 //! longer than the first read.
 
-use super::{check, first_read, header_length, Header};
+use super::{check, first_read, header_length, stored, Header};
 use crate::fed::{Fed, Overlap};
 use crate::ir::{Ir, Res};
 use crate::json;
@@ -97,8 +97,14 @@ impl SafetensorsStore {
         })
     }
 
-    /// The shards' and documents' elements, and the facts (spec/zarrify/safetensors.md §9
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#9-the-store-form>).
+    /// The shards' and documents' elements, the facts (spec/zarrify/safetensors.md §9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#9-the-store-form>),
+    /// and, on the finished IR, the descriptions of every tensor whose shard's header passed its
+    /// checks (spec/stored-array.md §7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>). A presented
+    /// shard's facts are a file's, with its `declared_by`; the store's `declared_by` lists, in the
+    /// order of `own.files`, the element that keys each shard's descriptions: its `header`; its
+    /// object, for a shard that is not presented; or null for one whose header failed a check.
     fn emit(&mut self) -> Res<J> {
         let mut ir = self.ir.take().ok_or("internal: no IR")?;
         let keys = &self.keys;
@@ -109,6 +115,10 @@ impl SafetensorsStore {
         let mut files = Vec::new();
         let mut presented = Vec::new();
         let mut tensors_of: HashMap<String, (String, BTreeSet<String>)> = HashMap::new();
+        // every checked header's tensors, described once the IR is finished, and the element that
+        // keys each shard's descriptions, in the order of `files`
+        let mut reached = Vec::new();
+        let mut declared_by: Vec<Option<u32>> = Vec::new();
         for s in &mut self.shards {
             let key = &keys[s.k].0;
             if s.reason.is_none() && shard_dirs.contains(key) {
@@ -122,13 +132,20 @@ impl SafetensorsStore {
                 }
                 _ => String::new(),
             };
+            let e = self.elems[s.k];
             let Some(h) = s.header.as_ref().filter(|_| s.reason.is_none()) else {
                 files.push(json!({"key": key, "reason": s.reason.clone().unwrap_or_default()}));
+                // a shard that is not presented for its key has a checked header all the same: its
+                // tensors are described, by its object
+                let tensors = s.header.as_ref().map(|h| h.in_object(self.rules, e)).transpose()?;
+                declared_by.push(tensors.as_ref().map(|t| t.key));
+                reached.extend(tensors);
                 continue;
             };
-            let e = self.elems[s.k];
             ir.describe_in_place(e)?;
-            let facts = h.emit(self.rules, &mut ir, e)?;
+            let (facts, tensors) = h.emit(self.rules, &mut ir, e)?;
+            declared_by.push(Some(tensors.key));
+            reached.push(tensors);
             let names: BTreeSet<String> = facts["own"]["tensors"].as_array().into_iter().flatten()
                 .filter_map(|t| t["name"].as_str().map(str::to_string)).collect();
             tensors_of.insert(key.clone(), (path.clone(), names));
@@ -180,8 +197,10 @@ impl SafetensorsStore {
             own.insert("configs".into(), J::Array(configs));
         }
         crate::check::finish(&mut ir)?;
+        let (arrays, chains, map) = stored::described(&reached)?;
+        ir.describe(arrays, chains, map)?;
         self.ir = Some(ir);
-        Ok(json!({"profile": "safetensors", "own": own, "shards": presented, "dirs": dirs, "others": others}))
+        Ok(json!({"profile": "safetensors", "own": own, "shards": presented, "dirs": dirs, "others": others, "declared_by": declared_by}))
     }
 }
 
