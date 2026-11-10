@@ -898,7 +898,9 @@ are unsigned values it holds declares an image, a stored array, whether or not t
 it, keyed by the IFD's element, with no index. The planes of an OME-TIFF and the levels of a
 pyramid are each an array: how they assemble is the profile's. The facts give the keys: each
 level's `declared_by` lists, in the order of its `planes`, the id of each plane's IFD, null for a
-plane no file of the run holds, and a set's store renumbers them as it does `planes`
+plane no file of the run holds and for each plane after the first of an ImageJ stack in one IFD
+([tiff.md §4.1](zarrify/tiff.md#41-planes)), whose strips no IFD declares, and a set's store
+renumbers them as it does `planes`
 ([§2.1](#21-keys)). Below, a field's value is the first of its values, and a field the IFD lacks
 has TIFF 6.0's default.
 

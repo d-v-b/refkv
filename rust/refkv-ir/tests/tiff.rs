@@ -185,7 +185,9 @@ fn planes_name_their_descriptions(name: &str, ir: &refkv_ir::ir::Ir, facts: &ser
         assert_eq!(units.len(), keys.len(), "{name} level {l}");
         for (p, (unit, key)) in units.iter().zip(keys).enumerate() {
             let at = format!("{name} level {l} plane {p}");
-            assert_eq!(unit.is_null(), key.is_null(), "{at}");
+            // the planes after the first of an ImageJ stack in one IFD have strips no IFD declares
+            let undeclared = p > 0 && key.is_null() && facts["imagej"]["one_ifd"].as_bool() == Some(true);
+            assert!(undeclared || unit.is_null() == key.is_null(), "{at}");
             let (Some(unit), Some(key)) = (unit.as_u64(), key.as_u64()) else { continue };
             let described: Vec<usize> = (0..s.arrays.len()).filter(|&k| s.arrays[k].element == key as u32).collect();
             let [k] = described[..] else { panic!("{at}: {} descriptions", described.len()) };

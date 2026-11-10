@@ -18,6 +18,7 @@ Three things are the profile's reading, and taken from its output: which image i
 level (OME-XML, the IFD chain and SubIFDs say, which no one description holds), how many strips a
 chunk joins, and how many a shard gathers."""
 
+import io
 import json
 import math
 import struct
@@ -415,6 +416,31 @@ def check_plane(d: Described, lv: Level, k: int, chunks: dict[tuple[int, int, in
     return said
 
 
+def imagej_shift(d: Described, first: dict[tuple[int, int, int], list[Piece]],
+                 chunks: dict[tuple[int, int, int], list[Piece]]) -> str | None:
+    """None when `chunks`, a plane's of an ImageJ stack in one IFD (spec/zarrify/tiff.md §4.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>), are the first
+    plane's shifted by a multiple of its bytes, the file's ImageDescription starting with
+    `ImageJ=`; else what is wrong."""
+    with tifffile.TiffFile(io.BytesIO(d.objects.get(None, b""))) as tf:
+        if not tf.pages.first.description.startswith("ImageJ="):
+            return "no one description's rows hold its chunks"
+    total = sum(size(p) for parts in first.values() for p in parts if isinstance(p, tuple))
+    shifts: set[int] = set()
+    for key, parts in chunks.items():
+        base = first.get(key)
+        if base is None or len(base) != len(parts):
+            return f"chunk {key} is not the first plane's shifted"
+        for p, q in zip(base, parts, strict=True):
+            if isinstance(p, tuple) and isinstance(q, tuple) and p[0] == q[0] and p[2] == q[2]:
+                shifts.add(q[1] - p[1])
+            elif isinstance(p, tuple) or p != q:
+                return f"chunk {key} is not the first plane's shifted"
+    if len(shifts) != 1 or next(iter(shifts)) % total:
+        return f"shifted by {sorted(shifts)}, not one multiple of the first plane's {total} bytes"
+    return None
+
+
 def check_level(d: Described, lv: Level, by_start: dict[tuple[str | None, int], set[int]], presented: set[int],
                 seen: Counter) -> list[str]:
     """One array against the descriptions: each of its planes against the description whose rows
@@ -453,12 +479,20 @@ def check_level(d: Described, lv: Level, by_start: dict[tuple[str | None, int], 
         plane = lead if c is None else (*lead[:c], *lead[c + 1:])
         planes.setdefault(plane, {})[(0 if c is None else lead[c], coords[-2], coords[-1])] = parts
     said = []
+    first: dict[tuple[int, int, int], list[Piece]] = {}
     for plane, chunks in sorted(planes.items()):
         seen["planes"] += 1
         found = sorted(set.intersection(*(candidates(parts) for parts in chunks.values())))
         if not found:
-            said.append(f"{lv.path} plane {plane}: no one description's rows hold its chunks")
+            # the planes after the first of an ImageJ stack in one IFD, which no IFD describes:
+            # the first plane's strips, shifted by the plane's bytes
+            wrong = imagej_shift(d, first, chunks)
+            if wrong:
+                said.append(f"{lv.path} plane {plane}: {wrong}")
+            else:
+                seen["planes of an ImageJ stack in one IFD, the first's strips shifted"] += 1
             continue
+        first = first or chunks
         # images that share their bytes are told apart by nothing a chunk holds
         seen["planes of bytes several descriptions share"] += len(found) > 1
         complaints = []
@@ -505,23 +539,26 @@ def test_the_tiff_profile_writes_what_the_descriptions_give(path):
 def test_the_fixtures_hold_every_case_the_profile_is_compared_in():
     """The fixtures reach each case of the comparison, so that none of it passes for want of a
     file. The one image the descriptions give no grid is edge_strips_absent.tif's, whose strip of
-    no bytes at an offset the profile takes as absent."""
+    no bytes at an offset the profile takes as absent. The planes no description holds are those
+    after the first of the ImageJ stacks in one IFD (spec/zarrify/tiff.md §4.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>)."""
     seen: Counter = Counter()
     for path in FILES:
         seen += compared(path)[1]
     assert {k: v for k, v in seen.items() if v} == {
-        "arrays": 158,
+        "arrays": 163,
         "arrays sharded": 18,
         "arrays of a rectilinear grid": 16,
         "arrays across files": 5,
         "arrays of an image the descriptions give no grid": 1,
-        "planes": 281,
+        "planes": 319,
         "planes in tiles": 139,
-        "planes in strips": 142,
+        "planes in strips": 162,
         "planes of several sample planes": 7,
-        "chunks": 1596,
+        "planes of an ImageJ stack in one IFD, the first's strips shifted": 18,
+        "chunks": 1616,
         "inner chunks of shards": 646,
-        "chunks of joined strips": 13,
+        "chunks of joined strips": 26,
         "chunks padded with zeros": 1,
         "chunks of a cut LZW stream": 27,
         "chunks with a JPEG prefix": 45,

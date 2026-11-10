@@ -224,6 +224,9 @@ Supported:
 - Pyramids as SubIFDs (OME-TIFF), or as a sequence of smaller tiled images
   (SVS).
 - OME-TIFF planes over Z, C and T in any `DimensionOrder`, single-file.
+- ImageJ hyperstacks (an `ImageJ=` description with `images=N`): one IFD a plane, or the one-IFD
+  layout ImageJ writes for stacks of more than 4 GB, whose later planes follow IFD 0's strips with no
+  IFD of their own, as planes over T, C and Z ([§4.1](../../../spec/zarrify/tiff.md#41-planes)).
 - Unsigned and signed integers of 8 to 64 bits, `float32` and `float64`, unsigned samples of 1 and 12
   bits (`imagecodecs_packints`, read as `uint8` and `uint16`, and a file without BitsPerSample as 1 bit),
   planar or interleaved samples.
@@ -252,6 +255,9 @@ Rejected:
 - An OME-TIFF with several RGB channels (`SizeC` other than 1 or the
   samples per pixel).
 - More than 100000 IFDs or planes.
+- An ImageJ hyperstack whose description's frames, channels and slices do not multiply to its
+  images, or whose IFD count is neither 1 nor its images; one in one IFD that is tiled, compressed,
+  or whose strips are not contiguous; and one whose channels have several samples each.
 - Planes or levels whose bits are filled least significant first
   (FillOrder 2) when uncompressed, DEFLATE or zstd, and subsampled YCbCr
   that is not JPEG or JPEG 2000 (the codecs decode samples at full

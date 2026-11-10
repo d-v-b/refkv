@@ -1242,3 +1242,46 @@ def test_lzw_tails_that_would_read_more_than_the_file_are_rejected(tmp_path):
     path.write_bytes(b)
     with pytest.raises(Rejected, match=f"would be read for their tails {2 * len(b) - 17} bytes, more than the file's"):
         via_ir(str(path), "u")
+
+
+@pytest.mark.parametrize("name", ["imagej_pages_zyx.tif", "imagej_pages_tzcyx_uint16.tif", "imagej_contiguous_zyx.tif",
+                                  "imagej_contiguous_tzcyx_uint16_be.tif", "imagej_contiguous_rgb.tif"])
+def test_imagej_hyperstacks_are_their_planes(name, tmp_path):
+    """§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>: an ImageJ
+    hyperstack's planes, one IFD each or, in one IFD, IFD 0's strips repeated after it, are the array
+    tifffile reads, over t, c and z (channels first in ImageJ's order); in one IFD, each plane's
+    chunk is IFD 0's strips shifted by the plane's bytes, and the mirror rebuilds the file."""
+    path = FIXTURES / "tiff" / name
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    ms = mapping(at(g.attrs, "ome", "multiscales", 0))
+    names = [string(at(a, "name")) for a in sequence(ms["axes"])]
+    with tifffile.TiffFile(path) as tf:
+        series = tf.series[0]
+        data, axes = series.asarray(), series.axes
+        one_ifd = len(tf.pages) == 1
+        plane_bytes = sum(tf.pages.first.databytecounts)
+        first = integer(series.dataoffset)
+    letters = [AXIS[a] for a in axes]
+    assert np.array_equal(ndarray(g.get_array("0")[...]), np.transpose(data, [letters.index(a) for a in names]))
+    if one_ifd:
+        frames, channels, slices = (data.shape[axes.index(a)] if a in axes else 1 for a in "TCZ")
+        for t in range(frames):
+            for c in range(channels):
+                for z in range(slices):
+                    coords = [v for a, v in (("t", t), ("c", c), ("z", z)) if a in names] + [0, 0]
+                    p = (t * slices + z) * channels + c
+                    assert out.refs["0/c/" + "/".join(map(str, coords))][0][0] == first + p * plane_bytes
+
+
+@pytest.mark.parametrize(("name", "message"), [
+    ("edge_reject_imagej_short.tif", "an ImageJ stack of 9 planes in one IFD ends outside the file"),
+    ("edge_reject_imagej_product.tif", "an ImageJ description of 12 images whose frames, channels and slices make 16"),
+    ("edge_reject_imagej_ifds.tif", "an ImageJ description of 7 images in a file of 5 IFDs"),
+    ("edge_reject_imagej_rgb_channels.tif", "an ImageJ hyperstack of 4 channels of 3 samples each is not supported"),
+])
+def test_what_an_imagej_description_does_not_hold_is_rejected(name, message):
+    """§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>: a stack in one IFD
+    past the file's end, sizes that do not make the images, pages that are not the images, and channels
+    of several samples each."""
+    with pytest.raises(Rejected, match=message):
+        via_ir(str(FIXTURES / "tiff" / name), "u")
