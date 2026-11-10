@@ -195,7 +195,15 @@ pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "webp", parameters: &[] },
     CodecEntry { name: "lerc", parameters: &[] },
     CodecEntry { name: "eer", parameters: &[fixed("skip_bits"), fixed("horizontal_bits"), fixed("vertical_bits")] },
+    CodecEntry { name: "h264", parameters: PICTURE },
+    CodecEntry { name: "hevc", parameters: PICTURE },
+    CodecEntry { name: "av1", parameters: PICTURE },
+    CodecEntry { name: "vp9", parameters: PICTURE },
 ];
+
+/// The parameters of a codec of a video stream's pictures: its configuration, the plane of a
+/// picture a unit decodes to, and, a column, whether a decoder may start at the unit.
+const PICTURE: &[ParamEntry] = &[fixed("setup"), fixed("plane"), ParamEntry { name: "sync", column: Some(ColumnType::UInt64) }];
 
 /// A value of a parameter column.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1551,8 +1559,11 @@ impl StoredArray {
             }
         }
         let given = matches!(self.fill, Fill::Given(_));
+        // elements that `source` makes are of the size the source's encoding gives them, which
+        // the IR need not know: every chain of the array then begins with it
+        let sourced = self.chains.iter().all(|&c| chains[c as usize].first().is_some_and(|k| k.name == "source"));
         match self.item_bits {
-            None if self.grid.is_some() => return Err("it has a grid and no item_bits".into()),
+            None if self.grid.is_some() && !sourced => return Err("it has a grid and no item_bits, and a chain that does not begin with `source`".into()),
             None if given => return Err("its fill is given and it has no item_bits".into()),
             Some(0) => return Err("its item_bits is 0".into()),
             _ => {}
@@ -2122,6 +2133,10 @@ mod tests {
         assert_eq!(doc["chains"][0][0], json!({"name": "quantize", "parameters": {"method": {"value": 1}}}));
         assert_eq!(doc["arrays"][2]["fill"], json!("undefined"));
         assert_eq!(doc["arrays"][3]["fill"], json!("format_default"));
+        // elements `source` makes need no size
+        let mut sourced = valid();
+        (sourced.arrays[3].item_bits, sourced.arrays[3].chains, sourced.arrays[3].fill) = (None, vec![2], Fill::Undefined);
+        check_with(&with(sourced), TEST_CODECS).unwrap();
     }
 
     #[cfg(feature = "arrow")]
@@ -3091,6 +3106,12 @@ mod tests {
     #[test]
     fn refuses_a_grid_without_item_bits() {
         assert!(refusal(|s| s.arrays[3].item_bits = None).contains("it has a grid and no item_bits"));
+    }
+
+    #[test]
+    fn refuses_a_grid_without_item_bits_where_one_chain_does_not_begin_with_source() {
+        let unsized_ = |s: &mut Stored| (s.arrays[0].item_bits, s.arrays[0].pad_from, s.arrays[0].fill) = (None, None, Fill::Undefined);
+        assert!(refusal(unsized_).contains("a chain that does not begin with `source`"));
     }
 
     #[test]
