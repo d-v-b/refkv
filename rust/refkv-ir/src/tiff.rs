@@ -2262,7 +2262,8 @@ impl Tiff {
             rules::env([
                 ("images", num(images as f64)),
                 ("ifds", num(self.chain.len() as f64)),
-                ("product", num((frames as u128 * channels as u128 * slices as u128) as f64)),
+                // saturating: sizes whose product passes u128 are no product of `images` either
+                ("product", num((frames as u128).saturating_mul(channels as u128).saturating_mul(slices as u128) as f64)),
                 ("spp", num(spp as f64)),
                 ("channels", num(channels as f64)),
                 ("flat", flag(self.ifds[i0].subs.is_empty())),
@@ -3033,7 +3034,7 @@ impl Tiff {
                 }
                 Some(bytes) => {
                     self.ir.alias(root, "planes/", 0, self.ifds[i0].el)?;
-                    let s0 = tiles_of[&i0].1.ok_or("internal: an ImageJ stack whose IFD 0 has no strips")?;
+                    let s0 = tiles_of.get(&i0).and_then(|t| t.1).ok_or("internal: an ImageJ stack whose IFD 0 has no strips")?;
                     let strips = std::mem::take(&mut self.strips0);
                     // each plane's strips' struct, and the element that declares its image: IFD 0,
                     // or the plane's own struct

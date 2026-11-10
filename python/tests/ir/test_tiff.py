@@ -1299,3 +1299,16 @@ def test_an_imagej_stack_in_one_ifd_of_no_rows_is_rejected(tmp_path):
     path.write_bytes(b)
     with pytest.raises(Rejected, match="an ImageJ stack in one IFD whose strips are not contiguous"):
         via_ir(str(path), "u")
+
+
+def test_imagej_sizes_whose_product_passes_u128_are_rejected(tmp_path):
+    """§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>: frames, channels
+    and slices that multiply to 2^128 + 4 do not make 4 images, though their product in 128 bits,
+    wrapped, is 4: they are rejected, not taken as sizes of trillions of planes."""
+    frames, channels, slices = 6887505704242, 7471867539965, 6612235444282
+    assert frames * channels * slices == (1 << 128) + 4
+    description = f"ImageJ=1.11a\nimages=4\nchannels={channels}\nslices={slices}\nframes={frames}\n"
+    path = tmp_path / "wrapped.tif"
+    tifffile.imwrite(path, np.zeros((4, 4, 4), np.uint8), description=description, metadata=None)
+    with pytest.raises(Rejected, match="an ImageJ description of 4 images whose frames, channels and slices make"):
+        via_ir(str(path), "u")

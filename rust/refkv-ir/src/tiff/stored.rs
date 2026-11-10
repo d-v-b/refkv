@@ -525,7 +525,11 @@ impl Tiff {
             for (plane, strips) in planes {
                 let declarations = a.declarations.iter().cloned().chain(self.value_place(f, 270)).collect();
                 let shifted = match &stored {
-                    Some((_, (_, rows))) if rows.len() != strips.len() => return Err("internal: an ImageJ plane whose strips are not IFD 0's".into()),
+                    // each of IFD 0's rows is one whole strip's element, as its uncompressed strips
+                    // give them: the plane's row is its own strip's
+                    Some((_, (_, rows))) if rows.len() != strips.len() || rows.iter().any(|r| r.member.is_some() || r.range.is_some() || r.ranges.is_some()) => {
+                        return Err("internal: an ImageJ plane whose strips are not IFD 0's".into())
+                    }
                     Some((chain, (grid, rows))) => {
                         let rows = rows.iter().zip(strips).map(|(row, &e)| Row { element: Some(e), ..row.clone() }).collect();
                         Some((chain.clone(), (grid.clone(), rows)))
