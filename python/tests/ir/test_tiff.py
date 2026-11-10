@@ -1285,3 +1285,17 @@ def test_what_an_imagej_description_does_not_hold_is_rejected(name, message):
     of several samples each."""
     with pytest.raises(Rejected, match=message):
         via_ir(str(FIXTURES / "tiff" / name), "u")
+
+
+def test_an_imagej_stack_in_one_ifd_of_no_rows_is_rejected(tmp_path):
+    """§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>: an ImageLength of
+    0 leaves IFD 0's strips more than their rows, which is a rejection, not a division by no strips."""
+    src = FIXTURES / "tiff" / "imagej_contiguous_zyx.tif"
+    b = bytearray(src.read_bytes())
+    with tifffile.TiffFile(src) as tf:
+        t = tf.pages.first.tags[257]
+        struct.pack_into(tf.byteorder + ("H" if t.dtype == 3 else "I"), b, t.valueoffset, 0)
+    path = tmp_path / "rows.tif"
+    path.write_bytes(b)
+    with pytest.raises(Rejected, match="an ImageJ stack in one IFD whose strips are not contiguous"):
+        via_ir(str(path), "u")

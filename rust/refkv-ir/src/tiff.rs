@@ -442,6 +442,9 @@ pub struct Tiff {
     /// IFD 0's strips as `emit_ifd_data` made them, (index, offset, length, form): what the planes
     /// of an ImageJ stack in one IFD repeat (`emit_data`)
     strips0: Vec<(u64, u64, u64, String)>,
+    /// of an ImageJ stack in one IFD, each plane after the first: its `imagej/planes/<p>` element,
+    /// which keys its description (`stored.rs`), and its strips' data elements in IFD 0's order
+    imagej_planes: Vec<(u32, Vec<u32>)>,
     /// IFD extents, for pointer targets: start -> end
     extents: BTreeMap<u64, u64>,
     tries: u64,
@@ -599,6 +602,7 @@ impl Tiff {
             eager: 0,
             layout: None,
             strips0: Vec::new(),
+            imagej_planes: Vec::new(),
             extents: BTreeMap::new(),
             tries: 0,
             todo: Vec::new(),
@@ -2241,7 +2245,8 @@ impl Tiff {
             let (w, h) = (self.req(i0, m0, 256, None)?, self.req(i0, m0, 257, None)?);
             let rows = self.req(i0, m0, 278, Some(u32::MAX as u64))?.min(h).max(1);
             let row = row_size(w, bits, if spp > 1 && planar == 1 { spp } else { 1 });
-            let strips = h.div_ceil(rows);
+            // an image of no rows, which the `image` role rejects, has no strip to index by
+            let strips = h.div_ceil(rows).max(1);
             whole = !offsets.is_empty() && offsets.len() == counts.len();
             for (j, (&o, &c)) in offsets.iter().zip(&counts).enumerate() {
                 let r = if (j as u64) % strips == strips - 1 { h - rows * (strips - 1) } else { rows };
@@ -3016,7 +3021,7 @@ impl Tiff {
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#51-elements>): `imagej/planes/<p>`
         // names each plane's IFD; in one IFD, plane `p ≥ 1` is a struct whose strips are IFD 0's
         // shifted by `p × plane_bytes`, and the level's chunks are those structs' members
-        let mut imagej_planes: Option<Vec<Option<u32>>> = None;
+        let mut imagej_planes: Option<(Vec<Option<u32>>, Vec<Option<u32>>)> = None;
         if let Some(ij) = self.layout.as_ref().and_then(|l| l.imagej.clone()) {
             let i0 = self.chain[0];
             let root = self.ir.struct_(0, "imagej", NO_INDEX, 0, None)?;
@@ -3030,16 +3035,20 @@ impl Tiff {
                     self.ir.alias(root, "planes/", 0, self.ifds[i0].el)?;
                     let s0 = tiles_of[&i0].1.ok_or("internal: an ImageJ stack whose IFD 0 has no strips")?;
                     let strips = std::mem::take(&mut self.strips0);
-                    let mut structs: Vec<Option<u32>> = vec![Some(s0)];
+                    // each plane's strips' struct, and the element that declares its image: IFD 0,
+                    // or the plane's own struct
+                    let mut structs: Vec<(Option<u32>, Option<u32>)> = vec![(Some(s0), Some(self.ifds[i0].el))];
                     for p in 1..ij.images {
                         let plane = self.ir.struct_(root, "planes/", p, 0, None)?;
                         let s = self.ir.struct_(plane, "strips", NO_INDEX, 0, None)?;
+                        let mut data = Vec::new();
                         for (j, o, n, form) in &strips {
-                            self.ir.data(s, "", *j, 0, (o + p * bytes, *n), form)?;
+                            data.push(self.ir.data(s, "", *j, 0, (o + p * bytes, *n), form)?);
                         }
-                        structs.push(Some(s));
+                        self.imagej_planes.push((plane, data));
+                        structs.push((Some(s), Some(plane)));
                     }
-                    // the level's planes in (t, c, z) order, each its struct
+                    // the level's planes in (t, c, z) order
                     let (frames, channels, slices) = ij.sizes;
                     let mut planes = Vec::new();
                     for t in 0..frames {
@@ -3049,7 +3058,7 @@ impl Tiff {
                             }
                         }
                     }
-                    imagej_planes = Some(planes);
+                    imagej_planes = Some(planes.into_iter().unzip());
                 }
             }
         }
@@ -3081,11 +3090,12 @@ impl Tiff {
                         p.iter().map(|x| x.filter(|x| x.0 == 0).and_then(|x| of(&chain[x.1]))).collect::<Vec<_>>(),
                         p.iter().map(|x| x.filter(|x| x.0 == 0).map(|x| ifds[chain[x.1]].el)).collect::<Vec<_>>(),
                     ),
-                    // a stack in one IFD: IFD 0 declares plane 0's image; the planes after it, none
-                    (None, Some(p)) => (p.clone(), p.iter().enumerate().map(|(q, _)| (q == 0).then_some(ifds[chain[0]].el)).collect::<Vec<_>>()),
+                    // a stack in one IFD: IFD 0 declares plane 0's image, and each plane after it
+                    // its own `imagej/planes/<p>`
+                    (None, Some((planes, keys))) => (planes.clone(), keys.clone()),
                     (None, None) => (lv.ifds.iter().map(of).collect::<Vec<_>>(), lv.ifds.iter().map(|&k| Some(ifds[k].el)).collect::<Vec<_>>()),
                 };
-                // `declared_by`: each plane's IFD, the key of its stored array's description
+                // `declared_by`: each plane's IFD (or `imagej/planes/<p>`), the key of its stored array's description
                 json!({"w": lv.w, "h": lv.h, "tw": lv.tw, "th": lv.th, "strips": lv.strips, "join": lv.join, "shard": lv.shard, "rectilinear": lv.rectilinear, "pad": lv.pad,
                        "planes": planes, "declared_by": declared_by})
             })

@@ -14,7 +14,7 @@ import struct
 import zlib
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache
 from pathlib import Path
 
@@ -461,6 +461,35 @@ def reached(pages: list) -> list[tifffile.TiffPage]:
     return out
 
 
+def later_planes(path: Path, d: Described, later: dict[int, int], seen: Counter) -> list[str]:
+    """The planes after the first of an ImageJ stack in one IFD (spec/stored-array.md §7
+    <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>), `later` their
+    descriptions by plane: each is IFD 0's but for its key and the ImageDescription it also names,
+    and its rows' bytes, in order, are the plane tifffile reads."""
+    if not later:
+        return []
+    said = []
+    with tifffile.TiffFile(path) as tif:
+        page = tif.pages.first
+        stack = tif.series[0].asarray().reshape(-1, *page.shaped)
+        stack = stack.astype(stack.dtype.newbyteorder(tif.byteorder))  # as the file stores them
+        first = next(a for a in d.stored.arrays if d.at(a.element)[1] == page.offset)
+        described_at = (page.tags[270].valueoffset, page.tags[270].count)
+        if len(tif.pages) != 1 or sorted(later) != list(range(1, len(stack))):
+            return [f"planes {sorted(later)} of a stack of {len(stack)} planes in {len(tif.pages)} IFDs"]
+        for p, k in sorted(later.items()):
+            a = d.stored.arrays[k]
+            seen["planes after the first of an ImageJ stack in one IFD"] += 1
+            if replace(a, element=first.element, path=first.path, declarations=a.declarations[:-1]) != first:
+                said.append(f"{a.path}: not IFD 0's description")
+            last = a.declarations[-1]
+            if not isinstance(last, ElementPlace) or d.at(last.element)[1:] != described_at:
+                said.append(f"{a.path}: its last declaration is not the ImageDescription")
+            if b"".join(d.unit(r) for r in d.rows.get(k, [])) != stack[p].tobytes():
+                said.append(f"{a.path}: its rows' bytes are not the plane tifffile reads")
+    return said
+
+
 @cache
 def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
     """What differs between the descriptions of the file at `path` (and of the files of its set)
@@ -472,9 +501,14 @@ def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
     if d.stored.undescribed:
         said.append(f"descriptions dropped for room: {d.stored.undescribed}")
     by_ifd: dict[tuple[str | None, int], int] = {}
+    later: dict[int, int] = {}
     for k, a in enumerate(d.stored.arrays):
-        by_ifd[d.at(a.element)[:2]] = k
-    assert len(by_ifd) == len(d.stored.arrays)
+        if (a.path or "").startswith("imagej/planes/"):
+            later[int((a.path or "").rsplit("/", 1)[1])] = k
+        else:
+            by_ifd[d.at(a.element)[:2]] = k
+    assert len(by_ifd) + len(later) == len(d.stored.arrays)
+    said += later_planes(path, d, later, seen)
     for key, data in d.objects.items():
         at = path if key is None else path.parent / key
         with tifffile.TiffFile(at) as tif:
@@ -509,7 +543,7 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
     wanted = ["images", "tiled", "strips", "planar", "interleaved", "one sample", "packed samples", "units",
               "units decoded", "units an edge cuts", "rows of a range", "rows of an element",
               "units longer than their elements", "no grid: a unit of no bytes at an offset", "jpeg with tables",
-              "eer with places",
+              "eer with places", "planes after the first of an ImageJ stack in one IFD",
               *(f"codec {c}" for c in ("tiff_lzw", "zlib", "xz", "zstd", "packbits", "tiff_predictor", "ccitt_t6",
                                        "jpeg", "jpeg2k", "jpegxl", "webp", "lerc", "eer", "source"))]
     assert [w for w in wanted if not seen[w]] == []
