@@ -220,8 +220,10 @@ def chain_names(im: Image, streams: list[bytes]) -> tuple[str, ...]:
     if im.native:
         return ("lsb_first",) if im.bits == 1 else ()
     if im.syntax in LOSSLESS:
-        # the list's `jpeg` is a stream of 8-bit samples
-        return ("jpeg",) if all(sof(s) == (0xC3, 8) for s in streams) else ("source",)
+        # the list's `jpeg` is of samples of 8 or 16 bits, a stream's precision at most theirs
+        assert im.bits in (8, 16)
+        assert all(sof(s)[0] == 0xC3 and sof(s)[1] <= im.bits for s in streams)
+        return ("jpeg",)
     return ("source",) if im.syntax in HTJ2K else (CODEC[im.syntax],)
 
 
@@ -635,9 +637,9 @@ def test_dicom_arrays_are_described_as_pydicom_reads_them(path):
 def test_the_fixtures_hold_every_case_the_comparison_reads():
     """The fixtures reach each case of the comparison, so that none of it passes for want of a
     file. Of the 220 units, pydicom reads the values of 198. It has no decoder here for the other
-    22: the 11 of HTJ2K and of lossless JPEG of 16 bits, which are `source` and not decoded; and
-    the 11 of JPEG-LS and of lossless JPEG of 8 bits, which are decoded to their unit's shape, the
-    3 lossless ones also against a second decoder. The two Pixel Data of items are icons with no
+    22: the 6 of HTJ2K, which are `source` and not decoded; and the 16 of JPEG-LS and of lossless
+    JPEG, of 8 bits and of 16, which are decoded to their unit's shape, the 8 lossless ones also
+    against a second decoder. The two Pixel Data of items are icons with no
     Samples per Pixel, and with no attributes at all."""
     seen: Counter = Counter()
     for path in FILES:
@@ -646,12 +648,12 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
         "pixel data": 77,
         "chain empty": 35,
         "chain lsb_first": 5,
-        "chain jpeg": 12,
+        "chain jpeg": 14,
         "chain jpegls": 5,
         "chain jpeg2k": 4,
         "chain dicom_rle": 8,
-        "chain source": 7,
-        "lossless JPEG in the list's jpeg": 2,
+        "chain source": 5,
+        "lossless JPEG in the list's jpeg": 4,
         "no grid: JPEG 2000 chroma of half the width": 1,
         "a frames' axis": 42,
         "a frames' axis of one frame": 1,
@@ -662,9 +664,9 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
         "units that are a run's member": 128,
         "units of several ranges": 10,
         "units decoded to pydicom's values": 198,
-        "units of source, not decoded": 11,
-        "units decoded that pydicom has no decoder for": 11,
-        "units decoded to a second lossless JPEG decoder's values": 3,
+        "units of source, not decoded": 6,
+        "units decoded that pydicom has no decoder for": 16,
+        "units decoded to a second lossless JPEG decoder's values": 8,
         "lookup tables": 12,
         "lookup tables of two bytes an entry": 9,
         "palettes with a segmented table": 1,
@@ -844,9 +846,9 @@ def test_jpeg2k_frames_of_half_width_chroma_have_no_grid():
     assert not np.array_equal(openjpeg, pillow)
 
 
-def test_lossless_jpeg_of_another_precision_is_in_a_source_chain(tmp_path):
-    """The list's `jpeg` is a stream of 8-bit samples: lossless JPEG frames of 7 bits in Bits
-    Allocated 8 are `source`, by the transfer syntax, as those of 16 bits are."""
+def test_lossless_jpeg_of_a_precision_below_bits_allocated_is_in_a_jpeg_chain(tmp_path):
+    """The list's `jpeg` is of samples of 8 or 16 bits, a stream's precision at most theirs:
+    lossless JPEG frames of 7 bits in Bits Allocated 8 are `jpeg`, decoded to their values."""
     pixels = (np.arange(2 * 6 * 5, dtype="u1") % 128).reshape(2, 6, 5)
     streams = [bytes(imagecodecs.jpeg8_encode(f, lossless=True, predictor=1, bitspersample=7)) for f in pixels]
     assert all(sof(s) == (0xC3, 7) for s in streams)
@@ -855,13 +857,13 @@ def test_lossless_jpeg_of_another_precision_is_in_a_source_chain(tmp_path):
     ds.add_new(PIXEL_DATA, "OB", encapsulate(streams))
     ds[PIXEL_DATA].is_undefined_length = True
     path = saved(tmp_path / "seven.dcm", ds, "1.2.840.10008.1.2.4.70")
-    assert saw([path]) == {"pixel data": 1, "chain source": 1, "a frames' axis": 1, "units": 2,
-                           "units of source, not decoded": 2}
-    (a,) = described(path).stored.arrays
-    (chain,) = (described(path).stored.chains[c] for c in a.chains)
-    assert [(c.name, c.parameters) for c in chain] == [
-        ("source", {"format": Value("dicom"), "id": Value("1.2.840.10008.1.2.4.70")})]
+    assert saw([path]) == {"pixel data": 1, "chain jpeg": 1, "lossless JPEG in the list's jpeg": 1, "a frames' axis": 1,
+                           "units": 2, "units decoded that pydicom has no decoder for": 2,
+                           "units decoded to a second lossless JPEG decoder's values": 2}
+    d = described(path)
+    (a,) = d.stored.arrays
     assert (a.shape, a.item_bits) == ((2, 6, 5), 8)
+    assert [imagecodecs.jpeg8_decode(d.unit(r)).tobytes() for r in d.rows[0]] == [f.tobytes() for f in pixels]
 
 
 def test_htj2k_frames_are_in_a_source_chain():

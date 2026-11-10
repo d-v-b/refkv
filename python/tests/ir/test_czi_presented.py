@@ -48,7 +48,6 @@ from described import Described, described
 from test_czi_stored import FILES, jpeg_frame, jpegxr_format, writer, written, zstd1_header
 
 from refkv._narrow import JSON, at, mapping, string
-from refkv.ir.stored import Value
 from refkv.zarrify.common import Output
 
 SERIES = "SBHIRV"
@@ -136,16 +135,10 @@ def subblock(d: Described, k: int) -> Subblock:
     names = () if codec is None else (codec.name,)
     head = d.unit(row)[:1 << 16]
     lossless, coded, header = False, (a.shape[1], a.shape[0]), (0, False)
-    if codec is not None and codec.name in ("jpeg", "source"):
+    if codec is not None and codec.name == "jpeg":
         frame = jpeg_frame(head)
         assert frame is not None
         lossless, coded = frame.marker == 0xC3, (frame.width, frame.height)
-        if codec.name == "source":
-            # the source's own encoding: CZI's JpgFile or lossless JPEG, of another precision than 8
-            given = {n: v.value for n, v in codec.parameters.items() if isinstance(v, Value)}
-            assert given["format"] == "czi"
-            assert given["id"] in (1, 3)
-            names = (f"source {given['id']}",)
     elif codec is not None and codec.name == "jpegxr":
         assert jpegxr_format(head) is not None
         coded = jpegxr_size(head)
@@ -172,8 +165,6 @@ def codecs_of(s: Subblock, axes: list[str]) -> list[JSON]:
         ("tiff_lzw",): [little, {"name": "imagecodecs_lzw"}],
         ("jpegxr",): [{"name": "imagecodecs_jpegxr"}],
         ("jpeg",): [jpeg],
-        ("source 1",): [jpeg],
-        ("source 3",): [{"name": "imagecodecs_ljpeg"}],
     }
     return [*out, *chain[s.names]]
 
@@ -393,10 +384,8 @@ def test_the_fixtures_hold_every_case_the_profile_is_compared_in():
         "chunks of ['zstd']": 3,
         "chunks of ['czi_zstd1']": 4,
         "chunks of ['tiff_lzw']": 17,
-        "chunks of ['jpeg']": 10,
+        "chunks of ['jpeg']": 15,
         "chunks of ['jpegxr']": 17,
-        "chunks of ['source 1']": 3,
-        "chunks of ['source 3']": 2,
     }
 
 

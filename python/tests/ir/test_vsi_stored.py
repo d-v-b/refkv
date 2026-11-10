@@ -298,7 +298,7 @@ def tiles_chain(f: TileFile) -> tuple[str, int | None]:
     size = f.dtype.itemsize
     if f.compression == RAW:
         return "raw", None
-    if f.compression in (JPEG, LOSSLESS_JPEG) and size == 1:
+    if f.compression in (JPEG, LOSSLESS_JPEG) and size in (1, 2):
         return "jpeg", None
     if f.compression == JPEG2000 and size in (1, 2):
         return "jpeg2k", None
@@ -307,9 +307,7 @@ def tiles_chain(f: TileFile) -> tuple[str, int | None]:
 
 # the decoder of each encoding a `source` chain names by its id, the header's `compression`
 SOURCE_DECODERS: dict[int, Callable[[bytes], np.ndarray]] = {
-    JPEG: imagecodecs.jpeg8_decode,
     JPEG2000: imagecodecs.jpeg2k_decode,
-    LOSSLESS_JPEG: imagecodecs.jpeg8_decode,
     PNG: imagecodecs.png_decode,
     BMP: imagecodecs.bmp_decode,
 }
@@ -748,7 +746,7 @@ def test_a_slides_arrays_are_described_as_its_tables_and_tifffile_give_them(path
 
 def test_the_fixtures_hold_every_case_the_comparison_reads():
     """The fixtures reach each case of the comparison, so that none of it passes for want of a
-    file. The `source` chains are lossless JPEG of two-byte samples (5), PNG (8) and BMP (9). The
+    file. The `source` chains are PNG (8) and BMP (9). The
     fill values the IR does not give are those of compressed tiles, and of a background whose
     samples differ. The IFD of no element is a macro image's that lies outside the tree. The
     images of no grid are a macro image of no columns, one whose strip lies outside the file, a
@@ -767,9 +765,8 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
         "levels of an axis before the rows": 6,
         "levels of samples": 14,
         "levels of raw": 41,
-        "levels of jpeg": 7,
+        "levels of jpeg": 8,
         "levels of jpeg2k": 2,
-        "levels of source 5": 1,
         "levels of source 8": 4,
         "levels of source 9": 3,
         "fill values given": 39,
@@ -871,12 +868,12 @@ def test_a_level_that_holds_no_tile_has_no_shape_and_no_grid(tmp_path):
     assert slide.d.rows.get(v.arrays[1]) is None
 
 
-def test_jpeg_tiles_of_two_byte_samples_are_source(tmp_path):
-    """The list's `jpeg` is a stream of 8-bit samples: JPEG tiles of a pixel type of two bytes
-    are `source`, with the header's compression for its id, and the pixel type's sample size."""
+def test_jpeg_tiles_of_two_byte_samples_are_jpeg(tmp_path):
+    """The list's `jpeg` is of samples of 8 or 16 bits: JPEG tiles of a pixel type of two bytes
+    (12-bit streams) are `jpeg`, decoded to the pixel type's sample size."""
     said, seen = compared(written(tmp_path, dtype="uint16", compression=JPEG))
     assert said == ()
-    assert (seen["levels"], seen["levels of source 2"], seen["tiles decoded"]) == (1, 1, 6)
+    assert (seen["levels"], seen["levels of jpeg"], seen["tiles decoded"]) == (1, 1, 6)
     assert seen["fill values the IR does not give"] == 1
 
 

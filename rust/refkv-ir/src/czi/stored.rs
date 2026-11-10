@@ -6,10 +6,10 @@
 //! which its declarations name, and assembling the subblocks is the profile's. Built from what
 //! the parser read, on its finished IR.
 
-use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Param, Place, Row, StoredArray};
+use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Place, Row, StoredArray};
 use crate::coding::{JpegFrame, JPEG};
 use crate::ir::Res;
-use serde_json::{json, Value as J};
+use serde_json::Value as J;
 use std::collections::BTreeMap;
 
 /// What a subblock's description needs.
@@ -42,7 +42,7 @@ pub(super) struct Pixels {
 pub(super) enum Encoding {
     /// uncompressed: the pixels as they are
     Stored,
-    /// a JPEG stream of 8-bit samples
+    /// a JPEG stream of a precision the samples' bits hold
     Jpeg,
     /// TIFF's LZW
     Lzw,
@@ -52,8 +52,6 @@ pub(super) enum Encoding {
     Zstd,
     /// Zstd1: its header, then a Zstandard frame
     Zstd1,
-    /// an encoding the list has no name for: the entry's Compression
-    Source(i32),
 }
 
 /// Where a subblock's unit is.
@@ -69,8 +67,8 @@ pub(super) enum Unit {
 /// where the stream is not what the entry says. Its components are the pixel type's samples, and
 /// its sample precision is one the samples' bits hold: a lossless stream's (SOF3) from 2 to 8 for
 /// samples of 8 bits and from 9 to 16 for samples of 16; under JpgFile a DCT stream's (SOF0 to
-/// SOF2) too, of 8 for samples of 8 bits and of 12 for samples of 16. A stream of 8-bit samples
-/// is the list's `jpeg`; any other is the source's own.
+/// SOF2) too, of 8 for samples of 8 bits and of 12 for samples of 16. Each is the list's `jpeg`,
+/// its samples decoded to the pixel type's size.
 pub(super) fn jpeg_encoding(compression: i32, pixels: &Pixels, frame: &JpegFrame) -> Option<Encoding> {
     if frame.components as u64 != pixels.samples || frame.height < 1 || frame.width < 1 {
         return None;
@@ -82,7 +80,7 @@ pub(super) fn jpeg_encoding(compression: i32, pixels: &Pixels, frame: &JpegFrame
         (0xC0..=0xC2, 16) if compression == JPEG => frame.precision == 12,
         _ => false,
     };
-    fits.then_some(if frame.precision == 8 { Encoding::Jpeg } else { Encoding::Source(compression) })
+    fits.then_some(Encoding::Jpeg)
 }
 
 fn codec(name: &str) -> Codec {
@@ -98,10 +96,6 @@ fn chain(encoding: Encoding) -> Chain {
         Encoding::JpegXr => vec![codec("jpegxr")],
         Encoding::Zstd => vec![codec("zstd")],
         Encoding::Zstd1 => vec![codec("czi_zstd1")],
-        Encoding::Source(id) => {
-            let parameters = [("format".to_string(), Param::Value(json!("czi"))), ("id".to_string(), Param::Value(json!(id)))];
-            vec![Codec { name: "source".into(), parameters: parameters.into_iter().collect() }]
-        }
     }
 }
 
@@ -181,14 +175,13 @@ mod tests {
     /// no one element holds.
     #[test]
     fn a_subblock_is_one_unit_of_its_encodings_chain() {
-        let cases: [(Pixels, Encoding, Vec<&str>); 7] = [
+        let cases: [(Pixels, Encoding, Vec<&str>); 6] = [
             (GRAY16, Encoding::Stored, vec![]),
             (BGR24, Encoding::Jpeg, vec!["jpeg"]),
             (GRAY16, Encoding::Lzw, vec!["tiff_lzw"]),
             (BGR24, Encoding::JpegXr, vec!["jpegxr"]),
             (GRAY16, Encoding::Zstd, vec!["zstd"]),
             (GRAY16, Encoding::Zstd1, vec!["czi_zstd1"]),
-            (GRAY16, Encoding::Source(1), vec!["source"]),
         ];
         for (pixels, encoding, want) in cases {
             for unit in [Unit::Element(9), Unit::Range(400, 33)] {
@@ -202,10 +195,6 @@ mod tests {
                 assert_eq!((a.chains.clone(), a.fill.clone(), a.unit_parameters.len()), (vec![0], Fill::Undefined, 0));
                 assert_eq!(chains.len(), 1);
                 assert_eq!(names(&chains[0]), want);
-                if let Encoding::Source(id) = encoding {
-                    let parameters = [("format".to_string(), Param::Value(json!("czi"))), ("id".to_string(), Param::Value(json!(id)))];
-                    assert_eq!(chains[0][0].parameters, parameters.into_iter().collect());
-                }
                 assert_eq!((map.len(), map.array[0], map.coords_of(0)), (1, 0, &vec![0; shape.len()][..]));
                 match unit {
                     Unit::Element(e) => assert_eq!((map.element[0], map.has_ranges[0]), (Some(e), false)),
@@ -226,9 +215,9 @@ mod tests {
         e.map(|e| chain(e).iter().map(|c| c.name.clone()).collect())
     }
 
-    /// A JPEG stream whose frame header is of its entry's samples is the list's `jpeg` at 8 bits,
-    /// and the source's own at any other precision: a DCT stream under JpgFile, and a lossless
-    /// one under either compression, of three components too.
+    /// A JPEG stream whose frame header is of its entry's samples, at a precision they hold, is
+    /// the list's `jpeg`: a DCT stream under JpgFile, and a lossless one under either
+    /// compression, of three components too.
     #[test]
     fn a_jpeg_stream_of_its_entrys_samples_has_a_chain() {
         const LJPEG: i32 = crate::coding::LJPEG;
@@ -236,12 +225,12 @@ mod tests {
             (JPEG, BGR24, frame(0xC0, 8, 3), "jpeg"),
             (JPEG, BGR24, frame(0xC2, 8, 3), "jpeg"),
             (JPEG, BGR24, frame(0xC3, 8, 3), "jpeg"),
-            (JPEG, BGR24, frame(0xC3, 5, 3), "source"),
-            (JPEG, GRAY16, frame(0xC1, 12, 1), "source"),
-            (JPEG, GRAY16, frame(0xC3, 16, 1), "source"),
-            (LJPEG, GRAY16, frame(0xC3, 9, 1), "source"),
+            (JPEG, BGR24, frame(0xC3, 5, 3), "jpeg"),
+            (JPEG, GRAY16, frame(0xC1, 12, 1), "jpeg"),
+            (JPEG, GRAY16, frame(0xC3, 16, 1), "jpeg"),
+            (LJPEG, GRAY16, frame(0xC3, 9, 1), "jpeg"),
             (LJPEG, Pixels { samples: 1, ..BGR24 }, frame(0xC3, 8, 1), "jpeg"),
-            (LJPEG, Pixels { samples: 1, ..BGR24 }, frame(0xC3, 2, 1), "source"),
+            (LJPEG, Pixels { samples: 1, ..BGR24 }, frame(0xC3, 2, 1), "jpeg"),
         ];
         for (compression, pixels, f, want) in cases {
             assert_eq!(named(jpeg_encoding(compression, &pixels, &f)), Some(vec![want.to_string()]), "{compression} {f:?}");
@@ -276,7 +265,7 @@ mod tests {
     fn subblocks_of_one_encoding_share_a_chain() {
         let all = [
             reached(Some(GRAY16), Some((Encoding::Zstd, Unit::Element(9)))),
-            reached(Some(GRAY16), Some((Encoding::Source(3), Unit::Element(12)))),
+            reached(Some(GRAY16), Some((Encoding::Lzw, Unit::Element(12)))),
             reached(Some(BGR24), Some((Encoding::Zstd, Unit::Element(15)))),
         ];
         let (arrays, chains, map) = described(&all).unwrap();

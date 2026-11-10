@@ -73,8 +73,8 @@ fn codec(name: &str) -> Codec {
 fn chain_of_tiles(e: &ets::Ets) -> Chain {
     match e.compression {
         ets::RAW => Vec::new(),
-        // a JPEG stream of any process (ISO/IEC 10918-1), the lossless one too, of 8-bit samples
-        ets::JPEG | ets::LOSSLESS_JPEG if e.bytes == 1 => vec![codec("jpeg")],
+        // a JPEG stream (ISO/IEC 10918-1), the lossless process's too, of samples of 8 or 16 bits
+        ets::JPEG | ets::LOSSLESS_JPEG if matches!(e.bytes, 1 | 2) => vec![codec("jpeg")],
         ets::JPEG2000 if matches!(e.bytes, 1 | 2) => vec![codec("jpeg2k")],
         _ => {
             let parameters = [("format", json!(FORMAT)), ("id", json!(e.compression))];
