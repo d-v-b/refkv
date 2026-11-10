@@ -332,15 +332,22 @@ def check(inp: Input, k: int, key: str | None, name: str, index: int, r: Read, s
     return said
 
 
-def check_written(inp: Input, k: int, name: str, wrote: np.ndarray, seen: Counter) -> list[str]:
+def check_written(inp: Input, k: int, name: str, wrote: np.ndarray, fastest_first: str, seen: Counter) -> list[str]:
     """What differs between description `k`, of an image liffile does not list, and the array the
-    fixture's writer wrote, from its slowest axis to its fastest: one unit, of its bytes."""
+    fixture's writer wrote, from its slowest axis to its fastest: one unit, of its bytes. The
+    writer packs the axes of `fastest_first` in that order, `c` where the channels are, and lists
+    the dimensions in it."""
     d = inp.d
     a = d.stored.arrays[k]
     rows = d.rows.get(k, [])
     said = check_key(inp, k, None, name, k)
     seen["images"] += 1
     seen["images liffile does not list, compared with the bytes written"] += 1
+    # each storage axis's position in the source's list: a dimension's, or after them the channels'
+    listed = fastest_first.replace("c", "")
+    order = tuple(len(listed) if x == "c" else listed.index(x) for x in reversed(fastest_first))
+    if a.axes != (None if order == tuple(range(len(order))) else order):
+        said.append(f"axes {a.axes}; the writer's order gives {order}")
     if a.shape != wrote.shape or a.item_bits != 8 * wrote.dtype.itemsize:
         said.append(f"shape {a.shape} of {a.item_bits} bits; the writer's {wrote.shape} of {wrote.dtype}")
     if a.grid != Grid(tuple(Each(n) for n in wrote.shape), "short") or len(rows) != 1:
@@ -399,7 +406,7 @@ def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
     with liffile.LifFile(path, squeeze=False) as f:
         reads = [read(im) for im in f.images if isinstance(im, liffile.LifImage)]
     # the images liffile does not list (those of a LIFEXT file's later ChildrenOf), as written
-    wrote = [im.array() for im in accepted_lifext()[path.stem].images()] if path.stem in accepted_lifext() else []
+    wrote = accepted_lifext()[path.stem].images() if path.stem in accepted_lifext() else []
     images = max(len(reads), len(wrote))
     if len(arrays) != images:
         said.append(f"{len(arrays)} descriptions of {images} images, of which liffile lists {len(reads)}")
@@ -407,7 +414,7 @@ def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
         if k < len(reads):
             found = check(inp, k, None, path.name, k, reads[k], seen)
         else:
-            found = check_written(inp, k, path.name, wrote[k], seen)
+            found = check_written(inp, k, path.name, wrote[k].array(), wrote[k].order, seen)
         said += [f"image {k}: {s}" for s in found]
     return tuple(said), seen
 

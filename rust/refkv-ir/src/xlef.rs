@@ -476,9 +476,8 @@ impl Xlef {
             // store (spec/stored-array.md §2.1
             // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>)
             for im in facts["images"].as_array_mut().into_iter().flatten() {
-                if let Some(&key) = im["declared_by"][0].as_u64().and_then(|k| at.get(k as usize)) {
-                    im["declared_by"][0] = json!(key);
-                }
+                let key = im["declared_by"][0].as_u64().and_then(|k| at.get(k as usize));
+                im["declared_by"][0] = json!(key.ok_or("internal: a LOF's image names no element of its XML")?);
             }
             blocks += facts["blocks"].as_u64().unwrap_or(0);
             lofs.insert(by, (index, e, facts));
