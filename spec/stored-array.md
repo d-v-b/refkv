@@ -227,9 +227,11 @@ A chain's codec has only its entry's parameters.
 | --- | --- | --- | --- | --- |
 | `source` | the bytes the source's encoding wrote, framed as the source frames them | `format`: the profile's name; `id`: the source's id for the encoding, as the source gives it; `name`: the source's own name for the encoding, where it gives one (an HDF5 filter's optional name); `parameters`: its parameters, as the source gives them (a value, or a place that holds them) | none | what the source's encoding decodes to, elements of `item_bits` bits where the description gives it, and of the size that encoding gives them otherwise; the profile maps it or leaves the array out |
 | `zlib` | a zlib stream ([RFC 1950](https://www.rfc-editor.org/rfc/rfc1950)) | none | none | the bytes it inflates to |
+| `gzip` | a gzip stream ([RFC 1952](https://www.rfc-editor.org/rfc/rfc1952)): one member, or several one after another | none | none | the bytes its members inflate to, joined |
 | `zstd` | a Zstandard frame ([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878)) | none | none | the frame's content |
 | `bzip2` | a bzip2 stream | none | none | the bytes it decompresses to |
 | `lzf` | one LZF block with no header; its decoded length is not stored | none | none | the block's bytes |
+| `skip` | `length` bytes that are none of the unit's elements (a header the source stores in one stream with them), then the elements' bytes | `length`: a value | none | the bytes after the first `length` |
 | `blosc` | a Blosc 1 chunk, with its 16-byte header | none | none | the chunk's bytes |
 | `shuffle` | the bytes of elements of `element_size` bytes each: every element's first byte, then every element's second, and so on, then the bytes past the last whole element as they are | `element_size`: a place of one value | none | the elements' bytes, each element's together |
 | `h5_fletcher32` | bytes, then their Fletcher-32 checksum as HDF5 computes it (4 bytes) | none | none | the bytes before the checksum |
@@ -630,6 +632,39 @@ has TIFF 6.0's default.
   unit's elements take (a tile stored at a larger sample size than its fields give): the unit's
   are the first, as libtiff and tifffile read them.
 - **The fill value** is `undefined`: TIFF has none.
+
+**NIfTI** ([spec/zarrify/nifti.md](zarrify/nifti.md)). A NIfTI file's voxels are one stored
+array, of a single file, of a file gzipped whole and of a header-and-image pair alike, as nibabel
+reads them. The facts give its key: `declared_by` is the id of the element that declares it. Below,
+`n` is the header's `dim[0]`, and `v` its `vox_offset`.
+
+- **A single file's array** is keyed by its `header` element, with no index. That element is its
+  one declaration: the header, whose `sizeof_hdr` gives the file's byte order, with its `dim`, its
+  `datatype` and `bitpix`, and what else a profile reads of the voxels (`scl_slope`, `scl_inter`).
+- **`shape`** is `dim[n]` to `dim[1]`: the header lists its dimensions the fastest-varying first,
+  so `axes` is `n − 1` down to 0 for an `n` of 2 or more, and absent for 1. Each of the
+  `n` dimensions is an axis, the sixth and the seventh too, which the parser accepts only at 1;
+  the values of `dim` past `dim[n]` are not read.
+- **`item_bits`** is the bits of a voxel of the header's `datatype`, which `bitpix` repeats (the
+  parser refuses a header where the two differ). A voxel is one element: an RGB24 or RGBA32 voxel
+  of 24 or 32 bits, a complex one of 64 or 128.
+- **The grid** is one unit: every axis `Each` of its length, under `short`. Its row is the
+  `voxels` element, the voxels' bytes from `v`, in an empty chain.
+- **A pair's array** is the single file's, described by the pair's store parser itself
+  ([§6](#6-in-the-ir)): its key and its declaration are the `header` element of the header file,
+  and its row the `voxels` element of the image file, where `v` counts.
+- **A gzipped file's array** has the single file's `shape`, `axes`, `item_bits` and grid, but its
+  header lies in its stream, where no element holds it. It is keyed by the file's one element,
+  `voxels`, the whole file, and has no declarations: a profile reads the header from the facts'
+  `gzip.head`, the stream's first bytes as the parser inflated them. Its row is that element, in
+  the chain `skip`, `gzip`: the stream inflates to the header, the extender and the extensions,
+  then the voxels, and `skip`'s `length` is `v`, a value, since no place holds the field. The
+  parser inflates the start of the stream alone, and accepts the file only where the size its
+  trailer records is `v` plus the voxels' bytes, modulo 2^32.
+- **No grid** for no file the parser accepts: it refuses one whose voxels it does not read as one
+  array (a `datatype` it has no size for, a dimension below 1, a sixth or seventh dimension above
+  1, voxels the file does not hold).
+- **The fill value** is `undefined`: NIfTI has none.
 
 **QPTIFF** ([spec/zarrify/qptiff.md](zarrify/qptiff.md)). A QPTIFF is read as a TIFF, and its
 IFDs' images are described as a TIFF's, by the same code; its facts' levels give `declared_by`

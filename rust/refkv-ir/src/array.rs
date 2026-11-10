@@ -171,9 +171,11 @@ const fn fixed(name: &'static str) -> ParamEntry {
 pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "source", parameters: &[fixed("format"), fixed("id"), fixed("name"), fixed("parameters")] },
     CodecEntry { name: "zlib", parameters: &[] },
+    CodecEntry { name: "gzip", parameters: &[] },
     CodecEntry { name: "zstd", parameters: &[] },
     CodecEntry { name: "bzip2", parameters: &[] },
     CodecEntry { name: "lzf", parameters: &[] },
+    CodecEntry { name: "skip", parameters: &[fixed("length")] },
     CodecEntry { name: "blosc", parameters: &[] },
     CodecEntry { name: "shuffle", parameters: &[fixed("element_size")] },
     CodecEntry { name: "h5_fletcher32", parameters: &[] },
