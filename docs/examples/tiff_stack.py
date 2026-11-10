@@ -14,7 +14,7 @@ the directory and the sidecar can move together.
 
 Run with `uv run docs/examples/tiff_stack.py [DIR]`. Without DIR, it first writes a
 synthetic stack of 24 tiled TIFFs to ./tiff_stack/. It saves DIR/stack.vzip, reopens it
-with zarr, and checks every plane against tifffile.
+with zarr, allowing it to read the files of DIR, and checks every plane against tifffile.
 """
 
 import asyncio
@@ -125,7 +125,8 @@ def main(directory: Path) -> None:
     stacked = stack(asyncio.run(zarrify_all(paths)), [p.name for p in paths])
     print(stacked.save_vzip(sidecar, relative_to=path_reference(str(directory)) + "/"))
 
-    image = zarr.open_group(refkv.zarr.open(str(sidecar)), mode="r").get_array("0")
+    policy = refkv.Policy(prefixes=(directory.as_uri() + "/",))
+    image = zarr.open_group(refkv.zarr.open(str(sidecar), policy=policy), mode="r").get_array("0")
     print(f"{sidecar}: {image.shape} {image.dtype}, chunks {image.chunks}")
     for z, path in enumerate(paths):
         assert np.array_equal(image[z], tifffile.imread(path)), path

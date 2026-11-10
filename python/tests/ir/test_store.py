@@ -155,7 +155,7 @@ def test_the_ignored_keys_are_refkv_source_s_member_ignored():
 
 
 def test_a_rejection_names_the_store_format():
-    s3 = FakeS3({".zgroup": b'{"zarr_format": 2}', "a/.zarray": b'{"zarr_format": 3}'})
+    s3 = FakeS3({".zgroup": b'{"zarr_format": 2}', "a/.zgroup": b'{"zarr_format": 3}'})
     with pytest.raises(Rejected, match="zarr_format is not 2") as e:
         zarrify_store(URL, opener=s3, workers=2)
     assert e.value.format == "zarr2"

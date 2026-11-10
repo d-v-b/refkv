@@ -1284,3 +1284,80 @@ shared read can fail where only one of its reads would: the reader then makes ea
 [§6.7](../../refkv.md#67-reader-policy) rule 5 still counts the reads of one `get` by itself. A reader
 that combines nothing across `get`s still conforms, so the conformance suite and its three
 implementations are unchanged.
+
+## Revision 11.6: the bytes of one value, and how much shared reads amplify
+
+Format version 0, specification revision 11.6. **Status: provisional.** No store's values change.
+[§6.7](../../refkv.md#67-reader-policy) rule 5 bounded the reads of one `get` and nothing else, so a
+store of a few bytes could name a range of terabytes, or a data source of 256 MiB thousands of
+times, and a reader would fetch or build all of it. A reader MUST now also have a maximum number of
+bytes one `get` takes, which bounds both the bytes it fetches (its coalesced reads with the bytes
+between their ranges, and once a `get` a `key` source's value the reader holds whole to read it)
+and the bytes it builds its value from (the bytes of each range it resolves, each time, a range with
+a `crc32c` whole), refused as a request error before any source is read, but for looking up the
+entry a `key` source names: 2^31 in the Python and
+TypeScript readers of the specification's repository, 2^32 in its Rust phkv reader. The
+conformance suite's three implementations bound a `get`'s window and an entry's inflated body at
+1 GiB, but bound neither the reads nor the bytes a `get` takes, so they do not meet rule 5; the
+suite does not test it. Coalescing
+([§6.3](../../refkv.md#63-resolving-a-reference)) MUST NOT take a `get` past that bound: the reader
+combines fewer reads instead, and the readers here close the narrowest gaps first, within a
+**coalescing gap** their policy sets (64 KiB by default; 0 combines only reads that touch). How many
+bytes the reads of different `get`s fetch to save requests, 4 times what they ask for plus that gap,
+is a setting of the policy too, its read amplification; a shared read never joins a read to a run
+within the coalescing gap of a read of the same `get` in it, unless it touches or overlaps the run,
+since those are reads that `get`'s own coalescing could have combined and kept apart; nor makes a request of more than
+the bytes per `get` but for a read longer than that, a request of its own. A `key` source's value that
+the reader holds whole to read a range of it counts as fetched once a `get`, the bytes the reader
+reads to hold it, whether or not it already holds the value, and each range cut from it is built
+from each time; which values those are is each reader's.
+Rule 5 also says what a writer does with these limits: nothing. They are each reader's, which a
+reader of a trusted store may raise, so a writer does not hold a store to them; refkv's writers no
+longer refuse a value of more than 1024 reads. The limits are implementation-defined, as rule 5's
+were, and the suite's cases are unchanged.
+
+## Revision 11.7: a store reads no local file unless the application allows it
+
+Format version 0, specification revision 11.7. **Status: provisional.** No store's values change, but
+a reader that followed revision 11.6 by default no longer conforms. [§6.7](../../refkv.md#67-reader-policy)
+rule 1 let a store opened from a local path read any `file` source. A store's location says nothing of
+who wrote it, so a service that downloaded a store and opened it by path gave that store its local files
+to read and return, as [an HDF5 file's external storage did in an incident the HDF Group
+described](https://www.hdfgroup.org/2026/07/31/when-an-hdf5-file-points-outside-itself/). `file` is now
+a scheme like any other, refused for every store unless the application allows it, and a `file:` prefix
+(rule 2) also binds the file's path with symbolic links followed, checked at each read for the file
+opened against the prefix's path as resolved once, when the prefix was given. The separate setting that let a remote store read every file is gone. A store a zarrifier has
+just built may still read the files it found, as if its prefixes were their directory and the URLs of
+its other sources, and a writer
+does not refuse a `file` source. The conformance
+runner allows `file` for the reference reader; the three implementations, which were built
+from revision 7 and have no policy, are unchanged.
+
+## Revision 11.8: the schema split by part (editorial)
+
+Format version 0, specification revision 11.8. **Status: provisional.** No
+result changes for any store, and no message's encoding changes, so the
+revision 11 conformance suite applies unchanged; stores still record revision
+11.
+
+**What prompted it.** [Appendix A](../../refkv.md#appendix-a-complete-schema),
+the schema of Part 1, also held `CdIndex`, the ZIP binding's page index
+([§12](../../bindings/vzip.md#12-page-index-optional)), with a note that only
+that binding used it, and spec/proto/refkv.proto copied the appendix. A
+reader of Part 1, or the author of another binding, met a message that no
+store of theirs could hold.
+
+**The change.**
+- **[Appendix A](../../refkv.md#appendix-a-complete-schema)** holds the
+  messages every store uses, whatever its binding: `Range`, `Concat`,
+  `Source` and `SourceTable`, in the package `refkv.v0`, as
+  spec/proto/refkv.proto.
+- **[§12](../../bindings/vzip.md#12-page-index-optional)** gives `CdIndex` in
+  a package of its own, `refkv.vzip.v0`, as spec/proto/vzip.proto. A
+  package name is not encoded, so every page index decodes as before.
+- **spec/tools/test_proto.py** checks that each file under spec/proto/ is its
+  section's schema block, and that no message is in both. Until now the
+  file's header said it was generated from the appendix, but nothing
+  generated or checked it.
+- **The kit's descriptors** (conformance/vzip/pbref.py) build the two files
+  and packages the same way.

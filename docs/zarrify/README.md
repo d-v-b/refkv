@@ -26,14 +26,14 @@ who each one is for, what you get, and how to run it.
 | GRIB | GRIB2 files of gridded weather and climate fields (`.grib2`), as labeled arrays with CF coordinates | [grib](grib/README.md) | [grib.md §8](../../spec/zarrify/grib.md#8-grib-profile) |
 | HDF5 | HDF5 files (`.h5`, `.hdf5`), and NWB files (`.nwb`), which pynwb's `NWBZarrIO` opens | [hdf5](hdf5/README.md) | [hdf5.md §8](../../spec/zarrify/hdf5.md#8-hdf5-profile) |
 | IMS | Imaris `.ims` files | [ims](ims/README.md) | [ims.md §7](../../spec/zarrify/ims.md#7-ims-profile) |
-| LIF | Leica LIF files (`.lif`) | [lif](lif/README.md) | [lif.md §7](../../spec/zarrify/lif.md#7-lif-profile) |
+| LIF | Leica LIF, LOF and LIFEXT files, and LAS X projects (`.lif`, `.lof`, `.lifext`, `.xlef`, `.xlcf`, `.xlif`, `.xllf`) | [lif](lif/README.md) | [lif.md §7](../../spec/zarrify/lif.md#7-lif-profile) |
 | MP3 | MP3 audio files, as an array of samples (`.mp3`) | [mp3](mp3/README.md) | [mp3.md §8](../../spec/zarrify/mp3.md#8-mp3-profile) |
 | MP4 | MP4 and QuickTime video and audio, as arrays of planes and samples (`.mp4`, `.m4a`, `.m4v`, `.mov`) | [mp4](mp4/README.md) | [mp4.md §8](../../spec/zarrify/mp4.md#8-mp4-profile) |
-| MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`) | [mrc](mrc/README.md) | [mrc.md §8](../../spec/zarrify/mrc.md#8-mrc-profile) |
+| MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`, gzipped or not) | [mrc](mrc/README.md) | [mrc.md §8](../../spec/zarrify/mrc.md#8-mrc-profile) |
 | N5 | N5 containers on S3 | [n5](n5/README.md) | [n5.md §8](../../spec/zarrify/n5.md#8-n5-profile) |
 | ND2 | Nikon NIS-Elements ND2 files | [nd2](nd2/README.md) | [nd2.md §7](../../spec/zarrify/nd2.md#7-nd2-profile) |
 | NDPI | Hamamatsu NDPI whole-slide images | [ndpi](ndpi/README.md) | [ndpi.md §7](../../spec/zarrify/ndpi.md#7-ndpi-profile) |
-| NIfTI | NIfTI-1 and NIfTI-2 volumes (`.nii`) | [nifti](nifti/README.md) | [nifti.md §7](../../spec/zarrify/nifti.md#7-nifti-profile) |
+| NIfTI | NIfTI-1 and NIfTI-2 volumes (`.nii`, `.nii.gz`, `.hdr` and `.img`) | [nifti](nifti/README.md) | [nifti.md §7](../../spec/zarrify/nifti.md#7-nifti-profile) |
 | NumPy | NumPy arrays: `.npy` files, and the arrays of `.npz` archives, stored or deflated | [npy](npy/README.md) | [npy.md §8](../../spec/zarrify/npy.md#8-numpy-profile) |
 | NRRD | NRRD volumes, attached or detached, raw or gzip (`.nrrd`, `.nhdr`) | [nrrd](nrrd/README.md) | [nrrd.md §8](../../spec/zarrify/nrrd.md#8-nrrd-profile) |
 | OME-Zarr | OME-Zarr 0.4 hierarchies, migrated to OME-Zarr 0.5 in place | [ome-zarr](ome-zarr/README.md) | [ome-zarr.md §11](../../spec/zarrify/ome-zarr.md#11-ome-zarr-profile) |
@@ -44,6 +44,7 @@ who each one is for, what you get, and how to run it.
 | TIFF | OME-TIFF, plain TIFF (tiled or in strips), and JPEG-tiled slides such as Aperio SVS | [tiff](tiff/README.md) | [tiff.md §7](../../spec/zarrify/tiff.md#7-tiff-profile) |
 | VSI | Olympus cellSens whole-slide images (`.vsi` with its tile files) | [vsi](vsi/README.md) | [vsi.md §9](../../spec/zarrify/vsi.md#9-vsi-profile) |
 | Zarr v2 | Zarr v2 hierarchies on S3 | [zarr2](zarr2/README.md) | [zarr2.md §7](../../spec/zarrify/zarr2.md#7-zarr-v2-profile) |
+| Zarr v3 | Zarr v3 hierarchies, listed or zipped, as references to their own chunks | [zarr3](zarr3/README.md) | [zarr3.md §7](../../spec/zarrify/zarr3.md#7-zarr-v3-profile) |
 <!-- /profiles -->
 
 A format that reads a file takes a URL, or a local path. One that reads a
@@ -84,6 +85,15 @@ differ too. Where a summary line or an attribute path has changed since
 then, the pages show its current form, and say so where a value could not
 be measured again.
 
+## Large chunks
+
+A chunk is as large as the input makes it. Several formats give one chunk for a whole stream,
+strip, frame or shard: a gzipped NIfTI, MRC or NRRD file, a compressed `.npz` member, an
+uncompressed TIFF strip kept whole, an ND2 frame, an HDF5 chunk, or a Zarr v3 shard read whole.
+A reader refuses a `get` of more bytes than its policy allows, 2 GiB by default
+([refkv §6.7](../../spec/refkv.md#67-reader-policy) rule 5), so a chunk past that is read by
+raising `max_get_bytes` (`maxGetBytes` in TypeScript), for an input you trust.
+
 ## Two ways to run it
 
 **The Python command line.** `pip install refkv` installs the `refkv` command
@@ -119,6 +129,8 @@ store by the objects at its root. Options:
   archive references (off by default);
 - `--allow-private-hosts`: let a file or store at an http(s) URL be read
   from a loopback, private or link-local host (below; unsafe);
+- `--scope PATH`: what a file input may read besides itself, repeated for
+  several paths (below; default: the input's directory);
 - `--connections N` and `--byte-cost SECONDS_PER_MB`: for a file input,
   how many requests the read planner runs at a time (default 8), and how
   much wall time it charges for a megabyte read beyond those asked (default
@@ -143,28 +155,47 @@ to such a host opens only with `refkv.zarr.open(path,
 policy=Policy(allow_private_hosts=True))` (`from refkv.policy import
 Policy`). A local file or directory needs neither.
 
+**Untrusted files.** Some files name other files beside them, which
+zarrifying reads too: an HDF5 file's external storage and external links, a
+detached NRRD header's data file, the other files of an OME-TIFF, CZI, LIF or
+NIfTI set, a VSI slide's tile files. Those names stay below the input's
+directory ([spec](../../spec/zarrify.md#19-sources-beside-the-input)), but a
+server that saves uploads into a shared directory and zarrifies them would let
+one upload read another: an HDF5 file with `external=[("other-user/session.txt",
+0, 40)]` puts that file's bytes in its archive. To say what a file may read, give its scope:
+`--scope PATH`, repeated for several, or `scope=` in Python (a path or a list of them), and
+`scope` in the browser's `zarrifySource` and `zarrifyToArchive` (URLs). Each entry is the
+input's directory, the default, or a file or directory below it, written as the input is.
+`--scope <the input>` reads the input alone. An input that needs a file outside its scope is
+rejected before that file is opened, naming it:
+`out of scope: the input names the file "other-user/session.txt"`. A GRIB file's index files are
+optional, so a GRIB file is read without one that is out of scope instead. A store input, read from its listing, takes no scope.
+
 Read the archive in Python with `refkv.zarr` and zarr-python
-(`pip install 'refkv[zarr]'`, or `refkv[images]` for the JPEG, JPEG 2000,
-JPEG XR and LZW decoders and TIFF's horizontal predictor). zarr-python finds the codecs that some formats need by
-the names the archive gives: refkv's own (`refkv.stream`, `refkv.grib`, `refkv.fits_tiles`,
-`refkv.tiff_lzw`, `refkv.skip`, `refkv.precomputed`, and `n5_default`) through refkv's `zarr.codecs` entry points,
-with no `import refkv.zarr` in your code (zarr imports the codec modules, which are
-under `refkv.zarr`, itself), imagecodecs-zarr's (`imagecodecs_jpeg`,
-`imagecodecs_jpeg2k`, `imagecodecs_jpegxr`, `imagecodecs_ljpeg`, `imagecodecs_delta`), which `refkv[images]` installs, and
-zarr-python's own (`numcodecs.zlib`, `numcodecs.shuffle`, `numcodecs.delta`). So a
+(`pip install 'refkv[zarr]'`, or `refkv[images]` for imagecodecs-zarr's codecs). zarr-python
+finds every codec an archive names, which
+[conventions §3](../../spec/conventions.md#3-arrays) lists in a table with the package of each:
+refkv's own through refkv's `zarr.codecs` entry points, with no `import refkv.zarr` in your code
+(zarr imports the codec modules, which are under `refkv.zarr`, itself), imagecodecs-zarr's with
+`refkv[images]`, and zarr-python's own with zarr. So a
 copy of an archive's arrays (in a directory, or in another store) reads with zarr
 alone, except that an array on the zarr-extensions `rectilinear` chunk grid (a
-clipped CZI level, an MP4 video plane whose chunks differ in length) also needs
+clipped CZI level, an MP4 video plane whose chunks differ in length, a TIFF level whose compressed last
+strip is short) also needs
 `zarr.config.set({"array.rectilinear_chunks": True})`. Importing `refkv.zarr` sets
 it, and so does loading one of refkv's codecs, but zarr checks an array's chunk
 grid before it loads its codecs: set it yourself before opening such an array.
-`refkv.zarr` opens the archive itself:
+`refkv.zarr` opens the archive itself. An archive of a local file reads that file,
+which you allow by name, since a store cannot allow itself to read your files
+([spec §6.7](../../spec/refkv.md#67-reader-policy)):
 
 ```python
 import zarr
+import refkv
 import refkv.zarr
 
-g = zarr.open_group(refkv.zarr.open("out.vzip"), mode="r")
+policy = refkv.Policy(prefixes=("file:///data/",))
+g = zarr.open_group(refkv.zarr.open("out.vzip", policy=policy), mode="r")
 ```
 
 **From Python.** The command is a thin wrapper over
@@ -187,7 +218,7 @@ store.save_vzip("CMU-1-Small-Region.vzip")
 `zarrify` takes the input's local path or URL, and the command's options as
 keyword arguments: `url` (the URL the archive names the source by),
 `checksums`, `policy`, `connections`, `byte_cost` (in seconds per byte, not
-per MB) and `workers`. It raises `refkv.zarrify.Rejected` when no profile
+per MB), `workers` and `scope`. It raises `refkv.zarrify.Rejected` when no profile
 accepts the input, `refkv.errors.ResolutionError` when the reader policy
 refuses the input or a source (such as a URL on a private host), and `OSError`
 when the input cannot be read (`FileNotFoundError` for a missing local file,
@@ -207,8 +238,8 @@ per profile in the registry. `<Name>Source` is for a file (`TiffSource`,
 `Mp4Source`, `NdpiSource`, ...). `<Name>Store` is for a store (`Zarr2Store`,
 `OmeZarrStore`, `N5Store`, `PrecomputedStore`, `SafetensorsStore`). SAFE has both, `SafeSource` for a `.SAFE.zip` file
 and `SafeStore` for a `.SAFE` directory. The input's read options belong to the
-class (`url`, `checksums`, `policy`, and `connections` and `byte_cost` for a
-file, or `workers` and `max_objects` for a store), so `zarrify` raises
+class (`url`, `checksums`, `policy`, and `connections`, `byte_cost` and
+`scope` for a file, or `workers` and `max_objects` for a store), so `zarrify` raises
 `TypeError` when one is also passed beside it:
 
 ```python
@@ -344,7 +375,7 @@ each format's metadata is:
   the data type, the axis map and the voxel size. The archive also holds the
   file as a dataset for xarray under `dataset/`, declared by its own
   convention ([conventions §9](../../spec/conventions.md#9-dataset-layouts)).
-- **LIF:** the IR mirror on `refkv_source`: the XML header, every memory
+- **LIF, LOF and LIFEXT:** the IR mirror on `refkv_source`: the XML header, every memory
   block (an image's or not) and any bytes after them. The root keeps the
   file's version; each image keeps its element of the XML (its name, its path
   in the file's tree), its memory block, and every attribute of its dimensions
@@ -360,7 +391,7 @@ each format's metadata is:
   tree field by field, and the IFDs inside it) and every tile file (its
   headers, tile directory and tiles), each described in place, so that the
   mirror rebuilds each file from the slide's own bytes. The root keeps the
-  metadata tree as JSON, the list of stacks and the file's size; each
+  metadata tree as JSON, the list of stacks, the IFD images it left out and the file's size; each
   image keeps its stack's properties (scale, origin, channels, creation
   time, magnification) and its tile file's headers.
 - **MP3:** the IR mirror on `refkv_source`: the ID3v2 tags, the Xing or
@@ -419,6 +450,10 @@ each format's metadata is:
   configuration as written. Its mirror is a store's: shards described in place,
   indexes and configurations held, and every other object referenced whole under
   `refkv_source/objects/`.
+- **Zarr v3:** none beside the store's own: each node's attributes stay in place, and only an
+  attribute `refkv_zarrified`, or a `zarr_conventions` that is not a list of other conventions'
+  CMOs, moves under `refkv_zarrified.zarr3.attributes`; the root lists the nodes left out.
+  `refkv_source` is the store's IR mirror, or, for a zip file, the zip file's.
 - **Neuroglancer precomputed:** the `info` document, every member, and each array's scale;
   the scales it does not present, with the reason each.
 - **N5, Zarr v2 and OME-Zarr:** each node's own attributes and the layout

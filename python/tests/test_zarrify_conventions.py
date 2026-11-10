@@ -45,6 +45,9 @@ DATASET_ATTRS = {"units", "long_name", "actual_range", "scale_factor", "add_offs
 # a variable, `GRIB_<key>` (spec/zarrify/grib.md §3
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#3-the-hierarchy>)
 GRIB_ATTRS = {"units", "long_name", "standard_name", "calendar", "coordinates", "bounds", "scale_factor", "add_offset"}
+# What names a template 3.101 grid, on its group (spec/conventions.md §2
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>).
+GRIB_GRID_ATTRS = {"GRIB_numberOfGridUsed", "GRIB_numberOfGridInReference", "GRIB_uuidOfHGrid"}
 # The registry's tool (spec/tools/profiles.py), which checks the documents' copies of each CMO
 # against its own `cmo` without importing refkv: here, `cmo` is checked against refkv's.
 _tool = importlib.util.spec_from_file_location("spec_tools_profiles", ROOT / "spec" / "tools" / "profiles.py")
@@ -112,7 +115,9 @@ def test_the_documents_cmos_are_the_ones_refkv_writes():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs node for the browser implementation")
 def test_every_output_declares_its_profile_where_the_convention_says():
-    cases = inputs()
+    # the browser code cannot list a directory, so it finds no name written in another case than the
+    # file has (spec/zarrify/lif.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#82-the-siblings>)
+    cases = [c for c in inputs() if c[0].name != "lif_xlef_lowercase.xlef"]
     p = subprocess.run(["node", str(ROOT / "js" / "conformance" / "documents.ts")], cwd=ROOT,
                        input=json.dumps([[str(path), url] for path, url in cases]), capture_output=True,
                        text=True, check=True)
@@ -134,12 +139,16 @@ def test_every_output_declares_its_profile_where_the_convention_says():
                 geo = {m for m in attrs if m.startswith(tuple(GEOZARR))} if fmt in ("safe", "grib") else set()
                 if fmt == "grib" and at(doc, "node_type") == "array" and not key.startswith("refkv_source/"):
                     geo |= {m for m in attrs if m in GRIB_ATTRS or m.startswith("GRIB_")}
+                if fmt == "grib" and at(doc, "node_type") == "group" and key.startswith("grid"):
+                    geo |= set(attrs) & GRIB_GRID_ATTRS
                 if layouts and key.startswith(layouts) and at(doc, "node_type") == "array":
                     geo |= set(attrs) & DATASET_ATTRS
                 # an HDF5 node's attributes are the source's own, as hdmf-zarr's convention places
                 # them (spec/zarrify/hdf5.md §2.1
-                # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#21-declaration-and-attributes>)
-                if fmt == "hdf5" and not key.startswith("refkv_source/"):
+                # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#21-declaration-and-attributes>),
+                # and so are a Zarr v3 node's (spec/zarrify/zarr3.md §4
+                # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#4-source-metadata>)
+                if fmt in ("hdf5", "zarr3") and not key.startswith("refkv_source/"):
                     geo |= set(attrs) - {"zarr_conventions", CONVENTION_KEY}
                 assert set(attrs) - geo <= {"ome", "zarr_conventions", CONVENTION_KEY}, (impl, path.name, key)
                 for name in {n for p, n in GEOZARR.items() for m in geo if m.startswith(p)}:

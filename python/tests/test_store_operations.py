@@ -40,12 +40,13 @@ def _stores(tmp_path):
     """The store in memory, and the archives it saves, with and without a page index."""
     (tmp_path / "src.bin").write_bytes(SRC)
     sources = [Source(url=file_uri(tmp_path / "src.bin")), Source(key="__vz__/shared")]
-    store = refkv.ReferenceStore(_mapping(), sources)
+    policy = refkv.Policy(prefixes=(tmp_path.as_uri() + "/",))
+    store = refkv.ReferenceStore(_mapping(), sources, policy=policy)
     out: dict[str, refkv.ReferenceStore | VZipStore] = {"memory": store}
     for page_size in [None, 64]:
         path = tmp_path / f"{page_size}.vzip"
         store.save_vzip(path, page_size=page_size)
-        out[f"archive, page_size={page_size}"] = refkv.open(path, binding="vzip")
+        out[f"archive, page_size={page_size}"] = refkv.open(path, binding="vzip", policy=policy)
     return out
 
 

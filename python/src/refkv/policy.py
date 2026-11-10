@@ -5,21 +5,65 @@ of spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>.
 from __future__ import annotations
 
 import ipaddress
+import math
+import numbers
+import os
 import re
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from refkv import _core
 from refkv._extras import OBSTORE_HINT
 from refkv.errors import ResolutionError
+from refkv.uri import file_path, file_uri
+
+if sys.platform != "win32":
+    import fcntl
 
 # The defaults of spec §6.7
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>'s table.
 MAX_SOURCES = 1 << 22
 MAX_READS = 1024
+MAX_GET_BYTES = 1 << 31
+MAX_READ_AMPLIFICATION = 4
+MAX_COALESCE_GAP = 1 << 16
 MAX_FORMAT_ENTRY = 256 << 20
 
 _ENCODED = re.compile(r"%(2[eEfF]|5[cC])")
+# Whether the system gives an open file's real path: /proc/self/fd's links on Linux, F_GETPATH on macOS
+_PROC_FD = Path("/proc/self/fd").is_dir()
+_FD_PATH = sys.platform == "darwin" or _PROC_FD
+
+
+def _fd_path(fd: int) -> str:
+    """The real path of the file open as `fd`, as the system gives it (`_FD_PATH`)."""
+    if sys.platform == "darwin":
+        return os.fsdecode(fcntl.fcntl(fd, fcntl.F_GETPATH, bytes(1024)).split(b"\0", 1)[0])
+    return str(Path(f"/proc/self/fd/{fd}").readlink())
+
+
+def _real_path(path: str, fd: int | None = None) -> str:
+    """The real path of the file open as `fd`, or else of the file or directory at `path`. Where
+    the system gives an open file's (`_FD_PATH`), it is that, which also spells each name as its
+    directory does where names ignore case; elsewhere `os.path.realpath(path)`, which must then
+    be the file open as `fd`."""
+    if not _FD_PATH:
+        real = os.path.realpath(path)
+        if fd is not None and not os.path.samestat(os.fstat(fd), Path(real).stat()):
+            raise ResolutionError(f"{path} changed while it was checked")
+        return real
+    if fd is not None:
+        return _fd_path(fd)
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:  # nothing there to read, so the reading fails, not this
+        return os.path.realpath(path)
+    try:
+        return _fd_path(fd)
+    finally:
+        os.close(fd)
 
 
 def crc32c(data: bytes) -> int:
@@ -134,16 +178,19 @@ class Policy:
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>).
 
     - `schemes`: schemes allowed besides those rule 1 allows by default
-      (`http` and `https` for every archive, `file` for a local one), such as
-      `s3`. It may not name `file`: see `allow_files_from_remote_archives`.
+      (`http` and `https`), such as `s3`, or `file`, which lets the archive read
+      every local file this process can, `/proc/self/environ` included: for an
+      archive you did not write, name its files in `prefixes` instead.
       A reader needs a store for such a URL anyway (`registry=`), and a
       URL under a registered prefix is allowed without it; so `schemes`
       matters most to `ReferenceStore.save_vzip`, which checks the sources it
       writes against the policy of the archive's future readers.
     - `prefixes`: if given, a URL is allowed if and only if it matches one of
-      them (rule 2), whatever its scheme. Rule 3 still applies.
-    - `allow_files_from_remote_archives`: UNSAFE. Lets an archive opened from
-      a URL name `file:` sources, that is, read the reader's local files.
+      them (rule 2), whatever its scheme. Rule 3 still applies. The real path of
+      a file under a `file:` prefix, symbolic links followed, must also be under
+      the prefix's, for the file opened at each read. A `file:` prefix's real
+      path is resolved once, when the policy is made, so a link put in place of
+      the prefix later does not move it.
     - `allow_file_hosts`: UNSAFE. Lets a `file:` URL name a host
       (`file://server/share/x`), which on Windows is the UNC path
       `\\\\server\\share\\x`: reading it connects to that server over the
@@ -166,7 +213,19 @@ class Policy:
       the address it reaches; it checks what the name resolves to locally,
       which DNS rebinding gets past. Without it, a request that would go
       through a proxy is refused.
-    - `max_sources`, `max_reads`, `max_format_entry`: rules 4 to 6.
+    - `max_sources`, `max_reads`, `max_get_bytes`, `max_format_entry`: rules 4 to 6 (rule 5
+      bounds the reads one `get` makes, and the bytes it takes: those it fetches, the bytes
+      between coalesced ranges included and, once a `get`, each `key` source's value the reader
+      holds whole to read a range of it, and those it builds its value from).
+    - `max_coalesce_gap`: the most bytes between two ranges of a source that a reader combines
+      into one read, which it then fetches but returns to no value (spec §6.3
+      <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>,
+      **Coalescing**). Within one `get` the reader combines the closest ranges first, and only
+      while what the `get` fetches stays within `max_get_bytes`; 0 combines only ranges that
+      touch, and fetches no byte between them.
+    - `max_read_amplification`: how many times the bytes they ask for the reads of different
+      values combined into one request may fetch, plus `max_coalesce_gap`: more saves requests,
+      and fetches bytes no value returns.
 
     Rule 7 (unverifiable pins) has no option here: this reader always sees a
     response's headers, so every pin it is given can be checked.
@@ -182,51 +241,85 @@ class Policy:
         refs = refkv.ReferenceStore.from_virtualizarr(vds, registry=registry)
         refs.save_vzip("data.vzip", policy=refkv.Policy(schemes={"s3"}))
 
-    `ReferenceStore.save_vzip` checks the references it writes against a policy
-    too, `Policy()` by default, so an archive that the default reader cannot
-    read fails when it is written, not when it is read.
+    `ReferenceStore.save_vzip` checks the sources it writes against a policy's
+    URL rules too, `Policy()` by default, so an archive whose sources the default
+    reader refuses fails when it is written, not when it is read. The limits on one
+    `get` (rule 5) are each reader's: a writer does not hold a store to them.
     """
 
     schemes: frozenset[str] = frozenset()
     prefixes: tuple[str, ...] | None = None
-    allow_files_from_remote_archives: bool = False
     allow_file_hosts: bool = False
     allow_private_hosts: bool = False
     allow_unchecked_proxy: bool = False
     max_sources: int = MAX_SOURCES
     max_reads: int = MAX_READS
+    max_get_bytes: int = MAX_GET_BYTES
+    max_read_amplification: float = MAX_READ_AMPLIFICATION
+    max_coalesce_gap: int = MAX_COALESCE_GAP
     max_format_entry: int = MAX_FORMAT_ENTRY
+    # each `file:` prefix's real path, or None for one that has no local path
+    _real_prefixes: tuple[str | None, ...] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        if any(s.lower() == "file" for s in self.schemes):
-            raise ValueError("Policy.schemes may not name 'file': a local archive reads files "
-                             "already, and a remote one needs the unsafe "
-                             "allow_files_from_remote_archives=True")
+        for name in ("max_sources", "max_reads", "max_get_bytes", "max_coalesce_gap", "max_format_entry"):
+            limit = getattr(self, name)
+            if isinstance(limit, bool) or not isinstance(limit, numbers.Integral) or not 0 <= int(limit) < 1 << 63:
+                raise ValueError(f"Policy.{name} is a natural number below 2^63, not {limit!r}")
+        amplification = self.max_read_amplification
+        try:
+            finite = (not isinstance(amplification, bool) and isinstance(amplification, numbers.Real)
+                      and math.isfinite(float(amplification)) and amplification >= 0)
+        except OverflowError:  # an int past a float's range
+            finite = False
+        if not finite:
+            raise ValueError(f"Policy.max_read_amplification is a finite number of at least 0, not {amplification!r}")
+        object.__setattr__(self, "_real_prefixes", tuple(
+            self._real_prefix(p) for p in self.prefixes or () if _scheme(p) == "file"))
 
-    def check(self, base: str, url: str, *, registered: bool = False) -> None:
-        """Raise ResolutionError unless rules 1 and 2 allow `url` for an archive at `base`,
-        and rule 3 allows its host as written (an IP literal, or `localhost`).
+    def _real_prefix(self, prefix: str) -> str | None:
+        """The real path of a `file:` `prefix`, as a prefix: links followed, with its trailing `/`
+        kept. None if it names a host that `allow_file_hosts` does not allow, so nothing matches it."""
+        try:
+            target = file_uri(_real_path(file_path(prefix, allow_host=self.allow_file_hosts)))
+        except ValueError:
+            return None
+        return target + "/" if prefix.endswith("/") and not target.endswith("/") else target
+
+    def check(self, url: str, *, registered: bool = False) -> None:
+        """Raise ResolutionError unless rules 1 and 2 allow `url`, and rule 3 allows its host as
+        written (an IP literal, or `localhost`).
 
         `registered`: the application registered a store for a prefix of `url`
         (`registry=`), which allows it under rule 1 whatever its scheme, except
-        a `file:` URL for a remote archive. A prefix list (rule 2) still decides
-        alone, and rule 3, and the refusal of a `file:` URL's host without
+        a `file:` URL, which needs `file` in `schemes`. A prefix list (rule 2) still
+        decides alone, and rule 3, and the refusal of a `file:` URL's host without
         `allow_file_hosts`, still apply."""
+        self.check_file_host(url)
         if self.prefixes is not None:
             if not any(matches_prefix(url, p) for p in self.prefixes):
                 raise ResolutionError(f"{url}: not under an allowed URL prefix (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
         else:
-            s, local = _scheme(url), _scheme(base) == "file"
+            s = _scheme(url)
+            allowed = {_scheme(x + ":") for x in self.schemes}
             if s == "file":
-                if not (local or self.allow_files_from_remote_archives):
+                if s not in allowed:
+                    directory = url.rpartition("/")[0] + "/"
                     raise ResolutionError(
-                        f"{url}: an archive opened from a URL may not read local files "
+                        f"{url}: an archive reads a local file only when it is allowed: pass "
+                        f"policy=refkv.Policy(prefixes=({directory!r}, 'https://')) for these files, or "
+                        f"schemes={{'file'}} for every local file "
                         f"(spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
-            elif s != "http" and not registered and s not in {_scheme(x + ":") for x in self.schemes}:
+            elif s != "http" and not registered and s not in allowed:
                 raise ResolutionError(
                     f"{url}: the scheme {s!r} is not allowed "
                     f"(spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>). "
                     + scheme_remedy(url))
+        self.check_host(url)
+
+    def check_file_host(self, url: str) -> None:
+        """Raise ResolutionError if `url` is a `file:` URL whose host `allow_file_hosts` does not
+        allow (spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)."""
         if _scheme(url) == "file" and not self.allow_file_hosts:
             try:
                 host = urlsplit(url).netloc
@@ -237,7 +330,24 @@ class Policy:
                     f"{url}: a file: URL with the host {host!r} (a UNC path) reads over the "
                     f"network, which the reader does not do without allow_file_hosts=True "
                     f"(spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)")
-        self.check_host(url)
+
+    def check_file(self, url: str, fd: int | None = None) -> None:
+        """Raise ResolutionError unless the file a `file:` `url` that `check` allowed reads is under
+        an allowed prefix once symbolic links are followed (spec §6.7
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 2). Without a
+        prefix list, there is nothing to stay under.
+
+        `fd`: the file the reader opened at `url`, which is the file checked, so that a link
+        swapped in after a check is not followed. Its real path is the system's for it, where the
+        system says (macOS, Linux); elsewhere it must be the file at the real path of `url`."""
+        if self.prefixes is None:
+            return
+        real = file_uri(_real_path(file_path(url, allow_host=self.allow_file_hosts), fd))
+        if any(t is not None and matches_prefix(real, t) for t in self._real_prefixes):
+            return
+        raise ResolutionError(
+            f"{url}: its real path {real} is not under an allowed prefix "
+            f"(spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
 
     def check_host(self, url: str) -> None:
         """Raise ResolutionError unless rule 3 allows the host of an http(s) `url` as

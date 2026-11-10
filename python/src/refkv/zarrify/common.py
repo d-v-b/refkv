@@ -22,19 +22,25 @@ import urllib.request
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from email.message import Message
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from refkv._files import replacing
 from refkv._narrow import integer, string
 from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy
-from refkv.reader import _check_http_url, _send, new_connection
+from refkv.reader import Registry, _check_http_url, _send, new_connection
 from refkv.refstore import ReferenceStore, bulk
-from refkv.uri import is_uri_reference
+from refkv.uri import file_path, file_uri, is_uri_reference
+from refkv.uri import resolve as resolve_reference
 from refkv.vzip.archive import VZipWriter
 from refkv.zarrify.profiles import REGISTRY
+
+if TYPE_CHECKING:
+    from refkv import _core
 
 
 class Rejected(Exception):  # noqa: N818 (public name)
@@ -105,6 +111,9 @@ class Output:
     size: int | None = None
     etag: str | None = None
     checksum: Callable[[str, int, int], int] | None = None
+    # The IR the output was projected from, which a plugin's layout is given (spec/layout.md
+    # <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>); set by refkv.ir.
+    ir: _core.Ir | None = None
 
     def json(self, key: str, value: object) -> None:
         # UTF-8, not \u escapes: the documents are the size the budgets count, as JSON.stringify writes them.
@@ -142,7 +151,8 @@ class Output:
                 w.add_bytes(key, self.bytes_entries[key], compress=not late, late=late)
             w.close()
 
-    def to_store(self, *, policy: Policy | None = None, info: dict[str, object] | None = None) -> ReferenceStore:
+    def to_store(self, *, policy: Policy | None = None, registry: Registry | None = None,
+                 info: dict[str, object] | None = None) -> ReferenceStore:
         """The output as a `refkv.ReferenceStore`, which `save_vzip` writes as the archive
         `write` writes, byte for byte (`reference_store`)."""
         sources = [Source(url=self.url, size=self.size, etag=self.etag)]
@@ -162,7 +172,8 @@ class Output:
         entries = [(key, self.bytes_entries[key],
                     key.endswith("zarr.json") and not key.startswith(self.lazy))
                    for key in sorted(self.bytes_entries)]
-        return reference_store(refs, entries, sources, checksum=self.checksum, policy=policy, info=info)
+        return reference_store(refs, entries, sources, checksum=self.checksum, policy=policy, registry=registry,
+                               info=info)
 
 
 PAGE_SIZE = 1 << 16  # the page index of a zarrified archive (spec/bindings/vzip.md §12
@@ -171,7 +182,8 @@ PAGE_SIZE = 1 << 16  # the page index of a zarrified archive (spec/bindings/vzip
 
 def reference_store(refs: Iterable[tuple[str, list[Range]]], entries: Iterable[tuple[str, bytes, bool]],
                     sources: list[Source], *, checksum: Callable[[str, int, int], int] | None = None,
-                    policy: Policy | None = None, info: dict[str, object] | None = None) -> ReferenceStore:
+                    policy: Policy | None = None, registry: Registry | None = None,
+                    info: dict[str, object] | None = None) -> ReferenceStore:
     """A profile output as a `refkv.ReferenceStore`, in the layout every output's
     `write` gives its archive: the references (key, ranges) first, then the bytes
     entries (key, bytes, late), in the order given; a late entry is read when the
@@ -179,7 +191,7 @@ def reference_store(refs: Iterable[tuple[str, list[Range]]], entries: Iterable[t
     `checksum(url, offset, length)`, each range of a url source carries the CRC-32C
     of its bytes (spec/refkv.md §4.2
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>). The store
-    reads its sources under `policy`."""
+    reads its sources under `policy`, with the stores of `registry`."""
     def checked(r: Range) -> Range:
         if checksum is None or r.data is not None or r.crc32c is not None:
             return r
@@ -201,7 +213,34 @@ def reference_store(refs: Iterable[tuple[str, list[Range]]], entries: Iterable[t
             mapping[key] = data
             (late if is_late else compressed).append(key)
         return ReferenceStore(mapping, sources, read_at_open=late, compressed=compressed, page_size=PAGE_SIZE,
-                              policy=policy, info=info)
+                              policy=reading_own_files(policy, sources), registry=registry, info=info)
+
+
+def reading_own_files(policy: Policy | None, sources: Iterable[Source]) -> Policy:
+    """`policy` (default `Policy()`), which also lets the store a zarrifier just built read the
+    local files it names: the input its caller named and the files that input led it to, each
+    below the input's directory (spec/zarrify.md §1.9
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>).
+    It allows the directory that holds them all, as a prefix, so that a file replaced by a link
+    after the store was built is not read through it (spec/refkv.md §6.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 2); a store
+    that also names other sources allows each of them by its URL as well, since a prefix list
+    replaces rule 1, which allowed them. A saved store does not keep this: whoever opens it
+    chooses (rule 1)."""
+    policy = policy or Policy()
+    if policy.prefixes is not None:
+        return policy
+    base = file_uri(Path.cwd()) + "/"
+    urls = [resolve_reference(base, s.url) for s in sources if s.url is not None]
+    files = [u for u in urls if u.lower().startswith("file:")]
+    if not files:
+        return policy
+    paths = [file_path(u, allow_host=policy.allow_file_hosts) for u in files]
+    directory = file_uri(os.path.commonpath([str(Path(p).parent) for p in paths]))
+    if not directory.endswith("/"):  # a root's URL ends with one already: file:///
+        directory += "/"
+    others = dict.fromkeys(u for u in urls if not u.lower().startswith("file:"))
+    return replace(policy, prefixes=(directory, *others))
 
 
 MAX_PAYLOAD = 65519
@@ -445,21 +484,6 @@ def blob_chunks(offset: int, length: int) -> tuple[int, Chunks]:
         head: list[Part] = [(offset + i * size, n)]
         chunks[(i,)] = head + ([bytes(size - n)] if n < size else [])
     return size, chunks
-
-
-MAX_SAFE = 2**53 - 1
-
-
-def json_number(v: float) -> float | str:
-    """A number as source metadata (spec/conventions.md §6
-    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)."""
-    if isinstance(v, float):
-        if math.isnan(v):
-            return "NaN"
-        if math.isinf(v):
-            return "Infinity" if v > 0 else "-Infinity"
-        return v
-    return v if abs(v) <= MAX_SAFE else str(v)
 
 
 def decode_text(b: bytes) -> str:
@@ -709,7 +733,7 @@ def follow[M: Message | None](base: str, url: str, send: Callable[[str], tuple[i
     most 5 redirects: the policy checks `url`, and each redirect's target before it
     is requested, for the input at `base`. `send` does not follow redirects."""
     for hop in range(6):
-        policy.check(base, url)
+        policy.check(url)
         status, msg, body = send(url)
         if status not in REDIRECTS:
             return url, status, msg, body

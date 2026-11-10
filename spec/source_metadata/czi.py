@@ -17,6 +17,11 @@ SCHEMA = {"anyOf": [
             "file_guid": _GUID,
             "file_part": {"const": 0},
             "update_pending": {"type": "integer"},
+            "parts": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "The keys of the image's other files, in order (spec/zarrify/czi.md §7.9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>)",
+            },
         },
         "required": ["version", "primary_file_guid", "file_guid", "file_part", "update_pending"],
         "additionalProperties": False,

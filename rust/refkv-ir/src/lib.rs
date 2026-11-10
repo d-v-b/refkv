@@ -4,8 +4,10 @@
 //! source model schema. The core has no I/O and builds for wasm32; the Python
 //! bindings are a crate of their own (rust/refkv-python/src/lib.rs, the module `refkv._core`).
 
+pub mod array;
 pub mod beside;
 pub mod canon;
+pub mod czi_set;
 pub mod tiff_set;
 pub mod transform;
 pub mod check;
@@ -13,25 +15,31 @@ pub mod coding;
 pub mod cxml;
 pub mod expr;
 pub mod fed;
+pub mod gz;
+pub mod nifti_pair;
 pub mod ir;
 pub mod json;
 pub mod lv;
 pub mod lzw;
 pub mod mirror;
 pub mod fits_tiles;
+pub mod h5_bitshuffle;
 pub mod out;
 pub mod plan;
 pub mod project;
 pub mod record;
 pub mod refs;
+pub mod routines;
 pub mod rules;
 pub mod run;
 pub mod sans;
+pub mod seal;
 pub mod schema;
 pub mod shard;
 pub mod store;
 pub mod text;
 pub mod types;
+pub mod xlef;
 pub mod xml;
 pub mod zip;
 

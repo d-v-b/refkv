@@ -14,7 +14,7 @@ from refkv._sync import run
 from refkv.errors import RequestError, ResolutionError
 from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy, crc32c
-from refkv.reader import RangeRequest, _merged, _Waiting
+from refkv.reader import RangeRequest, _coalesced, _merged, _Waiting
 from refkv.refstore import ReferenceStore
 
 BLOB = bytes(range(256)) * 4096  # 1 MiB
@@ -99,6 +99,38 @@ def _spans(reads, *, gap=GAP, amplification=4, longest=1 << 20):
 ])
 def test_merged_runs(reads, runs):
     assert _spans(reads, longest=1 << 20) == runs
+
+
+@pytest.mark.parametrize(("reads", "gap", "budget", "runs"), [
+    # reads that overlap or touch are one run, whatever the budget
+    ([(0, 0, 10), (0, 10, 20), (0, 5, 8)], GAP, 0, [[0, 0, 20]]),
+    # a gap within the limit is closed while the runs fetch at most the budget
+    ([(0, 0, 1), (0, 100, 101)], GAP, 1 << 20, [[0, 0, 101]]),
+    ([(0, 0, 1), (0, 100, 101)], GAP, 100, [[0, 0, 1], [0, 100, 101]]),
+    # the narrowest gaps first: of 10 and 5 bytes, a budget of 8 closes only the 5
+    ([(0, 0, 1), (0, 11, 12), (0, 17, 18)], GAP, 8, [[0, 0, 1], [0, 11, 18]]),
+    # a gap past the limit is never closed, nor one between two sources
+    ([(0, 0, 1), (0, 2 + GAP, 3 + GAP)], GAP, 1 << 30, [[0, 0, 1], [0, 2 + GAP, 3 + GAP]]),
+    ([(0, 0, 1), (1, 1, 2)], GAP, 1 << 30, [[0, 0, 1], [1, 1, 2]]),
+    # a limit of 0 combines only reads that touch
+    ([(0, 0, 1), (0, 1, 2), (0, 3, 4)], 0, 1 << 30, [[0, 0, 2], [0, 3, 4]]),
+])
+def test_coalesced(reads, gap, budget, runs):
+    assert _coalesced(reads, gap=gap, budget=budget) == runs
+
+
+def test_a_value_coalesces_within_the_bytes_it_may_take(server):
+    """One value's ranges are combined, closest first, only while what it fetches stays within the
+    policy's `max_get_bytes`, and never across more than `max_coalesce_gap`; the shared reads keep
+    its runs apart."""
+    url, state = server
+    refs = {"r": [Range(source=0, offset=k << 16, length=1) for k in range(4)]}
+    for policy, requests in ((SERVED, 1), (Policy(allow_private_hosts=True, max_get_bytes=1 << 17), 3),
+                             (Policy(allow_private_hosts=True, max_coalesce_gap=0), 4)):
+        state["ranges"].clear()
+        store = _store(url, refs, policy=policy)
+        assert store.get("r") == bytes(BLOB[k << 16] for k in range(4))
+        assert len(state["ranges"]) == requests, policy
 
 
 def test_values_read_at_once_share_requests(server):
@@ -211,6 +243,67 @@ def test_checksum_that_fails_fails_only_its_value(server):
     assert state["ranges"] == [(0, 20)]
 
 
+def test_the_policy_sets_how_much_shared_reads_may_amplify(server):
+    """Reads of different values combine into one request while it fetches at most the policy's
+    `max_read_amplification` times the bytes they ask for, plus a gap: small reads a gap apart are
+    two requests under the default, one under a larger cap."""
+    url, state = server
+    refs = {"a": (0, 4), "b": (GAP, 4), "c": (2 * GAP, 4)}
+    for amplification, ranges in ((4, 2), (10_000, 1)):
+        state["ranges"].clear()
+        store = _store(url, refs, policy=Policy(allow_private_hosts=True, max_read_amplification=amplification))
+        assert run(_gather(store, *refs)) == [BLOB[0:4], BLOB[GAP:GAP + 4], BLOB[2 * GAP:2 * GAP + 4]]
+        assert len(state["ranges"]) == ranges
+
+
+def test_values_read_at_once_share_one_request_across_their_own_gaps(server):
+    """Two values whose pieces interleave and touch, each one's pieces too far apart for its own
+    coalescing, are read together in one request, as a full-width read of a tiled image's chunks
+    is: the shared read fills each value's gaps with the other's pieces."""
+    url, state = server
+    x = [Range(source=0, offset=k * 4000, length=2000) for k in range(3)]
+    y = [Range(source=0, offset=k * 4000 + 2000, length=2000) for k in range(3)]
+    store = _store(url, {"x": x, "y": y}, policy=Policy(allow_private_hosts=True, max_coalesce_gap=1000))
+    assert run(_gather(store, "x", "y")) == [b"".join(BLOB[r.offset:r.offset + 2000] for r in v) for v in (x, y)]
+    assert state["ranges"] == [(0, 12000)]
+
+
+def test_tiles_of_padded_rows_read_at_once_share_requests(server):
+    """Three tiles of a strip image whose rows are padded, read at once, share requests across the
+    rows: each tile's own pieces are more than the coalescing gap apart, so no tile's coalescing
+    could combine them, and the other tiles' pieces bridge them."""
+    url, state = server
+    stride, width = 25_000, 7_000  # 4,000 bytes of padding after each row of three tiles
+    tiles = {f"t{t}": [Range(source=0, offset=row * stride + t * width, length=width) for row in range(8)]
+             for t in range(3)}
+    store = _store(url, tiles, policy=Policy(allow_private_hosts=True, max_coalesce_gap=16_000))
+    want = [b"".join(BLOB[r.offset:r.offset + width] for r in v) for v in tiles.values()]
+    assert run(_gather(store, *tiles)) == want
+    assert len(state["ranges"]) < 8
+
+
+def test_a_shared_request_fetches_no_more_than_a_get_may_take(server):
+    """Reads of different values combine only into requests of at most the policy's
+    `max_get_bytes`: two 4 KiB reads 64 KiB apart are two requests under a budget of 4 KiB."""
+    url, state = server
+    refs = {"a": (0, 4096), "b": (GAP, 4096)}
+    store = _store(url, refs, policy=Policy(allow_private_hosts=True, max_get_bytes=4096))
+    assert run(_gather(store, *refs)) == [BLOB[:4096], BLOB[GAP:GAP + 4096]]
+    assert sorted(state["ranges"]) == [(0, 4096), (GAP, GAP + 4096)]
+
+
+def test_a_short_data_source_is_read_only_once_the_value_passes_rule_5(server):
+    """The byte limit refuses a value before any of its reads, a data source's included: its
+    first range runs past a short data source, its second past the budget."""
+    url, state = server
+    mapping = {"r": Concat((Range(source=0, offset=0, length=10), Range(source=1, offset=0, length=1 << 20)))}
+    store = ReferenceStore(mapping, sources=[Source(data=b"abcd"), Source(url=url)], url="https://store.test/",
+                           policy=Policy(allow_private_hosts=True, max_get_bytes=1 << 10))
+    with pytest.raises(RequestError, match="more than 1024 bytes"):
+        store.get("r")
+    assert state["ranges"] == []
+
+
 def test_too_many_reads_for_one_value_is_refused_before_any_read(server):
     """Rule 5 counts one value's reads after its own coalescing, whatever other values would
     merge with them."""
@@ -250,7 +343,8 @@ def test_value_given_up_leaves_the_others(server):
 def test_a_local_file_is_read_at_once(tmp_path):
     (tmp_path / "blob.bin").write_bytes(BLOB)
     store = ReferenceStore({"a": Range(source=0, offset=0, length=10), "b": Range(source=0, offset=10, length=10)},
-                           sources=[Source(url="blob.bin")], url=str(tmp_path) + "/")
+                           sources=[Source(url="blob.bin")], url=str(tmp_path) + "/",
+                           policy=Policy(prefixes=(tmp_path.as_uri() + "/",)))
     assert run(_gather(store, "a", "b")) == [BLOB[:10], BLOB[10:20]]
     assert store.stats.external_requests == 2
     assert store._merging is None  # nothing waited

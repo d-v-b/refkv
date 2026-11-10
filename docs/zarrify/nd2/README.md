@@ -172,7 +172,7 @@ lossy compression, tiled frames, and other loop types.
 - A chunk is one contiguous range of the file, so a frame read is one
   request. Padded frames are the exception: one range per row, which the
   refkv readers merge into one request when the padding between rows is
-  under their 64 KiB merge gap.
+  within their policy's coalescing gap (`max_coalesce_gap`, 64 KiB by default).
 
 ## How it's verified
 

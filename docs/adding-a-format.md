@@ -104,8 +104,9 @@ de facto readers, and record the decision with a dated change note:
   dropped the video of all 88 DANDI `.mov` files
   ([#153](https://github.com/d-v-b/refkv/pull/153)).
 - MRC went the other way: it refuses mrcfile's permissive fallback to little
-  endian ([#83](https://github.com/d-v-b/refkv/pull/83)). IMOD's unsigned-byte
-  flag, which mrcfile ignores, decides int8 against uint8.
+  endian ([#83](https://github.com/d-v-b/refkv/pull/83)). IMOD's signed-byte
+  flag, which mrcfile ignores, decides int8 against uint8: in a file with
+  IMOD's stamp, bit 0 set or a standard `nversion` is int8, and otherwise uint8.
 
 **Expect reference readers to disagree, and choose the oracle explicitly:**
 
@@ -175,7 +176,8 @@ HDF5 lists unpresented objects with a reason instead of rejecting the file.
 **The signature.** See [zarrify §1.2](../spec/zarrify.md#12-input), "Choosing
 the profile".
 - A test on the first `min(552, size)` bytes, with a precedence (`sniff`)
-  among the file profiles.
+  among the file profiles. A late signature, on `min(65600, size)` bytes, is
+  tested only when no other matches, as for an HDF5 file after a user block.
 - Or no signature, with `chosen_by` naming the profile whose reading chooses
   it, as TIFF chooses NDPI and QPTIFF.
 - A new parent profile can change a child's outputs: HDF5 had to revise IMS.
@@ -273,8 +275,8 @@ Use it when a file has many small units of one shape on a regular grid: frames, 
 - **It costs:** a reader that does not know sharding sees only shards. The reference payload limit of
   65,519 bytes caps the units of a shard: count 16 bytes of index and the unit's ranges.
 - **Limit a shard by units**, for the payload and `max_reads`
-  ([refkv §6.7](../spec/refkv.md#67-reader-policy), rule 5), and by decoded bytes, for a reader that
-  reads a shard whole. Don't limit it by what a partial read costs, which a shard already keeps exact.
+  ([refkv §6.7](../spec/refkv.md#67-reader-policy), rule 5), and by its bytes, for `max_get_bytes`
+  (rule 5) and a reader that reads a shard whole. Don't limit it by what a partial read costs, which a shard already keeps exact.
 - **It does not fix edge units.** An inner chunk decodes to the inner shape like any chunk.
 
 Who has decided: FLAC shards its frames, and TIFF its LZW, Deflate and zstd strips
@@ -295,7 +297,11 @@ the payload limit ([precomputed](../spec/zarrify/precomputed.md)).
 good models.
 
 - **The header line**: `Convention version: 0 · UUID: … · Schema: …`, then
-  dated "Changed" notes, including changes "with no change to any output".
+  `Changes: [changes/<p>/](changes/<p>/), one file per change.` and `Added <date>.`
+  Each later change to the document is a new file,
+  `spec/zarrify/changes/<p>/<date>-<slug>.md`, holding one paragraph: `Changed <date>: …`, or
+  `Changed <date>, with no change to any output: …`. A file per change keeps two PRs on one
+  document from editing one paragraph ([zarrify, Profiles](../spec/zarrify.md#profiles)).
   Version 0 until release. A draft names what it covers and links its plan.
 - **Part 1, the convention:**
   - the unnumbered `## Layout` table of entries;
@@ -333,7 +339,7 @@ document. `uv run python spec/generate_schemas.py` writes
 Copy an existing entry, such as
 [profiles/nrrd.json](../spec/zarrify/profiles/nrrd.json), to
 `spec/zarrify/profiles/<p>.json`:
-- Keep its twelve members in `FIELDS` order (`spec/tools/profiles.py`).
+- Keep its thirteen members in `FIELDS` order (`spec/tools/profiles.py`).
 - Give it a fresh UUID and version 0.
 - Set `reference` to `null`, since there is no frozen twin.
 
@@ -360,8 +366,7 @@ registry. Add:
 
 - `src/<m>.rs` (where `<m>` is the name with `-` as `_`):
   - a `pub struct Profile` implementing `FileProfile` (`src/run.rs`: `detect`,
-    `parser`, `project`, and optionally `reads`, `mirrored`, `whole`,
-    `store_run`);
+    `parser`, `project`, and optionally `reads`, `mirrored`, `whole`);
   - a sans-IO parser with `new(size)`, `step`, `feed` and `finish`;
 - `src/project/<m>.rs`, the projection to the Zarr layout;
 - `schema/<p>.json`, the source model;
@@ -402,28 +407,27 @@ can loop forever or ask for a whole file:
 A plain file profile needs no change in Python, the browser code or the CLI:
 each reads the registry. Python needs only the generated classes.
 
-A file read as a store run (`store_run()`,
-[zarrify §1.8](../spec/zarrify.md#18-files-read-as-stores), as NRRD's detached
+A file read as a store run ([zarrify §1.8](../spec/zarrify.md#18-files-read-as-stores), as NRRD's detached
 headers, VSI's tiles and GRIB's index files are) follows
 [zarrify §1.9](../spec/zarrify.md#19-sources-beside-the-input), and its document gives that
 section's sibling table. `refkv_ir::beside::written_key` turns a written name into a key. A
 profile whose file may name no sibling reads it **on demand**: its file parser returns
 `Step::Beside` on finding one, each host then starts over with a store run of the format, and a
-file that names none keeps its file run's output. The on-demand form does not set `store_run()`.
+file that names none keeps its file run's output.
 
-Either form is still registered by hand in several places:
-- `StoreFormat` and its matches in `rust/refkv-ir/src/store.rs`;
-- `StoreFormat` in `js/src/zarrify/ir/store.ts`;
-- `BESIDE` in `js/src/zarrify/ir/vsi.ts` and `python/src/refkv/zarrify/__init__.py`;
-- `titles` in `rust/refkv-cli/src/vsi.rs`;
-- `STORE_FORMATS` in `js/src/server.ts`;
-- the profiles in `store_mirror_problem` (`conformance/zarrify/compare.py`) whose root
-  names the file rather than the store;
-- the list of profiles in [zarrify §1.8](../spec/zarrify.md#18-files-read-as-stores).
+Either form, and a store input ([§5.6](#56-a-store-input)), is a member of the registry entry,
+`store_run`, which the hosts read: `{"form": "listed"}` for a store a listing finds, and for a file read as a
+store `{"form": "always" or "on_demand", "named": ..., "section": ...}`, where `named` is the named file as a
+rejection names it and `section` is the anchor of the section of the profile's document that specifies it.
+`just profiles` lists it in the table of [zarrify §1.8](../spec/zarrify.md#18-files-read-as-stores). Then
+add two functions, which `build.rs` calls from the `StoreFormat` it generates:
 
-The rest of each host finds the format through these. The CLI asks
-`store_run()` (`beside_format` in `rust/refkv-cli/src/run.rs`), and Python and the
-browser code ask `BESIDE`.
+- `pub fn store_parser(ir, objects, keys)` in `src/<m>.rs`;
+- `pub fn store_project(ir, facts, url)` in `src/project/<m>.rs`.
+
+A format whose writers name files in another case than they have (LIF's XLEF documents) adds
+`"case": true`, and each host that can list a local directory then answers a probe with
+`StoreRun::found_as`.
 
 [#119](https://github.com/d-v-b/refkv/pull/119) added the first of these, and
 [#170](https://github.com/d-v-b/refkv/pull/170) is the shortest list, GRIB's. Every read of
@@ -452,6 +456,12 @@ reaches:
   in `python/pyproject.toml`, which `python/tests/check_base_install.py` lists too;
 - the wasm export, for the browser;
 - a section in `spec/conventions.md`.
+
+Every codec an archive may name, refkv's own or another package's, is a row of the table of codec
+names in [conventions §3](../spec/conventions.md#3-arrays), sorted by name; a codec the profile
+decodes chunks with also gets a row of that section's codec table. `spec/tools/test_codecs.py` fails
+when the Rust core writes a codec name the table lacks, or when refkv's `zarr.codecs` entry points
+and the table's codecs of the package refkv differ.
 
 Make each chunk self-describing. FITS puts every tile's parameters in a
 literal prefix, so "the decoder never needs the chunk's position". For a
@@ -508,10 +518,10 @@ In the core, and in place of
 
 - a type implementing `StoreParser` (`rust/refkv-ir/src/store.rs`: `step`, `feed`,
   `finish`), built from the IR and the listing's objects and keys;
-- `StoreFormat` and its matches in the same file: `from_name`, `name`, `profile`,
-  `parser`, and the projection;
-- the projection in `src/project/<m>.rs`, and in `kept` (`src/project/store.rs`) the
-  members it records beside the mirror.
+- `{"form": "listed"}` as the entry's `store_run`, which adds it to the `StoreFormat` that `build.rs`
+  generates, and `store_parser` in `src/<m>.rs` ([§5.3](#53-the-hosts));
+- the projection in `src/project/<m>.rs`, with `store_project`, and in `kept`
+  (`src/project/store.rs`) the members it records beside the mirror.
 
 Decide what each object is in the IR: **held**, with its bytes in the mirror, as for
 a document the profile reads; **described in place**, as for a file whose bytes stay
@@ -529,8 +539,6 @@ The hosts register it by hand:
   The message changes the reject tables' entries of the other store profiles;
 - its dispatch: `zarrifyStoreProfile` in `js/src/zarrify/index.ts`, and `zarrify_store`
   in `rust/refkv-cli/src/store.rs`;
-- `StoreFormat` in `js/src/zarrify/ir/store.ts`, and `STORE_FORMATS` in
-  `js/src/server.ts`;
 - the usage text: `STORES` in `python/src/refkv/zarrify/__main__.py`, and
   `rust/refkv-cli/src/main.rs`;
 - `conformance/zarrify/reference/ts/store.ts`, which uses the shipped chooser, so must
@@ -595,6 +603,9 @@ valid inputs, comparing every value, and one test per error case.
   fix that read in-line values said this would have caught its first finding.
 - **Check that a new test fails on the old code.** Several fixes say so: "run
   against the unfixed parser, both tests fail."
+- **A profile with a frozen reference that changes a fixture's layout or verdict** adds the fixture's name to
+  `conformance/zarrify/revised/<p>.txt`, in sorted order, and says why in the file's top comment. See
+  [its README](../conformance/zarrify/revised/README.md).
 
 ### Verification against an independent reader
 

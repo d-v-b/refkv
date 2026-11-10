@@ -19,6 +19,15 @@ block of values, so refkv reads the header and writes an archive in which
 every Zarr chunk is a run of at most 1 MiB of that block: whole volumes or
 blocks of sections when they are small, else blocks of rows.
 
+## Gzipped maps
+
+A `.map.gz`, as the EMDB distributes its maps, is read as it is, with nothing decompressed but its
+first bytes: one chunk references the whole file, with the codecs `bytes`, `refkv.skip` (the
+header's length) and `gzip`. The cost is reads: a gzip stream has no index, so reading one slice
+inflates the whole stream, and holds the whole array in memory. To slice a large map repeatedly,
+decompress it once and zarrify the `.map`. A `.map.gz` of more than 2 GiB is past a reader's
+default bytes per `get` ([refkv §6.7](../../../spec/refkv.md#67-reader-policy) rule 5): raise `max_get_bytes` to read it.
+
 ## What you get
 
 One OME-Zarr 0.5 image at the archive root, with one array, `0`.
@@ -29,8 +38,10 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
   are named by the header's axis map (`mapc`, `mapr`, `maps`) when it is a
   permutation of x, y and z; the values are never reordered.
 - **Data types:** `int8`, `int16`, `uint16`, `float16`, `float32` and
-  `complex64` (modes 0, 1, 6, 12, 2 and 4); `uint8` for a mode 0 file that
-  IMOD marks as unsigned.
+  `complex64` (modes 0, 1, 6, 12, 2 and 4), `uint8` for mode 101 (4-bit values,
+  read through `packbits`), a `struct` of `real` and `imag` `int16`s for mode 3;
+  `uint8` for a mode 0 file with IMOD's stamp, bit 0 of IMOD's flags clear and
+  no standard `nversion` (unsigned bytes, IMOD's default before 4.9).
 - **Chunks:** the values as the file stores them, cut into equal runs of at
   most 1 MiB along the outermost axis that allows it.
 - **Codecs:** `bytes` in the file's byte order. No compression: the file
@@ -38,8 +49,10 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
 - **Scale:** the voxel size, `cella / mx` and so on, in angstroms, where the
   cell and the grid give a positive finite one.
 - **Translation:** the header's `origin` (angstroms), for a volume, when it
-  is finite and not all zero. An image's origin is a phase origin in pixels
-  and is not applied.
+  is finite and not all zero. IMOD's older files store the origin with the
+  opposite sign and say so with IMOD's stamp and flags, so those volumes are
+  placed at `-origin`; `header` keeps the stored value. An image's origin is a
+  phase origin in pixels and is not applied.
 - **Header:** every field of the MRC header, under
   `refkv_zarrified.mrc.header`, with the kind of file, the data type,
   whether the axis map was applied and the voxel size beside it. The whole
@@ -160,11 +173,12 @@ Supported:
 
 Rejected:
 
-- Gzipped maps (`.map.gz`), the way the EMDB distributes them: `not a
-  file of any supported format`. A gzip stream has no byte ranges to reference; decompress the map first.
+- A gzipped map with bytes after the data, or of several gzip members
+  (`bgzip`): a chunk could not decode it. Decompress the map first.
+- A gzipped mode 101 file of odd `nx`: its rows each start on a byte, so that
+  one chunk could not decode it. Decompress the file first.
 - Files without `MAP` at byte 208 (the pre-2000 format), and a machine
   stamp that is neither little- nor big-endian.
-- Complex int16 (mode 3) and 4-bit (mode 101) data.
 - A volume stack whose `mz` does not divide `nz`, and data past the end of
   the file.
 
@@ -173,13 +187,13 @@ Rejected:
 The browser code ([js/](../../../js/README.md)) reads MRC (MRC2014 files):
 
 - Images, image stacks, volumes and volume stacks (`t`, `z`, `y`, `x`),
-  either byte order, modes 0, 1, 2, 4, 6 and 12.
+  either byte order, modes 0, 1, 2, 3, 4, 6, 12 and 101.
 - Chunks of at most 1 MiB: blocks of sections, or blocks of rows.
 - The voxel size (angstroms) as scale, the origin as translation, the whole
   header under `refkv_zarrified`.
 
-Not supported, and refused with HTTP 422: gzipped maps (`.map.gz`), pre-2000
-files without `MAP` at byte 208, and modes 3 and 101.
+Not supported, and refused with HTTP 422: pre-2000 files without `MAP` at
+byte 208.
 
 ## Performance
 

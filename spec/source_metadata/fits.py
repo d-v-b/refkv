@@ -1,14 +1,12 @@
 """The FITS convention's source metadata (spec/zarrify/fits.md), for
 spec/generate_schemas.py."""
 
-from source_metadata import BIG_INTEGER
-
 # The FITS convention's cards (spec/zarrify/fits.md §5.3
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>): [keyword, value,
 # comment] triples in header order, duplicates kept; null past the 65536-byte budget of a node's document.
 FITS_CARDS = {
     "description": "The header's cards, [keyword, value, comment] each, in order: a string, a logical, an integer "
-                   "(exact; as a string of digits past 2^53 - 1), a real (its binary64 value), a complex as [re, im], "
+                   "(exact, whatever its magnitude), a real (its binary64 value), a complex as [re, im], "
                    'null for no value, or {"text": t} for a value the standard does not define; a commentary '
                    "card's text is its comment. Null when the cards would take more than 65536 bytes of JSON",
     "anyOf": [
@@ -27,7 +25,7 @@ FITS_CARDS = {
     ],
 }
 
-FITS_NUMBER = {"anyOf": [{"type": ["number", "null"]}, BIG_INTEGER]}
+FITS_NUMBER = {"type": ["number", "null"]}
 # TNULLn: a string in an ASCII table, an integer in a binary one
 FITS_STRING_OR_NUMBER = {"type": ["string", "number", "null"]}
 
@@ -78,8 +76,15 @@ SCHEMA = {"anyOf": [
                 "additionalProperties": False,
             }},
             "cards": FITS_CARDS,
+            "stream": {"anyOf": [{"type": "null"}, {
+                "type": "object",
+                "description": "A compressed file's compression (spec/zarrify/fits.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#21-a-compressed-file>)",
+                "properties": {"method": {"enum": ["gzip", "bzip2"]}, "size": {"type": "integer", "minimum": 0}},
+                "required": ["method", "size"],
+                "additionalProperties": False,
+            }]},
         },
-        "required": ["hdus", "cards"],
+        "required": ["hdus", "cards", "stream"],
         "additionalProperties": False,
     },
     {
@@ -93,10 +98,13 @@ SCHEMA = {"anyOf": [
                 "type": "object",
                 "properties": {"name": FITS_STRING, "form": {"type": "string"}, "unit": FITS_STRING, "dim": FITS_STRING,
                                "scale": FITS_NUMBER, "zero": FITS_NUMBER, "null": FITS_STRING_OR_NUMBER,
-                               "disp": FITS_STRING, "bcol": FITS_NUMBER},
-                "required": ["name", "form", "unit", "dim", "scale", "zero", "null", "disp", "bcol"],
+                               "disp": FITS_STRING, "bcol": FITS_NUMBER, "field": FITS_STRING},
+                "required": ["name", "form", "unit", "dim", "scale", "zero", "null", "disp", "bcol", "field"],
                 "additionalProperties": False,
             }},
+            "not_struct": {"description": "Why a table's rows are bytes, null when they are a struct "
+                                          "(spec/zarrify/fits.md §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#41-rows-as-a-struct>)",
+                           "enum": [None, "ascii", "form", "names", "empty", "width", "fields", "row_size"]},
         },
         "required": ["index", "cards"],
         "additionalProperties": False,

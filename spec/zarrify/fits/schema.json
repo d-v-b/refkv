@@ -336,7 +336,7 @@
               }
             },
             "cards": {
-              "description": "The header's cards, [keyword, value, comment] each, in order: a string, a logical, an integer (exact; as a string of digits past 2^53 - 1), a real (its binary64 value), a complex as [re, im], null for no value, or {\"text\": t} for a value the standard does not define; a commentary card's text is its comment. Null when the cards would take more than 65536 bytes of JSON",
+              "description": "The header's cards, [keyword, value, comment] each, in order: a string, a logical, an integer (exact, whatever its magnitude), a real (its binary64 value), a complex as [re, im], null for no value, or {\"text\": t} for a value the standard does not define; a commentary card's text is its comment. Null when the cards would take more than 65536 bytes of JSON",
               "anyOf": [
                 {
                   "type": "null"
@@ -397,11 +397,40 @@
                   }
                 }
               ]
+            },
+            "stream": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "description": "A compressed file's compression (spec/zarrify/fits.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#21-a-compressed-file>)",
+                  "properties": {
+                    "method": {
+                      "enum": [
+                        "gzip",
+                        "bzip2"
+                      ]
+                    },
+                    "size": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "method",
+                    "size"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
             }
           },
           "required": [
             "hdus",
-            "cards"
+            "cards",
+            "stream"
           ],
           "additionalProperties": false
         },
@@ -414,7 +443,7 @@
               "minimum": 0
             },
             "cards": {
-              "description": "The header's cards, [keyword, value, comment] each, in order: a string, a logical, an integer (exact; as a string of digits past 2^53 - 1), a real (its binary64 value), a complex as [re, im], null for no value, or {\"text\": t} for a value the standard does not define; a commentary card's text is its comment. Null when the cards would take more than 65536 bytes of JSON",
+              "description": "The header's cards, [keyword, value, comment] each, in order: a string, a logical, an integer (exact, whatever its magnitude), a real (its binary64 value), a complex as [re, im], null for no value, or {\"text\": t} for a value the standard does not define; a commentary card's text is its comment. Null when the cards would take more than 65536 bytes of JSON",
               "anyOf": [
                 {
                   "type": "null"
@@ -477,45 +506,21 @@
               ]
             },
             "bscale": {
-              "anyOf": [
-                {
-                  "type": [
-                    "number",
-                    "null"
-                  ]
-                },
-                {
-                  "type": "string",
-                  "pattern": "^-?[1-9][0-9]{15,}$"
-                }
+              "type": [
+                "number",
+                "null"
               ]
             },
             "bzero": {
-              "anyOf": [
-                {
-                  "type": [
-                    "number",
-                    "null"
-                  ]
-                },
-                {
-                  "type": "string",
-                  "pattern": "^-?[1-9][0-9]{15,}$"
-                }
+              "type": [
+                "number",
+                "null"
               ]
             },
             "blank": {
-              "anyOf": [
-                {
-                  "type": [
-                    "number",
-                    "null"
-                  ]
-                },
-                {
-                  "type": "string",
-                  "pattern": "^-?[1-9][0-9]{15,}$"
-                }
+              "type": [
+                "number",
+                "null"
               ]
             },
             "bunit": {
@@ -551,31 +556,15 @@
                     ]
                   },
                   "scale": {
-                    "anyOf": [
-                      {
-                        "type": [
-                          "number",
-                          "null"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "^-?[1-9][0-9]{15,}$"
-                      }
+                    "type": [
+                      "number",
+                      "null"
                     ]
                   },
                   "zero": {
-                    "anyOf": [
-                      {
-                        "type": [
-                          "number",
-                          "null"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "^-?[1-9][0-9]{15,}$"
-                      }
+                    "type": [
+                      "number",
+                      "null"
                     ]
                   },
                   "null": {
@@ -592,17 +581,15 @@
                     ]
                   },
                   "bcol": {
-                    "anyOf": [
-                      {
-                        "type": [
-                          "number",
-                          "null"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "^-?[1-9][0-9]{15,}$"
-                      }
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "field": {
+                    "type": [
+                      "string",
+                      "null"
                     ]
                   }
                 },
@@ -615,10 +602,24 @@
                   "zero",
                   "null",
                   "disp",
-                  "bcol"
+                  "bcol",
+                  "field"
                 ],
                 "additionalProperties": false
               }
+            },
+            "not_struct": {
+              "description": "Why a table's rows are bytes, null when they are a struct (spec/zarrify/fits.md §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#41-rows-as-a-struct>)",
+              "enum": [
+                null,
+                "ascii",
+                "form",
+                "names",
+                "empty",
+                "width",
+                "fields",
+                "row_size"
+              ]
             }
           },
           "required": [
@@ -806,7 +807,6 @@
                 "group",
                 "element",
                 "derived",
-                "int",
                 "float",
                 "bytes",
                 "utf16"

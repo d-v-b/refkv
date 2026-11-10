@@ -150,6 +150,27 @@
               "type": "object",
               "minProperties": 1,
               "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"
+            },
+            "not_presented": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "reason"
+                ],
+                "additionalProperties": false
+              },
+              "description": "The root's: the arrays left out, and why"
             }
           },
           "minProperties": 1,
@@ -348,7 +369,6 @@
                 "group",
                 "element",
                 "derived",
-                "int",
                 "float",
                 "bytes",
                 "utf16"

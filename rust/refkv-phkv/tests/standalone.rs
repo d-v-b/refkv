@@ -92,6 +92,29 @@ fn values_references_and_listing() {
     assert_eq!(whole(&s, "r/concat").unwrap(), concat);
     assert_eq!(s.get("r/concat", Request::Range(5, 9), &NoUrls).unwrap().unwrap(), concat[5..9]);
     assert_eq!(s.get("r/crc", Request::Range(1, 2), &objects).unwrap().unwrap(), object[101..102]);
+    // a range with a checksum is read whole, which a get's byte limit counts, before any read
+    let small = Store::open_with(s.reader().clone(), refkv_phkv::Limits { request_bytes: 50, ..Default::default() }).unwrap();
+    assert_eq!(small.get("r/crc", Request::Range(1, 2), &objects).unwrap_err().class, Class::Request);
+    assert_eq!(small.get("r/one", Request::Whole, &objects).unwrap().unwrap(), object[10..30]);
+    // a compressed key source's value, decoded whole, is fetched once a get: the value's size, more
+    // than the 16 bytes the value is built from
+    let Some(EntryInfo::Bytes { stored_length, .. }) = s.entry_info("a/c/2").unwrap() else { panic!() };
+    let found = s.key_found("a/c/2").unwrap().unwrap();
+    assert_eq!((found.size, found.held), (big.len() as u64, Some(big.len() as u64)));
+    assert_eq!(s.found_bytes(&found, 0, found.size).unwrap(), big);
+    assert!(stored_length < big.len() as u64);
+    let stored = s.key_found("a/c/0").unwrap().unwrap(); // a codec-0 value stored apart: read by range
+    assert_eq!((stored.held, s.found_bytes(&stored, 10, 20).unwrap()), (None, big[10..20].to_vec()));
+    for (a, b) in [(0, big.len() as u64 + 1), (20, 10)] {
+        let e = s.found_bytes(&stored, a, b).unwrap_err();
+        assert_eq!(e.class, Class::Resolution);
+        assert!(e.message.contains("key source \"a/c/0\""), "{}", e.message);
+    }
+    assert!(s.key_found("r/one").unwrap().is_none()); // a reference
+    assert_eq!(s.key_found("a/c/3").unwrap().map(|f| (f.size, f.held.is_some())), Some((4, true))); // inline
+    let decoded = |request_bytes| Store::open_with(s.reader().clone(), refkv_phkv::Limits { request_bytes, ..Default::default() }).unwrap();
+    assert_eq!(decoded(big.len() as u64).get("r/concat", Request::Whole, &NoUrls).unwrap().unwrap(), concat);
+    assert_eq!(decoded(big.len() as u64 - 1).get("r/concat", Request::Whole, &NoUrls).unwrap_err().class, Class::Request);
     // a url source without a resolver is a resolution error, for the requests that need it
     assert_eq!(s.get("r/one", Request::Whole, &NoUrls).unwrap_err().class, Class::Resolution);
     assert_eq!(s.get("a/c/0", Request::Range(5, 4), &NoUrls).unwrap_err().class, Class::Request);
@@ -689,4 +712,156 @@ fn record_blocks_serve_neighbouring_records_with_the_same_values() {
     let (alone, blocks) = (reads_for(0), reads_for(4096));
     // alone: a read per record (and the slot blocks); in blocks: a read per 4 KiB of RECORDS instead
     assert!(blocks * 3 < alone, "{blocks} reads in blocks against {alone} alone");
+}
+
+/// A reference of many ranges of one compressed key source decodes its value once a get: it reads
+/// the value's stored bytes as often as a reference of one range of it does.
+#[test]
+fn a_compressed_key_source_is_decoded_once_a_get() {
+    let big: Vec<u8> = (0..100_000u32).map(|i| (i % 251) as u8).collect();
+    let b = write(Options::default(), |w| {
+        w.add_bytes_with("z", &big, Codec::Deflate).unwrap();
+        let z = w.internal("z").unwrap();
+        w.add_ranges("one", &[Range::of(z, 0, 3)]).unwrap();
+        w.add_ranges("many", &(0..50).map(|k| Range::of(z, k * 1000, 3)).collect::<Vec<_>>()).unwrap();
+    });
+    let s = Store::open_with(Logging(b, Default::default()), refkv_phkv::Limits::default()).unwrap();
+    let Some(EntryInfo::Bytes { stored_length, .. }) = s.entry_info("z").unwrap() else { panic!() };
+    let bodies = |key: &str| {
+        let before = s.reader().1.borrow().len();
+        let got = s.get(key, Request::Whole, &NoUrls).unwrap().unwrap();
+        (got, s.reader().1.borrow()[before..].iter().filter(|r| r.1 >= stored_length).count())
+    };
+    let want: Vec<u8> = (0..50).flat_map(|k| big[k * 1000..k * 1000 + 3].to_vec()).collect();
+    let (one, (many, n)) = (bodies("one"), bodies("many"));
+    assert_eq!((one.0, many), (big[..3].to_vec(), want));
+    assert_eq!(n, one.1);
+}
+
+/// A reference that repeats a range of a key source the reader holds whole counts each range it
+/// builds the value from, however few bytes it fetches.
+#[test]
+fn a_repeated_range_of_a_held_value_counts_each_time() {
+    let value = vec![9u8; 1000];
+    let b = write(Options::default(), |w| {
+        w.add_bytes_with("z", &value, Codec::Deflate).unwrap();
+        let z = w.internal("z").unwrap();
+        w.add_ranges("r", &vec![Range::of(z, 0, 1000); 8]).unwrap();
+    });
+    let limited = |request_bytes| Store::open_with(b.clone(), refkv_phkv::Limits { request_bytes, ..Default::default() }).unwrap();
+    assert_eq!(limited(8000).get("r", Request::Whole, &NoUrls).unwrap().unwrap(), vec![9u8; 8000]);
+    assert_eq!(limited(7999).get("r", Request::Whole, &NoUrls).unwrap_err().class, Class::Request);
+}
+
+/// A file whose reads covering one offset fail, counted.
+struct Failing(Vec<u8>, u64, std::cell::Cell<usize>);
+
+impl refkv_phkv::ReadAt for Failing {
+    fn size(&self) -> std::io::Result<u64> {
+        self.0.size()
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
+        if offset <= self.1 && self.1 < offset + buf.len() as u64 {
+            self.2.set(self.2.get() + 1);
+            return Err(std::io::Error::other("the read failed"));
+        }
+        self.0.read_at(offset, buf)
+    }
+}
+
+/// A key source whose record cannot be read fails a get as a resolution error: what it takes is
+/// unknown, so the reader neither counts only its range nor reads it.
+#[test]
+fn a_key_source_that_cannot_be_looked_up_fails_the_get() {
+    let b = write(Options::default(), |w| {
+        w.add_bytes_with("z", &vec![9u8; 100_000], Codec::Deflate).unwrap();
+        let z = w.internal("z").unwrap();
+        w.add_ranges("r", &[Range::of(z, 0, 3)]).unwrap();
+    });
+    // the last read of a lookup of "z" is its record, outside a short tail read at open
+    let limits = refkv_phkv::Limits { tail: 256, ..Default::default() };
+    let logged = Store::open_with(Logging(b.clone(), Default::default()), limits.clone()).unwrap();
+    logged.get("r", Request::Whole, &NoUrls).unwrap();
+    let before = logged.reader().1.borrow().len();
+    logged.key_found("z").unwrap();
+    let record = *logged.reader().1.borrow().get(before..).and_then(<[_]>::last).expect("z's record read");
+    let s = Store::open_with(Failing(b, record.0, Default::default()), limits).unwrap();
+    assert_eq!(s.key_found("z").unwrap_err().class, Class::Resolution);
+    // the get fails at its one lookup of z: no second lookup, and no read of the value
+    let before = s.reader().2.get();
+    assert_eq!(s.get("r", Request::Whole, &NoUrls).unwrap_err().class, Class::Resolution);
+    assert_eq!(s.reader().2.get() - before, 1);
+}
+
+/// An inline key source's value is read once a get, with the record its lookup reads, and not
+/// before the get passes the bytes it is built from.
+#[test]
+fn an_inline_key_value_is_read_once_a_get() {
+    let value = vec![5u8; 100_000];
+    let b = write(Options { inline_max: 1 << 20, codec: Codec::None, ..Options::default() }, |w| {
+        for i in 0..200 {
+            w.add_bytes(&format!("p/{i:03}"), &[1u8; 600]).unwrap(); // keeps the record out of the tail
+        }
+        w.add_bytes("z", &value).unwrap();
+        let z = w.internal("z").unwrap();
+        w.add_ranges("r", &(0..64).map(|k| Range::of(z, k, 1)).collect::<Vec<_>>()).unwrap();
+        w.add_ranges("big", &vec![Range::of(z, 0, 100_000); 2]).unwrap();
+    });
+    let limits = refkv_phkv::Limits { tail: 256, request_bytes: 150_000, ..Default::default() };
+    let s = Store::open_with(Logging(b, Default::default()), limits).unwrap();
+    let long = |from: usize| s.reader().1.borrow()[from..].iter().filter(|r| r.1 >= 100_000).count();
+    let before = s.reader().1.borrow().len();
+    assert_eq!(s.get("r", Request::Whole, &NoUrls).unwrap().unwrap(), vec![5u8; 64]);
+    assert_eq!(long(before), 1);
+    // 200,000 bytes built: refused before the key is looked up
+    let before = s.reader().1.borrow().len();
+    assert_eq!(s.get("big", Request::Whole, &NoUrls).unwrap_err().class, Class::Request);
+    assert_eq!(long(before), 0);
+}
+
+/// A get whose key values held whole pass its bound is refused as soon as they do: it looks up no
+/// more keys, nor holds their values.
+#[test]
+fn held_values_past_the_bound_stop_the_lookups() {
+    let b = write(Options { inline_max: 1 << 20, codec: Codec::None, ..Options::default() }, |w| {
+        let mut ranges = Vec::new();
+        for i in 0..50 {
+            let key = format!("k/{i:02}");
+            w.add_bytes(&key, &vec![1u8; 10_000]).unwrap();
+            ranges.push(Range::of(w.internal(&key).unwrap(), 0, 1));
+        }
+        w.add_ranges("r", &ranges).unwrap();
+    });
+    let limits = refkv_phkv::Limits { tail: 256, request_bytes: 25_000, ..Default::default() };
+    let s = Store::open_with(Logging(b, Default::default()), limits).unwrap();
+    let before = s.reader().1.borrow().len();
+    assert_eq!(s.get("r", Request::Whole, &NoUrls).unwrap_err().class, Class::Request);
+    let held = s.reader().1.borrow()[before..].iter().filter(|r| r.1 >= 10_000).count();
+    assert_eq!(held, 3, "the third value passes 25,000 bytes");
+}
+
+/// A codec-0 key source stored apart, read by range, is looked up once a get: the range is read
+/// from the record the count's lookup read.
+#[test]
+fn a_ranged_key_source_is_looked_up_once_a_get() {
+    let b = write(Options { inline_max: 0, codec: Codec::None, ..Options::default() }, |w| {
+        for i in 0..200 {
+            w.add_bytes(&format!("p/{i:03}"), &[1u8; 600]).unwrap(); // keeps the record out of the tail
+        }
+        w.add_bytes("z", &vec![5u8; 100_000]).unwrap();
+        let z = w.internal("z").unwrap();
+        w.add_ranges("r", &[Range::of(z, 10, 4)]).unwrap();
+    });
+    let limits = refkv_phkv::Limits { tail: 256, ..Default::default() };
+    let s = Store::open_with(Logging(b, Default::default()), limits).unwrap();
+    s.get("r", Request::Whole, &NoUrls).unwrap(); // looks "r" up
+    let before = s.reader().1.borrow().len();
+    s.key_found("z").unwrap();
+    let lookup = s.reader().1.borrow()[before..].to_vec();
+    let before = s.reader().1.borrow().len();
+    assert_eq!(s.get("r", Request::Whole, &NoUrls).unwrap().unwrap(), vec![5u8; 4]);
+    let get = s.reader().1.borrow()[before..].to_vec();
+    assert_eq!(get.iter().filter(|r| lookup.contains(r)).count(), lookup.len(), "z looked up once: {get:?}");
+    assert_eq!(get.iter().filter(|r| **r == *lookup.last().unwrap()).count(), 1, "{get:?}");
 }

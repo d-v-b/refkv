@@ -95,7 +95,7 @@
         "tags/<tag>": "struct of entry {tag,type,count[,offset][,field]} and value (in the value field, or at its offset: decoded when the profile reads it, or when small); a duplicate tag is tags/<tag>~<k>",
         "next_ifd": "u4 or u8",
         "tiles/<k>": "data (run): a tile of TileOffsets and TileByteCounts with a byte count above 0 within the file; geometry, codec and recipe (a JPEG tile's recipe puts the IFD's JPEG prefix, a shared data source, after its first 2 bytes); an IFD whose tile tables are an earlier IFD's names its tiles by alias",
-        "strips/<k>": "data (run): the same, for StripOffsets and StripByteCounts; a level in strips references them as its chunks"
+        "strips/<k>": "data (run): the same, for StripOffsets and StripByteCounts, whose geometry is a tile's in an IFD with TileWidth and TileLength and no tiles/<k>, which lists its tiles there; a level in strips, or a tiled one of such IFDs, references them as its chunks"
       }
     },
     "gaps/<offset>": {"kind": "gap"}
@@ -187,15 +187,15 @@
       ]
     },
     "predictor": {
-      "about": "IFD 0's Predictor (spec/zarrify/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>): none (1), or, with an integer type and LZW, Deflate or zstd, horizontal differencing (2), which imagecodecs_delta sums back; JPEG 2000 streams do not use it",
+      "about": "IFD 0's Predictor (spec/zarrify/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>): none (1), or, with LZW, Deflate or zstd, horizontal differencing (2) of an integer type, which imagecodecs_delta sums back, or the floating-point predictor (3) of a float type, which imagecodecs_floatpred undoes; JPEG 2000 streams do not use it",
       "given": {"compression": "", "predictor": "", "sample_format": "IFD 0's SampleFormat"},
       "constraints": [
         {
-          "require": "in(compression, jpeg2000) || in(predictor, [1, 2])",
+          "require": "in(compression, jpeg2000) || in(predictor, [1, 2, 3])",
           "message": "unsupported predictor {predictor}"
         },
         {
-          "require": "in(compression, jpeg2000) || predictor == 1 || in(sample_format, [1, 2])",
+          "require": "in(compression, jpeg2000) || predictor == 1 || (predictor == 2 && in(sample_format, [1, 2])) || (predictor == 3 && sample_format == 3)",
           "message": "predictor {predictor} with SampleFormat {sample_format}"
         },
         {
@@ -236,14 +236,17 @@
         "offset": "",
         "width": "",
         "height": "",
-        "tiled": "TileWidth and TileOffsets present",
-        "has_counts": "TileByteCounts present",
+        "tiled": "TileWidth and TileLength present",
+        "has_offsets": "the offsets of its tile tables are present: TileOffsets, or, in an IFD with neither TileOffsets nor TileByteCounts, StripOffsets",
+        "has_counts": "the byte counts of its tile tables are present: TileByteCounts, or, in an IFD with neither TileOffsets nor TileByteCounts, StripByteCounts",
+        "missing": "the tag of its tile tables that is absent, when one is",
         "tile_width": "",
         "tile_height": ""
       },
       "constraints": [
         {"require": "width >= 1 && height >= 1", "message": "the image at {offset} is empty"},
-        {"require": "!tiled || has_counts", "message": "IFD at {offset} has no tag 325"},
+        {"require": "!tiled || has_offsets || has_counts", "message": "the tiled image at {offset} has neither tile tables nor strip tables"},
+        {"require": "!tiled || (has_offsets && has_counts)", "message": "IFD at {offset} has no tag {missing}"},
         {
           "require": "!tiled || (tile_width >= 1 && tile_height >= 1)",
           "message": "the image at {offset} has an empty tile size"
@@ -330,8 +333,8 @@
         "jpeg": "",
         "has_tables": "JPEGTables present",
         "tables_ok": "JPEGTables start with SOI and end with EOI, at least 4 bytes",
-        "tiles": "TileOffsets' (StripOffsets') count",
-        "counts": "TileByteCounts' (StripByteCounts') count",
+        "tiles": "the count of the offsets of its tiles (TileOffsets, or StripOffsets in a tiled IFD with neither TileOffsets nor TileByteCounts) or strips (StripOffsets)",
+        "counts": "the count of their byte counts (TileByteCounts or StripByteCounts)",
         "expected": "samples × tiles across × tiles down, or samples × strips"
       },
       "constraints": [

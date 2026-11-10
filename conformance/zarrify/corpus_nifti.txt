@@ -1,5 +1,5 @@
 # url|name of the public NIfTI files in the corpus: nibabel's test data (MIT), SPM (GPL-2.0), dcm2niix's
-# regression data from neurolabusc's dcm_qa repositories (BSD-2-Clause) and NiiVue's demo images (BSD-2-Clause)
+# regression data from neurolabusc's dcm_qa repositories (BSD-2-Clause) and NiiVue's demo images (BSD-2-Clause), and a gzipped T1w of OpenNeuro's ds000001 (CC0)
 https://raw.githubusercontent.com/nipy/nibabel/2f7c14298ab8f5cea66d0f2f89cd38eff6b3438c/nibabel/tests/data/anatomical.nii|nibabel_anatomical|ends-sha256=dadc5ad6ec1c269b1754d918305988e5cf1b961ccf74f006f341916f07f42d7c
 https://raw.githubusercontent.com/nipy/nibabel/2f7c14298ab8f5cea66d0f2f89cd38eff6b3438c/nibabel/tests/data/functional.nii|nibabel_functional|ends-sha256=7b295a4a07e4502f5a1d67f48f15712c0ca9d153e4dc703ad0fe06cbb43f1446
 https://raw.githubusercontent.com/nipy/nibabel/2f7c14298ab8f5cea66d0f2f89cd38eff6b3438c/nibabel/tests/data/reoriented_anat_moved.nii|nibabel_reoriented_anat_moved|ends-sha256=be351798c23daff041150a664528e9defc155e6a91c4a45480eafaa1ae3bf6a8
@@ -12,3 +12,4 @@ https://raw.githubusercontent.com/spm/spm/4043ce6a2d79313b8fe362ed295d5d98e6858a
 https://raw.githubusercontent.com/neurolabusc/dcm_qa_enh/58953e7b0150c6b866b2cc2fc2b40366625672dc/Ref/Philips_WIP_resting_state_1001_e1.nii|dcmqa_philips_resting_state|ends-sha256=d94ae325932a2c95a46fbb29b66aa883ae87f6e09154f2563c8646f61a005ef7
 https://raw.githubusercontent.com/neurolabusc/dcm_qa_philips/74efdbc01eb62540fbb702787c3a7a2c0e22f9eb/Ref/DT_HIGH_32DIR_SENSE_1201.nii|dcmqa_philips_dwi|ends-sha256=a4e4baa0c8b3ee7f6fd862a3aca06591e355f27f2f91fa62eac192bbf88bbad6
 https://raw.githubusercontent.com/neurolabusc/dcm_qa_uih/f3bd991a98eaf49a6f928f276a41f666d658a64b/Ref/t1_gre_fsp_3d_sag_2_132222.nii|dcmqa_uih_t1_sag|ends-sha256=9d8d07ac0d3ecced709b22e448c447dd197d76b27a8024d50f3368e64b418a96
+https://s3.amazonaws.com/openneuro.org/ds000001/sub-01/anat/sub-01_T1w.nii.gz|openneuro_ds000001_t1w|no-ref|ends-sha256=f626a6376f099591a6dc56c077accc03aebe59ffbe9a795769083a285492bc44

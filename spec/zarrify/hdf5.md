@@ -12,10 +12,7 @@ this layout as a reference store, and the subset of HDF5 that it reads, is the H
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `6c006834-424b-451b-b786-f8c502ec32af` ·
 Schema: [schema.json](hdf5/schema.json)
 
-Changed 2026-11-01, with no change to any output: the checks list every rejection and limit,
-among them the datatypes' nesting, the rounds of reads and the references' budget, and say that
-a datatype that does not decode rejects the input, where they said that none did
-([§8.2](#82-reading), [§8.3](#83-checks)).
+Changes: [changes/hdf5/](changes/hdf5/), one file per change.
 
 Added 2026-10-29.
 
@@ -127,13 +124,53 @@ is not presented, with the reason [§7.4](#74-what-is-not-presented) gives.
 
 - **Shape:** the dataspace's sizes (`[]` for a scalar), with a trailing axis of `n` for a
   fixed-length string of `n` bytes. A null dataspace is not presented (`null_dataspace`).
-- **Fill value:** the fill value message's value as the data type's JSON fill value (a
-  float's as [§6](#6-attributes)'s float value, which is Zarr's encoding), else the
+- **Fill value:** the fill value message's value as the data type's JSON fill value (an
+  integer's, whether the data type's own or an enumeration's or a compound member's, as a JSON
+  integer, exact whatever its magnitude, as Zarr v3 writes it and [§6](#6-attributes) writes an
+  attribute's; a float's as [§6](#6-attributes)'s float value, which is Zarr's
+  encoding), else the
   data type's zero (`0`, `0.0`, `false`, `""`, a struct's object of its fields' zeros). This
   departs from [conventions §3](../conventions.md#3-arrays)'s fill value 0: an unallocated chunk of an HDF5 dataset reads as
   its fill value. A fill value the data type has no JSON form of is not presented
   (`fill_value`).
-- **Dimension names:** none.
+- **Dimension names:** when the dataset has a `DIMENSION_LIST` attribute, a sequence of object
+  references per axis, that attaches a scale to some axis, an axis's name is the name of the first
+  dataset of its sequence, by its link name in the hierarchy ([§2.2](#22-paths)) without a leading
+  `_nc4_non_coord_`, and `null` when its sequence is empty or names no object the walk reached. A
+  dataset of rank 1 with no such attribute and a `CLASS` attribute of `DIMENSION_SCALE` (a
+  **dimension scale**) has its own name, the same way. An **unscaled** dataset, of rank 1 or more,
+  not a dimension scale, whose `DIMENSION_LIST` is absent or attaches no scale to any axis, has
+  phony names (below). Any trailing axis of a fixed-length string of `n` bytes is `string<n>`,
+  `<n>` in decimal, the name xarray gives such an axis; a scalar has no `dimension_names` but for a
+  fixed-length string's, `["string<n>"]`. A dataset whose axes this leaves every one `null` has
+  no `dimension_names`. So a netCDF-4 file's variables have their dimensions and its coordinate
+  variables are arrays named as theirs, which is what xarray reads as coordinates, and xarray
+  reads every array of a plain HDF5 file as a variable.
+- **Phony names:** an unscaled dataset's axes are named as h5netcdf names them with
+  `phony_dims="sort"`, which follows netCDF-C. A group's **members** are the datasets whose
+  canonical path ([§2.2](#22-paths)) is in it, presented or not, and the dataset an external link
+  of it names, presented or not ([§8.6](#86-external-files)). A group whose link info message has flag bit 0 set
+  (it tracks creation order) and whose every link message gives a creation order takes its
+  members and its subgroups in that order, as h5py iterates them; any other group in ascending
+  byte order of their link names. The hierarchy's groups are taken depth first from the root in
+  that order. A group's **dimensions** are, in order:
+  1. each member that is a dimension scale, by its name above, of the length of its axis;
+  2. for each length, in the order an axis of it first appears among the group's unscaled
+     members, as many more as the most axes of that length one unscaled member has, less the
+     group's dimension scales of that length, each named `phony_dim_<n>`: `<n>`, in decimal, is the
+     number of dimensions of the groups before it and of those before it in its group.
+
+  Members are taken in their order, axes in order. The first axis of a length of an unscaled
+  array takes the first of its group's dimensions of that length, the second the second, and so
+  on. So axes of one length share a name across a group's arrays but not
+  within one, and no two of a group's arrays give one name two lengths, which xarray refuses.
+  VirtualiZarr's `HDFParser` names the `k`-th axis of every such dataset `phony_dim_<k>`, which
+  gives axes of different lengths one name. Two things h5netcdf counts are not counted here: a
+  group the hierarchy does not present, with what is below it, and a dataset that a soft link or
+  a second hard link puts in a group.
+- **A dimension without a variable:** a dimension scale whose `NAME` attribute is a fixed-length
+  string starting `This is a netCDF dimension but not a netCDF variable` is not presented
+  (`dimension_only`): netCDF-4 writes it for the dimension alone, and its values are not data.
 - **Attributes:** [§2.1](#21-declaration-and-attributes).
 
 ### 3.1 Data types
@@ -156,12 +193,25 @@ sequences; region references and the revised references of datatype version 4; i
 padding bits and floats that are not IEEE; compounds with a gap, two byte orders, or members of
 other kinds.
 
-**Filters.** A chunked dataset's filters, in pipeline order, are codecs after `bytes`: deflate
-(1) is `{"name": "numcodecs.zlib", "configuration": {"level": 1}}` and shuffle (2)
-`{"name": "numcodecs.shuffle", "configuration": {"elementsize": s}}`, `s` the datatype's size.
-A dataset with any other filter is not presented (`filter`). Strings, references and records
-have no filters: their chunks are written as [§4](#4-variable-length-strings),
-[§5](#5-object-references) and [§3.3](#33-compounds) say.
+**Filters.** A chunked dataset's filters, in pipeline order, are codecs after `bytes`, `s` the
+datatype's size and `cd` the filter's client data values:
+
+| filter | codec |
+|---|---|
+| deflate (1) | `{"name": "numcodecs.zlib", "configuration": {"level": 1}}` |
+| shuffle (2) | `{"name": "numcodecs.shuffle", "configuration": {"elementsize": s}}` |
+| Fletcher32 (3), last in the pipeline | none: each reference ends before the checksum ([§3.2](#32-chunks)), which stays in the source |
+| LZF (32000) | `{"name": "imagecodecs_lzf", "configuration": {"header": false}}` |
+| Blosc (32001) | `{"name": "blosc", "configuration": {"cname": c, "clevel": cd[4], "shuffle": h, "typesize": s, "blocksize": 0}}`, `c` the name of compressor `cd[6]` (`blosclz`, `lz4`, `lz4hc`, `snappy`, `zlib`, `zstd`), `h` of shuffle `cd[5]` (`noshuffle`, `shuffle`, `bitshuffle`); without those values, 5, `shuffle` and `blosclz`, the filter's defaults. A Blosc frame says how it was made, so these values do not change what decodes |
+| LZ4 (32004) | `{"name": "imagecodecs_lz4h5"}` |
+| bitshuffle (32008), `cd[4]` 0 or 2 | `{"name": "refkv.h5_bitshuffle", "configuration": {"elementsize": s, "block_size": b, "compression": x}}` ([§3.4](#34-the-codec-refkvh5_bitshuffle)), `b` `cd[3]`, or when that is 0 its default there, and `x` `none` for 0, `lz4` for 2 |
+| zstd (32015) | `{"name": "zstd", "configuration": {"level": cd[0], "checksum": false}}` |
+
+A dataset with any other filter, Fletcher32 anywhere but last, or client data values outside these
+is not presented (`filter`). Strings, references and records have no filters in the hierarchy:
+their chunks are written as [§4](#4-variable-length-strings), [§5](#5-object-references) and
+[§3.3](#33-compounds) say, which the profile can only do through deflate, shuffle and Fletcher32
+([§8.2](#82-reading)), so with any other filter they are not presented (`filter`).
 
 ### 3.2 Chunks
 
@@ -172,17 +222,38 @@ By the dataset's layout and data type:
 | **contiguous**, allocated | contiguous values ([conventions §7](../conventions.md#7-source-values-as-arrays)), cut with the limit 2^20 bytes, the element the datatype's (a byte for a fixed-length string) | one range of source 0 each; an edge chunk's padding a range of the zero data source, or the chunk copied with its padding when its reference would not fit in a payload ([spec/zarrify.md §1.2](../zarrify.md#12-input)), as the FITS profile's |
 | **contiguous**, unallocated (its address undefined), or of size 0 | the shape (each size at least 1) | none: the array reads as its fill value |
 | **compact** | the shape (each size at least 1) | one chunk, the range of source 0 of the data in the layout message; none for a size of 0 |
-| **chunked** | HDF5's chunk shape (and the trailing axis) | one per allocated HDF5 chunk, its range of source 0 as the file stores it (HDF5 stores edge chunks whole, as Zarr does); an unallocated chunk has none |
+| **chunked** | HDF5's chunk shape (and the trailing axis) | one per allocated HDF5 chunk, its range of source 0 as the file stores it, without its checksum (HDF5 stores edge chunks whole, as Zarr does); an unallocated chunk has none |
 
 The chunk key of grid coordinates `x` is `<path>/c/<x0>/<x1>/…`, `<path>/c` at rank 0; with a
-trailing axis, its coordinate is 0. A chunked dataset of fixed size with a chunk whose filter
-mask is not 0 (an optional filter skipped it, as deflate does bytes it cannot shrink) is not
-presented (`filter_mask`): its codecs would differ by chunk; nor is one whose partial edge
-chunks are stored unfiltered (layout flag bit 0, `edge_chunks`). A contiguous or compact
-dataset whose storage is not its elements' size is not presented (`size`).
+trailing axis, its coordinate is 0. A chunked dataset whose partial edge chunks are stored unfiltered
+(layout flag bit 0) is not presented (`edge_chunks`). A contiguous or compact dataset whose storage
+is not its elements' size is not presented (`size`).
 
-A virtual dataset (layout class 3, `layout`) and one with an external data files message
-(`external_storage`) are not presented: their data is not in the file.
+**Fletcher32.** With Fletcher32 in the pipeline, a chunk's range ends 4 bytes early, unless the
+chunk's filter mask has Fletcher32's bit set, which means it has no checksum. A chunk of at most 4 bytes
+with a checksum is not presented (`filter_mask`).
+
+**Filter masks.** An optional filter that cannot shrink a chunk leaves it as it was and sets the
+filter's bit in the chunk's filter mask, as h5py's LZF and deflate do for small or incompressible
+chunks. An array has one list of codecs, so such a chunk is given the form that filter's codec
+reads, literals around the range of its stored bytes `R` (without a checksum), which copies none of them:
+
+| filter skipped | the chunk's parts |
+|---|---|
+| deflate | a zlib stream ([RFC 1950](https://www.rfc-editor.org/rfc/rfc1950)): the literal `78 01`, for each run of at most 65535 bytes of `R` in turn a stored block's header ([RFC 1951](https://www.rfc-editor.org/rfc/rfc1951), section 3.2.4) and the run, then the literal Adler-32 of `R`, big-endian. The profile reads `R` for it, at most 2^26 bytes of such chunks a dataset |
+| LZF | for each run of at most 32 bytes of `R` in turn a literal control byte, the run's length less 1, and the run, for `R` of at most 2^16 bytes |
+| zstd | a frame ([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878)): the literal magic number, the descriptor `E0` and `R`'s length (8 bytes, little-endian), then for each run of at most 2^17 bytes in turn its raw block's 3-byte header and the run |
+| LZ4 | the literal `R`'s length (8 bytes, big-endian) and twice more (4 bytes, big-endian; a block stored when its length is the block size), then `R` |
+| Blosc | c-blosc's 16-byte header of a copied chunk (format 2, codec version 1, flags 2, the datatype's size, then `R`'s length twice and that plus 16, each 4 bytes little-endian), then `R` |
+
+The chunk's filter mask MUST have exactly one of these filters' bits set beside Fletcher32's, and `R`
+MUST be the chunk's byte count. A dataset with a chunk for which either fails, or past the limits
+above, is not presented (`filter_mask`): a chunk shuffle or bitshuffle skipped, which no literal
+can turn into its output, or one with two bits set.
+
+A virtual dataset (layout class 3, `layout`) is not presented: its data is not in the file. One with
+an external data files message has its data in the files it names, and is presented when they are
+beside the file ([§8.6](#86-external-files)); otherwise it is not (`external_storage`).
 
 ### 3.3 Compounds
 
@@ -204,6 +275,35 @@ padded with zero bytes. This copies the records' values into the archive, the on
 from "Structure only" ([spec/zarrify.md §1.2](../zarrify.md#12-input)): no range of the file
 holds UTF-32 paths, and hdmf-zarr reads no other form. NWB's
 `TimeSeriesReferenceVectorData` (a trials table's `timeseries` column) is such a compound.
+
+### 3.4 The codec `refkv.h5_bitshuffle`
+
+`refkv.h5_bitshuffle` decodes a chunk of HDF5's bitshuffle filter (32008), used by DECTRIS detectors
+with LZ4, in the framing that [`bshuf_h5filter.c` and `bitshuffle_core.c`](https://github.com/kiyo-masui/bitshuffle/tree/master/src)
+write and [DECTRIS's `compression.c`](https://github.com/dectris/compression/blob/main/src/compression.c)
+reads. No other codec does: `imagecodecs_bitshuffle` handles neither its blocks' framing nor LZ4. It has
+no encoder. Its configuration:
+
+| member | type | value |
+|---|---|---|
+| `elementsize` | integer | the bytes of an element, `e` |
+| `block_size` | integer | the elements of a block, `b`, a multiple of 8. When the filter gives 0, its default: `floor(8192 / e)` less that modulo 8, at least 128 |
+| `compression` | string | `none`, or `lz4` |
+
+A chunk of `n` elements is cut into `floor(n / b)` blocks of `b` elements, one more of the elements
+left, less those modulo 8, and at the end the `n mod 8` elements left, as they are.
+
+- **`none`:** the chunk is its blocks in turn, then the elements left.
+- **`lz4`:** the chunk starts with its decoded length in bytes (8 bytes, big-endian) and the block size in
+  bytes (4 bytes, big-endian), which govern `n` and `b`; each block is its compressed length (4 bytes,
+  big-endian) and an [LZ4 block](https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md) that
+  decompresses to all its bytes, and then come the elements left. A decoded length of 0 is an empty chunk.
+
+A block of `m` elements holds `8e` rows of `m / 8` bytes each: bit `i` of byte `j` of element `k` is
+the bit `k mod 8`, counting from the least significant, of byte `floor(k / 8)` of row `8j + i`.
+
+A chunk that does not end where its framing says, or whose block size is not a multiple of `8e` bytes,
+is an error of the decoder.
 
 ## 4. Variable-length strings
 
@@ -248,7 +348,7 @@ order of the attributes' names, its value as JSON
 
 | datatype | JSON |
 |---|---|
-| an integer, a bitfield | a number (exact; past 2^53 − 1 in magnitude, the string of its digits) |
+| an integer, a bitfield | a JSON integer, exact whatever its magnitude ([`Integer`](../conventions.md#type-integer)) |
 | an IEEE float | a **float value**: the Zarr v3 fill value of the value in the float data type of its size (below) |
 | h5py's `bool` | `true` or `false` |
 | another enumeration | its integer |
@@ -256,6 +356,19 @@ order of the attributes' names, its value as JSON
 | a variable-length string | its heap object's text; `""` for an empty one |
 | an object reference | [§5](#5-object-references) |
 | a compound | an object of its members' values, by name |
+
+**On a dataset named by its dimension scales** ([§3](#3-datasets): its `DIMENSION_LIST`, or
+itself a dimension scale), an attribute that is an array of one
+element is that element's value, as netCDF-4 reads such an attribute: netCDF-4 writes its
+numbers so, and xarray takes `scale_factor` for a list otherwise.
+
+**`_FillValue`.** On a dataset of an integer or IEEE float datatype, an attribute named `_FillValue`
+of one integer or float, a scalar or an array of one element, is the form xarray's Zarr backend
+reads a member of that name in: for an integer dataset the integer, exactly, whatever its
+magnitude (a float's value when it is an integer, any other keeping the table's form; an integer
+the dataset's type does not have too, which xarray reads as it is), and for a float dataset the Base64 of the
+8 little-endian bytes of the value as a binary64. Every other attribute of netCDF-4's, such as
+`scale_factor`, keeps the table's form. The attribute's bytes stay in the IR mirror.
 
 A **float value** is the encoding Zarr v3 gives a fill value of the data type `float16`,
 `float32` or `float64` of the float's size
@@ -298,6 +411,9 @@ A group's `hdf5` member:
 |---|---|---|
 | `address` | required | its object header's address |
 | `superblock` | the root's | the superblock's version |
+| `user_block` | the root's, when the file has one | the user block's size ([§8.2](#82-reading)) |
+| `siblings` | the root's, of a file read as a store | every sibling's key ([§8.6](#86-external-files)) |
+| `external` | the node an external link presents | `{"file", "path"}`: the key and path the link named |
 | `attributes` | when it has attributes | each attribute's HDF5 datatype, described (below) |
 | `unpresented_attributes` | when some are not presented | each one's reason, by name |
 | `unpresented` | when some children are not presented | each child's reason ([§7.4](#74-what-is-not-presented)), by link name |
@@ -310,7 +426,8 @@ A dataset's array's `hdf5` member: `address`; `datatype`, its HDF5 datatype desc
 `contiguous`, `chunked`); for a chunked one `chunks`, its HDF5 chunk shape, and `index`
 (`btree1`, `single`, `implicit`, `fixed_array`, `extensible_array`, `btree2`); `filters`, the
 filter identifiers, when it has any; `fill_value`, the fill value message's bytes in base64,
-when defined; and `attributes` and `unpresented_attributes` as a group's.
+when defined; `external_storage`, for a dataset in external files, its ranges
+([§8.6](#86-external-files)); and `attributes` and `unpresented_attributes` as a group's.
 
 A **described datatype** is an object with `class` (`integer`, `float`, `time`, `string`,
 `bitfield`, `opaque`, `compound`, `reference`, `enum`, `vlen_string`, `vlen_sequence`,
@@ -339,8 +456,9 @@ the file.
 | `reserved` | a root link `refkv_source`; an attribute named as a member the hierarchy writes |
 | `named_datatype`, `object` | a named datatype; an object that is neither a group nor a dataset |
 | `datatype` | a dataset's or attribute's datatype outside [§3.1](#31-data-types) or [§6](#6-attributes) |
-| `filter`, `filter_mask`, `edge_chunks` | a filter other than deflate and shuffle; a chunk a filter skipped; unfiltered partial edge chunks |
-| `layout`, `external_storage`, `null_dataspace`, `size`, `fill_value` | [§3](#3-datasets) |
+| `filter`, `filter_mask`, `edge_chunks` | a filter outside [§3.1](#31-data-types)'s, or a dataset of strings, references or records with one beyond deflate, shuffle and Fletcher32; a chunk with no form its codecs read ([§3.2](#32-chunks)); unfiltered partial edge chunks |
+| `layout`, `external_storage`, `dimension_only`, `null_dataspace`, `size`, `fill_value` | [§3](#3-datasets) |
+| `external_reference` | an object or attribute an external link reaches that names paths of its own file ([§8.6](#86-external-files)) |
 | `shared` | an attribute with a shared datatype or dataspace |
 | `budget` | an attribute past its node's budget |
 
@@ -361,8 +479,14 @@ The HDF5 profile of [spec/zarrify.md](../zarrify.md) is [§8](#8-hdf5-profile) o
 
 **Signature** ([spec/zarrify.md §1.2](../zarrify.md#12-input), tested at the precedence of
 [profiles/hdf5.json](profiles/hdf5.json)): bytes 0–7 of `H` are the HDF5 signature
-`89 48 44 46 0D 0A 1A 0A`. A file whose superblock is not at offset 0 (after a user block) does
-not match.
+`89 48 44 46 0D 0A 1A 0A`.
+
+**Late signature**: for an offset `b` of 512, 1024, 2048 and so on, doubling, the 36 bytes of `L` at
+`b` are a superblock of a user block's file: the HDF5 signature, then byte 8 a version of 0, 1, 2 or
+3, the sizes of addresses and of lengths both 8, and the base address `b`, at the places of
+[ims.md §7.1](ims.md#71-hdf5-structures). The base address tells this from an HDF5 file that a file
+of another kind holds at such an offset, such as the first member of a tar file, whose base address
+is 0.
 
 ### 8.1 Choosing the profile
 
@@ -379,9 +503,14 @@ The profile reads HDF5 by the subset of
 [ims.md §7.1](ims.md#71-hdf5-structures)–[§7.6](ims.md#76-attributes) and the structures of
 [ims.md §7.9](ims.md#79-source-metadata-structures), extended:
 
+- **A user block.** The superblock is at offset 0 when bytes 0–7 are the signature; otherwise at the
+  first offset `b` of the late signature ([§8](#8-hdf5-profile)), tested to the end of the file.
+  No such offset rejects the input. Every address is relative to `b`: the byte at address `a` is
+  the byte at offset `b + a`, and a range of source 0 is such an offset. The bytes before `b` are not
+  read, and the IR mirror keeps them as a gap ([§7.3](#73-the-ir-mirror)).
 - **Data layouts** of classes 0 (compact) and 1 (contiguous) and 2 (chunked, with any fill
-  value) are read for every dataset; class 3 (virtual) and the external data files message
-  (type 0x07) are recognized and not read further.
+  value) are read for every dataset; class 3 (virtual) is recognized and not read further, and the
+  external data files message (type 0x07) is read as [§8.6](#86-external-files) says.
 - **Datatypes** of every class (versions 1 to 5) are decoded whole, nested at most 16 levels deep: a
   compound's members, an enumeration's members and values, an array's dimensions, a sequence's
   base; the revised references of version 4 are recognized and not decoded. A datatype message
@@ -392,9 +521,9 @@ The profile reads HDF5 by the subset of
 - **External links:** a link message of type 64's value is a byte of version and flags, then
   the file name and the path, each NUL-terminated.
 - **The storage of strings, references and records** (contiguous: the bytes at its address;
-  compact: the layout message's data; chunked: each allocated chunk, inflated (deflate) and
-  unshuffled (shuffle) by the filters its mask does not skip, its elements placed by the chunk's
-  grid coordinates, unallocated ones zero) and the global heap collections their strings name
+  compact: the layout message's data; chunked: each allocated chunk, its checksum dropped
+  (Fletcher32), inflated (deflate) and unshuffled (shuffle) by the filters its mask does not skip,
+  its elements placed by the chunk's grid coordinates, unallocated ones zero) and the global heap collections their strings name
   ([ims.md §7.9](ims.md#79-source-metadata-structures)); a collection that cannot be read has
   no objects.
 
@@ -454,7 +583,7 @@ records those the profile does not present.
 |---|---|
 | contiguous | the range of source 0, then its zero padding (a range of the zero data source) for an edge chunk; or bytes, the range's and the padding, when that would not fit in a payload |
 | compact | the range of source 0 of the layout message's data |
-| chunked | the range of source 0 of the chunk, as stored |
+| chunked | the range of source 0 of the chunk, as stored without its checksum, with the literals of [§3.2](#32-chunks)'s **Filter masks** for a chunk an optional filter skipped |
 | strings | literals and ranges of source 0 ([§4](#4-variable-length-strings)) |
 | references, records | bytes ([§5](#5-object-references), [§3.3](#33-compounds)) |
 
@@ -465,3 +594,41 @@ Both implementations print `objects` (the walk's), `groups` and `arrays` (presen
 (`soft`, `hard` and `external` counts), `chunks` (the allocated chunks of the presented chunked
 datasets), `rounds`, and for a file whose root has `neurodata_type = "NWBFile"`, `nwb`: its
 `nwb_version` and the namespaces cached under `.specloc`'s group, each with its versions.
+
+### 8.6 External files
+
+An external link (link type 64) and the external data files message (type 0x07) name other files.
+Such a file is a sibling ([spec/zarrify.md §1.9](../zarrify.md#19-sources-beside-the-input)). A name
+may dangle, as HDF5 itself lets one: its link or dataset is recorded in place of being presented,
+with nothing rejected.
+
+| what | it says |
+|---|---|
+| form | on demand: a file with a name that takes the steps below is a file read as a store, any other a file input |
+| names | written: an external link's file name, and each slot's name in the local heap the message gives. Neither percent-encoding nor Windows paths apply, `..` is not allowed, and case is kept. A name that a step rejects, such as an absolute path, stays recorded |
+| probes | one batch, of every key the file names, after the walk and its checks. All are optional: a link whose file is absent stays in `external_links`, and a dataset any of whose files is absent or too short is `external_storage`. A host that can open no file beside the input finds each one absent |
+| identity | the format records nothing that says which files belong together, so the profile checks what it can: that each range lies within its object |
+| order | first use |
+| reads and mirror | the structures of a file a link names, as for the named file ([§8.2](#82-reading)), its mirror described in place; a file that only external storage names is not read, and is referenced |
+
+The parser does not know the named file's own name in a file run, so a file whose only external link
+names itself is read as a store, and the link is followed as any other.
+
+**External links.** What a link names is presented at the link's path: the nodes of the found file
+at and below the link's path in that file, with the file's attributes, codecs and ranges, in their
+own object. One level is followed: the external links and external storage of a file a link names
+stay recorded. A file that does not read as HDF5 ([§8.3](#83-checks)), or that is an Imaris file
+([§8.1](#81-choosing-the-profile)), and a path it does not present, leave the link recorded.
+References and hard and soft links name paths of the found file, which the hierarchy does not hold,
+so that a dataset of object references or a compound with a reference member is not presented, nor
+is an attribute `_LINKS` or an attribute holding a reference: each is recorded as
+`external_reference`.
+
+**External storage.** A dataset of a fixed-size datatype and contiguous layout whose slots give its
+every byte is presented, with `external_storage` in its `hdf5` member: `[[key, offset, length], …]`,
+the ranges in the data's order. A slot's name is a key beside the input, where HDF5 itself looks from the
+working directory unless a prefix is set. The slots are read in order, each giving the bytes at its offset in its
+file, a size of 2^64 − 1 the rest of the data. The chunks are cut as a contiguous dataset's are
+([§3.2](#32-chunks)), with the data numbered from 0 across the slots, so that a chunk across two
+slots is a reference of two ranges, and an edge chunk's padding is a range of the zero data source.
+

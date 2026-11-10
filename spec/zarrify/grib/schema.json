@@ -349,7 +349,6 @@
                 "group",
                 "element",
                 "derived",
-                "int",
                 "float",
                 "bytes",
                 "utf16"
@@ -385,7 +384,9 @@
             "reduced",
             "grid",
             "grid_size",
+            "gaussian",
             "earth",
+            "projection",
             "product",
             "statistic",
             "time",

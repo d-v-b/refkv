@@ -54,7 +54,7 @@ pub fn reads(format: Format, ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, Stri
 /// (conventions §6
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>):
 /// UTF-8 if valid, else {"latin1": ...}.
-fn json_text(b: &[u8]) -> J {
+pub(crate) fn json_text(b: &[u8]) -> J {
     text_json(&b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())])
 }
 
@@ -88,13 +88,11 @@ pub(crate) fn float_json(bits: u64, width: usize, v: f64) -> J {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#5-source-metadata>,
 /// spec/zarrify/nifti.md §5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#5-source-metadata>): an
-/// integer exactly (as text past 2^53 - 1); a float as a number, "NaN", "Infinity" or
+/// integer exactly, whatever its magnitude; a float as a number, "NaN", "Infinity" or
 /// "-Infinity", or {"bits": hex} for a negative zero or a NaN other than the canonical one.
 fn header_value(h: &Header, at: usize, kind: &str) -> J {
-    const MAX_SAFE: i64 = (1 << 53) - 1;
     match h.number(at, kind) {
-        Num::Int(v) if (-MAX_SAFE..=MAX_SAFE).contains(&v) => J::from(v),
-        Num::Int(v) => J::from(v.to_string()),
+        Num::Int(v) => J::from(v),
         Num::Float(v) => {
             let w = width(kind);
             float_json(uint(h.raw, at, w, h.little), w, v)

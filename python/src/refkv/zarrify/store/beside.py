@@ -2,36 +2,91 @@
 §9.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>), the
 `.vsi` file named by the input and the tile files beside it, and a NRRD input
 (spec/zarrify/nrrd.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#83-the-data-file>),
-the header file named by the input and a detached header's data file. The Rust core's `vsi` and
-`nrrd` store formats ask for those files by key (`refkv.ir.store.drive_store`'s probes) rather
+the header file named by the input and a detached header's data file, and a LAS X project
+(spec/zarrify/lif.md §8
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#8-las-x-documents>).
+The Rust core's `vsi`, `nrrd` and `lif` store formats ask for those files by key
+(`refkv.ir.store.drive_store`'s probes) rather
 than from a listing, since a plain web server cannot list a directory. The files are the objects
 of a store whose URL is the named file's directory, each read through a transport of its own
-(`refkv.ir.planner`: a mapped local file, or an http(s) object under the reader policy); a
-probe opens the file, and an object that does not exist (a local file that is missing, an
-HTTP 404) is absent.
+(`refkv.ir.planner`: a mapped local file, an http(s) object under the reader policy, or an object
+of a store the application registered); a probe opens the file, and an object that does not exist
+(a local file that is missing, an HTTP 404, a registered store's not-found error) is absent.
 """
 
 from __future__ import annotations
 
 import os
 import threading
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import override
 from urllib.parse import unquote
 
-from refkv.ir.planner import FileTransport, HttpTransport, Transport, _FatalError
+from refkv.ir.planner import (
+    FileTransport,
+    HttpTransport,
+    ObjectTransport,
+    Transport,
+    _FatalError,
+    absent,
+    registered,
+    url_scheme,
+)
 from refkv.policy import Policy
+from refkv.reader import Resolver
 from refkv.uri import path_reference
 from refkv.zarrify.common import Rejected
 from refkv.zarrify.store.stores import Store
 from refkv.zarrify.store.urls import check_store_url, object_url
 
 
+def folded(name: str) -> str:
+    """A name under Unicode's simple case folding (spec/zarrify.md §1.9
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>, **Case**),
+    as refkv_ir::beside::folded gives it: each character's single-character uppercase, then that
+    one's single-character lowercase. Dotless `ı`, which folds only under the Turkic rules, stays
+    itself."""
+    out = []
+    for c in name:
+        if c == "\u0131":
+            out.append(c)
+            continue
+        up = c.upper() if len(c.upper()) == 1 else c
+        out.append(up.lower() if len(up.lower()) == 1 else up)
+    return "".join(out)
+
+
+def found_key(key: str, listdir: Callable[[str], list[str] | None]) -> str | None:
+    """The key a host that can list finds for the written key `key` (the same section):
+    `listdir` gives the entries of the directory at a key (empty for the store's root), or None
+    when there is no such directory. Each segment is the entry equal to it, else the only one equal
+    to it under `folded`. None when one has neither; two such entries reject the input. The twin of
+    refkv_ir::beside::found_key."""
+    at = ""
+    for segment in key.split("/"):
+        entries = listdir(at)
+        if entries is None:
+            return None
+        name = segment
+        if segment not in entries:
+            wanted = folded(segment)
+            matching = sorted((e for e in entries if folded(e) == wanted), key=lambda e: e.encode())
+            if not matching:
+                return None
+            if len(matching) > 1:
+                a, b = (f"{at}/{m}" if at else m for m in matching[:2])
+                raise Rejected(f'the file "{key}" matches both "{a}" and "{b}"')
+            name = matching[0]
+        at = f"{at}/{name}" if at else name
+    return at
+
+
 def split_input(location: str, title: str = "VSI") -> tuple[str, str]:
     """(the directory, the named file's key) of an input of the format `title` (VSI, NRRD): for
-    an http(s) URL the directory is the URL up to its last `/` and the key the last segment,
+    a URL the directory is the URL up to its last `/` and the key the last segment,
     percent-decoded; for a local path, its directory (empty for a bare name) and its name."""
-    if location.startswith(("http://", "https://")):
+    if url_scheme(location) is not None:
         base = location.split("?", 1)[0].split("#", 1)[0]
         if "?" in location or "#" in location:
             raise Rejected(f"{title} input {location!r} has a query or a fragment")
@@ -43,6 +98,45 @@ def split_input(location: str, title: str = "VSI") -> tuple[str, str]:
     return os.path.split(location)
 
 
+type Scope = str | os.PathLike[str] | Iterable[str | os.PathLike[str]]
+
+
+def scope_keys(location: str, scope: Scope) -> list[str] | None:
+    """The scope of the file input at `location` (spec/zarrify.md §1.9
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
+    **Scope**) as the keys `StoreRun.scope` takes: `scope` is a path or URL, or several, written
+    as `location` is (local paths, or URLs), each the input's directory or a file or
+    directory below it. A directory's key ends in `/`; the input itself, always in scope, adds no
+    key. None when the scope holds the input's directory, every key being in it."""
+    entries = [scope] if isinstance(scope, (str, os.PathLike)) else list(scope)
+    keys: list[str] = []
+    if url_scheme(location) is not None:
+        d, named = split_input(location, "the")
+        for e in (os.fspath(x) for x in entries):
+            if not e.startswith(d):
+                raise ValueError(f'scope "{e}" is not the input\'s directory "{d}" or below it')
+            key = unquote(e[len(d):])
+            if key == "":
+                return None
+            if key != named:
+                keys.append(key)
+        return keys
+    # absolute and with `.` and `..` taken out, links not followed (as the Rust CLI's `lexical`)
+    named = Path(os.path.normpath(Path(location).absolute()))
+    for e in entries:
+        at = Path(os.path.normpath(Path(e).absolute()))
+        try:
+            rel = at.relative_to(named.parent)
+        except ValueError:
+            d = named.parent
+            raise ValueError(f'scope "{os.fspath(e)}" is not the input\'s directory "{d}" or below it') from None
+        if rel == Path():
+            return None
+        if at != named:
+            keys.append(rel.as_posix() + ("/" if at.is_dir() else ""))
+    return keys
+
+
 class VsiFiles(Store):
     """The files of a VSI or NRRD input, as a store (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>) the run probes:
@@ -50,12 +144,18 @@ class VsiFiles(Store):
     beside it. `url` is the directory's URL, the store URL the output's object URLs are made from
     (`object_url`): the directory of the input URL, or, for a local path, `url` as given (the URL
     the directory will be served from, ending in `/`), else the path's URI reference. `title`
-    names the format in a rejection, and `noun` the named file."""
+    names the format in a rejection, and `noun` the named file. `case`: the format's writers name
+    files in another case than they have, so a local directory's are found by listing it.
+    `registry`: the stores the application registered, which read the files under their prefixes."""
 
     def __init__(self, location: str, url: str | None = None, *, policy: Policy | None = None,
                  workers: int | None = None, transport: Transport | None = None, title: str = "VSI",
-                 noun: str = ".vsi file") -> None:
-        self.remote = location.startswith(("http://", "https://"))
+                 noun: str = ".vsi file", case: bool = False, registry: Resolver | None = None) -> None:
+        self.remote = url_scheme(location) is not None
+        self.registry = registry
+        self.case = case and not self.remote
+        self.dirs: dict[str, list[str] | None] = {}
+        self.at: dict[str, str] = {}
         self.location, self.key = split_input(location, title)
         if url is not None:
             # the URL the named file is named by (--url): the store URL is its directory's
@@ -85,11 +185,20 @@ class VsiFiles(Store):
         self.transports[self.key] = t
         self.objects[self.key] = t.size
 
-    def _open(self, key: str) -> FileTransport | HttpTransport | None:
+    def _open(self, key: str) -> FileTransport | HttpTransport | ObjectTransport | None:
         """A transport of the object `key`, or None when it does not exist."""
         if self.remote:
+            url = object_url(self.location, key)
+            found = registered(url, self.registry, self.policy)
+            if found is not None:
+                try:
+                    return ObjectTransport(url, *found)
+                except Exception as e:
+                    if absent(e):
+                        return None
+                    raise
             try:
-                t = HttpTransport(object_url(self.location, key), self.policy)
+                t = HttpTransport(url, self.policy)
             except _FatalError as e:
                 if " HTTP 404 " in str(e):
                     return None
@@ -100,11 +209,40 @@ class VsiFiles(Store):
             return None
         return FileTransport(str(path))
 
+    def _below(self, key: str) -> bool:
+        """Whether the local file or directory at the key `key` is below the named file's directory,
+        symbolic links followed (spec/zarrify.md §1.9
+        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>)."""
+        root = self.location or os.curdir
+        return Path(os.path.realpath(Path(root, *key.split("/")))).is_relative_to(os.path.realpath(root))
+
+    def _listdir(self, key: str) -> list[str] | None:
+        """The entries of the local directory at the key `key`, or None when there is none."""
+        if key not in self.dirs:
+            path = Path(self.location or os.curdir, *key.split("/"))
+            try:
+                self.dirs[key] = [p.name for p in path.iterdir()] if self._below(key) else None
+            except (FileNotFoundError, NotADirectoryError):
+                self.dirs[key] = None
+        return self.dirs[key]
+
+    @override
+    def found_key(self, key: str) -> str:
+        return self.at.get(key, key)
+
     @override
     def probe(self, key: str) -> int | None:
+        if self.case:
+            found = found_key(key, self._listdir)
+            if found is None:
+                return None
+            self.at[key] = found
+            key = found
         with self._lock:
             if key in self.objects:
                 return self.objects[key]
+        if not self.remote and not self._below(key):
+            return None
         t = self._open(key)
         if t is None:
             return None

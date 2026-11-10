@@ -34,6 +34,8 @@ impl Head<'_> {
 
 pub const UNCOMPRESSED: i32 = 0;
 pub const JPEG: i32 = 1;
+pub const LZW: i32 = 2;
+pub const LJPEG: i32 = 3;
 pub const JPEGXR: i32 = 4;
 pub const ZSTD0: i32 = 5;
 pub const ZSTD1: i32 = 6;
@@ -118,8 +120,42 @@ fn zstd_content_size(h: &Head, at: u64) -> Result<Option<u64>, Need> {
     Ok(Some(if n == 2 { v + 256 } else { v }))
 }
 
-/// (width, height) of a JPEG stream's frame header.
-fn jpeg_frame(h: &Head, p: u64) -> Result<Option<(u64, u64)>, Need> {
+/// Whether a zstd frame header at `at` declares no content size, and no dictionary: a frame whose
+/// size only decoding it gives.
+fn zstd_unsized(h: &Head, at: u64) -> Result<bool, Need> {
+    let Some(b) = h.get(at, 5)? else { return Ok(false) };
+    let d = b[4];
+    Ok(b[..4] == [0x28, 0xb5, 0x2f, 0xfd] && d & 0x08 == 0 && d & 0x03 == 0 && d >> 6 == 0 && d & 0x20 == 0)
+}
+
+/// Whether a Zstd0 or Zstd1 subblock's data of `n` bytes is a frame (after a Zstd1 header, whose
+/// hi-lo packing is only on Gray16 and Bgr48) that declares no content size and no dictionary:
+/// it has no coded size, since only decoding it says how many bytes it holds, and is a
+/// Zstandard frame all the same.
+pub fn zstd_frame_unsized(pt: i32, comp: i32, n: u64, head: &Head) -> Result<bool, Need> {
+    match comp {
+        ZSTD0 => zstd_unsized(head, 0),
+        ZSTD1 => match zstd1_header(head)? {
+            Some((len, hilo)) if n > len && !(hilo && !(pt == 1 || pt == 4)) => zstd_unsized(head, len),
+            _ => Ok(false),
+        },
+        _ => Ok(false),
+    }
+}
+
+/// A JPEG stream's frame header (ITU T.81 B.2.2).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct JpegFrame {
+    pub marker: u8,
+    pub precision: u8,
+    pub height: u64,
+    pub width: u64,
+    pub components: u8,
+}
+
+/// The frame header of a JPEG stream: None when the data does not start with one, or it ends or
+/// has its scan first.
+pub fn jpeg_frame_header(h: &Head) -> Result<Option<JpegFrame>, Need> {
     let Some(b) = h.get(0, 2)? else { return Ok(None) };
     if b != [0xFF, 0xD8] {
         return Ok(None);
@@ -150,15 +186,25 @@ fn jpeg_frame(h: &Head, p: u64) -> Result<Option<(u64, u64)>, Need> {
         }
         if (0xC0..=0xCF).contains(&m) && !matches!(m, 0xC4 | 0xC8 | 0xCC) {
             let Some(f) = h.get(pos + 2, 6)? else { return Ok(None) };
-            let (precision, height, width, count) =
-                (f[0], u16::be_at(f, 1) as u64, u16::be_at(f, 3) as u64, f[5]);
-            if matches!(m, 0xC0..=0xC2) && precision == 8 && height >= 1 && width >= 1 && count as u64 == p {
-                return Ok(Some((width, height)));
-            }
-            return Ok(None);
+            return Ok(Some(JpegFrame { marker: m, precision: f[0], height: u16::be_at(f, 1) as u64, width: u16::be_at(f, 3) as u64, components: f[5] }));
         }
         pos += length;
     }
+}
+
+/// (width, height) of a JPEG stream's frame header, when `admits` its marker and precision and
+/// it has `p` components.
+fn jpeg_frame(h: &Head, p: u64, admits: impl Fn(u8, u8) -> bool) -> Result<Option<(u64, u64)>, Need> {
+    let Some(f) = jpeg_frame_header(h)? else { return Ok(None) };
+    let fits = admits(f.marker, f.precision) && f.height >= 1 && f.width >= 1 && f.components as u64 == p;
+    Ok(fits.then_some((f.width, f.height)))
+}
+
+/// (width, height) of a lossless JPEG stream of one component whose samples decode to values of
+/// `q` bytes.
+fn lossless_frame(h: &Head, q: u64) -> Result<Option<(u64, u64)>, Need> {
+    let bits = if q == 1 { 2..=8 } else { 9..=16 };
+    jpeg_frame(h, 1, |m, precision| m == 0xC3 && bits.contains(&precision))
 }
 
 /// A JPEG XR container's pixel format (the GUID of its PixelFormat entry), ImageWidth and
@@ -224,9 +270,9 @@ fn jpegxr_size(h: &Head, pt: i32) -> Result<Option<(u64, u64)>, Need> {
     Ok(jpegxr_header(h)?.filter(|(guid, _, _)| jxr_format(pt, guid)).map(|(_, w, h)| (w, h)))
 }
 
-/// (coded width, coded height, hi-lo flag, header length) of a subblock whose
+/// (coded width, coded height, form flag, header length) of a subblock whose
 /// stored size is w × h and whose data is n bytes, or None when it has no coded
-/// size; Err when its codec header needs more of the data than `head` holds.
+/// size. The form flag is Zstd1's hi-lo packing, or a JpgFile stream's being lossless; Err when its codec header needs more of the data than `head` holds.
 pub fn coded_size(pt: i32, comp: i32, w: u64, h: u64, n: u64, head: &Head) -> Result<Option<(u64, u64, bool, u64)>, Need> {
     let Some((_, p, q)) = pixel_type(pt) else { return Ok(None) };
     let pixels = (w as u128) * (h as u128) * (q as u128);
@@ -240,7 +286,23 @@ pub fn coded_size(pt: i32, comp: i32, w: u64, h: u64, n: u64, head: &Head) -> Re
             }
             Ok((zstd_content_size(head, len)?.map(|x| x as u128) == Some(pixels)).then_some((w, h, hilo, len)))
         }
-        JPEG => Ok(jpeg_frame(head, p)?.map(|(a, b)| (a, b, false, 0))),
+        JPEG => {
+            // a gray stream may be lossless, which Bio-Formats and czifile read under this value
+            if p == 1 {
+                if let Some((a, b)) = lossless_frame(head, q)? {
+                    return Ok(Some((a, b, true, 0)));
+                }
+            }
+            // Gray16 holds 12-bit samples, or nothing that decodes to its values
+            let bits = if pt == 1 { 12 } else { 8 };
+            Ok(jpeg_frame(head, p, |m, precision| matches!(m, 0xC0..=0xC2) && precision == bits)?.map(|(a, b)| (a, b, false, 0)))
+        }
+        LJPEG => Ok(lossless_frame(head, q)?.map(|(a, b)| (a, b, false, 0))),
+        // nothing but the stream's first code says it is one: its size is known only by decoding it
+        LZW => {
+            let Some(b) = head.get(0, 2)? else { return Ok(None) };
+            Ok((b[0] == 0x80 && b[1] & 0x80 == 0).then_some((w, h, false, 0)))
+        }
         JPEGXR => Ok(jpegxr_size(head, pt)?.map(|(a, b)| (a, b, false, 0))),
         _ => Ok(None),
     }
@@ -249,16 +311,60 @@ pub fn coded_size(pt: i32, comp: i32, w: u64, h: u64, n: u64, head: &Head) -> Re
 /// The codecs after `transpose` (spec/zarrify/czi.md §3.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#31-pixel-types-and-codecs>), as
 /// JSON.
-pub fn codec_chain(pt: i32, comp: i32, hilo: bool) -> serde_json::Value {
+pub fn codec_chain(pt: i32, comp: i32, flag: bool) -> serde_json::Value {
     use serde_json::json;
     let dt = pixel_type(pt).map(|x| x.0).unwrap_or("uint8");
     let bytes = if dt == "uint8" { json!({"name": "bytes"}) } else { json!({"name": "bytes", "configuration": {"endian": "little"}}) };
     let zstd = json!({"name": "zstd", "configuration": {"level": 0, "checksum": false}});
     match comp {
-        JPEG => json!([{"name": "imagecodecs_jpeg"}]),
+        JPEG if !flag => json!([{"name": "imagecodecs_jpeg"}]),
+        JPEG | LJPEG => json!([{"name": "imagecodecs_ljpeg"}]),
+        LZW => json!([bytes, {"name": "imagecodecs_lzw"}]),
         JPEGXR => json!([{"name": "imagecodecs_jpegxr"}]),
-        ZSTD0 | ZSTD1 if hilo => json!([bytes, {"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}}, zstd]),
+        ZSTD0 | ZSTD1 if flag => json!([bytes, {"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}}, zstd]),
         ZSTD0 | ZSTD1 => json!([bytes, zstd]),
         _ => json!([bytes]),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A frame header with no content size field: the magic, a descriptor of no flags, and a
+    /// window descriptor.
+    const UNSIZED: [u8; 6] = [0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x00];
+
+    fn unsized_frame(pt: i32, comp: i32, data: &[u8]) -> bool {
+        zstd_frame_unsized(pt, comp, data.len() as u64, &Head { have: data, bound: data.len() as u64 }).unwrap()
+    }
+
+    /// A frame that declares no content size and no dictionary is found under Zstd0, and under
+    /// Zstd1 after a header of either form, with hi-lo packing on samples of 16 bits.
+    #[test]
+    fn a_frame_of_no_declared_size_is_found() {
+        let after = |header: &[u8]| [header, &UNSIZED[..]].concat();
+        assert!(unsized_frame(0, ZSTD0, &UNSIZED));
+        assert!(unsized_frame(0, ZSTD1, &after(&[1])));
+        assert!(unsized_frame(0, ZSTD1, &after(&[3, 1, 0])));
+        assert!(unsized_frame(1, ZSTD1, &after(&[3, 1, 1])));
+        assert!(unsized_frame(4, ZSTD1, &after(&[3, 1, 1])));
+    }
+
+    /// A frame that declares a content size is not one of no declared size; nor is one that
+    /// names a dictionary or sets the reserved bit, bytes of another magic, a frame under
+    /// another compression, a frame after a Zstd1 header of another form, a Zstd1 header with
+    /// nothing after it, or hi-lo packing on samples of other than 16 bits.
+    #[test]
+    fn a_frame_that_declares_its_size_or_is_none_is_not_found() {
+        let with = |descriptor: u8| [0x28, 0xb5, 0x2f, 0xfd, descriptor, 0x18, 0x00];
+        for descriptor in [0x20, 0x40, 0x80, 0xc0, 0x01, 0x08] {
+            assert!(!unsized_frame(0, ZSTD0, &with(descriptor)), "{descriptor:#x}");
+        }
+        assert!(!unsized_frame(0, ZSTD0, &[0x28, 0xb5, 0x2f, 0xfe, 0x00, 0x00]));
+        assert!(!unsized_frame(0, UNCOMPRESSED, &UNSIZED));
+        assert!(!unsized_frame(0, ZSTD1, &[&[2][..], &UNSIZED[..]].concat()));
+        assert!(!unsized_frame(0, ZSTD1, &[1]));
+        assert!(!unsized_frame(0, ZSTD1, &[&[3, 1, 1][..], &UNSIZED[..]].concat()));
     }
 }

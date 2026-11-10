@@ -10,12 +10,7 @@ from a listed store is the Zarr v2 profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `8e792619-d671-4687-ab51-752885dd3ee6` ·
 Schema: [schema.json](zarr2/schema.json)
 
-Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in
-place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90).
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)).
+Changes: [changes/zarr2/](changes/zarr2/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
@@ -29,7 +24,9 @@ This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 This convention gives a layout only to the hierarchies that meet its
 requirements. Where it says that "the input is rejected", or that
 something MUST hold, a hierarchy that fails has no layout under this
-convention, and the profile rejects it.
+convention, and the profile rejects it. An array below a root group that
+fails [§3](#3-arrays) is the one exception: it is left out, and the rest of the hierarchy has its layout
+([§3.4](#34-arrays-that-are-not-presented)).
 
 A Zarr v2 hierarchy (the Zarr storage specification, version 2) is a tree of
 groups and arrays: a group has a `.zgroup` document, an array a `.zarray`
@@ -56,12 +53,12 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"zarr2"`, `version` `0`, `source.url` the store's URL, ending in `/` |
 | `zarr.json#/attributes/refkv_zarrified/zarr2` | attribute | [`Zarr2Node`](#type-zarr2node) | the root's source metadata ([§4](#4-source-metadata)), when it has any |
 | `<path>/zarr.json` | group | [`Zarr2Group`](#type-zarr2group) | every other group, implicit or explicit ([§2](#2-nodes)) |
-| `<path>/zarr.json` | array | [`Zarr2Array`](#type-zarr2array) | every other array ([§3](#3-arrays)) |
+| `<path>/zarr.json` | array | [`Zarr2Array`](#type-zarr2array) | every other array that is presented ([§3](#3-arrays)) |
 | `<path>/zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | `[C]`, `C` the CMO of [§1](#1-declaration), on a node that has source metadata |
 | `<path>/zarr.json#/attributes/refkv_zarrified` | attribute | [`NodeProperty`](../conventions.md#type-nodeproperty) | `{"zarr2": S}`, on a node that has source metadata ([§1](#1-declaration)) |
 | `<path>/zarr.json#/attributes/refkv_zarrified/zarr2` | attribute | [`Zarr2Node`](#type-zarr2node) | `S`, the node's source metadata ([§4](#4-source-metadata)) |
 | `<chunk>` | chunk | [`Zarr2Object`](#type-zarr2object) | each present chunk of the root, when it is an array ([§3.2](#32-chunks)) |
-| `<path>/<chunk>` | chunk | [`Zarr2Object`](#type-zarr2object) | each present chunk of the array at `<path>` ([§3.2](#32-chunks)) |
+| `<path>/<chunk>` | chunk | [`Zarr2Object`](#type-zarr2object) | each present chunk of the presented array at `<path>` ([§3.2](#32-chunks)) |
 | `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the store's IR mirror ([§4.1](#41-elements)), a store IR's, with `ir/held`: every entry under `refkv_source/` but those under `refkv_source/objects/`. Under a root array, plain keys of the archive ([§5](#5-other-objects)) |
 | `refkv_source/zarr.json#/attributes/refkv_zarrified/zarr2` | attribute | [`Zarr2Mirror`](#type-zarr2mirror) | `refkv_source`'s source metadata ([§5](#5-other-objects)) |
 | `refkv_source/objects/<k>` | object | [`Zarr2Object`](#type-zarr2object) | each other object, kept whole ([§5](#5-other-objects)) |
@@ -69,7 +66,7 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | placeholder | value |
 |---|---|
 | `<path>` | a node's path, the path of a directory of the store ([§2](#2-nodes)); it stands for one or more segments |
-| `<chunk>` | a chunk key of the array ([§3.2](#32-chunks)): `0` for an array of no dimensions; otherwise its `n` indexes, in decimal, joined by its separator `s`, so one segment when `s` is `"."` and `n` segments when it is `"/"` |
+| `<chunk>` | a chunk key of the array ([§3.2](#32-chunks)): `0` for an array of no dimensions; otherwise its `n` indexes, in decimal, joined by its separator `s`, so one segment when `s` is `"."` and `n` segments when it is `"/"`, with the index `0` of a trailing axis after them |
 | `<k>` | the other object's key, its last segment escaped ([§5](#5-other-objects)); it stands for one or more segments |
 
 ## 1. Declaration
@@ -99,7 +96,8 @@ of their number of segments):
 - a candidate inside an array (a proper descendant of a directory that is
   an array) is **not a node**, and none of its documents is read or
   checked;
-- otherwise, a candidate with `.zarray` is an **array**, and one with
+- otherwise, a candidate with `.zarray` is an **array**, whether or not it
+  is presented ([§3.4](#34-arrays-that-are-not-presented)), and one with
   `.zgroup` an **explicit group**.
 
 Every directory that is a proper ancestor of an array or an explicit
@@ -112,7 +110,7 @@ A node's documents are read as JSON ([spec/zarrify.md §1.6](../zarrify.md#16-js
 |---|---|
 | `.zgroup` | an object whose member `zarr_format` is the integer 2. Its other members are kept in the group's source metadata ([§4](#4-source-metadata)) |
 | `.zarray` | [§3](#3-arrays) |
-| `.zattrs`, if the node has one | an object: the node's **attributes**, `{}` if it has none. A `.zattrs` of a directory that is not an array or an explicit group is not read: it is one of [§5](#5-other-objects)'s other objects |
+| `.zattrs`, if the node has one | an object: the node's **attributes**, `{}` if it has none; for an array, otherwise, the array is not presented ([§3.4](#34-arrays-that-are-not-presented)). A `.zattrs` of a directory that is not an array or an explicit group is not read: it is one of [§5](#5-other-objects)'s other objects |
 
 **Consolidated metadata.** A `.zmetadata` object (consolidated metadata) is
 never read: nodes come from the listing and documents from their own
@@ -121,8 +119,8 @@ must come from the listing anyway, since `.zmetadata` does not list them.)
 It is kept as an other object ([§5](#5-other-objects)), so that consolidated metadata that
 differs from the documents is not lost.
 
-The hierarchy has one `zarr.json` per node, at `<path>/zarr.json`
-(`zarr.json` for the root). An array's is [§3](#3-arrays)'s
+The hierarchy has one `zarr.json` per node but an array that is not presented, at
+`<path>/zarr.json` (`zarr.json` for the root). An array's is [§3](#3-arrays)'s
 [`Zarr2Array`](#type-zarr2array); a group's, implicit or explicit, is
 `{"zarr_format": 3, "node_type": "group", "attributes": A}`:
 
@@ -136,39 +134,47 @@ The hierarchy has one `zarr.json` per node, at `<path>/zarr.json`
 
 ## 3. Arrays
 
-An array's `.zarray` MUST be an object with these members, or the input is
-rejected:
+An array's `.zarray` MUST be an object with these members, or the array is
+not presented ([§3.4](#34-arrays-that-are-not-presented)):
 
 | member | value |
 |---|---|
 | `zarr_format` | the integer 2 |
 | `shape` | an array of `n` integers ([spec/zarrify.md §1.6](../zarrify.md#16-json-documents)), `0 ≤ n ≤ 32`, each from 0 to 2^53 − 1 |
 | `chunks` | an array of `n` integers, each from 1 to 2^53 − 1 |
-| `dtype` | a string in the table below |
+| `dtype` | a data type of the table below: a string, or an array of fields |
 | `order` | `"C"` or `"F"` |
 | `compressor` | `null` or absent (no compression), or an object whose member `id` is a string ([§3.1](#31-compressors)) |
-| `filters` | `null`, absent, or an empty array. A nonempty array rejects the input (no filter is supported) |
+| `filters` | `null`, absent, or an array of filters ([§3.3](#33-filters)) |
 | `fill_value` | see below; absent is the same as `null` |
 | `dimension_separator` | `"."`, `"/"`, `null` or absent (`"."`) |
 
 Other members are not read here; they are kept in the array's source
 metadata ([§4](#4-source-metadata)).
 
-**Data types.** `dtype` is a NumPy type string: a byte order character
-(`<` little-endian, `>` big-endian, `|` not applicable), a kind and a size
-in bytes.
+**Data types.** `dtype` is a NumPy type string, or an array of fields, as
+[NPY's table of data types](npy.md#3-data-types) reads them, with a JSON array for a tuple or a
+list: `E` is the byte order, and `e` the element's size in bytes. A one-byte type may have any of
+the byte order characters. Added to that table:
 
-| `dtype` | Zarr `data_type` | `b` |
-|---|---|---|
-| `\|b1`, `<b1`, `>b1` | `bool` | 1 |
-| `\|i1`, `<i1`, `>i1`; `\|u1`, `<u1`, `>u1` | `int8`; `uint8` | 1 |
-| `<i2`, `>i2`; `<u2`, `>u2`; `<f2`, `>f2` | `int16`; `uint16`; `float16` | 2 |
-| `<i4`, `>i4`; `<u4`, `>u4`; `<f4`, `>f4` | `int32`; `uint32`; `float32` | 4 |
-| `<i8`, `>i8`; `<u8`, `>u8`; `<f8`, `>f8` | `int64`; `uint64`; `float64` | 8 |
+| `dtype` | Zarr `data_type` | `e` | byte order |
+|---|---|---|---|
+| `\|O`, when `filters` is `vlen-utf8` alone ([§3.3](#33-filters)) | `string` | none | none |
 
-Any other `dtype` rejects the input: among them strings (`S`, `U`),
-objects (`O`), void and structured types (`V`, or a list), date-times
-(`M8`, `m8`), complex numbers (`c8`, `c16`), and a multi-byte type with `|`.
+What [that table](npy.md#3-data-types) does not present is not presented here, for the same
+reason: a long double, a datetime or timedelta without a unit, a size of 0, a type string with `=`,
+a multi-byte type with `|`, and a structure with a field of shape, a padding field, a string,
+bytes or void field, or two byte orders. Any other `|O` is not presented: an array of pickles,
+for one.
+
+**A trailing axis.** `|S<n>` and `|V<n>` are `uint8` with a **trailing axis** of `n`, as
+[NPY's](npy.md#43-the-arrays) are: the array's `shape` and `chunks` are the `.zarray`'s followed by
+`n`, a value of that axis is a byte of the element, and a chunk's last, fastest axis is that one
+whatever `order` is. So a scalar `|S1`, as the NOAA National Water Model stores have, is the
+one-dimensional `uint8` array of shape `[1]`.
+
+`b`, below, is the size of what the `bytes` codec writes: that of the last filter's `astype`
+([§3.3](#33-filters)) when the array has one; otherwise 1 for a trailing axis, and otherwise `e`.
 
 **Fill value.** The Zarr v3 `fill_value` `F`, by the array's type and its `fill_value`:
 
@@ -180,9 +186,24 @@ objects (`O`), void and structured types (`V`, or a list), date-times
 | float types | a number whose magnitude is at most the type's largest finite value (65504 for `float16`, 3.4028234663852886e38 for `float32`), compared as binary64 ([spec/zarrify.md §1.6](../zarrify.md#16-json-documents)), other than a negative zero | that number, as a binary64 value |
 | float types | a number that is a negative zero, written with a fraction or an exponent, such as `-0.0` | the Zarr v3 hex fill of its bits: `"0x8000"` for `float16`, `"0x80000000"` for `float32` and `"0x8000000000000000"` for `float64` |
 | float types | one of the strings `"NaN"`, `"Infinity"` and `"-Infinity"` | that string (Zarr v3 writes these special values the same way) |
+| complex types | `null` | `[0, 0]` |
+| complex types | an array of two parts, each a value of the float type of half the size, by the rows above | the array of those parts' `F` |
+| complex types | one such part `p` | `[F, 0]`, `F` that of `p`. The member as written is kept in the source metadata ([§4](#4-source-metadata)) |
+| `numpy.datetime64`, `numpy.timedelta64` | `null` | 0 |
+| `numpy.datetime64`, `numpy.timedelta64` | an integer of `int64`, the least (NaT) among them; or the string `"NaT"` | that value |
+| `fixed_length_utf32` | `null` | `""` |
+| `fixed_length_utf32` | a string of at most `e / 4` characters | that string |
+| a trailing axis | `null` | 0 |
+| a trailing axis | the base64 of at most `n` bytes (RFC 4648 §4, with padding), which, followed by zeros up to `n` bytes, are all one byte `x` | `x`. The member as written is kept in the source metadata ([§4](#4-source-metadata)) |
+| `struct` | `null` | the object of its fields' zeros, as [NPY's §3](npy.md#3-data-types) gives |
+| `struct` | the base64 of at most `e` bytes, all 0 | the same. The member as written is kept in the source metadata ([§4](#4-source-metadata)) |
+| `string` | `null` | `""` |
+| `string` | a string | that string |
+| `string` | the integer 0 (zarr-python 2 writes it for an object array, as AnnData's stores have, and does not use it) | `""`. The member as written is kept in the source metadata ([§4](#4-source-metadata)) |
 
-Any other value rejects the input, including, for an integer type, an integer above
-2^53 − 1 (such as the largest `uint64`). A negative zero is the one value whose JSON
+A fill value of a trailing axis that is not one byte has no Zarr v3 fill value, as every value of a
+`uint8` array has its own. Any other value means the array is not presented, including, for an
+integer type, an integer above 2^53 − 1 (such as the largest `uint64`). A negative zero is the one value whose JSON
 number some JSON writers do not keep (they write `0`), hence its hex fill. The integer
 literal `-0` is the integer 0, and gives 0. (Zarr v2 writes NaN as the string `"NaN"`,
 without a payload, so no other float fill value depends on bits that JSON cannot write.)
@@ -191,10 +212,11 @@ without a payload, so no other float fill value depends on bits that JSON cannot
 
 | step | codec | when |
 |---|---|---|
-| 1 | `{"name": "transpose", "configuration": {"order": [n−1, …, 1, 0]}}` | `order` is `"F"` and `n ≥ 2` (a Fortran-order chunk stores the first index fastest) |
-| 2 | `{"name": "bytes"}` | `b = 1` |
-| 2 | `{"name": "bytes", "configuration": {"endian": e}}`, with `e` `"little"` for `<` and `"big"` for `>` | `b > 1` |
-| 3 | the compressor's codec ([§3.1](#31-compressors)) | there is one |
+| 1 | `{"name": "transpose", "configuration": {"order": [n−1, …, 1, 0]}}`, then `n` for a trailing axis | `order` is `"F"` and `n ≥ 2` (a Fortran-order chunk stores the first index fastest) |
+| 2 | each filter's codec, in the order of `filters` ([§3.3](#33-filters)) | there are filters |
+| 3 | `{"name": "bytes"}` | `b = 1`, or a structure of one-byte fields, but not `string` |
+| 3 | `{"name": "bytes", "configuration": {"endian": e}}`, with `e` `"little"` for `<` and `"big"` for `>` | any other, but not `string`, whose `vlen-utf8` writes its bytes. The byte order is the last filter's `astype`'s when there is one, otherwise the data type's |
+| 4 | the compressor's codec ([§3.1](#31-compressors)) | there is one |
 
 **The array.** The array's `zarr.json` is the object
 
@@ -220,11 +242,11 @@ members:
 
 | member | type | presence | value |
 |---|---|---|---|
-| `shape` | array of integer | required | `shape` |
-| `data_type` | string | required | from `dtype`, by the table of data types above |
-| `chunk_grid` | object | required | regular, its chunk shape `chunks` |
+| `shape` | array of integer | required | `shape`, then `n` for a trailing axis |
+| `data_type` | string or object | required | from `dtype`, by the table of data types above |
+| `chunk_grid` | object | required | regular, its chunk shape `chunks`, then `n` for a trailing axis |
 | `chunk_key_encoding` | object | required | `{"name": "v2", "configuration": {"separator": s}}`, `s` the dimension separator |
-| `fill_value` | boolean, integer, number or string | required | `F` (**Fill value**, above) |
+| `fill_value` | boolean, integer, number, string, array or object | required | `F` (**Fill value**, above) |
 | `codecs` | array of object | required | the codecs above (**Codecs**), in their order |
 | `attributes` | object | required | `A`: the members of a [`Declaration`](../conventions.md#type-declaration), the declaration of [§1](#1-declaration), with the array's source metadata ([§4](#4-source-metadata)), or `{}` if it has none (but the root, which always declares the convention) |
 
@@ -241,12 +263,21 @@ The compressor object's `id` selects the codec:
 | `gzip` | `{"name": "gzip", "configuration": {"level": L}}` | `id`, `level` |
 | `zstd` | `{"name": "zstd", "configuration": {"level": L, "checksum": x}}` | `id`, `level`, `checksum` |
 | `blosc` | `{"name": "blosc", "configuration": {"cname": c, "clevel": l, "shuffle": h, "typesize": b, "blocksize": k}}` | `id`, `cname`, `clevel`, `shuffle`, `blocksize` |
-| anything else, among them `lz4`, `bz2`, `lzma` and `delta` | rejected | |
+| `lz4` | `{"name": "numcodecs.lz4", "configuration": {"acceleration": a}}` | `id`, `acceleration` |
+| `bz2` | `{"name": "numcodecs.bz2", "configuration": {"level": L}}` | `id`, `level` |
+| `lzma` | `{"name": "numcodecs.lzma", "configuration": {"format": f, "check": C, "preset": p, "filters": F}}` | `id`, `format`, `check`, `preset`, `filters` |
+| anything else, among them `delta` | not presented ([§3.4](#34-arrays-that-are-not-presented)) | |
 
 The values of the codecs' configurations, from the compressor's members:
 
 | value | member | MUST be | when the member is absent |
 |---|---|---|---|
+| `L`, for `bz2` | `level` | an integer from 1 to 9; `L` is that integer | 1, numcodecs' default |
+| `a`, for `lz4` | `acceleration` | an integer | 1, numcodecs' default |
+| `f`, for `lzma` | `format` | an integer from 0 to 3 (Python's `lzma` formats) | 1, numcodecs' default |
+| `C`, for `lzma` | `check` | an integer | −1, numcodecs' default |
+| `p`, for `lzma` | `preset` | `null` or an integer | `null` |
+| `F`, for `lzma` | `filters` | `null` or an array | `null` |
 | `L`, for `zlib` and `gzip` | `level` | an integer from −1 to 9; `L` is that integer, except that −1 (zlib's default level) is 6, the level it stands for (the Zarr v3 `gzip` and `numcodecs.zlib` codecs take 0 to 9) | 1, numcodecs' default |
 | `L`, for `zstd` | `level` | an integer from −131072 to 22 (zstd's levels, which the Zarr v3 `zstd` codec takes); `L` is that integer | 0, numcodecs' default |
 | `x`, for `zstd` | `checksum` | a boolean | `false` |
@@ -254,16 +285,16 @@ The values of the codecs' configurations, from the compressor's members:
 | `l`, for `blosc` | `clevel` | an integer from 0 to 9 | rejected |
 | `h`, for `blosc` | `shuffle` | an integer, which gives `h` by the table below | rejected |
 | `k`, for `blosc` | `blocksize` | an integer from 0 to 2^31 − 1 | 0 |
-| `b`, for `blosc` | | the data type's size | |
+| `b`, for `blosc` | | [§3](#3-arrays)'s `b`, the size of what it compresses | |
 
 | `shuffle` | `h` |
 |---|---|
 | 0 | `"noshuffle"` |
 | 1 | `"shuffle"` |
 | 2 | `"bitshuffle"` |
-| −1 (numcodecs' automatic shuffle) | `"bitshuffle"` when `b = 1`, and `"shuffle"` otherwise |
+| −1 (numcodecs' automatic shuffle) | `"bitshuffle"` when the element it went by is one byte (`b`, or `n` for a trailing axis), and `"shuffle"` otherwise |
 
-Any other value rejects the input. (A level only matters when encoding; the codec carries it
+Any other value means the array is not presented. (A level only matters when encoding; the codec carries it
 so that the compressor's configuration can be recovered.) `blosc` is numcodecs' Blosc. (A
 blosc chunk describes itself, so this configuration does not change how chunks decode; it is
 exactly the compressor's.) The compressor's members that its codec does not carry
@@ -287,6 +318,10 @@ write can leave behind, rather than read the fill value; the mirror records
 that the object was there.) Every other object under `D` is one of [§5](#5-other-objects)'s
 other objects.
 
+A trailing axis has one chunk, and its index adds to the Zarr v3 chunk key: a present chunk's
+entry is its chunk object's key followed by `s` and `0`, but for `n = 0`, whose entry stays `0`,
+the `v2` key of the one chunk of a one-dimensional array. Its bytes are still the whole object.
+
 <a id="type-zarr2object"></a>**`Zarr2Object`**, a present chunk, or an other object
 ([§5](#5-other-objects)): the whole of an object of the store, of size `s > 0`:
 
@@ -294,6 +329,48 @@ other objects.
 |---|---|---|---|
 | the object | source range `(i, 0, s)` | required | every byte of the object, `i` its own `url` source ([spec/zarrify.md §1.4](../zarrify.md#14-store-inputs)) |
 
+### 3.3 Filters
+
+Each element of `filters` is an object whose member `id` is a string, which selects its codec.
+What the filter is applied to is the array's `dtype` for the first, and the `astype` of the one
+before for any other. A filter has only the members named here; the codec carries them all, but
+`id`, as they are written, and `b` and the `bytes` codec's byte order are those of the last
+filter's `astype`:
+
+| `id` | codec | members | MUST be |
+|---|---|---|---|
+| `vlen-utf8` | `{"name": "vlen-utf8"}` | `id` | the array's only filter, on `dtype` `\|O` |
+| `fixedscaleoffset` | `{"name": "numcodecs.fixedscaleoffset", "configuration": C}` | `id`, `scale`, `offset`, `dtype`, `astype` | `scale` and `offset` finite numbers; `dtype` the type it is applied to, an integer or float type; `astype`, absent or an integer or float type |
+| `quantize` | `{"name": "numcodecs.quantize", "configuration": C}` | `id`, `digits`, `dtype`, `astype` | `digits` an integer; `dtype` the type it is applied to, a float type; `astype` absent, or `dtype` itself |
+
+`C` is the filter without `id`. numcodecs writes `quantize` with an `astype` of any float type;
+zarr-python's codec reads only the same type back (it does not give the `bytes` codec the other
+one), so a different one is not presented. Any other filter, among them `delta`, `vlen-bytes`,
+`pickle` and `categorize`, is not presented.
+
+### 3.4 Arrays that are not presented
+
+An array that fails a rule of [§3](#3-arrays), whose `.zarray` is not JSON
+([spec/zarrify.md §1.6](../zarrify.md#16-json-documents)), or whose `.zarray` or `.zattrs` is too
+large or empty to read, or whose `.zattrs` is not an object or not JSON, is **not presented**, when
+it is not the root: it has no `zarr.json`, and its reason, the rule it failed first, is in the
+root's source metadata ([`Zarr2Node`](#type-zarr2node)'s `not_presented`), in order of the arrays'
+paths. It is still an array of [§2](#2-nodes): a candidate inside it is not a node, and its
+ancestors are groups. Its documents are read and held in the mirror
+([§4.1](#41-elements)) (a document that is not JSON as one gap), but for one too large to read,
+which is an other object. Its chunk objects are other objects ([§5](#5-other-objects)), so the
+hierarchy keeps every byte of it.
+
+A root array that fails is the whole store, and the input is rejected, with its reason. Nothing else
+of a store is left out in this way: a `.zgroup` that fails [§2](#2-nodes), a group's `.zattrs`
+that is not an object, or a candidate with both documents, rejects the input.
+
+<a id="type-zarr2notpresented"></a>**`Zarr2NotPresented`**, an array left out:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `path` | string | required | the array's path |
+| `reason` | string | required | the rule it failed first |
 
 ## 4. Source metadata
 
@@ -314,6 +391,7 @@ has none.
 |---|---|---|---|
 | `attributes` | object | optional | `A`, the node's attributes (its `.zattrs` document), whole and unchanged, present when not empty: user attributes, xarray's `_ARRAY_DIMENSIONS`, and the metadata of other conventions (an OME-NGFF version other than 0.4, for example, which the [OME-Zarr convention](ome-zarr.md) does not migrate). Every member is under the key, so none can collide with the conventions of the Zarr v3 hierarchy; a document that has its own `refkv_zarrified` or `zarr_conventions` nests them there |
 | `metadata` | [`Zarr2Metadata`](#type-zarr2metadata) | optional | `M`, present when not empty |
+| `not_presented` | array of [`Zarr2NotPresented`](#type-zarr2notpresented) | optional | the root's, when an array is left out ([§3.4](#34-arrays-that-are-not-presented)), in order of their paths |
 
 <a id="type-zarr2metadata"></a>**`Zarr2Metadata`**, `M`: the members of the node's `.zgroup`
 or `.zarray` that its `zarr.json` does not reproduce, in this order:
@@ -322,12 +400,13 @@ or `.zarray` that its `zarr.json` does not reproduce, in this order:
 |---|---|---|---|
 | one per member of `.zgroup` but `zarr_format` | any JSON value | optional | for an explicit group, every member of `.zgroup` but `zarr_format`, in the document's order |
 | one per member of `.zarray` that [§3](#3-arrays) does not read | any JSON value | optional | for an array, every member of `.zarray` that [§3](#3-arrays) does not read (any member but `zarr_format`, `shape`, `chunks`, `dtype`, `order`, `compressor`, `filters`, `fill_value` and `dimension_separator`), as written, in the document's order |
-| `fill_value` | null or integer | optional | for an array: `null` when `fill_value` is `null` or absent ([§3](#3-arrays) gives `F` = 0 or `false`, which is not Zarr v2's "undefined"); the member as written when the array's type is a float type and `fill_value` is an integer literal (no fraction, no exponent) beyond ±(2^53 − 1) (`F` is its binary64 value, which may differ from it, and is not written as an integer) |
+| `dtype` | string | optional | for an array with a trailing axis ([§3](#3-arrays)): the member as written, which its `uint8` data type does not give back (`\|S8` from `\|V8`, say) |
+| `fill_value` | any JSON value | optional | for an array: `null` when `fill_value` is `null` or absent ([§3](#3-arrays) gives `F`, which is not Zarr v2's "undefined"); the member as written when the array's type is a float or complex type and `fill_value` holds an integer literal (no fraction, no exponent) beyond ±(2^53 − 1) (`F` is its binary64 value, which may differ from it, and is not written as an integer), and when [§3](#3-arrays) says it is kept |
 | `compressor` | object | optional | for an array, when the compressor has members that its codec does not carry ([§3.1](#31-compressors)), or blosc's `shuffle` is −1 (which [§3.1](#31-compressors) resolves to a shuffle): the object of those members, `shuffle` among them when it is −1, in the compressor's order |
 
 What `S` leaves out, the Zarr v3 metadata holds: `zarr_format`, `shape`,
 `chunks`, the data type, `order`, the fill value, the compressor's `id`
-and the members its codec carries, the filters and the separator. What
+and the members its codec carries, the filters, each `id` included, and the separator. What
 neither keeps is layout: the byte order character of a one-byte type,
 `order` for an array of fewer than two dimensions (whose chunks C and F
 order lay out alike), whether a default level was written (or was −1
@@ -395,14 +474,15 @@ An **other object** is an object of the store
 
 - a document that [§2](#2-nodes) reads: the `.zgroup` of an explicit group, the
   `.zarray` of an array, and the `.zattrs` of either;
-- a chunk object of an array ([§3.2](#32-chunks)), whatever its size.
+- a chunk object of an array that is presented ([§3.2](#32-chunks)), whatever its size.
 
 Among them are READMEs and other files a writer put next to the data,
 OME-XML outside the place that [the OME-Zarr convention
 §7](ome-zarr.md#7-chunks-and-ome-xml) gives it, a `.zattrs` of a
 directory that is not a node, documents nested under an array (the
-`.zgroup` or `.zarray` of a candidate inside an array), and the objects
-under an array that are not chunk keys. Each is kept whole: the hierarchy has the key `refkv_source/objects/<k>`, where `k` is the
+`.zgroup` or `.zarray` of a candidate inside an array), the objects
+under an array that are not chunk keys, and all the objects of an array that is not presented
+([§3.4](#34-arrays-that-are-not-presented)) but for the documents the mirror holds. Each is kept whole: the hierarchy has the key `refkv_source/objects/<k>`, where `k` is the
 object's key, escaped, and its bytes are the object's. (An empty object
 holds nothing, and has no key; the mirror lists it, below.)
 
@@ -570,7 +650,8 @@ convention uses is its binary64 value, as [§1.6](../zarrify.md#16-json-document
 
 The input is rejected when a rule of [§1.4](../zarrify.md#14-store-inputs)–[§1.6](../zarrify.md#16-json-documents) fails, and when the
 convention gives it no layout: wherever it says that the input is
-rejected, or that something MUST hold and it does not.
+rejected, or that something MUST hold and it does not. An array below a root group that fails its
+rules is left out instead ([the convention §3.4](#34-arrays-that-are-not-presented)).
 
 ### 7.2 Chunks and other objects
 
@@ -608,7 +689,8 @@ summary, with these members:
 | member | value |
 |---|---|
 | `groups` | the groups, explicit and implicit |
-| `arrays` | the arrays |
+| `arrays` | the arrays presented |
+| `notPresented` | the arrays left out, when there are any |
 | `chunks` | the number of chunk entries |
 | `emptyChunks` | the chunk objects of size 0 |
 | `objects` | the store's objects |

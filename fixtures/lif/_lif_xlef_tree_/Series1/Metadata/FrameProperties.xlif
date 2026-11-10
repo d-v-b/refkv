@@ -1,0 +1,4 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<LMSDataContainerHeader Version="2">
+<Element Name="FrameProperties" Visibility="1" CopyOption="1" UniqueID="00000000-0000-4000-8000-00005bdcd5a6"><Data><SimpleListInMemory /></Data><Memory Size="13" MemoryBlockID=""><Block File="..%5CFrameProperties.lof" Offset="0" Size="13" UUID="00000000-0000-4000-8000-00000000b10c" /></Memory><Children></Children></Element>
+</LMSDataContainerHeader>

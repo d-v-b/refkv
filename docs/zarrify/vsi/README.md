@@ -34,7 +34,7 @@ with `OME/zarr.json` listing the series.
 - **Data types:** `uint8` and `uint16` in practice; every ETS pixel type
   from `int8` to `float64`.
 - **Codecs:** `imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_ljpeg`
-  (lossless JPEG) or `bytes`, after the
+  (lossless JPEG), `imagecodecs_png`, `imagecodecs_bmp` or `bytes`, after the
   `transpose` for interleaved samples. The chunks are the tiles' bytes.
 - **Scale:** the pixel size in micrometers (or whatever unit the slide
   names) at every level; the z step for a z stack.
@@ -51,7 +51,11 @@ with `OME/zarr.json` listing the series.
   so that each is rebuilt from the slide's own bytes.
 - **The macro image and focus maps:** the JPEG photograph of the slide and
   the small `uint16` focus maps, stored as TIFF strips inside the `.vsi`
-  file, as images of their own.
+  file, as images of their own. One the layout can't present (a macro image
+  in another compression, say) is left out, and the rest of the slide is
+  presented. `refkv_zarrified.vsi.not_presented` on the root says which and
+  why, and its bytes stay in the mirror:
+  `{"id": null, "name": "macro image", "ifd": 0, "reason": "IFD 0 (macro image) has compression 5"}`.
 
 **What is not expressed.** A sample mask and a focus points stack that
 have no pixels are listed but are no image; the thumbnails of each stack
@@ -80,7 +84,7 @@ uv run refkv zarrify https://downloads.openmicroscopy.org/images/CellSens/eviden
 ```
 
 ```
-{"format": "vsi", "images": [{"name": "Label", "kind": "stack", "source": "tiles", "id": 1, "dataType": "uint8", "samples": 3, "codec": "jpeg", "axes": ["c", "y", "x"], "sizes": {"t": 1, "c": 1, "z": 1}, "levels": [[8042, 9403], [4021, 4702], ...], "grids": [[16, 19], ...], "chunks": 413, "tilesOutside": 0}, {"name": "Overview", ...}, {"name": "20x_BF_01", ..., "levels": [[16589, 14663], [8295, 7332], [4148, 3666], [2074, 1833], [1037, 917], [519, 459], [260, 230]], ..., "chunks": 1313, ...}, {"name": "20x FocusMap", "kind": "stack", "source": "ifd", ...}, {"name": "20x_BF_02", ...}, {"name": "20x FocusMap", ...}, {"name": "macro image", "kind": "macro", "source": "ifd", ...}], "chunks": 3921, "dataSources": 1, "ifds": 8, "tileFiles": 4, "tiles": 3918, "batches": 4, "reads": {"objects": 5, ..., "requests": 9, "bytes": 1412682, ...}, ...}
+{"format": "vsi", "images": [{"name": "Label", "kind": "stack", "source": "tiles", "id": 1, "dataType": "uint8", "samples": 3, "codec": "jpeg", "axes": ["c", "y", "x"], "sizes": {"t": 1, "c": 1, "z": 1}, "levels": [[8042, 9403], [4021, 4702], ...], "grids": [[16, 19], ...], "chunks": 413, "tilesOutside": 0}, {"name": "Overview", ...}, {"name": "20x_BF_01", ..., "levels": [[16589, 14663], [8295, 7332], [4148, 3666], [2074, 1833], [1037, 917], [519, 459], [260, 230]], ..., "chunks": 1313, ...}, {"name": "20x FocusMap", "kind": "stack", "source": "ifd", ...}, {"name": "20x_BF_02", ...}, {"name": "20x FocusMap", ...}, {"name": "macro image", "kind": "macro", "source": "ifd", ...}], "notPresented": 0, "chunks": 3921, "dataSources": 1, "ifds": 8, "tileFiles": 4, "tiles": 3918, "batches": 4, "reads": {"objects": 5, ..., "requests": 9, "bytes": 1412682, ...}, ...}
 ```
 
 The run makes 9 requests (the 1.3 MB `.vsi` file whole, then each tile
@@ -130,10 +134,17 @@ sizes:
 ## Viewing
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
-decodes the JPEG tiles, and lossless JPEG ones once it registers
-`imagecodecs_ljpeg` ([d-v-b/neuroglancer#15](https://github.com/d-v-b/neuroglancer/pull/15)),
-and shows each scan with its micrometer scale; the stacks of one slide
-share the stage's coordinates.
+shows each scan with its micrometer scale; the stacks of one slide share the
+stage's coordinates. Its decoders, by the tiles' compression:
+
+| tiles | codec | zarr-python, with `refkv[images]` | the fork |
+|---|---|---|---|
+| uncompressed | `bytes` | yes | yes |
+| JPEG | `imagecodecs_jpeg` | yes | yes |
+| JPEG 2000 | `imagecodecs_jpeg2k` | yes | yes |
+| lossless JPEG | `imagecodecs_ljpeg` | yes | yes |
+| PNG | `imagecodecs_png` | yes | no: the demo does not open those arrays in it |
+| BMP | `imagecodecs_bmp` | yes | no: the demo does not open those arrays in it |
 
 ## Supported and not supported
 
@@ -141,7 +152,7 @@ Supported:
 
 - cellSens slides whose tile files are `frame_t.ets` or `frame_t_0.ets`
   (both names are tried, in that order), with uncompressed, JPEG, JPEG
-  2000 or lossless JPEG tiles, in pyramids or not, with time, channel and z dimensions.
+  2000, lossless JPEG, PNG or BMP tiles, in pyramids or not, with time, channel and z dimensions.
 - The macro image and the focus maps stored inside the `.vsi` file (JPEG
   or uncompressed strips, 8 or 16 bits).
 - A `--url` naming the `.vsi` file's URL for a local copy that will be
@@ -149,8 +160,8 @@ Supported:
 
 Rejected:
 
-- Tile files with PNG or BMP tiles (the compression is named in the
-  message), or an unknown compression or pixel type.
+- Tile files with an unknown compression or pixel type, or with PNG or BMP
+  tiles of a pixel type those formats do not hold.
 - A stack whose tile file is missing (`stack 10002 (20x_BF_01) has no tile
   file: neither _<name>_/stack10002/frame_t.ets nor ..._0.ets exists`): copy
   the `_<name>_` directory with the `.vsi` file.
@@ -169,14 +180,13 @@ The browser code ([js/](../../../js/README.md)) reads Olympus VSI (cellSens slid
   plain web server that allows cross-origin reads serves a slide as it is.
 - One OME-Zarr image per stack in a bioformats2raw layout: every pyramid
   level, with time, channel and z dimensions; JPEG, JPEG 2000, lossless
-  JPEG and uncompressed tiles as chunks; the macro image and focus maps from the
+  JPEG, PNG, BMP and uncompressed tiles as chunks; the macro image and focus maps from the
   `.vsi` file; pixel sizes in micrometers, stage origins as translations,
   channel names and colors.
 - The whole metadata tree under `refkv_zarrified` on the root.
 
-Not supported, and refused with HTTP 422: PNG and BMP
-tiles, dimensions other than t, c and z with more than one value, and a
-stack whose tile file is missing.
+Not supported, and refused with HTTP 422: dimensions other than t, c and z
+with more than one value, and a stack whose tile file is missing.
 
 ## Performance
 

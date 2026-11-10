@@ -1,0 +1,2 @@
+# A QPTIFF image with Predictor 3, which the profile reads since the freeze.
+qptiff_fl_lzw_predictor3.qptiff

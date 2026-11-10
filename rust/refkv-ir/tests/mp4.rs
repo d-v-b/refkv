@@ -48,3 +48,181 @@ fn an_ftyp_box_too_short_for_its_fields_fails() {
         assert_eq!(m, "the ftyp box at 0 has 4 bytes, too few for its 8 bytes of fields");
     }
 }
+
+/// The (offset, size) of each sample of a track, in decode order: the `data` elements under
+/// `samples/<T>`.
+fn samples_of(ir: &refkv_ir::ir::Ir, facts: &serde_json::Value, index: usize) -> Vec<(u64, u64)> {
+    let track = &facts["tracks"][index];
+    let first = track["first"].as_u64().unwrap() as usize;
+    (0..track["count"].as_u64().unwrap() as usize).map(|j| (ir.start[first + j], ir.len[first + j])).collect()
+}
+
+/// A trun box's samples start where the run before ended when it has no data offset (ISO/IEC
+/// 14496-12 §8.8.8.3), which ffmpeg's demuxer does not read, so that write_fixtures.py cannot
+/// have it checked against ffmpeg: mp4_frag_offsets.mp4's first traf box has two runs, the
+/// second's data offset the first's bytes. Without it, its table moved up and 4 bytes left as the
+/// box's rest, the samples are the same.
+#[test]
+fn a_run_without_a_data_offset_follows_the_run_before() {
+    let plain = std::fs::read(common::fixtures().join("mp4/mp4_frag_offsets.mp4")).unwrap();
+    let find = |from: usize| from + plain[from..].windows(4).position(|w| w == b"trun").unwrap();
+    let (first, second) = (find(0), find(find(0) + 4));
+    let (flags, table) = (second + 4, second + 16);
+    assert_eq!(plain[flags + 3] & 1, 1);
+    let size = u32::from_be_bytes(plain[second - 4..second].try_into().unwrap()) as usize;
+    assert!(second > first);
+    let mut moved = plain.clone();
+    moved[flags + 3] &= !1;
+    moved.copy_within(table..second - 4 + size, table - 4);
+    let (ir, facts) = refkv_ir::parse_bytes::<Mp4>(&plain).unwrap();
+    let (moved_ir, moved_facts) = refkv_ir::parse_bytes::<Mp4>(&moved).unwrap();
+    assert!(facts["tracks"][0]["reason"].is_null());
+    assert_eq!(samples_of(&moved_ir, &moved_facts, 0), samples_of(&ir, &facts, 0));
+    assert!(common::rebuilt(&moved_ir, &moved) == moved);
+}
+
+/// A Motion JPEG track's first sample is read up to its frame header and no further, and no other
+/// sample is read: 4 KiB of it hold most frame headers, and a read more those of a stream with
+/// 20 KB of application data before its frame header. With 1 MiB of free box before the mdat box,
+/// past the first read, the samples are read for this alone.
+#[test]
+fn a_motion_jpeg_track_reads_its_first_sample_s_frame_header() {
+    const GROWN: u32 = 1 << 20;
+    for (name, want) in [("mov_mjpeg.mov", 1), ("mov_mjpeg_late_header.mov", 2)] {
+        let plain = std::fs::read(common::fixtures().join("mp4").join(name)).unwrap();
+        let mdat = plain.windows(4).position(|w| w == b"mdat").unwrap() - 4;
+        let moov = plain.windows(4).rposition(|w| w == b"moov").unwrap() - 4;
+        let stco = plain.windows(4).rposition(|w| w == b"stco").unwrap();
+        let count = u32::from_be_bytes(plain[stco + 8..stco + 12].try_into().unwrap()) as usize;
+        let mut data = plain.clone();
+        for at in (0..count).map(|k| stco + 12 + 4 * k) {
+            let offset = u32::from_be_bytes(plain[at..at + 4].try_into().unwrap());
+            data[at..at + 4].copy_from_slice(&(offset + GROWN).to_be_bytes());
+        }
+        let free = [&GROWN.to_be_bytes()[..], b"free", &vec![0; GROWN as usize - 8]].concat();
+        data.splice(mdat..mdat, free);
+        let media = mdat as u64 + GROWN as u64..moov as u64 + GROWN as u64;
+        let mut parser = Mp4::new(data.len() as u64);
+        let mut reads = Vec::new();
+        while let refkv_ir::nd2::Step::Read(ranges) = parser.step().unwrap() {
+            for (o, n) in ranges {
+                if media.contains(&o) && n != 16 {
+                    reads.push(n);
+                }
+                parser.feed(o, data[o as usize..(o + n) as usize].to_vec());
+            }
+        }
+        assert_eq!(reads.len(), want, "{name}: {reads:?}");
+        assert!(reads[0] <= 4096, "{name}: {reads:?}");
+        let (ir, facts) = parser.finish().unwrap();
+        assert_eq!(facts["tracks"][0]["format"], "mjpeg", "{name}");
+        assert!(common::rebuilt(&ir, &data) == data, "{name}");
+    }
+}
+
+/// A run of a PCM track's samples of one size is one element, however many samples it has, and
+/// the elements are the track's bytes: 8192 frames of 4 bytes, in fragments.
+#[test]
+fn a_pcm_run_is_one_element() {
+    let file = std::fs::read(common::fixtures().join("mp4/mov_frag_pcm_s32be.mov")).unwrap();
+    let runs = file.windows(4).filter(|w| w == b"trun").count();
+    let (ir, facts) = refkv_ir::parse_bytes::<Mp4>(&file).unwrap();
+    assert_eq!(facts["tracks"][0]["format"], "pcm");
+    assert_eq!(facts["tracks"][0]["frames"], 8192);
+    let samples = samples_of(&ir, &facts, 0);
+    assert_eq!(samples.len(), runs);
+    assert_eq!(samples.iter().map(|s| s.1).sum::<u64>(), 8192 * 4);
+    assert!(common::rebuilt(&ir, &file) == file);
+}
+
+/// The parser reads the moof boxes and little else: with each mdat box grown by 256 KiB, past the
+/// first read and any read ahead, a fragment takes one read.
+#[test]
+fn a_fragment_takes_one_read() {
+    let plain = std::fs::read(common::fixtures().join("mp4/mp4_frag_hevc_moof_base.mp4")).unwrap();
+    let (mut data, mut p, mut moofs) = (Vec::new(), 0, 0u64);
+    while p < plain.len() {
+        let n = u32::from_be_bytes(plain[p..p + 4].try_into().unwrap()) as usize;
+        match &plain[p + 4..p + 8] {
+            b"mdat" => {
+                data.extend_from_slice(&((n + (1 << 18)) as u32).to_be_bytes());
+                data.extend_from_slice(&plain[p + 4..p + n]);
+                data.resize(data.len() + (1 << 18), 0);
+            }
+            typ => {
+                moofs += (typ == b"moof") as u64;
+                data.extend_from_slice(&plain[p..p + n]);
+            }
+        }
+        p += n;
+    }
+    let mut parser = Mp4::new(data.len() as u64);
+    let mut reads = 0;
+    while let refkv_ir::nd2::Step::Read(ranges) = parser.step().unwrap() {
+        for (o, n) in ranges {
+            reads += 1;
+            parser.feed(o, data[o as usize..(o + n) as usize].to_vec());
+        }
+    }
+    let (ir, facts) = parser.finish().unwrap();
+    assert!(moofs > 1);
+    assert!(reads <= moofs + 2, "{reads} reads of {moofs} moof boxes");
+    assert!(facts["tracks"][0]["reason"].is_null());
+    assert!(common::rebuilt(&ir, &data) == data);
+}
+
+/// The moof boxes together are at most 64 MiB, checked before the one past it is read.
+#[test]
+fn moof_boxes_past_the_limit_fail() {
+    let size = 1u64 << 28;
+    let head = [&((1u32 << 26) + 1).to_be_bytes()[..], b"moof", &[0; 8]].concat();
+    let mut parser = Mp4::new(size);
+    parser.step().unwrap();
+    parser.feed(0, head);
+    let m = parser.step().err().unwrap();
+    assert_eq!(m, "the moof boxes are 67108865 bytes in all, more than 64 MiB");
+}
+
+/// Each video or audio track of an accepted fixture names its descriptions by their key, the
+/// element of its trak box (spec/stored-array.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): indexed from 0,
+/// and, of a track of a video codec the profile zarrifies, three planes with a row for each
+/// sample, whose element is the sample's.
+#[test]
+fn every_accepted_fixtures_tracks_name_their_descriptions() {
+    let (mut tracks, mut planes) = (0, 0);
+    for e in std::fs::read_dir(common::fixtures().join("mp4")).unwrap() {
+        let p = e.unwrap().path();
+        let name = p.file_name().unwrap().to_str().unwrap().to_string();
+        if name.contains("reject") || !(name.ends_with(".mp4") || name.ends_with(".mov")) {
+            continue;
+        }
+        let (ir, facts) = refkv_ir::parse_bytes::<Mp4>(&std::fs::read(&p).unwrap()).unwrap();
+        let s = &ir.stored;
+        for (t, track) in facts["tracks"].as_array().unwrap().iter().enumerate() {
+            let at = format!("{name} track {t}");
+            let handler = track["handler"].as_str().unwrap();
+            let Some(key) = track["declared_by"].as_u64() else {
+                assert!(!matches!(handler, "vide" | "soun"), "{at}");
+                continue;
+            };
+            assert!(matches!(handler, "vide" | "soun"), "{at}");
+            assert_eq!(ir.path(key as u32).rsplit('/').next().and_then(|n| n.split('~').next()), Some("trak"), "{at}");
+            let described: Vec<usize> = (0..s.arrays.len()).filter(|&k| s.arrays[k].element == key as u32).collect();
+            let indexes: Vec<Option<u64>> = described.iter().map(|&k| s.arrays[k].index).collect();
+            assert_eq!(indexes, (0..described.len() as u64).map(Some).collect::<Vec<_>>(), "{at}");
+            tracks += 1;
+            if !matches!(track["format"].as_str(), Some("h264" | "hevc" | "av1" | "vp9")) {
+                continue;
+            }
+            assert_eq!(described.len(), 3, "{at}");
+            let (first, count) = (track["first"].as_u64().unwrap() as u32, track["count"].as_u64().unwrap() as u32);
+            for &k in &described {
+                let rows: Vec<u32> = (0..s.map.len()).filter(|&r| s.map.array[r] == k as u32).map(|r| s.map.element[r].unwrap()).collect();
+                assert_eq!(rows, (first..first + count).collect::<Vec<_>>(), "{at}");
+                planes += 1;
+            }
+        }
+    }
+    assert!(tracks >= 100 && planes >= 150, "{tracks} tracks, {planes} planes");
+}

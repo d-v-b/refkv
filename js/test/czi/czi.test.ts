@@ -8,6 +8,7 @@ import { boundedHead, jpegFrame, jpegxrSize, zstd1Header, zstdContentSize } from
 import { layer, rowBand } from "../../../conformance/zarrify/reference/ts/czi/layout.ts";
 import { guid } from "../../../conformance/zarrify/reference/ts/czi/segments.ts";
 import { CziError } from "../../../conformance/zarrify/reference/ts/czi/virtualize.ts";
+import { REVISED } from "../revised.ts";
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/czi/", import.meta.url));
 const utf8 = new TextDecoder();
@@ -66,7 +67,7 @@ const SUMMARIES: [string, object][] = [
 ];
 
 test("zarrifies the synthetic CZI files", async () => {
-  const names = fs.readdirSync(FIXTURES).filter((f) => f.endsWith(".czi") && !f.startsWith("czi_reject_"));
+  const names = fs.readdirSync(FIXTURES).filter((f) => f.endsWith(".czi") && !f.startsWith("czi_reject_") && !REVISED.has(f));
   assert.deepEqual(names.map((f) => f.slice(0, -4)).sort(), SUMMARIES.map(([n]) => n).sort());
   for (const [name, summary] of SUMMARIES) {
     const v = await zarrify(`${name}.czi`);
@@ -102,7 +103,7 @@ test("zarrifies the synthetic CZI files", async () => {
 });
 
 test("rejects each czi_reject_ fixture with CziError", async () => {
-  const names = fs.readdirSync(FIXTURES).filter((f) => f.startsWith("czi_reject_"));
+  const names = fs.readdirSync(FIXTURES).filter((f) => f.startsWith("czi_reject_") && !f.startsWith("czi_reject_parts_"));
   assert.ok(names.length > 30);
   for (const name of names) await assert.rejects(zarrify(name), CziError, name);
 });

@@ -29,13 +29,13 @@ fn directory(files: &BTreeMap<String, Vec<u8>>) -> Result<(Out, Ir), String> {
     let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let (ir, facts, stats) = run_store(StoreFormat::Safe, keys, &|k| bytes[k].clone())?;
-    Ok((store_output(StoreFormat::Safe, &ir, &facts, stats, "https://example.org/p/", true)?, ir))
+    Ok((store_output(StoreFormat::Safe, &ir, &facts, stats, "https://example.org/p/", true, false)?, ir))
 }
 
 /// The zip form's output (mirrored), its IR, or the rejection.
 fn zip(data: &[u8]) -> Result<(Out, Ir), String> {
     let (ir, facts, stats) = run_bytes(Format::Safe, data)?;
-    Ok((output(Format::Safe, &ir, &facts, stats, "https://example.org/p.SAFE.zip", true, &Default::default())?, ir))
+    Ok((output(Format::Safe, &ir, &facts, stats, "https://example.org/p.SAFE.zip", true, &Default::default(), true)?, ir))
 }
 
 fn check_directory(path: &Path, files: &BTreeMap<String, Vec<u8>>, out: &Out, ir: &Ir) {
@@ -106,6 +106,51 @@ fn accepted_products_are_valid_irs_whose_mirrors_rebuild_them() {
         }
     }
     assert_eq!((dirs, zips), (10, 4));
+}
+
+/// Each band of an accepted product's facts names its image's description by the description's
+/// key, the band file's `codestream` struct (spec/stored-array.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>), in both forms:
+/// a description with a grid, whose rows are the struct's `tiles/<k>`, one for each tile-part the
+/// facts hold.
+#[test]
+fn every_accepted_products_bands_name_their_descriptions() {
+    let (mut bands, mut tiles) = (0, 0);
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(fixtures()).unwrap().map(|e| e.unwrap().path()).collect();
+    paths.sort();
+    for path in paths {
+        let name = path.file_name().unwrap().to_str().unwrap().to_string();
+        if name.contains("reject") {
+            continue;
+        }
+        let (ir, facts) = if path.is_dir() {
+            let files = walk(&path);
+            let bytes: Vec<&Vec<u8>> = files.values().collect();
+            let (ir, facts, _) = run_store(StoreFormat::Safe, listing(&files), &|k| bytes[k].clone()).unwrap();
+            (ir, facts)
+        } else {
+            let (ir, facts, _) = run_bytes(Format::Safe, &std::fs::read(&path).unwrap()).unwrap();
+            (ir, facts)
+        };
+        let s = &ir.stored;
+        let listed = facts["bands"].as_array().unwrap();
+        assert_eq!(s.arrays.len(), listed.len(), "{name}");
+        for b in listed {
+            let at = format!("{name} {}", b["key"]);
+            let key = b["declared_by"].as_u64().unwrap() as u32;
+            let described: Vec<usize> = (0..s.arrays.len()).filter(|&k| s.arrays[k].element == key).collect();
+            let [k] = described[..] else { panic!("{at}: {} descriptions", described.len()) };
+            assert!(s.arrays[k].grid.is_some() && s.arrays[k].index.is_none(), "{at}");
+            assert!(ir.path(key).ends_with("/codestream"), "{at}: {}", ir.path(key));
+            let rows: Vec<usize> = (0..s.map.len()).filter(|&r| s.map.array[r] == k as u32).collect();
+            assert_eq!(rows.len(), b["codestream"]["tiles"].as_array().unwrap().len(), "{at}");
+            // a unit is a tile of the codestream: its `tiles/<k>` struct, whole
+            assert!(rows.iter().all(|&r| ir.parent[s.map.element[r].unwrap() as usize] == key && s.map.range[r].is_none()), "{at}");
+            bands += 1;
+            tiles += rows.len();
+        }
+    }
+    assert_eq!((bands, tiles), (203, 2628));
 }
 
 macro_rules! reject {

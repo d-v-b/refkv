@@ -162,7 +162,8 @@
                 "float32",
                 "complex64",
                 "uint16",
-                "float16"
+                "float16",
+                "struct"
               ]
             },
             "header": {
@@ -248,6 +249,20 @@
                 "x",
                 "y",
                 "z"
+              ],
+              "additionalProperties": false
+            },
+            "gzip": {
+              "type": "object",
+              "description": "A file gzipped whole: where the data starts in its stream (spec/zarrify/mrc.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#84-gzipped-files>)",
+              "properties": {
+                "skip": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "skip"
               ],
               "additionalProperties": false
             }

@@ -1,0 +1,44 @@
+# NIfTI's complex voxels, which the frozen reference rejects (spec/zarrify/nifti.md §3
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#3-data-types>). NIfTI files
+# gzipped whole (spec/zarrify/nifti.md §7.4
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#74-gzipped-files>), which the
+# frozen reference rejects as no file of any supported format. NIfTI's header-and-image pairs
+# (spec/zarrify/nifti.md §7.5
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#75-header-and-image-pairs>),
+# which the frozen reference rejects by their magic.
+nifti_gzip_n1_be_ext.nii.gz
+nifti_gzip_n1_le_complex64.nii.gz
+nifti_gzip_n1_le_int16_named.nii.gz
+nifti_gzip_n2_be_rgb24.nii.gz
+nifti_gzip_n2_le_5d_padded.nii.gz
+nifti_n1_be_complex64_4d.nii
+nifti_n1_le_complex64.nii
+nifti_n2_be_complex128.nii
+nifti_n2_le_complex128_5d.nii
+nifti_pair_edge_chunk.hdr
+nifti_pair_edge_chunk.img
+nifti_pair_n1_be_bare.hdr
+nifti_pair_n1_be_bare.img
+nifti_pair_n1_le_complex64.hdr
+nifti_pair_n1_le_complex64.img
+nifti_pair_n1_le_int16.hdr
+nifti_pair_n1_le_int16.img
+nifti_pair_n1_le_offset.hdr
+nifti_pair_n1_le_offset.img
+nifti_pair_n2_be_rgb24.hdr
+nifti_pair_n2_be_rgb24.img
+nifti_pair_n2_le_ext_5d.hdr
+nifti_pair_n2_le_ext_5d.img
+nifti_pair_nibabel.hdr
+nifti_pair_nibabel.img
+nifti_pair_upper.HDR
+nifti_pair_upper.IMG
+nifti_reject_gzip_header_cut.nii.gz
+nifti_reject_gzip_members.nii.gz
+nifti_reject_gzip_trailing.nii.gz
+nifti_reject_pair_image_short.hdr
+nifti_reject_pair_image_short.img
+nifti_reject_pair_magic.nii
+nifti_reject_pair_no_image.hdr
+nifti_reject_pair_vox_negative.hdr
+nifti_reject_pair_vox_negative.img

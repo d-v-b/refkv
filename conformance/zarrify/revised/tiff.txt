@@ -1,0 +1,135 @@
+# TIFF's LZW images and images in strips (spec/zarrify/tiff.md §4.5
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>), and its images with
+# Predictor 2 (spec/zarrify/tiff.md §4.3
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>). A
+# TIFF's image across files and a Micro-Manager stack (spec/zarrify/tiff.md §7.4
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#74-several-files>, §7.5
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#75-micro-manager-stacks>), which
+# the frozen reference rejects or reads as one plane. Short last compressed strips, Predictor 3,
+# packed samples, PackBits, CCITT Group 4, EER, LERC, WebP, JPEG XL and LZMA, which the profile
+# reads since the freeze.
+# ImageJ hyperstacks, one IFD a plane or in one IFD (spec/zarrify/tiff.md §4.1
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>), which the frozen reference
+# rejects as a stack of pages or reads as one plane.
+bilevel.tif
+bilevel_deflate.tif
+bilevel_g4.tif
+bilevel_g4_strips_no_bits.tif
+bilevel_g4_strips_short.tif
+bilevel_lzw_strips_short.tif
+bilevel_packbits.tif
+bilevel_packbits_strips_short.tif
+bilevel_strips_short.tif
+bilevel_tiled.tif
+edge_reject_bilevel_pages.tif
+edge_reject_bits_12_predictor.tif
+edge_reject_ccitt_fill_order.tif
+edge_reject_eer_bits_differ.tif
+edge_reject_eer_short.tif
+edge_reject_eer_uint8.tif
+edge_reject_imagej_rgb_channels.tif
+edge_reject_imagej_short.tif
+edge_reject_jpegxl_int16.tif
+edge_reject_lerc_uint64.tif
+edge_reject_mm_foreign_MMStack_Pos0.ome.tif
+edge_reject_mm_foreign_MMStack_Pos0_1.ome.tif
+edge_reject_mm_part_MMStack_Pos0_1.ome.tif
+edge_reject_mm_positions_MMStack.ome.tif
+edge_reject_multifile.tif
+edge_reject_multifile_uuid.tif
+edge_reject_ome_set_identity.ome.tif
+edge_reject_ome_set_outside.ome.tif
+edge_reject_ome_set_size.ome.tif
+edge_reject_predictor3_integer.tif
+edge_reject_predictor3_uncompressed.tif
+edge_reject_predictor_lerc.tif
+edge_reject_predictor_unknown.tif
+edge_reject_uuid_self_closing.tif
+edge_reject_webp_gray.tif
+edge_reject_webp_uint16.tif
+edge_strips_absent.tif
+edge_strips_apart.tif
+eer_v0_frame.tif
+eer_v1_frames.tif
+eer_v2_frames.tif
+imagej_contiguous_rgb.tif
+imagej_contiguous_tzcyx_uint16_be.tif
+imagej_contiguous_zyx.tif
+imagej_pages_tzcyx_uint16.tif
+imagej_pages_zyx.tif
+jpegxl_float32.tif
+jpegxl_rgb_uint8.tif
+jpegxl_uint16.tif
+jpegxl_uint16_strips_short.tif
+jpegxl_uint8.tif
+lerc_deflate_float32.tif
+lerc_float32_strips.tif
+lerc_float32_strips_short.tif
+lerc_rgb_contig_uint8.tif
+lerc_uint16.tif
+lerc_zstd_float64.tif
+lzma_predictor_uint16_be.tif
+lzma_uint16.tif
+lzma_uint16_strips_short.tif
+lzw_uint8.tif
+mm_single_MMStack_Pos0.ome.tif
+mm_split_MMStack_Pos0.ome.tif
+mm_split_MMStack_Pos0_1.ome.tif
+mm_stopped_MMStack_Pos0.ome.tif
+ome_set_a.ome.tif
+ome_set_b.ome.tif
+ome_set_c.ome.tif
+ome_set_narrow.tif
+ome_set_plain.tif
+ome_set_stranger.ome.tif
+packbits_rgb_contig.tif
+packbits_uint16_be.tif
+packbits_uint8.tif
+predictor3_contig_be_lzw_float64.tif
+predictor3_deflate_float32.tif
+predictor3_lzma_float32.tif
+predictor3_lzma_float32_be.tif
+predictor3_lzw_float32_be.tif
+predictor3_planar_deflate_float32.tif
+predictor3_rgb_contig_deflate_float32.tif
+predictor3_strips_float32_deflate_short.tif
+predictor3_strips_float32_lzw_short.tif
+predictor3_tcyx_float32_lzw.ome.tif
+predictor3_zstd_float64.tif
+predictor_deflate_uint16_be.tif
+predictor_deflate_uint8.tif
+predictor_lzw_uint16.tif
+predictor_rgb_contig_lzw.tif
+predictor_rgb_contig_uint16_deflate.tif
+predictor_strips_uint16_lzw_short.tif
+predictor_tcyx_uint16_lzw.ome.tif
+predictor_zstd_int16.tif
+strips_one_row_tyx.ome.tif
+strips_one_row_tyx_deflate.ome.tif
+strips_one_row_tyx_lzw.ome.tif
+strips_one_row_tyx_zstd.ome.tif
+strips_rgb_contig_deflate_short.tif
+strips_rgb_contig_jpeg_short.tif
+strips_rgb_contig_short.tif
+strips_rgb_planar_jpeg2000_short.tif
+strips_rgb_planar_lzw.ome.tif
+strips_tcyx_uint16_deflate_short.ome.tif
+strips_tcyx_uint16_lzw.ome.tif
+strips_uint16_deflate_be_predictor_short.tif
+strips_uint16_deflate_short.tif
+strips_uint16_lzw_short.tif
+strips_uint16_pyramid_short.ome.tif
+strips_uint16_short.tif
+strips_uint16_zstd_short.tif
+strips_uint8.tif
+strips_uint8_deflate_short_level.ome.tif
+uint12_be.tif
+uint12_deflate_strips.tif
+uint12_lzw.tif
+uint12_rgb_contig.tif
+uint12_strips.tif
+uint12_strips_short.tif
+webp_rgb.tif
+webp_rgb_strips.tif
+webp_rgb_strips_short.tif
+webp_rgba_opaque_tile.tif

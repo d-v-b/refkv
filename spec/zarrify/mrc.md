@@ -1,7 +1,7 @@
 # MRC
 
-The Zarr layout of an MRC2014 file (`.mrc`, `.mrcs`, `.map`, `.rec`, `.st`), and
-the translation of its header into JSON. What all of refkv's conventions share is
+The Zarr layout of an MRC2014 file (`.mrc`, `.mrcs`, `.map`, `.rec`, `.st`), gzipped or not
+(`.map.gz`, `.mrc.gz`), and the translation of its header into JSON. What all of refkv's conventions share is
 in [spec/conventions.md](../conventions.md), cited here as "conventions §n".
 How refkv produces this layout as a reference store, and which files it
 accepts, is the MRC profile, [Part 2](#part-2-the-profile) below.
@@ -9,18 +9,7 @@ accepts, is the MRC profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` ·
 Schema: [schema.json](mrc/schema.json)
 
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), and the text says, as refkv already
-wrote it, that any one-byte data type, IMOD's `uint8` too, has the codec `bytes` without a byte
-order ([§4.1](#41-the-array)).
-
-Changed 2026-10-25: an edge chunk's zero padding is a range of the output's one zero data
-source, not a literal range of each reference, so that the archive holds the zeros once
-([§8.2](#82-chunks)); no chunk's values change, nor which chunks are copied.
-
-Changed 2026-10-25: a zarrifier may leave the dataset layout out ([§1](#1-declaration),
-[spec/zarrify.md §1.7](../zarrify.md#17-named-inputs-and-layouts)).
+Changes: [changes/mrc/](changes/mrc/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
@@ -43,7 +32,7 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"mrc"`, `version` `0`, `source.url` the file's URL, and `layouts` `{"dataset": "dataset"}` unless the dataset layout is left out ([§1](#1-declaration)) |
 | `zarr.json#/attributes/refkv_zarrified/mrc` | attribute | [`MrcRoot`](#type-mrcroot) | the root's source metadata ([§5.1](#51-the-root)) |
 | `0/zarr.json` | array | [`MrcArray`](#type-mrcarray) | the values ([§4.1](#41-the-array)) |
-| `0/c/<coords>` | chunk | [`MrcChunk`](#type-mrcchunk) | every chunk of the array ([§8.2](#82-chunks)) |
+| `0/c/<coords>` | chunk | [`MrcChunk`](#type-mrcchunk) or [`MrcGzipChunk`](#type-mrcgzipchunk) | every chunk of the array ([§8.2](#82-chunks)), or the one chunk of a gzipped file ([§8.4](#84-gzipped-files)) |
 | `dataset/**` | subtree | [the dataset's entries](mrc-dataset.md#layout) | the dataset layout ([§1](#1-declaration), [mrc-dataset.md](mrc-dataset.md)), unless a zarrifier leaves it out |
 | `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5.2](#52-the-ir-mirror)): its elements are [§5.3](#53-elements)'s |
 
@@ -140,19 +129,43 @@ fastest, then the row, then the section.
 | 0 | INT8 | `int8` | 1 |
 | 1 | INT16 | `int16` | 2 |
 | 2 | FLOAT32 | `float32` | 4 |
+| 3 | COMPLEX_INT16 | `struct` of `real` and `imag`, each `int16` | 4 |
 | 4 | COMPLEX64 | `complex64` | 8 |
 | 6 | UINT16 | `uint16` | 2 |
 | 12 | FLOAT16 | `float16` | 2 |
+| 101 | INT4 | `uint8`, packed | ½, each row starting on a byte |
 
-Mode 0 is signed, as the MRC2014 standard says, except in a file IMOD
-marks as unsigned: when `mode` is 0, the `i32` at byte 152 (in the file's
-byte order; the 41st byte of `extra2`) is 1146047817 (IMOD's stamp, `IMOD`
-as a little-endian integer) and bit 0 of the `i32` at byte 156 (IMOD's
-flags) is set, the data type is `uint8`, `b = 1`. Reading such a file as
-`int8` would make every value over 127 negative. (The other flag bits, and
-the stamp without the flag or the flag without the stamp, change nothing.)
+Mode 0 is `int8`, as the MRC2014 standard says, except in an IMOD file
+whose bytes are unsigned. When `mode` is 0 and the `i32` at byte 152 (in the
+file's byte order; the 41st byte of `extra2`) is 1146047817 (IMOD's stamp,
+`IMOD` as a little-endian integer), the data type is `int8` when either
+says the bytes are signed: bit 0 of the `i32` at byte 156 (IMOD's flags) is
+set ("1 = bytes are stored as signed (the default as of IMOD 4.9)"), or
+`nversion` is from 20140 up to, not including, 21000 ("the best way to
+indicate that a byte file is signed is simply to conform with the standard
+and set the NVERSION field"; both from
+[IMOD's MRC format](https://bio3d.colorado.edu/imod/doc/mrc_format.txt)).
+Otherwise the bytes are unsigned (IMOD's default before 4.9), and the data
+type is `uint8`, `b = 1`. Reading such a file as `int8` would make every
+value over 127 negative. IMOD's own test ends `nversion` at the current year
+plus 2; a fixed end keeps the output the same whenever a file is zarrified.
+(The other flag bits do not change the data type, and neither does the flag
+without the stamp; bit 2 is the origin's sign, [§4.2](#42-scales-units-and-position).)
 A `complex64` value is its real part, then its imaginary part, each a
 binary32 in the file's byte order.
+
+A mode 3 value is its real part, then its imaginary part, each an `int16` in the file's byte
+order. Zarr has no complex integer type, so the array's data type is zarr-extensions'
+[`struct`](https://github.com/zarr-developers/zarr-extensions/tree/main/data-types/struct) with the
+fields `real` and `imag`.
+
+A mode 101 value is 4 bits, unsigned: a row's first value is the low nibble of its first byte, its
+second the high nibble, and so on. A row of odd `nx` ends on a padding nibble, so that every row
+starts on a byte and has `⌈nx / 2⌉` bytes, and `B = ⌈nx / 2⌉ × ny × nz` ([§8.1](#81-header)).
+The order is zarr-extensions'
+[`packbits`](https://github.com/zarr-developers/zarr-extensions/tree/main/codecs/packbits), which is
+bit packing, not TIFF's run-length PackBits; the array decodes to one `uint8` a value, from 0 to
+15. SerialEM writes this mode for K2 and K3 frames.
 
 ## 4. The image
 
@@ -194,8 +207,8 @@ the volume's index in the stack, of type `time`; it is not the acquisition time.
 | `shape` | array of integer | required | `[ny, nx]`, `[nz, ny, nx]` or `[nz / mz, mz, ny, nx]`, in the axes' order |
 | `data_type` | string | required | from [§3](#3-data-types) |
 | `chunk_grid` | object | required | regular, the chunk shape that [conventions §7](../conventions.md#7-source-values-as-arrays) gives (**Chunks**, below) |
-| `fill_value` | number or array of number | required | 0, or `[0, 0]` for `complex64` |
-| `codecs` | array of object | required | `[{"name": "bytes", "configuration": {"endian": E}}]`, `E` the file's byte order, or `[{"name": "bytes"}]` for a one-byte data type (`int8`, and IMOD's `uint8`). There is no transpose: the stored order is the array's |
+| `fill_value` | number, array of number or object | required | 0, `[0, 0]` for `complex64`, or `{"real": 0, "imag": 0}` for mode 3 |
+| `codecs` | array of object | required | `[{"name": "bytes", "configuration": {"endian": E}}]`, `E` the file's byte order, or `[{"name": "bytes"}]` for a one-byte data type (`int8`, and IMOD's `uint8`); for mode 101, `[{"name": "packbits", "configuration": {"padding_encoding": "none", "last_bit": 3}}]`. There is no transpose: the stored order is the array's |
 | `dimension_names` | array of string | required | the axes |
 | `attributes` | object | required | `{}` ([§1](#1-declaration)) |
 
@@ -212,6 +225,13 @@ For example, a `256 × 128` int16 stack of 20 sections (the fixture
 floor(2^20 / 65536)) = 2` chunks of 10 sections each, the chunk shape
 `[10, 128, 256]`. A `1000 × 1100` int8 image of 1100000 bytes, over `L`, is
 cut along its rows into 2 chunks of 550 rows, `[550, 1000]`.
+
+**Chunks of mode 101.** The values are cut with elements of one byte, the same limit, as the
+safetensors profile cuts a packed tensor ([safetensors.md §8.3](safetensors.md#83-chunks)): when
+`nx` is even and each chunk's first value is the first of a byte, each chunk of values `[s, s + m)`
+is the bytes `[v + s / 2, v + (s + m) / 2)`, padded with zero bytes to the whole chunk's. Otherwise,
+as for an odd `nx`, whose rows are not one run of bits, there is one chunk per row, its chunk shape
+1 along every axis but the columns', each the row's `⌈nx / 2⌉` bytes.
 
 ### 4.2 Scales, units and position
 
@@ -235,17 +255,46 @@ An axis without a valid voxel size has no voxel size.
 
 **Translation.** For a volume or a volume stack (`ispg` not 0), when the
 three `origin` values are finite and at least one is not 0, the image has a
-translation ([conventions §5](../conventions.md#5-units)): `origin[0]` for
-`x`, `origin[1]` for `y`, `origin[2]` for `z`, and 0 for `t` (each only for
-the axes present). Otherwise it has none: an image's or an image stack's
+translation ([conventions §5](../conventions.md#5-units)): the position of
+the first value, `p[0]` for `x`, `p[1]` for `y`, `p[2]` for `z`, and 0 for `t`
+(each only for the axes present). Otherwise it has none: an image's or an image stack's
 `origin` is a phase origin in pixels, not a position, and `nxstart`,
 `nystart` and `nzstart`, which crystallographic writers use to place a map
 in its unit cell, are not applied ([§7](#7-what-the-layout-does-not-express)); all are in `header`.
 
+**The origin's sign.** The position `p` is `origin`, each 0 written `0` and
+not `-0`, except in a file whose origin has IMOD's sign, where it is
+`-origin`. A file's origin has IMOD's sign when all of these hold:
+
+- the `i32` at byte 152 is IMOD's stamp ([§3](#3-data-types));
+- bit 2 (the value 4) of the `i32` at byte 156, IMOD's flags, is clear;
+- `nversion` is not a standard version, from 20140 up to, not including, 21000
+  ([§3](#3-data-types)).
+
+| stamp | bit 2 | `nversion` | `p` | who writes it |
+|---|---|---|---|---|
+| yes | set | any | `origin` | IMOD since 4.11 |
+| yes | clear | not standard | `-origin` | IMOD before 4.11 |
+| yes | clear | standard | `origin` | other writers that keep IMOD's header words |
+| no | any | any | `origin` | every other writer |
+
+MRC2014 ([note 10](https://www.ccpem.ac.uk/mrc_format/mrc2014.php)) gives the
+position of a subvolume's first pixel in its parent: `origin` is 100, 120 for a
+subvolume cut 100 and 120 in. IMOD defines it the other way, as the position
+of the parent's origin relative to the first pixel, so that a subvolume has
+negative values, and bit 2 says a file is stored with that sign inverted
+([IMOD's MRC format](https://bio3d.colorado.edu/imod/doc/mrc_format.txt)).
+The first three rows are what IMOD's own reader does, in `mrc_head_read`. It
+reads a standard `nversion` with bit 2 clear as the standard's, since IMOD
+writes that version only with bit 2 set.
+The last row departs from IMOD's reader, which gives a file without the stamp
+and without a standard version IMOD's sign. That file may be from any writer,
+and UCSF ChimeraX, like MRC2014, reads it as stored.
+
 ### 4.3 Channels
 
 `M` has an `"omero"` member, an [`Omero`](../conventions.md#type-omero), when the data type is
-not `complex64`, and `dmin` and `dmax` are finite with `dmax > dmin`, and in no other case:
+not `complex64` or a mode 3 `struct`, and `dmin` and `dmax` are finite with `dmax > dmin`, and in no other case:
 `{"channels": [{"label": "C0", "color": "FFFFFF", "active": true, "window":
 {"min": dmin, "max": dmax, "start": dmin, "end": dmax}}]}`, one channel
 (an [`OmeroChannel`](../conventions.md#type-omerochannel)) whatever the kind of file.
@@ -266,10 +315,11 @@ Everything the file holds is on `refkv_source`, the file's **IR mirror**
 |---|---|---|---|
 | `byte_order` | string | required | `"little"` or `"big"` |
 | `kind` | string | required | `"image"`, `"image_stack"`, `"volume"` or `"volume_stack"` ([§4.1](#41-the-array)) |
-| `data_type` | string | required | the Zarr data type of [§3](#3-data-types) (`uint8` for a mode 0 file IMOD marks as unsigned) |
+| `data_type` | string | required | the Zarr data type of [§3](#3-data-types) (`uint8` for a mode 0 file that [§3](#3-data-types) reads as unsigned, and for mode 101) |
 | `header` | [`MrcHeader`](#type-mrcheader) | required | every field of the header |
 | `axis_map` | [`MrcAxisMap`](#type-mrcaxismap) | required | whether the axis map named the axes ([§4.1](#41-the-array)) |
 | `voxel_size` | [`MrcVoxelSize`](#type-mrcvoxelsize) | optional | the voxel size in angstroms ([§4.2](#42-scales-units-and-position)), present when every axis has one |
+| `gzip` | [`MrcGzip`](#type-mrcgzip) | optional | present when the file is gzipped whole ([§8.4](#84-gzipped-files)) |
 
 <a id="type-mrcheader"></a>**`MrcHeader`**: an object with one member per field of
 [§2](#2-the-header), in its order and named as there, whose type is the field's (the first row
@@ -335,8 +385,12 @@ Paths are relative to the IR's root, whose path is `""`
 | `""` | struct | | the root: the whole file, `(0, size)` |
 | `header` | value | record | `(0, 1024)`: the header as one record, a field per field of [§2](#2-the-header) in its order and named as there: `Ei4` or `Ef4` for its type (`[k]` for `T[k]`), `u1[4]` for `machst`, `bytes[k]` for `bytes[k]`, `cstr[k]` for `char[k]`, and `{text:cstr[80]}[10]` for `label` |
 | `extended` | value | `bytes[n]` | `(1024, n)`, when `n > 0`: the extended header, opaque |
-| `data` | data | | `(1024 + n, B)`, `B = nx × ny × nz × b`: the data; its form's geometry is `{"data_type": D, "samples": 1}` ([§3](#3-data-types)), its codec `{"endian": "little" \| "big"}`, and its recipe `[["src", 0, null]]` |
+| `data` | data | | `(1024 + n, B)`, `B` the data's size ([§8.1](#81-header)): the data; its form's geometry is `{"data_type": D, "samples": 1}`, with `"bits": 4` for mode 101 ([§3](#3-data-types)), its codec `{"endian": "little" \| "big"}`, and its recipe `[["src", 0, null]]` |
 | `gaps/<offset>` | gap | | bytes no other element claims: those after the data |
+
+A file gzipped whole ([§8.4](#84-gzipped-files)) has one element beside the root: `data`, of extent
+`(0, size)`, the gzip stream, its codec `{"encoding": "gzip", "endian": "little" \| "big", "skip":
+1024 + n}`. The file's bytes do not show the header, so `MrcRoot` is all that holds it.
 
 The view ([conventions §8.7](../conventions.md#87-the-view)) shows the header;
 the extended header, opaque bytes, is not shown, and a zarrifier never
@@ -441,7 +495,9 @@ reader that needs them must read them there.
   hierarchy has one translation; the layout applies `origin` for volumes
   only ([§4.2](#42-scales-units-and-position)), as MRC2014 directs for EM
   data, and applies the starts never. A map that an older writer placed by
-  its starts alone is shown at the origin.
+  its starts alone is shown at the origin. A file IMOD wrote before it had
+  a stamp, whose origin has IMOD's sign and nothing to say so, is placed on
+  the other side of its first pixel ([§4.2](#42-scales-units-and-position)).
 - **What a stack's index means**. The sections of an image stack (`ispg`
   0) are independent images, such as micrographs, a tilt series or
   particles, and the volumes of a volume stack are independent volumes; the
@@ -455,8 +511,11 @@ reader that needs them must read them there.
 - **An image's phase origin** (`origin` with `ispg` 0), in pixels: not a
   position.
 - **The statistics** `dmean` and `rms`, the labels, the format version
-  `nversion`, and the extra space (IMOD's own fields among them, except the
-  unsigned-byte flag, [§3](#3-data-types)).
+  `nversion` (except that it can decide a mode 0 file's data type,
+  [§3](#3-data-types), and the origin's sign,
+  [§4.2](#42-scales-units-and-position)), and the extra space (IMOD's own
+  fields among them, except the signed-byte flag, [§3](#3-data-types), and
+  the origin's sign, [§4.2](#42-scales-units-and-position)).
 - **Half-complex transforms**. A mode 4 file is usually a Fourier transform
   of a real volume holding half the spectrum (`nx = N / 2 + 1`); the layout
   gives the data type, `complex64`, not the meaning.
@@ -485,20 +544,19 @@ the fourth byte of `map`, a space or a NUL, are not checked.)
 order:
 
 - **Dimensions:** `nx`, `ny` and `nz` are each at least 1.
-- **Mode:** `mode` is in the table of [the convention §3](#3-data-types).
-  Modes 3 (complex int16) and 101 (4-bit) are named in the rejection; any
+- **Mode:** `mode` is in the table of [the convention §3](#3-data-types); any
   other value is unknown.
 - **Extended header:** `nsymbt` is not negative, and `1024 + nsymbt` is at
   most the file's size.
 - **Volume stack:** if `ispg ≥ 401`, `mz` is at least 1 and divides `nz`.
-- **Data size:** `B = nx × ny × nz × b` computed exactly is at most
+- **Data size:** `B = nx × ny × nz × b` (for mode 101, `⌈nx / 2⌉ × ny × nz`) computed exactly is at most
   2^53 − 1, and `1024 + nsymbt + B` is at most the file's size.
 
 Every check applies whatever the other fields hold. No other field is
 checked: the values the layout uses ([the convention §4](#4-the-image)) only change the
-output as the convention says, and never reject the input. A gzipped map
-(`.map.gz`), a file whose `map` field is not `MAP`, and a file shorter
-than 212 bytes are rejected by [§1.2](../zarrify.md#12-input).
+output as the convention says, and never reject the input. A file whose `map` field is not `MAP`,
+and a file shorter than 212 bytes, are rejected by [§1.2](../zarrify.md#12-input). A gzipped map
+is read as [§8.4](#84-gzipped-files) says.
 
 **The extended header** is described ([the convention §5.3](#53-elements))
 and never read: the data starts at `1024 + nsymbt` whatever it holds.
@@ -566,3 +624,59 @@ summary, with these members:
 | `extendedHeader` | `nsymbt` |
 | `extendedType` | `exttyp` as text |
 | `layouts` | `["dataset"]`, or `[]` without the dataset layout |
+| `gzip` | `true`, when the file is gzipped whole; otherwise absent |
+
+### 8.4 Gzipped files
+
+A file gzipped whole is one gzip member (RFC 1952) that holds an MRC file, as the EMDB distributes
+its maps (`.map.gz`). This profile reads it ([spec/zarrify.md §1.2](../zarrify.md#12-input),
+**Choosing the profile**: the signature of [§8.1](#81-header) holds of what the file's first bytes
+inflate to). **`S`** is the stream, those bytes the member holds. Every check of [§8.1](#81-header)
+is made of `S` as of a file, but that nothing bounds `1024 + nsymbt + B` but the trailer's check
+below, and a file is too short when `S` is.
+
+**Reads.** The file's first bytes, doubling from 64 KiB up to 16 MiB until they inflate to the
+first 1024 bytes of `S`, and the last 4 bytes of the file, its trailer's `ISIZE`. A stream whose
+start holds less than that is taken to end where it stops. No other byte is inflated: the
+extended header is not read, as [§5.3](#53-elements) says.
+
+**The trailer.** The input is rejected when `ISIZE`, the stream's size modulo 2^32, is not `(1024 +
+nsymbt + B) mod 2^32`: `the gzip trailer records a stream of <ISIZE> bytes modulo 2^32, not the
+<1024 + nsymbt + B> of the header and the data: bytes after the data, or a file of several gzip
+members, which a chunk cannot decode`. A `bytes` codec refuses a chunk of another length than the
+array's, and several members are what `bgzip` writes: its last trailer records its last block's
+size.
+
+**A packed mode.** The input is rejected when the mode is packed ([§3](#3-data-types)) and `nx × bits`
+is not a multiple of 8: `a gzipped file of <bits>-bit values and odd nx = <nx>, whose rows each start
+on a byte, which one chunk cannot decode`. The rows of such a file are not one run of bits, and the
+stream cannot be cut into the rows [§4.1](#41-the-array) would give it.
+
+**The array** is `V` as [§4.1](#41-the-array) says, in **one chunk of the whole array**: its chunk
+shape is the array's shape, and its codecs are `bytes` (`packbits` for a packed mode,
+[§4.1](#41-the-array)), then:
+
+| codec | when |
+|---|---|
+| `{"name": "refkv.skip", "configuration": {"length": k}}` | always: `k = 1024 + nsymbt`. It passes over the header and the extended header |
+| `{"name": "gzip", "configuration": {"level": 6}}` | always: its level, which decoding ignores, is written as refkv writes its own gzip chunks' |
+
+The dataset layout's data variable has the same codecs and the same chunk.
+
+<a id="type-mrcgzipchunk"></a>**`MrcGzipChunk`**, the array's one chunk, `0/c/0/.../0`:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the stream | source range `(0, 0, size)` | required | the whole file, which the `gzip` codec decodes |
+
+<a id="type-mrcgzip"></a>**`MrcGzip`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `skip` | integer | required | `1024 + nsymbt` |
+
+**The cost is reads.** Nothing is copied and every value is exact, but the chunk is coarse: a
+gzip stream has no index, so a reader inflates the whole stream to read any value, even one slice,
+holds the whole array in memory to do so, and reads it with no concurrency. Zarrifying stays cheap,
+since only the start of the stream is inflated. A reader that needs random access to a large
+volume should decompress the file once and zarrify that, which gives chunks of at most 1 MiB.

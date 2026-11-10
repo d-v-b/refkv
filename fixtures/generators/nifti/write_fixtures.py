@@ -15,6 +15,7 @@ Usage: uv run python fixtures/generators/nifti/write_fixtures.py
 
 from __future__ import annotations
 
+import gzip
 import math
 import struct
 from pathlib import Path
@@ -46,6 +47,7 @@ MAGIC = {1: b"n+1\0", 2: b"n+2\0\r\n\x1a\n"}
 TYPES = {
     2: ("u1", 8), 4: ("i2", 16), 8: ("i4", 32), 16: ("f4", 32), 64: ("f8", 64), 256: ("i1", 8),
     512: ("u2", 16), 768: ("u4", 32), 1024: ("i8", 64), 1280: ("u8", 64), 128: ("u1", 24), 2304: ("u1", 32),
+    32: ("c8", 64), 1792: ("c16", 128),
 }
 AXIS_ALIGNED = [2.0, 0, 0, -10.5, 0, 3.0, 0, 20.25, 0, 0, 4.0, 7.0]
 
@@ -56,6 +58,8 @@ def voxels(shape, datatype: int, order: str, seed: int) -> bytes:
     samples = bitpix // 8 if datatype in (128, 2304) else 1
     count = math.prod(shape) * samples
     values = (np.arange(count, dtype=np.int64) * 7 + seed) % 251 - (0 if np_type[0] == "u" else 100)
+    if np_type[0] == "c":  # a real and an imaginary part that differ, so that swapping them shows
+        return (values + 0.5j * (values + 1)).astype(order + np_type).tobytes()
     return np.asarray(values).astype(order + np_type).tobytes()
 
 
@@ -94,6 +98,84 @@ def nifti(name: str, dims, datatype: int = 2, *, version: int = 1, order: str = 
     (OUT / f"{name}.nii").write_bytes(content[: len(content) - truncate])
 
 
+def pair(name: str, dims, datatype: int = 2, *, version: int = 1, stem_case=str.lower, prefix: bytes = b"",
+         bare: bool = False, short: int = 0, image: bool = True, **fields) -> None:
+    """A header-and-image pair (spec/zarrify/nifti.md §7.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#75-header-and-image-pairs>): `nifti`'s file with
+    the pair's magic, split into its header file and its image file, `prefix` before the voxels; `bare`: with no
+    extender, as a header file may end at its header."""
+    n = dims[0]
+    size = math.prod(dims[1 : n + 1]) * TYPES[datatype][1] // 8
+    fields.setdefault("vox_offset", len(prefix))
+    nifti(name, dims, datatype, version=version, magic={1: b"ni1\0", 2: b"ni2\0\r\n\x1a\n"}[version], **fields)
+    path = OUT / f"{name}.nii"
+    content = path.read_bytes()
+    path.unlink()
+    head, voxels = content[: len(content) - size], content[len(content) - size :]
+    (OUT / f"{name}.{stem_case('hdr')}").write_bytes(head[: LENGTHS[version]] if bare else head)
+    if image:
+        whole = prefix + voxels
+        (OUT / f"{name}.{stem_case('img')}").write_bytes(whole[: len(whole) - short])
+
+
+def pairs() -> None:
+    """Header-and-image pairs: NIfTI-1 and NIfTI-2, in both byte orders; a header file that ends at its header, one
+    with extensions, in upper case, and an image file whose voxels do not start it; an edge chunk the
+    projection pads; and the inputs the profile rejects."""
+    pair("nifti_pair_n1_le_int16", [3, 5, 4, 3], 4, pixdim=[1, 2.0, 3.0, 4.0, 1, 1, 1, 1], sform_code=2,
+         srow=AXIS_ALIGNED)
+    pair("nifti_pair_n1_be_bare", [4, 4, 3, 2, 2], 4, order=">", bare=True, scl_slope=0.5, scl_inter=-20.0)
+    pair("nifti_pair_n2_le_ext_5d", [5, 3, 2, 2, 2, 3], 16, version=2, extension=b"a comment in the header file")
+    pair("nifti_pair_n2_be_rgb24", [3, 3, 2, 2], 128, version=2, order=">")
+    pair("nifti_pair_n1_le_offset", [3, 3, 2, 2], 512, prefix=bytes(range(16)))
+    pair("nifti_pair_n1_le_complex64", [3, 4, 3, 2], 32)
+    pair("nifti_pair_upper", [3, 3, 2, 2], 2, stem_case=str.upper)
+    pair("nifti_pair_edge_chunk", [2, 65537, 2], 2, version=2)
+    rng = np.random.default_rng(2)
+    nib.Nifti1Pair(rng.integers(0, 255, (6, 5, 4), dtype=np.uint8), np.diag([0.5, 0.75, 1.25, 1.0])).to_filename(
+        OUT / "nifti_pair_nibabel.img")
+    pair("nifti_reject_pair_no_image", [3, 3, 2, 2], 2, image=False)
+    pair("nifti_reject_pair_image_short", [3, 3, 2, 2], 4, short=1)
+    pair("nifti_reject_pair_vox_negative", [3, 3, 2, 2], 2, vox_offset=-16.0)
+
+
+def member(data: bytes, name: bytes = b"") -> bytes:
+    """`data` as one gzip member, of no time, with the original file's name when given (as gzip
+    writes one), its OS byte at 255, "unknown": zlib writes its build's OS code there, so that
+    fixtures would differ between platforms."""
+    plain = gzip.compress(data, compresslevel=6, mtime=0)
+    if not name:
+        return plain[:9] + b"\xff" + plain[10:]
+    return plain[:3] + b"\x08" + plain[4:9] + b"\xff" + name + b"\0" + plain[10:]
+
+
+def gzipped(name: str, dims, datatype: int = 2, *, stream=None, wrap=member, **fields) -> None:
+    """A NIfTI file gzipped whole, `<name>.nii.gz`: `nifti`'s file, through `stream` when given
+    (what the gzip stream holds, of the file's bytes), then `wrap`."""
+    nifti(name, dims, datatype, **fields)
+    path = OUT / f"{name}.nii"
+    content = path.read_bytes()
+    path.unlink()
+    (OUT / f"{name}.nii.gz").write_bytes(wrap(stream(content) if stream else content))
+
+
+def gzip_files() -> None:
+    """Files gzipped whole (spec/zarrify/nifti.md §7.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#74-gzipped-files>): with the
+    original file's name in the member, as gzip writes one; a chain of extensions; a transposed
+    array in a padded file; and the streams a chunk cannot decode."""
+    gzipped("nifti_gzip_n1_le_int16_named", [3, 5, 4, 3], 4, pixdim=[1, 2.0, 3.0, 4.0, 1, 1, 1, 1],
+            sform_code=2, srow=AXIS_ALIGNED, wrap=lambda b: member(b, b"t1w.nii"))
+    gzipped("nifti_gzip_n1_be_ext", [4, 4, 3, 2, 2], 4, order=">", extension=b"a comment in the stream",
+            scl_slope=0.5, scl_inter=-20.0, cal_min=-30.0, cal_max=10.0)
+    gzipped("nifti_gzip_n2_le_5d_padded", [5, 3, 2, 2, 2, 3], 16, version=2, vox_offset=1024, cal_min=0.0, cal_max=9.0)
+    gzipped("nifti_gzip_n2_be_rgb24", [3, 3, 2, 2], 128, version=2, order=">")
+    gzipped("nifti_gzip_n1_le_complex64", [3, 4, 3, 2], 32)
+    gzipped("nifti_reject_gzip_trailing", [3, 3, 2, 2], 2, stream=lambda b: b + b"TRAILER!")
+    gzipped("nifti_reject_gzip_members", [3, 3, 2, 2], 2, wrap=lambda b: member(b[:400]) + member(b[400:]))
+    gzipped("nifti_reject_gzip_header_cut", [3, 3, 2, 2], 2, stream=lambda b: b[:350])
+
+
 def quaternion_b(radians: float) -> list[float]:
     """A rotation about x: quatern_b, c, d."""
     return [math.sin(radians / 2), 0.0, 0.0]
@@ -123,7 +205,8 @@ def by_nibabel() -> None:
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    for p in OUT.glob("*.nii"):
+    for p in [*OUT.glob("*.nii"), *OUT.glob("*.nii.gz"), *OUT.glob("*.hdr"), *OUT.glob("*.HDR"), *OUT.glob("*.img"),
+              *OUT.glob("*.IMG")]:
         p.unlink()
     by_nibabel()
 
@@ -146,6 +229,11 @@ def main() -> None:
     nifti("nifti_n2_be_rgba32", [3, 3, 2, 2], 2304, version=2, order=">")
     nifti("nifti_n1_be_rgb24_4d", [4, 2, 3, 2, 2], 128, order=">", cal_min=0.0, cal_max=100.0, scl_slope=3.0)
     nifti("nifti_n1_le_rgba32_2d", [2, 3, 2], 2304, extension=b"an extension before the voxels")
+    # Complex: both widths, both byte orders; a display range, which a complex type does not use.
+    nifti("nifti_n1_le_complex64", [3, 4, 3, 2], 32, xyzt_units=2, cal_min=-5.0, cal_max=5.0)
+    nifti("nifti_n1_be_complex64_4d", [4, 3, 2, 2, 3], 32, order=">", scl_slope=2.0, scl_inter=1.0)
+    nifti("nifti_n2_le_complex128_5d", [5, 2, 2, 2, 2, 2], 1792, version=2)
+    nifti("nifti_n2_be_complex128", [3, 4, 3, 2], 1792, version=2, order=">")
 
     # Every other data type.
     for datatype, name in [(256, "int8"), (8, "int32"), (768, "uint32"), (1024, "int64"), (1280, "uint64"),
@@ -193,7 +281,7 @@ def main() -> None:
     nifti("nifti_reject_n2_dim_huge", [3, 2**53, 1, 1], 2, version=2, data=b"\0" * 12)
     nifti("nifti_reject_dim6", [6, 3, 2, 1, 1, 1, 2], 2)
     nifti("nifti_reject_dim7", [7, 3, 2, 1, 1, 1, 1, 2], 2)
-    nifti("nifti_reject_complex64", [3, 3, 2, 2], 32, bitpix=64, data=b"\0" * 96)
+    nifti("nifti_reject_complex256", [3, 3, 2, 2], 2048, bitpix=256, data=b"\0" * 384)
     nifti("nifti_reject_float128", [3, 3, 2, 2], 1536, bitpix=128, data=b"\0" * 192)
     nifti("nifti_reject_binary", [3, 8, 2, 2], 1, bitpix=1, data=b"\0" * 4)
     nifti("nifti_reject_datatype_unknown", [3, 3, 2, 2], 3, bitpix=8, data=b"\0" * 12)
@@ -356,6 +444,8 @@ def packed_extensions() -> None:
 
 if __name__ == "__main__":
     main()
+    pairs()
+    gzip_files()
     reconstruction()
     blocks_and_regions()
     chunks_and_extensions()

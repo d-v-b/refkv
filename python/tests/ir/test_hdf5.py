@@ -9,18 +9,25 @@ import json
 import math
 import warnings
 
+import h5netcdf
 import h5py
+import hdf5plugin  # noqa: F401  (h5py reads the fixtures' third-party filters through it)
 import numpy as np
 import pytest
+import xarray as xr
 import zarr
 from hdmf_zarr.nwb import NWBZarrIO
 from ir_helpers import FIXTURES
 from pynwb import NWBHDF5IO
+from virtualizarr.manifests import ChunkManifest, ManifestArray, ManifestGroup
+from zarr.core.metadata import ArrayV3Metadata
 
 import refkv.zarr
 from refkv._narrow import mapping, number, sequence
+from refkv.ir import sniff
 from refkv.zarrify import zarrify
 
+USER_BLOCKS = {"hdf5_user_block_512.h5": 512, "hdf5_user_block_1024.h5": 1024, "hdf5_user_block_4096.h5": 4096}
 ACCEPTED = sorted(p for p in (FIXTURES / "hdf5").iterdir() if p.suffix in (".h5", ".nwb") and "reject" not in p.name)
 
 # the objects each fixture holds that the hierarchy does not present, by path, with the reason
@@ -29,7 +36,16 @@ UNPRESENTED = {
                            "refkv_source": "reserved"},
     "hdf5_compounds.h5": {"gap": "datatype", "mixed_order": "datatype"},
     "hdf5_layouts.h5": {"external": "external_storage", "null": "null_dataspace", "virtual": "layout"},
-    "hdf5_filters.h5": {"fletcher32": "filter", "lzf": "filter"},
+    "hdf5_external.h5": {"absent_file": "external_storage", "past_the_end": "external_storage",
+                         "linked_references": "external_reference",
+                         "linked_group/references": "external_reference"},
+    "hdf5_masks.h5": {
+        "bitshuffle_skipped": "filter_mask",
+        "deflate_skipped_short": "filter_mask",
+        "shuffle_skipped": "filter_mask",
+    },
+    "hdf5_third_party.h5": {"bitshuffle_zstd": "filter", "strings_lz4": "filter"},
+    "hdf5_netcdf4.h5": {"depth": "dimension_only", "x": "dimension_only"},
     "hdf5_links_earliest.h5": {"region": "datatype"},
     "hdf5_links_latest.h5": {"region": "datatype"},
 }
@@ -88,7 +104,8 @@ def same_records(f: h5py.File, want: np.ndarray, got: np.ndarray) -> bool:
 
 
 @pytest.mark.parametrize("path", ACCEPTED, ids=lambda p: p.name)
-def test_datasets_are_what_h5py_reads(path):
+def test_datasets_are_what_h5py_reads(path, monkeypatch):
+    monkeypatch.chdir(path.parent)  # HDF5 finds external storage from the working directory
     root, info = opened(path)
     assert info["format"] == "hdf5"
     assert unpresented(root) == UNPRESENTED.get(path.name, {})
@@ -132,7 +149,7 @@ def test_attributes_and_links_are_hdmf_zarr_members():
     names = ("int", "uint64_big", "float", "array", "text", "texts", "fixed", "latin1", "bool", "empty",
              "compound", "nan_text")
     assert {k: a[k] for k in names} == {
-        "int": -3, "uint64_big": str(2**63 + 5), "float": 0.1, "array": [[0, 1, 2], [3, 4, 5]],
+        "int": -3, "uint64_big": 2**63 + 5, "float": 0.1, "array": [[0, 1, 2], [3, 4, 5]],
         "text": "vlen text", "texts": ["a", "é", ""], "fixed": "fixed", "latin1": {"latin1": "café"}, "bool": True,
         "empty": None, "compound": {"i": 1, "f": 2.5}, "nan_text": "NaN"}
     assert own(opened(FIXTURES / "hdf5" / "hdf5_attributes.h5")[0]["attrs"])["unpresented_attributes"] == {
@@ -165,6 +182,32 @@ def test_float_attributes_read_as_h5py_reads_them():
             assert all(same(g, w) for g, w in zip(got, np.ravel(want[name]).astype(float).tolist(), strict=True)), name
         assert a["compound_inf"] == {"f": math.inf, "s": "NaN"} == {"f": float(want["compound_inf"]["f"]), "s": "NaN"}
     assert a["nan_text"] == "NaN"
+
+
+def test_fill_values_past_2_to_the_53_are_exact_json_integers():
+    """An integer fill value past 2^53 in magnitude, of the data type or of an enumeration's base
+    or a compound's member, is a JSON integer, exact, as Zarr v3 writes it (spec/zarrify/hdf5.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>); h5py reads the
+    unallocated chunks as it (test_datasets_are_what_h5py_reads)."""
+    store = zarrify(str(FIXTURES / "hdf5" / "hdf5_big_fills.h5"))
+    fills = {name: mapping(json.loads(store.get(f"{name}/zarr.json") or b"{}"))["fill_value"]
+             for name in ("int64", "enum_u64", "compound")}
+    assert fills == {"int64": -(2**60), "enum_u64": 2**60, "compound": {"i": 2**60, "f": 1.5}}
+
+
+def test_a_netcdf_fill_value_is_xarray_s_integer():
+    """A `_FillValue` attribute of one integer of an integer dataset is xarray's integer, exactly,
+    past 2^53 too, and one the dataset's type does not have (300 of a uint8 dataset), which xarray
+    reads as it is, where it refuses the attribute's list; and a float's integral value, every digit,
+    past 2^127 too (spec/zarrify/hdf5.md §6
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>)."""
+    float_max = int(np.finfo("<f4").max)  # 340282346638528859811704183484516925440
+    for name, key, want in [("hdf5_big_fills.h5", "int64", -(2**60)), ("hdf5_fill_out_of_range.h5", "uint8", 300),
+                            ("hdf5_fill_out_of_range.h5", "int32", float_max)]:
+        store = zarrify(str(FIXTURES / "hdf5" / name))
+        attrs = mapping(mapping(json.loads(store.get(f"{key}/zarr.json") or b"{}"))["attributes"])
+        assert attrs["_FillValue"] == want, name
+        assert type(attrs["_FillValue"]) is int, name  # every digit, not a float's notation
 
 
 @pytest.mark.parametrize("path", [p for p in ACCEPTED if p.suffix == ".nwb"], ids=lambda p: p.name)
@@ -223,3 +266,192 @@ def test_the_summary_names_an_nwb_file():
 def test_an_imaris_file_is_the_ims_profiles():
     _, info = opened(FIXTURES / "ims" / "ims_earliest_uint16_deflate.ims")
     assert info["format"] == "ims"
+
+
+def test_external_links_and_storage_read_as_h5py_reads_them(monkeypatch):
+    path = FIXTURES / "hdf5" / "hdf5_external.h5"
+    monkeypatch.chdir(path.parent)  # HDF5 finds external storage from the working directory
+    root, _ = opened(path)
+    assert own(root)["siblings"] == ["hdf5_external_a.bin", "hdf5_external_b.bin", "hdf5_external_target.h5"]
+    with h5py.File(path, "r") as f:
+        for name in ("own", "spread", "linked_dataset", "linked_group/chunked"):
+            assert np.array_equal(root[name][()], f[name][()]), name  # pyrefly: ignore
+        assert [root["linked_group/strings"][i] for i in range(2)] == ["one", "two"]  # pyrefly: ignore
+    assert own(root["linked_group"])["external"] == {"file": "hdf5_external_target.h5", "path": "/g"}
+    assert own(root["spread"])["external_storage"][1][0] == "hdf5_external_b.bin"
+
+
+def test_what_a_linked_file_cannot_give_stays_recorded():
+    root, _ = opened(FIXTURES / "hdf5" / "hdf5_external.h5")
+    linked = {link["name"] for link in own(root)["external_links"]}
+    assert {"dangling", "absolute", "not_hdf5", "no_target"} <= linked
+    for name in ("dangling", "absolute", "not_hdf5", "no_target"):
+        assert name not in root
+
+
+def test_a_linked_file_follows_no_further():
+    root, _ = opened(FIXTURES / "hdf5" / "hdf5_external.h5")
+    group = root["linked_group"]
+    assert "far" not in group
+    assert [link["name"] for link in own(group)["external_links"]] == ["far"]
+    assert own(group)["unpresented_attributes"]["self"] == "external_reference"
+
+
+def test_a_file_that_names_no_sibling_stays_a_file_input():
+    assert "siblings" not in own(opened(FIXTURES / "hdf5" / "hdf5_numbers.h5")[0])
+
+
+@pytest.mark.parametrize(("name", "size"), USER_BLOCKS.items())
+def test_a_user_block_is_recorded_and_its_file_sniffed(name, size):
+    path = FIXTURES / "hdf5" / name
+    root, _ = opened(path)
+    assert own(root)["user_block"] == size
+    head = path.read_bytes()
+    # the host's two reads: a superblock past the first takes the second
+    assert sniff(head[:552]) == ("hdf5" if size == 512 else None)
+    assert sniff(head[:65600]) == "hdf5"
+
+
+def test_a_file_without_a_user_block_records_none():
+    root, _ = opened(FIXTURES / "hdf5" / "hdf5_numbers.h5")
+    assert "user_block" not in own(root)
+
+
+def test_a_netcdf4_file_reads_as_its_dimensions_and_coordinates():
+    path = FIXTURES / "hdf5" / "hdf5_netcdf4.h5"
+    store = refkv.zarr.store(zarrify(str(path)))
+    for group in (None, "inner"):
+        want = xr.open_dataset(path, engine="h5netcdf", group=group, decode_cf=False)
+        got = xr.open_zarr(store, group=group, consolidated=False, zarr_format=3, decode_cf=False)
+        renamed = {str(n): str(n).removeprefix("_nc4_non_coord_") for n in got.variables}
+        got = got.rename_vars(renamed)
+        assert set(got.variables) == set(want.variables)
+        assert set(got.indexes) == set(want.indexes)
+        for name, variable in want.variables.items():
+            assert got[name].dims[:variable.ndim] == variable.dims, name
+            if variable.dtype.kind != "S":
+                assert np.array_equal(got[name].values, variable.values), name
+                assert got[name].attrs.get("_FillValue") == variable.attrs.get("_FillValue"), name
+
+
+def test_a_netcdf4_file_decodes_as_xarray_decodes_it():
+    path = FIXTURES / "hdf5" / "hdf5_netcdf4.h5"
+    want = xr.open_dataset(path, engine="h5netcdf")
+    got = xr.open_zarr(refkv.zarr.store(zarrify(str(path))), consolidated=False, zarr_format=3)
+    for name in ("sst", "counts", "time"):
+        if name == "time":
+            assert np.array_equal(got[name].values, want[name].values), name
+        else:  # JSON keeps no float32, so that a scaled variable may decode as float64
+            assert np.allclose(got[name].values, want[name].values, equal_nan=True), name
+
+
+def test_a_netcdf4_dimension_without_a_variable_is_not_presented():
+    root, _ = opened(FIXTURES / "hdf5" / "hdf5_netcdf4.h5")
+    assert own(root)["unpresented"]["x"] == "dimension_only"
+    assert "x" not in root
+
+
+@pytest.mark.parametrize(("name", "want"), [
+    ("sst", ["time", "x"]),
+    ("time", ["time"]),
+    ("_nc4_non_coord_depth", ["time", "depth"]),
+    ("label", ["x", "string4"]),
+    ("inner/anomaly", ["time", "y"]),
+    ("inner/y", ["y"]),
+])
+def test_dimension_names_come_from_the_scales(name, want):
+    root, _ = opened(FIXTURES / "hdf5" / "hdf5_netcdf4.h5")
+    array = root[name]
+    assert isinstance(array, zarr.Array)
+    assert isinstance(array.metadata, ArrayV3Metadata)
+    assert list(array.metadata.dimension_names or []) == want
+
+
+# the accepted fixtures h5netcdf cannot open: a name or link h5py cannot resolve
+H5NETCDF_REFUSES = {"hdf5_attributes.h5", "hdf5_external.h5", "hdf5_external_target.h5",
+                    "hdf5_links_earliest.h5", "hdf5_links_latest.h5"}
+
+
+def groups(root: zarr.Group) -> list[tuple[str, zarr.Group]]:
+    """The hierarchy's groups but the IR mirror, by path."""
+    out, stack = [], [("", root)]
+    while stack:
+        path, g = stack.pop()
+        out.append((path, g))
+        stack.extend((f"{path}/{n}".lstrip("/"), c) for n, c in g.groups() if n != "refkv_source")
+    return out
+
+
+@pytest.mark.parametrize("path", [p for p in ACCEPTED if p.name not in H5NETCDF_REFUSES], ids=lambda p: p.name)
+def test_dimension_names_are_h5netcdfs(path):
+    """Every array has the dimension names h5netcdf gives its variable with phony_dims="sort",
+    then a fixed-length string's trailing axis."""
+    root, _ = opened(path)
+    with h5netcdf.File(path, "r", phony_dims="sort") as f:
+        stack = [f]
+        while stack:
+            g = stack.pop()
+            stack.extend(g.groups.values())
+            for v in g.variables.values():
+                name = v.name.lstrip("/")
+                if name in UNPRESENTED.get(path.name, {}) or name not in root:  # not presented, or a link
+                    continue
+                array = root[name]
+                assert isinstance(array, zarr.Array)
+                assert isinstance(array.metadata, ArrayV3Metadata)
+                want = [*v.dimensions, *([f"string{v.dtype.itemsize}"] if v.dtype.kind == "S" else [])]
+                assert list(array.metadata.dimension_names or []) == want, name
+
+
+def test_a_linked_dataset_is_numbered_in_the_linking_group(monkeypatch):
+    """What an external link reaches counts among the linking group's members, as h5netcdf counts
+    it (which refuses this file for its dangling links), presented or not: the root's lengths 4
+    (absent_file), 5, 3, 1 (linked_references) and 12, then the linked group's 6, 4, 1 (references)
+    and 2."""
+    path = FIXTURES / "hdf5" / "hdf5_external.h5"
+    monkeypatch.chdir(path.parent)
+    root, _ = opened(path)
+    want = {
+        "linked_dataset": ["phony_dim_1", "phony_dim_2"], "own": ["phony_dim_2"],
+        "spread": ["phony_dim_4", "phony_dim_0"], "linked_group/chunked": ["phony_dim_5", "phony_dim_6"],
+        "linked_group/strings": ["phony_dim_8"],
+    }
+    for name, names in want.items():
+        array = root[name]
+        assert isinstance(array.metadata, ArrayV3Metadata)
+        assert list(array.metadata.dimension_names or []) == names, name
+
+
+def test_unscaled_datasets_share_names_by_length_within_a_group():
+    root, _ = opened(FIXTURES / "hdf5" / "hdf5_phony_dims.h5")
+    want = {
+        "a": ["phony_dim_0", "phony_dim_1"], "b": ["phony_dim_1", "phony_dim_2"], "c": ["phony_dim_3"],
+        "text": ["phony_dim_0", "string4"], "z": ["phony_dim_4"], "g/d": ["phony_dim_5", "phony_dim_6"],
+        "g/e": ["phony_dim_6"], "g/h/f": ["phony_dim_7", "phony_dim_8"], "scaled/x": ["x"],
+        "scaled/u": ["x", "phony_dim_10"], "scaled/w": ["x"],
+    }
+    for name, names in want.items():
+        array = root[name]
+        assert isinstance(array.metadata, ArrayV3Metadata)
+        assert list(array.metadata.dimension_names or []) == names, name
+    assert isinstance(root["scalar"].metadata, ArrayV3Metadata)
+    assert root["scalar"].metadata.dimension_names is None
+
+
+@pytest.mark.parametrize("path", ACCEPTED, ids=lambda p: p.name)
+def test_every_array_is_a_variable_of_xarray_and_virtualizarr(path, monkeypatch):
+    """Each group opens as an xarray dataset whose variables are its arrays, by their dimension
+    names, and as a VirtualiZarr virtual dataset, whose variables need dimension names."""
+    monkeypatch.chdir(path.parent)
+    store = refkv.zarr.store(zarrify(str(path)))
+    for name, group in groups(zarr.open_group(store, mode="r")):
+        arrays = dict(group.arrays())
+        ds = xr.open_zarr(store, group=name or None, consolidated=False, zarr_format=3, decode_cf=False)
+        assert set(ds.variables) == set(arrays), name
+        manifests = {}
+        for k, array in arrays.items():
+            assert isinstance(array.metadata, ArrayV3Metadata)
+            assert ds[k].dims == tuple(array.metadata.dimension_names or ()), f"{name}/{k}"
+            empty = ChunkManifest(entries={}, shape=array.cdata_shape)
+            manifests[k] = ManifestArray(metadata=array.metadata, chunkmanifest=empty)
+        assert set(ManifestGroup(arrays=manifests, attributes={}).to_virtual_dataset().variables) == set(arrays), name

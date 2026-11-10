@@ -12,15 +12,7 @@ profile, [Part 2](#part-2-the-profile) below. The format is Teem's
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `23e0c600-8da6-40f1-81e7-ab246e948e88` ·
 Schema: [schema.json](nrrd/schema.json)
 
-Changed 2026-11-01, with no change to any output: the header file is read as a file read as a
-store, by the rules [spec/zarrify.md §1.8](../zarrify.md#18-files-read-as-stores) now states
-for the VSI, NRRD and GRIB profiles ([§8](#8-nrrd-profile)).
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), each chunk's composition in
-[`NrrdChunk`](#type-nrrdchunk) and [`NrrdGzipChunk`](#type-nrrdgzipchunk), and the output's
-sources in [§8.5](#85-chunks)'s table.
+Changes: [changes/nrrd/](changes/nrrd/), one file per change.
 
 Added 2026-10-25.
 
@@ -195,7 +187,7 @@ axes are the array's, in another order when the header's axes are not in the ord
 | `shape` | array of integer | required | each axis's size, in the array's order |
 | `data_type` | string | required | from [§3](#3-data-types-and-encodings) |
 | `chunk_grid` | object | required | regular. **Chunk shape:** for the raw encoding, `V` is cut as [conventions §7](../conventions.md#7-source-values-as-arrays) cuts contiguous values, with the chunk limit `L = 131072` (2^17) bytes, as the NIfTI convention cuts its voxels; the array's chunk shape is that chunk shape, each axis's size in the array's axis order. For the gzip encoding, it is the array's shape: one chunk ([§4.2](#42-the-gzip-encoding)) |
-| `codecs` | array of object | required | the codecs below ([conventions §3](../conventions.md#3-arrays)), in their order: `transpose` and `gzip` when their rows say, and always one `bytes` codec |
+| `codecs` | array of object | required | the codecs below ([conventions §3](../conventions.md#3-arrays)), in their order: `transpose`, `refkv.skip` and `gzip` when their rows say, and always one `bytes` codec |
 | `dimension_names` | array of string | required | the axes: `t`, `c`, `z`, `y`, `x`, each only when present (**Axes**, above) |
 | `attributes` | object | required | `{}` ([§1](#1-declaration)) |
 
@@ -206,6 +198,7 @@ Its codecs, in this order:
 | `{"name": "transpose", "configuration": {"order": [...]}}` | the axes of `V` are in another order than the array's: `order` is the index in the array's axes of each axis of `V`, in the order of `V` (`[1, 2, 0]` for an image whose axis 0 is a color axis, `c`, `y`, `x`) |
 | `{"name": "bytes", "configuration": {"endian": E}}` | the data type is larger than 1 byte: `E` is the `endian` field's (`"little"` or `"big"`) |
 | `{"name": "bytes"}` | the data type is 1 byte |
+| `{"name": "refkv.skip", "configuration": {"length": k}}` | the gzip encoding with a `byte skip` `k` above 0: the NRRD definition skips those bytes in the decompressed data |
 | `{"name": "gzip", "configuration": {"level": 1}}` | the gzip encoding: its level, which decoding ignores, is written as the `numcodecs.zlib` codec's is |
 
 **Chunks:** every chunk is present. The chunk with coords `q_a` along each axis `a` is the
@@ -230,13 +223,14 @@ that starts mid-stream from a given window. It takes the one form that keeps the
 is: **one chunk of the whole array**, a reference to the stream, which Zarr's `gzip` codec
 decodes.
 
-The trade-off: nothing is copied and every value is exact, but the chunk is coarse. A reader
+The cost is reads: nothing is copied and every value is exact, but the chunk is coarse. A reader
 decompresses the whole stream to read any value, holds the whole array in memory to do so, and
 reads it with no concurrency. This suits the inputs gzip NRRDs usually are (volumes of a few
 hundred megabytes at most, such as the IMPC's embryo scans); a reader that needs random access
 to a large volume should decompress it once and store it chunked. The profile does not decompress
 the stream, so a stream that does not decode to exactly `B` bytes (a damaged file, or one with
-other bytes after its gzip members) is not detected: reading its chunk fails.
+other bytes after its gzip members, or whose `byte skip` is wrong) is not detected: reading its
+chunk fails.
 
 The bzip2 encoding is rejected for the same reason and one more: bzip2's blocks are independent,
 but they too start at bit offsets that only a scan of the compressed data finds, and Zarr v3 has
@@ -515,8 +509,8 @@ is not checked, unless it is required.
   type is larger than 1 byte.
 - `sizes` is required: `n` integers from 1 to 2^53 − 1.
 - `line skip` is an integer from 0 to 2^53 − 1, and `byte skip` from −1 to 2^53 − 1. With the
-  gzip encoding, `byte skip` MUST be 0: the NRRD definition skips those bytes in the decompressed
-  data, which no Zarr codec does (and −1 is the raw encoding's alone).
+  gzip encoding, `byte skip` MUST NOT be −1: it counts back from the data's end, which only
+  decompressing can find.
 - `data file`: [§8.3](#83-the-data-file).
 - `space` and `space dimension` are not both present. `space` is one of the NRRD definition's
   spaces (in lower case: `right-anterior-superior` or `RAS`, ..., `3D-left-handed-time`), whose
@@ -567,7 +561,8 @@ the file ends first (`line skip <L> passes the end of <file>`), or when 2^24 byt
 
 **Byte skip.** The data starts at `D`: the start plus `byte skip`, or, for `byte skip` −1, at
 `size − B` of its file, `B` the raw data's bytes ([§3](#3-data-types-and-encodings)), so that the
-data ends at the file's end. The input is rejected unless all of these hold:
+data ends at the file's end. For the gzip encoding, `D` is the start: `byte skip` counts bytes
+of the decompressed data, which the `refkv.skip` codec passes over ([§4.1](#41-the-array)). The input is rejected unless all of these hold:
 
 - `B` is at most 2^53 − 1;
 - for the raw encoding, `D + B` is at most the file's size;

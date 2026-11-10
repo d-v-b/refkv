@@ -25,18 +25,6 @@
       "host": "not a file of any supported format"
     },
     {
-      "test": "fits_reject_gzip_file",
-      "input": "fits_reject_gzip_file.fits",
-      "message": "not a FITS file",
-      "host": "not a file of any supported format"
-    },
-    {
-      "test": "fits_reject_bzip2_file",
-      "input": "fits_reject_bzip2_file.fits",
-      "message": "not a FITS file",
-      "host": "not a file of any supported format"
-    },
-    {
       "test": "fits_reject_no_end",
       "input": "fits_reject_no_end.fits",
       "message": "HDU 0: no END card in the 5760 bytes from 0"
@@ -225,6 +213,52 @@
       "test": "fits_reject_tiles_out_of_order",
       "input": "fits_reject_tiles_out_of_order.fits",
       "message": "HDU 1: tile 1 at heap offset 0 starts before tile 0 ends"
+    },
+    {
+      "test": "fits_reject_gzip_not_fits",
+      "input": "fits_reject_gzip_not_fits.fits.gz",
+      "message": "not a FITS file",
+      "host": "not a file of any supported format"
+    },
+    {
+      "test": "fits_reject_bzip2_not_fits",
+      "input": "fits_reject_bzip2_not_fits.fits.bz2",
+      "message": "not a FITS file"
+    },
+    {
+      "test": "fits_reject_gzip_short",
+      "input": "fits_reject_gzip_short.fits.gz",
+      "message": "file too short for a 2880-byte FITS block"
+    },
+    {
+      "test": "fits_reject_gzip_cut",
+      "input": "fits_reject_gzip_cut.fits.gz",
+      "message": "the gzip stream does not decode"
+    },
+    {
+      "test": "fits_reject_bzip2_cut",
+      "input": "fits_reject_bzip2_cut.fits.bz2",
+      "message": "the bzip2 stream does not decode"
+    },
+    {
+      "test": "fits_reject_gzip_after",
+      "input": "fits_reject_gzip_after.fits.gz",
+      "message": "the gzip stream does not decode"
+    },
+    {
+      "test": "fits_reject_bzip2_after",
+      "input": "fits_reject_bzip2_after.fits.bz2",
+      "message": "the bzip2 stream does not decode"
+    },
+    {
+      "test": "fits_reject_gzip_tiles",
+      "input": "fits_reject_gzip_tiles.fits.gz",
+      "message": "HDU 1: a tile-compressed image in a compressed file: its tiles have no byte ranges to reference"
+    },
+    {
+      "test": "fits_reject_bzip2_tiles",
+      "input": "fits_reject_bzip2_tiles.fits.bz2",
+      "message": "HDU 1: a tile-compressed image in a compressed file: its tiles have no byte ranges to reference"
     }
   ]
 }

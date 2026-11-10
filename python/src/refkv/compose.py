@@ -68,7 +68,7 @@ from refkv.bounds import (
     parse_chunk_key,
 )
 from refkv.pb import Concat, Range, Reference, Source
-from refkv.policy import Policy, _scheme, crc32c
+from refkv.policy import Policy, crc32c
 from refkv.refstore import ReferenceStore
 from refkv.uri import resolve as resolve_reference
 from refkv.vzip.names import INDEX_KEY, RESERVED_PREFIX, SOURCES_KEY
@@ -572,10 +572,6 @@ def _registry_key(resolver: Resolver) -> tuple[object, ...]:
             tuple((s, n, p, id(st)) for s, n, p, st in resolver._prefixes))  # noqa: SLF001
 
 
-def _has_files(store: ReferenceStore) -> bool:
-    return any(s.url is not None and _scheme(s.url) == "file" for s in _absolute(store))
-
-
 def _reach(stores: Sequence[ReferenceStore], options: Options) -> None:
     """Fill in `options`' policy, registry, base URL, page size and request cap for a
     combination of `stores`, so that no store's sources become readable that its own
@@ -583,9 +579,7 @@ def _reach(stores: Sequence[ReferenceStore], options: Options) -> None:
     only they decide the policy, registry and base URL; the first store with keys or
     sources gives the page size and request cap.
 
-    Raises ValueError when the stores' policies, or registries, differ and `options` sets
-    none, and when no base URL serves them all: a remote store's `file:` sources, which a
-    remote base refuses, beside a local store's, which need a local one."""
+    Raises ValueError when the stores' policies, or registries, differ and `options` sets none."""
     present = [s for s in stores if s.mapping or s.sources] or list(stores)
     if not present:
         return
@@ -603,22 +597,7 @@ def _reach(stores: Sequence[ReferenceStore], options: Options) -> None:
             raise ValueError("the stores have different registries; pass registry= to say "
                              "which the result has")
         options["registry"] = first.resolver
-    if "url" in options:
-        return
-    local = [s for s in stores if _scheme(s.url) == "file"]
-    remote = [s for s in stores if _scheme(s.url) != "file"]
-    policy = options["policy"] or Policy()
-    if not local or not remote:
-        options["url"] = first.url
-    elif policy.allow_files_from_remote_archives or not any(_has_files(s) for s in remote):
-        options["url"] = local[0].url
-    elif not any(_has_files(s) for s in local):
-        options["url"] = remote[0].url
-    else:
-        raise ValueError("a remote store has file: sources, which its base URL keeps it from "
-                         "reading, and a local store has file: sources too, so no base URL "
-                         "serves both; pass url= to choose (a local one lets every store read "
-                         "local files)")
+    options.setdefault("url", first.url)
 
 
 def _build(mapping: dict[str, Value], sources: list[Source], *, read_at_open: Iterable[str] = (),

@@ -14,6 +14,7 @@ use crate::ir::Ir;
 use crate::out::{payload_size, Part};
 use crate::rules::{self, flag, num, text, Res, Rules};
 use serde_json::{json, Value as J};
+use std::collections::HashMap;
 
 /// The largest chunk width or height a frame header holds, and the target chunk size.
 pub const MAX_SIDE: u64 = 65535;
@@ -284,6 +285,19 @@ impl Grid {
         out
     }
 
+    /// The largest `b` from 1 to `most` whose chunks' payloads are within the limit (1 when
+    /// none is), with its largest payload, the header's pieces as `before` and `after`.
+    fn fit(&self, most: u64, before: &Part, after: &Part) -> (u64, usize) {
+        let mut b = most;
+        loop {
+            let largest = self.largest(b, before, after);
+            if b == 1 || largest <= crate::out::MAX_PAYLOAD {
+                return (b, largest);
+            }
+            b -= 1;
+        }
+    }
+
     /// The largest payload of a chunk at `b` intervals down.
     fn largest(&self, b: u64, before: &Part, after: &Part) -> usize {
         let sof = self.sof(b);
@@ -306,15 +320,10 @@ impl Grid {
                before: &Part, after: &Part, rules: &Rules) -> Res<Grid> {
         let q = w.div_ceil(h.restart * h.mw);
         let r = hgt.div_ceil(h.mh);
-        let matches = q.checked_mul(r).is_some_and(|n| n == starts.len() as u64)
-            && starts.last().is_some_and(|&l| l < length)
-            && starts.windows(2).all(|p| p[1] > p[0]);
-        let mut ends: Vec<u64> = Vec::new();
-        let mut nonempty = true;
-        if matches {
-            ends = starts[1..].iter().map(|&s| s - 2).chain([length - 2]).collect();
-            nonempty = starts.iter().zip(&ends).all(|(s, e)| e > s);
-        }
+        let ends = interval_ends(length, q, r, &starts);
+        let matches = ends.is_some();
+        let ends = ends.unwrap_or_default();
+        let nonempty = starts.iter().zip(&ends).all(|(s, e)| e > s);
         rules.check("intervals", &mut rules::env([("matches", flag(matches)), ("nonempty", flag(nonempty))]))?;
         let a = q.min((CHUNK / (h.restart * h.mw)).max(1));
         let chunks = |width: u64, height: u64, payload: usize| {
@@ -325,18 +334,45 @@ impl Grid {
         };
         chunks(a * h.restart * h.mw, 0, 0)?;
         let mut g = Grid { strip, starts, ends, q, r, a, b: 1, header, h };
-        let mut b = r.min(CHUNK / g.h.mh).max(1);
-        let mut largest;
-        loop {
-            largest = g.largest(b, before, after);
-            if b == 1 || largest <= crate::out::MAX_PAYLOAD {
-                break;
-            }
-            b -= 1;
-        }
+        let (b, largest) = g.fit(r.min(CHUNK / g.h.mh).max(1), before, after);
         g.b = b;
         chunks(g.a * g.h.restart * g.h.mw, b * g.h.mh, largest)?;
         Ok(g)
+    }
+
+    /// Gives the grids of one level's planes one `b`, as one chunk grid needs (spec/zarrify/ndpi.md §7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>): the largest,
+    /// at most each grid's, for which every chunk of every plane is within the limit (the `chunks`
+    /// role). A smaller `b` can make a larger chunk at the bottom edge, where intervals repeat, so
+    /// each lowering checks every plane again. `b` falls at each pass, and stops at 1.
+    pub fn one_height(planes: &mut [(Grid, Part, Part)], rules: &Rules) -> Res<()> {
+        let mut b = planes.iter().map(|p| p.0.b).min().unwrap_or(1);
+        let mut largest;
+        loop {
+            let mut next = b;
+            largest = 0;
+            for (g, before, after) in planes.iter() {
+                let (fits, most) = g.fit(next, before, after);
+                next = fits;
+                largest = largest.max(most);
+            }
+            if next == b {
+                break;
+            }
+            b = next;
+        }
+        for (g, _, _) in planes.iter_mut() {
+            g.b = b;
+            rules.check(
+                "chunks",
+                &mut rules::env([
+                    ("width", num((g.a * g.h.restart * g.h.mw) as f64)),
+                    ("height", num((b * g.h.mh) as f64)),
+                    ("payload", num(largest as f64)),
+                ]),
+            )?;
+        }
+        Ok(())
     }
 
     /// What the projection needs of the grid, as facts (the starts are the IR's).
@@ -371,6 +407,167 @@ impl Grid {
             },
         }
     }
+}
+
+/// The ends of the intervals of a strip of `length` bytes that McuStarts `starts` locates, `q` a
+/// row and `r` rows (spec/zarrify/ndpi.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>): interval `i` is
+/// `[starts[i], ends[i])` of the strip, without the 2-byte restart marker or EOI after it. None
+/// where the starts are not `q × r` increasing offsets within the strip.
+pub fn interval_ends(length: u64, q: u64, r: u64, starts: &[u64]) -> Option<Vec<u64>> {
+    let matches = q.checked_mul(r).is_some_and(|n| n == starts.len() as u64)
+        && starts.last().is_some_and(|&l| l < length)
+        && starts.windows(2).all(|p| p[1] > p[0]);
+    if !matches {
+        return None;
+    }
+    starts[1..].iter().map(|&s| s.checked_sub(2)).chain([length.checked_sub(2)]).collect()
+}
+
+/// A shared byte string as a data source, numbered by first use: its range, the whole source.
+pub fn piece(pieces: &mut Vec<Vec<u8>>, b: &[u8]) -> Part {
+    let i = match pieces.iter().position(|p| p == b) {
+        Some(i) => i,
+        None => {
+            pieces.push(b.to_vec());
+            pieces.len() - 1
+        }
+    };
+    Part::Data(i as u32 + 1, 0, b.len() as u64)
+}
+
+/// How an image is cut into chunks, but for the chunk height a McuStarts grid chooses: the
+/// planes of one level must be cut alike to be one array.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cut {
+    /// by restart intervals, of `restart` MCUs of `mw` × `mh` pixels
+    Intervals { restart: u64, mw: u64, mh: u64 },
+    /// into chunks of a fixed height and width: tiles, or the whole image
+    Fixed(u64, u64),
+}
+
+/// What the focal plane rule reads of an image, a main-chain IFD of positive Magnification.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Image {
+    pub magnification: f64,
+    pub width: u64,
+    pub height: u64,
+    pub cut: Cut,
+    /// its strip's frame can be given its size, or it has no frame to give it to
+    pub framed: bool,
+    /// its focal offset, in nanometers: None when absent, unreadable, or not read
+    pub offset: Option<i64>,
+}
+
+/// The levels the images make (spec/zarrify/ndpi.md §3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Levels {
+    /// each level's planes, indexes into the images, by ascending focal offset
+    pub levels: Vec<Vec<usize>>,
+    /// the focal offsets of every level's planes, when a level had more than one plane
+    pub offsets: Option<Vec<i64>>,
+    /// the images in no level, by index, each with its reason
+    pub left_out: Vec<(usize, &'static str)>,
+}
+
+/// The planes of a Magnification's images `group`: those that can be one array, by ascending
+/// offset. An image that is no plane is added to `left_out`.
+fn planes(images: &[Image], group: &[usize], left_out: &mut Vec<(usize, &'static str)>) -> Vec<usize> {
+    let first = &images[group[0]];
+    let mut cut = None;
+    let mut planes = Vec::with_capacity(group.len());
+    for &i in group {
+        let im = &images[i];
+        let why = if !im.framed {
+            Some("frame")
+        } else if (im.width, im.height) != (first.width, first.height) {
+            Some("size")
+        } else if *cut.get_or_insert(im.cut) != im.cut {
+            Some("chunks")
+        } else {
+            None
+        };
+        match why {
+            Some(why) => left_out.push((i, why)),
+            None => planes.push(i),
+        }
+    }
+    // without any offset there is nothing to order them by: the first is the level
+    let keep = if planes.iter().any(|&i| images[i].offset.is_some()) { None } else { planes.first().copied() };
+    planes.retain(|&i| {
+        let kept = images[i].offset.is_some() || keep == Some(i);
+        if !kept {
+            left_out.push((i, "no_offset"));
+        }
+        kept
+    });
+    planes.sort_by_key(|&i| images[i].offset); // stable: the first in the chain leads its equals
+    let mut seen = None;
+    planes.retain(|&i| {
+        let duplicate = seen == Some(images[i].offset);
+        seen = Some(images[i].offset);
+        if duplicate {
+            left_out.push((i, "duplicate"));
+        }
+        !duplicate
+    });
+    planes
+}
+
+/// The focal plane rule (spec/zarrify/ndpi.md §3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>): the images of one
+/// Magnification are one level, in order of the Magnification's first image. When a level has
+/// more than one plane, every level must have the same offsets for `z` to be one axis: the
+/// offsets kept are those whose levels hold the most pixels (of equals, the earliest level's),
+/// and the other levels are left out.
+pub fn levels(images: &[Image]) -> Levels {
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    let mut of: HashMap<u64, usize> = HashMap::new();
+    for (i, im) in images.iter().enumerate() {
+        let g = *of.entry(im.magnification.to_bits()).or_insert_with(|| {
+            groups.push(Vec::new());
+            groups.len() - 1
+        });
+        groups[g].push(i);
+    }
+    let mut left_out = Vec::new();
+    let mut levels: Vec<Vec<usize>> = groups.iter().map(|g| planes(images, g, &mut left_out)).filter(|p| !p.is_empty()).collect();
+    let mut offsets = None;
+    if levels.iter().any(|l| l.len() > 1) {
+        let set = |l: &[usize]| l.iter().map(|&i| images[i].offset).collect::<Vec<_>>();
+        let mut pixels: HashMap<Vec<Option<i64>>, u128> = HashMap::new();
+        for l in &levels {
+            let im = &images[l[0]];
+            *pixels.entry(set(l)).or_default() += im.width as u128 * im.height as u128 * l.len() as u128;
+        }
+        let mut best: Option<(Vec<Option<i64>>, u128)> = None;
+        for l in &levels {
+            let s = set(l);
+            let p = pixels[&s];
+            if best.as_ref().is_none_or(|b| p > b.1) {
+                best = Some((s, p));
+            }
+        }
+        let best = best.map(|b| b.0).unwrap_or_default();
+        levels.retain(|l| {
+            let same = set(l) == best;
+            if !same {
+                left_out.extend(l.iter().map(|&i| (i, "offsets")));
+            }
+            same
+        });
+        let kept: Vec<i64> = best.into_iter().flatten().collect();
+        offsets = (!kept.is_empty()).then_some(kept);
+    }
+    left_out.sort_unstable();
+    Levels { levels, offsets, left_out }
+}
+
+/// The step between `offsets` (at least two, ascending) when they are evenly spaced.
+pub fn even_step(offsets: &[i64]) -> Option<i64> {
+    let step = offsets.get(1)?.checked_sub(*offsets.first()?)?;
+    offsets.windows(2).all(|w| w[1].checked_sub(w[0]) == Some(step)).then_some(step)
 }
 
 /// Unsigned integers of field type `typ`, little-endian.
@@ -616,11 +813,142 @@ mod tests {
         assert_eq!(parts[3..], [Part::Src(140, 8), Part::Lit(vec![0xFF, 0xD0]), Part::Src(150, 8), Part::Lit(vec![0xFF, 0xD9])]);
     }
 
+    /// An image of Magnification `m`, `w` × `w`, its chunk the whole image, at focal offset `o`.
+    fn image(m: f64, w: u64, o: Option<i64>) -> Image {
+        Image { magnification: m, width: w, height: w, cut: Cut::Fixed(w, w), framed: true, offset: o }
+    }
+
+    #[test]
+    fn images_make_levels() {
+        let (a, b, big, same) = (image(20.0, 64, Some(0)), image(5.0, 16, Some(0)), image(5.0, 40, None), image(5.0, 64, None));
+        let at = |im: Image, o: i64| Image { offset: Some(o), ..im };
+        // (images, levels, offsets, left out)
+        type Case = (Vec<Image>, Vec<Vec<usize>>, Option<Vec<i64>>, Vec<(usize, &'static str)>);
+        let cases: Vec<Case> = vec![
+            // one image per Magnification: no axis, whatever the offsets, read or not
+            (vec![a, at(b, 700)], vec![vec![0], vec![1]], None, vec![]),
+            (vec![image(20.0, 64, None), image(5.0, 16, None)], vec![vec![0], vec![1]], None, vec![]),
+            // planes in the chain's order, each with all its levels, ordered by offset
+            (vec![at(a, 100), at(b, 100), at(a, -100), at(b, -100), at(a, 0), at(b, 0)],
+             vec![vec![2, 4, 0], vec![3, 5, 1]], Some(vec![-100, 0, 100]), vec![]),
+            // a coarse level with fewer planes is left out
+            (vec![at(a, -1), at(a, 1), at(b, 0)], vec![vec![0, 1]], Some(vec![-1, 1]), vec![(2, "offsets")]),
+            // the offsets with the most pixels win: one plane, so no axis, its levels kept
+            (vec![at(a, 0), at(b, -1), at(b, 0), at(b, 1), image(1.0, 4, Some(0))], vec![vec![0], vec![4]], Some(vec![0]),
+             vec![(1, "offsets"), (2, "offsets"), (3, "offsets")]),
+            // even over the first image's, when a coarser level's planes hold more pixels
+            (vec![at(a, 0), at(big, -1), at(big, 0), at(big, 1)], vec![vec![1, 2, 3]], Some(vec![-1, 0, 1]), vec![(0, "offsets")]),
+            // of equal pixels, the earliest level's offsets
+            (vec![at(a, 0), at(a, 1), at(same, 2), at(same, 3)], vec![vec![0, 1]], Some(vec![0, 1]),
+             vec![(2, "offsets"), (3, "offsets")]),
+            // a plane of another size, or cut otherwise, is left out, and the level is one plane
+            (vec![a, image(20.0, 32, Some(1))], vec![vec![0]], None, vec![(1, "size")]),
+            (vec![a, Image { cut: Cut::Intervals { restart: 4, mw: 16, mh: 16 }, offset: Some(1), ..a }], vec![vec![0]], None,
+             vec![(1, "chunks")]),
+            // a plane whose frame cannot be given its size is left out
+            (vec![a, Image { framed: false, offset: Some(1), ..a }], vec![vec![0]], None, vec![(1, "frame")]),
+            // and it still gives the level its size, so the levels keep decreasing
+            (vec![Image { framed: false, ..a }, image(20.0, 32, Some(1))], vec![], None, vec![(0, "frame"), (1, "size")]),
+            // no offset: the ones with one are the planes; of none, the first is the level
+            (vec![at(a, 1), image(20.0, 64, None), at(a, 2)], vec![vec![0, 2]], Some(vec![1, 2]), vec![(1, "no_offset")]),
+            (vec![image(20.0, 64, None), image(20.0, 64, None)], vec![vec![0]], None, vec![(1, "no_offset")]),
+            // an offset used twice: the first in the chain
+            (vec![at(a, 1), at(a, 2), at(a, 1)], vec![vec![0, 1]], Some(vec![1, 2]), vec![(2, "duplicate")]),
+        ];
+        for (images, want_levels, want_offsets, want_left_out) in cases {
+            let got = levels(&images);
+            assert_eq!(got.levels, want_levels, "{images:?}");
+            assert_eq!(got.offsets, want_offsets, "{images:?}");
+            assert_eq!(got.left_out, want_left_out, "{images:?}");
+        }
+    }
+
+    #[test]
+    fn even_offsets_have_a_step() {
+        for (offsets, want) in [
+            (&[-100i64, 0, 100][..], Some(100)),
+            (&[5, 7][..], Some(2)),
+            (&[-1000, 0, 3000][..], None),
+            (&[0][..], None),
+            (&[i64::MIN, 0, i64::MAX][..], None),
+        ] {
+            assert_eq!(even_step(offsets), want, "{offsets:?}");
+        }
+    }
+
+    /// A grid of 128 × 128 intervals of `len` bytes, a whole chunk's worth, whose payloads
+    /// are past the limit at its largest `b`, by more the longer its intervals.
+    fn wide(len: u64) -> (Grid, Part, Part) {
+        let h = jpeg(&[0x11], 1);
+        let hd = header(&h, crate::rules::of("ndpi")).unwrap();
+        let (before, after) = (Part::Data(1, 0, 2), Part::Data(2, 0, 10));
+        let n = 128 * 128;
+        let starts: Vec<u64> = (0..n).map(|i| 40 + i * (len + 2)).collect();
+        let g = Grid::new(100, 40 + n * (len + 2), 1024, 1024, h, hd, starts, &before, &after, crate::rules::of("ndpi")).unwrap();
+        (g, before, after)
+    }
+
+    #[test]
+    fn a_levels_planes_get_one_chunk_height() {
+        let (short, long) = (wide(1), wide(1 << 40));
+        let (b_short, b_long) = (short.0.b, long.0.b);
+        assert!(b_long < b_short && b_short < 128, "{b_long} {b_short}");
+        // alike, they keep their chunk height
+        let mut alike = [wide(1), wide(1)];
+        Grid::one_height(&mut alike, crate::rules::of("ndpi")).unwrap();
+        assert_eq!((alike[0].0.b, alike[1].0.b), (b_short, b_short));
+        // the plane of long intervals needs the smaller chunks, and the other follows it
+        let mut unlike = [short, long];
+        Grid::one_height(&mut unlike, crate::rules::of("ndpi")).unwrap();
+        assert_eq!((unlike[0].0.b, unlike[1].0.b), (b_long, b_long));
+    }
+
+    #[test]
+    fn planes_whose_chunks_cannot_fit_are_rejected() {
+        let h = jpeg(&[0x11], 1);
+        let hd = header(&h, crate::rules::of("ndpi")).unwrap();
+        let (before, after) = (Part::Data(1, 0, 2), Part::Data(2, 0, 10));
+        let mut g = Grid::new(100, 60, 16, 8, h, hd, vec![40, 50], &before, &after, crate::rules::of("ndpi")).unwrap();
+        g.a = 8191; // as many intervals across as a frame header holds: too many parts at b = 1
+        let mut plane = [(g, before, after)];
+        assert_eq!(
+            Grid::one_height(&mut plane, crate::rules::of("ndpi")).unwrap_err(),
+            "an NDPI chunk's reference payload exceeds 65519 bytes"
+        );
+    }
+
     #[test]
     fn high_bytes_combine_and_saturate() {
         assert_eq!(combine(vec![5, 6], None), vec![5, 6]);
         assert_eq!(combine(vec![5, 6], Some(&[0, 1])), vec![5, 6 + (1 << 32)]);
         assert_eq!(combine(vec![5, u64::MAX - 1], Some(&[1 << 32, 1])), vec![u64::MAX, u64::MAX]);
+    }
+
+    #[test]
+    fn an_interval_ends_two_bytes_before_the_next_starts() {
+        assert_eq!(interval_ends(60, 2, 1, &[40, 50]), Some(vec![48, 58]));
+        assert_eq!(interval_ends(60, 1, 2, &[2, 4]), Some(vec![2, 58]));
+    }
+
+    #[test]
+    fn starts_of_another_count_have_no_ends() {
+        assert_eq!(interval_ends(60, 3, 1, &[40, 50]), None);
+        assert_eq!(interval_ends(60, u64::MAX, 2, &[40, 50]), None);
+    }
+
+    #[test]
+    fn starts_that_do_not_increase_have_no_ends() {
+        assert_eq!(interval_ends(60, 2, 1, &[40, 40]), None);
+    }
+
+    #[test]
+    fn a_start_past_the_strip_has_no_ends() {
+        assert_eq!(interval_ends(50, 2, 1, &[40, 50]), None);
+    }
+
+    #[test]
+    fn a_start_with_no_room_for_a_marker_before_it_has_no_ends() {
+        assert_eq!(interval_ends(60, 2, 1, &[0, 1]), None);
     }
 
     #[test]

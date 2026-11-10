@@ -161,6 +161,13 @@
             },
             "update_pending": {
               "type": "integer"
+            },
+            "parts": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The keys of the image's other files, in order (spec/zarrify/czi.md §7.9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>)"
             }
           },
           "required": [
@@ -476,7 +483,6 @@
                 "group",
                 "element",
                 "derived",
-                "int",
                 "float",
                 "bytes",
                 "utf16"

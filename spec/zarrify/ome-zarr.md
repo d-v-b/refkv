@@ -10,14 +10,7 @@ OME-Zarr profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` ·
 Schema: [schema.json](ome-zarr/schema.json)
 
-Changed 2026-11-03, with no change to any output: two citations of OME-NGFF's text no longer link to refkv's conventions.
-
-Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in
-place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90).
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)).
+Changes: [changes/ome-zarr/](changes/ome-zarr/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
@@ -55,8 +48,8 @@ and storage transformers", unless it disallows one (OME-NGFF 0.5, §1
 defines the `v2` chunk key encoding
 ([Zarr v3 core specification, chunk key encodings](https://zarr-specs.readthedocs.io/en/latest/v3/chunk-key-encodings/v2/index.html)),
 whose keys are exactly Zarr v2's for either separator, and its `transpose`,
-`bytes`, `gzip`, `zstd` and `blosc` codecs, with zarr-python's `numcodecs.zlib`, decode every
-chunk that [the Zarr v2 convention §3](zarr2.md#3-arrays) accepts.
+`bytes`, `gzip`, `zstd` and `blosc` codecs, with zarr-python's `numcodecs.*` codecs and `vlen-utf8`,
+decode every chunk that [the Zarr v2 convention §3](zarr2.md#3-arrays) accepts.
 
 ## Layout
 
@@ -140,6 +133,36 @@ are its other objects, kept whole under `refkv_source/objects/`
 the mirror lists them, and the group `refkv_source` holds the store's IR mirror
 ([§8.2](#82-the-store-ir)), so a node at `refkv_source`, or below it, rejects the input. The
 ignored keys are `refkv_source`'s source metadata ([§8.2](#82-the-store-ir)).
+
+### 2.1 Groups that are not OME
+
+An array that [the Zarr v2 convention §3.4](zarr2.md#34-arrays-that-are-not-presented) leaves out
+is left out here too, and recorded in the same way. A group that needs one is **not OME**, and
+keeps its place in the hierarchy as a group like any other:
+
+| group | is not OME when |
+|---|---|
+| an image | a dataset of a multiscale names an array that is not presented, or one with a trailing axis, whose extra axis no axis of the multiscale names |
+| a labels group | it lists a label image that is not OME |
+| a label image | its `source.image` names an image that is not OME |
+| a well | it lists a field that is not OME |
+| a plate | it lists a well that is not OME |
+| the group `C/OME` with `series` | it lists an image that is not OME |
+| a collection | an image whose name is a number below it is not OME, or its group `OME` is not |
+
+Each is tested until none is left that names one. Then the group's OME members are not read, so
+[§4](#4-validation) does not check them: the group is one of the others that [§2](#2-hierarchy) calls
+not OME, and its whole `.zattrs` is its source metadata ([§8](#8-source-metadata)). Its reason is in the
+root's source metadata, as `not_ome` ([`OmeZarrNode`](#type-omezarrnode)). An image whose level has
+no array at all still rejects the input ([§4](#4-validation)): that is a mistake of the store's, and
+an array left out is not.
+
+<a id="type-omezarrnotome"></a>**`OmeZarrNotOme`**, a group that is not OME:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `path` | string | required | the group's path |
+| `reason` | string | required | what it names that is not OME or not presented |
 
 ## 3. OME groups
 
@@ -459,6 +482,8 @@ none, and does not declare the convention unless it is the root.
 | `attributes` | object | optional | `A`, present when not empty: for an OME group, the members of its `.zattrs` that [§5](#5-group-attributes) does not give back, as written; for every other node, its whole `.zattrs`, as the Zarr v2 convention's [`Zarr2Node`](zarr2.md#type-zarr2node) has it |
 | `metadata` | [`Zarr2Metadata`](zarr2.md#type-zarr2metadata) | optional | `M`, present when not empty: the members of `.zgroup` or `.zarray` that the `zarr.json` does not reproduce, as the Zarr v2 convention's |
 | `unversioned` | array of string | optional | `U`, an OME group's, present when not empty: the names of its unversioned members ([§5](#5-group-attributes)), in the order `multiscales`, `omero`, `image-label`, `plate`, `well` |
+| `not_presented` | array of [`Zarr2NotPresented`](zarr2.md#type-zarr2notpresented) | optional | the root's, when an array is left out ([§2.1](#21-groups-that-are-not-ome)), in order of their paths |
+| `not_ome` | array of [`OmeZarrNotOme`](#type-omezarrnotome) | optional | the root's, when a group is not OME ([§2.1](#21-groups-that-are-not-ome)), in order of their paths |
 
 ### 8.2 The store IR
 
@@ -645,7 +670,8 @@ The choice between this profile and [zarr2.md §7](zarr2.md#7-zarr-v2-profile) r
 The input is rejected when a rule of [zarr2.md §7](zarr2.md#7-zarr-v2-profile) rejects it, and when the
 convention gives it no layout: wherever it says that the input is
 rejected, or that something MUST hold and it does not (in particular, a
-rule of [its §4](#4-validation)).
+rule of [its §4](#4-validation)). An array that cannot be presented, and a group that needs one, do not
+reject it ([the convention §2.1](#21-groups-that-are-not-ome)).
 
 ### 11.2 Chunks and OME-XML
 
@@ -666,7 +692,9 @@ summary, with these members:
 | member | value |
 |---|---|
 | `groups` | the groups, explicit and implicit |
-| `arrays` | the arrays |
+| `arrays` | the arrays presented |
+| `notPresented` | the arrays left out, when there are any |
+| `notOme` | the groups that are not OME, when there are any |
 | `chunks` | the number of chunk entries |
 | `emptyChunks` | the chunk objects of size 0 |
 | `objects` | the store's objects |

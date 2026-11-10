@@ -53,6 +53,60 @@ def test_differences():
     assert compare.differences(output({"shape": [1]}), other)
 
 
+def test_with_exact_integers():
+    """The frozen reference's digit strings of integers past 2^53 - 1 in members that hold numbers,
+    ND2's `{"int": digits}` tag and the pairs of a record named `int` alone read as the shipped
+    code's exact integers and object where it has them; and, in a DICOM IS value's `Value`, an ND2
+    XML variant's document and a SAFE document, its integers (as numbers, tags or digit strings)
+    that the shipped code writes as text, outside their format's range, as that text."""
+    big = 2**64 - 1
+    is_ref = [2**31, -(2**40), "12345678901234567"]
+    is_ours = ["2147483648", "-0001099511627776", "+0012345678901234567"]
+    ref = output({"dataset": {"00181050": {"vr": "UV", "Value": [str(big)]}, "00200013": {"vr": "IS", "Value": is_ref}},
+                  "nifti": {"header": {"dim": [str(-big)]}},
+                  "u64": {"datatype": {"class": "integer"}, "value": [str(big)]},
+                  "b": [{"int": str(-big)}], "c": [["int", {"int": str(big)}]], "f": [["int", 5]],
+                  "chunks": {"CustomDataVar|A!": {"x": {"int": "-30"}, "y": 300}}})
+    ours = output({"dataset": {"00181050": {"vr": "UV", "Value": [big]}, "00200013": {"vr": "IS", "Value": is_ours}},
+                   "nifti": {"header": {"dim": [-big]}},
+                   "u64": {"datatype": {"class": "integer"}, "value": [big]},
+                   "b": [-big], "c": {"int": big}, "f": {"int": 5},
+                   "chunks": {"CustomDataVar|A!": {"x": "-030", "y": "+300"}}})
+    assert compare.with_exact_integers(ref, ours)["entries"]["zarr.json"][1] == ours["entries"]["zarr.json"][1]
+    assert compare.with_exact_integers(ref, ours)["entries"]["0/c/0"] == ref["entries"]["0/c/0"]
+    def safe_root(values: list) -> dict:
+        return {"attributes": {"refkv_zarrified": {"profile": "safe", "safe": {"v": values}}}}
+
+    safe = {"sources": [URL], "entries": {"zarr.json": ("json", safe_root([str(big), 12]))}}
+    ours_safe = {"sources": [URL], "entries": {"zarr.json": ("json", safe_root([big, "+012"]))}}
+    got = compare.with_exact_integers(safe, ours_safe)["entries"]["zarr.json"][1]
+    assert got == ours_safe["entries"]["zarr.json"][1]
+
+
+@pytest.mark.parametrize(("ref", "ours"), [
+    ({"d": "12"}, {"d": 12}),  # a string within 2^53 - 1 is no form of an integer
+    ({"Software": "12345678901234567890"}, {"Software": 12345678901234567890}),  # a text field written as an integer
+    ({"t": {"vr": "LO", "Value": ["12345678901234567890"]}}, {"t": {"vr": "LO", "Value": [12345678901234567890]}}),
+    ({"tag": {"vr": "US", "Value": [12]}}, {"tag": {"vr": "US", "Value": ["12"]}}),  # no declared range
+    ({"x": 12}, {"x": "12"}),  # outside a ranged value
+    ({"is": {"vr": "IS", "Value": ["0012"]}}, {"is": {"vr": "IS", "Value": ["12"]}}),  # two texts
+    ({"chunks": {"CustomDataVar|A!": {"x": 8}}}, {"chunks": {"CustomDataVar|A!": {"x": "9"}}}),  # another value
+])
+def test_with_exact_integers_keeps_other_differences(ref, ours):
+    """Any other difference stays, and compare.py reports it."""
+    assert compare.differences(compare.with_exact_integers(output(ref), output(ours)), output(ours)) != []
+
+
+def test_with_exact_integers_keeps_a_safe_node_s_zarr_metadata():
+    """A SAFE output's relaxation is its source metadata's alone: a `fill_value` the shipped code
+    newly writes as text, `"0"` where the reference has `0`, is reported."""
+    def doc(fill: object) -> dict:
+        return {"sources": [URL], "entries": {"zarr.json": ("json", {
+            "fill_value": fill, "attributes": {"refkv_zarrified": {"profile": "safe", "safe": {"v": 1}}}})}}
+
+    assert compare.differences(compare.with_exact_integers(doc(0), doc("0")), doc("0")) != []
+
+
 def archive(path: Path, build=None, *, doc: bytes = b'{"zarr_format":3,"node_type":"group"}') -> Path:
     """A zarrifier-like archive at `path`: a document and a reference; `build(w)` adds to it."""
     with open(path, "wb") as fh:
@@ -285,6 +339,22 @@ def test_store_mirror_problem(tmp_path):
                        ("safe", "safe_l2a_pb0207")):
         path, fetch = _store_archive(tmp_path, name, kind=kind)
         assert compare.store_mirror_problem(path, compare._zip_view(path), fetch) is None, name
+
+
+def test_store_mirror_problem_accepts_a_vsi_file_no_reference_uses(tmp_path):
+    """A slide whose macro image is left out has no reference to its `.vsi` file, so no source
+    names it; the mirror still reads it at its object URL (spec/zarrify/vsi.md §9.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#94-chunks>)."""
+    name = "vsi_left_out_macro_compression.vsi"
+    url = "https://data.test/slides/"
+    _, out = zarrify(str(ROOT / "fixtures" / "vsi" / name), url + name)
+    path = tmp_path / "s.vzip"
+    out.write(str(path))
+
+    def fetch(u: str, o: int, n: int) -> bytes:
+        return (ROOT / "fixtures" / "vsi" / urllib.parse.unquote(u[len(url):])).read_bytes()[o:o + n]
+
+    assert compare.store_mirror_problem(path, compare._zip_view(path), fetch) is None
 
 
 def test_store_mirror_problem_finds_a_document_other_than_the_store_s(tmp_path):

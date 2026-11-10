@@ -3,13 +3,13 @@
 //! spec/zarrify/qptiff.md §4.3
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#43-arrays>): for the
 //! compressions the core decodes, one chunk per channel of the coarsest level, the middle one,
-//! with a horizontal predictor's differences summed back, whose values inside the array have
+//! with a horizontal or floating-point predictor undone, whose values inside the array have
 //! 5th and 99.9th percentiles, leaving out the fill value,
 //! that are the window's start and end. The run reads the chunks (`reads`) after the parser, as it reads the chunks NIfTI
 //! and MRC copy; the projection decodes them (`windows`).
 
 use super::{key, Copied};
-use crate::out::{omero_window, type_window, Out, Part};
+use crate::out::{int_json, omero_window, type_window, Out, Part};
 use serde_json::{json, Value as J};
 use std::collections::HashMap;
 
@@ -145,6 +145,32 @@ fn undiff(b: &mut [u8], item: usize, little: bool, row: usize, stride: usize) {
     }
 }
 
+/// Undoes the floating-point predictor (spec/zarrify/tiff.md §4.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>), as
+/// `imagecodecs_floatpred` does: in each row of `row` values of `item` bytes, each byte plus the
+/// one `stride` bytes before it (the same sample of the pixel before), modulo 256; the row then
+/// holds its values' most significant bytes, then their next, and so on, whatever the file's byte
+/// order, which become values in the byte order `little`.
+fn unfloatpred(b: &mut [u8], item: usize, little: bool, row: usize, stride: usize) {
+    let n = row * item;
+    if n == 0 {
+        return;
+    }
+    let mut values = vec![0; n];
+    for r in b.chunks_exact_mut(n) {
+        for i in stride..n {
+            r[i] = r[i].wrapping_add(r[i - stride]);
+        }
+        for v in 0..row {
+            for significance in 0..item {
+                let at = if little { item - 1 - significance } else { significance };
+                values[v * item + at] = r[significance * row + v];
+            }
+        }
+        r.copy_from_slice(&values);
+    }
+}
+
 /// A channel's values of a decoded chunk.
 enum Values {
     Int(Vec<i128>),
@@ -202,11 +228,6 @@ fn percentiles<T: Copy + PartialOrd>(v: &[T]) -> Option<(T, T)> {
     (lo < hi).then_some((lo, hi))
 }
 
-/// An integer of a data type as JSON.
-fn int_json(v: i128) -> J {
-    i64::try_from(v).map(J::from).unwrap_or_else(|_| json!(v as u64))
-}
-
 /// A channel's window from its values, leaving out the fill value 0 (and, of a float type, the
 /// values that are not finite): `start` and `end` their percentiles; `min` and `max` an integer
 /// type's range, or the least and greatest of a float type's values.
@@ -232,8 +253,8 @@ fn window(v: Values, data_type: &str) -> Option<J> {
 
 /// Each sample's window (`window`), None where its chunk is absent or not read, or does not
 /// decode to `size` bytes under `compression`, or its values give none. The chunks hold
-/// `data_type` in the byte order `little`, as differences along `x` when `predictor` is 2;
-/// `copied` holds the bytes `reads` gave.
+/// `data_type` in the byte order `little`, as differences along `x` when `predictor` is 2, and
+/// through the floating-point predictor when it is 3; `copied` holds the bytes `reads` gave.
 #[allow(clippy::too_many_arguments)]
 pub fn windows(out: &Out, samples: &[Sample], copied: &Copied, compression: u64, predictor: u64, data_type: &str, little: bool,
                size: u64) -> Vec<Option<J>> {
@@ -244,8 +265,11 @@ pub fn windows(out: &Out, samples: &[Sample], copied: &Copied, compression: u64,
         .map(|s| {
             let d = decoded.entry(&s.key).or_insert_with(|| {
                 let mut d = decode(compression, encoded(out, &s.key, copied)?, size)?;
-                if predictor == 2 {
-                    undiff(&mut d, item, little, (s.width * s.stride) as usize, s.stride as usize);
+                let (row, stride) = ((s.width * s.stride) as usize, s.stride as usize);
+                match predictor {
+                    2 => undiff(&mut d, item, little, row, stride),
+                    3 => unfloatpred(&mut d, item, little, row, stride),
+                    _ => {}
                 }
                 Some(d)
             });
@@ -279,6 +303,22 @@ mod tests {
         assert_eq!(window(Values::Float(vec![0.0, f64::NAN]), "float64"), None);
         let w = window(Values::Int(vec![u64::MAX as i128, 1]), "uint64").unwrap();
         assert_eq!(w["end"], json!(u64::MAX));
+    }
+
+    #[test]
+    fn unfloatpred_sums_the_bytes_and_gathers_each_value() {
+        // one row of 2 float32 values: 1.0 (3F 80 00 00) and -2.5 (C0 20 00 00), the most
+        // significant bytes of both first, each byte less the one before it
+        let mut encoded = [0x3F, 0x81, 0xC0, 0xA0, 0xE0, 0x00, 0x00, 0x00];
+        for (little, want) in [(true, [0x00, 0x00, 0x80, 0x3F, 0x00, 0x00, 0x20, 0xC0]), (false, [0x3F, 0x80, 0x00, 0x00, 0xC0, 0x20, 0x00, 0x00])] {
+            let mut b = encoded;
+            unfloatpred(&mut b, 4, little, 2, 1);
+            assert_eq!(b, want);
+        }
+        // two interleaved samples of one byte: each sums along its own pixels, in each row apart
+        encoded = [1, 2, 3, 4, 5, 6, 7, 8];
+        unfloatpred(&mut encoded, 1, true, 4, 2);
+        assert_eq!(encoded, [1, 2, 4, 6, 5, 6, 12, 14]);
     }
 
     #[test]

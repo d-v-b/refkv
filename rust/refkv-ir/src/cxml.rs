@@ -12,6 +12,8 @@ use std::collections::HashMap;
 const DEPTH: usize = 10;
 const INFO: [&str; 3] = ["Metadata", "Information", "Image"];
 const SCALING: [&str; 3] = ["Metadata", "Scaling", "Items"];
+/// The dimensions whose `Size<letter>` is read: those a directory entry has a plane or a tile of.
+pub const SIZES: &[u8] = b"CZTSBHIRVM";
 
 #[derive(Default, Debug, Clone)]
 pub struct Channel {
@@ -33,6 +35,10 @@ pub struct Values {
     pub display: Vec<Channel>,
     /// S index -> the Name of its first Scene, in order of first appearance
     pub scenes: Vec<(u64, Option<String>)>,
+    /// `Information/Image/Size<letter>`, for the letters of [`SIZES`]
+    pub sizes: Vec<(u8, u64)>,
+    /// `Information/Document`'s `Name` and `CreationDate`
+    pub document: [Option<String>; 2],
 }
 
 impl Values {
@@ -81,6 +87,8 @@ enum Set {
     Inc,
     Bits,
     Axis(u8),
+    Size(u8),
+    Document(usize),
     Field(bool, usize, u8), // display?, channel index, field: 0 color, 1 bits, 2 low, 3 high
 }
 
@@ -174,6 +182,12 @@ fn apply(out: &mut Values, set: Set, t: &str) {
     match set {
         Set::Inc => out.inc = positive(decimal(t)),
         Set::Bits => out.bits = integer(t),
+        Set::Size(l) => {
+            if let (Some(v), false) = (integer(t), out.sizes.iter().any(|s| s.0 == l)) {
+                out.sizes.push((l, v));
+            }
+        }
+        Set::Document(k) => out.document[k] = Some(t.to_string()),
         Set::Axis(a) => {
             let v = positive(decimal(t));
             match a {
@@ -218,6 +232,20 @@ fn role(path: &[(String, u64)], out: &mut Values, axes: &mut Vec<(u8, Vec<(Strin
     }
     if rank == 0 && is(&INFO, &["ComponentBitCount"]) {
         return Some(Set::Bits);
+    }
+    if rank == 0 && n == INFO.len() + 1 && names[..INFO.len()] == INFO {
+        if let Some([l]) = names[n - 1].strip_prefix("Size").map(str::as_bytes) {
+            if SIZES.contains(l) {
+                return Some(Set::Size(*l));
+            }
+        }
+    }
+    if rank == 0 && n == 4 && names[..3] == ["Metadata", "Information", "Document"] {
+        match names[3] {
+            "Name" => return Some(Set::Document(0)),
+            "CreationDate" => return Some(Set::Document(1)),
+            _ => {}
+        }
     }
     if is(&SCALING, &["Distance"]) {
         if let Some(id) = first_attr(t, x, "Id") {

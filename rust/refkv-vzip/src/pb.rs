@@ -1,6 +1,7 @@
-//! The messages of spec/proto/refkv.proto, hand-written as python/src/refkv/pb.py is: no protoc
-//! and no generated code. Encoding follows proto3 (default values are not written; an optional
-//! field is written whenever it is set, even to 0), and decoding the rules of spec/refkv.md §4.1
+//! The messages of spec/proto/refkv.proto and spec/proto/vzip.proto, hand-written as
+//! python/src/refkv/pb.py is: no protoc and no generated code. Encoding follows proto3 (default
+//! values are not written; an optional field is written whenever it is set, even to 0), and
+//! decoding the rules of spec/refkv.md §4.1
 //! <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#41-encoding>: unknown fields are
 //! skipped, a known field with the wrong wire type is an error, and every occurrence of a field
 //! is checked, even one a later occurrence overrides.

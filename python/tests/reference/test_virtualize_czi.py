@@ -276,10 +276,10 @@ REJECTIONS = {
     "subblock_copy_count": "copy of its entry has DimensionCount 41",
     "negative_sizes": "negative MetadataSize",
     "pixel_type_unknown": "PixelType 5",
-    "compression_lzw": "Compression 2",
+    "ljpeg_bgr24": "Compression 3",
     "compression_chunked": "Compression 7",
     "compression_raw_camera": "Compression 100",
-    "jpeg_gray16": "Compression 1 with PixelType 1",
+    "jpeg_bgr48": "Compression 1 with PixelType 4",
     "metadata_id": "is not a ZISRAWMETADATA",
     "metadata_outside_file": "metadata segment's parts",
     "metadata_negative": "negative XmlSize",
@@ -299,7 +299,9 @@ def test_rejects(case):
 
 
 def test_every_reject_fixture_has_a_test():
-    assert {p.stem[len("czi_reject_"):] for p in FIXTURES.glob("czi_reject_*.czi")} == set(REJECTIONS)
+    # but an image across files, which the frozen reference does not read as one: the core's table has those
+    names = {p.stem[len("czi_reject_"):] for p in FIXTURES.glob("czi_reject_*.czi") if "_parts_" not in p.stem}
+    assert names == set(REJECTIONS)
 
 
 @pytest.fixture(scope="module")

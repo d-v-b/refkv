@@ -10,7 +10,9 @@
 //! the 64 KiB windows that hold the lines `line skip` passes over; the first bytes of a gzip
 //! stream; and the edge chunks the projection copies, and a detached header's file whole when its
 //! first read did not hold it all. The schema (`schema/nrrd.json`) is checked
-//! as the profile meets each role. The IR is emitted at the end, from what was read.
+//! as the profile meets each role. The IR is emitted at the end, from what was read, and its
+//! array described (`nrrd/stored.rs`; spec/stored-array.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>).
 
 use crate::expr::V;
 use crate::ir::{GAP, Ir, NO_INDEX, Res, key_name};
@@ -19,6 +21,9 @@ use crate::rules::{self, Rules, flag, num, text};
 use crate::store::{StoreParser, StoreStep};
 use crate::text::{text_json, utf8_or_latin1};
 use serde_json::{Map, Value as J, json};
+
+#[path = "nrrd/stored.rs"]
+mod stored;
 
 /// The bytes of the header file read first, and of each window `line skip` scans.
 const WINDOW: u64 = 1 << 16;
@@ -49,13 +54,15 @@ fn problem(p: Option<String>) -> V {
 // ---- the header (§8.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#81-the-header>)
 
 /// A header's lines and what they say: each line's extent (its line end included), the
-/// fields by name (in their order, each with its descriptor), the key/value pairs (a repeated
-/// key's last value, at its first place) and the comments.
+/// fields by name (in their order, each with its descriptor), where each field is (its line's
+/// position among `lines`, and its descriptor's offset in the line), the key/value pairs (a
+/// repeated key's last value, at its first place) and the comments.
 #[derive(Debug, Default, Clone)]
 pub struct Header {
     pub magic: String,
     pub lines: Vec<(u64, u64)>,
     pub fields: Vec<(String, Vec<u8>)>,
+    pub field_places: Vec<(usize, u64)>,
     pub pairs: Vec<(Vec<u8>, Vec<u8>)>,
     pub comments: Vec<Vec<u8>>,
 }
@@ -63,6 +70,14 @@ pub struct Header {
 impl Header {
     pub fn field(&self, name: &str) -> Option<&[u8]> {
         self.fields.iter().find(|f| f.0 == name).map(|f| f.1.as_slice())
+    }
+
+    /// Where the field `name` is: its line's position among `lines`, and its descriptor's
+    /// (offset, length) in that line.
+    pub fn field_place(&self, name: &str) -> Option<(usize, (u64, u64))> {
+        let k = self.fields.iter().position(|f| f.0 == name)?;
+        let (line, offset) = *self.field_places.get(k)?;
+        Some((line, (offset, self.fields[k].1.len() as u64)))
     }
 }
 
@@ -139,8 +154,15 @@ pub fn parse(rules: &Rules, b: &[u8]) -> Res<Header> {
         if t.is_empty() {
             break;
         }
+        let had = h.fields.len();
         let p = line(rules, &mut h, t);
         rules.check("line", rules::env([("number", num((k + 1) as f64)), ("problem", problem(p))]))?;
+        if h.fields.len() > had {
+            // the descriptor is the text after the colon, less the spaces and tabs that start it
+            let after = t.iter().position(|&c| c == b':').map_or(t.len(), |c| c + 1);
+            let lead = t[after..].iter().take_while(|c| matches!(c, b' ' | b'\t')).count();
+            h.field_places.push((k, (after + lead) as u64));
+        }
         if h.field("data file").is_some_and(|d| words(d).first() == Some(&&b"LIST"[..])) {
             break; // the lines after `data file: LIST` name the data files, which the profile rejects
         }
@@ -687,7 +709,9 @@ impl Nrrd {
         let (key, size) = self.keys[self.data].clone();
         let total = f.sizes.iter().fold(f.item as u128, |a, &s| a.saturating_mul(s as u128));
         let gzip = f.encoding == "gzip";
+        // the gzip encoding's byte skip counts decompressed bytes (a `refkv.skip` codec passes them)
         let start = match f.byte_skip {
+            _ if gzip => self.base,
             -1 => (size as u128).checked_sub(total).map_or(0, |s| s as u64),
             k => self.base + k as u64,
         };
@@ -722,8 +746,9 @@ impl Nrrd {
             // a detached header's file the header's reads held to its end, in several reads
             ir.put_value(self.elems[0], &self.head);
         }
+        let mut lines = Vec::with_capacity(h.lines.len());
         for (i, &(o, n)) in h.lines.iter().enumerate() {
-            ir.value(self.elems[0], "lines/", i as u64, &format!("ascii[{n}]"), 0, (o, n), Some(&self.head[o as usize..(o + n) as usize]))?;
+            lines.push(ir.value(self.elems[0], "lines/", i as u64, &format!("ascii[{n}]"), 0, (o, n), Some(&self.head[o as usize..(o + n) as usize]))?);
             claimed[0].push((o, n));
         }
         let o = self.elems[self.data];
@@ -735,8 +760,11 @@ impl Nrrd {
         if let Some(l) = f.little {
             codec.insert("endian".into(), json!(if l { "little" } else { "big" }));
         }
+        if f.encoding == "gzip" && f.byte_skip > 0 {
+            codec.insert("skip".into(), json!(f.byte_skip));
+        }
         let form = json!({"geometry": {"data_type": f.data_type, "shape": self.stored_shape()}, "codec": codec, "recipe": [["src", 0, null]]});
-        ir.data(o, "data", NO_INDEX, 0, (self.start, self.length), &form.to_string())?;
+        let data = ir.data(o, "data", NO_INDEX, 0, (self.start, self.length), &form.to_string())?;
         claimed[self.data].push((self.start, self.length));
         for (k, c) in claimed.iter_mut().enumerate() {
             c.sort_unstable();
@@ -754,6 +782,20 @@ impl Nrrd {
         }
         ir.sort_values();
         crate::check::finish(&mut ir)?;
+        // the array, described from the finished IR (`stored.rs`): the parser folds no run and
+        // makes no alias, so the elements it made keep their ids
+        let line_of = |field: &str| h.field_place(field).map(|(k, within)| (lines[k], within));
+        let reached = stored::Reached {
+            header: self.elems[0],
+            declarations: ["type", "endian"].into_iter().filter_map(|f| line_of(f).map(|l| l.0)).collect(),
+            sizes: f.sizes.clone(),
+            item: f.item,
+            gzip: f.encoding == "gzip",
+            skip: line_of("byte skip").filter(|_| f.encoding == "gzip" && f.byte_skip > 0),
+            data,
+        };
+        let (arrays, chains, map) = stored::described(&reached)?;
+        ir.describe(arrays, chains, map)?;
         self.ir = Some(ir);
         let finite = |v: &[f64]| J::Array(v.iter().map(|x| if x.is_finite() { json!(x) } else { J::Null }).collect());
         let texts = |v: &[Vec<u8>]| J::Array(v.iter().map(|u| json!(shown(u))).collect());
@@ -762,7 +804,9 @@ impl Nrrd {
             "data_key": self.keys[self.data].0,
             "own": own(&h, &f, &self.axes, (self.data != 0).then(|| self.keys[self.data].0.as_str())),
             "array": {
-                "data_type": f.data_type, "item": f.item, "encoding": f.encoding,
+                // `declared_by`: the header file's object, the key of the array's description
+                "declared_by": self.elems[0],
+                "data_type": f.data_type, "item": f.item, "encoding": f.encoding, "byte_skip": f.byte_skip,
                 "endian": f.little.map(|l| if l { "little" } else { "big" }),
                 "sizes": f.sizes, "axes": self.axes, "start": self.start, "length": self.length,
                 "directions": f.directions.as_ref().map(|d| d.iter().map(|v| v.as_deref().map(finite)).collect::<Vec<_>>()),
@@ -953,10 +997,12 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, _size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::refused("a NRRD file is zarrified as a store run, with its data file")
     }
-    fn store_run(&self) -> bool {
-        true
-    }
     fn project(&self, _: &Ir, _: &J, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
         Err("a NRRD input is zarrified as a store run".into())
     }
+}
+
+/// The parser of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+    Ok(Box::new(Nrrd::new(ir, objects, keys)?))
 }

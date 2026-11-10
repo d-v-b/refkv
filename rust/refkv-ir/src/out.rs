@@ -157,6 +157,12 @@ impl Out {
         Part::Data(i, 0, value.len() as u64)
     }
 
+    /// Sets the data sources, from 1 (`seal::out`, whose references name them so).
+    pub fn set_data(&mut self, data: Vec<Vec<u8>>) {
+        self.data_at = data.iter().enumerate().map(|(i, d)| (d.clone(), i as u32 + 1)).collect();
+        self.data = data;
+    }
+
     /// The whole output as one buffer (little-endian; strings and byte strings are a
     /// u32 length and the bytes): "VZO1", the url, the summary's JSON, the lazy
     /// prefixes, the data sources, the entries (key, bytes), and the references
@@ -406,10 +412,22 @@ pub fn rectilinear_array_json(shape: &[u64], data_type: &str, lengths: &J, codec
 
 /// An integer of the source as JSON (conventions §6
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>):
-/// a number when its magnitude is at most 2^53 − 1, else the string of its decimal digits.
+/// a JSON integer, exact whatever its magnitude (serde_json's `arbitrary_precision` keeps the
+/// digits of one past 64 bits).
 pub fn int_json(v: i128) -> J {
-    const MAX_SAFE: i128 = (1 << 53) - 1;
-    if (-MAX_SAFE..=MAX_SAFE).contains(&v) { json!(v as i64) } else { J::String(v.to_string()) }
+    J::Number(serde_json::Number::from_i128(v).expect("arbitrary_precision holds every i128"))
+}
+
+/// The integer that the decimal text `t` (an optional `+` or `-`, then digits, leading zeros
+/// allowed) writes, as JSON, when it is from `lo` to `hi`, the range its format declares; None
+/// outside it: a value its format does not have, which a convention reads as text (conventions §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>).
+pub fn int_text(t: &str, lo: i128, hi: i128) -> Option<J> {
+    let digits = t.strip_prefix(['+', '-']).unwrap_or(t).trim_start_matches('0');
+    debug_assert!(digits.bytes().all(|c| c.is_ascii_digit()));
+    let v: i128 = if digits.is_empty() { 0 } else { digits.parse().ok()? }; // past every i128: None
+    let v = if t.starts_with('-') { -v } else { v };
+    (lo..=hi).contains(&v).then(|| int_json(v))
 }
 
 /// The `bytes` codec of elements of `item` bytes: with the byte order `endian` ("little" or
@@ -430,26 +448,45 @@ pub fn item_size(data_type: &str) -> u64 {
 }
 
 /// The codecs after `transpose` of a TIFF `compression` and `predictor` (the tags' values: JPEG
-/// 2000 and JPEG as their imagecodecs codecs; else `imagecodecs_delta` along the stored axis `x`
-/// for Predictor 2, then `bytes`, with the byte order for samples of more than 8 bits, then
+/// 2000, JPEG, LERC, WebP, with alpha when a pixel has 4 samples, and JPEG XL as their imagecodecs
+/// codecs; else `imagecodecs_delta` along the stored axis `x`
+/// for Predictor 2, then `bytes`, with the byte order for samples of more than 8 bits, or
+/// `imagecodecs_floatpred` along `x` in place of both for Predictor 3, then
 /// `refkv.tiff_lzw` for LZW (spec/zarrify/tiff.md §4.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>),
-/// `numcodecs.zlib` for Deflate or `zstd` for Zstandard).
-pub fn tiff_codecs(compression: u64, predictor: u64, bits: u64, little: bool, x: usize) -> Vec<J> {
+/// `numcodecs.zlib` for Deflate, `zstd` for Zstandard, `imagecodecs_lzma` for LZMA or
+/// `imagecodecs_packbits` for PackBits). Packed samples, of 1 or 12 bits, have `imagecodecs_packints`
+/// in the place of `bytes`, `runlen` samples a row, and CCITT Group 4 its imagecodecs codec. EER's
+/// codec depends on the level's chunk shape: `project/tiled.rs` writes it.
+pub fn tiff_codecs(compression: u64, predictor: u64, bits: u64, spp: u64, little: bool, x: usize, runlen: u64) -> Vec<J> {
     match compression {
         33003 | 33004 | 33005 | 34712 => return vec![json!({"name": "imagecodecs_jpeg2k"})],
         7 => return vec![json!({"name": "imagecodecs_jpeg"})],
+        4 => return vec![json!({"name": "imagecodecs_ccittfax4"})],
+        34887 => return vec![json!({"name": "imagecodecs_lerc"})],
+        50001 => return vec![json!({"name": "imagecodecs_webp", "configuration": {"hasalpha": spp == 4}})],
+        50002 => return vec![json!({"name": "imagecodecs_jpegxl"})],
         _ => {}
     }
     let mut out = Vec::new();
     if predictor == 2 {
         out.push(json!({"name": "imagecodecs_delta", "configuration": {"axis": x, "dist": 1}}));
     }
-    out.push(bytes_codec(bits.div_ceil(8), if little { "little" } else { "big" }));
+    // the predictor's stream has one byte order, whatever the file's, and the codec keeps samples
+    // apart by the axis after `x`, so `dist` is 1 however many samples a pixel has
+    if predictor == 3 {
+        out.push(json!({"name": "imagecodecs_floatpred", "configuration": {"axis": x, "dist": 1}}));
+    } else if matches!(bits, 1 | 12) {
+        out.push(json!({"name": "imagecodecs_packints", "configuration": {"bitspersample": bits, "runlen": runlen}}));
+    } else {
+        out.push(bytes_codec(bits.div_ceil(8), if little { "little" } else { "big" }));
+    }
     match compression {
         5 => out.push(json!({"name": "refkv.tiff_lzw"})),
         8 | 32946 => out.push(json!({"name": "numcodecs.zlib", "configuration": {"level": 1}})),
         50000 => out.push(json!({"name": "zstd", "configuration": {"level": 0, "checksum": false}})),
+        32773 => out.push(json!({"name": "imagecodecs_packbits"})),
+        34925 => out.push(json!({"name": "imagecodecs_lzma"})),
         _ => {}
     }
     out
@@ -623,6 +660,17 @@ pub fn metadata_array(out: &mut Out, path: &str, data_type: &str, shape: &[u64],
 /// The gzip level of the chunks a projection writes deflated (conventions §9
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>).
 pub const GZIP_LEVEL: u8 = 6;
+
+/// The codecs after `bytes` of a chunk that is a gzip stream of `level` holding `skip` bytes
+/// before the values: `refkv.skip` when there are any, and `gzip`.
+pub fn gzip_codecs(skip: u64, level: u8) -> Vec<J> {
+    let mut codecs = Vec::new();
+    if skip > 0 {
+        codecs.push(json!({"name": "refkv.skip", "configuration": {"length": skip}}));
+    }
+    codecs.push(json!({"name": "gzip", "configuration": {"level": level}}));
+    codecs
+}
 
 /// A gzip member's header (RFC 1952): deflate, with no name, time or extra field.
 pub const GZIP_HEADER: [u8; 10] = [0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255];
@@ -858,22 +906,37 @@ pub fn json_size(v: &J) -> usize {
 mod tests {
     use super::*;
 
-    /// An integer is a JSON number up to 2^53 − 1 in magnitude, and the string of its digits
-    /// past it (conventions §6
+    /// An integer is a JSON integer, exact whatever its magnitude, its digits as written
+    /// (conventions §6
     /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>).
     #[test]
-    fn an_integer_past_two_to_the_53_is_its_digits() {
+    fn an_integer_is_exact_whatever_its_magnitude() {
         let max = (1i128 << 53) - 1;
         for (v, want) in [
-            (0, json!(0)),
-            (max, json!(9007199254740991u64)),
-            (-max, json!(-9007199254740991i64)),
-            (max + 1, json!("9007199254740992")),
-            (-(max + 1), json!("-9007199254740992")),
-            (u64::MAX as i128, json!("18446744073709551615")),
-            (i128::MIN, json!("-170141183460469231731687303715884105728")),
+            (0, "0"),
+            (max, "9007199254740991"),
+            (-max, "-9007199254740991"),
+            (max + 1, "9007199254740992"),
+            (-(max + 1), "-9007199254740992"),
+            (u64::MAX as i128, "18446744073709551615"),
+            (i64::MIN as i128, "-9223372036854775808"),
+            (i128::MIN, "-170141183460469231731687303715884105728"),
         ] {
-            assert_eq!(int_json(v), want, "{v}");
+            assert_eq!(to_text(&int_json(v)), want, "{v}");
+        }
+        assert_eq!(to_text(&json!({"n": int_json(u64::MAX as i128 + 1)})), r#"{"n":18446744073709551616}"#);
+        let (lo, hi) = (i64::MIN as i128, u64::MAX as i128);
+        for (t, want) in [("0", "0"), ("-0", "0"), ("+007", "7"), ("-9223372036854775808", "-9223372036854775808"),
+                          ("0018446744073709551615", "18446744073709551615")] {
+            assert_eq!(int_text(t, lo, hi).map(|j| to_text(&j)).as_deref(), Some(want), "{t}");
+        }
+    }
+
+    /// Decimal text outside the range its format declares is no integer of that format.
+    #[test]
+    fn decimal_text_outside_its_range_is_no_integer() {
+        for t in ["-9223372036854775809", "18446744073709551616", &"9".repeat(60)] {
+            assert_eq!(int_text(t, i64::MIN as i128, u64::MAX as i128), None, "{t}");
         }
     }
 

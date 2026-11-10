@@ -12,12 +12,29 @@ use refkv_ir::tiff::Tiff;
 use refkv_ir::types::{self, Val};
 use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict, PyList};
+use pyo3::types::{PyBytes, PyCapsule, PyDict, PyList};
+use refkv_ir::array::arrow::arrow_array::ffi::FFI_ArrowArray;
+use refkv_ir::array::arrow::arrow_array::ffi_stream::FFI_ArrowArrayStream;
+use refkv_ir::array::arrow::arrow_array::{Array, RecordBatch, RecordBatchIterator, StructArray};
+use refkv_ir::array::arrow::arrow_schema::ffi::FFI_ArrowSchema;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 pyo3::create_exception!(refkv._core, Rejected, PyException);
+pyo3::create_exception!(refkv._core, Failed, PyValueError);
+pyo3::create_exception!(refkv._core, SealRefused, PyValueError);
+
+/// The core's refusal of an output: Rejected, or Failed for a failure of the zarrifier, such as a
+/// payload over the limit only with its checksums (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
+fn refused(r: refkv_ir::seal::Refusal) -> PyErr {
+    match r {
+        refkv_ir::seal::Refusal::Rejected(e) => Rejected::new_err(e),
+        refkv_ir::seal::Refusal::Failed(e) => Failed::new_err(e),
+    }
+}
 pyo3::create_exception!(refkv._core, Violation, PyException);
+pyo3::create_exception!(refkv._core, NoCodec, PyValueError);
 
 fn bytes_of<T: Copy, const N: usize>(v: &[T], f: impl Fn(T) -> [u8; N]) -> Vec<u8> {
     let mut out = Vec::with_capacity(v.len() * N);
@@ -281,6 +298,19 @@ impl PyIr {
     fn digest(&self) -> u64 {
         self.ir.digest()
     }
+    /// The arrays the source stores (spec/stored-array.md §2.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#25-the-json-form>): one JSON
+    /// document, the chain table, the descriptions and the `undescribed` mark.
+    fn stored_arrays(&self) -> String {
+        self.ir.stored.document(&self.ir).to_string()
+    }
+    /// The chunk map (spec/stored-array.md §4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#4-the-chunk-map>): an object
+    /// of the Arrow PyCapsule interface, one record batch.
+    fn chunk_map(&self) -> PyResult<PyChunkMap> {
+        let batch = refkv_ir::array::arrow::batch(&self.ir.stored.map).map_err(|e| Failed::new_err(e.to_string()))?;
+        Ok(PyChunkMap { batch })
+    }
     fn runs_count(&self) -> usize {
         self.ir.runs.len()
     }
@@ -369,6 +399,47 @@ impl PyIr {
         }
         ir.build_children();
         Ok(PyIr::new(ir))
+    }
+}
+
+/// An IR's chunk map as one Arrow record batch, for the Arrow PyCapsule interface
+/// (<https://arrow.apache.org/docs/format/CDataInterface/PyCapsuleInterface.html>): pyarrow,
+/// polars or nanoarrow read it without a copy. A requested schema is ignored: the batch is given
+/// in its own.
+#[pyclass(name = "ChunkMap", module = "refkv._core", frozen)]
+pub struct PyChunkMap {
+    batch: RecordBatch,
+}
+
+fn arrow_err(e: impl std::fmt::Display) -> PyErr {
+    Failed::new_err(e.to_string())
+}
+
+#[pymethods]
+impl PyChunkMap {
+    fn __len__(&self) -> usize {
+        self.batch.num_rows()
+    }
+    /// The schema, a capsule named `arrow_schema`.
+    fn __arrow_c_schema__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyCapsule>> {
+        let schema = FFI_ArrowSchema::try_from(self.batch.schema().as_ref()).map_err(arrow_err)?;
+        PyCapsule::new_with_value(py, schema, c"arrow_schema")
+    }
+    /// The batch as a struct array: capsules named `arrow_schema` and `arrow_array`.
+    #[pyo3(signature = (requested_schema=None))]
+    fn __arrow_c_array__<'py>(&self, py: Python<'py>, requested_schema: Option<Bound<'py, PyAny>>)
+                              -> PyResult<(Bound<'py, PyCapsule>, Bound<'py, PyCapsule>)> {
+        let _ = requested_schema;
+        let schema = FFI_ArrowSchema::try_from(self.batch.schema().as_ref()).map_err(arrow_err)?;
+        let array = FFI_ArrowArray::new(&StructArray::from(self.batch.clone()).to_data());
+        Ok((PyCapsule::new_with_value(py, schema, c"arrow_schema")?, PyCapsule::new_with_value(py, array, c"arrow_array")?))
+    }
+    /// A stream of the one batch, a capsule named `arrow_array_stream`.
+    #[pyo3(signature = (requested_schema=None))]
+    fn __arrow_c_stream__<'py>(&self, py: Python<'py>, requested_schema: Option<Bound<'py, PyAny>>) -> PyResult<Bound<'py, PyCapsule>> {
+        let _ = requested_schema;
+        let reader = RecordBatchIterator::new(vec![Ok(self.batch.clone())], self.batch.schema());
+        PyCapsule::new_with_value(py, FFI_ArrowArrayStream::new(Box::new(reader)), c"arrow_array_stream")
     }
 }
 
@@ -625,21 +696,23 @@ impl PyRun {
     /// default, every one. `checksums`: the host records the ranges' checksums, so that a
     /// sharded array's ranges are not joined across inner chunks (spec/zarrify.md §2.1
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>).
-    #[pyo3(signature = (url, mirror=true, layouts=None, checksums=false))]
-    fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, layouts: Option<Vec<String>>, checksums: bool)
-        -> PyResult<(Bound<'py, PyAny>, PyIr)> {
+    /// `written`: the host writes this output as it is; false for one it only builds another from,
+    /// which is not held to the payload limit with checksums (`run::output`).
+    #[pyo3(signature = (url, mirror=true, layouts=None, checksums=false, written=true))]
+    fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, layouts: Option<Vec<String>>, checksums: bool,
+                   written: bool) -> PyResult<(Bound<'py, PyAny>, PyIr)> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
         let format = r.format;
         let (o, ir) = py
-            .detach(|| -> Result<_, String> {
+            .detach(|| -> Result<_, refkv_ir::seal::Refusal> {
                 let (ir, mut facts, stats, copied) = r.finish_copied()?;
                 if let Some(l) = layouts {
                     facts["layouts"] = serde_json::json!(l);
                 }
                 facts["checksums"] = checksums.into();
-                Ok((refkv_ir::run::output(format, &ir, &facts, stats, url, mirror, &copied)?, ir))
+                Ok((refkv_ir::run::output(format, &ir, &facts, stats, url, mirror, &copied, written)?, ir))
             })
-            .map_err(Rejected::new_err)?;
+            .map_err(refused)?;
         Ok((out_py(py, &o)?, PyIr::new(ir)))
     }
     fn finish(&mut self, py: Python<'_>) -> PyResult<(PyIr, String, String)> {
@@ -690,12 +763,17 @@ impl PyStoreRun {
     /// list, and the host answers each key, in order, with `found(size)` (None: it does not
     /// exist) before polling again.
     fn probes(&mut self) -> PyResult<Vec<String>> {
-        Ok(self.get()?.probes().to_vec())
+        Ok(self.get()?.probes())
     }
     /// The answer to the next probe of the batch: the key's size, or None when it does not exist.
     #[pyo3(signature = (size))]
     fn found(&mut self, size: Option<u64>) -> PyResult<()> {
         self.get()?.found(size).map_err(Rejected::new_err)
+    }
+    /// The answer to the next probe of the batch, found at another key by listing
+    /// (`StoreRun::found_as`): its size and that key.
+    fn found_as(&mut self, size: u64, key: &str) -> PyResult<()> {
+        self.get()?.found_as(size, key).map_err(Rejected::new_err)
     }
     /// The keys the listing ignores, before the first poll (`StoreRun::ignore`): `keys`, the
     /// relative keys the store reader ignored and recorded (`Store.ignored`), which the
@@ -705,20 +783,27 @@ impl PyStoreRun {
     fn ignore(&mut self, keys: Vec<String>, folders: Vec<String>) -> PyResult<()> {
         self.get()?.ignore(keys, folders).map_err(Rejected::new_err)
     }
+    /// The scope of the input, before the first poll (`StoreRun::scope`): the keys besides the
+    /// listing's the host may be asked to probe, each a key or a directory's key followed by `/`.
+    fn scope(&mut self, within: Vec<String>) -> PyResult<()> {
+        self.get()?.scope(within).map_err(Rejected::new_err)
+    }
     /// The profile the run's store is decided to be so far (`StoreRun::profile`).
     fn profile(&mut self) -> PyResult<String> {
         Ok(self.get()?.profile().to_string())
     }
-    #[pyo3(signature = (url, mirror=true))]
-    fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool) -> PyResult<(Bound<'py, PyAny>, PyIr)> {
+    /// Finishes, projects and mirrors (when `mirror`): the output, sealed for a host that records
+    /// the ranges' checksums when `checksums`, and the IR; Rejected or Failed (`refused`).
+    #[pyo3(signature = (url, mirror=true, checksums=false))]
+    fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, checksums: bool) -> PyResult<(Bound<'py, PyAny>, PyIr)> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
         let format = r.format;
         let (o, ir) = py
-            .detach(|| -> Result<_, String> {
+            .detach(|| -> Result<_, refkv_ir::seal::Refusal> {
                 let (ir, facts, stats) = r.finish()?;
-                Ok((refkv_ir::store::store_output(format, &ir, &facts, stats, url, mirror)?, ir))
+                Ok((refkv_ir::store::store_output(format, &ir, &facts, stats, url, mirror, checksums)?, ir))
             })
-            .map_err(Rejected::new_err)?;
+            .map_err(refused)?;
         Ok((out_py(py, &o)?, PyIr::new(ir)))
     }
     fn finish(&mut self, py: Python<'_>) -> PyResult<(PyIr, String, String)> {
@@ -816,6 +901,65 @@ fn view_problem(keys: Vec<String>, get: Bound<'_, PyAny>, read: Bound<'_, PyAny>
     refkv_ir::mirror::view_problem(&keys, &g, &mut rd)
 }
 
+/// A part of a value for `seal`: bytes (literal), (0, url, offset, length), (1, data, offset,
+/// length) or (2, length) of zero bytes.
+fn piece(p: &Bound<'_, PyAny>) -> PyResult<refkv_ir::seal::Piece> {
+    use refkv_ir::seal::Piece;
+    if let Ok(b) = p.cast::<PyBytes>() {
+        return Ok(Piece::Lit(b.as_bytes().to_vec()));
+    }
+    let t: Vec<u64> = p.extract()?;
+    match t.as_slice() {
+        [0, i, o, n] => Ok(Piece::Url(*i as usize, *o, *n)),
+        [1, i, o, n] => Ok(Piece::Data(*i as usize, *o, *n)),
+        [2, n] => Ok(Piece::Zeros(*n)),
+        _ => Err(PyValueError::new_err(format!("internal: a part {t:?} is no piece"))),
+    }
+}
+
+/// The core's `seal` (`refkv_ir::seal::seal`) of the output whose bytes entries' keys are
+/// `documents` and whose values are `values`, each (key, parts (`piece`)): `urls` are
+/// (url, size, etag), `data` byte strings, `first` the url that is source 0. Returns (the table,
+/// each source ("url", index), ("data", index) or ("zeros", length); the values in key order,
+/// each (key, ranges), a range (source, offset, length) or bytes). Raises SealRefused with
+/// (code, key, message).
+#[pyfunction]
+#[pyo3(signature = (urls, data, first, documents, values, max_sources, checksums))]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn seal<'py>(py: Python<'py>, urls: Vec<(String, Option<u64>, Option<String>)>, data: Vec<Vec<u8>>, first: Option<usize>,
+             documents: Vec<String>, values: Vec<(String, Bound<'py, PyList>)>, max_sources: usize, checksums: bool) -> PyResult<(Bound<'py, PyList>, Bound<'py, PyList>)> {
+    use refkv_ir::seal::{Limits, Range, Source, Url, Value};
+    let urls: Vec<Url> = urls.into_iter().map(|(url, size, etag)| Url { url, size, etag }).collect();
+    let mut vs = Vec::with_capacity(values.len());
+    for (key, parts) in values {
+        let pieces = parts.iter().map(|p| piece(&p)).collect::<PyResult<Vec<_>>>()?;
+        vs.push(Value { key, pieces });
+    }
+    let limits = Limits { max_sources, checksums };
+    let sealed = py.detach(|| refkv_ir::seal::seal(&urls, &data, first, &documents, vs, &limits))
+        .map_err(|e| SealRefused::new_err((e.code.name(), e.key, e.message)))?;
+    let table = PyList::empty(py);
+    for s in &sealed.sources {
+        match s {
+            Source::Url(i) => table.append(("url", *i))?,
+            Source::Data(i) => table.append(("data", *i))?,
+            Source::Zeros(n) => table.append(("zeros", *n))?,
+        }
+    }
+    let out = PyList::empty(py);
+    for (k, ranges) in &sealed.values {
+        let rs = PyList::empty(py);
+        for r in ranges {
+            match r {
+                Range::Src(s, o, n) => rs.append((*s, *o, *n))?,
+                Range::Lit(b) => rs.append(PyBytes::new(py, b))?,
+            }
+        }
+        out.append((k.as_str(), rs))?;
+    }
+    Ok((table, out))
+}
+
 /// CRC-32C (Castagnoli, RFC 3720 §B.4) of `data`: a range's checksum (spec §4.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>).
 #[pyfunction]
@@ -824,7 +968,7 @@ fn range_crc32c(py: Python<'_>, data: &[u8]) -> u32 {
     py.detach(|| crc32c::crc32c(data))
 }
 
-/// The format a file's first bytes (up to 552 of them) give (`Format::sniff`), if any: its
+/// The format a file's first bytes (up to 65,600 of them) give (`Format::sniff`), if any: its
 /// profile's name.
 #[pyfunction]
 fn sniff(head: &[u8]) -> Option<&'static str> {
@@ -857,6 +1001,16 @@ fn fits_tiles_decode<'py>(py: Python<'py>, chunk: &[u8], config: &str, chunk_sha
     Ok(PyBytes::new(py, &out))
 }
 
+/// The `refkv.h5_bitshuffle` codec (spec/zarrify/hdf5.md §3.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#34-the-codec-refkvh5_bitshuffle>): a chunk's bytes
+/// from HDF5's bitshuffle filter, its elements of `elementsize` bytes, in blocks of `block_size`
+/// elements, LZ4-compressed when `lz4`.
+#[pyfunction]
+fn h5_bitshuffle_decode<'py>(py: Python<'py>, chunk: &[u8], elementsize: usize, block_size: usize, lz4: bool) -> PyResult<Bound<'py, PyBytes>> {
+    let out = py.detach(|| refkv_ir::h5_bitshuffle::decode(chunk, elementsize, block_size, lz4)).map_err(PyValueError::new_err)?;
+    Ok(PyBytes::new(py, &out))
+}
+
 /// The `refkv.grib` codec (spec/conventions.md §12
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#12-grib-messages>): the values
 /// of a field of the GRIB message `chunk`, as little-endian float64 in C order over
@@ -867,6 +1021,20 @@ fn grib_decode<'py>(py: Python<'py>, chunk: &[u8], config: &str, chunk_shape: Ve
     let cfg = refkv_ir::grib::codec::Config::from_json(&cfg).map_err(PyValueError::new_err)?;
     let out = py.detach(|| refkv_ir::grib::codec::decode(chunk, &cfg, &chunk_shape)).map_err(PyValueError::new_err)?;
     Ok(PyBytes::new(py, &bytes_of(&out, f64::to_le_bytes)))
+}
+
+/// A coding routine of `refkv.zarrify.coding` (spec/layout.md
+/// <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): the routine `name` of the
+/// parameters `params` (JSON), its result as JSON. Raises NoCodec for parameters the format's
+/// section rejects, ValueError for parameters that are not the routine's.
+#[pyfunction]
+fn coding(name: &str, params: &str) -> PyResult<String> {
+    let p: serde_json::Value = serde_json::from_str(params).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    match refkv_ir::routines::call(name, &p) {
+        Ok(v) => Ok(v.to_string()),
+        Err(refkv_ir::routines::Refused::NoCodec(m)) => Err(NoCodec::new_err(m)),
+        Err(refkv_ir::routines::Refused::Bad(m)) => Err(PyValueError::new_err(m)),
+    }
 }
 
 /// For tests: the reference payload past which a NIfTI or MRC edge chunk is copied (None:
@@ -906,6 +1074,7 @@ fn _set_chunk_frames(n: Option<usize>) {
 #[pyo3(name = "_core")]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyIr>()?;
+    m.add_class::<PyChunkMap>()?;
     m.add_class::<PyNd2>()?;
     m.add_class::<PyCzi>()?;
     m.add_class::<PyTiff>()?;
@@ -914,10 +1083,13 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rebuild_store, m)?)?;
     m.add_function(wrap_pyfunction!(plan_spans, m)?)?;
     m.add_function(wrap_pyfunction!(range_crc32c, m)?)?;
+    m.add_function(wrap_pyfunction!(seal, m)?)?;
     m.add_function(wrap_pyfunction!(sniff, m)?)?;
     m.add_function(wrap_pyfunction!(registry, m)?)?;
     m.add_function(wrap_pyfunction!(fits_tiles_decode, m)?)?;
+    m.add_function(wrap_pyfunction!(h5_bitshuffle_decode, m)?)?;
     m.add_function(wrap_pyfunction!(grib_decode, m)?)?;
+    m.add_function(wrap_pyfunction!(coding, m)?)?;
     m.add_function(wrap_pyfunction!(_set_copy_threshold, m)?)?;
     m.add_function(wrap_pyfunction!(_set_chunk_frames, m)?)?;
     m.add_function(wrap_pyfunction!(_set_shard_frames, m)?)?;
@@ -930,7 +1102,10 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(czi_xml_values, m)?)?;
     m.add_function(wrap_pyfunction!(czi_bands, m)?)?;
     m.add("Rejected", m.py().get_type::<Rejected>())?;
+    m.add("Failed", m.py().get_type::<Failed>())?;
+    m.add("SealRefused", m.py().get_type::<SealRefused>())?;
     m.add("Violation", m.py().get_type::<Violation>())?;
+    m.add("NoCodec", m.py().get_type::<NoCodec>())?;
     phkv::register(m)?;
     Ok(())
 }

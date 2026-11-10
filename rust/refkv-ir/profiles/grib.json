@@ -4,6 +4,7 @@
   "uuid": "c9bbe039-8dfa-49f9-a655-756f822a42d6",
   "version": 0,
   "kind": "file",
+  "store_run": {"form": "always", "named": "GRIB file", "section": "8-grib-profile"},
   "sniff": 65,
   "chosen_by": null,
   "suffixes": [
@@ -12,6 +13,6 @@
   ],
   "reference": null,
   "source": "WMO FM 92 GRIB edition 2 (WMO-No. 306, Manual on Codes, Volume I.2)",
-  "inputs": "GRIB edition 2 files of gridded fields, such as NOAA's and ECMWF's forecasts, whose regular latitude/longitude and Lambert conformal fields it presents",
+  "inputs": "GRIB edition 2 files of gridded fields, such as NOAA's and ECMWF's forecasts, whose fields on latitude/longitude, Gaussian, rotated, Lambert conformal, polar stereographic, Mercator, reduced and unstructured grids it presents",
   "for": "GRIB2 files of gridded weather and climate fields (`.grib2`), as labeled arrays with CF coordinates"
 }

@@ -13,10 +13,7 @@ cited here as "conventions §n"; "the MRC convention §n" is a section of
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` ·
 Schema: [schema.json](mrc-dataset/schema.json)
 
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), and the stack example gives its
-fixture's `cella` ([§5](#5-example)).
+Changes: [changes/mrc-dataset/](changes/mrc-dataset/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
@@ -113,7 +110,7 @@ Each of the dimensions `x`, `y` and `z` that the data variable has, and
 along which the file has a **voxel size** `s`
 ([the MRC convention §4.2](mrc.md#42-scales-units-and-position)), has the
 coordinate variable `dataset/<a>`, of the dimension's length `n`, whose
-position at index `i` is `o + i × s`, where `o` is the origin along that
+position at index `i` is `o + i × s`, where `o` is the first value's position `p` along that
 axis when the image layout has a translation
 ([the MRC convention §4.2](mrc.md#42-scales-units-and-position): a volume
 or a volume stack whose `origin` is finite and not all 0), and 0
@@ -142,7 +139,7 @@ named as its dimension `<a>`, with these members:
 |---|---|---|---|
 | `units` | string | required | `"angstrom"` |
 | `scale_factor` | number | required | `s`, the voxel size along the dimension |
-| `add_offset` | number | required | `o`, the origin along the dimension, or 0 (above) |
+| `add_offset` | number | required | `o`, the first value's position along the dimension, or 0 (above) |
 
 <a id="type-mrccoordinatechunk"></a>**`MrcCoordinateChunk`**, the chunk `q` of a coordinate
 variable, a bytes entry:

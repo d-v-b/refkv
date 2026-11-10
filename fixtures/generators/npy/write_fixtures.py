@@ -235,6 +235,26 @@ def accepted() -> None:
     raw[e + 8 : e + 20] = b"\xff" * 12
     path.write_bytes(bytes(raw))
     npz("npz_comment.npz", [("a.npy", npy_bytes(b), zipfile.ZIP_STORED)], comment=b"written by write_fixtures.py")
+    # members the profile does not present whose types NumPy sizes (spec/stored-array.md §7
+    # <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): a structure
+    # with a field of size 0, as np.savez writes one, types of size 0, a comma string, a subarray
+    # string, a field whose type is a (type, shape) tuple, and one-character codes; beside a
+    # presented member
+    zero = np.zeros((3,), dtype=[("a", "<f4"), ("b", "S0")])
+    npz(
+        "npz_sized.npz",
+        [
+            ("kept.npy", npy_bytes(values((2, 2), "<f4")), zipfile.ZIP_STORED),
+            ("zero_field.npy", npy_bytes(zero), zipfile.ZIP_STORED),
+            ("void0.npy", handmade("'|V0'"), zipfile.ZIP_STORED),
+            ("unicode0.npy", handmade("'<U0'"), zipfile.ZIP_STORED),
+            ("comma.npy", handmade("'<f8,<i4'", data=bytes(24)), zipfile.ZIP_STORED),
+            ("subarray.npy", handmade("'(2,3)<f4'", data=bytes(48)), zipfile.ZIP_STORED),
+            ("tuple_field.npy", handmade("[('a', ('<f4', (2,)))]", data=bytes(16)), zipfile.ZIP_STORED),
+            ("codes.npy", handmade("[('a', '<h'), ('b', 'B'), ('c', '<D'), ('d', '?')]", data=bytes(40)),
+             zipfile.ZIP_STORED),
+        ],
+    )
 
 
 def rejected() -> None:

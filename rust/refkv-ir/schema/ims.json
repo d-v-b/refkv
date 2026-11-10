@@ -94,11 +94,11 @@
     },
     "image": {
       "about": "a Data dataset of level r, as the datasets before it",
-      "given": {"level": "", "rank": "", "larger": "an ImageSize is larger than the dataset's size", "filters": "its filter identifiers", "same_type": "its data type is the first dataset's", "same_level": "its sizes, chunk shape and filters are its level's first dataset's"},
+      "given": {"level": "", "rank": "", "larger": "an ImageSize is larger than the dataset's size", "filters": "its filter identifiers", "pipeline": "they are a pipeline the profile presents", "same_type": "its data type is the first dataset's", "same_level": "its sizes, chunk shape and filters are its level's first dataset's"},
       "constraints": [
         {"require": "rank == 3", "message": "a dataset of level {level} is not 3-dimensional"},
         {"require": "!larger", "message": "the image of level {level} is larger than its dataset"},
-        {"require": "len(filters) == 0 || (len(filters) == 1 && first(filters) == 1)", "message": "unsupported HDF5 filters {filters}"},
+        {"require": "pipeline", "message": "unsupported HDF5 filters {filters}"},
         {"require": "same_type", "message": "the datasets have different data types"},
         {"require": "same_level", "message": "the datasets of level {level} differ in size, chunk shape or filters"}
       ]

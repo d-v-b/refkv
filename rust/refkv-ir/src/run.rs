@@ -10,26 +10,38 @@ use crate::project::Copied;
 use crate::Parser;
 use serde_json::Value as J;
 
+/// The bytes a file's signatures test, and of what a gzipped file inflates to (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
+pub const SNIFF: usize = 552;
+/// The bytes its late signatures test: up to a superblock after a 64 KiB user block.
+pub const SNIFF_LATE: usize = 65_600;
+
 // `Format`: one variant per file profile of the registry (profiles/; build.rs)
 include!(concat!(env!("OUT_DIR"), "/formats.rs"));
 
 impl Format {
-    /// Whether the format's input, a file, is zarrified by a store run rather than a file
-    /// run (`FileProfile::store_run`).
-    pub fn store_run(self) -> bool {
-        self.profile().store_run()
-    }
-
     /// The format of a profile's name, if a file profile's.
     pub fn from_name(s: &str) -> Option<Format> {
         Format::ALL.iter().copied().find(|f| f.name() == s)
     }
 
     /// The format a file's first bytes give, if one of these: the first, in the registry's
-    /// `sniff` order, whose profile's `detect` takes them (spec/zarrify.md §1.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
+    /// `sniff` order, whose profile's `detect` takes the first `SNIFF` of them, else the first
+    /// whose `detect_late` takes them all, else, of a gzip member, the first whose `detect_gzipped`
+    /// takes what they inflate to (spec/zarrify.md §1.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>). A host passes
+    /// `SNIFF` bytes, and `SNIFF_LATE` if that gives no format.
     pub fn sniff(head: &[u8]) -> Option<Format> {
-        Format::SNIFFED.iter().copied().find(|f| f.profile().detect(head))
+        let early = &head[..head.len().min(SNIFF)];
+        Format::SNIFFED
+            .iter()
+            .copied()
+            .find(|f| f.profile().detect(early))
+            .or_else(|| Format::SNIFFED.iter().copied().find(|f| f.profile().detect_late(head)))
+            .or_else(|| {
+                let inflated = crate::gz::start(head, SNIFF as u64)?;
+                Format::SNIFFED.iter().copied().find(|f| f.profile().detect_gzipped(&inflated))
+            })
     }
 }
 
@@ -43,17 +55,24 @@ pub trait FileProfile: Sync {
         let _ = head;
         false
     }
+    /// Whether a file's first bytes (up to `SNIFF_LATE` of them), that no `detect` took, are the
+    /// profile's late signature.
+    fn detect_late(&self, head: &[u8]) -> bool {
+        let _ = head;
+        false
+    }
+    /// Whether the first bytes (up to 552 of them) a gzip member inflates to are the profile's
+    /// signature, for a profile that reads a file gzipped whole.
+    fn detect_gzipped(&self, inflated: &[u8]) -> bool {
+        let _ = inflated;
+        false
+    }
     /// A parser of a file of `size` bytes.
     fn parser(&self, size: u64) -> AnyParser;
     /// Whether the parser takes whole responses (it finds each range in them), rather than
     /// exactly the ranges it asked for.
     fn whole(&self) -> bool {
         true
-    }
-    /// Whether the input, a file, is zarrified by a store run rather than a file run (a file
-    /// run of it only rejects, so a host hands it to its store run).
-    fn store_run(&self) -> bool {
-        false
     }
     /// The image projection: today's hierarchy, without `refkv_source`. `copied` holds the
     /// bytes of the ranges `reads` gives.
@@ -330,11 +349,17 @@ pub fn unread_shown(ir: &Ir, profile: &str) -> Vec<(u32, u64, u64)> {
 /// (`shard::apply_all`; ranges adjacent across inner chunks joined unless the facts' `checksums`
 /// is true: the host records checksums), the mirror under `refkv_source` when `mirror`, and a
 /// summary with the planner's counts, the IR's element count and what the mirror's table
-/// folded. `copied` holds the bytes of the ranges the projection copies (`project::reads`).
+/// folded. `copied` holds the bytes of the ranges the projection copies (`project::reads`). Last,
+/// the output is sealed (`seal::out`), the file its source 0: with its checksums when the host
+/// records them and `written`, the host writing this output as it is; an output a host only builds
+/// another from (`refkv.build.read`, a plugin's base) is not held to the payload limit with
+/// checksums, which the output it writes is.
+#[allow(clippy::too_many_arguments)]
 pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_json::Value, url: &str, mirror: bool,
-              copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+              copied: &crate::project::Copied, written: bool) -> Result<crate::out::Out, crate::seal::Refusal> {
+    let checksums = facts["checksums"].as_bool().unwrap_or(false);
     let mut out = crate::project::project(format, ir, facts, url, copied)?;
-    crate::shard::apply_all(&mut out, !facts["checksums"].as_bool().unwrap_or(false))?;
+    crate::shard::apply_all(&mut out, !checksums)?;
     if let Some(m) = out.summary.as_object_mut() {
         m.insert("format".into(), format.name().into());
         m.insert("planner".into(), stats);
@@ -347,17 +372,18 @@ pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_j
         }
         format.profile().mirrored(&mut out, facts)?;
     }
+    crate::seal::out(&mut out, Some(ir.size), &Default::default(), checksums && written)?;
     Ok(out)
 }
 
 impl Run {
     /// Finishes, projects and mirrors: the output (`output`), for a host that records the
     /// ranges' checksums when `checksums`.
-    pub fn into_output(self, url: &str, mirror: bool, checksums: bool) -> Result<crate::out::Out, String> {
+    pub fn into_output(self, url: &str, mirror: bool, checksums: bool) -> Result<crate::out::Out, crate::seal::Refusal> {
         let format = self.format;
         let (ir, mut facts, stats, copied) = self.finish_copied()?;
         facts["checksums"] = checksums.into();
-        output(format, &ir, &facts, stats, url, mirror, &copied)
+        output(format, &ir, &facts, stats, url, mirror, &copied, true)
     }
 }
 

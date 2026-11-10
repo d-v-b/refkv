@@ -281,6 +281,90 @@ fn version(where_: &str, obj: &Jv) -> Res<()> {
     ]))
 }
 
+/// The groups that are not OME for an array (spec/zarrify/ome-zarr.md
+/// §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#21-groups-that-are-not-ome>),
+/// and why, each with its OME members taken from `attrs`, so that [`layer`] reads it as a plain
+/// group: an image with a level that `no_level` names, and then whatever names a group already
+/// found, until none does.
+pub fn not_ome(attrs: &mut BTreeMap<String, Jv>, no_level: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    let mut out: BTreeMap<String, String> = BTreeMap::new();
+    if no_level.is_empty() {
+        return out;
+    }
+    fn items(v: Option<&Jv>) -> &[Jv] {
+        v.and_then(|x| x.as_arr()).map_or(&[], Vec::as_slice)
+    }
+    fn path_of(x: &Jv) -> Option<&str> {
+        x.get("path").and_then(|p| p.s())
+    }
+    // the groups an image found starts from, then what each group names: found once, each edge
+    // followed once, however long a chain of names is
+    let mut queue: std::collections::VecDeque<(String, String)> = Default::default();
+    let mut named_by: HashMap<String, Vec<(&str, &'static str)>> = HashMap::new();
+    for (g, a) in attrs.iter() {
+        let levels = items(a.get("multiscales")).iter().flat_map(|m| items(m.get("datasets")));
+        if let Some((t, r)) = levels.filter_map(path_of).map(|p| join(g, p)).find_map(|t| no_level.get(&t).map(|r| (t, r))) {
+            queue.push_back((g.clone(), format!("its level {t}: {r}")));
+        }
+        let mut name = |t: String, what: &'static str| named_by.entry(t).or_default().push((g.as_str(), what));
+        for x in items(a.get("labels")) {
+            if let Some(p) = x.s() {
+                name(join(g, p), "label image");
+            }
+        }
+        let source = a.get("image-label").and_then(|l| l.get("source")).and_then(|s| s.get("image")).and_then(|i| i.s());
+        if let Some(t) = source.and_then(|s| resolve(g, s)) {
+            name(t, "source image");
+        }
+        for x in items(a.get("well").and_then(|w| w.get("images"))) {
+            if let Some(p) = path_of(x) {
+                name(join(g, p), "field");
+            }
+        }
+        for x in items(a.get("plate").and_then(|w| w.get("wells"))) {
+            if let Some(p) = path_of(x) {
+                name(join(g, p), "well");
+            }
+        }
+        for x in items(a.get("series")) {
+            if let Some(p) = x.s() {
+                name(join(parent_of(g), p), "image");
+            }
+        }
+    }
+    // a collection's images: its numbered children, and its group OME
+    let collections: HashSet<&str> = attrs.iter().filter(|(_, a)| a.has("bioformats2raw.layout")).map(|(p, _)| p.as_str()).collect();
+    for g in attrs.keys() {
+        let parent = parent_of(g);
+        let last = g.rsplit('/').next().unwrap_or("");
+        if !g.is_empty() && collections.contains(parent) {
+            if canonical_index(last, 1 << 53) {
+                named_by.entry(g.clone()).or_default().push((parent, "image"));
+            } else if last == "OME" {
+                named_by.entry(g.clone()).or_default().push((parent, "group"));
+            }
+        }
+    }
+    while let Some((g, why)) = queue.pop_front() {
+        if out.contains_key(&g) {
+            continue;
+        }
+        for (by, what) in named_by.get(&g).map_or(&[][..], Vec::as_slice) {
+            if !out.contains_key(*by) {
+                queue.push_back((by.to_string(), format!("its {what} {g} is not OME")));
+            }
+        }
+        out.insert(g, why);
+    }
+    let names = [&OME_KEYS[..], &["series"]].concat();
+    for g in out.keys() {
+        if let Some(a) = attrs.get_mut(g) {
+            *a = a.minus(&names);
+        }
+    }
+    out
+}
+
 pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>, keys: &[(String, u64)]) -> Res<Ome> {
     for (path, a) in attrs {
         check("group", rules::env([("where", text(&place(path))), ("has_ome", flag(a.has("ome")))]))?;

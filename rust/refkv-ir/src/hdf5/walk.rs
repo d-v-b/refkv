@@ -114,6 +114,18 @@ pub struct Emit<'a> {
     pub room: u64,
     /// the image's datasets, whose chunks are described whatever the room
     pub must: HashSet<u64>,
+    /// the elements emitted that the stored arrays' descriptions name (`super::stored`)
+    pub rec: Recorded,
+}
+
+/// The elements the emission made that a stored array's description names: each message's `data`
+/// by (header address, message position), each chunk by (dataset header, grid index), and an
+/// implicit index's one `data` element with the address of its first chunk.
+#[derive(Default)]
+pub struct Recorded {
+    pub msg: HashMap<(u64, usize), u32>,
+    pub chunk: HashMap<(u64, u128), u32>,
+    pub implicit: HashMap<u64, (u32, u64)>,
 }
 
 pub type Res<T> = Result<T, String>;
@@ -142,8 +154,8 @@ impl Emit<'_> {
         if n == 0 || !self.h.src.within(o, n) {
             return Ok(None);
         }
-        let raw = if n <= 1024 && !ty.starts_with("bytes") { self.h.src.store.get(o, n).map(|b| b.to_vec()) } else { None };
-        Ok(Some(self.ir.value(parent, name, nidx, ty, 0, (o, n), raw.as_deref())?))
+        let raw = if n <= 1024 && !ty.starts_with("bytes") { self.h.src.get(o, n).map(|b| b.to_vec()) } else { None };
+        Ok(Some(self.ir.value(parent, name, nidx, ty, 0, (o + self.h.src.base, n), raw.as_deref())?))
     }
 
     pub fn bytes(&mut self, parent: u32, name: &str, nidx: u64, o: u64, n: u64) -> Res<Option<u32>> {
@@ -211,7 +223,9 @@ impl Emit<'_> {
                 hdf5::ATTRIBUTE if m.flags & 2 == 0 => self.attribute(s, "data", NO_INDEX, m.at, &m.data)?,
                 hdf5::LINK if m.flags & 2 == 0 => self.link(s, "data", NO_INDEX, m.at, &m.data)?,
                 _ => {
-                    self.bytes(s, "data", NO_INDEX, m.at, n)?;
+                    if let Some(id) = self.bytes(s, "data", NO_INDEX, m.at, n)? {
+                        self.rec.msg.insert((h.at, k), id);
+                    }
                 }
             }
         }
@@ -431,7 +445,7 @@ impl Emit<'_> {
                         if self.spent(at) {
                             break;
                         }
-                        if let Some(d) = self.h.src.store.get(a, n).map(|b| b.to_vec()) {
+                        if let Some(d) = self.h.src.get(a, n).map(|b| b.to_vec()) {
                             self.link(items, "", k as u64, a, &d)?;
                         } else {
                             self.bytes(items, "", k as u64, a, n)?;
@@ -495,7 +509,8 @@ impl Emit<'_> {
                     let end = ch.list.iter().map(|c| c.1 + c.2).max().unwrap();
                     if self.h.src.within(first, end - first) {
                         let form = json!({"geometry": {"chunk": ds.chunk, "size": ds.datatype.size, "grid": max_grid}, "codec": {"filters": ds.filters}, "recipe": [["src", 0, null]]});
-                        self.ir.data(o, "data", NO_INDEX, 0, (first, end - first), &form.to_string())?;
+                        let id = self.ir.data(o, "data", NO_INDEX, 0, (first + self.h.src.base, end - first), &form.to_string())?;
+                        self.rec.implicit.insert(at, (id, first));
                     }
                 } else if !ch.list.is_empty() && (image || !self.full()) {
                     let s = self.ir.struct_(o, "chunks", NO_INDEX, 0, None)?;
@@ -516,7 +531,8 @@ impl Emit<'_> {
                             f["codec"]["mask"] = json!(mask);
                             f.to_string()
                         };
-                        self.ir.data(s, "", idx as u64, 0, (*a, *n), &form)?;
+                        let id = self.ir.data(s, "", idx as u64, 0, (*a + self.h.src.base, *n), &form)?;
+                        self.rec.chunk.insert((at, idx), id);
                     }
                 }
             }
@@ -524,7 +540,7 @@ impl Emit<'_> {
                 if let (Some(a), n) = ds.contiguous {
                     if n > 0 && self.h.src.within(a, n) {
                         let form = json!({"geometry": {"shape": ds.dims, "size": ds.datatype.size}, "codec": {"filters": ds.filters}, "recipe": [["src", 0, null]]});
-                        let id = self.ir.data(o, "data", NO_INDEX, 0, (a, n), &form.to_string())?;
+                        let id = self.ir.data(o, "data", NO_INDEX, 0, (a + self.h.src.base, n), &form.to_string())?;
                         self.data_of.insert(at, id);
                     }
                 }

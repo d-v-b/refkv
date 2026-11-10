@@ -27,9 +27,12 @@ from typing import ClassVar
 from urllib.parse import urlsplit
 
 from refkv._narrow import string
+from refkv.ir.planner import url_scheme
 from refkv.policy import Policy
+from refkv.reader import Registry
 from refkv.zarrify.profiles import REGISTRY
 from refkv.zarrify.store import WORKERS
+from refkv.zarrify.store.beside import Scope
 
 
 @dataclass(frozen=True)
@@ -50,13 +53,18 @@ class Source:
     """A file to zarrify by the profile `profile`, without testing its first bytes: the
     profile's parser reads it, and rejects it with its own message if it is not its format.
 
-    - `location`: a local path or an http(s) URL.
+    - `location`: a local path, an http(s) URL, or a URL under a prefix of `registry`.
     - `url`: the URL the archive names the source by (default: `location`).
     - `checksums`: each range of the file carries the CRC-32C of its bytes, which reads them.
     - `policy`: the reader policy the file is read under (default `Policy()`).
     - `connections`: requests at a time to a remote file (default 8).
     - `byte_cost`: the seconds of wall time the read planner charges a byte fetched beyond
-      those asked (default 0.1 s per MB)."""
+      those asked (default 0.1 s per MB).
+    - `scope`: what the file may read besides itself, a path or several (default: its directory;
+      `zarrify` says more, spec/zarrify.md §1.9
+      <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>).
+    - `registry`: the application's object stores by URL prefix, which read the file under
+      theirs (`zarrify_async`'s `registry`)."""
 
     profile: ClassVar[str] = ""  # the registry's name, set by each class
     location: str
@@ -65,6 +73,8 @@ class Source:
     policy: Policy | None = field(default=None, compare=False)
     connections: int | None = None
     byte_cost: float | None = None
+    scope: Scope | None = field(default=None, compare=False)
+    registry: Registry | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -72,12 +82,15 @@ class Store:
     """A store to zarrify by the profile `profile`, without testing its root's keys: the
     profile reads it, and rejects it with its own message if it is not its format.
 
-    - `location`: an http(s) URL, a trailing `/` added if it has none, or a local directory.
+    - `location`: a URL (http(s), or under a prefix of `registry`), a trailing `/` added if it
+      has none, or a local directory.
     - `url`: the store URL the archive names its objects by (needed for a local directory).
     - `checksums`: each range carries the CRC-32C of its bytes, which reads them.
     - `policy`: the reader policy the store is listed and read under (default `Policy()`).
     - `workers`: how many of the store's documents are read at a time.
-    - `max_objects`: the most objects the store may list."""
+    - `max_objects`: the most objects the store may list.
+    - `registry`: the application's object stores by URL prefix, which list and read the store
+      under theirs (`zarrify_async`'s `registry`)."""
 
     profile: ClassVar[str] = ""
     location: str
@@ -86,12 +99,13 @@ class Store:
     policy: Policy | None = field(default=None, compare=False)
     workers: int = WORKERS
     max_objects: int | None = None
+    registry: Registry | None = field(default=None, compare=False)
 
     @property
     def store_url(self) -> str:
-        """`location`, as a store URL when it is an http(s) one: its path ending in `/` (a query
+        """`location`, as a store URL when it is a URL: its path ending in `/` (a query
         or fragment kept after it)."""
-        if not self.location.startswith(("http://", "https://")):
+        if url_scheme(self.location) in (None, "file"):
             return self.location
         u = urlsplit(self.location)
         return u._replace(path=u.path if u.path.endswith("/") else u.path + "/").geturl()

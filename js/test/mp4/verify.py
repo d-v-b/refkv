@@ -23,6 +23,7 @@ from pathlib import Path
 import av
 import numpy as np
 import zarr
+from imagecodecs import jpeg_decode
 
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
@@ -37,7 +38,11 @@ from ir_mirror import mirror_problems  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
 
-NOISE = {"mp4_aac_pns.mp4"}
+NOISE = {"mp4_aac_pns.mp4", "mp4_he_aac.mp4", "mp4_he_aac_v2.mp4", "mp4_he_aac_hierarchical.mp4",
+         "mp4_he_aac_v2_hierarchical.mp4", "mp4_he_aac_h264.mp4", "mp4_he_aac_v2_long.mp4"}
+# A trun box of negative composition offsets: ffmpeg's demuxer adds the largest of them to every
+# time (its dts_shift), where a sample's presentation time is its decode time plus its offset
+SHIFTED = {"mp4_frag_dash.mp4"}
 
 
 def decoded(path: Path, index: int):
@@ -59,9 +64,9 @@ def decoded(path: Path, index: int):
 
 
 def plane(frame, k: int) -> np.ndarray:
-    """Plane `k` of a decoded picture: uint8 for 8 bits a sample, uint16 for 10."""
+    """Plane `k` of a decoded picture: uint8 for 8 bits a sample, uint16 for more."""
     p = frame.planes[k]
-    dtype = np.dtype("<u2") if frame.format.name.endswith("10le") else np.dtype(np.uint8)
+    dtype = np.dtype("<u2") if frame.format.name.endswith(("10le", "12le")) else np.dtype(np.uint8)
     return np.frombuffer(p, dtype).reshape(p.height, p.line_size // dtype.itemsize)[:, :p.width]
 
 
@@ -74,6 +79,26 @@ def problems_of(path: Path, out: Path) -> list[str]:
             continue
         g = root.get_group(string(track["path"]))
         tm = mapping(at(g.attrs, "refkv_zarrified", "mp4"))
+        if tm["format"] == "mjpeg":
+            c = av.open(str(path))
+            stream = next(v for v in c.streams.video if v.index == integer(track["id"]) - 1)
+            packets = sorted((p for p in c.demux(stream) if p.size), key=lambda p: p.pts or 0)
+            want = np.stack([jpeg_decode(bytes(p)) for p in packets])
+            if not np.array_equal(ndarray(g.get_array("pictures")[...]), want):
+                problems.append(f"track {track['id']}'s pictures differ from the samples' JPEG decoding")
+            if ndarray(g.get_array("time")[...]).tolist() != [p.pts for p in packets]:
+                problems.append(f"track {track['id']}'s times differ from ffmpeg's")
+            continue
+        if tm["format"] == "pcm":
+            c = av.open(str(path))
+            s = next(a for a in c.streams.audio if a.index == integer(track["id"]) - 1)
+            want = np.concatenate([f.to_ndarray().T if f.format.is_planar else f.to_ndarray().reshape(f.samples, -1)
+                                   for f in c.decode(s)])
+            if s.codec_context.name == "pcm_s8":  # ffmpeg's decoder gives these as unsigned, 128 more
+                want = (want.astype(np.int16) - 128).astype(np.int8)
+            if not np.array_equal(ndarray(g.get_array("samples")[...]), want):
+                problems.append(f"track {track['id']}'s PCM samples differ from ffmpeg's")
+            continue
         kind, frames, pts = decoded(path, integer(track["id"]) - 1)
         if kind == "video":
             for k, name in enumerate("yuv"):
@@ -84,7 +109,8 @@ def problems_of(path: Path, out: Path) -> list[str]:
                                     f"({got.shape} vs {want.shape})")
             media_times = (integer(at(e, "media_time")) for e in sequence(tm["edits"]))
             shift = next((m for m in media_times if m >= 0), 0)
-            if ndarray(g.get_array("time")[...]).tolist() != [t + shift for t in pts]:
+            times = ndarray(g.get_array("time")[...]).tolist()
+            if times != [t + (times[0] - pts[0] if path.name in SHIFTED else shift) for t in pts]:
                 problems.append(f"track {track['id']}'s times differ from ffmpeg's")
         else:
             want = np.concatenate([f.to_ndarray().T if f.format.is_planar else f.to_ndarray().reshape(f.samples, -1)

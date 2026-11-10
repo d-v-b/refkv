@@ -37,6 +37,11 @@ export interface EmbedOptions {
    * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>; default: private
    * and special hosts refused). */
   policy?: Policy;
+  /** What a file input may read besides itself through its `open` (spec/zarrify.md §1.9
+   * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>):
+   * URLs, each the input URL's directory (the default) or a file or directory below it; `[url]`
+   * reads the input alone, and rejects one that needs another file. */
+  scope?: readonly string[];
 }
 
 export interface Zarrified {
@@ -62,12 +67,15 @@ export async function zarrifyToArchive(input: FileInput | string, options: Embed
   } else {
     const source: RangeSource = readerSource((o, n) => input.read(o, n), input.size, { concurrency: READS_AT_ONCE });
     const open = input.open;
-    desc = await zarrifySource(input.url, source, open ? {
-      open: async (key) => {
-        const file = await open(key);
-        return file && readerSource((o, n) => file.read(o, n), file.size, { concurrency: READS_AT_ONCE });
-      },
-    } : {});
+    desc = await zarrifySource(input.url, source, {
+      ...(options.scope !== undefined ? { scope: options.scope } : {}),
+      ...(open ? {
+        open: async (key: string) => {
+          const file = await open(key);
+          return file && readerSource((o, n) => file.read(o, n), file.size, { concurrency: READS_AT_ONCE });
+        },
+      } : {}),
+    });
   }
   if (options.pins === false) unpinned(desc);
   const { format, summary } = desc;

@@ -8,7 +8,7 @@ SCHEMA = {"anyOf": [{
     "properties": {
         "byte_order": {"enum": ["little", "big"]},
         "kind": {"enum": ["image", "image_stack", "volume", "volume_stack"]},
-        "data_type": {"enum": ["int8", "uint8", "int16", "float32", "complex64", "uint16", "float16"]},
+        "data_type": {"enum": ["int8", "uint8", "int16", "float32", "complex64", "uint16", "float16", "struct"]},
         "header": {
             "type": "object",
             "description": "Every header field, by its MRC2014 name, in the standard's order; the extra space as "
@@ -41,6 +41,14 @@ SCHEMA = {"anyOf": [{
             "description": "The voxel size in angstroms, when the cell and grid give one along every axis",
             "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
             "required": ["x", "y", "z"],
+            "additionalProperties": False,
+        },
+        "gzip": {
+            "type": "object",
+            "description": "A file gzipped whole: where the data starts in its stream "
+                           "(spec/zarrify/mrc.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#84-gzipped-files>)",
+            "properties": {"skip": {"type": "integer", "minimum": 0}},
+            "required": ["skip"],
             "additionalProperties": False,
         },
     },

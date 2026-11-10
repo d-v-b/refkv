@@ -9,6 +9,7 @@ import json
 import av
 import numpy as np
 import pytest
+from imagecodecs import jpeg_decode
 from ir_helpers import FIXTURES, core_setting
 from ir_helpers import zarrified as shared_zarrified
 from zarr.core.metadata import ArrayV3Metadata
@@ -23,7 +24,11 @@ ACCEPTED = [p for p in FILES if "reject" not in p.name]
 # AAC with noise substitution: a chunk decodes its noise from a generator of its own
 # (spec/zarrify/mp4.md §4.2
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#42-audio-tracks>)
-NOISE = {"mp4_aac_pns.mp4"}
+NOISE = {"mp4_aac_pns.mp4", "mp4_he_aac.mp4", "mp4_he_aac_v2.mp4", "mp4_he_aac_hierarchical.mp4",
+         "mp4_he_aac_v2_hierarchical.mp4", "mp4_he_aac_h264.mp4", "mp4_he_aac_v2_long.mp4"}
+# A trun box of negative composition offsets: ffmpeg's demuxer adds the largest of them to every
+# time (its dts_shift), where a sample's presentation time is its decode time plus its offset
+SHIFTED = {"mp4_frag_dash.mp4"}
 
 
 def zarrified(path, tmp_path, chunk_frames=None):
@@ -51,10 +56,28 @@ def decoded(path, index):
     return s.type, frames, sorted(p.pts for p in packets)
 
 
+def jpeg_samples(path, index):
+    """The samples of Motion JPEG stream `index`, by ffmpeg's demuxer, in presentation order: (their
+    bytes, their times)."""
+    c = av.open(str(path))
+    packets = sorted((p for p in c.demux(c.streams[index]) if p.size), key=lambda p: p.pts)
+    return [bytes(p) for p in packets], [p.pts for p in packets]
+
+
+def pcm(path, index):
+    """ffmpeg's decoding of the PCM stream `index`, [frames, channels] of the stream's samples:
+    ffmpeg's decoder gives 8-bit signed ones as unsigned, 128 more."""
+    c = av.open(str(path))
+    s = c.streams[index]
+    a = np.concatenate([f.to_ndarray().T if f.format.is_planar else f.to_ndarray().reshape(f.samples, -1)
+                        for f in c.decode(s)])
+    return (a.astype(np.int16) - 128).astype(np.int8) if s.codec_context.name == "pcm_s8" else a
+
+
 def plane(f, k):
-    """Plane `k` of a decoded picture: uint8 for 8 bits a sample, uint16 for 10."""
+    """Plane `k` of a decoded picture: uint8 for 8 bits a sample, uint16 for more."""
     p = f.planes[k]
-    dtype = np.dtype("<u2") if f.format.name.endswith("10le") else np.dtype(np.uint8)
+    dtype = np.dtype("<u2") if f.format.name.endswith(("10le", "12le")) else np.dtype(np.uint8)
     return np.frombuffer(p, dtype).reshape(p.height, p.line_size // dtype.itemsize)[:, :p.width]
 
 
@@ -83,11 +106,38 @@ def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
         g = root.get_group(string(track["path"]))
         tm = mapping(at(g.attrs, "refkv_zarrified", "mp4"))
         assert tm["id"] == track["id"]
-        assert tm["format"] in ("h264", "hevc", "aac", "mp3")
+        assert tm["format"] in ("h264", "hevc", "av1", "vp9", "mjpeg", "aac", "mp3", "pcm")
+        if tm["format"] == "pcm":
+            want = pcm(path, integer(track["id"]) - 1)
+            got = ndarray(g.get_array("samples")[...])
+            assert got.shape == want.shape
+            assert got.dtype == want.dtype.newbyteorder("=")
+            assert np.array_equal(got, want)
+            assert tm["samples"] == tm["frames"] == len(got)
+            assert tm["samples_per_frame"] == 1
+            continue
         kind, frames, pts = decoded(path, integer(track["id"]) - 1)
-        if kind == "video":
+        if tm["format"] == "mjpeg":
+            streams, times = jpeg_samples(path, integer(track["id"]) - 1)
+            got = ndarray(g.get_array("pictures")[...])
+            assert got.dtype == np.uint8
+            assert tm["frames"] == len(streams) == len(frames)
+            assert np.array_equal(got, np.stack([jpeg_decode(b) for b in streams]))
+            # the decoder's RGB is that of ffmpeg's conversion, near enough to be the same picture
+            gray = tm["channels"] == 1
+            rgb = np.stack([f.to_ndarray(format="gray" if gray else "rgb24") for f in frames])
+            assert np.mean(np.abs(got.astype(np.int16) - rgb)) < 8
+            assert ndarray(g.get_array("time")[...]).tolist() == times
+            meta = g.get_array("pictures").metadata
+            assert isinstance(meta, ArrayV3Metadata)
+            assert meta.dimension_names == (("time", "y", "x") if gray else ("time", "y", "x", "c"))
+            doc = json.loads(out.bytes_entries[f"{track['path']}/pictures/zarr.json"])
+            assert doc["chunk_grid"]["configuration"]["chunk_shape"][0] == 1
+        elif kind == "video":
             assert tm["frames"] == len(frames)
             assert tm["width"] == frames[0].width
+            assert tm["chroma"] == ("4:2:2" if "422" in frames[0].format.name else "4:2:0")
+            assert tm["bit_depth"] == {"10le": 10, "12le": 12}.get(frames[0].format.name[-4:], 8)
             for k, p in enumerate("yuv"):
                 want = np.stack([plane(f, k) for f in frames])
                 got = ndarray(g.get_array(p)[...])
@@ -98,7 +148,8 @@ def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
             # layout records and does not apply
             times = (integer(at(e, "media_time")) for e in sequence(tm["edits"]))
             shift = next((t for t in times if t >= 0), 0)
-            assert ndarray(g.get_array("time")[...]).tolist() == [t + shift for t in pts]
+            got = ndarray(g.get_array("time")[...]).tolist()
+            assert got == [t + (got[0] - pts[0] if path.name in SHIFTED else shift) for t in pts]
             meta = g.get_array("y").metadata
             assert isinstance(meta, ArrayV3Metadata)
             assert meta.dimension_names == ("time", "y", "x")
@@ -282,13 +333,36 @@ def test_the_codec_keeps_each_plane_once_within_its_limit():
 TRACKS = [
     ("mp4_hevc_aac.mp4", ["tracks/1", "tracks/2"], {}),
     ("mov_hevc_main10_aac.mov", ["tracks/1", "tracks/2"], {}),
-    ("mp4_hevc_422_aac.mp4", ["tracks/2"], {1: "HEVC with chroma format 2 and bit depth 10 is not supported"}),
-    ("mp4_h264_10bit_aac.mp4", ["tracks/2"], {1: "H.264 with chroma format 1 and bit depth 10 is not supported"}),
+    ("mp4_hevc_422_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_h264_10bit_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_av1_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_vp9_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_hevc_444_aac.mp4", ["tracks/2"], {1: "HEVC with chroma format 3 and bit depth 8 is not supported"}),
+    ("mp4_h264_422_aac.mp4", ["tracks/2"], {1: "H.264 with chroma format 2 and bit depth 8 is not supported"}),
+    ("mp4_vp9_444_aac.mp4", ["tracks/2"], {1: "VP9 with chroma format 3 and bit depth 8 is not supported"}),
     ("mp4_h264_aac.mp4", ["tracks/1", "tracks/2"], {}),
     ("mov_h264_aac.mov", ["tracks/1", "tracks/2"], {}),
     ("mov_h264_negative_ctts_aac.mov", ["tracks/1", "tracks/2"], {}),
     ("mp4_h264_two_tracks.mp4", ["tracks/1", "tracks/2"], {}),
     ("edge_mp4_duplicate_track_id.mp4", ["tracks/1"], {1: "its track ID 1 is an earlier zarrified track's"}),
+    ("mov_pcm_s16le_h264.mov", ["tracks/1", "tracks/2"], {}),
+    ("mov_h264_pcm_s24.mov", ["tracks/1"], {2: "24-bit PCM is not supported"}),
+    ("mov_h264_pcm_odd_size.mov", ["tracks/1"], {2: "PCM samples of 3 bytes, not a whole number of 2-byte frames"}),
+    ("mov_h264_lpcm_not_interleaved.mov", ["tracks/1"], {2: "PCM whose channels are not interleaved is not supported"}),
+    ("mp4_frag_h264_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_frag_hevc_moof_base.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_frag_aac.mp4", ["tracks/1"], {}),
+    ("mp4_he_aac_h264.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_he_aac_low_sbr_h264.mp4", ["tracks/1"], {2: "HE-AAC of SBR at 48000 Hz over a core at 22050 Hz"}),
+    ("mp4_aac_ssr_h264.mp4", ["tracks/1"], {2: "AAC object type 3 is not supported"}),
+    ("mov_mjpeg.mov", ["tracks/1"], {}),
+    ("mp4_mjpeg_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mov_mjpb_aac.mov", ["tracks/2"], {1: "mjpb video is not supported"}),
+    ("mov_mjpeg_fields_aac.mov", ["tracks/2"], {1: "JPEG pictures of 64x48 in a sample entry of 64x96"}),
+    ("mov_mjpeg_12bit_aac.mov", ["tracks/2"], {1: "JPEG of marker 0xC0 and 12 bits is not supported"}),
+    ("mov_mjpeg_no_header_aac.mov", ["tracks/2"], {1: "a first sample without a JPEG frame header"}),
+    ("mp4_frag_pcm_h264.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mov_frag_pcm_s32be.mov", ["tracks/1"], {}),
 ]
 
 
@@ -329,3 +403,105 @@ def test_reads_the_movie_and_track_metadata(tmp_path):
     times = ndarray(root.get_array("tracks/1/time")[...])
     assert at(root["tracks/1"].attrs, "refkv_zarrified", "mp4", "timescale") == 1000
     assert len(set(np.diff(times).tolist())) > 1  # the steps differ
+
+
+def test_a_pcm_track_is_the_file_s_bytes(tmp_path):
+    """A PCM track's chunks are its samples' own bytes through the `bytes` codec, a range per run of
+    them in the file (spec/zarrify/mp4.md §4.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#42-audio-tracks>), beside video
+    the chunks' ranges split where the video is; with 7168 frames a chunk (7 x 1024), the short
+    last chunk of the 8000 frames is the `rectilinear` grid's. Each sample entry's data type and
+    byte order is its own; QuickTime's sample size of 1 reads as one frame."""
+    # (file, data type, the bytes codec's byte order, channels)
+    cases = [
+        ("mov_pcm_s16le_h264.mov", "int16", "little", 1),
+        ("mov_pcm_s16be_stereo.mov", "int16", "big", 2),
+        ("mov_pcm_u8.mov", "uint8", None, 1),
+        ("mov_pcm_s8.mov", "int8", None, 1),
+        ("mov_pcm_s32le.mov", "int32", "little", 2),
+        ("mov_pcm_s32be.mov", "int32", "big", 1),
+        ("mov_pcm_f32le.mov", "float32", "little", 1),
+        ("mov_pcm_f64be.mov", "float64", "big", 1),
+        ("mov_pcm_96k_lpcm.mov", "int16", "little", 2),
+        ("mp4_pcm_s16le.mp4", "int16", "little", 1),
+        ("mp4_pcm_f32be.mp4", "float32", "big", 2),
+        ("mov_pcm_sample_size_1.mov", "int16", "little", 1),
+        ("mp4_frag_pcm_h264.mp4", "int16", "little", 1),
+        ("mov_frag_pcm_s32be.mov", "int32", "big", 1),
+    ]
+    for name, data_type, endian, channels in cases:
+        out, root = zarrified(FIXTURES / "mp4" / name, tmp_path, 7)
+        tracks = sequence(at(root.attrs, "refkv_zarrified", "mp4", "tracks"))
+        track = next(t for t in tracks if at(t, "handler") == "soun")
+        path = string(at(track, "path"))
+        doc = json.loads(out.bytes_entries[f"{path}/samples/zarr.json"])
+        assert doc["data_type"] == data_type, name
+        assert doc["shape"][1] == channels, name
+        want = {"name": "bytes", "configuration": {"endian": endian}} if endian else {"name": "bytes"}
+        assert doc["codecs"] == [want], name
+        assert doc["dimension_names"] == ["time", "channel"], name
+        frames = doc["shape"][0]
+        if frames % 7168:
+            shapes = doc["chunk_grid"]["configuration"]["chunk_shapes"]
+            assert shapes == [[[7168, frames // 7168], frames % 7168], channels], name
+        tm = mapping(at(root[path].attrs, "refkv_zarrified", "mp4"))
+        assert tm["chunk_frames"] == 7168, name
+    out, _root = zarrified(FIXTURES / "mp4" / "mov_pcm_s16le_h264.mov", tmp_path)
+    parts = out.refs["tracks/2/samples/c/0/0"]
+    assert len(parts) > 1, "the video between the audio's chunks"
+    assert sum(p[1] for p in parts if isinstance(p, tuple)) == 8000 * 2
+    meta = json.loads(out.bytes_entries["tracks/2/samples/zarr.json"])
+    assert meta["chunk_grid"]["configuration"]["chunk_shape"] == [8000, 1]
+    # a version 2 sound description's rate and channels are its own fields
+    _, root = zarrified(FIXTURES / "mp4" / "mov_pcm_96k_lpcm.mov", tmp_path)
+    tm = mapping(at(root["tracks/1"].attrs, "refkv_zarrified", "mp4"))
+    assert (tm["sample_rate"], tm["channels"], tm["codec"], tm["format"]) == (96000, 2, "lpcm", "pcm")
+
+
+def test_an_he_aac_track_is_twice_its_core(tmp_path):
+    """An HE-AAC track's rate and frames are SBR's, by either signaling in its AudioSpecificConfig,
+    and HE-AAC v2's channels are parametric stereo's, of a mono core (spec/zarrify/mp4.md §8.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>)."""
+    for name in ("mp4_he_aac.mp4", "mp4_he_aac_v2.mp4", "mp4_he_aac_hierarchical.mp4",
+                 "mp4_he_aac_v2_hierarchical.mp4"):
+        _out, root = zarrified(FIXTURES / "mp4" / name, tmp_path)
+        track = mapping(at(root["tracks/1"].attrs, "refkv_zarrified", "mp4"))
+        assert (track["format"], track["sample_rate"], track["channels"], track["samples_per_frame"]) == (
+            "aac", 44100, 2, 2048), name
+
+
+def test_an_he_aac_chunk_s_lead_in_reaches_its_headers(tmp_path):
+    """A chunk of 7 frames of HE-AAC v2 decodes from 64 frames before it, past parametric stereo's
+    headers (spec/zarrify/mp4.md §8.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>): a tone's chunks are
+    the whole stream's, but for the error SBR's filter banks leave, some 70 dB below it."""
+    path = FIXTURES / "mp4" / "mp4_he_aac_v2_long.mp4"
+    _kind, frames, _pts = decoded(path, 0)
+    want = samples(frames)
+    _, root = zarrified(path, tmp_path, 7)
+    got = ndarray(root.get_array("tracks/1/samples")[...])
+    # past the first chunks, whose lead-in the stream's start cuts short and the encoder's priming
+    start = 2048 * 70
+    error = np.sqrt(np.mean((got[start:] - want[start:]) ** 2))
+    assert 20 * np.log10(np.sqrt(np.mean(want[start:] ** 2)) / error) > 60
+
+
+def test_reads_a_fragmented_file_s_tracks(tmp_path):
+    """A fragmented file's samples are its tables' and its track fragments', in the file's order
+    (spec/zarrify/mp4.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#3-tracks-and-samples>): ffmpeg's
+    muxer leaves the mdhd box's duration 0 in an empty moov box, which the track's duration
+    extends to where its last sample ends; a keyframe every 10 of 30 pictures is a sync sample
+    wherever it is. With the first fragment's samples in the tables and the others in moof boxes
+    (`mp4_frag_hybrid.mp4`) the track is the same one."""
+    # (file, sync samples, whether its mdhd box counts the samples)
+    for name in ("mp4_frag_h264_aac.mp4", "mp4_frag_hybrid.mp4", "mp4_frag_dash.mp4"):
+        _out, root = zarrified(FIXTURES / "mp4" / name, tmp_path)
+        track = mapping(at(root["tracks/1"].attrs, "refkv_zarrified", "mp4"))
+        assert (track["frames"], track["sync_samples"]) == (30, 3), name
+        assert integer(track["duration"]) == 30 * 1024, name
+    _, plain = zarrified(FIXTURES / "mp4" / "mp4_h264_bframes.mp4", tmp_path)
+    _, hybrid = zarrified(FIXTURES / "mp4" / "mp4_frag_hybrid.mp4", tmp_path)
+    for p in ("y", "u", "v", "time"):
+        assert np.array_equal(ndarray(hybrid.get_array(f"tracks/1/{p}")[...]),
+                              ndarray(plain.get_array(f"tracks/1/{p}")[...])), p

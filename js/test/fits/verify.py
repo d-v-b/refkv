@@ -8,13 +8,15 @@ file's bytes, and every node's cards astropy's reading of the header
 (spec/zarrify/fits.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#5-source-metadata>).
 The file must be rebuilt byte for byte from the archive's IR mirror (refkv_source, §6
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#6-the-ir-mirror>).
-`fits_reject_*` files must be rejected.
+`fits_reject_*` files must be rejected. A `.fits.gz` or `.fits.bz2` file's bytes are what it decodes to.
 
 Usage: uv run python js/test/fits/verify.py [<dir of .fits files>]
 """
 
 from __future__ import annotations
 
+import bz2
+import gzip
 import sys
 import warnings
 from pathlib import Path
@@ -36,7 +38,8 @@ from ir_mirror import mirror_problems  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
 
-MAX_SAFE = (1 << 53) - 1
+# a nameless column is valid FITS, which astropy cannot open (python/tests/ir/test_fits.py reads it)
+NOT_READ_BY_ASTROPY = {"fits_bintable_unnamed.fits"}
 COMMENTARY = ("COMMENT", "HISTORY", "")
 # hand-built tile-compressed fixtures astropy cannot read: the fixture with the same image, and
 # the rows an absent tile leaves at 0
@@ -50,7 +53,7 @@ def card_value(v):
     if isinstance(v, bool):
         return v
     if isinstance(v, int):
-        return v if abs(v) <= MAX_SAFE else str(v)
+        return v
     if isinstance(v, complex):
         return [v.real, v.imag]
     return v
@@ -102,6 +105,7 @@ def pixel_problems(ours, theirs, table) -> list[str]:
 
 def problems_of(path: Path, out: Path) -> list[str]:
     raw = path.read_bytes()
+    raw = gzip.decompress(raw) if path.suffix == ".gz" else bz2.decompress(raw) if path.suffix == ".bz2" else raw
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
     meta = mapping(at(root.attrs, "refkv_zarrified", "fits"))
     hdus = sequence(meta["hdus"])
@@ -138,7 +142,10 @@ def problems_of(path: Path, out: Path) -> list[str]:
                 elif isinstance(hdu, (fits.BinTableHDU, fits.TableHDU)):
                     n1, n2 = hdu.header["NAXIS1"], hdu.header["NAXIS2"]
                     rows = raw[info["datLoc"]:info["datLoc"] + n1 * n2]
-                    if n1 * n2 and ndarray(root.get_array(f"{i}/rows")[...]).tobytes() != rows:
+                    stored = ndarray(root.get_array(f"{i}/rows")[...])
+                    if stored.dtype.names:  # a struct over the rows, big-endian in the file
+                        stored = stored.astype(stored.dtype.newbyteorder(">"))
+                    if n1 * n2 and stored.tobytes() != rows:
                         problems.append(f"HDU {i} rows differ")
                     theap = hdu.header.get("THEAP", n1 * n2)
                     heap = hdu.header["PCOUNT"] - (theap - n1 * n2)
@@ -157,7 +164,8 @@ def problems_of(path: Path, out: Path) -> list[str]:
 
 
 def main(fixtures: Path) -> int:
-    paths = sorted(p for p in fixtures.iterdir() if p.name.endswith((".fits", ".fz")))
+    paths = sorted(p for p in fixtures.iterdir()
+                   if p.name.endswith((".fits", ".fz", ".fits.gz", ".fits.bz2")) and p.name not in NOT_READ_BY_ASTROPY)
     return run(paths, lambda path, out, _: problems_of(path, out), url=serve(paths))
 
 

@@ -2,6 +2,8 @@
 astropy's reading of every synthetic file, the mirror's rebuild, and the inputs the profile
 rejects. FITS has no frozen Python reference: astropy is the independent reader."""
 
+import bz2
+import gzip
 import json
 import warnings
 from typing import cast
@@ -12,21 +14,32 @@ import zarr
 from astropy.io import fits
 from ir_helpers import FIXTURES
 from ir_helpers import zarrified as shared_zarrified
+from numpy.lib.recfunctions import structured_to_unstructured
 
 from refkv._narrow import at, integer, mapping, ndarray, sequence
 from refkv.ir import zarrify as via_ir
 from refkv.zarrify import Rejected
 from refkv.zarrify.common import Output
 
-FILES = sorted(p for p in (FIXTURES / "fits").iterdir() if p.name.endswith((".fits", ".fz")))
-ACCEPTED = [p for p in FILES if "reject" not in p.name]
+FILES = sorted(p for p in (FIXTURES / "fits").iterdir() if p.name.endswith((".fits", ".fz", ".fits.gz", ".fits.bz2")))
+# a nameless column is valid FITS, which astropy cannot open (test_table_fields reads it)
+NOT_READ_BY_ASTROPY = {"fits_bintable_unnamed.fits"}
+ACCEPTED = [p for p in FILES if "reject" not in p.name and p.name not in NOT_READ_BY_ASTROPY]
 REJECTED = [p for p in FILES if "reject" in p.name]
-MAX_SAFE = (1 << 53) - 1
 # hand-built fixtures astropy cannot read (an absent tile; no ZTILEn cards): the fixture whose
 # image theirs is, read by astropy, with the rows an absent tile leaves at 0
 SAME_IMAGE = {"fits_comp_hand_absent_tile": ("fits_comp_hand_one_column", slice(3, 6)),
               "fits_comp_hand_no_ztile": ("fits_comp_hand_one_column", None)}
 COMMENTARY = ("COMMENT", "HISTORY", "")
+# binary tables whose rows stay bytes: why (spec/zarrify/fits.md §4
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#4-tables>)
+NOT_STRUCT = {"fits_bintable_same_name": "names", "fits_bintable_short_form": "width"}
+
+
+def decoded_bytes(path) -> bytes:
+    """The file's bytes, or what a compressed file decodes to."""
+    raw = path.read_bytes()
+    return gzip.decompress(raw) if path.suffix == ".gz" else bz2.decompress(raw) if path.suffix == ".bz2" else raw
 
 
 def zarrified(path, tmp_path) -> tuple[Output, zarr.Group]:
@@ -43,7 +56,7 @@ def card_value(v):
     if isinstance(v, bool):
         return v
     if isinstance(v, int):
-        return v if abs(v) <= MAX_SAFE else str(v)
+        return v
     if isinstance(v, complex):
         return [v.real, v.imag]
     return v
@@ -91,7 +104,7 @@ def test_matches_astropy_and_rebuilds(path, tmp_path):
     a table's rows and heap are the file's bytes, every node's cards are astropy's, the root
     lists the HDUs with their offsets, and the file is rebuilt from the mirror."""
     out, root = zarrified(path, tmp_path)
-    raw = path.read_bytes()
+    raw = decoded_bytes(path)
     meta = mapping(at(root.attrs, "refkv_zarrified", "fits"))
     same = SAME_IMAGE.get(path.stem)
     with (warnings.catch_warnings(),
@@ -147,10 +160,15 @@ def test_matches_astropy_and_rebuilds(path, tmp_path):
                 forms = [hdu.header[f"TFORM{k}"] for k in range(1, hdu.header["TFIELDS"] + 1)]
                 assert [mapping(c)["form"] for c in sequence(own["columns"])] == forms
                 table = root.get_group(str(i))
-                if n1 * n2:
-                    rows = table.get_array("rows")
-                    assert ndarray(rows[...]).tobytes() == raw[info["datLoc"]:info["datLoc"] + n1 * n2]
+                rows = table.get_array("rows")
+                stored = raw[info["datLoc"]:info["datLoc"] + n1 * n2]
+                if own["not_struct"] is None:
+                    assert rows.shape == (n2,)
+                    same_rows(ndarray(rows[...]), stored, sequence(own["columns"]), hdu)
+                else:
+                    assert own["not_struct"] == NOT_STRUCT.get(path.stem, "ascii")
                     assert rows.shape == (n2, n1)
+                    assert not n1 * n2 or ndarray(rows[...]).tobytes() == stored
                 theap = hdu.header.get("THEAP", n1 * n2)
                 heap = hdu.header["PCOUNT"] - (theap - n1 * n2)
                 if heap:
@@ -173,13 +191,35 @@ def test_matches_astropy_and_rebuilds(path, tmp_path):
                     assert np.array_equal(ndarray(image[...]), want, equal_nan=want.dtype.kind == "f")
 
 
+def same_rows(rows: np.ndarray, stored: bytes, columns, hdu) -> None:
+    """A table's `struct` rows are the file's bytes, big-endian, and each field holds its column's
+    stored values as astropy reads them (spec/zarrify/fits.md §4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#4-tables>): an unscaled value,
+    a logical's byte, a string's bytes, a descriptor's pair."""
+    assert rows.astype(rows.dtype.newbyteorder(">")).tobytes() == stored
+    if not len(rows):
+        return
+    theirs = np.asarray(hdu.data)
+    for k, column in enumerate(columns):
+        field = mapping(column)["field"]
+        if field is None:
+            assert theirs.dtype[k].itemsize == 0
+            continue
+        ours = rows[str(field)]
+        if ours.dtype.names:
+            ours = structured_to_unstructured(ours)
+        values = theirs[theirs.dtype.names[k]]
+        assert np.array_equal(ours.reshape(len(rows), -1), values.reshape(len(rows), -1)), field
+
+
 # fixture: (chunk shape of the array at `path`, the number of its chunks, the parts of one chunk key)
 CHUNKS = {
     "fits_chunk_planes": ("0", [10, 128, 256], 2, ("0/c/1/0/0", 1)),
     "fits_chunk_rows": ("0", [550, 1000], 2, ("0/c/1/0", 1)),
     "fits_chunk_edge_literal": ("0", [1, (1 << 19) + 1], 2, ("0/c/0/1", 2)),
     "fits_primary_uint16": ("0", [6, 8], 1, ("0/c/0/0", 1)),
-    "fits_bintable_heap": ("1/rows", [3, 12], 1, ("1/rows/c/0/0", 1)),
+    "fits_bintable_heap": ("1/rows", [3], 1, ("1/rows/c/0", 1)),
+    "fits_bintable_same_name": ("1/rows", [2, 14], 1, ("1/rows/c/0/0", 1)),
     # tile-compressed: 1100 row tiles of 2000 bytes, 367 per chunk; 3 x 4 tiles of 100 x 100 in one
     # chunk; a chunk's reference is its prefix (a literal) and one range per run of adjacent tiles
     "fits_comp_chunk_rows": ("1", [367, 1000], 3, ("1/c/1/0", 2)),
@@ -198,6 +238,88 @@ def test_chunks(name, tmp_path):
     assert list(root.get_array(path).chunks) == shape
     assert sum(1 for k in out.refs if k.startswith(f"{path}/c/")) == count
     assert len(out.refs[key]) == parts
+
+
+@pytest.mark.parametrize(("name", "method", "codec"), [
+    ("fits_gzip_mef.fits.gz", "gzip", "gzip"),
+    ("fits_gzip_members.fits.gz", "gzip", "gzip"),
+    ("fits_bzip2_mef.fits.bz2", "bzip2", "numcodecs.bz2"),
+    ("fits_bzip2_streams.fits.bz2", "bzip2", "numcodecs.bz2"),
+])
+def test_compressed_arrays_are_the_whole_file(name, method, codec, tmp_path):
+    """Each array of a compressed file is one chunk, the whole file, whose codecs keep the array's
+    bytes of what it decodes to (spec/zarrify/fits.md §2.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#21-a-compressed-file>), and the
+    arrays and their metadata are those of the same file not compressed, but for the chunks."""
+    path = FIXTURES / "fits" / name
+    out, root = zarrified(path, tmp_path)
+    plain, plain_root = zarrified(FIXTURES / "fits" / "fits_mef_sci_err_dq.fits", tmp_path)
+    decoded = decoded_bytes(path)
+    assert at(root.attrs, "refkv_zarrified", "fits", "stream") == {"method": method, "size": len(decoded)}
+    assert at(plain_root.attrs, "refkv_zarrified", "fits", "stream") is None
+    assert at(root.attrs, "refkv_zarrified", "fits", "hdus") == at(plain_root.attrs, "refkv_zarrified", "fits", "hdus")
+    size = path.stat().st_size
+    for i in range(1, 7):
+        doc = mapping(json.loads(out.bytes_entries[f"{i}/zarr.json"]))
+        entry = mapping(at(root.attrs, "refkv_zarrified", "fits", "hdus", i))
+        assert sequence(doc["codecs"])[1:] == [
+            {"name": "refkv.skip", "configuration": {"length": entry["data_offset"], "keep": entry["data_bytes"]}},
+            {"name": codec, "configuration": {"level": 1}},
+        ]
+        assert sum(1 for k in out.refs if k.startswith(f"{i}/c/")) == 1
+        assert len(out.refs[f"{i}/c/0/0"]) == 1
+        assert out.refs[f"{i}/c/0/0"][0][-1] == size
+        same = root.get_array(str(i))
+        assert same.chunks == same.shape
+        assert np.array_equal(ndarray(same[...]), ndarray(plain_root.get_array(str(i))[...]))
+    assert plain.summary["stream"] is None
+    assert out.summary["stream"] == method
+
+
+def test_deflate_as_writers_compress(tmp_path):
+    """A file gzip's deflate compressed, which the fixtures' stored blocks are not: a table's rows
+    and its heap read as in the file."""
+    plain = (FIXTURES / "fits" / "fits_bintable_heap.fits").read_bytes()
+    path = tmp_path / "deflated.fits.gz"
+    path.write_bytes(gzip.compress(plain))
+    _, root = zarrified(path, tmp_path)
+    _, want = zarrified(FIXTURES / "fits" / "fits_bintable_heap.fits", tmp_path)
+    for name in ("1/rows", "1/heap"):
+        assert np.array_equal(ndarray(root.get_array(name)[...]), ndarray(want.get_array(name)[...]))
+
+
+def test_compressed_array_without_data_has_no_chunk(tmp_path):
+    """An array of a size 0 has no chunk in a compressed file either."""
+    out, root = zarrified(FIXTURES / "fits" / "fits_gzip_no_data.fits.gz", tmp_path)
+    for name, array in root.members(max_depth=None):
+        if isinstance(array, zarr.Array) and 0 in array.shape:
+            assert not [k for k in out.refs if k.startswith(f"{name}/c/")]
+
+
+def test_table_fields(tmp_path):
+    """A column's `field` names its field, `col<n>` for a column with no name; a column of repeat 0
+    has none; the rows' `not_struct` is null, or why they stay bytes (spec/zarrify/fits.md §4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#4-tables>)."""
+    def own(name: str) -> dict:
+        _, root = zarrified(FIXTURES / "fits" / f"{name}.fits", tmp_path)
+        return dict(mapping(at(root["1"].attrs, "refkv_zarrified", "fits")))
+
+    unnamed = own("fits_bintable_unnamed")
+    assert [mapping(c)["field"] for c in sequence(unnamed["columns"])] == ["a", "col2", "c", None]
+    assert unnamed["not_struct"] is None
+    _, root = zarrified(FIXTURES / "fits" / "fits_bintable_unnamed.fits", tmp_path)
+    rows = ndarray(root.get_array("1/rows")[...])
+    assert rows["a"].tolist() == [1, 2]
+    assert rows["col2"].tolist() == [(1.5, 2.5), (3.5, 4.5)]
+    assert rows["c"].tolist() == [3, 4]
+    assert own("fits_bintable_same_name")["not_struct"] == "names"
+    assert own("fits_bintable_short_form")["not_struct"] == "width"
+    assert own("fits_asciitable")["not_struct"] == "ascii"
+    # a descriptor column's field is its pair: the values stay in the heap
+    _, root = zarrified(FIXTURES / "fits" / "fits_bintable_heap.fits", tmp_path)
+    rows = ndarray(root.get_array("1/rows")[...])
+    assert rows["var"].tolist() == [(3, 0), (0, 6), (1, 6)]
+    assert rows["xyz"].tolist() == [(1, 2), (3, 4), (5, 6)]
 
 
 def test_summary(tmp_path):
