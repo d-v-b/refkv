@@ -282,13 +282,17 @@ def check_chunks(d: Described, a: StoredArray, rows: list[dict], dset: h5py.Data
         if len(b) > size:
             said.append(f"chunk {coords} decodes to {len(b)} bytes, more than a chunk's {size}")
             continue
-        # the library reads a chunk stored unfiltered and short of its size with zeros after it
+        # a chunk stored unfiltered may be short of a chunk's size: the elements it holds are
+        # compared, and not the rest, which the library reads as what its buffer held (zeros on
+        # one platform, other values on another)
         if len(b) < size and (row["skips"] or 0) != codecs:
             said.append(f"chunk {coords} decodes to {len(b)} bytes, fewer than a chunk's {size}")
             continue
         seen["chunks stored short"] += len(b) < size
-        mine = np.frombuffer(b.ljust(size, b"\0"), dtype=dset.dtype).reshape(chunk)
-        if mine[tuple(slice(0, r.stop - r.start) for r in region)].tobytes() != theirs.tobytes():
+        within = tuple(slice(0, r.stop - r.start) for r in region)
+        held = (np.arange(int(np.prod(chunk))) < len(b) // dset.dtype.itemsize).reshape(chunk)[within]
+        mine = np.frombuffer(b.ljust(size, b"\0"), dtype=dset.dtype).reshape(chunk)[within]
+        if mine[held].tobytes() != theirs[held].tobytes():
             said.append(f"chunk {coords} decodes to other values than h5py reads")
         seen["chunks decoded"] += 1
 
