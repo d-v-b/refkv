@@ -603,6 +603,44 @@ renumbers with `store.element` ([§2.1](#21-keys)). An attribute's value is not 
   several messages of the type read, a message that does not read, or a value whose length is
   not the datatype's size, leaves `undefined`, with those messages among the declarations.
 
+**NRRD** ([spec/zarrify/nrrd.md](zarrify/nrrd.md)). A NRRD input is one stored array, the one its
+header declares, in the store IR the profile's run builds of the header file and, for a detached
+header, its data file. It is keyed by the header file's object (the header has no element of its
+own), with no index. The facts give the key: `array.declared_by` is the id of that object. Below,
+the NRRD definition is Teem's, which
+[zarrify/nrrd.md](zarrify/nrrd.md) cites.
+
+- **Declarations.** The line of the `type` field, then the line of the `endian` field where the
+  header has one: each the element `lines/<i>`, which holds the field's identifier, its descriptor
+  and its line end.
+- **`shape`** is the values of the `sizes` field, reversed: the data holds the header's last axis
+  outermost. `axes` gives the header's order, the storage axes reversed (`[2, 1, 0]` for three
+  axes).
+- **`item_bits`** is eight times the bytes of one element of the `type` field's type
+  ([zarrify/nrrd.md §3](zarrify/nrrd.md#3-data-types-and-encodings)).
+- **The grid** is one unit of the whole array: each axis `Each` of its size, under `short`. Its
+  row is the `data` element of the data's file, whole: the header file for an attached header, and
+  for a detached one the data file, another object of the store. For the raw encoding the element
+  is the array's bytes, after the lines and bytes that `line skip` and `byte skip` pass over, or,
+  with a `byte skip` of −1, those that end the file; bytes of the file after them are no part of
+  the unit, as the NRRD definition says (pynrrd 1.1.3, which reads a file it is given by its path
+  to its end, refuses one that has any). For the gzip encoding the element is the stream: from
+  after the lines `line skip` passes over to the end of the file.
+- **The chain** is one: empty for the raw encoding; `gzip` for the gzip encoding; and `skip`, then
+  `gzip`, for the gzip encoding with a `byte skip` above 0, which the NRRD definition counts within
+  the inflated bytes. `skip`'s `length` is the descriptor of the `byte skip` field, a range of the
+  field's line. (pynrrd 1.1.3 skips those inflated bytes too, but first seeks as many bytes into
+  the file, so it reads no such file that follows the definition.)
+- **The stream is not inflated**, as the profile reads none of the data: the description is the
+  same whatever the stream holds, and one that inflates to other than the skipped bytes and the
+  array's is not detected. The array's bytes are the first the chain makes: the NRRD definition
+  leaves what follows the data unread. (pynrrd 1.1.3 refuses a stream that inflates to more, and
+  inflates the first member alone of a stream of several, which the `gunzip` program the NRRD
+  definition names reads whole.)
+- **No grid** for no input: the profile rejects what it does not read (the text, hex and bzip2
+  encodings, the type `block`, several data files), and builds no IR of it.
+- **The fill value** is `undefined`: NRRD has none.
+
 **TIFF** ([spec/zarrify/tiff.md](zarrify/tiff.md)). Every IFD the parser reads (of the main
 chain, a SubIFD, or one another pointer tag leads to) whose ImageWidth (256) and ImageLength (257)
 are unsigned values it holds declares an image, a stored array, whether or not the profile presents
@@ -670,6 +708,39 @@ has TIFF 6.0's default.
   unit's elements take (a tile stored at a larger sample size than its fields give): the unit's
   are the first, as libtiff and tifffile read them.
 - **The fill value** is `undefined`: TIFF has none.
+
+**NIfTI** ([spec/zarrify/nifti.md](zarrify/nifti.md)). A NIfTI file's voxels are one stored
+array, of a single file, of a file gzipped whole and of a header-and-image pair alike, as nibabel
+reads them. The facts give its key: `declared_by` is the id of the element that declares it. Below,
+`n` is the header's `dim[0]`, and `v` its `vox_offset`.
+
+- **A single file's array** is keyed by its `header` element, with no index. That element is its
+  one declaration: the header, whose `sizeof_hdr` gives the file's byte order, with its `dim`, its
+  `datatype` and `bitpix`, and what else a profile reads of the voxels (`scl_slope`, `scl_inter`).
+- **`shape`** is `dim[n]` to `dim[1]`: the header lists its dimensions the fastest-varying first,
+  so `axes` is `n − 1` down to 0 for an `n` of 2 or more, and absent for 1. Each of the
+  `n` dimensions is an axis, the sixth and the seventh too, which the parser accepts only at 1;
+  the values of `dim` past `dim[n]` are not read.
+- **`item_bits`** is the bits of a voxel of the header's `datatype`, which `bitpix` repeats (the
+  parser refuses a header where the two differ). A voxel is one element: an RGB24 or RGBA32 voxel
+  of 24 or 32 bits, a complex one of 64 or 128.
+- **The grid** is one unit: every axis `Each` of its length, under `short`. Its row is the
+  `voxels` element, the voxels' bytes from `v`, in an empty chain.
+- **A pair's array** is the single file's, described by the pair's store parser itself
+  ([§6](#6-in-the-ir)): its key and its declaration are the `header` element of the header file,
+  and its row the `voxels` element of the image file, where `v` counts.
+- **A gzipped file's array** has the single file's `shape`, `axes`, `item_bits` and grid, but its
+  header lies in its stream, where no element holds it. It is keyed by the file's one element,
+  `voxels`, the whole file, and has no declarations: a profile reads the header from the facts'
+  `gzip.head`, the stream's first bytes as the parser inflated them. Its row is that element, in
+  the chain `skip`, `gzip`: the stream inflates to the header, the extender and the extensions,
+  then the voxels, and `skip`'s `length` is `v`, a value, since no place holds the field. The
+  parser inflates the start of the stream alone, and accepts the file only where the size its
+  trailer records is `v` plus the voxels' bytes, modulo 2^32.
+- **No grid** for no file the parser accepts: it refuses one whose voxels it does not read as one
+  array (a `datatype` it has no size for, a dimension below 1, a sixth or seventh dimension above
+  1, voxels the file does not hold).
+- **The fill value** is `undefined`: NIfTI has none.
 
 **QPTIFF** ([spec/zarrify/qptiff.md](zarrify/qptiff.md)). A QPTIFF is read as a TIFF, and its
 IFDs' images are described as a TIFF's, by the same code; its facts' levels give `declared_by`
