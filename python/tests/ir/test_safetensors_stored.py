@@ -39,7 +39,7 @@ import jsonschema
 import numpy as np
 import pytest
 import safetensors
-from described import SCHEMA, Described, described
+from described import SCHEMA, Described, described, object_keys
 from ir_helpers import FIXTURES
 from test_safetensors import TYPES, expected
 
@@ -68,7 +68,7 @@ def described_store(root: Path) -> Described:
         rows.setdefault(r["array"], []).append(r)
     objects: dict[str | None, bytes] = {p.relative_to(root).as_posix(): p.read_bytes()
                                         for p in root.rglob("*") if p.is_file()}
-    return Described(ir, ir.stored_arrays(), rows, objects, out)
+    return Described(ir, ir.stored_arrays(), rows, objects, out, object_keys(ir))
 
 
 def read(path: Path) -> Described:

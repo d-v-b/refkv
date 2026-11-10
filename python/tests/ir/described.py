@@ -2,7 +2,7 @@
 reader (spec/stored-array.md <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md>)."""
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
@@ -33,17 +33,13 @@ class Described:
     rows: dict[int, list[dict]]
     objects: dict[str | None, bytes]
     out: Output | StoreIrOutput
-    keys: dict[int, str] = field(default_factory=dict)
+    keys: dict[int, str]
 
     def key(self, element: int) -> str | None:
-        """The key of the object `element` is in: the one the IR gives the object, or, of a
-        reader that lists none, the object's path (a store's directories are the elements above
-        its objects, so a key is its object's path but where a name needs quoting)."""
+        """The key of the object `element` is in, as the IR gives it (`object_keys`)."""
         while element and self.ir.kind(element) != Kind.OBJECT:
             element = self.ir.parent(element)
-        if not element:
-            return None
-        return self.keys.get(element, self.ir.path(element))
+        return self.keys[element] if element else None
 
     def at(self, element: int, within: tuple[int, int] | None = None) -> tuple[str | None, int, int]:
         """(object key, offset, length) of an element's extent, or of a range of it."""
@@ -76,6 +72,15 @@ class Described:
         return b"".join(self.objects[k][o:o + n] for k, o, n in self.parts(row))
 
 
+def object_keys(ir: Ir) -> dict[int, str]:
+    """Each object's key by its element, as the IR lists its objects' keys, in their elements'
+    order; none in a file's IR. A store's directories are elements above its objects, so a key
+    is its object's path, but where a name needs quoting."""
+    bases = ir.object_bases()
+    elements = [i for i in range(len(ir)) if ir.kind(i) == Kind.OBJECT] if bases else []
+    return {i: key for i, (key, _, _) in zip(elements, bases, strict=True)}
+
+
 @cache
 def described(path: Path) -> Described:
     """The IR of the file at `path`, read with the files beside it or below its directory that it
@@ -89,11 +94,8 @@ def described(path: Path) -> Described:
     rows: dict[int, list[dict]] = {}
     for r in pa.record_batch(core.chunk_map()).to_pylist():
         rows.setdefault(r["array"], []).append(r)
-    # a store's objects, in the IR's order, with their keys, which are relative to the file's
-    # directory; a file's IR has none
-    bases = ir.object_bases()
-    elements = [i for i in range(len(ir)) if ir.kind(i) == Kind.OBJECT] if bases else []
-    keys = {i: key for i, (key, _, _) in zip(elements, bases, strict=True)}
+    # a store's keys are relative to the file's directory
+    keys = object_keys(ir)
     objects: dict[str | None, bytes] = {k: (path.parent / k).read_bytes() for k in keys.values()} or {
         None: path.read_bytes()}
     return Described(ir, ir.stored_arrays(), rows, objects, out, keys)
