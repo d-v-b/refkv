@@ -86,13 +86,13 @@ types and counts are as the profile checks them
 | 262 | PhotometricInterpretation | scalar | none (required for JPEG with 3 samples, [§4.3](#43-data-types-and-codecs)) |
 | 266 | FillOrder | scalar | 1 |
 | 270 | ImageDescription | text | none |
-| 273, 279 | StripOffsets, StripByteCounts | array | required for images in strips |
+| 273, 279 | StripOffsets, StripByteCounts | array | required for images in strips, and for tiled images with neither TileOffsets nor TileByteCounts |
 | 277 | SamplesPerPixel | scalar | 1 |
 | 278 | RowsPerStrip | scalar | 2^32 − 1 |
 | 284 | PlanarConfiguration | scalar | 1 |
 | 317 | Predictor | scalar | 1 |
-| 322, 323 | TileWidth, TileLength | scalar | required for tiled images |
-| 324, 325 | TileOffsets, TileByteCounts | array | required for tiled images |
+| 322, 323 | TileWidth, TileLength | scalar | none (an IFD with both is tiled) |
+| 324, 325 | TileOffsets, TileByteCounts | array | none (a tiled image with neither has its tiles in StripOffsets and StripByteCounts; one with either requires both) |
 | 330 | SubIFDs | array | none |
 | 282, 283 | XResolution, YResolution | scalar | none |
 | 296 | ResolutionUnit | scalar | none (2 for TIFF, but see [§4.4](#44-arrays)) |
@@ -120,11 +120,15 @@ a plane or a level ([§4.1](#41-planes), [§4.2](#42-pyramid-levels)), and for e
 
 **Size.** An IFD that becomes a plane or a level, or is a candidate of the
 level scan, MUST have ImageWidth and ImageLength, and both MUST be at least
-1. A tiled one ([§4.2](#42-pyramid-levels)) MUST have TileWidth, TileLength, TileOffsets and
-TileByteCounts, with TileWidth and TileLength at least 1. An IFD is
-**tiled** if it has TileWidth and TileOffsets; one that is not is **in strips**, and MUST
-have StripOffsets and StripByteCounts and a RowsPerStrip of at least 1 when it becomes a plane
-or a level ([§4.5](#45-strips)).
+1. An IFD is **tiled** if it has TileWidth and TileLength, the size of a tile. Its **tile
+tables** are its TileOffsets and TileByteCounts, or, in an IFD with neither, its StripOffsets
+and StripByteCounts: some writers list a tiled image's tiles under the strips' tags, and libtiff
+and tifffile read them there. A tiled one ([§4.2](#42-pyramid-levels)) MUST have both of its
+tile tables (so one with TileOffsets or TileByteCounts and not the other is rejected, whatever
+StripOffsets and StripByteCounts it has), with TileWidth and TileLength at least 1. An IFD that
+is not tiled is **in strips**, whatever TileOffsets and TileByteCounts it has, and MUST have
+StripOffsets and StripByteCounts and a RowsPerStrip of at least 1 when it becomes a plane or a
+level ([§4.5](#45-strips)).
 
 ## 3. OME-XML
 
@@ -545,7 +549,8 @@ the window's in the order min, max, start, end.
 `k = s × T + j`, where `T` is the number of tiles (strips) per sample plane
 (`ceil(H/TileLength) × ceil(W/TileWidth)`, or `ceil(H / R)` strips, [§4.5](#45-strips)),
 `j` runs row-major over the tile grid (down the strips), and `s` is the sample when `spp > 1`
-and planar (else 0). Both TileOffsets and TileByteCounts (StripOffsets and StripByteCounts)
+and planar (else 0). Both of a tiled IFD's tile tables ([§2](#2-the-source); of an IFD in
+strips, StripOffsets and StripByteCounts)
 MUST have `T` times the number of sample planes values. The chunk with coords `t`, `c` (the
 plane's channel, or the sample `s`, or 0 when interleaved), `z` (each only when present),
 then the tile row and column (the strip index and 0), is tile (strip) `k`; of a level that joins
@@ -694,7 +699,7 @@ for BigTIFF) and `C` the entry-count type (`u2`, or `u8`).
 | `…/tags/<tag>/value` | value | by field type | the value: in the entry's field (the bytes it uses; the rest of the field is a gap), or at its offset when it lies within the file. Its type is `ascii[n]` (ASCII), `u1[n]`, `i1[n]` (one-byte integers, which have no byte order), `Eu2[n]`, `Eu4[n]`, `Eu8[n]`, `Ei2[n]` … (larger integers), `Eu4[n,2]`, `Ei4[n,2]` (rationals), `Ef4[n]`, `Ef8[n]`, or `bytes[n]` (UNDEFINED) |
 | `…/next_ifd` | value | `EW` | the next-IFD offset |
 | `…/tiles`, `…/strips` | struct | | an IFD's tiles or strips (by its TileOffsets and TileByteCounts, or StripOffsets and StripByteCounts), when it has both tables |
-| `…/tiles/<j>`, `…/strips/<j>` | data | | tile or strip `j`, when its byte count is not 0 and it lies within the file; its form's geometry is `{"shape": [rows, columns], "samples": s, "bits": b}` (`rows`, `columns`: a tile's TileLength and TileWidth; a strip's RowsPerStrip, or ImageLength without one, and ImageWidth, the same for a short last strip), its codec `{"compression": c}`, and its recipe the bytes (`[["src", 0, null]]`), or, when the IFD's JPEG prefix `P` (a [`TiffJpegPrefix`](#type-tiffjpegprefix): for JPEG (7), the Adobe marker for 3 samples, then the JPEGTables, when the IFD has them, without their SOI and EOI; empty for every other compression) is not empty and the tile or strip is more than 2 bytes, the first 2 bytes, `P` (shared data source `x`, [conventions §8.2](../conventions.md#82-the-table)), and the rest: `[["src", 0, 2], ["shared", x], ["src", 2, null]]` |
+| `…/tiles/<j>`, `…/strips/<j>` | data | | tile or strip `j`, when its byte count is not 0 and it lies within the file; its form's geometry is `{"shape": [rows, columns], "samples": s, "bits": b}` (`rows`, `columns`: a tile's TileLength and TileWidth, which a member of `…/strips` has too in a tiled IFD ([§2](#2-the-source)) without `…/tiles`, the tiles its stored-array description takes them for ([stored-array §7](../stored-array.md#7-the-formats)); a strip's RowsPerStrip, or ImageLength without one, and ImageWidth, the same for a short last strip), its codec `{"compression": c}`, and its recipe the bytes (`[["src", 0, null]]`), or, when the IFD's JPEG prefix `P` (a [`TiffJpegPrefix`](#type-tiffjpegprefix): for JPEG (7), the Adobe marker for 3 samples, then the JPEGTables, when the IFD has them, without their SOI and EOI; empty for every other compression) is not empty and the tile or strip is more than 2 bytes, the first 2 bytes, `P` (shared data source `x`, [conventions §8.2](../conventions.md#82-the-table)), and the rest: `[["src", 0, 2], ["shared", x], ["src", 2, null]]` |
 | `…/subifds/<j>` | struct | | SubIFD `j` of the IFD (to depth 4), as an IFD |
 | `…/exif`, `…/gps`, `…/interoperability`, `…/ifd_<tag>` | struct | | the IFD a pointer tag ([§5.2](#52-which-ifds)) leads to (`…/<name>/<j>` when the tag has several values), as an IFD |
 | `ome/planes/<p>` | alias | | plane `p` of the OME-XML ([§4.1](#41-planes)): the main-chain IFD its `TiffData` names |
@@ -918,7 +923,9 @@ entry `<level>/c/<coords>`, but for a level that shards its strips
 ([zarrify §2.1](../zarrify.md#21-virtual-shards)), each a [`Shard`](../zarrify.md#type-shard) whose
 inner chunks' ranges are their references here. Tile (strip) `k`, with TileByteCounts (StripByteCounts) `n > 0`,
 has the single range `(0, TileOffsets[k], n)` (`StripOffsets[k]`; for JPEG, for a short
-last strip, and for strips that a level joins, see below). The sources are numbered by
+last strip, and for strips that a level joins, see below). Here and below, a tiled IFD's
+TileOffsets and TileByteCounts are its tile tables ([the convention §2](#2-the-source)): its
+StripOffsets and StripByteCounts, where it has neither. The sources are numbered by
 [§1.2](../zarrify.md#12-input)'s order of first use, over the references in the order of their
 keys. Besides the references and the
 root's and the arrays' `zarr.json`, the archive's entries are those of the

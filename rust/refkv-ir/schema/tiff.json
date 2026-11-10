@@ -123,7 +123,7 @@
         "tags/<tag>": "struct of entry {tag,type,count[,offset][,field]} and value (in the value field, or at its offset: decoded when the profile reads it, or when small); a duplicate tag is tags/<tag>~<k>",
         "next_ifd": "u4 or u8",
         "tiles/<k>": "data (run): a tile of TileOffsets and TileByteCounts with a byte count above 0 within the file; geometry, codec and recipe (a JPEG tile's recipe puts the IFD's JPEG prefix, a shared data source, after its first 2 bytes); an IFD whose tile tables are an earlier IFD's names its tiles by alias",
-        "strips/<k>": "data (run): the same, for StripOffsets and StripByteCounts"
+        "strips/<k>": "data (run): the same, for StripOffsets and StripByteCounts, whose geometry is a tile's in an IFD with TileWidth and TileLength and no tiles/<k>, which lists its tiles there"
       }
     },
     "ome/planes/<p>": {
@@ -365,14 +365,17 @@
         "offset": "",
         "width": "",
         "height": "",
-        "tiled": "TileWidth and TileOffsets present",
-        "has_counts": "TileByteCounts present",
+        "tiled": "TileWidth and TileLength present",
+        "has_offsets": "the offsets of its tile tables are present: TileOffsets, or, in an IFD with neither TileOffsets nor TileByteCounts, StripOffsets",
+        "has_counts": "the byte counts of its tile tables are present: TileByteCounts, or, in an IFD with neither TileOffsets nor TileByteCounts, StripByteCounts",
+        "missing": "the tag of its tile tables that is absent, when one is",
         "tile_width": "",
         "tile_height": ""
       },
       "constraints": [
         {"require": "width >= 1 && height >= 1", "message": "the image at {offset} is empty"},
-        {"require": "!tiled || has_counts", "message": "IFD at {offset} has no tag 325"},
+        {"require": "!tiled || has_offsets || has_counts", "message": "the tiled image at {offset} has neither tile tables nor strip tables"},
+        {"require": "!tiled || (has_offsets && has_counts)", "message": "IFD at {offset} has no tag {missing}"},
         {
           "require": "!tiled || (tile_width >= 1 && tile_height >= 1)",
           "message": "the image at {offset} has an empty tile size"
@@ -466,8 +469,8 @@
         "jpeg": "",
         "has_tables": "JPEGTables present",
         "tables_ok": "JPEGTables start with SOI and end with EOI, at least 4 bytes",
-        "tiles": "TileOffsets' (StripOffsets') count",
-        "counts": "TileByteCounts' (StripByteCounts') count",
+        "tiles": "the count of the offsets of its tiles (TileOffsets, or StripOffsets in a tiled IFD with neither TileOffsets nor TileByteCounts) or strips (StripOffsets)",
+        "counts": "the count of their byte counts (TileByteCounts or StripByteCounts)",
         "expected": "samples × tiles across × tiles down, or samples × strips"
       },
       "constraints": [
