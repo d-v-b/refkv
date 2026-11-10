@@ -17,6 +17,9 @@ use crate::xml;
 use crate::fed::{Fed, Overlap, Word};
 use std::collections::HashMap;
 
+#[path = "nd2/stored.rs"]
+mod stored;
+
 pub const FILE_SIGNATURE: &[u8] = b"ND2 FILE SIGNATURE CHUNK NAME01!";
 pub const MAP_SIGNATURE: &[u8] = b"ND2 CHUNK MAP SIGNATURE 0000001!";
 pub const FILEMAP_NAME: &[u8] = b"ND2 FILEMAP SIGNATURE NAME 0001!";
@@ -85,6 +88,9 @@ pub struct Nd2 {
     decoded: Vec<(usize, u32, u64)>,
     used: u64,
     declared: Vec<(String, &'static str, usize)>,
+    /// the struct of each chunk the convention reads, and the element of its data, for the
+    /// stored arrays (`stored.rs`)
+    declaring: [(Option<u32>, Option<u32>); 3],
     pub requests: u64,
     pub requested: u64,
 }
@@ -154,6 +160,7 @@ impl Nd2 {
             decoded: Vec::new(),
             used: 0,
             declared: Vec::new(),
+            declaring: [(None, None); 3],
             requests: 0,
             requested: 0,
         }
@@ -736,6 +743,10 @@ impl Nd2 {
                 continue;
             };
             let s = self.chunk(chunks_el, &name, nidx, o, magic, n, d)?;
+            let read = PROFILE.iter().position(|p| *p == self.chunks[k].0.as_slice());
+            if let Some(p) = read {
+                self.declaring[p].0 = Some(s);
+            }
             if magic != schema::limit("chunk_magic") as u32 {
                 continue;
             }
@@ -789,6 +800,9 @@ impl Nd2 {
                     None
                 }
             };
+            if let Some(p) = read {
+                self.declaring[p].1 = el;
+            }
             if let (Some(e), true) = (el, sm) {
                 self.decoded.push((k, e, spent));
             }
@@ -942,13 +956,32 @@ impl Nd2 {
         Ok(())
     }
 
-    /// The IR, finished (aliases and gaps), and the facts the projection reads.
+    /// The IR, finished (aliases and gaps), with its frames described (`stored.rs`), and the
+    /// facts the projection reads: `declared_by` is the key of the description of the frames
+    /// the loops count, and `unplaced` that of the frame chunks past them, with their number.
     pub fn finish(mut self) -> Result<(Ir, serde_json::Value), String> {
         if self.phase != Phase::Done {
             return Err("internal: the parse is not done".into());
         }
         check::finish(&mut self.ir)?;
-        let mut facts = self.facts.take().unwrap().json;
+        let read = self.facts.take().unwrap();
+        let frame = stored::Frame {
+            height: read.height,
+            width: read.width,
+            components: read.comp,
+            bits: read.bpc,
+            width_bytes: read.width_bytes,
+            row: read.row,
+            compressed: read.compressed,
+        };
+        let key = self.declaring[0].0.ok_or("internal: no ImageAttributesLV! chunk in the IR")?;
+        // the chunks that say what a sample is: the attributes, and the picture's planes
+        let declarations: Vec<u32> = [self.declaring[0].1, self.declaring[2].1].into_iter().flatten().collect();
+        let (arrays, chains, map, (frames, unplaced)) = stored::described(&self.ir, &frame, read.frames as u64, key, &declarations)?;
+        self.ir.describe(arrays, chains, map)?;
+        let mut facts = read.json;
+        facts["declared_by"] = serde_json::json!(key);
+        facts["unplaced"] = serde_json::json!({"declared_by": frames, "count": unplaced});
         facts["decoded"] = serde_json::Value::Array(
             self.decoded
                 .iter()
