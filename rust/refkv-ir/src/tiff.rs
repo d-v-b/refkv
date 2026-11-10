@@ -435,6 +435,9 @@ pub struct Tiff {
     /// each tiles or strips struct's entries, in its tables' order (none for tables of unlike
     /// lengths), for the stored arrays (`stored.rs`)
     units: HashMap<u32, Vec<Unit>>,
+    /// what the layout read of each NDPI image's stream, by IFD, kept past the bytes it was read
+    /// from, for the stored arrays (`stored.rs`)
+    ndpi_streams: HashMap<usize, stored::ReadStream>,
 }
 
 /// The bytes of a row of `w` pixels of `samples` samples of `bits` bits each, which a row of packed
@@ -575,6 +578,7 @@ impl Tiff {
             prefetch: Prefetch::Start,
             order_el: 0,
             units: HashMap::new(),
+            ndpi_streams: HashMap::new(),
         }
     }
 
@@ -799,6 +803,9 @@ impl Tiff {
                             self.layout = Some(l);
                             self.emit_data()?;
                             self.keep_tables();
+                            if self.ndpi {
+                                self.ndpi_streams = self.streams_read();
+                            }
                             self.heads.clear();
                             self.start_pointers();
                             self.phase = Phase::Pointers;
@@ -922,7 +929,7 @@ impl Tiff {
             self.rules = rules::of("ndpi");
             self.hs = 16;
             let s = self.ir.struct_(0, "header", NO_INDEX, 0, Some((0, 12)))?;
-            self.ir.value(s, "byte_order", NO_INDEX, "ascii[2]", 0, (0, 2), Some(&h[..2]))?;
+            self.order_el = self.ir.value(s, "byte_order", NO_INDEX, "ascii[2]", 0, (0, 2), Some(&h[..2]))?;
             self.ir.value(s, "magic", NO_INDEX, "<u2", 0, (2, 2), Some(&h[2..4]))?;
             self.ir.value(s, "first_ifd", NO_INDEX, "<u8", 0, (4, 8), Some(&h[4..12]))?;
             self.next = v;
@@ -2873,6 +2880,10 @@ impl Tiff {
         if self.ndpi {
             // derive_ndpi wrote the levels; a tiled JPEG XR level's chunks are its IFD's tiles
             for lv in lay.facts["levels"].as_array_mut().into_iter().flatten() {
+                // `declared_by`: each plane's IFD, the key of its stored array's description
+                let ifds = lv.as_object_mut().and_then(|o| o.remove("ifds")).unwrap_or_default();
+                let keys: Vec<J> = ifds.as_array().into_iter().flatten().map(|k| json!(k.as_u64().map(|k| self.ifds[k as usize].el))).collect();
+                lv["declared_by"] = J::Array(keys);
                 for plane in lv["planes"].as_array_mut().into_iter().flatten() {
                     if let Some(k) = plane["tiles_ifd"].as_u64() {
                         plane["tiles"] = json!(tiles_of.get(&(k as usize)).and_then(|t| t.0));
@@ -3327,6 +3338,22 @@ impl Tiff {
         (v.unsigned_abs() <= MAX_SAFE).then_some(v)
     }
 
+    /// IFD `k`'s McuStarts `starts` with its McuStartsHighBytes `high`, where it has them
+    /// (spec/zarrify/ndpi.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>).
+    fn mcu_starts(&self, k: usize, starts: Vec<u64>, high: Option<&[u64]>) -> McuStarts {
+        let word = self.ifds[k].field(65426).filter(|e| ndpi_high_word(e)).map(|e| e.high);
+        let mut x = McuStarts { starts, same_length: true, high_word: true, added: false };
+        match (high, word) {
+            (Some(h), _) if h.len() != x.starts.len() => x.same_length = false,
+            (Some(h), Some(w)) => x.high_word = h[0] == w,
+            (h, _) => {
+                x.added = h.is_some();
+                x.starts = ndpi::combine(x.starts, h);
+            }
+        }
+        x
+    }
+
     /// The NDPI layout: levels, chunk grids, scales and translation, as facts for
     /// `project/ndpi.rs`. Asks for the values and strip headers not read yet.
     fn derive_ndpi(&self) -> Got<Layout> {
@@ -3357,18 +3384,7 @@ impl Tiff {
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)
         let starts_of = |k: usize, m: &NVals| -> Option<McuStarts> {
             let starts = m.get(&65426).and_then(|v| v.ints())?.to_vec();
-            let high = m.get(&65432).and_then(|v| v.ints());
-            let word = self.ifds[k].field(65426).filter(|e| ndpi_high_word(e)).map(|e| e.high);
-            let mut x = McuStarts { starts, same_length: true, high_word: true, added: false };
-            match (high, word) {
-                (Some(h), _) if h.len() != x.starts.len() => x.same_length = false,
-                (Some(h), Some(w)) => x.high_word = h[0] == w,
-                (h, _) => {
-                    x.added = h.is_some();
-                    x.starts = ndpi::combine(x.starts, h);
-                }
-            }
-            Some(x)
+            Some(self.mcu_starts(k, starts, m.get(&65432).and_then(|v| v.ints())))
         };
         let tiled_of = |k: usize, m: &NVals| {
             let f = &self.ifds[k];
@@ -3687,7 +3703,9 @@ impl Tiff {
                     p
                 })
                 .collect();
-            facts_of_levels.push(json!({"w": w, "h": h, "planes": planes}));
+            // `ifds`: each plane's IFD, which `emit_data` makes `declared_by`
+            let ifds: Vec<usize> = level.iter().map(|&i| levels[i].0).collect();
+            facts_of_levels.push(json!({"w": w, "h": h, "planes": planes, "ifds": ifds}));
             let (sy, sx) = (py.unwrap_or(1.0) * (bh as f64 / h as f64), px.unwrap_or(1.0) * (bw as f64 / w as f64));
             scales.push(if stacked { json!([1, scale_z, sy, sx]) } else { json!([1, sy, sx]) });
         }

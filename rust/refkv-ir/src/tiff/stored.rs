@@ -1,14 +1,16 @@
 //! The stored arrays of a TIFF file (spec/stored-array.md §7
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): a description
 //! for every IFD that declares an image, keyed by the IFD's struct, and a chunk map row for every
-//! tile or strip the IR holds. Built from what the parser read, before its IR is finished; an
-//! NDPI has none.
+//! tile or strip the IR holds. Built from what the parser read, before its IR is finished. An
+//! NDPI's images are described likewise, but for a JPEG strip McuStarts cuts into restart
+//! intervals, each a unit, and a JPEG XR image, whose samples are its stream's.
 
 use super::{type_size, unsigned, Ifd, Tiff, Unit};
+use crate::ndpi;
 use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Param, Place, Row, StoredArray};
 use crate::ir::Res;
 use serde_json::{json, Value as J};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// The tags that declare what an image's elements are, beside the header's byte order:
 /// BitsPerSample, PhotometricInterpretation, ColorMap, ExtraSamples, SampleFormat,
@@ -38,6 +40,17 @@ fn codec<const N: usize>(name: &str, parameters: [(&str, Option<Param>); N]) -> 
 /// ImageDepth, of the volumes SGI's extension stores as one image.
 const IMAGE_DEPTH: u16 = 32997;
 
+/// What the layout read of an NDPI image's stream, which its description needs and the parser
+/// holds no longer once the layout is done.
+#[derive(Clone, Copy)]
+pub(super) enum ReadStream {
+    /// a JPEG strip's header: its length, the rows and columns of a restart interval, and the
+    /// frame's components
+    Jpeg { header: u64, down: u64, across: u64, components: u64 },
+    /// a JPEG XR stream's samples, and their bits
+    JpegXr { samples: u64, bits: u64 },
+}
+
 /// What an IFD's fields say of how its image is stored.
 struct Image {
     w: u64,
@@ -51,6 +64,8 @@ struct Image {
     format: Option<u64>,
     compression: u64,
     predictor: u64,
+    /// an NDPI JPEG XR image whose first stream's pixel format gives `samples` and `bits`
+    jpegxr: bool,
 }
 
 impl Tiff {
@@ -93,7 +108,8 @@ impl Tiff {
     /// array then has no grid).
     fn chain_of_image(&self, f: &Ifd, im: &Image) -> Option<Chain> {
         let bits = im.bits?;
-        let source = || vec![codec("source", [("format", Some(Param::Value(json!("tiff")))), ("id", Some(Param::Value(json!(im.compression))))])];
+        let format = if self.ndpi { "ndpi" } else { "tiff" };
+        let source = || vec![codec("source", [("format", Some(Param::Value(json!(format)))), ("id", Some(Param::Value(json!(im.compression))))])];
         // the bits a row packs most significant first: another fill order is not modeled
         if self.first(f, 266).unwrap_or(1) != 1 {
             return None;
@@ -132,7 +148,7 @@ impl Tiff {
         // the other compressions libtiff applies none and tifffile applies one, so the bytes are
         // not modeled
         let jpeg2000 = matches!(im.compression, 33003 | 33004 | 33005 | 34712);
-        let image_codec = jpeg2000 || matches!(im.compression, 7 | 50001 | 50002 | 52546 | 65000..=65002);
+        let image_codec = jpeg2000 || im.jpegxr || matches!(im.compression, 7 | 50001 | 50002 | 52546 | 65000..=65002);
         if im.predictor != 1 && !image_codec {
             return None;
         }
@@ -144,6 +160,7 @@ impl Tiff {
             _ if jpeg2000 && matches!(bits, 8 | 16) => vec![codec("jpeg2k", [])],
             50002 | 52546 if matches!(bits, 8 | 16 | 32) => vec![codec("jpegxl", [])],
             50001 if bits == 8 => vec![codec("webp", [])],
+            ndpi::JPEGXR if im.jpegxr => vec![codec("jpegxr", [])],
             34887 if whole => {
                 let lerc = codec("lerc", []);
                 let outer = if f.has(LERC_PARAMETERS) { self.every(f, LERC_PARAMETERS).and_then(|v| v.get(1).copied()) } else { Some(0) };
@@ -222,32 +239,136 @@ impl Tiff {
         Some((Grid { axes, edge }, out))
     }
 
+    /// What the headers the layout read say of each NDPI image's stream, by IFD: taken while the
+    /// parser holds those bytes.
+    pub(super) fn streams_read(&self) -> HashMap<usize, ReadStream> {
+        let read = |k: usize| {
+            let f = &self.ifds[k];
+            match self.first(f, 259) {
+                Some(ndpi::JPEGXR) => self.jpegxr_pixels(k, f).map(|(samples, bits)| ReadStream::JpegXr { samples, bits }),
+                Some(7) => self.strip_header(k, f),
+                _ => None,
+            }
+        };
+        (0..self.ifds.len()).filter_map(|k| Some((k, read(k)?))).collect()
+    }
+
+    /// IFD `k`'s McuStarts with its McuStartsHighBytes, where the parser holds them and they fit
+    /// one another (spec/zarrify/ndpi.md §7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>).
+    fn starts_of_strip(&self, k: usize, f: &Ifd) -> Option<Vec<u64>> {
+        let high = if f.has(65432) { Some(self.every(f, 65432)?) } else { None };
+        let m = self.mcu_starts(k, self.every(f, 65426)?, high.as_deref());
+        (m.same_length && m.high_word).then_some(m.starts)
+    }
+
+    /// The header of an NDPI JPEG image's strip, its bytes before the first interval McuStarts
+    /// locates, where the layout read it and it is one the profile reads.
+    fn strip_header(&self, k: usize, f: &Ifd) -> Option<ReadStream> {
+        let first = *self.starts_of_strip(k, f)?.first()?;
+        let header = self.heads.get(&(self.first(f, 273)?, first))?;
+        let hd = ndpi::header(header, self.rules).ok()?;
+        // an interval is `restart` MCUs across and one down; the frame's component count follows
+        // its marker, length, precision, height and width
+        let components = *header.get(hd.sof.0 + 9)? as u64;
+        Some(ReadStream::Jpeg { header: first, down: hd.mh, across: hd.restart.checked_mul(hd.mw)?, components })
+    }
+
+    /// The samples of an NDPI JPEG XR image and their bits, as the pixel format of its first
+    /// stream gives them (spec/zarrify/ndpi.md §3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>): its first tile
+    /// that holds bytes, or its strip. None where the parser did not read that stream's header,
+    /// its pixel format is not one the profile reads, or its size is not the unit's.
+    fn jpegxr_pixels(&self, k: usize, f: &Ifd) -> Option<(u64, u64)> {
+        let (w, h) = (self.first(f, 256)?, self.first(f, 257)?);
+        let (at, length, unit) = if f.has(322) && f.has(323) {
+            let t = self.ndpi_tiles(k)?;
+            let (&o, &c) = t.offsets.iter().zip(&t.counts).find(|x| *x.1 > 0)?;
+            (o, c, (self.first(f, 322)?, self.first(f, 323)?))
+        } else {
+            (self.first(f, 273)?, self.first(f, 279)?, (w, self.first(f, 278).unwrap_or(u32::MAX as u64).min(h)))
+        };
+        let (guid, width, height) = self.ndpi_stream(at, length).ok()??;
+        let (data_type, samples) = ndpi::pixel_format(&guid)?;
+        ((width, height) == unit).then_some((samples, if data_type == "uint16" { 16 } else { 8 }))
+    }
+
+    /// The restart intervals of an NDPI JPEG image's strip (spec/zarrify/ndpi.md §7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>), as
+    /// McuStarts locates them: their chain, whose codec has the strip's header, their grid, and a
+    /// row for each. None where the image is not one strip of a JPEG stream with McuStarts, or
+    /// the parser did not read the strip's header, or the header and the starts do not give the
+    /// image's intervals: the strip is then one unit, as a TIFF's.
+    fn intervals_of_image(&self, k: usize, im: &Image) -> Option<(Chain, (Grid, Vec<Row>))> {
+        let f = &self.ifds[k];
+        let cut = self.ndpi && im.compression == 7 && im.bits == Some(8) && im.planar == 1 && im.depth == 1 && im.w > 0 && im.h > 0;
+        if !cut || f.has(347) || (f.has(322) && f.has(323)) {
+            return None;
+        }
+        let Some(&ReadStream::Jpeg { header, down, across, components }) = self.ndpi_streams.get(&k) else { return None };
+        let starts = self.starts_of_strip(k, f)?;
+        let (_, strips) = self.set.tiles.get(&k).copied()?;
+        let [Unit::Held(e, false)] = self.units.get(&strips?)?[..] else { return None };
+        // the frame's components are the image's samples
+        if components != im.samples {
+            return None;
+        }
+        let (rows, columns) = (im.h.div_ceil(down), im.w.div_ceil(across));
+        let ends = ndpi::interval_ends(self.ir.len[e as usize], columns, rows, &starts)?;
+        if starts.iter().zip(&ends).any(|(s, e)| e <= s) {
+            return None;
+        }
+        let place = Place::Element { element: e, member: None, range: Some((0, header)) };
+        let chain = vec![codec("jpeg_restart_interval", [("header", Some(Param::Source(place)))])];
+        let mut axes = vec![AxisUnits::Each(down), AxisUnits::Each(across)];
+        if im.samples > 1 {
+            axes.push(AxisUnits::Each(im.samples));
+        }
+        let units = starts.iter().zip(&ends).enumerate().map(|(i, (&s, &end))| {
+            let i = i as u64;
+            let mut coords = vec![i / columns, i % columns];
+            if im.samples > 1 {
+                coords.push(0);
+            }
+            Row { coords, element: Some(e), range: Some((s, end - s)), ..Row::default() }
+        });
+        Some((chain, (Grid { axes, edge: Edge::Full }, units.collect())))
+    }
+
     /// The descriptions of the images the IFDs declare, their chains and their rows.
     pub(super) fn described(&self) -> Res<(Vec<StoredArray>, Vec<Chain>, ChunkMap)> {
         let mut arrays: Vec<StoredArray> = Vec::new();
         let mut chains: Vec<Chain> = Vec::new();
         let mut chain_index: BTreeMap<String, u32> = BTreeMap::new();
         let mut map = ChunkMap::default();
-        if self.ndpi {
-            return Ok((arrays, chains, map));
-        }
         let mut ks: Vec<usize> = (0..self.ifds.len()).collect();
         ks.sort_by_key(|&k| self.ifds[k].el);
         for k in ks {
             let f = &self.ifds[k];
             // an IFD that declares no size declares no image
             let (Some(w), Some(h)) = (self.first(f, 256), self.first(f, 257)) else { continue };
-            let samples = self.first(f, 277).unwrap_or(1);
+            let compression = self.first(f, 259).unwrap_or(1);
+            // an NDPI's JPEG XR streams hold other samples than its fields say: the stream's are
+            // the image's
+            let jpegxr = match self.ndpi_streams.get(&k) {
+                Some(&ReadStream::JpegXr { samples, bits }) if compression == ndpi::JPEGXR => Some((samples, bits)),
+                _ => None,
+            };
+            let (samples, bits) = match jpegxr {
+                Some((samples, bits)) => (samples, Some(bits)),
+                None => (self.first(f, 277).unwrap_or(1), self.same(f, 258, 1).filter(|&b| b >= 1)),
+            };
             let im = Image {
                 w,
                 h,
                 depth: self.first(f, IMAGE_DEPTH).unwrap_or(1),
                 samples,
-                planar: if samples > 1 { self.first(f, 284).unwrap_or(1) } else { 1 },
-                bits: self.same(f, 258, 1).filter(|&b| b >= 1),
+                planar: if samples > 1 && jpegxr.is_none() { self.first(f, 284).unwrap_or(1) } else { 1 },
+                bits,
                 format: self.same(f, 339, 1),
-                compression: self.first(f, 259).unwrap_or(1),
+                compression,
                 predictor: self.first(f, 317).unwrap_or(1),
+                jpegxr: jpegxr.is_some(),
             };
             let planar = im.samples > 1 && im.planar == 2;
             // a volume's planes come before its rows
@@ -271,7 +392,10 @@ impl Tiff {
                 fill: Fill::Undefined,
                 unit_parameters: Vec::new(),
             };
-            let stored = self.chain_of_image(f, &im).and_then(|c| Some((c, self.units_of_image(k, &im)?)));
+            let stored = self.chain_of_image(f, &im).and_then(|c| match self.intervals_of_image(k, &im) {
+                Some(cut) => Some(cut),
+                None => Some((c, self.units_of_image(k, &im)?)),
+            });
             if let Some((chain, (grid, rows))) = stored {
                 let key = J::Array(chain.iter().map(Codec::to_json).collect()).to_string();
                 let c = *chain_index.entry(key).or_insert_with(|| {
