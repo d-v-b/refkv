@@ -227,10 +227,12 @@ A chain's codec has only its entry's parameters.
 | --- | --- | --- | --- | --- |
 | `source` | the bytes the source's encoding wrote, framed as the source frames them | `format`: the profile's name; `id`: the source's id for the encoding, as the source gives it; `name`: the source's own name for the encoding, where it gives one (an HDF5 filter's optional name); `parameters`: its parameters, as the source gives them (a value, or a place that holds them) | none | what the source's encoding decodes to, elements of `item_bits` bits where the description gives it, and of the size that encoding gives them otherwise; the profile maps it or leaves the array out |
 | `zlib` | a zlib stream ([RFC 1950](https://www.rfc-editor.org/rfc/rfc1950)) | none | none | the bytes it inflates to |
+| `gzip` | a gzip stream ([RFC 1952](https://www.rfc-editor.org/rfc/rfc1952)): one member, or several one after another | none | none | the bytes its members inflate to, joined |
 | `zstd` | a Zstandard frame ([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878)) | none | none | the frame's content |
 | `bzip2` | a bzip2 stream | none | none | the bytes it decompresses to |
 | `lzf` | one LZF block with no header; its decoded length is not stored | none | none | the block's bytes |
 | `blosc` | a Blosc 1 chunk, with its 16-byte header | none | none | the chunk's bytes |
+| `skip` | `length` bytes that a reader passes over, then the bytes its decoding makes | `length`: a place of the count as the source writes it, in ASCII: decimal digits, a `+` before them allowed (the descriptor of NRRD's `byte skip`) | none | the bytes after the first `length` |
 | `shuffle` | the bytes of elements of `element_size` bytes each: every element's first byte, then every element's second, and so on, then the bytes past the last whole element as they are | `element_size`: a place of one value | none | the elements' bytes, each element's together |
 | `h5_fletcher32` | bytes, then their Fletcher-32 checksum as HDF5 computes it (4 bytes) | none | none | the bytes before the checksum |
 | `h5_lz4` | the layout of HDF5's LZ4 filter (32004): the decoded length (8 bytes, big-endian), a block size (4 bytes, big-endian), then each block as its stored length (4 bytes, big-endian) and an [LZ4 block](https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md), or the block's bytes as they are where the stored length is the block's own | none | none | the blocks' bytes, joined |
@@ -562,6 +564,44 @@ renumbers with `store.element` ([§2.1](#21-keys)). An attribute's value is not 
   stores one. The new message (type 5) is read where a header has both. A shared message,
   several messages of the type read, a message that does not read, or a value whose length is
   not the datatype's size, leaves `undefined`, with those messages among the declarations.
+
+**NRRD** ([spec/zarrify/nrrd.md](zarrify/nrrd.md)). A NRRD input is one stored array, the one its
+header declares, in the store IR the profile's run builds of the header file and, for a detached
+header, its data file. It is keyed by the header file's object (the header has no element of its
+own), with no index. The facts give the key: `array.declared_by` is the id of that object. Below,
+the NRRD definition is Teem's, which
+[zarrify/nrrd.md](zarrify/nrrd.md) cites.
+
+- **Declarations.** The line of the `type` field, then the line of the `endian` field where the
+  header has one: each the element `lines/<i>`, which holds the field's identifier, its descriptor
+  and its line end.
+- **`shape`** is the values of the `sizes` field, reversed: the data holds the header's last axis
+  outermost. `axes` gives the header's order, the storage axes reversed (`[2, 1, 0]` for three
+  axes).
+- **`item_bits`** is eight times the bytes of one element of the `type` field's type
+  ([zarrify/nrrd.md §3](zarrify/nrrd.md#3-data-types-and-encodings)).
+- **The grid** is one unit of the whole array: each axis `Each` of its size, under `short`. Its
+  row is the `data` element of the data's file, whole: the header file for an attached header, and
+  for a detached one the data file, another object of the store. For the raw encoding the element
+  is the array's bytes, after the lines and bytes that `line skip` and `byte skip` pass over, or,
+  with a `byte skip` of −1, those that end the file; bytes of the file after them are no part of
+  the unit, as the NRRD definition says (pynrrd 1.1.3, which reads a file it is given by its path
+  to its end, refuses one that has any). For the gzip encoding the element is the stream: from
+  after the lines `line skip` passes over to the end of the file.
+- **The chain** is one: empty for the raw encoding; `gzip` for the gzip encoding; and `skip`, then
+  `gzip`, for the gzip encoding with a `byte skip` above 0, which the NRRD definition counts within
+  the inflated bytes. `skip`'s `length` is the descriptor of the `byte skip` field, a range of the
+  field's line. (pynrrd 1.1.3 skips those inflated bytes too, but first seeks as many bytes into
+  the file, so it reads no such file that follows the definition.)
+- **The stream is not inflated**, as the profile reads none of the data: the description is the
+  same whatever the stream holds, and one that inflates to other than the skipped bytes and the
+  array's is not detected. The array's bytes are the first the chain makes: the NRRD definition
+  leaves what follows the data unread. (pynrrd 1.1.3 refuses a stream that inflates to more, and
+  inflates the first member alone of a stream of several, which the `gunzip` program the NRRD
+  definition names reads whole.)
+- **No grid** for no input: the profile rejects what it does not read (the text, hex and bzip2
+  encodings, the type `block`, several data files), and builds no IR of it.
+- **The fill value** is `undefined`: NRRD has none.
 
 **TIFF** ([spec/zarrify/tiff.md](zarrify/tiff.md)). Every IFD the parser reads (of the main
 chain, a SubIFD, or one another pointer tag leads to) whose ImageWidth (256) and ImageLength (257)
