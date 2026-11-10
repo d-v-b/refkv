@@ -615,8 +615,10 @@ The facts give the keys: `declared_by` is the id of the top-level Pixel Data's e
 are arrays; and `nested` lists each element that keys the Pixel Data of its items, by its id
 (`declared_by`), with how many it keys (`count`). A series' store form is composed of its files'
 outputs, and has no descriptions of its own. Below, an attribute is the first element of its tag in
-the Pixel Data's own dataset, absent where its value is empty; N is Number of Frames (0028,0008),
-1 without the attribute, and S is Samples per Pixel (0028,0002).
+the Pixel Data's own dataset, absent where its value is empty (and, of an item's, where its VR in
+explicit VR is not the one [zarrify/dicom.md §2.2](zarrify/dicom.md#22-attributes) gives it, or
+the IR does not hold its value); N is Number of Frames (0028,0008), 1 without the attribute, and S
+is Samples per Pixel (0028,0002).
 
 - **The top-level Pixel Data** is keyed by its element (`dataset/7FE00010`), with no index.
 - **Declarations.** The element of the Transfer Syntax UID (`meta/00020010`), which gives the

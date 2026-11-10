@@ -715,6 +715,16 @@ def saved(path: Path, ds: Dataset, syntax: str = ExplicitVRLittleEndian) -> Path
     return path
 
 
+def paletted(descriptor: list[int], length: int, vr: str = "OW") -> Dataset:
+    """A small `PALETTE COLOR` image whose three lookup tables have `descriptor`, and `length`
+    bytes each."""
+    ds = filled(image(photometric="PALETTE COLOR"))
+    for c in range(3):
+        ds.add_new(0x00281101 + c, "US", descriptor)
+        ds.add_new(0x00281201 + c, vr, ramp(length, c))
+    return ds
+
+
 def with_icons(path: Path, *icons: Dataset, syntax: str = ExplicitVRLittleEndian) -> Path:
     """A file of one small native image, with `icons` the items of its Icon Image Sequence."""
     ds = filled(image())
@@ -738,8 +748,10 @@ def test_arrays_no_fixture_holds_are_described_as_pydicom_reads_them(tmp_path):
     interleaved and planar, of 1, 8 and 16 bits, with and without a frames' axis, in explicit and
     implicit VR and in big endian; in items of undefined length; in items that are a run, whose
     units are its members'; in an item of an item, keyed by the top-level sequence; beside
-    encapsulated frames; and a lookup table longer than its entries, which pydicom's palette
-    reading refuses and the profile reads the first entries of."""
+    encapsulated frames; a declaring attribute with no value, which is no declaration; lookup
+    tables of 65536 entries, which the descriptor counts as 0; and lookup tables longer than their
+    entries, of one byte and of two, which pydicom's palette reading refuses and the profile reads
+    the first entries of."""
     icons = with_icons(
         tmp_path / "icons.dcm", filled(image(3, 5)), filled(image(2, 3, samples=3, bits=16, frames=2, planar=1), "OW"),
         filled(image(2, 2, samples=3, frames=1)), filled(image(5, 3, bits=1, frames=3)),
@@ -766,17 +778,21 @@ def test_arrays_no_fixture_holds_are_described_as_pydicom_reads_them(tmp_path):
     ds.IconImageSequence = Sequence([filled(image(2, 2))])
     beside = tmp_path / "beside.dcm"
     ds.save_as(beside)
-    # tables of 5 entries of one byte, in 6 bytes
-    ds = filled(image(photometric="PALETTE COLOR"))
-    for c, color in enumerate(("Red", "Green", "Blue")):
-        setattr(ds, f"{color}PaletteColorLookupTableDescriptor", [5, 0, 8])
-        setattr(ds, f"{color}PaletteColorLookupTableData", ramp(6, c))
-    palette = saved(tmp_path / "palette.dcm", ds)
+    # a High Bit with no value, the file's and an icon's
+    icon = filled(image(2, 2))
+    icon.add_new(0x00280102, "US", None)
+    ds = filled(image())
+    ds.add_new(0x00280102, "US", None)
+    ds.IconImageSequence = Sequence([icon])
+    valueless = saved(tmp_path / "valueless.dcm", ds)
+    # tables of 5 entries of one byte in 6 bytes, of 5 of two bytes in 12, and of 65536 entries
+    palettes = [saved(tmp_path / f"palette{k}.dcm", paletted(descriptor, length))
+                for k, (descriptor, length) in enumerate((([5, 0, 8], 6), ([5, 0, 16], 12), ([0, 0, 16], 1 << 17)))]
 
-    assert saw([icons, run, implicit, big, deep, loose, beside, palette]) == {
-        "pixel data": 8,
-        "pixel data of items": 16,
-        "chain empty": 21,
+    assert saw([icons, run, implicit, big, deep, loose, beside, valueless, *palettes]) == {
+        "pixel data": 11,
+        "pixel data of items": 17,
+        "chain empty": 25,
         "chain lsb_first": 2,
         "chain jpeg": 1,
         "a frames' axis": 8,
@@ -784,13 +800,14 @@ def test_arrays_no_fixture_holds_are_described_as_pydicom_reads_them(tmp_path):
         "samples a plane each": 1,
         "samples of a pixel together": 1,
         "frames one unit together": 1,
-        "units": 31,
-        "units that are a range of an element": 21,
+        "units": 35,
+        "units that are a range of an element": 22,
         "units that are a run's member": 6,
-        "units decoded to pydicom's values": 31,
-        "lookup tables": 3,
-        "lookup tables longer than their entries": 3,
-        "lookup tables pydicom's palette reading refuses": 3,
+        "units decoded to pydicom's values": 35,
+        "lookup tables": 9,
+        "lookup tables of two bytes an entry": 6,
+        "lookup tables longer than their entries": 6,
+        "lookup tables pydicom's palette reading refuses": 6,
     }
     # a run's members: each array's units are its own member's
     d = described(run)
@@ -941,13 +958,7 @@ def test_an_items_bytes_under_big_endian_have_no_grid(tmp_path):
 def test_lookup_tables_of_bytes_in_big_endian_words_have_no_grid(tmp_path):
     """Under Explicit VR Big Endian a table of VR OW is 16-bit words, byte-swapped: entries of one
     byte in it have no grid, and those of a table of VR OB have."""
-    def palette(vr: str) -> Dataset:
-        ds = filled(image(photometric="PALETTE COLOR"))
-        for c in range(3):
-            ds.add_new(0x00281101 + c, "US", [4, 0, 8])
-            ds.add_new(0x00281201 + c, vr, ramp(4, c))
-        return ds
-
-    words, octets = (saved(tmp_path / f"{vr}.dcm", palette(vr), ExplicitVRBigEndian) for vr in ("OW", "OB"))
+    words, octets = (saved(tmp_path / f"{vr}.dcm", paletted([4, 0, 8], 4, vr), ExplicitVRBigEndian)
+                     for vr in ("OW", "OB"))
     assert saw([words])["no grid: a table's bytes in big-endian words"] == 3
     assert saw([octets])["lookup tables"] == 3
