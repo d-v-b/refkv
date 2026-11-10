@@ -1312,3 +1312,65 @@ def test_imagej_sizes_whose_product_passes_u128_are_rejected(tmp_path):
     tifffile.imwrite(path, np.zeros((4, 4, 4), np.uint8), description=description, metadata=None)
     with pytest.raises(Rejected, match="an ImageJ description of 4 images whose frames, channels and slices make"):
         via_ir(str(path), "u")
+
+
+def imagej_page(path, description: str, data: np.ndarray | None = None, **how) -> str:
+    """One page of `data` (16 by 16 bytes) written to `path` with `description` and `how` for
+    tifffile's other arguments, and no description of tifffile's own."""
+    tifffile.imwrite(path, np.zeros((16, 16), np.uint8) if data is None else data, description=description,
+                     metadata=None, **how)
+    return str(path)
+
+
+def test_an_imagej_description_of_more_than_100000_planes_is_rejected(tmp_path):
+    """§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>: `N` is at most
+    100000."""
+    path = imagej_page(tmp_path / "many.tif", "ImageJ=1.11a\nimages=100001\n")
+    with pytest.raises(Rejected, match="100001 planes is more than 100000"):
+        via_ir(path, "u")
+
+
+def test_an_imagej_stack_in_one_ifd_with_subifds_is_rejected(tmp_path):
+    """§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>: IFD 0 of a stack
+    in one IFD has no SubIFDs."""
+    path = tmp_path / "subifds.tif"
+    with tifffile.TiffWriter(path) as tw:
+        tw.write(np.zeros((16, 16), np.uint8), subifds=1, description="ImageJ=1.11a\nimages=2\n", metadata=None)
+        tw.write(np.zeros((8, 8), np.uint8), subfiletype=1, metadata=None)
+    with pytest.raises(Rejected, match="an ImageJ stack in one IFD with SubIFDs is not supported"):
+        via_ir(str(path), "u")
+
+
+def test_an_imagej_stack_in_one_ifd_that_is_tiled_is_rejected(tmp_path):
+    """§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>: IFD 0 of a stack
+    in one IFD is in strips."""
+    path = imagej_page(tmp_path / "tiled.tif", "ImageJ=1.11a\nimages=2\n", tile=(16, 16))
+    with pytest.raises(Rejected, match="an ImageJ stack in one IFD that is tiled is not supported"):
+        via_ir(path, "u")
+
+
+def test_an_imagej_stack_in_one_ifd_that_is_compressed_is_rejected(tmp_path):
+    """§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>: IFD 0 of a stack
+    in one IFD has Compression 1."""
+    path = imagej_page(tmp_path / "deflate.tif", "ImageJ=1.11a\nimages=2\n", compression="zlib")
+    with pytest.raises(Rejected, match="an ImageJ stack in one IFD with compression 8 is not supported"):
+        via_ir(path, "u")
+
+
+def test_an_imagej_stack_in_one_ifd_whose_strips_are_apart_is_rejected(tmp_path):
+    """§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>: each strip of IFD
+    0 of a stack in one IFD starts where the one before it ends; strip 1 here starts 2 bytes later,
+    its bytes still each exactly its rows and the planes still within the file."""
+    src = FIXTURES / "tiff" / "imagej_contiguous_tzcyx_uint16_be.tif"
+    b = bytearray(src.read_bytes())
+    with tifffile.TiffFile(src) as tf:
+        page = tf.pages.first
+        assert len(page.dataoffsets) > 1
+        t = page.tags[273]
+        kind = {3: "H", 4: "I", 16: "Q"}[t.dtype]
+        at = t.valueoffset + struct.calcsize(kind)
+        struct.pack_into(tf.byteorder + kind, b, at, page.dataoffsets[1] + 2)
+    path = tmp_path / "apart.tif"
+    path.write_bytes(b)
+    with pytest.raises(Rejected, match="an ImageJ stack in one IFD whose strips are not contiguous"):
+        via_ir(str(path), "u")
