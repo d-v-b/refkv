@@ -118,6 +118,14 @@ def setting(header: Astropy, name: str, default: int) -> int:
     return value
 
 
+def one_run(held: list[int], shape: list[int]) -> bool:
+    """Whether a chunk that holds `held` indexes along each axis of an array of `shape` is one run
+    of the array's elements in C order: whole along every axis after the first it holds more than
+    one index of."""
+    first = next((k for k, h in enumerate(held) if h > 1), len(shape))
+    return held[first + 1:] == shape[first + 1:]
+
+
 def check_cut(d: Described, rows: list[dict], shape: list[int], item: int, doc: dict[str, JSON],
               chunks: dict[tuple[int, ...], list[Piece]], seen: Counter) -> list[str]:
     """The chunks of a unit stored whole, of `shape` elements of `item` bytes, which the profile
@@ -138,9 +146,7 @@ def check_cut(d: Described, rows: list[dict], shape: list[int], item: int, doc: 
     for coords, parts in sorted(chunks.items()):
         first = [x * c for x, c in zip(coords, chunk, strict=True)]
         held = [min(c, n - o) for c, n, o in zip(chunk, shape, first, strict=True)]
-        # the chunk's elements are one run of the unit where every axis past the first it cuts is whole
-        cut = next((k for k, (h, n) in enumerate(zip(held, shape, strict=True)) if h != n), len(shape))
-        if held[cut + 1:] != shape[cut + 1:]:
+        if not one_run(held, shape):
             said.append(f"chunk {coords} of {chunk} is no one run of the elements of {shape}")
             continue
         run: Piece = (start + int(np.ravel_multi_index(first, shape)) * item, math.prod(held) * item)
@@ -507,17 +513,24 @@ def test_cases_no_fixture_holds_are_written_as_their_descriptions_give(tmp_path)
     assert (seen["records of a quantized tile"], seen["records of a tile in the second chain"]) == (1, 1)
 
 
-def test_the_profile_reads_no_blank_value_of_a_blank_card(tmp_path):
-    """A finding, recorded: a quantized image whose blank value is its header's BLANK card, with
-    no ZBLANK. astropy reads the card (test_fits_stored) and the description gives its place; the
-    profile reads ZBLANK alone, so each tile's record says the image has no blank value, and its
-    pixels of that integer decode to numbers where astropy reads NaN."""
+def test_a_chunk_that_is_no_one_run_of_its_array_is_told():
+    """A chunk of more than one index along an axis and less than all of a later one is no one run
+    of the elements in C order, whatever range a reference gives it."""
+    assert one_run([1, 4], [2, 4])
+    assert one_run([2, 4], [2, 4])
+    assert one_run([1, 2], [2, 4])
+    assert not one_run([2, 2], [2, 4])
+
+
+@pytest.mark.xfail(strict=True, reason="the FITS profile reads a quantized image's blank value of ZBLANK, not of BLANK")
+def test_the_profile_writes_the_blank_value_of_a_blank_card(tmp_path):
+    """A known difference, recorded: a quantized image whose blank value is its header's BLANK
+    card, with no ZBLANK. astropy reads the card (test_fits_stored) and the description gives its
+    place; the profile reads ZBLANK alone, so each tile's record says the image has no blank
+    value, and its pixels of that integer decode to numbers where astropy reads NaN."""
     source = (FIXTURES / "fits" / "fits_comp_rice_float_nodither.fits").read_bytes()
     path = tmp_path / "blank.fits"
     path.write_bytes(recarded(source, {"ZBLANK": None}, (("BLANK", -2147483648),)))
     said, seen = compared(path)
     assert seen["records of a tile"] == 24
-    # every record's blank value and flags: 0 and "scaled"; the description gives the card's value, and "blank" too
-    assert len(said) == 24
-    assert said[0].endswith("record 0 is (151, 0, 0, 1, 0.01, 100.0), not (151, 0, -2147483648, 3, 0.01, 100.0)")
-    assert all(", 0, 0, 1, " in s and ", 0, -2147483648, 3, " in s for s in said)
+    assert said == ()
