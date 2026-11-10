@@ -110,10 +110,7 @@ class Input:
 def read_input(path: Path) -> Input:
     """The input at `path`: a file, or a project's named document with the files it names."""
     d = described(path)
-    objects = [i for i in range(len(d.ir)) if d.ir.kind(i) == Kind.OBJECT]
-    keys = {i: key for i, (key, _, _) in zip(objects, d.ir.object_bases(), strict=True)}
-    files: dict[str | None, bytes] = {key: (path.parent / key).read_bytes() for key in keys.values()}
-    return Input(d, keys, files or {None: path.read_bytes()})
+    return Input(d, d.keys, d.objects)
 
 
 @dataclass(frozen=True)

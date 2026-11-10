@@ -116,9 +116,7 @@ class Slide:
 def read_slide(path: Path) -> Slide:
     """The slide whose `.vsi` file is at `path`, its tile files beside it."""
     d = described(path)
-    objects = [i for i in range(len(d.ir)) if d.ir.kind(i) == Kind.OBJECT]
-    keys = {i: key for i, (key, _, _) in zip(objects, d.ir.object_bases(), strict=True)}
-    return Slide(d, keys, {key: (path.parent / key).read_bytes() for key in keys.values()})
+    return Slide(d, d.keys, {key: data for key, data in d.objects.items() if key is not None})
 
 
 # ---- the files, read here as spec/zarrify/vsi.md lays them out
