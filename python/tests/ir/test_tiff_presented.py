@@ -1,7 +1,9 @@
 """The TIFF and QPTIFF profiles' arrays against the stored arrays' descriptions (spec/stored-array.md
 §7 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): what the profile
 writes of an image's storage, read off the image's description by the profile's rules
-(spec/zarrify/tiff.md §4.3 to §4.5 and §7.3
+(spec/zarrify/tiff.md §4.3
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs> to §4.5
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips> and §7.3
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#73-chunks>), is what the profile wrote.
 
 A level's array has no address of an IFD, so a plane's description is found by its chunks' bytes:
