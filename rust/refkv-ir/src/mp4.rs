@@ -199,6 +199,15 @@ fn pcm_frame(t: &Track) -> Option<u64> {
     (e.channels > 0).then_some(e.channels * p.bytes)
 }
 
+/// The size of a sample of a PCM track that is not a whole number of its frames, where its
+/// tables give one (`sizes`, its samples' as laid out): its stsz box's one sample size, but 1,
+/// QuickTime's for one frame of any size, or a sample's.
+fn ragged_pcm(t: &Track, sizes: &[u64]) -> Option<u64> {
+    let frame = pcm_frame(t)?;
+    let fixed = t.fixed_size.map(|f| f.0).filter(|&n| n != 1 && n % frame != 0);
+    fixed.or(sizes.iter().copied().find(|n| n % frame != 0))
+}
+
 impl Entry {
     /// The payload of the child box of type `t`, or of one in a QuickTime `wave` box (where
     /// QuickTime's sound descriptions keep their esds box).
@@ -957,8 +966,7 @@ impl Mp4 {
                 let ts = self.ir.struct_(ss, "", k as u64, 0, None)?;
                 // a PCM track's frames: each sample a whole number of them, or no PCM track
                 if let (Some(frame), true) = (pcm_frame(t), f["reason"].is_null()) {
-                    let fixed = t.fixed_size.map(|f| f.0).filter(|&n| n != 1 && n % frame != 0);
-                    match fixed.or(sizes.iter().copied().find(|n| n % frame != 0)) {
+                    match ragged_pcm(t, &sizes) {
                         Some(n) => {
                             f["reason"] = json!(format!("PCM samples of {n} bytes, not a whole number of {frame}-byte frames"));
                             f["format"] = J::Null;
@@ -984,7 +992,7 @@ impl Mp4 {
             if matches!(&t.handler, b"vide" | b"soun") {
                 let entry = t.entries.first();
                 let declarations = entry.into_iter().flat_map(|e| e.fields_el.into_iter().chain(e.child_els.iter().flatten().copied())).collect();
-                let kind = stored::kind(t, elements.len() as u64, sync_samples(t, offsets.len() as u64));
+                let kind = stored::kind(t, elements.len() as u64, sync_samples(t, offsets.len() as u64), ragged_pcm(t, &sizes).is_some());
                 self.media.push(stored::Media { element: t.el, declarations, samples: elements, kind });
                 f["declared_by"] = json!(t.el);
             }

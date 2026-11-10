@@ -13,7 +13,10 @@ ffmpeg lists has its descriptions, and of a video track
   before it and may need the group before.
 
 A Motion JPEG track's pictures are compared by their places and by the shape imagecodecs decodes
-each to. A second test asserts which cases the fixtures reached."""
+each to. Any other track, an audio track among them, is its samples in a `source` chain of the
+sample entry's type, with no sample size: its rows are the demuxer's packets, or, of a PCM track,
+whose frames the file's tables and ffmpeg group differently, the same bytes in the same order. A
+second test asserts which cases the fixtures reached."""
 
 import struct
 from collections import Counter
@@ -187,6 +190,45 @@ def check_jpeg(d: Described, k: int, packets: list[av.Packet], seen: Counter) ->
     return said
 
 
+def joined(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """`ranges` with each that starts where the one before it ends made one with it."""
+    out: list[tuple[int, int]] = []
+    for offset, length in ranges:
+        if out and sum(out[-1]) == offset:
+            out[-1] = (out[-1][0], out[-1][1] + length)
+        else:
+            out.append((offset, length))
+    return out
+
+
+def check_source(d: Described, k: int, stream: Stream, packets: list[av.Packet], seen: Counter) -> list[str]:
+    """A track whose samples the list has no codec for, or whose elements the IR does not model:
+    an element a sample, of no stated size, in a `source` chain of the sample entry's type."""
+    a = d.stored.arrays[k]
+    rows = d.rows.get(k, [])
+    said = []
+    if (a.shape, a.item_bits, units_of(a), a.unit_parameters) != ((len(rows),), None, (1,), ()) or not rows:
+        said.append(f"shape {a.shape} of {a.item_bits} bits, grid {a.grid}, {len(rows)} rows")
+    # the sample entry's type: the four bytes after its box's size
+    entry = d.ir.parent(a.declarations[0].element) if isinstance(a.declarations[0], ElementPlace) else 0
+    start, _ = d.ir.extent(entry)
+    kind = d.objects[None][start + 4:start + 8].decode("latin-1")
+    (codec,) = d.stored.chains[a.chains[0]]
+    values = {n: v.value for n, v in codec.parameters.items() if isinstance(v, Value)}
+    if values != {"format": "mp4", "id": kind} or len(values) != len(codec.parameters):
+        said.append(f"source's parameters {codec.parameters}, the sample entry's type {kind!r}")
+    mine = [d.parts(r)[0][1:] for r in rows if r["range"] is None]
+    theirs = [(p.pos, p.size) for p in packets if p.pos is not None]
+    pcm = stream.codec_context.name.startswith("pcm_")
+    # the tables give a PCM track's frames a chunk at a time, and ffmpeg's demuxer in packets of its own
+    if len(mine) != len(rows) or (joined(mine) != joined(theirs) if pcm else mine != theirs):
+        said.append(f"rows at {mine[:3]}, ffmpeg's packets at {theirs[:3]}")
+    seen[f"tracks of source, {stream.type}"] += 1
+    seen["tracks of source, PCM"] += pcm
+    seen["units of source"] += len(rows)
+    return said
+
+
 def check_track(d: Described, ks: list[int], stream: Stream, packets: list[av.Packet],
                 seen: Counter) -> list[str]:
     """One track's descriptions against ffmpeg's stream."""
@@ -198,12 +240,14 @@ def check_track(d: Described, ks: list[int], stream: Stream, packets: list[av.Pa
         said.append("a fill value, axes or a padding")
     names = [[c.name for chain in a.chains for c in d.stored.chains[chain]] for a in arrays]
     if names == [[]]:
-        # a track the IR does not model: what declares it, and no more
+        # a track whose samples are not one array: what declares it, and no more
         (a,) = arrays
         seen[f"tracks of no grid, {stream.type}"] += 1
         if (a.shape, a.item_bits, a.grid, a.unit_parameters) != (None, None, None, ()) or d.rows.get(ks[0]):
-            said.append("a shape, a sample size, a grid or rows for a track the IR does not model")
+            said.append("a shape, a sample size, a grid or rows for a track whose samples are not one array")
         return said
+    if names == [["source"]]:
+        return said + check_source(d, ks[0], stream, packets, seen)
     if not isinstance(stream, av.VideoStream):
         return [*said, f"chains {names} of a track that is no video"]
     # the sample entry's fields, which declare the pictures' size
@@ -232,7 +276,9 @@ def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
     by_track: dict[int, list[int]] = {}
     for k, a in enumerate(d.stored.arrays):
         by_track.setdefault(traks.index(a.element), []).append(k)
-    with av.open(str(path)) as container:
+    # the media's own timeline: ffmpeg's demuxer otherwise applies a track's edit list, and leaves
+    # out the samples an edit cuts, as an AAC track's priming is
+    with av.open(str(path), options={"ignore_editlist": "1"}) as container:
         streams = list(container.streams)
         if len(streams) != len(traks):
             return (f"{len(traks)} trak boxes, ffmpeg {len(streams)} streams",), seen
@@ -262,9 +308,10 @@ def test_mp4_tracks_are_described_as_ffmpeg_reads_them(path):
 
 def test_the_fixtures_hold_every_case_the_comparison_reads():
     """The fixtures reach each case of the comparison, so that none of it passes for want of a
-    file. The video tracks of no grid are Motion JPEG the IR does not model: streams with no
-    markers (Motion JPEG B), with no frame header in the first sample, of 12 bits, and of a
-    picture's fields."""
+    file. The video tracks of a `source` chain are Motion JPEG the IR does not model: streams with
+    no markers (Motion JPEG B), with no frame header in the first sample, of 12 bits, and of a
+    picture's fields. The track of no grid is PCM whose tables size a sample as no whole number of
+    frames, which ffmpeg reads by the sample entry's size."""
     seen: Counter = Counter()
     for path in FILES:
         seen += compared(path)[1]
@@ -276,8 +323,11 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
         "tracks of vp9": 5,
         "tracks of jpeg": 8,
         "tracks of jpeg of one component": 1,
-        "tracks of no grid, audio": 50,
-        "tracks of no grid, video": 4,
+        "tracks of source, audio": 49,
+        "tracks of source, video": 4,
+        "tracks of source, PCM": 16,
+        "units of source": 19208,
+        "tracks of no grid, audio": 1,
         "tracks of chroma planes 1/2 by 1/2": 48,
         "tracks of chroma planes 1/2 by 1/1": 6,
         "tracks of chroma planes 1/1 by 1/1": 2,

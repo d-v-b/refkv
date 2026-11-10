@@ -208,9 +208,10 @@ def compared(path: Path, frames: int) -> tuple[tuple[str, ...], Counter]:
             a = d.stored.arrays[ks[0]]
             names = [c.name for chain in a.chains for c in d.stored.chains[chain]]
             where = at(tracks[t], "path")
-            if a.grid is None:
-                # an audio track, or a video track the IR does not model
-                seen["tracks not described"] += 1
+            if a.grid is None or names == ["source"]:
+                # an audio track, or a video track the IR does not model: its samples' places are
+                # described, and what they decode to is not
+                seen["tracks of no codec the list names"] += 1
                 continue
             if where is None:
                 seen["described tracks the profile writes no array of"] += 1
@@ -253,8 +254,8 @@ def test_the_fixtures_hold_every_case_the_profile_is_compared_in():
         "jpeg chunks, 4 a chunk": 80,
         "jpeg tracks, 256 a chunk": 8,
         "jpeg tracks, 4 a chunk": 8,
-        "tracks not described, 256 a chunk": 54,
-        "tracks not described, 4 a chunk": 54,
+        "tracks of no codec the list names, 256 a chunk": 54,
+        "tracks of no codec the list names, 4 a chunk": 54,
         "video tracks of several chunks, 256 a chunk": 2,
         "video tracks of several chunks, 4 a chunk": 52,
         "video tracks, 256 a chunk": 52,

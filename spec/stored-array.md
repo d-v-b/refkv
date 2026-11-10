@@ -44,7 +44,7 @@ A description has these members (the Rust type `StoredArray` of `rust/refkv-ir/s
 | `declarations` | the places where the source declares what the array's elements are, as the format's document lists them |
 | `shape` | the axes in storage order, the slowest-varying first; absent where the source declares no extent (an HDF5 null dataspace), which holds no element, unlike a scalar's empty shape (the JSON form writes `"shape": null`, the member present) |
 | `axes` | the source's own order of the axes, where it differs from storage order: `axes[i]` is storage axis i's position in the source's list (a Fortran-order NumPy array of shape (3, 4) has `shape` [4, 3] and `axes` [1, 0]); else absent, never the identity |
-| `item_bits` | the bits of one element, decoded; absent only for an array with no grid and no given fill |
+| `item_bits` | the bits of one element, decoded; absent for an array with no grid and no given fill, and, of an array with a grid, where its elements are those `source` makes ([§3.2](#32-the-list)) and the IR does not know their size |
 | `pad_from` | for elements that are not whole bytes: the first axis from which the elements of a decoded unit pack unbroken, each run over this axis and those after it ending on a byte boundary; absent: the whole unit packs unbroken |
 | `grid` | how the source cuts the array into units ([§2.3](#23-the-grid)); absent where the IR does not model the array's storage |
 | `chains` | the codec chains a unit may be encoded with, by position in the IR's chain table ([§3.1](#31-chains)) |
@@ -225,7 +225,7 @@ A chain's codec has only its entry's parameters.
 
 | Codec | Takes | Parameters | Columns | Decoding makes |
 | --- | --- | --- | --- | --- |
-| `source` | the bytes the source's encoding wrote, framed as the source frames them | `format`: the profile's name; `id`: the source's id for the encoding, as the source gives it; `name`: the source's own name for the encoding, where it gives one (an HDF5 filter's optional name); `parameters`: its parameters, as the source gives them (a value, or a place that holds them) | none | what the source's encoding decodes to; the profile maps it or leaves the array out |
+| `source` | the bytes the source's encoding wrote, framed as the source frames them | `format`: the profile's name; `id`: the source's id for the encoding, as the source gives it; `name`: the source's own name for the encoding, where it gives one (an HDF5 filter's optional name); `parameters`: its parameters, as the source gives them (a value, or a place that holds them) | none | what the source's encoding decodes to, elements of `item_bits` bits where the description gives it, and of the size that encoding gives them otherwise; the profile maps it or leaves the array out |
 | `zlib` | a zlib stream ([RFC 1950](https://www.rfc-editor.org/rfc/rfc1950)) | none | none | the bytes it inflates to |
 | `zstd` | a Zstandard frame ([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878)) | none | none | the frame's content |
 | `bzip2` | a bzip2 stream | none | none | the bytes it decompresses to |
@@ -265,7 +265,10 @@ place of a JPEG stream's header holds the stream's bytes before its scan's data:
 through its scan header, with its tables, its frame header and its restart interval between.
 
 `source` is the general fallback: a source encoding refkv has no name for (an unknown HDF5
-filter's id and client data). refkv's names describe the encoding, not the output: which Zarr or
+filter's id and client data). Where it makes the elements, first in every chain of an array, the
+IR may not know what one element is: the description then has no `item_bits`, and still says
+where each unit is (an MP4 audio track's samples). refkv's names describe the encoding, not the
+output: which Zarr or
 numcodecs codec stands for one is the profile's. Each format adds its codecs to the list as it
 describes its arrays.
 
@@ -342,8 +345,8 @@ list names its objects, once each, none of which holds a description's key or a 
   table, and none twice. The chain table holds no chain twice, and every codec of it is one of the
   list ([§3.2](#32-the-list)), with only its entry's parameters.
 - **`axes`.** When given, a permutation of the rank other than the identity.
-- **`item_bits`, `pad_from` and the fill.** `item_bits` is set when `grid` is or the fill is
-  given, and is at least 1. `pad_from` is below the rank, given only when `item_bits` is set and
+- **`item_bits`, `pad_from` and the fill.** `item_bits` is set when the fill is given, and when
+  `grid` is, unless every chain of the array begins with `source`; it is at least 1. `pad_from` is below the rank, given only when `item_bits` is set and
   is not a multiple of 8. A given fill value is ceil(`item_bits` / 8) bytes: a base64 string of
   that many, or a place of that length (a range's or an extent's length, else its element's).
 - **`unit_parameters`.** None is listed twice. Each names a chain of the description, a codec of
@@ -705,10 +708,20 @@ the element `samples/<T>/<j>`.
   width and height, 8 bits and 1 or 3 components, has one array, index 0: `shape` the samples,
   the height, the width and, for 3 components, the components; `item_bits` 8; a sample a unit, in
   decode order, in a `jpeg` chain with no `tables`.
-- **No grid**, and neither `shape` nor `item_bits`, in one description of index 0, for any other
-  track: an audio track, whose samples are not described yet; a track with no samples, with more
-  than one sample description, or with its sample sizes in an `stz2` box; a video track of
-  another codec, of a sample entry of width or height 0, or whose configuration the parser does
-  not read as above (pictures of one plane, or of planes of unlike bit depths); and a Motion JPEG
-  track of another frame (a picture's fields, 12 bits, streams with no markers).
+- **Any other track of one sample description** has one array, index 0, of its samples as the
+  sample entry encodes them, by the general fallback ([§1](#1-stored-arrays)): an audio track,
+  whose decoded samples are not described yet; a video track of another codec, of a sample entry
+  of width or height 0, or whose configuration the parser does not read as above (pictures of one
+  plane, or of planes of unlike bit depths); and a Motion JPEG track of another frame (a
+  picture's fields, 12 bits, streams with no markers). `shape` is the track's sample elements,
+  one axis; there is no `item_bits`, since the IR does not say what a sample decodes to; the grid
+  is `Each(1)` under `short`; and the chain is `source`, with `format` `mp4` and `id` the sample
+  entry's type, its four characters as a string. Each sample element is a row, in decode order:
+  a sample, or, of a PCM track of one sample size, a chunk's samples together
+  ([zarrify/mp4.md §5.3](zarrify/mp4.md#53-elements)).
+- **No grid**, and neither `shape` nor `item_bits`, in one description of index 0, for a track
+  whose samples are not one array: a track with no samples, with more than one sample
+  description, or with its sample sizes in an `stz2` box; and a PCM track with a sample that its
+  tables size as no whole number of frames, which readers do not agree on (ffmpeg reads its
+  frames by the sample entry's size).
 - **The fill value** is `undefined`: MP4 has none.
