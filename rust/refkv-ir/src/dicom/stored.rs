@@ -288,15 +288,14 @@ impl Build<'_> {
 }
 
 /// The chain of the top-level Pixel Data's frames, by the transfer syntax's codec; None where the
-/// frames are not an array of the image's shape. `lossless8`: every lossless JPEG frame's
-/// precision is 8 bits.
-fn chain_of(img: &Image, lossless8: bool) -> Option<Chain> {
+/// frames are not an array of the image's shape.
+fn chain_of(img: &Image) -> Option<Chain> {
     let named = |name: &str| Some(vec![codec(name, [])]);
     match img.codec {
         "native" => Some(native_chain(img.bits_allocated)),
-        "jpeg" => named("jpeg"),
-        // the list's `jpeg` is a stream of 8-bit samples, of any process of ISO/IEC 10918-1
-        "ljpeg" if lossless8 && img.bits_allocated == 8 => named("jpeg"),
+        // the list's `jpeg` is of samples of 8 or 16 bits: the parser takes lossless JPEG of Bits
+        // Allocated 8 or 16 alone, every frame's precision at most that
+        "jpeg" | "ljpeg" => named("jpeg"),
         "jpegls" => named("jpegls"),
         // chroma of half the width: the stream's components are not one array, and OpenJPEG
         // gives them upsampled and converted to RGB
@@ -309,7 +308,7 @@ fn chain_of(img: &Image, lossless8: bool) -> Option<Chain> {
 }
 
 /// The top-level Pixel Data's description and rows.
-fn pixel_data(b: &mut Build, img: &Image, lay: &Layout, dataset: u32, pixel: u32, lossless8: bool) -> Res<()> {
+fn pixel_data(b: &mut Build, img: &Image, lay: &Layout, dataset: u32, pixel: u32) -> Res<()> {
     let ir = b.ir;
     let native = img.codec == "native";
     let frames = Frames {
@@ -322,7 +321,7 @@ fn pixel_data(b: &mut Build, img: &Image, lay: &Layout, dataset: u32, pixel: u32
     };
     let rank = frames.shape().len();
     let array = b.array(pixel, None, b.declarations(dataset, None), Some(frames.shape()), Some(img.bits_allocated));
-    let Some(chain) = chain_of(img, lossless8) else { return Ok(()) };
+    let Some(chain) = chain_of(img) else { return Ok(()) };
     // native frames: the units the parser cut them into; else a frame a unit, its fragments' data
     let ranges = if native { Vec::new() } else { frame_ranges(img, lay) };
     let units = if native { lay.stored } else { ranges.len() as u64 };
@@ -470,14 +469,14 @@ fn nested(b: &mut Build, img: &Image, pixel: u32) -> Res<Vec<(u32, u64)>> {
 }
 
 /// The descriptions of the file's arrays: the top-level Pixel Data's, the lookup tables' and
-/// those of the Pixel Data in items. `lossless8`: every lossless JPEG frame's precision is 8 bits.
-pub(super) fn described(ir: &Ir, img: &Image, lay: &Layout, lossless8: bool) -> Res<Described> {
+/// those of the Pixel Data in items.
+pub(super) fn described(ir: &Ir, img: &Image, lay: &Layout) -> Res<Described> {
     let dataset = child(ir, 0, "dataset").ok_or("internal: a DICOM IR without its dataset")?;
     let pixel = child(ir, dataset, &tag_key(super::elements::PIXEL_DATA)).ok_or("internal: a DICOM IR without its Pixel Data")?;
     let syntax = child(ir, 0, "meta").and_then(|m| child(ir, m, &tag_key(TRANSFER_SYNTAX)));
     let room = ir.budget.as_ref().map_or(u64::MAX, |b| b.rows.saturating_sub(b.spent_rows));
     let mut b = Build { ir, roots: ir.run_roots(), arrays: Vec::new(), chains: Vec::new(), chain_index: BTreeMap::new(), map: ChunkMap::default(), room, syntax };
-    pixel_data(&mut b, img, lay, dataset, pixel, lossless8)?;
+    pixel_data(&mut b, img, lay, dataset, pixel)?;
     let palette = palette(&mut b, img, dataset)?;
     let nested = nested(&mut b, img, pixel)?;
     Ok(Described { arrays: b.arrays, chains: b.chains, map: b.map, pixel, palette, nested })

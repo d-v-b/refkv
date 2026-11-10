@@ -249,7 +249,7 @@ A chain's codec has only its entry's parameters.
 | `ccitt_t6` | one ITU-T T.6 (Group 4) stream of the unit's rows | none | none | elements of 1 bit, 1 for a coded black run and 0 for a white one, most significant bit first, each row padded to a whole byte |
 | `jpegls` | one JPEG-LS stream (ISO/IEC 14495-1), whichever its interleave mode | none | none | the frame's samples, each an unsigned integer of `item_bits` bits, little-endian, a pixel's components together in the frame's order |
 | `dicom_rle` | one frame of DICOM's RLE (PS3.5 [Annex G](https://dicom.nema.org/medical/dicom/current/output/chtml/part05/chapter_G.html)): a header of 16 unsigned 32-bit integers, little-endian, the number of segments and each one's offset in the frame, then the segments, each the PackBits runs of one byte of every sample of one plane, a sample's most significant byte first | none | none | the frame's samples, of `item_bits` bits, little-endian, a pixel's samples a plane each, one after another: the unit's first axis where it has three. The bytes a segment's runs give past its plane's are dropped |
-| `jpeg` | one JPEG stream (ISO/IEC 10918-1) of 8-bit samples; with `tables`, an abbreviated stream whose tables `tables` holds | `tables`: a place of an abbreviated stream of tables alone (TIFF's JPEGTables) | none | the frame's samples, one byte each, a pixel's components together in the frame's order, every component at the frame's size. Converting their color space is the profile's, which reads how the source declares it |
+| `jpeg` | one JPEG stream (ISO/IEC 10918-1) of the sequential DCT-based, progressive DCT-based or lossless process, whose sample precision is at most `item_bits`, which is 8 or 16; with `tables`, an abbreviated stream whose tables `tables` holds | `tables`: a place of an abbreviated stream of tables alone (TIFF's JPEGTables) | none | the frame's samples, each an unsigned integer of `item_bits` bits, little-endian, a pixel's components together in the frame's order, every component at the frame's size. Converting their color space is the profile's, which reads how the source declares it |
 | `jpeg_restart_interval` | the entropy-coded data of one restart interval of a baseline JPEG stream's scan (ISO/IEC 10918-1), without the restart marker or EOI after it | `header`: a place of the stream's header | none | the samples of the interval's MCUs, one byte each, a pixel's components together in the frame's order, every component at the unit's size: the frame header gives the whole stream's size, and a unit's is its grid's. Converting their color space is the profile's, as for `jpeg` |
 | `jpeg2k` | one JPEG 2000 codestream (ISO/IEC 15444-1), bare or in a JP2 file | none | none | the image's samples, of `item_bits` bits, little-endian, a pixel's components together in the codestream's order |
 | `jpegxl` | one JPEG XL codestream (ISO/IEC 18181-1), bare or in its container (18181-2) | none | none | the image's samples, of `item_bits` bits, little-endian, a pixel's channels together |
@@ -544,10 +544,8 @@ own IR, and the CZI store, which grafts them, renumbers the ids its facts give
   alias, its bytes lying in an earlier element's, and a declaration that became one is the
   range of the file likewise.
 - **The chain** is one, by the Compression: empty for 0; `tiff_lzw` for 2; `jpegxr` for 4; `zstd`
-  for 5; `czi_zstd1` for 6; and for 1 (JpgFile) and 3 (lossless JPEG), `jpeg` where the stream's
-  frame header gives a sample precision of 8, the list's `jpeg` being a stream of 8-bit samples,
-  and otherwise (a DCT stream of 12 bits, a lossless one of another precision) `source` with
-  `format` `czi` and `id` the Compression.
+  for 5; `czi_zstd1` for 6; and `jpeg` for 1 (JpgFile) and 3 (lossless JPEG), whose streams'
+  precisions, which the grid's conditions bound, are at most the samples' bits.
 - **A grid only where the data is what the entry says**, as far as the parser reads without
   decoding it ([zarrify/czi.md §7.4](zarrify/czi.md#74-codec-headers)): uncompressed data of at
   least the array's bytes; a Zstandard frame (after a Zstd1 header of either form) that names no
@@ -845,13 +843,13 @@ is Samples per Pixel (0028,0002).
 - **The chain** is one, by the transfer syntax
   ([zarrify/dicom.md §2.1](zarrify/dicom.md#21-transfer-syntax)): empty for native data, or
   `lsb_first` with `bits` 1 for Bits Allocated 1, in every byte order; `jpeg`, with no `tables`,
-  for JPEG Baseline (1.2.840.10008.1.2.4.50), and for lossless JPEG (.4.57 and .4.70) where every
-  frame's precision, which the parser reads, is 8 bits; `jpegls` for JPEG-LS (.4.80 and .4.81);
-  `jpeg2k` for JPEG 2000 (.4.90 and .4.91); `dicom_rle` for RLE Lossless (1.2.840.10008.1.2.5); and
-  `source`, with `format` `dicom` and `id` the Transfer Syntax UID, for the encodings the list has
-  no entry for: lossless JPEG of any other precision (the list's `jpeg` is of 8-bit samples) and
-  HTJ2K (.4.201 to .4.203). The description follows the attributes: a stream's own frame header is
-  compared with them only where the profile does
+  for JPEG Baseline (1.2.840.10008.1.2.4.50), of Bits Allocated 8, and for lossless JPEG (.4.57
+  and .4.70), whose Bits Allocated the parser takes as 8 or 16, every frame's precision, which it
+  reads, at most that; `jpegls` for JPEG-LS (.4.80 and .4.81); `jpeg2k` for JPEG 2000 (.4.90 and
+  .4.91); `dicom_rle` for RLE Lossless (1.2.840.10008.1.2.5); and `source`, with `format` `dicom`
+  and `id` the Transfer Syntax UID, for HTJ2K (.4.201 to .4.203), which the list has no entry
+  for. The description follows the attributes: a stream's own frame header is compared with them
+  only where the profile does
   ([zarrify/dicom.md §7.5](zarrify/dicom.md#75-frames)), and a stream decodes to its own. A JPEG
   stream of three samples is described as the file holds it, without the marker the profile
   writes before it.
@@ -1105,10 +1103,10 @@ an entry of `not_presented`) finds its image's.
   either); every tile of a later level lies in its grid.
 - **The chain** is one for every level of a file, by the header's `compression`: empty for 0 (the
   samples little-endian); `jpeg`, with no `tables`, for 2 (JPEG) and for 5 (lossless JPEG, a
-  stream of the same standard), where a sample is one byte; `jpeg2k` for 3, where a sample is one
-  or two bytes. Any other is `source` with `format` `vsi` and `id` the `compression`: 8 (PNG) and
-  9 (BMP), which the list has no codec for, and JPEG or JPEG 2000 of larger samples, which those
-  codecs' entries do not cover. The parser reads no tile, so a stream that holds other samples
+  stream of the same standard), and `jpeg2k` for 3, where a sample is one or two bytes. Any other
+  is `source` with `format` `vsi` and `id` the `compression`: 8 (PNG) and 9 (BMP), which the list
+  has no codec for, and JPEG or JPEG 2000 of larger samples, which those codecs' entries do not
+  cover. The parser reads no tile, so a stream that holds other samples
   than the header says is not detected.
 - **The fill value** is given, as the place of the background's first sample in the `ets` element
   (a sample's bytes at offset 108), where the tiles are uncompressed and the background's samples

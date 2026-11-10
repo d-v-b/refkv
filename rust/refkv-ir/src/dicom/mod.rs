@@ -359,8 +359,6 @@ pub struct Dicom {
     image: Option<Image>,
     layout: Option<Layout>,
     chain: Option<Chain>,
-    /// whether every lossless JPEG frame's precision is 8 bits, for the stored arrays (`stored.rs`)
-    lossless8: bool,
     retries: u32,
     pub ir: Ir,
     facts: Option<J>,
@@ -391,7 +389,6 @@ impl Dicom {
             image: None,
             layout: None,
             chain: None,
-            lossless8: false,
             retries: 0,
             ir: Ir::new(size),
             facts: None,
@@ -1137,7 +1134,6 @@ impl Dicom {
             self.want = want;
             return Err(Fail::Miss(o, m));
         }
-        self.lossless8 = role == "lossless_frame" && heads.iter().all(|h| h.is_some_and(|h| h.precision == 8));
         for (f, h) in heads.iter().enumerate() {
             let h = h.unwrap_or_default();
             let mut env = rules::env([
@@ -1194,7 +1190,7 @@ impl Dicom {
         facts["held_max"] = json!(self.held_max);
         let (mut ir, mut facts) = sans::finish(self.phase == Phase::Done, self.ir, facts)?;
         if let (Some(img), Some(lay)) = (&self.image, &self.layout) {
-            let d = stored::described(&ir, img, lay, self.lossless8)?;
+            let d = stored::described(&ir, img, lay)?;
             facts["declared_by"] = json!(d.pixel);
             if let Some(tables) = d.palette {
                 facts["palette"]["declared_by"] = json!(tables);

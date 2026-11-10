@@ -20,7 +20,8 @@ counted where it is met:
 - it gives the samples of an uncompressed, LZW or Zstd subblock of three or four in red, green,
   blue order, where the file stores blue, green, red: the test puts them back;
 - it gives a fourth sample (alpha) of 255 whatever the file holds, so alpha is not compared;
-- it has no decoder for Compression 3 (lossless JPEG), and reads no such subblock;
+- it has no decoder for Compression 3 (lossless JPEG), and reads no such subblock: their units
+  are compared with imagecodecs' second lossless JPEG decoder (LJ92) instead;
 - it reads an uncompressed subblock with bytes after its pixels as an array of all its bytes,
   which is none of its stored size, and so reads none;
 - it reads data that is not what the entry says, which has no grid, as another array than the
@@ -53,7 +54,7 @@ from described import Described, described
 from ir_helpers import FIXTURES, ROOT
 
 from refkv.ir.kind import Kind
-from refkv.ir.stored import Each, ElementPlace, ExtentPlace, Place, Value
+from refkv.ir.stored import Each, ElementPlace, ExtentPlace, Place
 
 REJECTS = ROOT / "conformance" / "zarrify" / "rejects" / "czi.json"
 REJECTED = {c["input"] for c in json.loads(REJECTS.read_text())["cases"]}
@@ -244,8 +245,8 @@ def chain_of(pixel_type: int, compression: int, size: int, samples: int, item: i
     lossy = compression == JPEG and frame.marker in (0xC0, 0xC1, 0xC2) and frame.precision == (8 if item == 1 else 12)
     if not (lossless or lossy):
         return None
-    # the list's `jpeg` is a stream of 8-bit samples: any other is the source's own
-    return ["jpeg"] if frame.precision == 8 else ["source"]
+    # the list's `jpeg`, of samples of 8 or 16 bits: the precision is at most theirs
+    return ["jpeg"]
 
 
 def unpacked(unit: bytes) -> bytes:
@@ -261,11 +262,8 @@ def unpacked(unit: bytes) -> bytes:
     return np.frombuffer(content, "u1").reshape(2, len(content) // 2).T.tobytes()
 
 
-def decoded(names: list[str], unit: bytes, dtype: np.dtype, shape: tuple[int, ...]) -> np.ndarray | None:
-    """A unit decoded through its chain; None for the chain `source`, which no codec of the list
-    decodes."""
-    if names == ["source"]:
-        return None
+def decoded(names: list[str], unit: bytes, dtype: np.dtype, shape: tuple[int, ...]) -> np.ndarray:
+    """A unit decoded through its chain."""
     if names == ["jpeg"]:
         return np.asarray(imagecodecs.jpeg8_decode(unit))
     if names == ["jpegxr"]:
@@ -314,10 +312,12 @@ def held(d: Described, a_element: int, name: str, key: str | None, at: int, leng
     return ElementPlace(element, None, None), element
 
 
-def check_values(names: list[str], ours: np.ndarray, theirs: np.ndarray | None, entry: czifile.CziDirectoryEntryDV,
-                 shape: tuple[int, ...], item_bits: int | None, trailing: bool, seen: Counter) -> list[str]:
+def check_values(names: list[str], unit: bytes, ours: np.ndarray, theirs: np.ndarray | None,
+                 entry: czifile.CziDirectoryEntryDV, shape: tuple[int, ...], item_bits: int | None, trailing: bool,
+                 seen: Counter) -> list[str]:
     """A unit's decoded values against czifile's of the subblock, which has bytes after its
-    pixels where `trailing`."""
+    pixels where `trailing`; where czifile has no decoder (lossless JPEG), against a second
+    decoder's."""
     samples, compression = entry.pixel_type.samples, int(entry.compression._value_)
     said = []
     if ours.dtype.itemsize * 8 != item_bits:
@@ -335,6 +335,12 @@ def check_values(names: list[str], ours: np.ndarray, theirs: np.ndarray | None, 
         # which are no array of the entry's size
         if compression == LJPEG and theirs is None:
             seen["units czifile has no decoder for"] += 1
+            # the list's `jpeg` decoded by libjpeg-turbo: against imagecodecs' other lossless
+            # JPEG decoder (LJ92)
+            other = np.asarray(imagecodecs.ljpeg_decode(unit))
+            if other.astype(ours.dtype).tobytes() != ours.tobytes():
+                said.append("decodes to other values than imagecodecs' lossless JPEG decoder's")
+            seen["units decoded to a second lossless JPEG decoder's values"] += 1
         elif trailing:
             seen["units czifile reads none of, for the bytes after them"] += 1
         else:
@@ -412,11 +418,8 @@ def check_subblock(d: Described, k: int, key: str | None, c: czifile.CziFile, en
             said.append("a grid, of a subblock whose data is not its entry's")
         return said
     codecs = [x for chain in a.chains for x in d.stored.chains[chain]]
-    parameters = [{n: v.value for n, v in x.parameters.items() if isinstance(v, Value)} for x in codecs]
-    want_parameters = [{"format": "czi", "id": compression}] if names == ["source"] else [{} for _ in names]
-    if [x.name for x in codecs] != names or parameters != want_parameters or len(a.chains) != 1 or any(
-            len(x.parameters) != len(p) for x, p in zip(codecs, parameters, strict=True)):
-        said.append(f"chain {[x.name for x in codecs]} {parameters}, the stream's {names} {want_parameters}")
+    if [x.name for x in codecs] != names or len(a.chains) != 1 or any(x.parameters for x in codecs):
+        said.append(f"chain {[(x.name, x.parameters) for x in codecs]}, the stream's {names}")
     if a.grid is None or a.grid.edge != "short" or a.grid.axes != tuple(Each(n) for n in shape):
         return [*said, f"grid {a.grid}, of a subblock of {shape}"]
     # the pixels alone of an uncompressed subblock, and else all its data
@@ -437,12 +440,9 @@ def check_subblock(d: Described, k: int, key: str | None, c: czifile.CziFile, en
     if row["element"] != element:
         said.append(f"its unit is element {row['element']}, its data's {element}")
     seen[f"units of {names}"] += 1
-    ours = decoded(names, d.unit(row), dtype, shape)
-    if ours is None:
-        # `source`: what the source's encoding decodes to, which czifile reads or does not
-        seen["source units czifile reads as the entry's samples"] += theirs is not None and theirs.dtype == dtype
-        return said
-    return said + check_values(names, ours, theirs, entry, shape, a.item_bits, trailing, seen)
+    unit = d.unit(row)
+    ours = decoded(names, unit, dtype, shape)
+    return said + check_values(names, unit, ours, theirs, entry, shape, a.item_bits, trailing, seen)
 
 
 def check_file(d: Described, key: str | None, path: Path, part: int, given: list[Named], seen: Counter) -> list[str]:
@@ -523,8 +523,9 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
     uncompressed data of three rows of four as three rows; an 8-bit JPEG stream and an 8-bit JPEG
     XR file under Gray16 as 8-bit samples, and a 12-bit JPEG stream under Gray8 as 16-bit ones;
     and a Zstd1 frame of 8-bit samples whose header says hi-lo packing as the entry's array. The
-    11 `jpeg` units have among them a lossless stream of three components, which the profile does
-    not place. The seven parts are every fixture that is a part of another's image."""
+    16 `jpeg` units have among them 12-bit and 16-bit streams, and a lossless stream of three
+    components, which the profile does not place; czifile has no decoder for the 3 lossless ones,
+    which a second decoder reads. The seven parts are every fixture that is a part of another's image."""
     seen: Counter = Counter()
     for path in FILES:
         seen += compared(path)[1]
@@ -548,16 +549,15 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
         "units of ['zstd']": 3,
         "units of ['czi_zstd1']": 4,
         "units of ['tiff_lzw']": 17,
-        "units of ['jpeg']": 11,
+        "units of ['jpeg']": 16,
         "units of ['jpegxr']": 17,
-        "units of ['source']": 5,
-        "source units czifile reads as the entry's samples": 3,
         "units that are ranges of the file": 4,
-        "units decoded": 179,
+        "units decoded": 184,
         "units of a frame of another size": 1,
         "uncompressed subblocks with bytes after their pixels": 1,
         "units czifile reads none of, for the bytes after them": 1,
-        "units czifile has no decoder for": 1,
+        "units czifile has no decoder for": 3,
+        "units decoded to a second lossless JPEG decoder's values": 3,
         "units whose samples czifile reorders": 12,
         "units whose alpha czifile sets": 2,
     }
