@@ -41,7 +41,7 @@ from described import Described, described
 from ir_helpers import FIXTURES
 
 from refkv.ir.kind import Kind
-from refkv.ir.stored import Each, ElementPlace, Source
+from refkv.ir.stored import Each, ElementPlace, Place, Source
 
 FILES = sorted(p for p in (FIXTURES / "nrrd").iterdir() if p.suffix in (".nrrd", ".nhdr") and "reject" not in p.name)
 # what pynrrd raises of data it does not read: its own error, zlib's, and NumPy's of bytes that
@@ -74,6 +74,11 @@ class Input:
     def held(self, at: Range) -> bytes:
         key, offset, length = at
         return self.files[key][offset:offset + length]
+
+    def placed(self, place: Place) -> bytes:
+        """The bytes at a place: an element's, or a range of them."""
+        assert isinstance(place, ElementPlace)
+        return self.held(self.where(place.element, place.range))
 
 
 def read_input(path: Path) -> Input:
@@ -193,8 +198,7 @@ def decoded(inp: Input, unit: bytes) -> bytes:
         elif codec.name == "skip":
             length = codec.parameters["length"]
             assert isinstance(length, Source)
-            assert isinstance(length.place, ElementPlace)
-            unit = unit[int(inp.held(inp.where(length.place.element, length.place.range))):]
+            unit = unit[int(inp.placed(length.place)):]
         else:
             raise AssertionError(f"the codec {codec.name}")
     return unit

@@ -20,63 +20,23 @@ is the profile's reading of the `type` declaration: its size alone is compared."
 
 import json
 from collections import Counter
-from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
 import numpy as np
 import pytest
-from described import Described, described
-from ir_helpers import FIXTURES
+from test_nrrd_stored import FILES, Input, read_input
 
 from refkv._narrow import JSON, at, integer, mapping, sequence, string
-from refkv.ir.kind import Kind
 from refkv.ir.store import StoreIrOutput
-from refkv.ir.stored import Each, ElementPlace, Place, Source
+from refkv.ir.stored import Each, Source
 from refkv.zarrify.common import grid_chunks
 
-FILES = sorted(p for p in (FIXTURES / "nrrd").iterdir() if p.suffix in (".nrrd", ".nhdr") and "reject" not in p.name)
 # the most bytes of a chunk of raw data (spec/zarrify/nrrd.md §4.1
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#41-the-array>)
 CHUNK_BYTES = 1 << 17
 # the image's axes, in the order the profile writes those an input has
 IMAGE_AXES = "tczyx"
-
-type Range = tuple[str, int, int]
-"""(object key, offset, length): bytes of a file of the input"""
-
-
-@dataclass(frozen=True)
-class Input:
-    """A NRRD input's descriptions, with its store's objects: each object's key by its element,
-    and each file's bytes by its key."""
-
-    d: Described
-    keys: dict[int, str]
-    files: dict[str, bytes]
-
-    def where(self, element: int, within: tuple[int, int] | None = None) -> Range:
-        """The bytes of an element's extent, or of a range of it."""
-        start, length = self.d.ir.extent(element)
-        if within is not None:
-            start, length = start + within[0], within[1]
-        while self.d.ir.kind(element) != Kind.OBJECT:
-            element = self.d.ir.parent(element)
-        return self.keys[element], start, length
-
-    def held(self, place: Place) -> bytes:
-        """The bytes at a place of an element."""
-        assert isinstance(place, ElementPlace)
-        key, offset, length = self.where(place.element, place.range)
-        return self.files[key][offset:offset + length]
-
-
-def read_input(path: Path) -> Input:
-    """The input whose header file is at `path`, its data file beside it."""
-    d = described(path)
-    objects = [i for i in range(len(d.ir)) if d.ir.kind(i) == Kind.OBJECT]
-    keys = {i: key for i, (key, _, _) in zip(objects, d.ir.object_bases(), strict=True)}
-    return Input(d, keys, {key: (path.parent / key).read_bytes() for key in keys.values()})
 
 
 def descriptor(line: bytes, identifier: str) -> str:
@@ -124,7 +84,7 @@ def check(inp: Input, seen: Counter) -> list[str]:
         seen["arrays of one byte"] += 1
         codecs.append({"name": "bytes"})
     else:
-        endian = descriptor(inp.held(a.declarations[1]), "endian").lower()
+        endian = descriptor(inp.placed(a.declarations[1]), "endian").lower()
         seen[f"arrays of {endian}-endian elements"] += 1
         codecs.append({"name": "bytes", "configuration": {"endian": endian}})
     chain = d.stored.chains[a.chains[0]]
@@ -133,7 +93,7 @@ def check(inp: Input, seen: Counter) -> list[str]:
             length = codec.parameters["length"]
             assert isinstance(length, Source)
             seen["arrays of a skip in the stream"] += 1
-            codecs.append({"name": "refkv.skip", "configuration": {"length": int(inp.held(length.place))}})
+            codecs.append({"name": "refkv.skip", "configuration": {"length": int(inp.placed(length.place))}})
         elif codec.name == "gzip":
             codecs.append({"name": "gzip", "configuration": {"level": 1}})
         else:
