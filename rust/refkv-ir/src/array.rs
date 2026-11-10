@@ -193,7 +193,15 @@ pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "webp", parameters: &[] },
     CodecEntry { name: "lerc", parameters: &[] },
     CodecEntry { name: "eer", parameters: &[fixed("skip_bits"), fixed("horizontal_bits"), fixed("vertical_bits")] },
+    CodecEntry { name: "h264", parameters: PICTURE },
+    CodecEntry { name: "hevc", parameters: PICTURE },
+    CodecEntry { name: "av1", parameters: PICTURE },
+    CodecEntry { name: "vp9", parameters: PICTURE },
 ];
+
+/// The parameters of a codec of a video stream's pictures: its configuration, the plane of a
+/// picture a unit decodes to, and, a column, whether a decoder may start at the unit.
+const PICTURE: &[ParamEntry] = &[fixed("setup"), fixed("plane"), ParamEntry { name: "sync", column: Some(ColumnType::UInt64) }];
 
 /// A value of a parameter column.
 #[derive(Clone, Copy, Debug, PartialEq)]

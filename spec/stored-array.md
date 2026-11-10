@@ -30,8 +30,8 @@ with no grid, [§2.3](#23-the-grid)).
 
 Every array a parser reaches has a description, whether or not its profile presents it. Each
 format's document lists the structures that are its stored arrays and what each of their
-declarations is. Today the NumPy, HDF5, IMS, TIFF and QPTIFF parsers describe their arrays
-([§7](#7-the-formats)).
+declarations is. Today the NumPy, HDF5, IMS, TIFF and QPTIFF parsers describe their arrays, and
+the MP4 parser its video tracks' ([§7](#7-the-formats)).
 
 ## 2. The description
 
@@ -188,6 +188,18 @@ and `pad_from`, never its coordinates, so a parameter that depends on the unit's
 than through its shape is a column its parser computes. (TIFF's LZW decodes up to the unit's size,
 and its predictor sums along the unit's rows.)
 
+**Streams.** A codec whose entry says its units are a stream does not decode a unit apart: a
+video picture is predicted from pictures decoded before it. Its units decode in the order of the
+array's first axis, which is the source's decode order, each with the state of a decoder that has
+decoded the units before it. A unit still decodes to its own elements, one picture: a decoder
+gives its pictures in another order than it takes their units, and keeps which is which. The
+codec's unit parameter `sync` says where a decoder may start with no state: at a unit whose
+`sync` is 1. Started there, it makes that unit's elements, and those of the units after it, as a
+decoder of the whole stream does, but for a unit after it that the source presents before it (a
+leading picture of an open group), which may be predicted from units before the sync unit: a
+decoder started at the sync unit before that one makes it. When a unit is presented is the
+profile's, which reads the source's tables; the IR does not model it.
+
 Configuration the source defines once, apart from the units, is a parameter given as a place,
 so that the description says where it is rather than copying it. Parameters only an encoder needs
 (a zlib level, a block size) are not recorded.
@@ -237,6 +249,11 @@ A chain's codec has only its entry's parameters.
 | `webp` | one WebP file | none | none | the image's samples, one byte each, a pixel's red, green and blue together, with a fourth, alpha, where the unit's last axis has four: 255 where the stream holds none |
 | `lerc` | one LERC blob | none | none | the blob's values in its own data type, little-endian, a pixel's bands together; a pixel its mask leaves out is as the LERC library decodes it |
 | `eer` | one frame of Electron Event Representation: run lengths of `skip_bits` bits, each with a sub-pixel position of `horizontal_bits` and `vertical_bits` bits | `skip_bits`, `horizontal_bits`, `vertical_bits`: each a value, or a place of a field's one value; absent, 7, 2 and 2 | none | elements of 1 bit, 1 where an event lands on the pixel, most significant bit first, each row padded to a whole byte; the sub-pixel positions are not made |
+
+| `h264` | one access unit of an H.264 stream (ITU-T H.264), as ISO/IEC 14496-15 stores a sample: its NAL units, each after its length, of as many bytes as `setup` says | `setup`: a place of an AVCDecoderConfigurationRecord (an `avcC` box's payload), which holds the parameter sets; `plane`: a value, 0, 1 or 2, the picture's luma plane or one of its two chroma planes (Cb, then Cr); `sync` | `sync`: `UInt64`, 1 where a decoder may start at the unit, else 0 | plane `plane` of the access unit's picture, at the plane's own size: samples of 1 byte, or, of a bit depth above 8, of 2 bytes, little-endian. Its units are a stream ([§3.1](#31-chains)) |
+| `hevc` | one access unit of an HEVC stream (ITU-T H.265), stored as `h264`'s | as `h264`'s, `setup` a place of an HEVCDecoderConfigurationRecord (an `hvcC` box's payload) | as `h264`'s | as `h264`'s |
+| `av1` | one temporal unit of an AV1 stream, as [AV1-ISOBMFF](https://aomediacodec.github.io/av1-isobmff/) stores a sample: its OBUs, each with its size | as `h264`'s, `setup` a place of an AV1CodecConfigurationRecord (an `av1C` box's payload) | as `h264`'s | as `h264`'s |
+| `vp9` | one frame or superframe of a VP9 stream | as `h264`'s, `setup` a place of a VPCodecConfigurationRecord (a `vpcC` box's payload) | as `h264`'s | as `h264`'s |
 
 A place parameter of an HDF5 filter's codec holds client data values of the filter, as its filter
 pipeline message stores them: each 4 bytes, an unsigned integer, little-endian. A place of a TIFF
@@ -453,7 +470,7 @@ arrays it described.
 As the map is built, a row holds about 93 bytes of memory, a coordinate 8 and a `ranges` item 24;
 the worst case, rank-1 rows of elements over a shared index at four entries per byte, is about 200
 bytes per byte of the source. A parameter column holds about 16 bytes a row, null or not, for every
-row of the map; the list allows few columns (none yet). Descriptions a check refuses, and those a
+row of the map; the list allows few columns (a video codec's `sync`). Descriptions a check refuses, and those a
 fallback drops, spend none of either limit.
 
 **Bindings.** Python's `refkv._core.Ir` gives the descriptions as the JSON document of
@@ -616,3 +633,44 @@ likewise. **NDPI**, which the same parser reads, has no descriptions yet.
 HDF5's, by the same code, in a file run; a filter the list has no name for is `source` with
 `format` `hdf5` there too. The facts give each image dataset's key as the sixth
 member of its entry of `images`: the id of its object.
+
+**MP4** ([spec/zarrify/mp4.md](zarrify/mp4.md)). Every track whose handler is `vide` or `soun` has
+descriptions, whether or not the profile zarrifies it, keyed by its `trak` box, a kind of element
+that may declare several arrays: each of a track's has an index. The facts give the key: each such
+track's `declared_by` is the id of its `trak` box. A track's samples are its tables', then its
+track fragments', in decode order ([zarrify/mp4.md §3](zarrify/mp4.md#3-tracks-and-samples)), each
+the element `samples/<T>/<j>`.
+
+- **Declarations.** The `fields` value of the track's first sample entry (its `data` value, of a
+  sample entry the convention does not parse), then the `data` value of each of its child boxes,
+  in order: a video codec's configuration is among them. A track with no sample entry has none.
+- **A video track of H.264, HEVC, AV1 or VP9** (the sample entries `avc1`; `hvc1` and `hev1`;
+  `av01`; `vp09`), of one sample description, whose configuration box (`avcC`, `hvcC`, `av1C`,
+  `vpcC`) the parser reads as pictures of three planes of one bit depth, from 8 to 16 (4:2:0,
+  4:2:2 or 4:4:4), has three arrays, the planes of its pictures: index 0 the luma plane, 1 and 2
+  the chroma planes.
+  - `shape` is the samples, then the plane's height and width: the sample entry's `height` and
+    `width` for the luma plane, and for a chroma plane those halved, rounded up, as the format
+    subsamples (both for 4:2:0, the width for 4:2:2, neither for 4:4:4). The first axis is the
+    samples in decode order, not the pictures in presentation order: when a sample is presented
+    is the profile's, from the track's tables. A stream whose pictures are of another size than
+    the sample entry's decodes to the stream's.
+  - `item_bits` is 8 for a bit depth of 8, else 16.
+  - The grid is a sample a unit: `Each(1)`, then `Each` of the plane's height and of its width,
+    under `short`.
+  - The chain is the codec (`h264`, `hevc`, `av1` or `vp9`): its `setup` the configuration box's
+    `data` value, its `plane` the array's index, and `sync` a unit parameter, 1 for a sync sample
+    ([zarrify/mp4.md §3](zarrify/mp4.md#3-tracks-and-samples)) and 0 for any other.
+  - Each sample is a row of each of the three arrays: its element.
+- **A Motion JPEG track** (`jpeg`, `mjpa`, `dmb1`, or `mp4v` of object type indication 0x6C), of
+  one sample description, whose first sample's frame header the parser read, of the sample entry's
+  width and height, 8 bits and 1 or 3 components, has one array, index 0: `shape` the samples,
+  the height, the width and, for 3 components, the components; `item_bits` 8; a sample a unit, in
+  decode order, in a `jpeg` chain with no `tables`.
+- **No grid**, and neither `shape` nor `item_bits`, in one description of index 0, for any other
+  track: an audio track, whose samples are not described yet; a track with no samples, with more
+  than one sample description, or with its sample sizes in an `stz2` box; a video track of
+  another codec, of a sample entry of width or height 0, or whose configuration the parser does
+  not read as above (pictures of one plane, or of planes of unlike bit depths); and a Motion JPEG
+  track of another frame (a picture's fields, 12 bits, streams with no markers).
+- **The fill value** is `undefined`: MP4 has none.
