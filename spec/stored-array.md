@@ -30,7 +30,7 @@ with no grid, [§2.3](#23-the-grid)).
 
 Every array a parser reaches has a description, whether or not its profile presents it. Each
 format's document lists the structures that are its stored arrays and what each of their
-declarations is. Today the NumPy, HDF5 and IMS parsers describe their arrays
+declarations is. Today the NumPy, HDF5, IMS, TIFF and QPTIFF parsers describe their arrays
 ([§7](#7-the-formats)).
 
 ## 2. The description
@@ -182,8 +182,11 @@ chain `chain` (a position in its `chains`), and a description lists each once; e
 chain that does not skip the codec gives its value in the chunk map's column
 `p.<codec name>.<name>`. A parameter is given either in
 its codec or as a column, never both; a codec whose parameter is a column appears once in its
-chain; and a codec sees only a unit's bytes and parameters, never its coordinates, so a parameter
-that depends on the unit's position is a column its parser computes.
+chain; and a codec sees a unit's bytes, its parameters, and the unit's decoded shape (its grid
+unit, cut at the array's end under `short` and whole under `full`) with the array's `item_bits`
+and `pad_from`, never its coordinates, so a parameter that depends on the unit's position other
+than through its shape is a column its parser computes. (TIFF's LZW decodes up to the unit's size,
+and its predictor sums along the unit's rows.)
 
 Configuration the source defines once, apart from the units, is a parameter given as a place,
 so that the description says where it is rather than copying it. Parameters only an encoder needs
@@ -198,8 +201,9 @@ A codec's name is one of this list. Each entry gives:
   block layout, not an LZ4 frame; LZF has no header; `zlib` is RFC 1950, with its header and
   Adler-32, not raw deflate). A name never covers two framings, unless a parameter of its entry
   chooses between them (HDF5's bitshuffle filter, whose compression parameter frames its blocks
-  with LZ4 or leaves them bare, would be one entry); otherwise an encoding the sources frame two
-  ways is two entries. An encoding HDF5 frames its own way is named with the prefix `h5_`
+  with LZ4 or leaves them bare, would be one entry), or the encoding's own first bytes tell them
+  apart (a JPEG 2000 codestream and a JP2 file that holds one); otherwise an encoding the sources
+  frame two ways is two entries. An encoding HDF5 frames its own way is named with the prefix `h5_`
   (`h5_lz4`, `h5_szip`, `h5_bitshuffle`);
 - its parameters, which of them a unit may give as a column and the column's Arrow type;
 - what its decoding makes;
@@ -222,9 +226,23 @@ A chain's codec has only its entry's parameters.
 | `h5_nbit` | what HDF5's N-bit filter (5) writes | `parameters`: a place of every value the filter has, which give the datatype it packs | none | what the filter decodes it to |
 | `h5_scaleoffset` | what HDF5's scale-offset filter (6) writes | `parameters`: a place of every value the filter has | none | what the filter decodes it to |
 | `h5_bitshuffle` | what HDF5's bitshuffle filter (32008) writes ([zarrify/hdf5.md §3.4](zarrify/hdf5.md#34-the-codec-refkvh5_bitshuffle)) | `element_size`, and, where the filter gives them, `block_size` (0: the filter's default) and `compression` (0: the blocks bare; 2: framed with LZ4): each a place of one value | none | the elements' bytes |
+| `xz` | an .xz stream | none | none | the bytes it decompresses to |
+| `tiff_lzw` | one TIFF LZW stream (TIFF 6.0 §13: codes packed most significant bit first, with the early change every TIFF writer uses) | none | none | the stream's bytes, up to the unit's: decoding stops there, and reads no code after ([zarrify/tiff.md §4.3](zarrify/tiff.md#43-data-types-and-codecs)) |
+| `packbits` | PackBits runs (TIFF 6.0 §9) | none | none | the runs' bytes |
+| `tiff_predictor` | a unit's rows, each differenced along its columns as TIFF's Predictor says: 2, each sample less the same sample of the pixel before it, as unsigned integers of `item_bits` bits in the byte order `byte_order` gives, modulo 2^`item_bits` (TIFF 6.0 §14); 3, the row's samples' most significant bytes, then their next and so on to their least, each byte less an earlier byte of that row of bytes, modulo 256 (Adobe's [TIFF Technical Note 3](http://chriscox.org/TIFFTN3d1.pdf)); that byte is as many places before it as a pixel has samples. A pixel's samples are the unit's last axis where `planar_configuration` is absent or 1 and the unit has three axes, else one | `predictor`, and `planar_configuration` where the image has more than one sample and the field: each a place of a field's one value; `byte_order`: a place of the file's byte order mark | none | the rows' elements, summed back, in the file's byte order |
+| `ccitt_t6` | one ITU-T T.6 (Group 4) stream of the unit's rows | none | none | elements of 1 bit, 1 for a coded black run and 0 for a white one, most significant bit first, each row padded to a whole byte |
+| `jpeg` | one JPEG stream (ISO/IEC 10918-1) of 8-bit samples; with `tables`, an abbreviated stream whose tables `tables` holds | `tables`: a place of an abbreviated stream of tables alone (TIFF's JPEGTables) | none | the frame's samples, one byte each, a pixel's components together in the frame's order, every component at the frame's size. Converting their color space is the profile's, which reads how the source declares it |
+| `jpeg2k` | one JPEG 2000 codestream (ISO/IEC 15444-1), bare or in a JP2 file | none | none | the image's samples, of `item_bits` bits, little-endian, a pixel's components together in the codestream's order |
+| `jpegxl` | one JPEG XL codestream (ISO/IEC 18181-1), bare or in its container (18181-2) | none | none | the image's samples, of `item_bits` bits (integers of 8 or 16, floats of 32), little-endian, a pixel's channels together |
+| `webp` | one WebP file | none | none | the image's samples, one byte each, a pixel's red, green and blue together, with a fourth, alpha, where the unit's last axis has four: 255 where the stream holds none |
+| `lerc` | one LERC blob | none | none | the blob's values in its own data type, little-endian, a pixel's bands together; a pixel its mask leaves out is as the LERC library decodes it |
+| `eer` | one frame of Electron Event Representation: run lengths of `skip_bits` bits, each with a sub-pixel position of `horizontal_bits` and `vertical_bits` bits | `skip_bits`, `horizontal_bits`, `vertical_bits`: each a value, or a place of a field's one value; absent, 7, 2 and 2 | none | elements of 1 bit, 1 where an event lands on the pixel, most significant bit first, each row padded to a whole byte; the sub-pixel positions are not made |
 
 A place parameter of an HDF5 filter's codec holds client data values of the filter, as its filter
-pipeline message stores them: each 4 bytes, an unsigned integer, little-endian.
+pipeline message stores them: each 4 bytes, an unsigned integer, little-endian. A place of a TIFF
+field's one value holds the field's first value as the file stores it: an unsigned integer of the
+field's type (which its `value` element's type gives), in the file's byte order. A place of the
+byte order mark holds the file's first two bytes, `II` (little-endian) or `MM` (big-endian).
 
 `source` is the general fallback: a source encoding refkv has no name for (an unknown HDF5
 filter's id and client data). refkv's names describe the encoding, not the output: which Zarr or
@@ -521,6 +539,69 @@ renumbers with `store.element` ([§2.1](#21-keys)). An attribute's value is not 
   stores one. The new message (type 5) is read where a header has both. A shared message,
   several messages of the type read, a message that does not read, or a value whose length is
   not the datatype's size, leaves `undefined`, with those messages among the declarations.
+
+**TIFF** ([spec/zarrify/tiff.md](zarrify/tiff.md)). Every IFD the parser reads (of the main
+chain, a SubIFD, or one another pointer tag leads to) whose ImageWidth (256) and ImageLength (257)
+are unsigned values it holds declares an image, a stored array, whether or not the profile presents
+it, keyed by the IFD's element, with no index. The planes of an OME-TIFF and the levels of a
+pyramid are each an array: how they assemble is the profile's. The facts give the keys: each
+level's `declared_by` lists, in the order of its `planes`, the id of each plane's IFD, null for a
+plane no file of the run holds, and a set's store renumbers them as it does `planes`
+([§2.1](#21-keys)). Below, a field's value is the first of its values, and a field the IFD lacks
+has TIFF 6.0's default.
+
+- **Declarations.** The header's `byte_order`, then the `value` element of each of these fields
+  the IFD has with a value inside the file: BitsPerSample (258), PhotometricInterpretation (262),
+  ColorMap (320), ExtraSamples (338), SampleFormat (339), YCbCrCoefficients (529),
+  YCbCrSubSampling (530) and ReferenceBlackWhite (532).
+- **`shape`** is ImageLength, then ImageWidth; with SamplesPerPixel (277) other than 1, the
+  samples come last, or first where PlanarConfiguration (284) is 2. An ImageDepth (32997) other
+  than 1 comes before ImageLength. `axes` is absent: TIFF names its dimensions by tag, and lists
+  them in no order.
+- **`item_bits`** is BitsPerSample, where every sample has the same; absent otherwise. Where it
+  is not a multiple of 8, `pad_from` is the columns' axis (1, or 2 with the samples first): a
+  unit's rows each end on a whole byte.
+- **The grid.** An IFD with TileWidth (322), TileLength (323), TileOffsets (324) and
+  TileByteCounts (325) is cut into tiles, `Each` of TileLength and of TileWidth, under `full`.
+  Another is cut into strips, `Each` of RowsPerStrip (278), at most ImageLength, and of
+  ImageWidth, under `short`. Interleaved samples are a last axis of one unit; with the samples
+  first, each is a unit of its own, and the tables list the first sample's units, then the next's.
+  Each entry of the tables that holds bytes is a row, its element the entry's `data` element
+  (`tiles/<j>` or `strips/<j>`, of the IFD the tables are first met in); a JPEG tile or strip
+  whose element's recipe is not the identity (it splices in a marker, or the tables) is that
+  element with a `range` of all its extent ([§4.2](#42-rows)). An entry of no bytes has no row.
+- **The chain** is one, by Compression (259): empty for 1; `tiff_lzw` for 5, `zlib` for 8 and
+  32946, `xz` for 34925 and `zstd` for 50000, each after `tiff_predictor` where Predictor (317) is
+  2 or 3; `packbits` for 32773; `ccitt_t6` for 4 (one sample of 1 bit); `jpeg` for 7 (samples of 8
+  bits), with `tables` where the IFD has JPEGTables (347); `jpeg2k` for 33003, 33004, 33005 and
+  34712 (8 or 16 bits), whose streams use no predictor, so that Predictor is passed over;
+  `jpegxl` for 50002 and 52546 (8, 16 or 32 bits); `webp` for 50001 (8 bits); `lerc` for 34887
+  (8, 16, 32 or 64 bits), before `zlib` or `zstd` where the second value of LercParameters (50674)
+  is 1 or 2; `eer` for 65000 and 65001 (one sample of 1 bit), with their fixed bit counts as
+  values, and for 65002, with the places of those of the fields 65007, 65008 and 65009 the IFD has
+  with unsigned values. Any other compression, one of these with samples of another size, and
+  LERC with another second value of LercParameters, is `source` with `format` `tiff` and `id` the
+  Compression: the profile then reads the IFD for the rest.
+- **No grid** for an image the IR does not model: BitsPerSample that differ; FillOrder (266)
+  other than 1; a Predictor other than 1 under a compression libtiff applies none to (tifffile
+  applies one, so readers disagree), a Predictor other than 1, 2 and 3, Predictor 2 with samples
+  that are not integers of 8, 16, 32 or 64 bits, and Predictor 3 with samples that are not floats
+  of 32 or 64 bits (by SampleFormat, which every sample must share); PhotometricInterpretation 6
+  with a YCbCrSubSampling other than (1, 1) under a compression that restores the stored bytes (1,
+  5, 8, 32773, 32946, 34925, 50000), whose samples are then not an array of the image's shape; an
+  ImageDepth other than 1; a PlanarConfiguration other than 1 and 2 with more than one sample; a
+  width, a length, a sample count, a tile size or a RowsPerStrip of 0; an IFD without both of its
+  tiles' or its strips' tables, as unsigned values the parser holds; tables that do not list as
+  many units as the grid has, or that differ in length; and an entry whose bytes do not lie in the
+  file, so that a file cut short does not read as an image with units its source does not hold.
+- **More bytes than the unit's.** A tile or strip may hold, or decode to, more bytes than its
+  unit's elements take (a tile stored at a larger sample size than its fields give): the unit's
+  are the first, as libtiff and tifffile read them.
+- **The fill value** is `undefined`: TIFF has none.
+
+**QPTIFF** ([spec/zarrify/qptiff.md](zarrify/qptiff.md)). A QPTIFF is read as a TIFF, and its
+IFDs' images are described as a TIFF's, by the same code; its facts' levels give `declared_by`
+likewise. **NDPI**, which the same parser reads, has no descriptions yet.
 
 **IMS** ([spec/zarrify/ims.md](zarrify/ims.md)). An Imaris file's datasets are described as
 HDF5's, by the same code, in a file run; a filter the list has no name for is `source` with

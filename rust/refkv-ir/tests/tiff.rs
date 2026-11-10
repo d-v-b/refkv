@@ -172,3 +172,82 @@ fn more_than_100000_ifds_are_rejected() {
     let next: Vec<Option<usize>> = (0..ifds.len()).map(|k| (k + 1 < ifds.len()).then_some(k + 1)).collect();
     rejects(&tiff(&ifds, &[], &next), "too many IFDs");
 }
+
+/// What the facts' levels say of their planes against the stored arrays of `ir`: each plane that
+/// has tiles or strips names, in `declared_by`, the one description its IFD's element keys, which
+/// has a grid, and whose rows' elements are the plane's tiles or strips. Returns the planes
+/// checked, and the objects (or the root) that hold them.
+fn planes_name_their_descriptions(name: &str, ir: &refkv_ir::ir::Ir, facts: &serde_json::Value) -> (usize, std::collections::BTreeSet<u32>) {
+    let s = &ir.stored;
+    let (mut planes, mut holders) = (0, std::collections::BTreeSet::new());
+    for (l, lv) in facts["levels"].as_array().unwrap().iter().enumerate() {
+        let (units, keys) = (lv["planes"].as_array().unwrap(), lv["declared_by"].as_array().unwrap());
+        assert_eq!(units.len(), keys.len(), "{name} level {l}");
+        for (p, (unit, key)) in units.iter().zip(keys).enumerate() {
+            let at = format!("{name} level {l} plane {p}");
+            assert_eq!(unit.is_null(), key.is_null(), "{at}");
+            let (Some(unit), Some(key)) = (unit.as_u64(), key.as_u64()) else { continue };
+            let described: Vec<usize> = (0..s.arrays.len()).filter(|&k| s.arrays[k].element == key as u32).collect();
+            let [k] = described[..] else { panic!("{at}: {} descriptions", described.len()) };
+            assert!(s.arrays[k].grid.is_some(), "{at}");
+            let rows: Vec<usize> = (0..s.map.len()).filter(|&r| s.map.array[r] == k as u32).collect();
+            assert!(!rows.is_empty(), "{at}");
+            assert!(rows.iter().all(|&r| ir.parent[s.map.element[r].unwrap() as usize] == unit as u32), "{at}");
+            // the IFD is a child of the root, or of the file's object
+            assert!(ir.path(key as u32).rsplit('/').nth(1).is_some_and(|n| n == "ifds" || n == "subifds"), "{at}: {}", ir.path(key as u32));
+            holders.insert(ir.parent[key as usize]);
+            planes += 1;
+        }
+    }
+    (planes, holders)
+}
+
+/// Each plane of each level of an accepted TIFF or QPTIFF fixture names its description by the
+/// description's key, the element of the plane's IFD (spec/stored-array.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>).
+#[test]
+fn every_accepted_fixtures_planes_name_their_descriptions() {
+    let mut planes = 0;
+    for dir in ["tiff", "qptiff"] {
+        for e in std::fs::read_dir(fixtures().join(dir)).unwrap() {
+            let p = e.unwrap().path();
+            let name = p.file_name().unwrap().to_str().unwrap().to_string();
+            if name.contains("reject") || !p.is_file() {
+                continue;
+            }
+            // a file the profile rejects under another name, or one that names siblings
+            let Ok((ir, facts)) = parse_bytes::<Tiff>(&std::fs::read(&p).unwrap()) else { continue };
+            planes += planes_name_their_descriptions(&name, &ir, &facts).0;
+        }
+    }
+    assert!(planes >= 200, "{planes} planes");
+}
+
+/// In a store run of an OME-TIFF set, each plane names its description as the store IR numbers
+/// it: the element of its IFD, in the file that holds the plane.
+#[test]
+fn a_sets_planes_name_their_descriptions_in_their_files() {
+    use refkv_ir::store::{StoreFormat, StoreRun};
+    let dir = fixtures().join("tiff");
+    let key = "ome_set_a.ome.tif".to_string();
+    let mut files = std::collections::BTreeMap::from([(key.clone(), std::fs::read(dir.join(&key)).unwrap())]);
+    let mut run = StoreRun::new(StoreFormat::Tiff, vec![(key.clone(), files[&key].len() as u64)], 4).unwrap();
+    while let Some(reqs) = run.poll().unwrap() {
+        if reqs.is_empty() {
+            for k in run.probes() {
+                let data = std::fs::read(dir.join(&k)).ok();
+                run.found(data.as_ref().map(|d| d.len() as u64)).unwrap();
+                files.extend(data.map(|d| (k, d)));
+            }
+            continue;
+        }
+        for (k, q) in reqs.iter().enumerate() {
+            let data = &files[&q.key];
+            run.complete(k, q.spans.iter().map(|&(a, b)| data[a as usize..b as usize].to_vec()).collect()).unwrap();
+        }
+    }
+    let (ir, facts, _) = run.finish().unwrap();
+    let (planes, holders) = planes_name_their_descriptions(&key, &ir, &facts);
+    assert!(planes >= 2, "{planes} planes");
+    assert!(holders.len() >= 2 && holders.iter().all(|&o| ir.kind[o as usize] == refkv_ir::ir::OBJECT), "planes in {holders:?}");
+}

@@ -182,6 +182,17 @@ pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "h5_nbit", parameters: &[fixed("parameters")] },
     CodecEntry { name: "h5_scaleoffset", parameters: &[fixed("parameters")] },
     CodecEntry { name: "h5_bitshuffle", parameters: &[fixed("element_size"), fixed("block_size"), fixed("compression")] },
+    CodecEntry { name: "xz", parameters: &[] },
+    CodecEntry { name: "tiff_lzw", parameters: &[] },
+    CodecEntry { name: "packbits", parameters: &[] },
+    CodecEntry { name: "tiff_predictor", parameters: &[fixed("predictor"), fixed("planar_configuration"), fixed("byte_order")] },
+    CodecEntry { name: "ccitt_t6", parameters: &[] },
+    CodecEntry { name: "jpeg", parameters: &[fixed("tables")] },
+    CodecEntry { name: "jpeg2k", parameters: &[] },
+    CodecEntry { name: "jpegxl", parameters: &[] },
+    CodecEntry { name: "webp", parameters: &[] },
+    CodecEntry { name: "lerc", parameters: &[] },
+    CodecEntry { name: "eer", parameters: &[fixed("skip_bits"), fixed("horizontal_bits"), fixed("vertical_bits")] },
 ];
 
 /// A value of a parameter column.

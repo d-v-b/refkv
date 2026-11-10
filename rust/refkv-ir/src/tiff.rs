@@ -55,6 +55,9 @@ use crate::xml::{self, Ev};
 use serde_json::{Value as J, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+#[path = "tiff/stored.rs"]
+mod stored;
+
 const TABLE: [u16; 24] = [
     256, 257, 258, 259, 262, 266, 270, 273, 277, 278, 279, 282, 283, 284, 296, 317, 322, 323, 324, 325, 330, 339, 347, 530,
 ];
@@ -347,6 +350,17 @@ struct SetState {
     tiles: HashMap<usize, (Option<u32>, Option<u32>)>,
 }
 
+/// An entry of a tile or strip table, as the IR holds it.
+#[derive(Clone, Copy, PartialEq)]
+enum Unit {
+    /// its `data` element, and whether the element's form frames it with a JPEG prefix
+    Held(u32, bool),
+    /// of no bytes: the IR has no element for it
+    Empty,
+    /// not within the file: the IR has no element for it
+    Outside,
+}
+
 impl From<String> for Stop {
     fn from(s: String) -> Self {
         Stop::Reject(s)
@@ -412,6 +426,11 @@ pub struct Tiff {
     set: SetState,
     /// how far the read of a Micro-Manager file's IFDs ahead of the chain has gone (`mm_prefetch`)
     prefetch: Prefetch,
+    /// the header's `byte_order` element
+    order_el: u32,
+    /// each tiles or strips struct's entries, in its tables' order (none for tables of unlike
+    /// lengths), for the stored arrays (`stored.rs`)
+    units: HashMap<u32, Vec<Unit>>,
 }
 
 /// The bytes of a row of `w` pixels of `samples` samples of `bits` bits each, which a row of packed
@@ -550,6 +569,8 @@ impl Tiff {
             head: Vec::new(),
             set: SetState::default(),
             prefetch: Prefetch::Start,
+            order_el: 0,
+            units: HashMap::new(),
         }
     }
 
@@ -874,7 +895,7 @@ impl Tiff {
         self.hs = if self.big { 16 } else { 8 };
         let n = self.hs;
         let s = self.ir.struct_(0, "header", NO_INDEX, 0, Some((0, n)))?;
-        self.ir.value(s, "byte_order", NO_INDEX, "ascii[2]", 0, (0, 2), Some(&h[..2]))?;
+        self.order_el = self.ir.value(s, "byte_order", NO_INDEX, "ascii[2]", 0, (0, 2), Some(&h[..2]))?;
         self.ir.value(s, "magic", NO_INDEX, &format!("{e}u2"), 0, (2, 2), Some(&h[2..4]))?;
         if self.big {
             self.ir.value(s, "offset_size", NO_INDEX, &format!("{e}u2"), 0, (4, 2), Some(&h[4..6]))?;
@@ -1931,6 +1952,11 @@ impl Tiff {
         self.chain.iter().map(|k| self.set.tiles.get(k).and_then(|&(t, s)| if strips { s } else { t })).collect()
     }
 
+    /// Each main-chain IFD's element, the key of its image's description.
+    pub fn ifd_elements(&self) -> Vec<u32> {
+        self.chain.iter().map(|&k| self.ifds[k].el).collect()
+    }
+
     /// A sibling's layout: each of its planes is of the image's size and format, and its tiles
     /// or strips lie in it.
     fn derive_sibling(&self) -> Got<Layout> {
@@ -2805,15 +2831,21 @@ impl Tiff {
             let (plain, framed) = tile_forms(&base, shared);
             // one element a tile, not folded into runs: the mirror folds the tiles of a
             // table into one column run whose extents it reads from the table itself
+            let mut units = Vec::with_capacity(offsets.len());
             for (j, (&o, &c)) in offsets.iter().zip(&counts).enumerate() {
                 if c == 0 || !self.within(o, c) {
+                    units.push(if c == 0 { Unit::Empty } else { Unit::Outside });
                     continue;
                 }
                 let form = match &framed {
                     Some(fr) if c > 2 => fr.as_str(),
                     _ => plain.as_str(),
                 };
-                self.ir.data(s, "", j as u64, 0, (o, c), form)?;
+                let e = self.ir.data(s, "", j as u64, 0, (o, c), form)?;
+                units.push(Unit::Held(e, framed.is_some() && c > 2));
+            }
+            if offsets.len() == counts.len() {
+                self.units.insert(s, units);
             }
             if name == "tiles" {
                 tiles = Some(s);
@@ -2845,19 +2877,23 @@ impl Tiff {
             }
             return Ok(());
         }
-        let (plan, chain) = (lay.plan.as_ref(), &self.chain);
+        let (plan, chain, ifds) = (lay.plan.as_ref(), &self.chain, &self.ifds);
         let levels: Vec<J> = lay
             .levels
             .iter()
             .map(|lv| {
                 // a level's chunks are its IFDs' tiles, or strips
                 let of = |k: &usize| tiles_of.get(k).copied().and_then(|(t, s)| if lv.strips { s } else { t });
-                let planes = match plan {
-                    Some(p) => p.iter().map(|x| x.filter(|x| x.0 == 0).and_then(|x| of(&chain[x.1]))).collect::<Vec<_>>(),
-                    None => lv.ifds.iter().map(of).collect::<Vec<_>>(),
+                let (planes, declared_by) = match plan {
+                    Some(p) => (
+                        p.iter().map(|x| x.filter(|x| x.0 == 0).and_then(|x| of(&chain[x.1]))).collect::<Vec<_>>(),
+                        p.iter().map(|x| x.filter(|x| x.0 == 0).map(|x| ifds[chain[x.1]].el)).collect::<Vec<_>>(),
+                    ),
+                    None => (lv.ifds.iter().map(of).collect::<Vec<_>>(), lv.ifds.iter().map(|&k| Some(ifds[k].el)).collect::<Vec<_>>()),
                 };
+                // `declared_by`: each plane's IFD, the key of its stored array's description
                 json!({"w": lv.w, "h": lv.h, "tw": lv.tw, "th": lv.th, "strips": lv.strips, "join": lv.join, "shard": lv.shard, "rectilinear": lv.rectilinear, "pad": lv.pad,
-                       "planes": planes})
+                       "planes": planes, "declared_by": declared_by})
             })
             .collect();
         lay.facts["levels"] = J::Array(levels);
@@ -3014,10 +3050,16 @@ impl Tiff {
     }
 
     /// The IR, finished (aliases and gaps), and the facts the projection reads.
-    pub fn finish(self) -> Result<(Ir, J), String> {
-        let mut facts = self.layout.map(|l| l.facts).unwrap_or(J::Null);
+    /// The finished IR, with the images its IFDs declare described (`stored.rs`), and the facts.
+    pub fn finish(mut self) -> Result<(Ir, J), String> {
+        let described = if self.phase == Phase::Done { Some(self.described()?) } else { None };
+        let mut facts = self.layout.take().map(|l| l.facts).unwrap_or(J::Null);
         self.asked.put(&mut facts);
-        sans::finish(self.phase == Phase::Done, self.ir, facts)
+        let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, facts)?;
+        if let Some((arrays, chains, map)) = described {
+            ir.describe(arrays, chains, map)?;
+        }
+        Ok((ir, facts))
     }
 }
 
