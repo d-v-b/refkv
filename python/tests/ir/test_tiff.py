@@ -1314,11 +1314,10 @@ def test_imagej_sizes_whose_product_passes_u128_are_rejected(tmp_path):
         via_ir(str(path), "u")
 
 
-def imagej_page(path, description: str, data: np.ndarray | None = None, **how) -> str:
-    """One page of `data` (16 by 16 bytes) written to `path` with `description` and `how` for
-    tifffile's other arguments, and no description of tifffile's own."""
-    tifffile.imwrite(path, np.zeros((16, 16), np.uint8) if data is None else data, description=description,
-                     metadata=None, **how)
+def imagej_page(path, description: str, **how) -> str:
+    """One page of 16 by 16 bytes written to `path` with `description` and `how` for tifffile's
+    other arguments, and no description of tifffile's own."""
+    tifffile.imwrite(path, np.zeros((16, 16), np.uint8), description=description, metadata=None, **how)
     return str(path)
 
 
