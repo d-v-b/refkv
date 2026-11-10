@@ -18,6 +18,7 @@
 
 pub mod elements;
 pub mod json;
+mod stored;
 
 use crate::fed::Word;
 use crate::ir::*;
@@ -272,6 +273,8 @@ pub struct Palette {
     pub cell: u64,
     /// the red, green and blue tables' first bytes
     pub tables: [u64; 3],
+    /// the red, green and blue tables' elements
+    pub els: [El; 3],
 }
 
 #[derive(Clone, Debug)]
@@ -284,6 +287,8 @@ pub struct Image {
     pub spp: u64,
     pub planar_native: bool,
     pub n: u64,
+    /// whether the dataset has a Number of Frames, which declares the frames' axis
+    pub frames_declared: bool,
     pub rows: u64,
     pub columns: u64,
     pub bits_allocated: u64,
@@ -354,6 +359,8 @@ pub struct Dicom {
     image: Option<Image>,
     layout: Option<Layout>,
     chain: Option<Chain>,
+    /// whether every lossless JPEG frame's precision is 8 bits, for the stored arrays (`stored.rs`)
+    lossless8: bool,
     retries: u32,
     pub ir: Ir,
     facts: Option<J>,
@@ -384,6 +391,7 @@ impl Dicom {
             image: None,
             layout: None,
             chain: None,
+            lossless8: false,
             retries: 0,
             ir: Ir::new(size),
             facts: None,
@@ -847,6 +855,7 @@ impl Dicom {
             spp,
             planar_native: codec == "native" && spp == 3 && planar == Some(1),
             n,
+            frames_declared: frames.is_some(),
             rows,
             columns,
             bits_allocated,
@@ -1128,6 +1137,7 @@ impl Dicom {
             self.want = want;
             return Err(Fail::Miss(o, m));
         }
+        self.lossless8 = role == "lossless_frame" && heads.iter().all(|h| h.is_some_and(|h| h.precision == 8));
         for (f, h) in heads.iter().enumerate() {
             let h = h.unwrap_or_default();
             let mut env = rules::env([
@@ -1174,11 +1184,25 @@ impl Dicom {
         Ok(())
     }
 
+    /// The finished IR, with its arrays described (`stored.rs`), and the facts, which give the
+    /// descriptions' keys: `declared_by`, the top-level Pixel Data's element; `palette.declared_by`,
+    /// the lookup tables' elements; and `nested`, each element that keys the Pixel Data of its
+    /// items, with how many.
     pub fn finish(self) -> Result<(Ir, J), String> {
         let mut facts = self.facts.unwrap_or(J::Null);
         self.counts.put(&mut facts);
         facts["held_max"] = json!(self.held_max);
-        sans::finish(self.phase == Phase::Done, self.ir, facts)
+        let (mut ir, mut facts) = sans::finish(self.phase == Phase::Done, self.ir, facts)?;
+        if let (Some(img), Some(lay)) = (&self.image, &self.layout) {
+            let d = stored::described(&ir, img, lay, self.lossless8)?;
+            facts["declared_by"] = json!(d.pixel);
+            if let Some(tables) = d.palette {
+                facts["palette"]["declared_by"] = json!(tables);
+            }
+            facts["nested"] = d.nested.iter().map(|&(element, count)| json!({"declared_by": element, "count": count})).collect();
+            ir.describe(d.arrays, d.chains, d.map)?;
+        }
+        Ok((ir, facts))
     }
 }
 
@@ -1243,6 +1267,7 @@ fn palette_tables(v: &Vals, bits_allocated: u64) -> R<Option<Palette>> {
         bits: bits as u64,
         cell: if length >= 2 * entries { 2 } else { 1 },
         tables: [tables[0].unwrap().value, tables[1].unwrap().value, tables[2].unwrap().value],
+        els: [tables[0].unwrap(), tables[1].unwrap(), tables[2].unwrap()],
     }))
 }
 

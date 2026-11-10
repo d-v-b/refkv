@@ -20,6 +20,9 @@ use crate::xml::{self, Ev, TagRef};
 use serde_json::{Map, Value as J, json};
 use std::collections::HashMap;
 
+#[path = "lif/stored.rs"]
+mod stored;
+
 /// The header block's fixed part: test value, length, magic byte, XML characters.
 const HEAD: u64 = 13;
 const HEAD_TYPE: &str = "{test:<u4,length:<u4,magic:u1,characters:<u4}";
@@ -365,6 +368,8 @@ pub struct Lif {
     at: u64,
     tail: Option<(u64, u64)>,
     facts: J,
+    /// what each image's description needs (`stored.rs`), in the images' order
+    reached: Vec<stored::Reached>,
     pub asked: sans::Asked,
 }
 
@@ -391,6 +396,7 @@ impl Lif {
             at: 0,
             tail: None,
             facts: J::Null,
+            reached: Vec::new(),
             asked: sans::Asked::default(),
         }
     }
@@ -744,6 +750,7 @@ impl Lif {
             named[b] = Some(k);
             self.blocks[b].image = Some(k);
             f.place(self.blocks[b].data() + self.offset, b);
+            self.reached.push(stored::Reached { dims: f.strides.clone(), offsets: f.offsets.clone(), item: f.item, block: b, start: self.offset });
             series += f.fields.len() as u64;
             self.rules.check("series", rules::env([("count", num(series as f64))]))?;
             facts.push(image_facts(im, &f, k));
@@ -874,8 +881,24 @@ impl Lif {
         Ok(())
     }
 
+    /// The finished IR, with its images described (`stored.rs`), and the facts, each image's with
+    /// `declared_by`, the key of its description: the element of the XML that declares it, and its
+    /// index among the images that XML declares.
     pub fn finish(self) -> Result<(Ir, J), String> {
-        sans::finish(self.phase == Phase::Done, self.ir, self.facts)
+        let (mut ir, mut facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
+        if self.reached.is_empty() {
+            return Ok((ir, facts));
+        }
+        let key = stored::declaring(&ir).ok_or("internal: no element holds the XML of the images")?;
+        for (k, im) in facts["images"].as_array_mut().into_iter().flatten().enumerate() {
+            im["declared_by"] = json!([key, k]);
+        }
+        // the chunk map's limit, of the file (spec/stored-array.md §6
+        // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>)
+        let limit = (1u64 << 22).saturating_add(self.size.saturating_mul(4));
+        let (arrays, chains, map) = stored::described(&ir, key, &self.reached, limit)?;
+        ir.describe(arrays, chains, map)?;
+        Ok((ir, facts))
     }
 }
 
@@ -955,6 +978,8 @@ struct Layout {
     scale: Vec<J>,
     units: Map<String, J>,
     resolution: Vec<u64>,
+    /// each dimension's NumberOfElements and BytesInc, in the XML's order
+    strides: Vec<(u64, u64)>,
     /// the bytes of the block the image needs
     end: u128,
     base: u64,
@@ -1101,6 +1126,7 @@ impl Layout {
             scale,
             units,
             resolution,
+            strides: dims.iter().map(|d| (d.1, d.2)).collect(),
             end,
             base: 0,
             block: 0,
