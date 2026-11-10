@@ -196,6 +196,7 @@ pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "jpegxl", parameters: &[] },
     CodecEntry { name: "jpegxr", parameters: &[] },
     CodecEntry { name: "webp", parameters: &[] },
+    CodecEntry { name: "jpeg2k_tile", parameters: &[fixed("header")] },
     CodecEntry { name: "lerc", parameters: &[] },
     CodecEntry { name: "eer", parameters: &[fixed("skip_bits"), fixed("horizontal_bits"), fixed("vertical_bits")] },
     CodecEntry { name: "h264", parameters: PICTURE },

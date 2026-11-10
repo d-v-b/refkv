@@ -252,6 +252,7 @@ A chain's codec has only its entry's parameters.
 | `jpegxl` | one JPEG XL codestream (ISO/IEC 18181-1), bare or in its container (18181-2) | none | none | the image's samples, of `item_bits` bits, little-endian, a pixel's channels together |
 | `jpegxr` | one JPEG XR file (ITU-T T.832, in its container) | none | none | the image's samples, of `item_bits` bits, little-endian, a pixel's channels together, in red, green, blue order whichever order its pixel format stores ([zarrify/czi.md §3.1](zarrify/czi.md#31-pixel-types-and-codecs)) |
 | `webp` | one WebP file | none | none | the image's samples, one byte each, a pixel's red, green and blue together, with a fourth, alpha, where the unit's last axis has four: 255 where the stream holds none |
+| `jpeg2k_tile` | the tile-parts of one tile of a JPEG 2000 codestream (ISO/IEC 15444-1), in the codestream's order, each from its SOT marker to its end, without the main header before them or the EOC after | `header`: a place of the codestream's main header, its bytes before its first tile-part: from its SOC through the last marker segment before the first SOT | none | the tile's samples, of `item_bits` bits, little-endian, a pixel's components together in the codestream's order: the tile is the one its SOT names, on the grid the header's SIZ gives, and of the unit's size |
 | `lerc` | one LERC blob | none | none | the blob's values in its own data type, little-endian, a pixel's bands together; a pixel its mask leaves out is as the LERC library decodes it |
 | `eer` | one frame of Electron Event Representation: run lengths of `skip_bits` bits, each with a sub-pixel position of `horizontal_bits` and `vertical_bits` bits | `skip_bits`, `horizontal_bits`, `vertical_bits`: each a value, or a place of a field's one value; absent, 7, 2 and 2 | none | elements of 1 bit, 1 where an event lands on the pixel, most significant bit first, each row padded to a whole byte; the sub-pixel positions are not made |
 | `h264` | one access unit of an H.264 stream (ITU-T H.264), as ISO/IEC 14496-15 stores a sample: its NAL units, each after its length, of as many bytes as `setup` says | `setup`: a place of an AVCDecoderConfigurationRecord (an `avcC` box's payload), which holds the parameter sets; `plane`: a value, 0, 1 or 2, the picture's luma plane or one of its two chroma planes (Cb, then Cr); `sync` | `sync`: `UInt64`, 1 where a decoder may start at the unit, else 0 | plane `plane` of the access unit's picture, at the plane's own size: samples of 1 byte, or, of a bit depth above 8, of 2 bytes, little-endian. Its units are a stream ([§3.1](#31-chains)) |
@@ -1043,3 +1044,45 @@ the element `samples/<T>/<j>`.
   tables size as no whole number of frames, which readers do not agree on (ffmpeg reads its
   frames by the sample entry's size).
 - **The fill value** is `undefined`: MP4 has none.
+
+**SAFE** ([spec/zarrify/safe.md](zarrify/safe.md)). Each band file of a Sentinel-2 product, a JP2
+file, holds one image, a stored array, in both forms of the product: in the directory form's
+store IR, whose parser describes its objects' arrays itself ([§6](#6-in-the-ir)), and in the zip
+form's file IR. It is keyed by the band file's `codestream` struct (`boxes/<i>/codestream`, under
+the band file's object or under its zip entry's `data`), with no index. The facts give the key:
+each band's `declared_by` is the id of that struct. The profile presents every band file. The
+product's other images (the quality masks, the preview image, the cloud and snow probabilities,
+a mirror's quicklook) are in objects the parser does not read
+([zarrify/safe.md §2.1](zarrify/safe.md#21-objects)), and have no description.
+
+- **Declarations.** The `siz` value, the codestream's SIZ marker segment, whose component triples
+  give a sample's precision and sign; then the `contents` of each `jp2h` box before the
+  codestream, the JP2 header, which holds the color specification. The parser parses the first,
+  and holds the second as bytes.
+- **`shape`** is `Ysiz`, then `Xsiz`, then, for an image of three components, 3: a pixel's
+  components are together, last. `axes` is `[1, 0]`, or `[1, 0, 2]`: SIZ gives `Xsiz` before
+  `Ysiz`, and `Csiz` is a count, after the extents it lists.
+- **`item_bits`** is the size of the samples the codec makes: 8 for a precision of at most 8 bits,
+  else 16. The precision itself (15 bits of a reflectance band) is SIZ's.
+- **The grid** is the codestream's tiles: `Each` of `YTsiz` and of `XTsiz`, each at most its
+  axis's length, then `Each(3)` for three components, under `short`: a tile at the image's right
+  or bottom edge is cut to the image. (A tile size above the image's is SIZ's alone, where the
+  profile reads its chunk shape.) A tile is a unit, and not the image one unit in a `jpeg2k`
+  chain, because the parser locates every tile: it walks the codestream's tile-parts by their SOT
+  markers, and accepts only a codestream of one tile-part a tile, in raster order
+  ([zarrify/safe.md §8.3](zarrify/safe.md#83-band-files)). Each tile is a row, the element
+  `tiles/<k>`, whole: its tile-part, from its SOT marker through its packets. Every tile has a
+  row. (GDAL reads a band file in blocks of its own choosing, the codestream's tiles or the
+  whole image: the grid is SIZ's.)
+- **The chain** is one, `jpeg2k_tile`, its `header` the range of the `codestream` struct from its
+  start to the first SOT: the main header. A chain's header is its own file's, so each band file
+  has a chain of its own.
+- **No codestream is made.** A tile's bytes are no codestream without the main header, and the
+  description holds none the source does not: the SIZ of its own that the profile gives each
+  chunk, and the empty tiles that fill a chunk at an edge
+  ([zarrify/safe.md §8.6](zarrify/safe.md#86-chunks)), are the profile's.
+- **No grid** for no band file: the parser rejects a product with a band file it does not walk
+  to its end (a TLM, PLM or PPM marker, several tile-parts for a tile, an image or tile origin
+  other than 0, components that are signed, subsampled or of unlike precisions), and builds no
+  IR of it.
+- **The fill value** is `undefined`: JPEG 2000 has none.
