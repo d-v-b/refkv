@@ -305,8 +305,9 @@ impl Grib {
             if let Some(m) = self.messages.get(&self.pos) {
                 let (start, end) = (self.pos, self.pos.saturating_add(m.length));
                 // an offset the index lists inside this message is one where the file and the index
-                // disagree, whether or not it was read yet
-                if self.listed.as_ref().is_some_and(|l| l.iter().any(|&o| start < o && o < end)) {
+                // disagree, whether or not it was read yet (the first listed past its start, the
+                // offsets being sorted)
+                if self.listed.as_ref().is_some_and(|l| l.get(l.partition_point(|&o| o <= start)).is_some_and(|&o| o < end)) {
                     self.set_aside(start + 1);
                 }
                 self.pos = end;
