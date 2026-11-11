@@ -217,7 +217,12 @@
     {
       "test": "fits_reject_row_width",
       "input": "fits_reject_row_width.fits",
-      "message": "HDU 1: the columns take 16 bytes a row, more than NAXIS1's 12"
+      "message": "HDU 1: the columns take 16 bytes a row, not NAXIS1's 12"
+    },
+    {
+      "test": "fits_reject_row_width_wide",
+      "input": "fits_reject_row_width_wide.fits",
+      "message": "HDU 1: the columns take 16 bytes a row, not NAXIS1's 20"
     },
     {
       "test": "fits_reject_gzip_not_fits",

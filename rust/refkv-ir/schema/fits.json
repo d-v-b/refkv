@@ -606,8 +606,8 @@
           "message": "HDU {hdu}: ZSCALE without ZZERO, or ZZERO without ZSCALE"
         },
         {
-          "require": "row_bytes <= naxis1",
-          "message": "HDU {hdu}: the columns take {row_bytes} bytes a row, more than NAXIS1's {naxis1}"
+          "require": "row_bytes == naxis1",
+          "message": "HDU {hdu}: the columns take {row_bytes} bytes a row, not NAXIS1's {naxis1}"
         }
       ]
     },

@@ -679,8 +679,9 @@ def compressed() -> None:
     both = both[:row1] + both[row1 + 8 : row1 + 16] + both[row1 + 8 :]
     out("descriptor_both", both)
     out("tiles_out_of_order", pr + hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)], heap_order=[1, 0, 2, 3]))
-    # a row of two P descriptors is 16 bytes: NAXIS1 says 12
+    # a row of two P descriptors is 16 bytes: NAXIS1 says 12, or 20
     out("row_width", pr + hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)], naxis1=12))
+    out("row_width_wide", pr + hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)], naxis1=20))
 
 
 def whole_files() -> None:
