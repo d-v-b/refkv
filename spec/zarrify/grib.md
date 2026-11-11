@@ -514,8 +514,9 @@ ends in `.grib2`, `.grb2`, `.grib` or `.grb`, the key with that suffix replaced 
 (2^24 bytes) long, whole, and the mirror holds each one read ([§5.2](#52-the-ir-mirror)). The run uses
 the first index, in that order, that lists offsets, the first 0 and all below the file's size.
 With one, the run reads the first 16 KiB of each listed message, from 4 bytes before it, at
-once; with none, or from the first offset where the file and the index disagree, it walks the
-file: 64 KiB from where the last message ended, a message's length taking it to the next. Every
+once; with none, or from the first offset where the file and the index disagree (a listed offset
+that is not a message's, or that lies inside one), it walks the file: 64 KiB from where the last
+message ended, a message's length taking it to the next. Every
 message is read and checked ([§8.4](#84-checks-and-rejection)) whichever way it was found, so an
 index changes the reads and not the output, but for [§5.1](#51-the-root)'s `index` and the
 mirror's held files. The index files are optional siblings

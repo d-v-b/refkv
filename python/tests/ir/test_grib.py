@@ -8,6 +8,7 @@ the IR and each rejection's message, and python/tests/test_grib_codec.py the cod
 from __future__ import annotations
 
 import calendar
+import struct
 from pathlib import Path
 
 import numpy as np
@@ -411,6 +412,31 @@ def test_an_index_changes_the_reads_not_the_output(tmp_path):
     rebuilt = {k: held for k, _, held in _core.rebuild_store(out_i.entries.get)}
     assert rebuilt["f.grib2.idx"] == (indexed / "f.grib2.idx").read_bytes()
 
+
+
+def test_an_index_that_lists_an_offset_inside_a_message_changes_no_output(tmp_path):
+    """§8.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#82-finding-the-messages>: a
+    message whose local use section (2) holds a whole message, and an index that lists that inner
+    message's offset too. The walk reads one message, and so does the run with the index: an offset
+    inside a message is one where the file and the index disagree, so the index is set aside and
+    the root names none."""
+    inner = (GRIB / "grib_simple.grib2").read_bytes()
+    one = 16 + struct.unpack(">I", inner[16:20])[0]  # the indicator and section 1
+    local = struct.pack(">IB", 5 + len(inner), 2) + inner
+    outer = bytearray(inner[:one] + local + inner[one:])
+    outer[8:16] = struct.pack(">Q", len(outer))
+    alone, indexed = tmp_path / "alone", tmp_path / "indexed"
+    for d in (alone, indexed):
+        d.mkdir()
+        (d / "f.grib2").write_bytes(outer)
+    (indexed / "f.grib2.idx").write_text(f"1:0:d=2026102900:X:surface:anl:\n2:{one + 5}:d=2026102900:X:surface:anl:\n")
+    out_a, _ = zarrified(alone / "f.grib2")
+    out_i, root_i = zarrified(indexed / "f.grib2")
+    assert at(root_i.attrs, "refkv_zarrified", "grib", "index") is None
+    keep = lambda k: not k.startswith("refkv_source") and k != "zarr.json"  # noqa: E731
+    assert {k: v for k, v in out_a.entries.items() if keep(k)} == {k: v for k, v in out_i.entries.items() if keep(k)}
+    assert out_a.refs == out_i.refs
+    assert sorted(k.split("/")[1] for k in out_a.refs) == ["t_surface"]
 
 def test_xarray_opens_a_grid_as_a_dataset():
     """A grid's group opens in xarray, its time decoded as datetimes and its grid's coordinates

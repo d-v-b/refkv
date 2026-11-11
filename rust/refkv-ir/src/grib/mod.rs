@@ -294,7 +294,15 @@ impl Grib {
                 return Ok(Vec::new());
             }
             if let Some(m) = self.messages.get(&self.pos) {
-                self.pos += m.length;
+                let (start, end) = (self.pos, self.pos.saturating_add(m.length));
+                // an offset the index lists inside this message is one where the file and the index
+                // disagree: the index is set aside, and the messages read at offsets past here are
+                // read again if the walk reaches them, as where a listed offset is not a message's
+                if self.messages.range(start + 1..end).next().is_some() {
+                    self.listed = None;
+                    self.messages.retain(|&s, _| s <= start);
+                }
+                self.pos = end;
                 continue;
             }
             // the offsets still to read: those an index lists, or the next one
