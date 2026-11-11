@@ -515,8 +515,9 @@ ends in `.grib2`, `.grb2`, `.grib` or `.grb`, the key with that suffix replaced 
 the first index, in that order, that lists offsets, the first 0 and all below the file's size.
 With one, the run reads the first 16 KiB of each listed message, from 4 bytes before it, at
 once; with none, or from the first offset where the file and the index disagree (a listed offset
-that is not a message's, or that lies inside one), it walks the file: 64 KiB from where the last
-message ended, a message's length taking it to the next. Every
+at which no message starts, or none the checks of [§8.4](#84-checks-and-rejection) accept, or that
+lies inside a message), it walks the file: 64 KiB from where the last message ended (more, where a
+section is longer), a message's length taking it to the next. Every
 message is read and checked ([§8.4](#84-checks-and-rejection)) whichever way it was found, so an
 index changes the reads and not the output, but for [§5.1](#51-the-root)'s `index` and the
 mirror's held files. The index files are optional siblings
