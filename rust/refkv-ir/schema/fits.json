@@ -592,7 +592,9 @@
         "hdu": "the HDU's index",
         "has_compressed": "whether COMPRESSED_DATA is a column",
         "has_scale": "whether ZSCALE is",
-        "has_zero": "whether ZZERO is"
+        "has_zero": "whether ZZERO is",
+        "row_bytes": "the bytes of a row its columns take: 8 for 1PB, 16 for 1QB, 8 for 1D, 4 for 1J",
+        "naxis1": "the table's NAXIS1"
       },
       "constraints": [
         {
@@ -602,6 +604,10 @@
         {
           "require": "has_scale == has_zero",
           "message": "HDU {hdu}: ZSCALE without ZZERO, or ZZERO without ZSCALE"
+        },
+        {
+          "require": "row_bytes <= naxis1",
+          "message": "HDU {hdu}: the columns take {row_bytes} bytes a row, more than NAXIS1's {naxis1}"
         }
       ]
     },
