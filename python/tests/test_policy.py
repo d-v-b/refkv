@@ -5,6 +5,9 @@
 recorded revision (§1.3 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#13-versioning>), in
 the reference reader and writer."""
 
+import asyncio
+import random
+import re
 import socket
 import sys
 import threading
@@ -16,12 +19,14 @@ from typing import override
 
 import pytest
 
+import refkv.policy
 import refkv.reader
 from refkv._sync import run
 from refkv.errors import ArchiveError, BodyError, RequestError, ResolutionError
-from refkv.pb import Range, Source, decode_table
+from refkv.pb import Concat, Range, Source, decode_table
 from refkv.policy import Policy, address_class, crc32c, matches_prefix
 from refkv.reader import RangeRequest, http_range
+from refkv.refstore import ReferenceStore
 from refkv.vzip.archive import SPEC_REVISION, VZipWriter
 from refkv.vzip.store import VZipStore
 
@@ -99,28 +104,31 @@ def test_crc32c_check_value():
     assert crc32c(b"") == 0
 
 
-def test_policy_allows_these_urls():
+def test_policy_allows_these_urls(tmp_path):
     local, remote = "file:///d/a.vzip", "https://h.example/a.vzip"
-    unsafe_files = Policy(allow_files_from_remote_archives=True)
+    files = tmp_path.as_uri()  # a path this system has: a file: URL it cannot map is refused
+    named = f"file://localhost{files.removeprefix('file://')}"
+    allowed = Policy(schemes=frozenset({"file"}))
     cases = [
         # (policy, archive base, source url)
-        (Policy(), local, "file:///d/blob.bin"),
+        (allowed, local, f"{files}/blob.bin"),
+        (allowed, remote, f"{files}/blob.bin"),  # a remote archive is no different
+        (allowed, local, "file:///etc/passwd"),  # every file: for a store you trust
+        (Policy(schemes=frozenset({"FILE"})), local, f"{files}/blob.bin"),
+        (Policy(prefixes=(f"{files}/",)), local, f"{files}/under/blob.bin"),
+        (Policy(prefixes=(f"{files}/blob.bin",)), local, f"{files}/blob.bin"),
+        (Policy(prefixes=(files,)), local, f"{files}/blob.bin"),  # a whole segment
         (Policy(), local, "https://g.example/blob.bin"),  # a local archive may read the web
         (Policy(), remote, "https://g.example/blob.bin"),
         (Policy(), remote, "http://g.example/blob.bin"),  # http and https are one scheme
         (Policy(), "HTTP://h.example/a.vzip", "HTTPS://g.example/blob.bin"),
         (Policy(schemes=frozenset({"s3"})), remote, "s3://bucket/blob.bin"),
         (Policy(schemes=frozenset({"S3"})), local, "s3://bucket/blob.bin"),
-        (unsafe_files, remote, "file:///d/blob.bin"),
         (Policy(prefixes=("https://data.example/a/",)), local, "https://data.example/a/x.bin"),
         (Policy(prefixes=("https://data.example/a",)), local, "https://data.example/a/x.bin"),
         (Policy(prefixes=("https://data.example/a",)), local, "https://data.example/a?x=1"),
         (Policy(prefixes=("file:///d/", "https://g/")), remote, "file:///d/x"),
-        (Policy(), local, "file://localhost/d/blob.bin"),
-        (Policy(), local, "file://LOCALHOST/d/blob.bin"),
-        # the unsafe opt-in for a file: URL's host, a UNC path on Windows
-        (Policy(allow_file_hosts=True), "file://server/share/a.vzip", "file://server/share/b.bin"),
-        (Policy(allow_file_hosts=True), local, "file://other/share/b.bin"),
+        (allowed, local, f"{named}/blob.bin"),
         # public literals, and names (checked when they are resolved)
         (Policy(), remote, "http://93.184.215.14/x"),
         (Policy(), remote, "http://[2606:4700::1111]/x"),
@@ -135,8 +143,8 @@ def test_policy_allows_these_urls():
         (Policy(allow_private_hosts=True, prefixes=("http://10.0.0.1/",)), remote,
          "http://10.0.0.1/x"),
     ]
-    for policy, base, url in cases:
-        policy.check(base, url)
+    for policy, _base, url in cases:
+        policy.check(url)
 
 
 def test_address_class():
@@ -195,7 +203,7 @@ def test_reads_with_checksums_pins_and_revision(tmp_path, server):
                    Range(data=b"!")],
         "plain": [Range(source=1, offset=5, length=5)],
     })
-    s = VZipStore(arc, policy=SERVED)
+    s = VZipStore(arc, policy=Policy(allow_private_hosts=True, schemes=frozenset({"file"})))
     cases = {
         ("file_crc", None): BLOB[100:200],
         ("file_crc", RangeRequest(10, 20)): BLOB[110:120],
@@ -230,8 +238,130 @@ def test_writer_rejects_a_checksum_on_a_literal_range(tmp_path):
 
 def test_refuses_a_file_source_of_a_remote_archive():
     for policy in [Policy(), Policy(schemes=frozenset({"s3"}))]:
-        with pytest.raises(ResolutionError, match="may not read local files"):
-            policy.check("https://h.example/a.vzip", "file:///etc/passwd")
+        with pytest.raises(ResolutionError, match="reads a local file only when it is allowed"):
+            policy.check("file:///etc/passwd")
+
+
+def test_reads_the_files_a_policy_allows(tmp_path):
+    """A saved archive reads a `file:` source under a directory of `prefixes`, at the exact URL
+    it names, and through a directory a symbolic link names: the link is what the prefix and the
+    source say, and the file is really below its target."""
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "blob.bin").write_bytes(BLOB)
+    directory = f"{data.as_uri()}/"
+    cases = [(directory, f"{directory}blob.bin"), (f"{directory}blob.bin", f"{directory}blob.bin")]
+    if sys.platform != "win32":  # making a symbolic link takes a privilege there
+        (tmp_path / "link").symlink_to(data, target_is_directory=True)
+        cases.append((f"{(tmp_path / 'link').as_uri()}/", f"{(tmp_path / 'link').as_uri()}/blob.bin"))
+    for i, (prefix, url) in enumerate(cases):
+        arc = _archive(tmp_path / f"{i}.vzip", [Source(url=url)], {"r": [Range(source=0, offset=100, length=4)]})
+        assert _get(VZipStore(arc, policy=Policy(prefixes=(prefix,))), "r") == BLOB[100:104], prefix
+
+
+def test_refuses_a_file_source_of_a_local_archive_by_default(tmp_path):
+    """The refusal says how to allow the file, by its directory."""
+    (tmp_path / "blob.bin").write_bytes(BLOB)
+    arc = _archive(tmp_path / "a.vzip", [Source(url="blob.bin")], {"r": [Range(source=0, offset=0, length=4)]})
+    remedy = re.escape(f"prefixes=({tmp_path.as_uri() + '/'!r}, 'https://')")
+    with pytest.raises(ResolutionError, match=remedy):
+        _get(VZipStore(arc), "r")
+
+
+def test_refuses_a_file_source_outside_the_prefixes(tmp_path):
+    """Outside each prefix: another directory, a sibling that begins the same, and the way out of
+    the prefix written in the URL."""
+    for name in ["data", "other", "data2"]:
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "blob.bin").write_bytes(BLOB)
+    policy = Policy(prefixes=(f"{(tmp_path / 'data').as_uri()}/", f"{(tmp_path / 'other').as_uri()}/blob"))
+    for i, url in enumerate([f"{(tmp_path / 'data2').as_uri()}/blob.bin", f"{(tmp_path / 'other').as_uri()}/blob.bin",
+                             f"{(tmp_path / 'data').as_uri()}/%2e%2e/other/blob.bin"]):
+        arc = _archive(tmp_path / f"{i}.vzip", [Source(url=url)], {"r": [Range(source=0, offset=0, length=4)]})
+        with pytest.raises(ResolutionError, match="not under an allowed URL prefix"):
+            _get(VZipStore(arc, policy=policy), "r")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="making a symbolic link takes a privilege")
+def test_refuses_a_link_put_in_place_of_a_file_after_a_read(tmp_path):
+    """A file read under a prefix, then replaced by a link out of it, is refused at the next read
+    of the same store: the check is of the file each read opens, not of a path resolved once
+    (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 2)."""
+    data, outside = tmp_path / "data", tmp_path / "outside"
+    data.mkdir()
+    outside.mkdir()
+    (outside / "blob.bin").write_bytes(BLOB[::-1])
+    (data / "file.bin").write_bytes(BLOB)
+    arc = _archive(tmp_path / "a.vzip", [Source(url=(data / "file.bin").as_uri())],
+                   {"r": [Range(source=0, offset=0, length=4)]})
+    store = VZipStore(arc, policy=Policy(prefixes=(f"{data.as_uri()}/",)))
+    assert _get(store, "r") == BLOB[:4]
+    (data / "file.bin").unlink()
+    (data / "file.bin").symlink_to(outside / "blob.bin")
+    with pytest.raises(ResolutionError, match="not under an allowed prefix"):
+        _get(store, "r")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="making a symbolic link takes a privilege")
+def test_refuses_a_link_put_in_place_of_a_prefix(tmp_path):
+    """A prefix's real path is resolved when the policy is made, so a link put in place of the
+    prefix later does not move it: a file prefix swapped for a link out of its directory, or a
+    directory prefix swapped for a link to `/` (spec §6.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 2)."""
+    data, outside = tmp_path / "data", tmp_path / "outside"
+    data.mkdir()
+    outside.mkdir()
+    (outside / "secret").write_bytes(BLOB[::-1])
+    (data / "blob.bin").write_bytes(BLOB)
+    file_url = (data / "blob.bin").as_uri()
+    file_policy = Policy(prefixes=(file_url,))
+    file_policy.check_file(file_url)
+    (data / "blob.bin").unlink()
+    (data / "blob.bin").symlink_to(outside / "secret")
+    with pytest.raises(ResolutionError, match="not under an allowed prefix"):
+        file_policy.check_file(file_url)
+
+    (tmp_path / "dir").mkdir()
+    dir_policy = Policy(prefixes=(f"{(tmp_path / 'dir').as_uri()}/",))
+    (tmp_path / "dir").rmdir()
+    (tmp_path / "dir").symlink_to("/", target_is_directory=True)
+    url = f"{(tmp_path / 'dir').as_uri()}{outside / 'secret'}"
+    dir_policy.check(url)
+    with pytest.raises(ResolutionError, match="not under an allowed prefix"):
+        dir_policy.check_file(url)
+
+
+def test_refuses_an_open_file_that_is_not_the_one_at_its_real_path(tmp_path, monkeypatch):
+    """Where the system does not give an open file's path, the file open must be the one at the
+    real path checked, or the path changed between the opening and the check."""
+    monkeypatch.setattr(refkv.policy, "_FD_PATH", False)
+    (tmp_path / "a.bin").write_bytes(BLOB)
+    (tmp_path / "b.bin").write_bytes(BLOB)
+    policy = Policy(prefixes=(f"{tmp_path.as_uri()}/",))
+    with open(tmp_path / "a.bin", "rb") as fh:
+        policy.check_file((tmp_path / "a.bin").as_uri(), fh.fileno())
+        with pytest.raises(ResolutionError, match="changed while it was checked"):
+            policy.check_file((tmp_path / "b.bin").as_uri(), fh.fileno())
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="making a symbolic link takes a privilege")
+def test_refuses_a_symbolic_link_out_of_the_prefixes(tmp_path):
+    """A link under an allowed prefix passes `check`, which reads the URL, and not `check_file`,
+    which follows it to a target outside the prefix: a file, or a directory on the way to one."""
+    data, outside = tmp_path / "data", tmp_path / "outside"
+    data.mkdir()
+    outside.mkdir()
+    (outside / "blob.bin").write_bytes(BLOB)
+    (data / "file.bin").symlink_to(outside / "blob.bin")
+    (data / "dir").symlink_to(outside, target_is_directory=True)
+    policy = Policy(prefixes=(f"{data.as_uri()}/",))
+    for i, url in enumerate([(data / "file.bin").as_uri(), f"{(data / 'dir').as_uri()}/blob.bin"]):
+        policy.check(url)
+        with pytest.raises(ResolutionError, match="not under an allowed prefix"):
+            policy.check_file(url)
+        arc = _archive(tmp_path / f"{i}.vzip", [Source(url=url)], {"r": [Range(source=0, offset=0, length=4)]})
+        with pytest.raises(ResolutionError, match="not under an allowed prefix"):
+            _get(VZipStore(arc, policy=policy), "r")
 
 
 def test_refuses_a_file_url_with_a_host():
@@ -241,24 +371,18 @@ def test_refuses_a_file_url_with_a_host():
         (Policy(), "file:///d/a.vzip", "file://server/share/b.bin"),
         (Policy(), "file://server/share/a.vzip", "file://server/share/b.bin"),
         (Policy(prefixes=("file://server/",)), "file:///d/a.vzip", "file://server/share/b.bin"),
-        (Policy(allow_files_from_remote_archives=True), "https://h.example/a.vzip",
+        (Policy(prefixes=("file://server/share/",)), "https://h.example/a.vzip",
          "file://server/share/b.bin"),
     ]
-    for policy, base, url in cases:
+    for policy, _base, url in cases:
         with pytest.raises(ResolutionError, match="allow_file_hosts"):
-            policy.check(base, url)
+            policy.check(url)
 
 
 def test_refuses_an_unlisted_scheme():
-    for base in ["file:///d/a.vzip", "https://h.example/a.vzip"]:
-        for url in ["s3://bucket/x", "gs://bucket/x", "data:,abc", "ftp://h.example/x"]:
-            with pytest.raises(ResolutionError, match="is not allowed"):
-                Policy(schemes=frozenset({"az"})).check(base, url)
-
-
-def test_policy_refuses_file_in_schemes():
-    with pytest.raises(ValueError, match="allow_files_from_remote_archives"):
-        Policy(schemes=frozenset({"FILE"}))
+    for url in ["s3://bucket/x", "gs://bucket/x", "data:,abc", "ftp://h.example/x"]:
+        with pytest.raises(ResolutionError, match="is not allowed"):
+            Policy(schemes=frozenset({"az"})).check(url)
 
 
 def test_refuses_a_private_host_written_in_the_url():
@@ -288,13 +412,13 @@ def test_refuses_a_private_host_written_in_the_url():
         ("http://localhost/a.vzip", "http://[::1]/x", "loopback"),
         ("http://10.0.0.1/a.vzip", "http://10.0.0.1/x", "private"),
     ]
-    for base, url, cls in cases:
+    for _base, url, cls in cases:
         with pytest.raises(ResolutionError, match=f"is a {cls} address.*allow_private_hosts"):
-            Policy().check(base, url)
+            Policy().check(url)
         # neither a prefix list nor another unsafe setting lifts rule 3
         for policy in [Policy(prefixes=(url,)), Policy(allow_unchecked_proxy=True)]:
             with pytest.raises(ResolutionError, match=f"is a {cls} address"):
-                policy.check(base, url)
+                policy.check(url)
 
 
 def test_refuses_a_url_outside_the_prefixes(tmp_path, server):
@@ -334,6 +458,219 @@ def test_refuses_too_many_reads(tmp_path, server):
     assert state["requests"] == 0
 
 
+def test_refuses_too_many_bytes(tmp_path, server):
+    """Rule 5 counts the bytes a value takes: a literal's, and a url range's, whole when it carries
+    a checksum, before any read."""
+    base, state = server
+    arc = _archive(tmp_path / "a.vzip", [Source(url=f"{base}/blob.bin")], {
+        "r": [Range(data=b"abc"), Range(source=0, offset=0, length=4)]})
+    s = VZipStore(arc, policy=Policy(max_get_bytes=6, allow_private_hosts=True))
+    with pytest.raises(RequestError, match="more than 6 bytes"):
+        _get(s, "r")
+    assert state["requests"] == 0
+
+
+def test_counts_a_key_sources_inflated_value_whole_once(tmp_path):
+    """A key source whose entry the reader inflates whole counts that entry whole, once a get,
+    cached or not: two ranges of a 1000-byte DEFLATE entry read under a budget of 1000 bytes, and
+    not under one of 999, whether they cover 20 bytes of it or all of it, and before or after the
+    entry is read whole."""
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(key="k"))
+        w.add_bytes("k", bytes(range(250)) * 4, compress=True)
+        w.add_ranges("few", [Range(source=0, offset=0, length=10), Range(source=0, offset=10, length=10)])
+        w.add_ranges("all", [Range(source=0, offset=0, length=500), Range(source=0, offset=500, length=500)])
+    want = {"few": bytes(range(20)), "all": bytes(range(250)) * 4}
+    for warm in (False, True):
+        store = VZipStore(str(path), policy=Policy(max_get_bytes=1000))
+        tight = VZipStore(str(path), policy=Policy(max_get_bytes=999))
+        if warm:
+            assert _get(store, "k") == _get(tight, "k") == want["all"]
+        for key, value in want.items():
+            assert _get(store, key) == value
+            with pytest.raises(RequestError, match="more than 999 bytes"):
+                _get(tight, key)
+
+
+def test_a_key_source_that_cannot_be_looked_up_fails_the_get(tmp_path, monkeypatch):
+    """A key source whose entry the reader cannot look up fails the get as a resolution error: the
+    bytes it takes are unknown, so the reader neither counts only the range nor reads the entry."""
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(key="k"))
+        w.add_bytes("k", bytes(1 << 20), compress=True)
+        w.add_ranges("r", [Range(source=0, offset=0, length=10)])
+    store = VZipStore(str(path), policy=Policy(max_get_bytes=1000))
+    _get(store, "zarr.json")  # open it
+    lookup = store._lookup
+    failed = []
+
+    async def failing_once(key):
+        if key == "k" and not failed:
+            failed.append(key)
+            raise OSError("the page read failed")
+        await lookup(key)
+
+    monkeypatch.setattr(store, "_lookup", failing_once)
+    with pytest.raises(ResolutionError, match="the page read failed"):
+        _get(store, "r")
+    assert "k" not in store._key_cache
+    with pytest.raises(RequestError, match="more than 1000 bytes"):
+        _get(store, "r")
+
+
+def test_keeps_a_key_value_whose_waiters_were_cancelled(tmp_path, monkeypatch):
+    """A key value read whole for a get that is cancelled is kept: the next get does not read it
+    again."""
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(key="k"))
+        w.add_bytes("k", bytes(range(256)) * 16, compress=True)
+        w.add_ranges("r", [Range(source=0, offset=1, length=2)])
+    store = VZipStore(str(path))
+    body = store._body
+    calls = []
+
+    async def main():
+        gate, started = asyncio.Event(), asyncio.Event()
+
+        async def gated(e, start, end):
+            calls.append((start, end))
+            started.set()
+            await gate.wait()
+            return await body(e, start, end)
+
+        monkeypatch.setattr(store, "_body", gated)
+        task = asyncio.ensure_future(store.get_async("r"))
+        await started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        gate.set()
+        for _ in range(5):
+            await asyncio.sleep(0)
+        return await store.get_async("r")
+
+    assert asyncio.run(main()) == bytes([1, 2])
+    assert calls == [(0, 4096)]
+
+
+def test_a_key_source_naming_a_format_entry_is_a_resolution_error(tmp_path):
+    """A key source naming the source table fails the get as a resolution error, however small the
+    reader's bytes per get."""
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f:
+        w = _Writer(f)
+        w._skip_checks = True  # a writer refuses such a source
+        w.source(Source(key="__vz__/sources"))
+        w.add_ranges("r", [Range(source=0, offset=0, length=1)])
+        w.close()
+    with pytest.raises(ResolutionError, match="format entry"):
+        _get(VZipStore(str(path), policy=Policy(max_get_bytes=1)), "r")
+
+
+def test_a_get_past_its_reads_looks_no_key_up(tmp_path, monkeypatch):
+    """A get refused for its reads is refused before the reader looks any key source up."""
+    (tmp_path / "blob.bin").write_bytes(BLOB)
+    ranges = Concat((Range(source=0, offset=0, length=1), Range(source=0, offset=1 << 13, length=1),
+                     Range(source=1, offset=0, length=1)))
+    store = ReferenceStore({"k": b"abc", "r": ranges}, sources=[Source(url="blob.bin"), Source(key="k")],
+                           url=str(tmp_path) + "/", policy=Policy(max_reads=1, max_coalesce_gap=0))
+    looked_up = []
+
+    async def recorded(key):
+        looked_up.append(key)
+
+    monkeypatch.setattr(store, "_key_found", recorded)
+    with pytest.raises(RequestError, match="needs 2 reads"):
+        _get(store, "r")
+    assert looked_up == []
+
+
+def test_counts_a_repeated_range_of_a_held_value_each_time(tmp_path):
+    """Ranges cut from a key value the reader holds whole count each time they build the value: 8
+    copies of a 1000-byte DEFLATE entry build 8000 bytes from 1000 fetched."""
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(key="k"))
+        w.add_bytes("k", bytes(1000), compress=True)
+        w.add_ranges("r", [Range(source=0, offset=0, length=1000)] * 8)
+    assert _get(VZipStore(str(path), policy=Policy(max_get_bytes=8000)), "r") == bytes(8000)
+    with pytest.raises(RequestError, match="more than 7999 bytes"):
+        _get(VZipStore(str(path), policy=Policy(max_get_bytes=7999)), "r")
+
+
+def test_counts_the_stored_bytes_of_a_held_value_when_they_are_more(tmp_path):
+    """A key value held whole is fetched as its stored bytes when DEFLATE made them more than it."""
+    blob = bytes(random.Random(0).randbytes(4096))
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(key="k"))
+        w.add_bytes("k", blob, compress=True)
+        w.add_ranges("r", [Range(source=0, offset=0, length=10)])
+    store = VZipStore(str(path))
+    _get(store, "r")
+    csize = store._entries["k"].csize
+    assert csize > len(blob)
+    assert _get(VZipStore(str(path), policy=Policy(max_get_bytes=csize)), "r") == blob[:10]
+    with pytest.raises(RequestError):
+        _get(VZipStore(str(path), policy=Policy(max_get_bytes=csize - 1)), "r")
+
+
+def test_coalesces_within_what_the_held_key_values_leave(tmp_path):
+    """Coalescing closes gaps only within the bytes per get that the key values a get holds whole
+    leave: two url ranges 70 bytes apart and a 100-byte DEFLATE key read under a bound of 150 in two
+    requests, not refused for a coalesced read of 90 bytes."""
+    (tmp_path / "blob.bin").write_bytes(BLOB)
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(url="blob.bin"))
+        w.source(Source(key="k"))
+        w.add_bytes("k", bytes(100), compress=True)
+        w.add_ranges("r", [Range(source=0, offset=0, length=10), Range(source=0, offset=80, length=10),
+                           Range(source=1, offset=0, length=10)])
+    files = (f"{tmp_path.as_uri()}/",)
+    store = VZipStore(str(path), policy=Policy(prefixes=files, max_get_bytes=150))
+    assert _get(store, "r") == BLOB[:10] + BLOB[80:90] + bytes(10)
+    assert store.stats.external_requests == 2
+    with pytest.raises(RequestError, match="more than 119 bytes"):
+        _get(VZipStore(str(path), policy=Policy(prefixes=files, max_get_bytes=119)), "r")
+
+
+def test_inflates_a_key_sources_entry_once(tmp_path, monkeypatch):
+    """64 ranges of one DEFLATE entry, read at once, inflate it once."""
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(key="k"))
+        w.add_bytes("k", bytes(4096), compress=True)
+        w.add_ranges("r", [Range(source=0, offset=k, length=1) for k in range(64)])
+    store = VZipStore(str(path))
+    calls = []
+    body = store._body
+
+    async def counted(e, start, end):
+        calls.append((start, end))
+        return await body(e, start, end)
+
+    monkeypatch.setattr(store, "_body", counted)
+    assert _get(store, "r") == bytes(64)
+    assert calls == [(0, 4096)]
+
+
+@pytest.mark.parametrize("given", [{"max_get_bytes": -1}, {"max_get_bytes": 1.5}, {"max_get_bytes": None},
+                                   {"max_reads": "1024"}, {"max_sources": True}, {"max_format_entry": -1}])
+def test_refuses_a_limit_that_is_no_natural_number(given):
+    with pytest.raises(ValueError, match=next(iter(given))):
+        Policy(**given)
+
+
+@pytest.mark.parametrize("amplification", [-1, float("nan"), float("inf"), "4", None])
+def test_refuses_an_amplification_that_is_no_finite_number(amplification):
+    with pytest.raises(ValueError, match="max_read_amplification"):
+        Policy(max_read_amplification=amplification)
+
+
 def test_refuses_an_inflation_bomb(tmp_path):
     # a source table that inflates to 64 MiB from about 64 KiB
     path = tmp_path / "a.vzip"
@@ -369,7 +706,7 @@ def test_detects_a_size_mismatch_of_a_local_file(tmp_path):
     arc = _archive(tmp_path / "a.vzip", [Source(url="blob.bin", size=len(BLOB) - 1)],
                    {"r": [Range(source=0, offset=0, length=4)]})
     with pytest.raises(ResolutionError, match="the source changed"):
-        _get(VZipStore(arc), "r")
+        _get(VZipStore(arc, policy=Policy(prefixes=(tmp_path.as_uri() + "/",))), "r")
 
 
 def test_detects_an_etag_mismatch(tmp_path, server):
@@ -419,10 +756,10 @@ def resolver(monkeypatch):
     return names, looked_up
 
 
-def _range(policy, base, url):
-    """Bytes 0-4 of `url`, read for an archive at `base` under `policy`, as the store does."""
+def _range(policy, url):
+    """Bytes 0-4 of `url`, read under `policy`, as the store does."""
     address = None if policy.allow_private_hosts else policy.check_address
-    return http_range(url, 0, 4, Source(url=url), lambda u: policy.check(base, u), address,
+    return http_range(url, 0, 4, Source(url=url), policy.check, address,
                       policy.allow_unchecked_proxy)[0]
 
 
@@ -461,9 +798,9 @@ def test_reads_the_hosts_rule_3_allows(tmp_path, server, resolver):
     assert _read(f"http://data.test:{port}/blob.bin", seen) == BLOB[:4]
     assert seen == ["127.0.0.1", "127.0.0.1"]  # at connect, and the socket's peer
     assert state["hosts"][-1] == f"data.test:{port}"
-    for base_ in ["file:///d/a.vzip", "https://h.example/a.vzip", f"{base}/a.vzip"]:
-        assert _range(SERVED, base_, f"{base}/blob.bin") == BLOB[:4]
-        assert _range(SERVED, base_, f"http://data.test:{port}/blob.bin") == BLOB[:4]
+    for _base in ["file:///d/a.vzip", "https://h.example/a.vzip", f"{base}/a.vzip"]:
+        assert _range(SERVED, f"{base}/blob.bin") == BLOB[:4]
+        assert _range(SERVED, f"http://data.test:{port}/blob.bin") == BLOB[:4]
     arc = _archive(tmp_path / "a.vzip", [Source(url=f"http://data.test:{port}/blob.bin")],
                    {"r": [Range(source=0, offset=0, length=4)]})
     assert _get(VZipStore(arc, policy=SERVED), "r") == BLOB[:4]
@@ -475,7 +812,7 @@ def test_refuses_a_name_that_resolves_to_a_refused_address(tmp_path, server, res
     base, state = server
     port = base.rsplit(":", 1)[1]
     names, looked_up = resolver
-    for name, address, cls, archive in [
+    for name, address, cls, _where in [
         ("rebind.test", "127.0.0.1", "loopback", "https://h.example/a.vzip"),
         ("rebind.test", "127.0.0.1", "loopback", "file:///d/a.vzip"),
         ("rebind.test", "10.0.0.1", "private", "file:///d/a.vzip"),
@@ -484,7 +821,7 @@ def test_refuses_a_name_that_resolves_to_a_refused_address(tmp_path, server, res
     ]:
         names[name] = address
         with pytest.raises(ResolutionError, match=f"at {address}.*is a {cls} address"):
-            _range(Policy(), archive, f"http://{name}:{port}/blob.bin")
+            _range(Policy(), f"http://{name}:{port}/blob.bin")
         assert looked_up[-1] == name
     names["local.test"] = "127.0.0.1"
     arc = _archive(tmp_path / "a.vzip", [Source(url=f"http://local.test:{port}/blob.bin")],
@@ -501,7 +838,7 @@ def test_refuses_an_address_written_in_another_form():
     want = "getaddrinfo failed" if sys.platform == "win32" else "169.254.169.254.*is a link-local address"
     for url in ["http://2852039166/x", "http://0xa9.0xfe.0xa9.0xfe/x", "http://0251.0376.0251.0376/x"]:
         with pytest.raises(ResolutionError, match=want):
-            _range(Policy(), "file:///d/a.vzip", url)
+            _range(Policy(), url)
 
 
 def test_refuses_a_redirect_to_a_refused_address(server, resolver):
@@ -526,10 +863,10 @@ def test_refuses_a_reused_connection_to_a_refused_address(server, resolver):
     names, looked_up = resolver
     names["reuse.test"] = "127.0.0.1"
     url = f"http://reuse.test:{base.rsplit(':', 1)[1]}/blob.bin"
-    assert _range(SERVED, "file:///d/a.vzip", url) == BLOB[:4]
+    assert _range(SERVED, url) == BLOB[:4]
     n = len(looked_up)
     with pytest.raises(ResolutionError, match=r"at 127.0.0.1.*is a loopback address"):
-        _range(Policy(), "file:///d/a.vzip", url)
+        _range(Policy(), url)
     assert len(looked_up) == n  # the pooled connection, not a new one
     assert state["requests"] == 1
 
@@ -547,7 +884,7 @@ def test_reads_through_a_proxy_the_policy_allows(server, resolver, no_proxy_env)
         (Policy(allow_private_hosts=True), "http://private.test/blob.bin"),
     ]
     for policy, url in cases:
-        assert _range(policy, "https://h.example/a.vzip", url) == BLOB[:4]
+        assert _range(policy, url) == BLOB[:4]
         assert state["paths"][-1] == url  # an absolute target: the request went to the proxy
 
 
@@ -561,10 +898,10 @@ def test_refuses_a_request_through_a_proxy(server, resolver, no_proxy_env):
         no_proxy_env.delenv("HTTP_PROXY", raising=False)
         no_proxy_env.setenv(var, base)
         with pytest.raises(ResolutionError, match=r"through the proxy.*allow_unchecked_proxy=True"):
-            _range(Policy(), "https://h.example/a.vzip", "http://public.test/blob.bin")
+            _range(Policy(), "http://public.test/blob.bin")
     no_proxy_env.setenv("https_proxy", base)
     with pytest.raises(ResolutionError, match="through the proxy"):
-        _range(Policy(), "https://h.example/a.vzip", "https://public.test/blob.bin")
+        _range(Policy(), "https://public.test/blob.bin")
     assert state["requests"] == 0
 
 
@@ -575,8 +912,7 @@ def test_refuses_a_refused_address_through_an_allowed_proxy(server, resolver, no
     names["internal.test"] = "10.0.0.1"
     no_proxy_env.setenv("http_proxy", base)
     with pytest.raises(ResolutionError, match="is a private address"):
-        _range(Policy(allow_unchecked_proxy=True), "https://h.example/a.vzip",
-               "http://internal.test/x")
+        _range(Policy(allow_unchecked_proxy=True), "http://internal.test/x")
     assert state["requests"] == 0
 
 
@@ -593,7 +929,7 @@ def test_checks_a_request_the_proxy_settings_send_directly(server, resolver, no_
         for k, v in env.items():
             no_proxy_env.setenv(k, v)
         with pytest.raises(ResolutionError, match=r"at 127.0.0.1.*is a loopback address"):
-            _range(Policy(), "https://h.example/a.vzip", url)
+            _range(Policy(), url)
         assert _read(url) == BLOB[:4]  # direct, not through the (closed) proxy port
         for k in env:
             no_proxy_env.delenv(k)

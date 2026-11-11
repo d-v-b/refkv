@@ -24,7 +24,8 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
 - **Chunks:** raw data as the file stores it, cut into equal runs of at most 128 KiB, as for
   NIfTI. Gzip data is **one chunk** of the whole array: a gzip stream has no index to cut it by,
   so the chunk references the whole stream and the `gzip` codec decompresses it. Nothing is
-  copied, but reading any value decompresses the whole volume.
+  copied, but reading any value decompresses the whole volume, and a stream of more than 2 GiB is
+  past a reader's default bytes per `get` ([refkv §6.7](../../../spec/refkv.md#67-reader-policy) rule 5): raise `max_get_bytes` to read it.
 - **Codecs:** `transpose` when the axes are stored in another order (a color axis fastest),
   `bytes` in the header's byte order, and `gzip` for gzip data.
 - **Scale and translation:** from `space directions` and `space origin` when the directions are

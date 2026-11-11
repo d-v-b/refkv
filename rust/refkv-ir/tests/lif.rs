@@ -79,7 +79,7 @@ fn a_project_is_a_valid_store_ir() {
         refkv_ir::check::check(&ir).unwrap_or_else(|m| panic!("{named}: {m}"));
         assert_eq!(facts["images"].as_array().unwrap().len(), images, "{named}");
         assert_eq!(files.len(), objects, "{named}");
-        let out = refkv_ir::store::store_output(StoreFormat::Lif, &ir, &facts, serde_json::json!({}), "https://example.org/set/", true)
+        let out = refkv_ir::store::store_output(StoreFormat::Lif, &ir, &facts, serde_json::json!({}), "https://example.org/set/", true, false).map_err(String::from)
             .unwrap_or_else(|m| panic!("{named}: {m}"));
         assert_eq!(out.summary["series"], images, "{named}");
     }
@@ -115,4 +115,66 @@ fn an_unpredicted_long_block_id_is_read() {
     assert_eq!(facts["blocks"], 3);
     assert!(facts["rounds"].as_u64().unwrap() <= 5, "{}", facts["rounds"]);
     assert_eq!(common::rebuilt(&ir, &data), data);
+}
+
+/// Each image of an accepted fixture names its description by its key (spec/stored-array.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): `declared_by`
+/// is the id of the element of the XML that declares it (`header/xml`, or a LOF's
+/// `description/xml`, under the LOF's object in a project's store) and the image's index among
+/// that XML's images. The IR's descriptions are the images', each with that element as its one
+/// declaration and a grid whose rows' element is the data of the image's memory block.
+#[test]
+fn every_accepted_fixtures_images_name_their_descriptions() {
+    let (mut files, mut projects, mut images, mut rows) = (0, 0, 0, 0);
+    for entry in std::fs::read_dir(lif_dir()).unwrap() {
+        let name = entry.unwrap().file_name().into_string().unwrap();
+        if name.contains("reject") {
+            continue;
+        }
+        let (ir, facts, project) = match name.rsplit('.').next() {
+            Some("lif" | "lof" | "lifext") => {
+                let (ir, facts) = refkv_ir::parse_bytes::<Lif>(&std::fs::read(lif_dir().join(&name)).unwrap()).unwrap();
+                (ir, facts, false)
+            }
+            Some("xlef" | "xlcf" | "xlif" | "xllf") => {
+                let (ir, facts, _) = run_project(&lif_dir(), &name).unwrap();
+                (ir, facts, true)
+            }
+            _ => continue,
+        };
+        files += !project as u32;
+        projects += project as u32;
+        let s = &ir.stored;
+        let listed = facts["images"].as_array().unwrap();
+        assert_eq!(s.arrays.len(), listed.len(), "{name}");
+        for (i, im) in listed.iter().enumerate() {
+            let at = format!("{name} image {i}");
+            let key = im["declared_by"][0].as_u64().unwrap_or_else(|| panic!("{at}: no declared_by")) as u32;
+            let index = im["declared_by"][1].as_u64().unwrap();
+            // the XML of the file that holds the image: a file's own, or a project's LOF's
+            let path = ir.path(key);
+            let file = if project {
+                assert_eq!(index, 0, "{at}");
+                path.strip_suffix("description/xml").filter(|p| p.ends_with(".lof/")).unwrap_or_else(|| panic!("{at}: {path}"))
+            } else {
+                assert_eq!(index, i as u64, "{at}");
+                assert_eq!(path, if name.ends_with(".lof") { "description/xml" } else { "header/xml" }, "{at}");
+                ""
+            };
+            let k = s.arrays.iter().position(|a| (a.element, a.index) == (key, Some(index))).unwrap_or_else(|| panic!("{at}: no description"));
+            let a = &s.arrays[k];
+            assert_eq!(a.declarations, vec![refkv_ir::array::Place::Element { element: key, member: None, range: None }], "{at}");
+            assert!(a.grid.is_some(), "{at}");
+            let data = format!("{file}blocks/{}/data", im["block"]);
+            let units: Vec<usize> = (0..s.map.len()).filter(|&r| s.map.array[r] == k as u32).collect();
+            assert!(!units.is_empty(), "{at}");
+            for &r in &units {
+                assert_eq!(s.map.element[r].map(|e| ir.path(e)), Some(data.clone()), "{at}");
+            }
+            images += 1;
+            rows += units.len();
+        }
+    }
+    // of the rows, 5 and 16384 are the padded rows of two images, and the other 35 a whole image
+    assert_eq!((files, projects, images, rows), (24, 8, 37, 16424));
 }

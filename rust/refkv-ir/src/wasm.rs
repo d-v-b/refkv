@@ -215,7 +215,27 @@ pub unsafe extern "C" fn nd2_finish(p: *mut Nd2) -> i64 {
 use crate::run::{Format, Run};
 
 fn err_out(e: String) -> i64 {
+    FAILED.store(false, std::sync::atomic::Ordering::Relaxed);
     -(set_out(e.into_bytes()) as i64)
+}
+
+/// Whether the last output refused was a failure of the zarrifier, not a rejection of the input.
+static FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// An output's refusal (`err_out`), recording whether it is a failure (`vz_failed`).
+fn refused_out(r: crate::seal::Refusal) -> i64 {
+    let failed = matches!(r, crate::seal::Refusal::Failed(_));
+    let n = err_out(r.into());
+    FAILED.store(failed, std::sync::atomic::Ordering::Relaxed);
+    n
+}
+
+/// Whether the last refusal of `vz_run_output` or `vz_store_output` was a failure of the
+/// zarrifier (1: a payload over the limit only with its checksums, spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), not a rejection (0).
+#[unsafe(no_mangle)]
+pub extern "C" fn vz_failed() -> u32 {
+    FAILED.load(std::sync::atomic::Ordering::Relaxed) as u32
 }
 
 /// A run of the format named `format` (UTF-8 of `nf` bytes, from `vz_alloc`, consumed: a name of
@@ -365,8 +385,9 @@ pub unsafe extern "C" fn vz_run_stats(p: *mut Run) -> i64 {
 
 /// Finishes the run (consumed), projects it and, with `flags` bit 0, mirrors it, for a host
 /// that records the ranges' checksums with bit 1 (`Run::into_output`): the output
-/// (`Out::encode`) at `vz_out()`, its length, or minus the length of a rejection's message.
-/// `url` (UTF-8, from `vz_alloc`, consumed) is the source's.
+/// (`Out::encode`) at `vz_out()`, its length, or minus the length of a refusal's message
+/// (`vz_failed` tells a failure from a rejection). `url` (UTF-8, from `vz_alloc`, consumed) is the
+/// source's.
 ///
 /// # Safety
 /// `p` from `vz_run_new`; `url`, `n` from `vz_alloc(n)`.
@@ -376,7 +397,7 @@ pub unsafe extern "C" fn vz_run_output(p: *mut Run, url: *mut u8, n: usize, flag
     let url = String::from_utf8(unsafe { Vec::from_raw_parts(url, n, n) }).unwrap_or_default();
     match r.into_output(&url, flags & 1 != 0, flags & 2 != 0) {
         Ok(o) => set_out(o.encode()) as i64,
-        Err(e) => err_out(e),
+        Err(e) => refused_out(e),
     }
 }
 
@@ -473,20 +494,21 @@ pub unsafe extern "C" fn vz_store_complete(p: *mut StoreRun, k: u32, data: *mut 
     }
 }
 
-/// Finishes the store run (consumed) and, with `mirror`, mirrors it: the output
-/// (`Out::encode`, its references to objects of part kind 3) at `vz_out()`, its length, or
-/// minus the length of a rejection's message. `url` (UTF-8, from `vz_alloc`, consumed) is
-/// the store's.
+/// Finishes the store run (consumed) and, with `flags` bit 0, mirrors it, for a host that records
+/// the ranges' checksums with bit 1 (`StoreRun::into_output`): the output (`Out::encode`, its
+/// references to objects of part kind 3) at `vz_out()`, its length, or minus the length of a
+/// refusal's message (`vz_failed` tells a failure from a rejection). `url` (UTF-8, from
+/// `vz_alloc`, consumed) is the store's.
 ///
 /// # Safety
 /// `p` from `vz_store_new`; `url`, `n` from `vz_alloc(n)`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vz_store_output(p: *mut StoreRun, url: *mut u8, n: usize, mirror: u32) -> i64 {
+pub unsafe extern "C" fn vz_store_output(p: *mut StoreRun, url: *mut u8, n: usize, flags: u32) -> i64 {
     let r = *unsafe { Box::from_raw(p) };
     let url = String::from_utf8(unsafe { Vec::from_raw_parts(url, n, n) }).unwrap_or_default();
-    match r.into_output(&url, mirror != 0) {
+    match r.into_output(&url, flags & 1 != 0, flags & 2 != 0) {
         Ok(o) => set_out(o.encode()) as i64,
-        Err(e) => err_out(e),
+        Err(e) => refused_out(e),
     }
 }
 
@@ -509,6 +531,22 @@ pub unsafe extern "C" fn vz_store_ignore(p: *mut StoreRun, json: *mut u8, n: usi
     }
 }
 
+/// The scope of the input, before the first poll (`StoreRun::scope`): `json` (from `vz_alloc`,
+/// consumed) is `[key, ...]`, each a key or a directory's key followed by `/`. 0, or minus the
+/// length of a rejection's message.
+///
+/// # Safety
+/// `p` from `vz_store_new`; `json`, `n` from `vz_alloc(n)`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_store_scope(p: *mut StoreRun, json: *mut u8, n: usize) -> i64 {
+    let r = unsafe { &mut *p };
+    let b = unsafe { Vec::from_raw_parts(json, n, n) };
+    match serde_json::from_slice::<Vec<String>>(&b).map_err(|e| format!("the scope: {e}")).and_then(|w| r.scope(w)) {
+        Ok(()) => 0,
+        Err(e) => err_out(e),
+    }
+}
+
 /// The keys of a pending batch of probes (`StoreRun::probes`; `vz_store_poll` gave a count of
 /// 0): a JSON array of keys at `vz_out()`, its length. The host answers each, in order, with
 /// `vz_store_found`, then polls again.
@@ -517,7 +555,7 @@ pub unsafe extern "C" fn vz_store_ignore(p: *mut StoreRun, json: *mut u8, n: usi
 /// `p` from `vz_store_new`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vz_store_probes(p: *mut StoreRun) -> i64 {
-    let keys: Vec<String> = unsafe { &*p }.probes().to_vec();
+    let keys: Vec<String> = unsafe { &*p }.probes();
     set_out(serde_json::to_string(&keys).unwrap_or_default().into_bytes()) as i64
 }
 

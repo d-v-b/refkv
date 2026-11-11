@@ -114,7 +114,9 @@ export interface HandlerOptions {
   /**
    * The whole of the `.vzip` archive at a URL of the `archive/` route; defaults to a `fetch` that
    * throws an `HttpResolutionError` for no response or a status other than 2xx. The archive's
-   * URL is not checked against `policy`: a fetch given here decides what it reads.
+   * URL is not checked against `policy`: a fetch given here decides what it reads. The default
+   * sends the browser's default credentials, since the application chose the URL; the archive's
+   * sources are read without them unless `policy` has `allowSourceCredentials`.
    */
   fetchArchive?: (url: string) => Promise<Uint8Array>;
   /**

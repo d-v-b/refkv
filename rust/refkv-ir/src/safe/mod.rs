@@ -15,10 +15,13 @@
 //! local headers; then the product metadata; the tile metadata; then every band file's walk
 //! ([`jp2::BandReader`]) in step, one read per band file a batch, with, in the first, the XML
 //! documents held (directory form) or inflated to be checked (zip form). The schema
-//! (`schema/safe.json`) is checked as the profile meets each role.
+//! (`schema/safe.json`) is checked as the profile meets each role. At finish, each band file's
+//! image is described (`stored.rs`; spec/stored-array.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>).
 
 pub mod jp2;
 pub mod product;
+mod stored;
 pub mod xmltree;
 
 use crate::ir::*;
@@ -499,31 +502,35 @@ impl Safe {
             return Err("internal: the parse is not done".into());
         }
         let mut ir = if self.store { self.ir.take().ok_or("internal: no IR")? } else { Ir::new(self.size) };
-        if self.store {
-            self.emit_store(&mut ir)?;
-        } else {
-            self.emit_zip(&mut ir)?;
-        }
+        let reached = if self.store { self.emit_store(&mut ir)? } else { self.emit_zip(&mut ir)? };
         ir.sort_values();
         crate::check::finish(&mut ir)?;
-        Ok((ir, self.facts()))
+        // the band files' images, described from the finished IR (`stored.rs`): the parser folds
+        // no run, and a band file's elements overlap no other's, so those it made keep their ids
+        let (arrays, chains, map) = stored::described(&reached)?;
+        ir.describe(arrays, chains, map)?;
+        let declared_by: Vec<u32> = reached.iter().map(|r| r.codestream).collect();
+        Ok((ir, self.facts(&declared_by)))
     }
 
     // ---- the IR
 
-    fn emit_store(&self, ir: &mut Ir) -> Result<(), String> {
+    /// The directory form's elements; what each band's description needs, in the bands' order.
+    fn emit_store(&self, ir: &mut Ir) -> Result<Vec<stored::Reached>, String> {
+        let mut reached = Vec::with_capacity(self.bands.len());
         for b in &self.bands {
             let e = self.elems[b.obj];
             ir.describe_in_place(e)?;
-            emit_band(ir, e, 0, &b.cs)?;
+            reached.push(emit_band(ir, e, 0, &b.cs)?);
         }
         for &o in &self.held {
             ir.value(self.elems[o], "xml", NO_INDEX, &format!("ascii[{}]", self.objs[o].size), 0, (0, self.objs[o].size), None)?;
         }
-        Ok(())
+        Ok(reached)
     }
 
-    fn emit_zip(&self, ir: &mut Ir) -> Result<(), String> {
+    /// The zip form's elements; what each band's description needs, in the bands' order.
+    fn emit_zip(&self, ir: &mut Ir) -> Result<Vec<stored::Reached>, String> {
         let raw = zip::Records {
             tail: &self.raw["tail"],
             cd: self.raw.get("cd").map_or(&[][..], |b| b.as_slice()),
@@ -531,16 +538,17 @@ impl Safe {
             locator: self.raw.get("locator").map(|b| b.as_slice()),
         };
         zip::emit_records(ir, self.size, &self.end, &self.entries, &raw)?;
-        let bands: HashMap<usize, &Band> = self.bands.iter().map(|b| (b.obj, b)).collect();
+        let bands: HashMap<usize, (usize, &Band)> = self.bands.iter().enumerate().map(|(k, b)| (b.obj, (k, b))).collect();
+        let mut reached: Vec<(usize, stored::Reached)> = Vec::with_capacity(self.bands.len());
         for (o, obj) in self.objs.iter().enumerate() {
             let e = &self.entries[obj.entry];
             if e.us == 0 {
                 continue;
             }
             let s = zip::emit_local(ir, obj.entry as u64, e, None)?;
-            if let Some(b) = bands.get(&o) {
+            if let Some(&(k, b)) = bands.get(&o) {
                 let d = ir.struct_(s, "data", NO_INDEX, 0, Some((e.ds, e.us)))?;
-                emit_band(ir, d, e.ds, &b.cs)?;
+                reached.push((k, emit_band(ir, d, e.ds, &b.cs)?));
             } else if self.deflated[obj.entry] {
                 ir.derived(s, "data", 0, (e.ds, e.cs), DEFLATE_FORM)?;
             } else {
@@ -548,17 +556,24 @@ impl Safe {
                 ir.value(s, "data", NO_INDEX, &format!("{ty}[{}]", e.us), 0, (e.ds, e.us), None)?;
             }
         }
-        Ok(())
+        // a band file is never empty, so each band has its elements
+        if reached.len() != self.bands.len() {
+            return Err("internal: a band file with no elements".into());
+        }
+        reached.sort_by_key(|r| r.0);
+        Ok(reached.into_iter().map(|r| r.1).collect())
     }
 
-    fn facts(&self) -> J {
+    /// The facts; `declared_by` is, for each band in order, the key of its image's description:
+    /// its `codestream` struct.
+    fn facts(&self, declared_by: &[u32]) -> J {
         let geo = self.geo.as_ref().unwrap();
         let metadata = self.metadata.as_ref().unwrap();
         let l2a = self.level == 1;
-        let bands: Vec<J> = self.bands.iter().map(|b| {
+        let bands: Vec<J> = self.bands.iter().zip(declared_by).map(|(b, declared_by)| {
             let base = if self.store { 0 } else { self.entries[self.objs[b.obj].entry].ds };
             let siz_b64 = crate::mirror::base64(&b.cs.siz);
-            json!({"key": b.image.key, "base": base, "resolution": b.resolution, "name": b.name,
+            json!({"key": b.image.key, "base": base, "resolution": b.resolution, "name": b.name, "declared_by": declared_by,
                    "meta": product::band_metadata(metadata, l2a, &b.image.text, &b.name, &siz_b64),
                    "codestream": b.cs.to_facts()})
         }).collect();
@@ -602,15 +617,22 @@ impl Safe {
 }
 
 /// A band file's elements under `parent`, its offsets from `base` (spec/zarrify/safe.md §6.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>).
-fn emit_band(ir: &mut Ir, parent: u32, base: u64, cs: &Codestream) -> Result<(), String> {
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>);
+/// what its image's description needs of them (`stored.rs`).
+fn emit_band(ir: &mut Ir, parent: u32, base: u64, cs: &Codestream) -> Result<stored::Reached, String> {
+    let mut headers = Vec::new();
+    let mut reached = None;
     for (i, b) in cs.boxes.iter().enumerate() {
         let bx = ir.struct_(parent, "boxes/", i as u64, 0, Some((base + b.at, b.len)))?;
         let hty = if b.header == 16 { "{lbox:>u4,tbox:ascii[4],xlbox:>u8}" } else { "{lbox:>u4,tbox:ascii[4]}" };
         ir.value(bx, "header", NO_INDEX, hty, 0, (base + b.at, b.header), Some(&b.raw))?;
         if &b.tbox != b"jp2c" {
             if b.len > b.header {
-                ir.value(bx, "contents", NO_INDEX, &format!("bytes[{}]", b.len - b.header), 0, (base + b.at + b.header, b.len - b.header), None)?;
+                let contents = ir.value(bx, "contents", NO_INDEX, &format!("bytes[{}]", b.len - b.header), 0, (base + b.at + b.header, b.len - b.header), None)?;
+                // the JP2 header box says what the components are: their color space
+                if &b.tbox == b"jp2h" {
+                    headers.push(contents);
+                }
             }
             continue;
         }
@@ -618,7 +640,7 @@ fn emit_band(ir: &mut Ir, parent: u32, base: u64, cs: &Codestream) -> Result<(),
         ir.value(c, "soc", NO_INDEX, ">u2", 0, (base + cs.c0, 2), Some(&[0xFF, 0x4F]))?;
         let siz_ty = "{marker:>u2,lsiz:>u2,rsiz:>u2,xsiz:>u4,ysiz:>u4,xosiz:>u4,yosiz:>u4,xtsiz:>u4,ytsiz:>u4,xtosiz:>u4,ytosiz:>u4,csiz:>u2,components:{ssiz:u1,xrsiz:u1,yrsiz:u1}[".to_string()
             + &cs.components.to_string() + "]}";
-        ir.value(c, "siz", NO_INDEX, &siz_ty, 0, (base + cs.c0 + 2, cs.siz.len() as u64), Some(&cs.siz))?;
+        let siz = ir.value(c, "siz", NO_INDEX, &siz_ty, 0, (base + cs.c0 + 2, cs.siz.len() as u64), Some(&cs.siz))?;
         for (m, &(pos, _, length)) in cs.markers.iter().enumerate() {
             let length = length as u64;
             let ms = ir.struct_(c, "markers/", m as u64, 0, Some((base + pos, 2 + length)))?;
@@ -628,14 +650,18 @@ fn emit_band(ir: &mut Ir, parent: u32, base: u64, cs: &Codestream) -> Result<(),
                 ir.value(ms, "body", NO_INDEX, &format!("bytes[{}]", length - 2), 0, (base + pos + 4, length - 2), Some(&cs.rest[r + 4..r + 2 + length as usize]))?;
             }
         }
+        let mut tiles = Vec::with_capacity(cs.tiles.len());
         for (k, (&(s, psot), sot)) in cs.tiles.iter().zip(&cs.sots).enumerate() {
             let t = ir.struct_(c, "tiles/", k as u64, 0, Some((base + s, psot)))?;
             ir.value(t, "sot", NO_INDEX, SOT_TYPE, 0, (base + s, 12), Some(sot))?;
             ir.data(t, "body", NO_INDEX, 0, (base + s + 12, psot - 12), TILE_FORM)?;
+            tiles.push(t);
         }
         ir.value(c, "eoc", NO_INDEX, ">u2", 0, (base + cs.n - 2, 2), Some(&[0xFF, 0xD9]))?;
+        let declarations = std::iter::once(siz).chain(headers.iter().copied()).collect();
+        reached = Some(stored::Reached::of(cs, c, declarations, tiles));
     }
-    Ok(())
+    reached.ok_or_else(|| "internal: a band file with no codestream".to_string())
 }
 
 // ---- the directory form as a store parser

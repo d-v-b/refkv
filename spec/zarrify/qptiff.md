@@ -158,8 +158,10 @@ other predictors.
 
 ### 4.2 Tiles and strips
 
-An IFD is tiled or in strips as [the TIFF convention §2](tiff.md#2-the-source) says (a tiled
-IFD MUST have TileLength and TileByteCounts, with TileWidth and TileLength at least 1), and
+An IFD is tiled or in strips as [the TIFF convention §2](tiff.md#2-the-source) says (an IFD
+with TileWidth and TileLength is tiled, and MUST have both of its tile tables, TileOffsets and
+TileByteCounts or, in an IFD with neither, StripOffsets and StripByteCounts, with TileWidth and
+TileLength at least 1), and
 a level in strips has the rows per strip `R`, the chunks of `R` rows and the padding of a
 short last strip of [the TIFF convention §4.5](tiff.md#45-strips) (its limits on the
 padding and on the bytes an LZW tail reads included, which reject the input whatever the
@@ -405,7 +407,8 @@ convention §4.3](#43-arrays)) is the entry `<level>/c/<coords>`, whose referenc
 
 <a id="type-qptiffchunk"></a>**`QptiffChunk`**, the reference of tile (or strip) `k`, with
 byte count `n > 0`, `offset` TileOffsets (StripOffsets) and `n`
-TileByteCounts`[k]` (StripByteCounts`[k]`):
+TileByteCounts`[k]` (StripByteCounts`[k]`), a tiled IFD's TileOffsets and TileByteCounts being
+its tile tables ([the convention §4.2](#42-tiles-and-strips)):
 
 | part | range | presence | value |
 |---|---|---|---|
@@ -417,9 +420,9 @@ TileByteCounts`[k]` (StripByteCounts`[k]`):
 
 A short last strip thus has, when uncompressed, the ranges `[(0, offset[k], n), Z]`, and
 when LZW, the ranges `[(0, offset[k], p), T]`; any other tile or strip but a JPEG one has the
-single range `(0, offset[k], n)`. The references are
-listed (for [§1.2](../zarrify.md#12-input)'s order of first use) level
-by level, within a level by channel, and within an image by `k`. Besides
-these and the root's and the arrays' `zarr.json`, the archive's entries are
+single range `(0, offset[k], n)`. The sources are numbered by
+[§1.2](../zarrify.md#12-input)'s order of first use, over the references in the order of their
+keys. Besides
+the references and the root's and the arrays' `zarr.json`, the archive's entries are
 those of the source metadata node `refkv_source`, the file's IR mirror
 ([the convention §5](#5-source-metadata), [conventions §8](../conventions.md#8-the-ir-mirror)).

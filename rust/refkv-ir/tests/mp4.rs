@@ -182,3 +182,47 @@ fn moof_boxes_past_the_limit_fail() {
     let m = parser.step().err().unwrap();
     assert_eq!(m, "the moof boxes are 67108865 bytes in all, more than 64 MiB");
 }
+
+/// Each video or audio track of an accepted fixture names its descriptions by their key, the
+/// element of its trak box (spec/stored-array.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): indexed from 0,
+/// and, of a track of a video codec the profile zarrifies, three planes with a row for each
+/// sample, whose element is the sample's.
+#[test]
+fn every_accepted_fixtures_tracks_name_their_descriptions() {
+    let (mut tracks, mut planes) = (0, 0);
+    for e in std::fs::read_dir(common::fixtures().join("mp4")).unwrap() {
+        let p = e.unwrap().path();
+        let name = p.file_name().unwrap().to_str().unwrap().to_string();
+        if name.contains("reject") || !(name.ends_with(".mp4") || name.ends_with(".mov")) {
+            continue;
+        }
+        let (ir, facts) = refkv_ir::parse_bytes::<Mp4>(&std::fs::read(&p).unwrap()).unwrap();
+        let s = &ir.stored;
+        for (t, track) in facts["tracks"].as_array().unwrap().iter().enumerate() {
+            let at = format!("{name} track {t}");
+            let handler = track["handler"].as_str().unwrap();
+            let Some(key) = track["declared_by"].as_u64() else {
+                assert!(!matches!(handler, "vide" | "soun"), "{at}");
+                continue;
+            };
+            assert!(matches!(handler, "vide" | "soun"), "{at}");
+            assert_eq!(ir.path(key as u32).rsplit('/').next().and_then(|n| n.split('~').next()), Some("trak"), "{at}");
+            let described: Vec<usize> = (0..s.arrays.len()).filter(|&k| s.arrays[k].element == key as u32).collect();
+            let indexes: Vec<Option<u64>> = described.iter().map(|&k| s.arrays[k].index).collect();
+            assert_eq!(indexes, (0..described.len() as u64).map(Some).collect::<Vec<_>>(), "{at}");
+            tracks += 1;
+            if !matches!(track["format"].as_str(), Some("h264" | "hevc" | "av1" | "vp9")) {
+                continue;
+            }
+            assert_eq!(described.len(), 3, "{at}");
+            let (first, count) = (track["first"].as_u64().unwrap() as u32, track["count"].as_u64().unwrap() as u32);
+            for &k in &described {
+                let rows: Vec<u32> = (0..s.map.len()).filter(|&r| s.map.array[r] == k as u32).map(|r| s.map.element[r].unwrap()).collect();
+                assert_eq!(rows, (first..first + count).collect::<Vec<_>>(), "{at}");
+                planes += 1;
+            }
+        }
+    }
+    assert!(tracks >= 100 && planes >= 150, "{tracks} tracks, {planes} planes");
+}

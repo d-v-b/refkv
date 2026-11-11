@@ -21,6 +21,9 @@ use crate::sans;
 use crate::text::latin1;
 use serde_json::{json, Value as J};
 
+#[path = "mp4/stored.rs"]
+mod stored;
+
 /// The first read, and the most bytes of a moov box (the schema's `max_moov`).
 const HEAD: u64 = 1 << 16;
 /// How much to read for a top-level box's header once the file has shown itself fragmented:
@@ -90,6 +93,10 @@ struct Entry {
     lpcm_flags: u64,
     lpcm_packet: u64,
     children: Vec<([u8; 4], Vec<u8>)>,
+    /// the elements of its fields (or, of an entry the convention does not parse, of its
+    /// payload), and of each child box's payload, for the stored arrays (`stored.rs`)
+    fields_el: Option<u32>,
+    child_els: Vec<Option<u32>>,
 }
 
 /// Whether a sample entry stores each sample as a JPEG stream: QuickTime's `jpeg`, Motion JPEG A's
@@ -192,6 +199,15 @@ fn pcm_frame(t: &Track) -> Option<u64> {
     (e.channels > 0).then_some(e.channels * p.bytes)
 }
 
+/// The size of a sample of a PCM track that is not a whole number of its frames, where its
+/// tables give one (`sizes`, its samples' as laid out): its stsz box's one sample size, but 1,
+/// QuickTime's for one frame of any size, or a sample's.
+fn ragged_pcm(t: &Track, sizes: &[u64]) -> Option<u64> {
+    let frame = pcm_frame(t)?;
+    let fixed = t.fixed_size.map(|f| f.0).filter(|&n| n != 1 && n % frame != 0);
+    fixed.or(sizes.iter().copied().find(|n| n % frame != 0))
+}
+
 impl Entry {
     /// The payload of the child box of type `t`, or of one in a QuickTime `wave` box (where
     /// QuickTime's sound descriptions keep their esds box).
@@ -213,11 +229,23 @@ impl Entry {
         }
         None
     }
+
+    /// The payload of the entry's own child box of type `t`.
+    fn child_here(&self, t: &[u8; 4]) -> Option<&[u8]> {
+        self.children.iter().find(|c| &c.0 == t).map(|c| c.1.as_slice())
+    }
+
+    /// The element of the payload of the entry's own child box of type `t`.
+    fn config_element(&self, t: &[u8; 4]) -> Option<u32> {
+        self.children.iter().zip(&self.child_els).find(|(c, _)| &c.0 == t).and_then(|(_, &e)| e)
+    }
 }
 
 /// What a trak box holds that the profile reads.
 #[derive(Default, Clone, Debug)]
 struct Track {
+    /// the trak box's element
+    el: u32,
     id: u64,
     handler: [u8; 4],
     timescale: u64,
@@ -339,6 +367,8 @@ pub struct Mp4 {
     moof: Option<u64>,
     traf: Option<Traf>,
     trafs: Vec<Traf>,
+    /// what each video or audio track's descriptions need (`stored.rs`)
+    media: Vec<stored::Media>,
 }
 
 /// The fields of a sample entry of a video track (ISO/IEC 14496-12 §12.1.3).
@@ -358,7 +388,7 @@ impl Mp4 {
         Mp4 {
             size, phase: Phase::Start, fed: Fed::default(), ir: Ir::new(size), rules: rules::of("mp4"), facts: J::Null,
             p: 0, tops: Vec::new(), moov: None, ftyp: None, cur: None, tracks: Vec::new(), movie: (0, 0),
-            moof_bytes: 0, trex: Vec::new(), moof: None, traf: None, trafs: Vec::new(),
+            moof_bytes: 0, trex: Vec::new(), moof: None, traf: None, trafs: Vec::new(), media: Vec::new(),
         }
     }
 
@@ -581,7 +611,7 @@ impl Mp4 {
             b"trun" if self.traf.is_some() => self.trun(s, b, body, m, base)?,
             t if CONTAINERS.contains(&t) => {
                 if t == b"trak" {
-                    self.cur = Some(Track::default());
+                    self.cur = Some(Track { el: s, ..Track::default() });
                 }
                 self.container(s, m, base, b.body(), b.end())?;
                 if t == b"trak" {
@@ -779,10 +809,16 @@ impl Mp4 {
 
     /// A box whose payload the convention does not parse: one `data` value.
     fn opaque(&mut self, s: u32, b: &BoxRef, body: &[u8]) -> Res<()> {
-        if !body.is_empty() {
-            self.ir.value(s, "data", NO_INDEX, &format!("bytes[{}]", body.len()), 0, (b.body(), body.len() as u64), Some(body))?;
+        self.payload(s, b, body).map(|_| ())
+    }
+
+    /// A box's payload the convention does not parse, as its `data` value: its element, none for
+    /// an empty one.
+    fn payload(&mut self, s: u32, b: &BoxRef, body: &[u8]) -> Res<Option<u32>> {
+        if body.is_empty() {
+            return Ok(None);
         }
-        Ok(())
+        self.ir.value(s, "data", NO_INDEX, &format!("bytes[{}]", body.len()), 0, (b.body(), body.len() as u64), Some(body)).map(Some)
     }
 
     /// A full box of fields and a table: elst, stts, ctts, stsc, stco, co64 and stss.
@@ -846,13 +882,13 @@ impl Mp4 {
         let mut e = Entry { typ: b.typ, ..Default::default() };
         let fields = match handler {
             b"vide" if n >= 78 => {
-                self.ir.value(s, "fields", NO_INDEX, VISUAL, 0, (b.body(), 78), Some(&body[..78]))?;
+                e.fields_el = Some(self.ir.value(s, "fields", NO_INDEX, VISUAL, 0, (b.body(), 78), Some(&body[..78]))?);
                 e.width = uint(body, 24, 2, false);
                 e.height = uint(body, 26, 2, false);
                 Some(78)
             }
             b"soun" if n >= 28 => {
-                self.ir.value(s, "fields", NO_INDEX, AUDIO, 0, (b.body(), 28), Some(&body[..28]))?;
+                e.fields_el = Some(self.ir.value(s, "fields", NO_INDEX, AUDIO, 0, (b.body(), 28), Some(&body[..28]))?);
                 e.sound_version = uint(body, 8, 2, false);
                 e.channels = uint(body, 16, 2, false);
                 e.bits = uint(body, 18, 2, false);
@@ -885,12 +921,12 @@ impl Mp4 {
                     let c = self.ir.struct_(s, &cname, cidx, 0, Some((k.at, k.size)))?;
                     self.ir.value(c, "header", NO_INDEX, header_type(k.head), 0, (k.at, k.head), Some(&m[at(k.at)..at(k.body())]))?;
                     let kb = &m[at(k.body())..at(k.end())];
-                    self.opaque(c, k, kb)?;
+                    e.child_els.push(self.payload(c, k, kb)?);
                     e.children.push((k.typ, kb.to_vec()));
                 }
                 self.rest(s, rest, b.end(), Some(m), base)?;
             }
-            None => self.opaque(s, b, body)?,
+            None => e.fields_el = self.payload(s, b, body)?,
         }
         if let Some(t) = self.cur.as_mut() {
             t.entries.push(e);
@@ -917,6 +953,7 @@ impl Mp4 {
                 f["format"] = J::Null;
             }
             f["index"] = json!(k);
+            let mut elements = Vec::new();
             if !offsets.is_empty() {
                 let ss = match samples_struct {
                     Some(s) => s,
@@ -929,8 +966,7 @@ impl Mp4 {
                 let ts = self.ir.struct_(ss, "", k as u64, 0, None)?;
                 // a PCM track's frames: each sample a whole number of them, or no PCM track
                 if let (Some(frame), true) = (pcm_frame(t), f["reason"].is_null()) {
-                    let fixed = t.fixed_size.map(|f| f.0).filter(|&n| n != 1 && n % frame != 0);
-                    match fixed.or(sizes.iter().copied().find(|n| n % frame != 0)) {
+                    match ragged_pcm(t, &sizes) {
                         Some(n) => {
                             f["reason"] = json!(format!("PCM samples of {n} bytes, not a whole number of {frame}-byte frames"));
                             f["format"] = J::Null;
@@ -944,15 +980,21 @@ impl Mp4 {
                     "codec": {"name": latin1(&t.entries.first().map(|e| e.typ).unwrap_or(*b"    ")), "format": f["format"].clone()},
                     "recipe": [["src", 0, null]],
                 }).to_string();
-                let mut first = None;
                 for (j, (&o, &n)) in offsets.iter().zip(&sizes).enumerate() {
                     self.rules.check("sample", rules::env([
                         ("track", num(t.id as f64)), ("j", num(j as f64)), ("offset", num(o as f64)), ("length", num(n as f64)), ("size", num(self.size as f64)),
                     ]))?;
-                    let i = self.ir.data(ts, "", j as u64, 0, (o, n), &form)?;
-                    first.get_or_insert(i);
+                    elements.push(self.ir.data(ts, "", j as u64, 0, (o, n), &form)?);
                 }
-                f["first"] = json!(first);
+                f["first"] = json!(elements.first());
+            }
+            // a video or audio track's samples are described, by its trak box: `declared_by`
+            if matches!(&t.handler, b"vide" | b"soun") {
+                let entry = t.entries.first();
+                let declarations = entry.into_iter().flat_map(|e| e.fields_el.into_iter().chain(e.child_els.iter().flatten().copied())).collect();
+                let kind = stored::kind(t, elements.len() as u64, sync_samples(t, offsets.len() as u64), ragged_pcm(t, &sizes).is_some());
+                self.media.push(stored::Media { element: t.el, declarations, samples: elements, kind });
+                f["declared_by"] = json!(t.el);
             }
             if f["reason"].is_null() {
                 projected += 1;
@@ -1238,9 +1280,7 @@ impl Mp4 {
                     return Err("a sample entry of width or height 0".into());
                 }
                 let pts = presentation(t);
-                let in_tables = offsets.len() as u64 - t.frag_offsets.len() as u64;
-                let mut sync = t.sync.clone().map(|s| s.iter().map(|&x| x.saturating_sub(1)).collect::<Vec<u64>>()).unwrap_or_else(|| (0..in_tables).collect());
-                sync.extend(t.frag_sync.iter().map(|&k| in_tables + k));
+                let sync = sync_samples(t, offsets.len() as u64);
                 gops(&pts, &sync)?;
                 f["format"] = json!(format);
                 let data_type = if sps.luma > 8 { "uint16" } else { "uint8" };
@@ -1320,9 +1360,25 @@ impl Mp4 {
         f
     }
 
+    /// The finished IR, with its tracks' samples described (`stored.rs`), and the facts.
     pub fn finish(self) -> Result<(Ir, J), String> {
-        sans::finish(self.phase == Phase::Done, self.ir, self.facts)
+        let described = if self.phase == Phase::Done { Some(stored::described(&self.media)?) } else { None };
+        let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
+        if let Some((arrays, chains, map)) = described {
+            ir.describe(arrays, chains, map)?;
+        }
+        Ok((ir, facts))
     }
+}
+
+/// A track's sync samples among its `count` samples, in decode order (spec/zarrify/mp4.md §3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#3-tracks-and-samples>): those its
+/// stss box names, or every sample of its tables without one, then its track fragments'.
+fn sync_samples(t: &Track, count: u64) -> Vec<u64> {
+    let in_tables = count - t.frag_offsets.len() as u64;
+    let mut sync = t.sync.clone().map(|s| s.iter().map(|&x| x.saturating_sub(1)).collect::<Vec<u64>>()).unwrap_or_else(|| (0..in_tables).collect());
+    sync.extend(t.frag_sync.iter().map(|&k| in_tables + k));
+    sync
 }
 
 /// The box header at the start of `h` (at `at` in the file, in a parent that ends at `end`):

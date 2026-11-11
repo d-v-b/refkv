@@ -39,7 +39,7 @@ fn run_files(key: &str, mut files: BTreeMap<String, Vec<u8>>) -> Result<Ran, Str
         }
     }
     let (ir, facts, stats) = run.finish()?;
-    let out = refkv_ir::store::store_output(StoreFormat::Grib, &ir, &facts, stats, "https://example.org/grib/", true)?;
+    let out = refkv_ir::store::store_output(StoreFormat::Grib, &ir, &facts, stats, "https://example.org/grib/", true, false)?;
     let objects: std::collections::HashSet<String> = ir.sources().objects.iter().map(|&o| ir.key(o)).collect();
     files.retain(|k, _| objects.contains(k));
     Ok((out, ir, files))
@@ -390,4 +390,90 @@ fn reject_short_sections_of_each_template() {
         let m = rejection_with_section3(name, |s| s.truncate(need - 1));
         assert!(m.contains(&format!("a GRIB section 3 of {want}")), "{name}: {m}");
     }
+}
+
+/// The IR and the facts of the GRIB file `key` of `files`, with the index beside it.
+fn parsed(key: &str, files: &BTreeMap<String, Vec<u8>>) -> (Ir, J) {
+    let mut run = StoreRun::new(StoreFormat::Grib, vec![(key.to_string(), files[key].len() as u64)], 4).unwrap();
+    while let Some(reqs) = run.poll().unwrap() {
+        if reqs.is_empty() {
+            for k in run.probes().to_vec() {
+                run.found(files.get(&k).map(|d| d.len() as u64)).unwrap();
+            }
+            continue;
+        }
+        for (k, q) in reqs.iter().enumerate() {
+            let data = &files[&q.key];
+            run.complete(k, q.spans.iter().map(|&(a, b)| data[a as usize..b as usize].to_vec()).collect()).unwrap();
+        }
+    }
+    let (ir, facts, _) = run.finish().unwrap();
+    (ir, facts)
+}
+
+/// Each field of an accepted fixture names the description of its values by its key
+/// (spec/stored-array.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>):
+/// `declared_by`, the element of its message, and `array`, its index among the arrays the message
+/// declares; and by `mask` the bitmap that says which points its values are, a description of
+/// 1-bit elements of that message. The facts so name every description, each message's indexed
+/// from 0, and a field's row is in its own section 7.
+#[test]
+fn every_accepted_fixtures_fields_name_their_descriptions() {
+    let (mut fields, mut masked, mut rows) = (0, 0, 0);
+    for e in std::fs::read_dir(fixtures()).unwrap() {
+        let path = e.unwrap().path();
+        let name = path.file_name().unwrap().to_str().unwrap().to_string();
+        if !name.ends_with(".grib2") || name.contains("_reject_") {
+            continue;
+        }
+        let (ir, facts) = parsed(&name, &files_of(&path, true));
+        let s = &ir.stored;
+        let at = |element: u32, index: u64| {
+            let found: Vec<usize> = (0..s.arrays.len()).filter(|&k| s.arrays[k].element == element && s.arrays[k].index == Some(index)).collect();
+            assert_eq!(found.len(), 1, "{name}: the arrays keyed ({element}, {index})");
+            found[0]
+        };
+        let mut named = std::collections::BTreeSet::new();
+        for f in facts["fields"].as_array().unwrap() {
+            let (message, field) = (f["message"].as_u64().unwrap(), f["field"].as_u64().unwrap());
+            let here = format!("{name} message {message} field {field}");
+            let key = f["declared_by"].as_u64().unwrap() as u32;
+            assert_eq!(ir.path(key), format!("{name}/messages/{message}"), "{here}");
+            let k = at(key, f["array"].as_u64().unwrap());
+            named.insert(k);
+            fields += 1;
+            // its unit, where the source holds one, is of the message's section 7 of that field
+            let units: Vec<usize> = (0..s.map.len()).filter(|&r| s.map.array[r] == k as u32).collect();
+            assert!(units.len() <= 1, "{here}");
+            for r in units {
+                let section = s.map.element[r].unwrap();
+                assert!(ir.path(section).starts_with(&format!("{name}/messages/{message}/sections/")), "{here}");
+                let form: J = serde_json::from_str(ir.form(section).unwrap()).unwrap();
+                assert_eq!(form["codec"]["field"].as_u64(), Some(field), "{here}");
+                rows += 1;
+            }
+            let indicator = f["bitmap"].as_u64().unwrap();
+            match f["mask"].as_u64() {
+                Some(mask) => {
+                    assert!(matches!(indicator, 0 | 254), "{here}");
+                    let b = at(key, mask);
+                    assert_eq!(s.arrays[b].item_bits, Some(1), "{here}");
+                    assert!(mask < f["array"].as_u64().unwrap(), "{here}");
+                    named.insert(b);
+                    masked += 1;
+                }
+                None => assert_ne!(indicator, 0, "{here}"),
+            }
+        }
+        assert_eq!(named.len(), s.arrays.len(), "{name}: descriptions no field names");
+        // each message's arrays are indexed from 0
+        let mut by_message: BTreeMap<u32, Vec<u64>> = BTreeMap::new();
+        for a in &s.arrays {
+            by_message.entry(a.element).or_default().push(a.index.unwrap());
+        }
+        for (element, indexes) in by_message {
+            assert_eq!(indexes, (0..indexes.len() as u64).collect::<Vec<_>>(), "{name}: element {element}");
+        }
+    }
+    assert!(fields >= 79 && masked >= 9 && rows >= 76, "{fields} fields, {masked} under a bitmap, {rows} rows");
 }

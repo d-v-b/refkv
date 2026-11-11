@@ -22,7 +22,7 @@ const MAX_OMERO: u64 = 64;
 const MAX_NAME: usize = 256;
 
 /// A subblock form: (pixel type, compression, hi-lo packing or a JpgFile stream's being lossless).
-type Form = (i32, i32, bool);
+pub type Form = (i32, i32, bool);
 
 fn form_of(v: &J) -> Result<(Form, &'static str, u64, u64), String> {
     let f = (v[0].as_i64().unwrap_or(-1) as i32, v[1].as_i64().unwrap_or(-1) as i32, v[2].as_bool().unwrap_or(false));
@@ -32,9 +32,18 @@ fn form_of(v: &J) -> Result<(Form, &'static str, u64, u64), String> {
 
 /// The codecs of a form (spec/zarrify/czi.md §3.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#31-pixel-types-and-codecs>):
-/// `transpose` for samples, then the compression's.
+/// `transpose` for samples, then the compression's (`chain`).
 fn codecs(form: Form, data_type: &str, p: u64, axes: &[&str]) -> J {
     let mut out = if p > 1 { vec![transpose_codec(axes)] } else { vec![] };
+    out.extend(chain(form, data_type));
+    J::Array(out)
+}
+
+/// The codecs of a form after any `transpose` (spec/zarrify/czi.md §3.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#31-pixel-types-and-codecs>):
+/// the compression's, for samples of `data_type`.
+pub fn chain(form: Form, data_type: &str) -> Vec<J> {
+    let mut out = Vec::new();
     match form.1 {
         JPEG if !form.2 => out.push(json!({"name": "imagecodecs_jpeg"})),
         JPEG | LJPEG => out.push(json!({"name": "imagecodecs_ljpeg"})),
@@ -52,7 +61,7 @@ fn codecs(form: Form, data_type: &str, p: u64, axes: &[&str]) -> J {
         }
         _ => out.push(bytes_codec(item_size(data_type), "little")),
     }
-    J::Array(out)
+    out
 }
 
 /// The sample letters of a pixel's `p` samples (JPEG and JPEG XR decode to RGB order).
@@ -164,7 +173,7 @@ fn cell_refs(refs: &mut Refs, path: &str, axes: &[&str], compression: i32, q: u6
         for (k, (o, len)) in pieces.into_iter().enumerate() {
             let y = row * per + k as u64;
             let coords = axes.iter().map(|a| along(a, [t, c, z, y, col]));
-            refs.chunk(key(&prefix, coords), start, length, 0, Some(vec![Part::Src(o, len)]), k as u64)?;
+            refs.chunk(key(&prefix, coords), start, length, 0, Some(vec![Part::Src(o, len)]))?;
         }
     }
     Ok(())

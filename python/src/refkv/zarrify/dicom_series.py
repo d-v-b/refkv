@@ -21,10 +21,11 @@ from typing import Any
 
 from refkv._narrow import mapping
 from refkv.bounds import Bound, ChunkBox, Key, Prefix
-from refkv.compose import map_keys, mount, normalize, union
+from refkv.compose import Options, map_keys, mount, normalize, union
 from refkv.policy import Policy
+from refkv.reader import Registry
 from refkv.refstore import ReferenceStore
-from refkv.zarrify.common import Rejected
+from refkv.zarrify.common import Rejected, reading_own_files
 
 Doc = dict[str, Any]
 """A JSON document of the store, as read from or written to a `zarr.json`."""
@@ -330,12 +331,16 @@ class SeriesOutput:
     parts: list[ReferenceStore]
     summary: Doc
 
-    def to_store(self, *, policy: Policy | None = None, info: Doc | None = None) -> ReferenceStore:
+    def to_store(self, *, policy: Policy | None = None, registry: Registry | None = None,
+                 info: Doc | None = None) -> ReferenceStore:
         bounds: list[Bound] = [Key(k) for k in self.documents]
         header = ReferenceStore(dict(self.documents), bounds=bounds)
-        joined = union(header, *self.parts)
-        options: Doc = {} if policy is None else {"policy": policy}
-        return normalize(joined, info=info or {}, **options)
+        joined = union(header, *self.parts, policy=reading_own_files(
+            policy, (s for part in self.parts for s in part.sources)))
+        options: Options = {"info": info or {}}
+        if registry is not None:
+            options["registry"] = registry
+        return normalize(joined, **options)
 
 
 async def zarrify_series_async(keys: Sequence[str], others: Sequence[str], url: str,

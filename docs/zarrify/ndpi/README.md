@@ -189,7 +189,8 @@ A chunk is about 128 pieces of the file, one per row of JPEG blocks
 (branch `research/ndpi-access`) measured what that costs:
 
 - **Over-read or many requests.** Today's readers merge the ranges of a
-  chunk when they are less than 64 KiB apart. Where a strip row is smaller
+  chunk when they are at most their policy's coalescing gap apart (`max_coalesce_gap`, 64 KiB by
+  default). Where a strip row is smaller
   than that (all of CMU-1), every chunk read fetches the full strip width:
   reading 4 × 4 chunks of CMU-1's level 0 reads 89 MB for 1.4 MB of chunk
   data. Where a row is larger (the 6.9 GB Hamamatsu-1, levels 0–3), a chunk

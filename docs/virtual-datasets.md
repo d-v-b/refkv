@@ -167,7 +167,8 @@ What each step does:
   flight, and `max_concurrency=None` removes the cap. Respect the host's
   limits.
 - **Many small chunks.** Chunks read at the same time share requests when they lie
-  less than 64 KiB apart in one source file, but zarr asks for only
+  at most the policy's coalescing gap apart in one source file (`Policy.max_coalesce_gap`, 64 KiB
+  by default), but zarr asks for only
   `async.concurrency` chunks at once (10 by default), which limits how many can
   share one. Raising it makes both fewer requests and a faster read, and opens no
   more connections, since `max_concurrency` bounds those. The setting is zarr's, and
@@ -205,10 +206,37 @@ store.save_vzip("private.vzip", policy=refkv.Policy(schemes={"s3"}))
 ds = xr.open_zarr(refkv.zarr.open("private.vzip", registry=registry))
 ```
 
-By default, refkv reads `http(s)` URLs (and local files, from a local
-archive), and never builds an `s3://`, `gs://` or `az://` store itself, so it
-cannot pick up your cloud credentials by accident. For a private bucket,
-register its store, as above; that allows its URLs. The rules are in
+`refkv.zarrify.zarrify` takes the same `registry=`, to read the input itself
+from the bucket: a file, the files it names beside it, or a store (a URL
+ending in `/`), each read with the registered store. The result reads its
+sources with that registry too.
+
+```python
+from refkv.zarrify import zarrify
+
+store = zarrify("s3://my-bucket/oisst/oisst-avhrr-v02r01.20240101.nc", registry=registry)
+store.save_vzip("oisst.vzip", policy=refkv.Policy(schemes={"s3"}))
+```
+
+By default, refkv reads `http(s)` URLs, and never builds an `s3://`, `gs://` or
+`az://` store itself, so it cannot pick up your cloud credentials by accident.
+For a private bucket, register its store, as above; that allows its URLs.
+
+A store's `file:` sources are refused too, even when you open it from a local
+path, since a store's location says nothing about who wrote it, and a store from
+someone else could otherwise read your files. To read a store's local files, name
+them, or allow the scheme for a store you trust:
+
+```python
+store = refkv.open("sidecar.vzip", policy=refkv.Policy(prefixes=("file:///data/",)))
+store = refkv.open("sidecar.vzip", policy=refkv.Policy(schemes={"file"}))
+```
+
+A prefix list replaces the default, so add `"https://"` to it if the store also
+reads the web. A file a symbolic link leads to must be under the prefix too.
+`schemes={"file"}` allows every file you can read. A store
+`refkv.zarrify.zarrify` has just built reads the files it found without either,
+as if its prefix list were their directory; once saved, it needs one. The rules are in
 [spec §6.7, Reader policy](../spec/refkv.md#67-reader-policy).
 
 ## Troubleshooting
@@ -238,6 +266,9 @@ register its store, as above; that allows its URLs. The rules are in
 - **`no store is registered for s3://...`.** The policy allows the scheme,
   but no store serves the URL; pass `registry={"s3://bucket": S3Store(...)}`,
   with obstore's `S3Store` (`refkv[obstore]`).
+- **`an archive reads a local file only when it is allowed`.** The store names a
+  `file:` source, which no store reads by default, however it was opened. Pass
+  one of the policies the message gives, if you trust the store with those files.
 - **`the host is a loopback address`** (or private, link-local, special),
   opening an archive or reading a source. refkv refuses requests to
   addresses on your machine and network by default, an archive's own
@@ -250,6 +281,12 @@ register its store, as above; that allows its URLs. The rules are in
   a proxy (`http_proxy`, `https_proxy`) opening an `https://` archive fails
   too. Exempt the host with `no_proxy`, or pass
   `policy=refkv.Policy(allow_unchecked_proxy=True)`.
+- **`the value needs more than 2147483648 bytes ...`.** A reader refuses a
+  `get` of more bytes than its policy allows, 2 GiB by default
+  ([spec §6.7](../spec/refkv.md#67-reader-policy) rule 5). VirtualiZarr and
+  kerchunk present a contiguous HDF5 or netCDF variable as one chunk, which
+  can be larger. For a store you trust, pass
+  `policy=refkv.Policy(max_get_bytes=...)` with a larger bound.
 
 The docstrings say more: `help(refkv.ReferenceStore)`, `help(refkv.zarr.open)`
 and `help(refkv.vzip.VZipStore)` (its `registry=` and `max_concurrency=`), and

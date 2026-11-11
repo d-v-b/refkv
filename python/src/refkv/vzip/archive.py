@@ -441,6 +441,14 @@ class VZipWriter:
         name, off, size, csize, *_ = self._cd[i]
         return off + _LFH.size + len(name.encode()) + (20 if _is_large(size, csize) else 0), csize
 
+    @property
+    def format_sizes(self) -> dict[str, int]:
+        """The sizes, uncompressed, of the format entries written so far (the source table and
+        the page index, once `close` has written them), which a reader bounds by its
+        `max_format_entry` (spec §13.1
+        <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#131-opening>)."""
+        return {r[0]: r[2] for r in self._cd if r[0] in (SOURCES_KEY, INDEX_KEY)}
+
     def close(self) -> None:
         """Check the archive, then write its source table, its late entries, its page index
         (with `page_size`) and its central directory. `f` stays open: the caller closes it.

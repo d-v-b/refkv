@@ -97,6 +97,26 @@
       "message": "TiffData starts outside the planes"
     },
     {
+      "test": "tiff_edge_reject_imagej_ifds",
+      "input": "edge_reject_imagej_ifds.tif",
+      "message": "an ImageJ description of 7 images in a file of 5 IFDs"
+    },
+    {
+      "test": "tiff_edge_reject_imagej_product",
+      "input": "edge_reject_imagej_product.tif",
+      "message": "an ImageJ description of 12 images whose frames, channels and slices make 16"
+    },
+    {
+      "test": "tiff_edge_reject_imagej_rgb_channels",
+      "input": "edge_reject_imagej_rgb_channels.tif",
+      "message": "an ImageJ hyperstack of 4 channels of 3 samples each is not supported"
+    },
+    {
+      "test": "tiff_edge_reject_imagej_short",
+      "input": "edge_reject_imagej_short.tif",
+      "message": "an ImageJ stack of 9 planes in one IFD ends outside the file"
+    },
+    {
       "test": "tiff_edge_reject_jpeg_16bit",
       "input": "edge_reject_jpeg_16bit.tif",
       "message": "unsupported JPEG: 16-bit, 3 samples, planar 1, p"

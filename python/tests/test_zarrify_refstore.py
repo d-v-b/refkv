@@ -10,11 +10,12 @@ from pathlib import Path
 import pytest
 
 import refkv
+from refkv.errors import ResolutionError
 from refkv.pb import Range, Source
 from refkv.policy import Policy
 from refkv.uri import is_uri_reference
 from refkv.zarrify import _zarrify, zarrify
-from refkv.zarrify.common import Output, reference_store
+from refkv.zarrify.common import Output, reading_own_files, reference_store
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "zarrify"))
 from proxy import Proxy
@@ -74,7 +75,8 @@ def test_zarrify_returns_the_store_it_saves(proxy, tmp_path, name, is_store, che
     out.write(str(tmp_path / "old.vzip"))
     assert (tmp_path / "new.vzip").read_bytes() == (tmp_path / "old.vzip").read_bytes()
 
-    saved = refkv.open(str(tmp_path / "new.vzip"), policy=policy)
+    reading = policy or Policy(prefixes=((FIXTURES / name).parent.as_uri() + "/",))
+    saved = refkv.open(str(tmp_path / "new.vzip"), policy=reading)
     keys = store.list()
     assert keys == saved.list()
     assert any(store.classify(k) == "reference" for k in keys)
@@ -111,13 +113,65 @@ def test_a_local_input_is_named_by_its_percent_encoded_path(tmp_path, monkeypatc
         want = zarrify(str(fixture))
         assert all(is_uri_reference(s.url or "") for s in store.sources), (dirname, name)
         store.save_vzip(tmp_path / f"{i}.vzip")
-        saved = refkv.open(str(tmp_path / f"{i}.vzip"))
+        saved = refkv.open(str(tmp_path / f"{i}.vzip"), policy=Policy(schemes=frozenset({"file"})))
         keys = want.list()
         assert store.list() == saved.list() == keys
         for k in keys:  # the metadata names the source, so only the data matches the fixture's
             assert store.get(k) == saved.get(k), (dirname, name, k)
             if want.classify(k) == "reference":
                 assert store.get(k) == want.get(k), (dirname, name, k)
+
+
+def test_a_zarrified_store_reads_its_files_and_its_saved_archive_needs_a_policy(tmp_path):
+    """The store `zarrify` returns reads its input with no policy argument. Whoever opens what it
+    saved names the files (spec §6.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 1)."""
+    path = FIXTURES / "nifti" / "nifti_block_x_split.nii"
+    store = zarrify(str(path))
+    key = next(k for k in store.list() if store.classify(k) == "reference")
+    data = store.get(key)
+    assert data
+    store.save_vzip(tmp_path / "a.vzip")
+    with pytest.raises(ResolutionError, match="reads a local file only when it is allowed"):
+        refkv.open(tmp_path / "a.vzip").get(key)
+    assert refkv.open(tmp_path / "a.vzip", policy=Policy(prefixes=(path.parent.as_uri() + "/",))).get(key) == data
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="making a symbolic link takes a privilege")
+def test_a_zarrified_store_refuses_a_link_put_in_place_of_its_file(tmp_path):
+    """The store `zarrify` returns allows its input's directory as a prefix, not every local file,
+    so a file replaced after zarrifying by a link out of that directory is refused (spec §6.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 1)."""
+    (tmp_path / "in").mkdir()
+    path = tmp_path / "in" / "x.nii"
+    shutil.copy(FIXTURES / "nifti" / "nifti_block_x_split.nii", path)
+    store = zarrify(str(path))
+    assert store.policy.prefixes == (f"{(tmp_path / 'in').as_uri()}/",)
+    key = next(k for k in store.list() if store.classify(k) == "reference")
+    assert store.get(key)
+    shutil.copy(path, tmp_path / "outside.nii")
+    path.unlink()
+    path.symlink_to(tmp_path / "outside.nii")
+    with pytest.raises(ResolutionError, match="not under an allowed prefix"):
+        store.get(key)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a file: URL with no drive has no Windows path")
+def test_a_zarrified_store_allows_its_files_directory_and_its_other_sources():
+    """A just-built store's policy allows the directory of its files, a root's with its own `/`,
+    and each other source by its URL, not every local file; a caller's prefix list is kept."""
+    https, s3 = "https://data.example/a.bin", "s3://bucket/b.bin"
+    cases = [
+        ([https], None, None),
+        (["file:///d/in/x.bin", "file:///d/in/sub/y.bin"], None, ("file:///d/in/",)),
+        (["file:///a/x.bin", "file:///b/y.bin"], None, ("file:///",)),
+        (["file:///d/x.bin", https, s3, https], None, ("file:///d/", https, s3)),
+        (["file:///d/x.bin"], ("https://h.example/",), ("https://h.example/",)),
+    ]
+    for urls, given, prefixes in cases:
+        policy = reading_own_files(Policy(prefixes=given), [Source(url=u) for u in urls])
+        assert policy.prefixes == prefixes, urls
+        assert policy.schemes == frozenset(), urls
 
 
 @pytest.mark.parametrize("entries", [[("a", b"x", False)], []], ids=["entry", "reference"])

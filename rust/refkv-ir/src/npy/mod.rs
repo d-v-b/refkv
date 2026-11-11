@@ -10,9 +10,15 @@
 //! deflated member's window is the start of its stream, which is inflated as far as its header
 //! (more of the stream in later rounds, when the header needs it). The schema
 //! (`schema/npy.json`) holds every check, in the profile's order.
+//!
+//! The parser describes the arrays it reaches as the source stores them (spec/stored-array.md
+//! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md>): a `.npy` file's, and each
+//! stored `.npz` member's whose header it read, keyed by its `header` element. A deflated
+//! member's array has none yet: its header lies in the stream, which no element holds.
 
 pub mod header;
 
+use crate::array::{AxisUnits, Chain, ChunkMap, Edge, Fill, Grid, Place, Row, StoredArray};
 use crate::expr::V;
 use crate::fed::{Fed, Overlap, uint};
 use crate::gz::inflate_prefix;
@@ -199,17 +205,30 @@ impl Array {
     }
 
     /// Its elements under `parent`: the preamble, the header and the data (presented, and not
-    /// empty).
-    fn emit(&self, ir: &mut Ir, parent: u32) -> Result<Option<u32>, String> {
+    /// empty); the header's and the data's ids, and, when its header was read, what the
+    /// description of its array is built from.
+    fn emit(&self, ir: &mut Ir, parent: u32) -> Result<(Option<u32>, Option<Reached>), String> {
         let p = self.preamble.len() as u64;
         let ty = if p == 10 { "{magic:bytes[6],major:u1,minor:u1,header_length:<u2}" } else { "{magic:bytes[6],major:u1,minor:u1,header_length:<u4}" };
         ir.value(parent, "preamble", NO_INDEX, ty, 0, (self.base, p), Some(&self.preamble))?;
+        let mut header = None;
         if self.n > 0 {
-            ir.value(parent, "header", NO_INDEX, &format!("ascii[{}]", self.n), 0, (self.at, self.n), self.raw.as_deref())?;
+            header = Some(ir.value(parent, "header", NO_INDEX, &format!("ascii[{}]", self.n), 0, (self.at, self.n), self.raw.as_deref())?);
         }
-        let (Some((o, b)), Some(t), Some(h)) = (self.data, &self.dtype, &self.header) else { return Ok(None) };
+        let reached = match (header, &self.header) {
+            (Some(element), Some(h)) => Some(Reached {
+                header: element,
+                data: None,
+                shape: h.shape.clone(),
+                fortran_order: h.fortran_order,
+                item: header::item_size(&h.descr),
+                presented: self.reason.is_none() && self.data.is_some() && self.dtype.is_some(),
+            }),
+            _ => None,
+        };
+        let (Some((o, b)), Some(t), Some(h)) = (self.data, &self.dtype, &self.header) else { return Ok((None, reached)) };
         if b == 0 {
-            return Ok(None);
+            return Ok((None, reached));
         }
         let endian = t.little.map(|l| if l { "little" } else { "big" });
         let form = json!({
@@ -217,7 +236,8 @@ impl Array {
             "codec": {"endian": endian},
             "recipe": [["src", 0, null]],
         });
-        Ok(Some(ir.data(parent, "data", NO_INDEX, 0, (o, b), &form.to_string())?))
+        let data = ir.data(parent, "data", NO_INDEX, 0, (o, b), &form.to_string())?;
+        Ok((Some(data), reached.map(|r| Reached { data: Some(data), ..r })))
     }
 
     /// The facts the projection reads of it, presented at `path`, its data element `data`; a
@@ -236,6 +256,61 @@ impl Array {
         }
         f
     }
+}
+
+/// What a stored array's description is built from, at finish (spec/stored-array.md §2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#2-the-description>): its
+/// `header` element, which declares it, its `data` element (presented, and not empty), its
+/// header's shape and order, the size of an element of its `descr`, whether or not it is
+/// presented (None for one that has none, an object array's), and whether its data is presented.
+#[derive(Clone, Debug)]
+struct Reached {
+    header: u32,
+    data: Option<u32>,
+    shape: Vec<u64>,
+    fortran_order: bool,
+    item: Option<u64>,
+    presented: bool,
+}
+
+/// The descriptions of the arrays reached, in order, with the chain table and the chunk map: a
+/// presented array is one unit, its data element, stored as is (chain 0, empty), its storage order
+/// a Fortran-order array's axes reversed; NumPy defines no fill value. An array whose data is not
+/// presented has no grid, nor, by the general fallback, has one whose element's bits pass 2^64
+/// (an array of no elements may be of such a type).
+fn described(reached: &[Reached]) -> Result<(Vec<StoredArray>, Vec<Chain>, ChunkMap), String> {
+    let mut arrays = Vec::with_capacity(reached.len());
+    let mut map = ChunkMap::default();
+    for (k, a) in reached.iter().enumerate() {
+        let r = a.shape.len();
+        let reversed = a.fortran_order && r >= 2;
+        let shape: Vec<u64> = if reversed { a.shape.iter().rev().copied().collect() } else { a.shape.clone() };
+        let item_bits = a.item.and_then(|i| i.checked_mul(8));
+        let presented = a.presented && item_bits.is_some();
+        // one unit of the whole array: an axis of length 0 has none, and declares no length
+        let grid = presented.then(|| Grid {
+            axes: shape.iter().map(|&n| if n == 0 { AxisUnits::List(Vec::new()) } else { AxisUnits::Each(n) }).collect(),
+            edge: Edge::Short,
+        });
+        if let (true, Some(d)) = (presented, a.data) {
+            map.push(Row { array: k as u32, coords: vec![0; r], element: Some(d), ..Row::default() })?;
+        }
+        arrays.push(StoredArray {
+            element: a.header,
+            index: None,
+            declarations: vec![Place::Element { element: a.header, member: None, range: None }],
+            axes: reversed.then(|| (0..r as u32).rev().collect()),
+            shape: Some(shape),
+            item_bits,
+            pad_from: None,
+            chains: if presented { vec![0] } else { Vec::new() },
+            grid,
+            fill: Fill::Undefined,
+            unit_parameters: Vec::new(),
+        });
+    }
+    let chains = if arrays.iter().any(|a| a.grid.is_some()) { vec![Vec::new()] } else { Vec::new() };
+    Ok((arrays, chains, map))
 }
 
 /// A member of a `.npz` archive: its entry, its array's path when presented, else its reason
@@ -290,6 +365,8 @@ pub struct Npy {
     cd: Vec<u8>,
     record: Option<Vec<u8>>,
     locator: Option<Vec<u8>>,
+    /// the arrays reached, described at finish
+    reached: Vec<Reached>,
 }
 
 impl Npy {
@@ -297,7 +374,7 @@ impl Npy {
         Npy {
             size, phase: Phase::Start, fed: Fed::new(Overlap::MergeKeep), ir: Ir::new(size), rules: rules::of("npy"),
             asked: Asked::default(), facts: J::Null, array: None, end: zip::End::default(), entries: Vec::new(),
-            members: Vec::new(), tail: Vec::new(), cd: Vec::new(), record: None, locator: None,
+            members: Vec::new(), tail: Vec::new(), cd: Vec::new(), record: None, locator: None, reached: Vec::new(),
         }
     }
 
@@ -459,8 +536,14 @@ impl Npy {
     fn done(&mut self) -> Result<Step, String> {
         self.phase = Phase::Done;
         let mut arrays = Vec::new();
+        // the element keying each array's description (spec/stored-array.md §2.1
+        // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>): a `.npy`
+        // file's one, or each member's of `own.members`, null for one with none
+        let mut declared_by: Vec<Option<u32>> = Vec::new();
         let own = if let Some(a) = self.array.take() {
-            let data = a.emit(&mut self.ir, 0)?;
+            let (data, reached) = a.emit(&mut self.ir, 0)?;
+            declared_by.push(reached.as_ref().map(|r| r.header));
+            self.reached.extend(reached);
             arrays.push(a.facts("array", data, None));
             json!({"kind": "npy", "array": a.header_json()})
         } else {
@@ -473,11 +556,15 @@ impl Npy {
                 let s = zip::emit_local(&mut self.ir, i as u64, e, name.as_deref())?;
                 let read = m.array.as_ref().filter(|a| a.raw.is_some() && e.method == 0);
                 let mut data = None;
+                let mut key = None;
                 if e.cs > 0 {
                     match read {
                         Some(a) => {
                             let d = self.ir.struct_(s, "data", NO_INDEX, 0, Some((e.ds, e.cs)))?;
-                            data = a.emit(&mut self.ir, d)?;
+                            let reached;
+                            (data, reached) = a.emit(&mut self.ir, d)?;
+                            key = reached.as_ref().map(|r| r.header);
+                            self.reached.extend(reached);
                         }
                         // its preamble and header, which the stream holds, are in the source metadata
                         None if e.method == 8 => {
@@ -509,18 +596,23 @@ impl Npy {
                     j.insert("header".into(), h);
                 }
                 members.push(J::Object(j));
+                declared_by.push(key);
             }
             self.rules.check("arrays", rules::env([("count", num(arrays.len() as f64)), ("reasons", text(&reasons.join(", ")))]))?;
             json!({"kind": "npz", "members": members})
         };
-        let mut facts = json!({"own": own, "arrays": arrays, "copy_threshold": crate::out::copy_threshold()});
+        let mut facts = json!({"own": own, "arrays": arrays, "declared_by": declared_by, "copy_threshold": crate::out::copy_threshold()});
         self.asked.put(&mut facts);
         self.facts = facts;
         Ok(Step::Done)
     }
 
+    /// The finished IR, with the arrays it reaches described, and the facts.
     pub fn finish(self) -> Result<(Ir, J), String> {
-        sans::finish(self.phase == Phase::Done, self.ir, self.facts)
+        let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
+        let (arrays, chains, map) = described(&self.reached)?;
+        ir.describe(arrays, chains, map)?;
+        Ok((ir, facts))
     }
 }
 

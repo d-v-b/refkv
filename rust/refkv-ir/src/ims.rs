@@ -855,7 +855,7 @@ impl Ims {
         let size = self.h.size();
         let must: HashSet<u64> = self.image_sets.iter().map(|im| im.at).collect();
         let room = self.room.unwrap_or(self.rules.limit("walk_elements") as u64 + size / self.rules.limit("walk_bytes_per_element") as u64);
-        let mut e = Emit { ir: Ir::new(self.h.file_size()), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must };
+        let mut e = Emit { ir: Ir::new(self.h.file_size()), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must, rec: Default::default() };
         let sb = self.h.sb.clone().ok_or("internal: no superblock")?;
         e.superblock(&sb)?;
         if let Some(ext) = self.extension.take() {
@@ -914,7 +914,9 @@ impl Ims {
                 e.collection(g, k as u64, c)?;
             }
         }
-        // the image's datasets, by the structs that hold their chunks (None: no chunk allocated)
+        // the image's datasets, by the structs that hold their chunks (None: no chunk allocated),
+        // each with the key of its stored-array description: its object's struct
+        let struct_of: HashMap<u64, u32> = order.iter().copied().zip(structs.iter().copied()).collect();
         let mut images = Vec::new();
         for im in &self.image_sets {
             let el = match e.chunks_of.get(&im.at) {
@@ -922,11 +924,13 @@ impl Ims {
                 None if im.allocated => return Err(format!("internal: the chunks of the dataset at {} are not described", im.at)),
                 None => J::Null,
             };
-            images.push(json!([im.r, im.t, im.c, el, im.grid]));
+            images.push(json!([im.r, im.t, im.c, el, im.grid, struct_of.get(&im.at)]));
         }
-        let mut ir = e.ir;
+        let crate::hdf5::walk::Emit { mut ir, rec, data_of, .. } = e;
         ir.sort_values();
         check::finish(&mut ir)?;
+        let em = crate::hdf5::stored::Emitted { order: &order, structs: &structs, rec: &rec, data_of: &data_of };
+        crate::hdf5::stored::describe(&mut ir, &mut self.h, &em, &self.visited, &HashMap::new(), None)?;
         let mut facts = self.facts.take().unwrap_or(J::Null);
         facts["images"] = J::Array(images);
         facts["objects"] = json!(order.len());

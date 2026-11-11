@@ -32,9 +32,31 @@ fn palette(refs: &mut Refs, p: &J, endian: &str) -> Result<(), String> {
     refs.out.json("palette/zarr.json", &array_json(&[3, entries], data_type, json!([1, entries]), json!([bytes_codec(cell, endian)]), &["c", "i"]));
     for (k, table) in arr(&p["tables"]).iter().enumerate() {
         let (start, length) = (n(table), entries * cell);
-        refs.chunk(format!("palette/c/{k}/0"), start, length, 0, Some(vec![Part::Src(start, length)]), 0)?;
+        refs.chunk(format!("palette/c/{k}/0"), start, length, 0, Some(vec![Part::Src(start, length)]))?;
     }
     Ok(())
+}
+
+/// Whether a frame's samples are stored interleaved, so that `transpose` comes first: 3 samples
+/// of Planar Configuration 0, but for RLE, whose frames decode to planar samples (spec/zarrify/dicom.md
+/// §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#21-transfer-syntax>).
+pub fn transposed(codec: &str, spp: u64, planar: bool) -> bool {
+    spp == 3 && !planar && codec != "dicomrle"
+}
+
+/// The codec of a frame after any `transpose` (spec/zarrify/dicom.md §2.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#21-transfer-syntax>), by the
+/// transfer syntax's codec (`native` for none), for samples of `data_type`, `spp` a pixel, in the
+/// byte order `endian` of native ones.
+pub fn chain(codec: &str, data_type: &str, spp: u64, endian: &str) -> J {
+    match codec {
+        // zarr-extensions' `packbits`, bit packing (not TIFF's PackBits)
+        "native" if data_type == "bool" => json!({"name": "packbits", "configuration": {"padding_encoding": "none"}}),
+        "native" => bytes_codec(item_size(data_type), endian),
+        "dicomrle" => json!({"name": "imagecodecs_dicomrle", "configuration": {"dtype": numpy_dtype(data_type)}}),
+        "htj2k" if spp == 3 => json!({"name": "imagecodecs_htj2k", "configuration": {"planar": false}}),
+        c => json!({"name": format!("imagecodecs_{c}")}),
+    }
 }
 
 pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
@@ -49,15 +71,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let little = facts["little"].as_bool().unwrap_or(true);
     let endian = if little { "little" } else { "big" };
     // an RLE frame decodes to planar samples, all others to interleaved ones
-    let mut codecs = if spp == 3 && !planar && codec != "dicomrle" { vec![transpose_codec(&axes)] } else { vec![] };
-    codecs.push(match codec {
-        // zarr-extensions' `packbits`, bit packing (not TIFF's PackBits)
-        "native" if data_type == "bool" => json!({"name": "packbits", "configuration": {"padding_encoding": "none"}}),
-        "native" => bytes_codec(item_size(data_type), endian),
-        "dicomrle" => json!({"name": "imagecodecs_dicomrle", "configuration": {"dtype": numpy_dtype(data_type)}}),
-        "htj2k" if spp == 3 => json!({"name": "imagecodecs_htj2k", "configuration": {"planar": false}}),
-        c => json!({"name": format!("imagecodecs_{c}")}),
-    });
+    let mut codecs = if transposed(codec, spp, planar) { vec![transpose_codec(&axes)] } else { vec![] };
+    codecs.push(chain(codec, data_type, spp, endian));
     let mut ome = image_ome(&axes, &obj(&facts["units"]), &[facts["scale"].clone()], None, None)?;
     let window = facts["window"].clone();
     let photometric = facts["photometric"].as_str().unwrap_or("");
@@ -129,7 +144,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
                 a if a == fa => f,
                 _ => 0,
             });
-            refs.chunk(key("0/c/", coords), start, length, form, Some(parts), s)?;
+            refs.chunk(key("0/c/", coords), start, length, form, Some(parts))?;
         }
     }
     if let Some(p) = facts.get("palette").filter(|p| !p.is_null()) {

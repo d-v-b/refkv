@@ -10,6 +10,7 @@ import pytest
 
 import refkv
 
+FILES = refkv.Policy(schemes=frozenset({"file"}))
 MODULES = ["refkv", "refkv.zarrify", "refkv.ir"]
 
 
@@ -90,11 +91,12 @@ def test_convert_keeps_relative_sources_relative(tmp_path):
     (tmp_path / "d").mkdir()
     (tmp_path / "d" / "blob.bin").write_bytes(b"0123456789")
     refkv.ReferenceStore({"k": refkv.Range(source=0, offset=2, length=3)}, [refkv.Source(url="blob.bin")],
-                         url=(tmp_path / "d" / "a.vzip").as_uri()).save_vzip(tmp_path / "d" / "a.vzip")
-    p = _run("refkv", "convert", str(tmp_path / "d" / "a.vzip"), str(tmp_path / "d" / "a.phkv"))
+                         url=(tmp_path / "d" / "a.vzip").as_uri()).save_vzip(tmp_path / "d" / "a.vzip", policy=FILES)
+    p = _run("refkv", "convert", str(tmp_path / "d" / "a.vzip"), str(tmp_path / "d" / "a.phkv"),
+             "--allow-scheme", "file")
     assert p.returncode == 0, p.stderr
     (tmp_path / "d").rename(tmp_path / "moved")
-    assert refkv.open(tmp_path / "moved" / "a.phkv", binding="phkv").get("k") == b"234"
+    assert refkv.open(tmp_path / "moved" / "a.phkv", binding="phkv", policy=FILES).get("k") == b"234"
 
 
 @pytest.mark.parametrize("args", [["one"], ["a.vzip", "b.vzip"], ["a", "b.phkv", "--to"], ["a", "b", "--from", "kv"],

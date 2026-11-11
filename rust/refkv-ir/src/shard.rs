@@ -207,8 +207,8 @@ pub fn apply_all(out: &mut Out, merge: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Fails when `out` asks for shards: a store run's hosts do not pass whether they record
-/// checksums, so a store profile cannot shard until they do.
+/// Fails when `out` asks for shards: no store profile's convention shards its arrays, so a
+/// request is a projection's mistake.
 pub fn refuse(out: &Out) -> Result<(), String> {
     match out.shards.first() {
         Some((path, _)) => Err(format!("internal: {path} asks to be sharded, which a store run does not do")),

@@ -25,7 +25,8 @@ A `.nii.gz` is read as it is, with nothing decompressed but its first bytes: one
 the whole file, with the codecs `bytes`, `refkv.skip` (the header's length) and `gzip`. The cost is
 reads: a gzip stream has no index, so reading one slice inflates the whole stream, and holds the
 whole array in memory. To slice a large volume repeatedly, decompress it once and zarrify the
-`.nii`.
+`.nii`. A `.nii.gz` of more than 2 GiB is past a reader's default bytes per `get` ([refkv §6.7](../../../spec/refkv.md#67-reader-policy) rule 5):
+raise `max_get_bytes` to read it.
 
 ## Header-and-image pairs
 

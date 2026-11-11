@@ -35,6 +35,12 @@ fn rejection(key: &str) -> String {
 
 /// A store run of the pair whose header file is `key`, the image file found by `beside`.
 fn run_pair(key: &str, data: &[u8], beside: impl Fn(&str) -> Option<Vec<u8>>) -> Result<refkv_ir::out::Out, String> {
+    let (ir, facts, stats) = parse_pair(key, data, beside)?;
+    refkv_ir::store::store_output(StoreFormat::Nifti, &ir, &facts, stats, "https://example.org/nifti/", true, false).map_err(String::from)
+}
+
+/// The store IR, the facts and the run's counts of the pair whose header file is `key`, the image file found by `beside`.
+fn parse_pair(key: &str, data: &[u8], beside: impl Fn(&str) -> Option<Vec<u8>>) -> Result<(refkv_ir::ir::Ir, serde_json::Value, serde_json::Value), String> {
     let mut run = StoreRun::new(StoreFormat::Nifti, vec![(key.to_string(), data.len() as u64)], 4)?;
     while let Some(reqs) = run.poll()? {
         if reqs.is_empty() {
@@ -48,8 +54,7 @@ fn run_pair(key: &str, data: &[u8], beside: impl Fn(&str) -> Option<Vec<u8>>) ->
             run.complete(k, q.spans.iter().map(|&(a, b)| object[a as usize..b as usize].to_vec()).collect())?;
         }
     }
-    let (ir, facts, stats) = run.finish()?;
-    refkv_ir::store::store_output(StoreFormat::Nifti, &ir, &facts, stats, "https://example.org/nifti/", true)
+    run.finish()
 }
 
 include!(concat!(env!("OUT_DIR"), "/rejects_nifti.rs"));
@@ -145,4 +150,43 @@ fn a_gzipped_file_is_read_at_its_start_and_its_trailer() {
     assert!(reads.iter().all(|&(o, n)| o + n <= 1 << 16 || (o, n) == (size - 4, 4)), "{reads:?}");
     let (_, facts) = parser.finish().unwrap();
     assert_eq!(facts["gzip"]["skip"], 352);
+}
+
+/// Every accepted fixture's facts name its voxels' description by its key (spec/stored-array.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): `declared_by` is
+/// the id of the `header` element of a single file, or of a pair's header file, and of a gzipped
+/// file's one element, its stream. The IR's one description is keyed by it, with no index, and its
+/// one row's element is the facts' `voxels`.
+#[test]
+fn every_accepted_fixtures_facts_name_its_description() {
+    let (mut single, mut gzipped, mut pairs) = (0, 0, 0);
+    for entry in std::fs::read_dir(common::fixtures().join("nifti")).unwrap() {
+        let key = entry.unwrap().file_name().into_string().unwrap();
+        let lower = key.to_lowercase();
+        if key.contains("reject") || lower.ends_with(".img") {
+            continue;
+        }
+        let data = fixture(&key).unwrap();
+        let (ir, facts, declaring) = if lower.ends_with(".hdr") {
+            pairs += 1;
+            let (ir, facts, _) = parse_pair(&key, &data, fixture).unwrap();
+            (ir, facts, format!("{key}/header"))
+        } else {
+            let (ir, facts) = refkv_ir::parse_bytes::<Nifti>(&data).unwrap();
+            let stream = lower.ends_with(".gz");
+            assert_eq!(facts["gzip"].is_object(), stream, "{key}");
+            gzipped += stream as u32;
+            single += !stream as u32;
+            (ir, facts, if stream { "voxels" } else { "header" }.to_string())
+        };
+        let declared = facts["declared_by"].as_u64().unwrap_or_else(|| panic!("{key}: no declared_by")) as u32;
+        assert_eq!(ir.path(declared), declaring, "{key}");
+        let s = &ir.stored;
+        assert_eq!(s.arrays.len(), 1, "{key}");
+        assert_eq!((s.arrays[0].element, s.arrays[0].index), (declared, None), "{key}");
+        assert!(s.arrays[0].grid.is_some(), "{key}");
+        assert_eq!(s.map.len(), 1, "{key}");
+        assert_eq!(s.map.element[0].map(u64::from), facts["voxels"].as_u64(), "{key}");
+    }
+    assert_eq!((single, gzipped, pairs), (70, 5, 9));
 }

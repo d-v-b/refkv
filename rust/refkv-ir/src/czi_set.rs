@@ -82,8 +82,9 @@ pub struct CziSet {
     second: bool,
     highest: i32,
     planes: Option<Planes>,
-    /// the parsed files, in the listing's order: (IR, what it places, entries, its subblocks)
-    parsed: Vec<(Ir, Vec<Placed>, usize, usize)>,
+    /// the parsed files, in the listing's order: (IR, what it places, the key of each entry's
+    /// description, its subblocks)
+    parsed: Vec<(Ir, Vec<Placed>, Vec<Option<u32>>, usize)>,
     fill: Vec<(usize, u32, u64, u64)>,
     finished: Option<(Ir, J)>,
 }
@@ -134,21 +135,28 @@ impl CziSet {
     fn join(&mut self) -> Res<()> {
         let mut ir = self.ir.take().ok_or("internal: no IR")?;
         let mut placed = Vec::new();
+        // `declared_by`: the key of each entry's description, the named file's entries, then each
+        // part's, as they are placed
+        let mut declared_by: Vec<Option<u32>> = Vec::new();
         let (mut offset, mut subblocks) = (0, 0);
-        for (k, (mut file, ps, entries, own)) in std::mem::take(&mut self.parsed).into_iter().enumerate() {
+        for (k, (mut file, ps, keys, own)) in std::mem::take(&mut self.parsed).into_iter().enumerate() {
             file.sort_values();
             let e = self.elems[k];
             ir.describe_in_place(e)?;
+            // the graft carries the file's descriptions, their elements renumbered as `at` gives
             let at = ir.graft(&file, e)?;
             placed.extend(ps.into_iter().map(|mut p| {
                 p.el = at[p.el as usize];
+                p.key = at[p.key as usize];
                 p.index += offset;
                 p
             }));
-            offset += entries;
+            offset += keys.len();
+            declared_by.extend(keys.into_iter().map(|key| key.map(|key| at[key as usize])));
             subblocks += own;
         }
         let mut facts = self.named.layout_of(placed, subblocks)?;
+        facts["declared_by"] = json!(declared_by);
         facts["root"]["parts"] = json!(self.keys[1..]);
         facts["named_key"] = json!(self.named_key);
         self.finished = Some(crate::sans::finish(true, ir, facts)?);

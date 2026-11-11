@@ -85,7 +85,7 @@ a reference entry, is one of:
 
 | range | written | its bytes |
 |---|---|---|
-| a source range | `(i, offset, length)` | `length` bytes of source `i`, from `offset`: of a `url` source: the input, source 0, for a file input; for a store input, an object, in the order [§1.4](#14-store-inputs) gives (the SAFE document and the safetensors store form give their own order, and so does each profile that reads a file as a store, [§1.8](#18-files-read-as-stores), whose source 0 need not be the input), or of a data source ([§1.2](#12-input)), whole, or a zero data source's first `length` bytes |
+| a source range | `(i, offset, length)` | `length` bytes of source `i`, from `offset`: of a `url` source: the input, source 0, for a file input; for a store input or a file read as a store ([§1.8](#18-files-read-as-stores), whose source 0 need not be the input), an object, in order of first use ([§1.2](#12-input); the DICOM store form's, [dicom.md §9](zarrify/dicom.md#9-the-store-form), aside), or of a data source ([§1.2](#12-input)), whole, or a zero data source's first `length` bytes; in a plugin's output ([spec/layout.md](layout.md)), any `length` bytes within a data source, from `offset` |
 | a literal range | a literal of `d` | the bytes `d`, which the entry carries ([spec/refkv.md §4.2](refkv.md#42-range)) |
 
 A format's chunk tables ([conventions §11.5](conventions.md#115-layout-tables)) give each
@@ -100,7 +100,8 @@ sources with identical bytes), the same set of keys, and for every key:
   of given bytes ([spec/refkv.md §4.2](refkv.md#42-range)), and two ranges are the same only if both are
   source ranges with equal sources, offsets and lengths, or both are literal
   ranges with identical bytes;
-- **JSON documents** (keys ending in `zarr.json`): equal JSON values.
+- **JSON documents** (keys ending in `zarr.json`): equal JSON values; in a plugin's output, a
+  `zarr.json` that is not JSON is compared by its bytes.
   Objects compare by key and arrays by order; whitespace and key order do
   not matter. Numbers compare by value:
   - a number written as an integer (an optional `-` and digits, with no
@@ -155,6 +156,13 @@ file. (An implementation MAY also accept a local file or directory, with `U`
 the URL it will be served from: a directory is a store input, listed as
 [§1.5](#15-listing-a-store) says.)
 
+**Registered stores.** An implementation MAY read `U` with an **object store** the
+application provides for a prefix of `U` (as [spec/refkv.md §6.7](refkv.md#67-reader-policy)'s
+registered stores are), such as the store of an S3 bucket for `s3://bucket/`: it reads a file's
+size and ranges with that store, and lists a store input with it
+([§1.5](#15-listing-a-store)). `U` may then have any scheme the application provides a store
+for. Such a file's `etag` pin is the strong entity tag that the store gives for the object, if any.
+
 For a file input, the output's source table is source 0, a `url` source
 whose value is `U` as given, followed by the output's **data sources**, if
 its profile defines any (a file read as a store has the sources of
@@ -174,14 +182,25 @@ a `url` source the CRC-32C of its bytes ([spec/refkv.md §4.2](refkv.md#42-range
 byte the output references, pixel data included, so it is off by default;
 it is the one exception to "Structure only" below, and changes nothing else
 in the output. An output whose payload exceeds 65519 bytes only because of
-its checksums is a failure, not a rejection. A data source is a `data` source
+its checksums is a failure, not a rejection: for an output a profile writes without a plugin,
+each range of a `url` source is counted with the most bytes its `crc32c` field takes, 6 (a tag,
+and a varint of 32 bits), so whether it fails depends on the output's ranges, never on the bytes
+they read (a plugin's output is measured as [spec/layout.md §4](layout.md#4-writing-the-output)
+says). A data source is a `data` source
 ([spec/refkv.md §5](refkv.md#5-source-table)) holding a byte string that a profile names as **shared**: one
 that many references would otherwise each read from the file, or each carry
 as a literal, such as a JPEG header. The data sources are the distinct
-shared byte strings of the output, numbered from 1 **in order of first
-use**: in the order in which the profile lists the references, and within a
-reference in order of its ranges, the first range that uses a byte string
-not yet in the table adds it as the next source. A range that uses a shared
+shared byte strings of the output, numbered after source 0, from 1, **in order of first
+use**: over the reference entries in the order of their keys, compared as UTF-8 byte strings,
+and within a reference in order of its ranges, the first range that uses a byte string
+not yet in the table adds it as the next source. Every output a profile writes without a plugin
+is numbered by this one rule, its `url` sources first, by their first use, then its data
+sources, from the first index after them: a store input's ([§1.4](#14-store-inputs)), a file read
+as a store's ([§1.8](#18-files-read-as-stores)); so is an output a caller builds with
+`refkv.build` (docs/build.md), whose source 0 is its input only when it has one input, a file
+read as a file input. Two outputs are numbered otherwise: a
+plugin's ([§1.9](#19-sources-beside-the-input), **Sources and order**), and the DICOM store form's
+([dicom.md §9](zarrify/dicom.md#9-the-store-form)), whose table this document does not fix. A range that uses a shared
 byte string `d` in data source `i` is `(i, 0, len(d))`, the whole source,
 but for a **zero data source**: `n` zero bytes, `n` the most zero padding
 any reference of the output holds, of which a reference padded with `p`
@@ -258,7 +277,9 @@ listing and object reads ([§1.4](#14-store-inputs), [§1.5](#15-listing-a-store
 is requested. A request the policy refuses is a failure, not a rejection
 ([Appendix A](#appendix-a-conformance) gives the implementations' defaults).
 
-**Structure only.** The output MUST NOT depend on the file's pixel data.
+**Structure only.** The output MUST NOT depend on the file's pixel data. A plugin layout
+([spec/layout.md](layout.md)) is bound by this too, with no exception beyond the checksums below:
+the coding parameters it reads from the IR are structure, as they are for the profile.
 (Reading blocks that happen to include pixel bytes is fine.) Coding
 parameters are structure, not pixel data, and an output may copy them: the
 data sources and literals of the TIFF and NDPI profiles hold JPEG markers
@@ -276,8 +297,13 @@ in the output.
 
 **References stay in the file.** Every range of source 0 MUST lie within
 the file (`offset + length ≤` the file's size; a range of a data source is
-the whole source), and every reference entry's
-payload MUST be at most 65519 bytes; otherwise the input is rejected. The
+the whole source), every reference entry's
+payload MUST be at most 65519 bytes, and every key MUST be at most 65535 bytes in UTF-8 and MUST
+NOT start with `__vz__/` (the ZIP binding's own, [spec/bindings/vzip.md](bindings/vzip.md));
+otherwise the input is rejected. The first two hold for every
+reference of a plugin's output ([spec/layout.md §4](layout.md#4-writing-the-output)), where a
+range of a data source may be any bytes within it, and one that breaks them is a failure of the
+call, not a rejection of the input. The
 payload ([spec/refkv.md §4.4](refkv.md#44-reference-payloads), [§4](refkv.md#4-messages)) of a single range is its `Range` message: for a
 source range `(i, o, n)`, `0x08 varint(i)` if `i > 0`, then `0x18 varint(o)`
 if `o > 0`, then `0x20 varint(n)` if `n > 0` (fields 1, 3 and 4); for a
@@ -290,13 +316,16 @@ encoding (1 byte below 2^7, 2 below 2^14, and so on).
 ([conventions §8](conventions.md#8-the-ir-mirror)) bounds how many references it writes,
 so that a small input cannot make a large output. Each chunk it references is one
 **reference** (for a sharded array, each inner chunk, counted before the chunks are put in
-shards, [§2.1](#21-virtual-shards)); a chunk that references the same bytes of the same element
-as an earlier one (the same extent of the IR, and the same piece of it, where a profile cuts an element into
-pieces) is also one **repeat**, as when two chunks name one element that two structures share
+shards, [§2.1](#21-virtual-shards)), but for a chunk that joins strips
+([tiff.md §7.3](zarrify/tiff.md#73-chunks)) each strip it joins is one, and the chunk none of its
+own; a reference whose ranges of the file (or of the store's objects) are, in order,
+an earlier reference's, whatever elements or pieces of elements they are cut from, is also one
+**repeat** (a reference of no such range is none), as when two chunks name one element that two structures share
 (an alias, [conventions §8.1](conventions.md#81-elements)). A zarrifier MUST reject an input
 whose output would have more than `2^22 + 4 × Z` references, `Z` the source's size (for a
 store IR, its objects' total size), with the message `budget: more than N refs`, or more than
-2^20 repeats, with the message `budget: more than 1048576 repeats` (`N` in decimal). The
+2^20 repeats, with the message `budget: more than 1048576 repeats` (`N` in decimal). The budget bounds the base a plugin layout is built from, not the plugin's
+output, which may put one reference at many keys and make references of its own. The
 budget applies to the CZI, DICOM, FITS, FLAC, HDF5, IMS, LIF, MP3, MP4, MRC, NDPI, NIfTI,
 NumPy, NRRD, QPTIFF, safetensors (both its forms), TIFF and VSI profiles; the GRIB, ND2 and
 SAFE profiles and the store profiles bound their outputs by their own rules.
@@ -326,7 +355,8 @@ whose objects are the objects under `U`.
 case), an authority without userinfo, and no query or fragment component
 (not even an empty `?` or `#`); otherwise the input is rejected. (An
 implementation that reads a local directory uses the URL the directory will
-be served from, which MUST satisfy the same rules.)
+be served from, which MUST satisfy the same rules. A store read with a
+[registered store](#12-input) may have that store's scheme.)
 
 **The objects.** The store is listed as [§1.5](#15-listing-a-store) says. Each listed key `K`
 begins with the prefix `P` ([§1.5](#15-listing-a-store)); its **relative key** is `K` without
@@ -446,10 +476,11 @@ follow them, and its references are ranges within objects
 ([safe.md §8.8](zarrify/safe.md#88-the-source-table)). The safetensors profile's store form is
 another, in the same way ([safetensors.md §9.4](zarrify/safetensors.md#94-chunks-and-sources)).
 
-These rules replace [§1.2](#12-input)'s **References stay in the file** (but for the
-SAFE profile, whose payloads are checked as [§1.2](#12-input) says): each range lies
-within its object by construction, and its payload is far below 65519
-bytes. An output key MUST be at most 65535 bytes in UTF-8 and MUST NOT
+These rules replace [§1.2](#12-input)'s **References stay in the file** for the store profiles of
+this section (but for the SAFE profile and the safetensors store form, whose payloads are checked
+as [§1.2](#12-input) says): each range lies within its object by construction, and its payload is
+far below 65519 bytes, with its checksum too. The DICOM store form's references are its files'
+([dicom.md §9](zarrify/dicom.md#9-the-store-form)), each checked as its file's output is. An output key MUST be at most 65535 bytes in UTF-8 and MUST NOT
 start with `__vz__/`; otherwise the input is rejected.
 
 **Rejection and failure.** [§1.2](#12-input)'s rejection rule applies to every object a
@@ -463,6 +494,11 @@ says which listing responses reject the input.
 its regular files, at any depth, with keys the relative paths joined by `/`
 and sizes the file sizes. Symbolic links and files whose names are not
 valid UTF-8 are not objects. `P` is empty.
+
+**Registered stores.** A store read with an object store the application provides
+([§1.2](#12-input)) is listed with that store's listing of the objects under `U`'s path in
+it, by whole path segments: its objects are the listed objects, with their listed paths as keys
+and listed sizes. `P` is that path followed by `/`, or empty when `U` is the store's root.
 
 **Hub repositories.** A repository of the Hugging Face Hub, at a revision,
 is listed with the Hub's API, not with S3's. The Hub's **endpoint** `E` is
@@ -692,7 +728,8 @@ binary64 value.
 ### 1.7 Named inputs and layouts
 
 A zarrifier MAY be told, with its input, the input's profile, and the layouts its output
-holds. Neither changes what a profile accepts or what it writes for a layout.
+holds, or a plugin layout in their place. None changes what a profile accepts; the first two do
+not change what it writes for a layout.
 
 - **A named profile.** The input is read by the named profile without the test that would
   otherwise choose one: a file's signature ([§1.2](#12-input)) or a store's root keys
@@ -709,9 +746,18 @@ holds. Neither changes what a profile accepts or what it writes for a layout.
   dataset node, and its root's property no `layouts` member
   ([conventions §2](conventions.md#2-attributes)). A zarrifier told to write a dataset
   layout for a format that has none rejects the request.
+- **A plugin layout.** A zarrifier MAY be told a plugin's layout, by its name and options,
+  in place of the layouts above, for a file input ([spec/layout.md](layout.md)). Its output is
+  then the plugin's, built from the output the profile writes with every layout the format has
+  (the base), and the sentences above that the image layout is always written, and that a
+  layout request changes nothing in what the profile writes, hold for an output without a
+  plugin. A layout request refused for an input ([spec/layout.md §6](layout.md#6-errors)) is not
+  a change to what the profile accepts. An implementation that cannot load plugins (the browser
+  one, the Rust CLI) conforms without them, and refuses a plugin's name.
 
 Two outputs of one input are equivalent ([§1.1](#11-output-and-equivalence)) when their
-zarrifiers wrote the same layouts.
+zarrifiers wrote the same layouts, or the same plugin layout with the same options from the same
+base.
 
 ### 1.8 Files read as stores
 
@@ -733,8 +779,8 @@ files, a project's documents and LOFs) as a store ([§1.4](#14-store-inputs)).
 <!-- /profiles -->
 
 Such a **file read as a store** is read as follows; the profile's
-document says which keys it probes, how it reads each object, and the order of its sources, under
-the rules of [§1.9](#19-sources-beside-the-input).
+document says which keys it probes and how it reads each object, under the rules of
+[§1.9](#19-sources-beside-the-input); its sources are numbered as [§1.2](#12-input) says.
 
 - **The store URL and the key.** `U` MUST have no query and no fragment component, or the
   input is rejected (`<format> input <U> has a query or a fragment`). The **store URL** is `U`
@@ -752,8 +798,8 @@ the rules of [§1.9](#19-sources-beside-the-input).
   requested length is a failure.
 - **Sources.** The output's `url` sources are the object URLs
   ([§1.4](#14-store-inputs), **Object URLs**) of the objects its references use, each with a
-  `size` pin, in the order the profile's document gives, followed by its data sources
-  ([§1.2](#12-input)). Source 0 need not be the named file.
+  `size` pin, in order of first use ([§1.2](#12-input)), followed by its data sources. Source 0
+  need not be the named file.
 - **`source.url`** ([§2](#2-the-zarr-layout)) is the named file's object URL, the store URL
   followed by the key encoded as [§1.4](#14-store-inputs) says. It is not `U` as given when
   `U` encodes the key otherwise (`%7E` for `~`, or lowercase hex digits).
@@ -851,9 +897,12 @@ CORS headers from a network failure, so asking for a file that is not there can 
 **Sources and order.** Each sibling a reference uses is a `url` source
 ([§1.8](#18-files-read-as-stores), **Sources**), and the named file is one only when a reference
 uses it. The order of the sources is a function of the bytes alone, never of when a probe or a read
-completed. A profile uses the order of **first use** unless its document says otherwise: walk the
-output's reference entries in the order its chunk tables give, and number each object as it first
-appears.
+completed. Every profile uses the order of **first use** ([§1.2](#12-input)): walk the
+output's reference entries in the order of their keys, and number each object as it first
+appears. A plugin's output ([spec/layout.md](layout.md)) keeps the base's source table, in the
+base's order, sources it does not use included, and after them, at most one zero data source
+([spec/layout.md §4](layout.md#4-writing-the-output)): the numbering by first use, and the rule that a
+`url` source is one a reference uses, hold for an output without a plugin.
 
 **Pins.** A sibling is pinned as source 0 of a file input is ([§1.2](#12-input)): a `size` pin, and
 an `etag` pin when every response received for it had an `ETag` with the same strong value. Every
@@ -888,6 +937,23 @@ read of what it named:
 - **References** stay within their objects: every reference's `offset + length` is at most the
   `size` its object's pin records ([§1.2](#12-input), **References stay in the file**).
 
+**Scope.** The **scope** of an input is the part of the store URL's directory a zarrifier may read
+besides the named file. The application gives it, as files and directories at or below the store
+URL, each a key, or a directory's key followed by `/` (every key below it). By default it is the
+whole directory, so every key the naming steps give is in it. An application gives a narrower one
+when the input is untrusted and its directory holds files it must not reach (a server that keeps
+every user's uploads in one directory); a scope of no key reads the named file alone. A key is in
+the scope when it is one of its keys or below one of its directories, compared as written.
+
+A zarrifier probes no key outside the scope, and lists no directory for **Case** to resolve one. The
+profile's optional sibling (one whose absence means only that the named file has none, as GRIB's
+index files) outside it is absent, without a request. Any other key outside it rejects the input
+before anything else of the batch is read: `out of scope: the input names the file "<key>"`, the key
+as the naming steps give it. So does a key **Case** finds outside the scope, naming the found key. A
+name that may dangle, such as an HDF5 external link's, is rejected too: recorded in place, it would
+say that the link names no file when it may name one. A store input has no scope, its objects being
+the ones its listing gives.
+
 **The sibling table.** A profile's document says, for its siblings:
 
 | what | it says |
@@ -896,7 +962,7 @@ read of what it named:
 | names | each key's rule, derived or written, with the steps a written name takes (`\`, percent-decoding, `..`, **Case**) |
 | probes | which keys, in which batches; required or optional; what is recorded for a name that dangles; when a family ends |
 | identity | what is checked in each sibling and the rejection's message, or that the format records nothing |
-| order | the sources' order, when not first use |
+| order | first use ([§1.2](#12-input)), and what it makes source 0 or 1 when the document names it |
 | reads and mirror | the ranges read of each sibling, and how the mirror describes it |
 
 ## 2. The Zarr layout
@@ -915,7 +981,8 @@ metadata as JSON).
 
 A zarrifier MUST produce exactly the layout the input format's convention
 specifies for the input, at the convention's version that the profile
-states, with:
+states (for an output without a plugin layout, [§1.7](#17-named-inputs-and-layouts); a plugin's
+output has the entries [spec/layout.md](layout.md) says), with:
 
 - `source.url` ([conventions §2](conventions.md#2-attributes)) the input URL `U` as given ([§1.2](#12-input)): for a
   file input the URL of source 0, for a store input the store URL ([§1.4](#14-store-inputs)), but
@@ -1096,8 +1163,7 @@ entries. The Python reference has no limit of its own beyond the store IR's 2^24
 ([conventions §8.9](conventions.md#89-stores)), past which every zarrifier rejects the store;
 its run on a 470000-chunk OpenOrganelle level is recorded in
 `spec/history/virtualize/REVISIONS.md` (revision 12). Store profiles do not shard
-([§2.1](#21-virtual-shards)) because the hosts of a store input's zarrifier do not tell the pass
-that joins ranges whether they record checksums.
+([§2.1](#21-virtual-shards)): no store convention asks for shards.
 
 Implementations written from this document alone, round by round, are in
 `conformance/impls/zarrify/`; `spec/history/virtualize/REVISIONS.md` records what each

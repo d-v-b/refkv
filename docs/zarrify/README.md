@@ -85,6 +85,15 @@ differ too. Where a summary line or an attribute path has changed since
 then, the pages show its current form, and say so where a value could not
 be measured again.
 
+## Large chunks
+
+A chunk is as large as the input makes it. Several formats give one chunk for a whole stream,
+strip, frame or shard: a gzipped NIfTI, MRC or NRRD file, a compressed `.npz` member, an
+uncompressed TIFF strip kept whole, an ND2 frame, an HDF5 chunk, or a Zarr v3 shard read whole.
+A reader refuses a `get` of more bytes than its policy allows, 2 GiB by default
+([refkv §6.7](../../spec/refkv.md#67-reader-policy) rule 5), so a chunk past that is read by
+raising `max_get_bytes` (`maxGetBytes` in TypeScript), for an input you trust.
+
 ## Two ways to run it
 
 **The Python command line.** `pip install refkv` installs the `refkv` command
@@ -120,6 +129,8 @@ store by the objects at its root. Options:
   archive references (off by default);
 - `--allow-private-hosts`: let a file or store at an http(s) URL be read
   from a loopback, private or link-local host (below; unsafe);
+- `--scope PATH`: what a file input may read besides itself, repeated for
+  several paths (below; default: the input's directory);
 - `--connections N` and `--byte-cost SECONDS_PER_MB`: for a file input,
   how many requests the read planner runs at a time (default 8), and how
   much wall time it charges for a megabyte read beyond those asked (default
@@ -144,6 +155,22 @@ to such a host opens only with `refkv.zarr.open(path,
 policy=Policy(allow_private_hosts=True))` (`from refkv.policy import
 Policy`). A local file or directory needs neither.
 
+**Untrusted files.** Some files name other files beside them, which
+zarrifying reads too: an HDF5 file's external storage and external links, a
+detached NRRD header's data file, the other files of an OME-TIFF, CZI, LIF or
+NIfTI set, a VSI slide's tile files. Those names stay below the input's
+directory ([spec](../../spec/zarrify.md#19-sources-beside-the-input)), but a
+server that saves uploads into a shared directory and zarrifies them would let
+one upload read another: an HDF5 file with `external=[("other-user/session.txt",
+0, 40)]` puts that file's bytes in its archive. To say what a file may read, give its scope:
+`--scope PATH`, repeated for several, or `scope=` in Python (a path or a list of them), and
+`scope` in the browser's `zarrifySource` and `zarrifyToArchive` (URLs). Each entry is the
+input's directory, the default, or a file or directory below it, written as the input is.
+`--scope <the input>` reads the input alone. An input that needs a file outside its scope is
+rejected before that file is opened, naming it:
+`out of scope: the input names the file "other-user/session.txt"`. A GRIB file's index files are
+optional, so a GRIB file is read without one that is out of scope instead. A store input, read from its listing, takes no scope.
+
 Read the archive in Python with `refkv.zarr` and zarr-python
 (`pip install 'refkv[zarr]'`, or `refkv[images]` for imagecodecs-zarr's codecs). zarr-python
 finds every codec an archive names, which
@@ -158,13 +185,17 @@ strip is short) also needs
 `zarr.config.set({"array.rectilinear_chunks": True})`. Importing `refkv.zarr` sets
 it, and so does loading one of refkv's codecs, but zarr checks an array's chunk
 grid before it loads its codecs: set it yourself before opening such an array.
-`refkv.zarr` opens the archive itself:
+`refkv.zarr` opens the archive itself. An archive of a local file reads that file,
+which you allow by name, since a store cannot allow itself to read your files
+([spec §6.7](../../spec/refkv.md#67-reader-policy)):
 
 ```python
 import zarr
+import refkv
 import refkv.zarr
 
-g = zarr.open_group(refkv.zarr.open("out.vzip"), mode="r")
+policy = refkv.Policy(prefixes=("file:///data/",))
+g = zarr.open_group(refkv.zarr.open("out.vzip", policy=policy), mode="r")
 ```
 
 **From Python.** The command is a thin wrapper over
@@ -187,7 +218,7 @@ store.save_vzip("CMU-1-Small-Region.vzip")
 `zarrify` takes the input's local path or URL, and the command's options as
 keyword arguments: `url` (the URL the archive names the source by),
 `checksums`, `policy`, `connections`, `byte_cost` (in seconds per byte, not
-per MB) and `workers`. It raises `refkv.zarrify.Rejected` when no profile
+per MB), `workers` and `scope`. It raises `refkv.zarrify.Rejected` when no profile
 accepts the input, `refkv.errors.ResolutionError` when the reader policy
 refuses the input or a source (such as a URL on a private host), and `OSError`
 when the input cannot be read (`FileNotFoundError` for a missing local file,
@@ -207,8 +238,8 @@ per profile in the registry. `<Name>Source` is for a file (`TiffSource`,
 `Mp4Source`, `NdpiSource`, ...). `<Name>Store` is for a store (`Zarr2Store`,
 `OmeZarrStore`, `N5Store`, `PrecomputedStore`, `SafetensorsStore`). SAFE has both, `SafeSource` for a `.SAFE.zip` file
 and `SafeStore` for a `.SAFE` directory. The input's read options belong to the
-class (`url`, `checksums`, `policy`, and `connections` and `byte_cost` for a
-file, or `workers` and `max_objects` for a store), so `zarrify` raises
+class (`url`, `checksums`, `policy`, and `connections`, `byte_cost` and
+`scope` for a file, or `workers` and `max_objects` for a store), so `zarrify` raises
 `TypeError` when one is also passed beside it:
 
 ```python

@@ -125,7 +125,7 @@ def _convert(
     options: dict[str, Any] = {"policy": policy or Policy()}
     if registry is not None:
         options["registry"] = registry
-    store = open(src, binding=binding, **options)
+    store = (vzip.open if binding == "vzip" else phkv.open)(os.fspath(src), **options)
     copy = ReferenceStore.from_store(store)
     if relative_to is None:
         base = file_uri(os.fspath(dst))

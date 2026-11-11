@@ -32,18 +32,25 @@ pub fn object_url(store_url: &str, key: &str) -> String {
 
 /// The codecs of a tile file's arrays (§4.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#41-the-pyramid>): `transpose`
-/// for samples, then the compression's.
+/// for samples, then the compression's (`chain`).
 fn codecs(codec: &str, bytes: u64, samples: u64, axes: &[&str]) -> J {
     let mut out = if samples > 1 { vec![transpose_codec(axes)] } else { vec![] };
-    match codec {
-        "jpeg" => out.push(json!({"name": "imagecodecs_jpeg"})),
-        "jpeg2000" => out.push(json!({"name": "imagecodecs_jpeg2k"})),
-        "ljpeg" => out.push(json!({"name": "imagecodecs_ljpeg"})),
-        "png" => out.push(json!({"name": "imagecodecs_png"})),
-        "bmp" => out.push(json!({"name": "imagecodecs_bmp"})),
-        _ => out.push(bytes_codec(bytes, "little")),
-    }
+    out.push(chain(codec, bytes));
     J::Array(out)
+}
+
+/// The codec of a tile file's tiles after any `transpose` (§4.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#41-the-pyramid>), by the
+/// codec's name, for samples of `bytes` bytes: the name's image codec, or `bytes` for raw tiles.
+pub fn chain(codec: &str, bytes: u64) -> J {
+    match codec {
+        "jpeg" => json!({"name": "imagecodecs_jpeg"}),
+        "jpeg2000" => json!({"name": "imagecodecs_jpeg2k"}),
+        "ljpeg" => json!({"name": "imagecodecs_ljpeg"}),
+        "png" => json!({"name": "imagecodecs_png"}),
+        "bmp" => json!({"name": "imagecodecs_bmp"}),
+        _ => bytes_codec(bytes, "little"),
+    }
 }
 
 /// The window of a channel (§4.2
@@ -182,7 +189,7 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
                 return Err(format!("internal: no element {el}"));
             };
             let coords = axes.iter().map(|a| along(a, [ti, if samples > 1 { 0 } else { ci }, zi, y, x]));
-            refs.chunk(key(&format!("{path}/{l}/c/"), coords), start, length, 0, Some(vec![Part::Obj(key_ets.clone(), start, length)]), 0)?;
+            refs.chunk(key(&format!("{path}/{l}/c/"), coords), start, length, 0, Some(vec![Part::Obj(key_ets.clone(), start, length)]))?;
             count += 1;
         }
         summary = json!({"name": name, "kind": "stack", "source": "tiles", "id": im["id"], "dataType": data_type, "samples": samples, "codec": codec,
@@ -237,7 +244,7 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
         }
         let (el, start, length) = (n(&strips[0][0]), n(&strips[0][1]), n(&strips[0][2]));
         let _ = el;
-        refs.chunk(key(&format!("{path}/0/c/"), vec![0; axes.len()]), start, length, 0, Some(parts), 0)?;
+        refs.chunk(key(&format!("{path}/0/c/"), vec![0; axes.len()]), start, length, 0, Some(parts))?;
         summary = json!({"name": name, "kind": im["kind"], "source": "ifd", "id": im["id"], "dataType": data_type, "samples": samples, "codec": if compression == 7 { "jpeg" } else { "raw" },
                          "axes": axes, "levels": [[w, h]], "chunks": 1});
     }

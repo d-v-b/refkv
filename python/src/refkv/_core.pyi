@@ -8,7 +8,7 @@
 # it raises ValueError("finished").
 
 from collections.abc import Callable, Sequence
-from typing import Literal
+from typing import Literal, final
 
 # A decoded IR value (`Ir.value`).
 type Value = int | float | str | bytes | list[Value] | dict[str, Value]
@@ -34,9 +34,43 @@ type Read = Callable[[int, int], bytes]
 class Rejected(Exception):  # noqa: N818 (the core's name)
     """A parser, a run or a projection rejected its input."""
 
+class SealRefused(ValueError):  # noqa: N818 (the core's name)
+    """`seal` refuses an output: `args` are (code, key or None, message)."""
+
+class Failed(ValueError):  # noqa: N818 (the core's name)
+    """A run's output is not written, by no fault of the input: a payload over the limit only with
+    its checksums (spec/zarrify.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)."""
+
 class Violation(Exception):  # noqa: N818 (the core's name)
     """An IR broke an invariant (conventions §8.1
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>)."""
+
+class NoCodec(ValueError):  # noqa: N818 (the core's name)
+    """No codec undoes the coding parameters a routine was given (`coding`)."""
+
+def coding(name: str, params: str) -> str:
+    """A coding routine of `refkv.zarrify.coding` (spec/layout.md
+    <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): the routine `name` of the
+    parameters `params` (JSON), its result as JSON. Raises NoCodec for parameters the format's
+    section rejects, ValueError for parameters that are not the routine's."""
+
+@final
+class ChunkMap:
+    """An IR's chunk map as one Arrow record batch, for the Arrow PyCapsule interface: pyarrow,
+    polars or nanoarrow read it without a copy. A requested schema is ignored.
+
+    Only `Ir.chunk_map()` makes one: the class has no constructor (calling it raises TypeError),
+    and an instance can be neither pickled nor copied; read it into pyarrow, polars or nanoarrow
+    to keep it. Its length is its rows', so a map of no rows is falsy."""
+
+    def __len__(self) -> int:
+        """Its rows."""
+    def __arrow_c_schema__(self) -> object:
+        """The schema, a capsule named `arrow_schema`."""
+    def __arrow_c_array__(self, requested_schema: object | None = None) -> tuple[object, object]:
+        """The batch as a struct array: capsules named `arrow_schema` and `arrow_array`."""
+    def __arrow_c_stream__(self, requested_schema: object | None = None) -> object:
+        """A stream of the one batch, a capsule named `arrow_array_stream`."""
 
 class Ir:
     """An IR: its columns, tables and per-element reads. A per-element read raises ValueError
@@ -99,6 +133,14 @@ class Ir:
         an object described in place at virtual offsets; empty for a file IR."""
     def digest(self) -> int:
         """A digest of every row (for comparing builds)."""
+    def stored_arrays(self) -> str:
+        """The arrays the source stores (spec/stored-array.md §2.5
+        <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#25-the-json-form>): one JSON
+        document, the chain table, the descriptions and the `undescribed` mark."""
+    def chunk_map(self) -> ChunkMap:
+        """The chunk map (spec/stored-array.md §4
+        <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#4-the-chunk-map>): an object
+        of the Arrow PyCapsule interface, one record batch."""
     def runs_count(self) -> int: ...
     def budget(self) -> dict[str, tuple[int, int]]: ...
     @staticmethod
@@ -191,7 +233,7 @@ class Run:
     def stats(self) -> str:
         """The planner's counts and model (JSON)."""
     def output(self, url: str, mirror: bool = True, layouts: list[str] | None = None,
-               checksums: bool = False) -> tuple[Out[FilePart], Ir]:
+               checksums: bool = False, written: bool = True) -> tuple[Out[FilePart], Ir]:
         """Finishes, projects and (with `mirror`) mirrors: (the output in `out_py`'s form,
         the IR). `layouts`, when given, names the layouts the projection writes beside the
         image (a format's dataset layout, "dataset"; conventions §9
@@ -230,9 +272,12 @@ class StoreRun:
         relative keys the store reader ignored and recorded (`Store.ignored`), which the
         projection records as its convention says, and `folders`, its empty `d/` keys
         (`Store.folders`), which a SAFE directory's parser reads as directories."""
+    def scope(self, within: Sequence[str]) -> None:
+        """The scope of the input, before the first poll (`StoreRun::scope`): the keys besides the
+        listing's the host may be asked to probe, each a key or a directory's key followed by `/`."""
     def profile(self) -> str:
         """The profile the run's store is decided to be so far (`StoreRun::profile`)."""
-    def output(self, url: str, mirror: bool = True) -> tuple[Out[StorePart], Ir]: ...
+    def output(self, url: str, mirror: bool = True, checksums: bool = False) -> tuple[Out[StorePart], Ir]: ...
     def finish(self) -> tuple[Ir, str, str]: ...
 
 def rebuild_store(get: Get) -> list[tuple[str, int, bytes | None]]:
@@ -245,6 +290,19 @@ def plan_spans(
 ) -> list[tuple[int, int]]:
     """The planner's merge of ranges (offset, length) into requests (start, end), for a
     gap threshold, an amplification cap and a concurrency (the policy's core, for tests)."""
+# A part of a value for `seal`: literal bytes, (0, url, offset, length), (1, data, offset, length)
+# or (2, length) of zero bytes.
+type SealPiece = bytes | tuple[int, ...]
+
+def seal(urls: list[tuple[str, int | None, str | None]], data: list[bytes], first: int | None,
+         documents: list[str], values: list[tuple[str, list[SealPiece]]], max_sources: int, checksums: bool,
+         ) -> tuple[list[tuple[str, int]], list[tuple[str, list[tuple[int, int, int] | bytes]]]]:
+    """The core's seal (rust/refkv-ir/src/seal.rs) of the output whose bytes entries' keys are
+    `documents` and whose values are (key, pieces), the pieces naming `urls` (url, size,
+    etag) and `data`, `first` the url that is source 0: (its table, each source ("url", index),
+    ("data", index) or ("zeros", length); its values in key order, each (key, ranges), a range
+    (source, offset, length) or bytes). Raises SealRefused."""
+
 def crc32c(data: bytes) -> int:
     """CRC-32C (Castagnoli, RFC 3720 §B.4) of `data`: a range's checksum (spec §4.2
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>)."""
@@ -318,6 +376,13 @@ def czi_bands(h: int, h2: int, r: int, w: int, q: int, uncompressed: bool) -> tu
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>)
 class PhkvReadError(Exception): ...
 
+# a bytes value a phkv store looked up, from `PhkvStore.key_found`
+class PhkvFound:
+    @property
+    def size(self) -> int: ...
+    @property
+    def held(self) -> int | None: ...
+
 # a phkv store (spec/bindings/phkv.md), read through `size()` and `read(offset, length)`; every
 # method blocks on those, so a host calls them from a thread
 class PhkvStore:
@@ -327,6 +392,7 @@ class PhkvStore:
         read: Callable[[int, int], bytes],
         sources: int | None = None,
         open_bytes: int | None = None,
+        request_bytes: int | None = None,
     ) -> None: ...
     @staticmethod
     def tail() -> int: ...
@@ -344,6 +410,8 @@ class PhkvStore:
         self, key: str, mode: int, a: int, b: int
     ) -> tuple[Literal["bytes"], bytes] | tuple[Literal["reference"], int, bytes] | None: ...
     def key_bytes(self, key: str, start: int, end: int) -> bytes: ...
+    def key_found(self, key: str) -> PhkvFound | None: ...
+    def found_bytes(self, found: PhkvFound, start: int, end: int) -> bytes: ...
     def raw(self, key: str) -> bytes | None: ...
     def list(self, prefix: str) -> list[str]: ...
     def property(self, key: str, name: str) -> int | str | bytes | None: ...

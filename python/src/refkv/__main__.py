@@ -6,6 +6,7 @@ store or back."""
 import argparse
 import re
 import sys
+from typing import Any
 from urllib.parse import urlsplit
 
 from refkv.zarrify.__main__ import main as zarrify
@@ -35,6 +36,9 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--to", choices=_BINDINGS)
     p.add_argument("--page-size", type=int, help="the page size of the page index written (to vzip: none by default, "
                                                  "65536 suits a store of many keys; to phkv: 4096)")
+    p.add_argument("--allow-scheme", action="append", default=[], metavar="SCHEME",
+                   help="a scheme the reader policy otherwise refuses, such as file, for a store whose sources "
+                        "are local files (given more than once for more schemes)")
     p.add_argument("--relative-to", metavar="URL", help="write source URLs under this prefix relative to <out>")
     return p
 
@@ -53,7 +57,9 @@ def convert(argv: list[str]) -> int:
         print(f"refkv convert: both are {from_}; convert from one binding to the other "
               "(--from, --to, or the names' extensions)", file=sys.stderr)
         return 2
-    options = {"relative_to": args.relative_to}
+    options: dict[str, Any] = {"relative_to": args.relative_to}
+    if args.allow_scheme:
+        options["policy"] = refkv.Policy(schemes=frozenset(args.allow_scheme))
     if args.page_size is not None:
         options["page_size"] = args.page_size
     try:
@@ -67,7 +73,8 @@ def convert(argv: list[str]) -> int:
 
 COMMANDS = {"zarrify": zarrify, "convert": convert}
 USAGE = ("usage: refkv zarrify <url or path> <out.vzip> [options] (refkv zarrify --help for the options)\n"
-         "       refkv convert <in> <out> [--from vzip|phkv] [--to vzip|phkv] (refkv convert --help for the options)")
+         "       refkv convert <in> <out> [--from vzip|phkv] [--to vzip|phkv] [--allow-scheme file]\n"
+         "       (refkv convert --help for the options)")
 
 
 def main(argv: list[str] | None = None) -> int:
