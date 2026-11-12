@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -946,7 +946,7 @@ name = "eccodeslib"
 version = "2.50.0.33"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "eckitlib", marker = "sys_platform != 'win32'" },
+    { name = "eckitlib" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/53/e4/82224fb48965fdbf54a31e9413ae12d0b41aacf732297c93ff0029c09fb6/eccodeslib-2.50.0.33-cp312-cp312-macosx_15_0_arm64.whl", hash = "sha256:7112c65beb2fa3e92b8c67a34682b446804805af5cbba305f0e890443540e8ba", size = 9058278, upload-time = "2026-10-16T18:44:03.765Z" },
@@ -3528,6 +3528,7 @@ provides-extras = ["images", "layouts", "media", "obstore", "precomputed", "virt
 name = "refkv-workspace"
 version = "0"
 source = { virtual = "." }
+default-groups = "all"
 
 [package.dev-dependencies]
 bench = [
