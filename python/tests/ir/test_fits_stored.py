@@ -805,15 +805,9 @@ def test_a_quantized_image_whose_blank_card_is_no_integer_has_no_grid(tmp_path):
 
 
 def test_rows_that_are_not_their_columns_fields_have_no_grid(tmp_path):
-    """A binary table whose columns' fields are not NAXIS1 bytes, or are not all ones the parser
-    reads: astropy reads its rows as the fields' bytes, one row after another, and the standard's
-    rows are NAXIS1 bytes each. Its rows have neither a sample size nor a grid, and a
-    tile-compressed image in such a table no grid."""
-    rows = struct.pack(">iiii", 8, 0, 8, 8) + bytes(16)
-    wide = tiled_file([("COMPRESSED_DATA", "1PB")], rows, np.arange(8, dtype=">i2").tobytes(), 16)
-    d = ungridded(tmp_path, "wide.fits", wide)
-    a = d.stored.arrays[1]
-    assert (a.shape, a.item_bits, a.grid, d.rows.get(1)) == ((2,), None, None, None)
+    """A binary table whose columns' fields are not all ones the parser reads: its rows have
+    neither a sample size nor a grid. (A tile-compressed image's table whose columns are not
+    NAXIS1 bytes is rejected: conformance/zarrify/rejects/fits.json's `fits_reject_row_width`.)"""
     # a letter the standard has not: astropy reads no such table
     unknown = PRIMARY + cards_of(*table_cards(4, 3, 0, [("a", "4Z")])) + blocks(bytes(12))
     (tmp_path / "unknown.fits").write_bytes(unknown)
