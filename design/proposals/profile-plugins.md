@@ -211,9 +211,14 @@ convention). It names a structure by its IR path where it has one
 extent where it may lie past the room. Where a known structure is large,
 such as an HDF5 dataset's chunk index, the parser walks and checks it as
 today, under the budgets of [hdf5.md §8.3](../../spec/zarrify/hdf5.md#83-checks),
-and keeps it on the `Parsed`, apart from the description's JSON and from the
-IR's room: `parsed.chunks(path)` gives a dataset's chunks, each with its
-coordinates, its range and its filter mask.
+and keeps it apart from the description's JSON and from the IR's room, in
+the IR's chunk map ([spec/stored-array.md §4](../../spec/stored-array.md#4-the-chunk-map)):
+a row for each unit the source holds, of every format, with its
+coordinates, its element or ranges, and its chain and skips (an HDF5 chunk's
+filter mask). The chunk map replaces `parsed.chunks(path)`. How one array is
+stored (its shape, element size, grid, codecs, fill value and declarations)
+is the part of a format's description that a `StoredArray` gives
+([spec/stored-array.md §2](../../spec/stored-array.md#2-the-description)).
 
 Today's facts are where each format's work starts, not what defines it.
 Each profile's document lists its known structures first; then every item
@@ -230,10 +235,14 @@ of its facts is checked against the list, and is one of:
    and `rectilinear` per level, and the LZW tails padding needs); a level's
    scale as a ratio, and the position converted to the image's corner; which
    HDF5 datasets are presented and why the others are not, and each one's
-   Zarr data type, codecs, fill value and dimension names (with HDF5's phony
-   dimensions, counted across the file,
-   [hdf5.md §3](../../spec/zarrify/hdf5.md#3-datasets)), the Adler-32 of a
-   chunk a filter skipped, the strings and records a presented dataset reads.
+   Zarr data type, fill value presentation and dimension names (with HDF5's
+   phony dimensions, counted across the file,
+   [hdf5.md §3](../../spec/zarrify/hdf5.md#3-datasets)), its string and record
+   presentation (the strings and records a presented dataset reads), and the
+   Adler-32s of the chunks a filter skipped. A dataset's codecs are not among
+   them: they move into its `StoredArray`
+   ([spec/stored-array.md §3](../../spec/stored-array.md#3-codecs)), and the
+   plan translates them to Zarr's.
    It moves into the convention's **plan**
    ([Planning](#3-planning-plan)), which the built-in projection and a caller
    both call; a decision that reads bytes reads them there.
@@ -244,15 +253,15 @@ decision a built-in output makes is a rule its convention must already
 state ([zarrify §2](../../spec/zarrify.md#2-the-zarr-layout) requires the
 exact layout the convention specifies); one it does not is stated in the
 same change. Once a format's items are sorted, its facts are gone: its plan
-is a Rust function of the description (with `parsed.chunks`, the part of it
+is a Rust function of the description (with the chunk map, the part of it
 kept apart), of the IR's elements the description names (their paths,
 extents and forms, through a view of the IR limited to them), of the
 sources' sizes, of the bytes it reads, and of the run's options
 (`checksums`, the test-only setting below), and nothing else. It reaches the known only
 through the description, so a plan cannot depend on what is not specified,
 nor on an unknown element; a test of each format's plan checks that every
-range it reads lies in an extent the description names or a chunk of
-`parsed.chunks` (an `omero` sample, a masked chunk's Adler-32), or was located
+range it reads lies in an extent the description names or a unit of the
+chunk map (an `omero` sample, a masked chunk's Adler-32), or was located
 from bytes it already read of one (a heap collection an HDF5 string names).
 For a zarr3 or SAFE store, the keys its mirror records as ignored, which
 today sit in the facts, are part of the description. The facts'
@@ -284,7 +293,7 @@ heap objects of variable-length string attributes, which are known
 structure). An HDF5 mirror then holds fewer storage elements past its room
 than today, and no global heap collections read only for a dataset's strings
 or records. A
-presented dataset's chunks come from `parsed.chunks`, whether or not they
+presented dataset's chunks come from the chunk map, whether or not they
 are IR elements, so the references budget of
 [zarrify §1.2](../../spec/zarrify.md#12-input) counts a repeat by its source
 range, not by an element's extent, and `project`'s `elements(path)` gives the
@@ -346,7 +355,7 @@ convention's bounds instead. The rounds of the parser's reads count toward
 the rounds a format bounds for a run (HDF5's 4096,
 [hdf5.md §8.3](../../spec/zarrify/hdf5.md#83-checks)), which its plan
 continues. `parsed.gaps()` lists the gaps, as ranges of their sources, and
-`parsed.chunks(path)` an HDF5 dataset's chunks
+the IR's chunk map every array's units
 ([The description](#the-description)).
 
 ### 2. References and values
@@ -860,8 +869,9 @@ them, and a Python projection is the test of the tools, not a replacement.
   into `seal`, a function of the core; the TIFF parser's plane mapping,
   level scan, joining, sharding, padding, LZW tails and position conversion,
   with its checks of the IFDs they use, and the HDF5 parser's presentation,
-  Zarr types, codecs, dimension names, masked-chunk Adler-32 and dataset
-  strings, into the plan, with the checks and reads that go with them; the
+  Zarr types, translation of its codecs (which its datasets' `StoredArray`s
+  give), dimension names, masked-chunk Adler-32 and dataset strings, into
+  the plan, with the checks and reads that go with them; the
   Rust projections' one batch of reads into the plan's rounds; the IR
   mirror's rows budget into `read`; TIFF's `ome/planes/<p>` aliases
   ([tiff.md §5.1](../../spec/zarrify/tiff.md#51-elements)), which record the
@@ -925,7 +935,13 @@ and changing an output is a cost only to the fixtures.
 3. **One format at a time**, NumPy, then TIFF, then HDF5, each in two PRs.
    The first lists its known structures, specifies its description and
    tests it against tifffile, NumPy or h5py (TIFF's extending [§3](../../spec/zarrify/tiff.md#3-ome-xml) to every
-   `Image`). The second sorts its facts and checks against them, moves the
+   `Image`), its stored arrays coming from a third PR before both, the
+   format's describe-only PR, which may land before step 2
+   ([ir-format-descriptions.md](ir-format-descriptions.md)); NumPy's
+   description landed with the stored-array type itself, and its plan PR
+   follows the PR that describes its deflated members. The second
+   sorts its facts and checks against them (falling back to the source's
+   bytes, never refusing, for a source marked `undescribed`), moves the
    parser's decisions and their reads into its plan, sizes its decisions by
    the largest source index (changing the outputs near the limit), deletes
    its facts, adds the routines it needs, and adds its tests, which pass
@@ -996,7 +1012,7 @@ each library's model of a file: its TIFF reader from tifffile's (whose
 [kerchunk/tiff.py](https://github.com/fsspec/kerchunk/blob/main/kerchunk/tiff.py)),
 its HDF5 reader from h5py's, through HDF5's chunk queries
 (`H5Dget_chunk_info`, `H5Dchunk_iter`), which give each chunk's offset, size
-and filter mask as `parsed.chunks` does.
+and filter mask as the chunk map does.
 [VirtualiZarr](https://virtualizarr.readthedocs.io/en/stable/explanation/custom_parsers.html)'s
 parsers are callables from a URL and an object-store registry to a
 `ManifestStore` of chunk manifests. Each of these goes from a library's

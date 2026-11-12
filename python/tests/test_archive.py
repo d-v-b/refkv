@@ -8,6 +8,7 @@ import pytest
 from refkv._sync import run
 from refkv.errors import ArchiveError, EntryError
 from refkv.pb import Pinned, Range, Reference
+from refkv.policy import Policy
 from refkv.reader import OffsetRequest, RangeRequest, SuffixRequest
 from refkv.uri import file_uri
 from refkv.vzip.archive import VZipWriter, parse_central_directory, parse_tail
@@ -49,7 +50,7 @@ def test_overlay_semantics(tmp_path):
         w.add_ranges("a/c/5", [Range(source=hdr, offset=1, length=3), Range(source=ext, offset=8, length=1)])
         w.add_bytes("a/late.bin", b"{}", late=True)
 
-    s = VZipStore(str(arc))
+    s = VZipStore(str(arc), policy=Policy(prefixes=(tmp_path.as_uri() + "/",)))
     cases = {
         ("a/zarr.json", None): b"{}",
         ("a/c/0", None): blob[10:110],

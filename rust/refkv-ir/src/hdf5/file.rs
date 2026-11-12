@@ -430,25 +430,7 @@ impl Hdf5 {
     /// files, as (key, offset, length), in the data's order; None unless a store run found every
     /// file the data lies in and each range lies within its file.
     fn external_ranges(&self, at: u64, total: u128) -> Option<Vec<(String, u64, u64)>> {
-        let found = self.found.as_ref()?;
-        let mut left = total;
-        let mut out = Vec::new();
-        for s in self.slots.get(&at)? {
-            if left == 0 {
-                break;
-            }
-            let key = written_key(&s.name, "", Written::default())?;
-            let size = *found.get(&key)?;
-            let n = if s.size == super::EXTERNAL_UNLIMITED { left } else { (s.size as u128).min(left) };
-            if s.offset as u128 + n > size as u128 {
-                return None;
-            }
-            if n > 0 {
-                out.push((key, s.offset, n as u64));
-            }
-            left -= n;
-        }
-        (left == 0).then_some(out)
+        super::stored::external_ranges(self.slots.get(&at)?, total, self.found.as_ref()?)
     }
 
     /// Whether the dataset at `at` is the dimension scale netCDF-4 writes for a dimension with no
@@ -1210,7 +1192,7 @@ impl Hdf5 {
             .filter_map(|n| n["array"]["store"]["at"].as_u64())
             .collect();
         let room = self.room.unwrap_or(self.limit("walk_elements") + size / self.limit("walk_bytes_per_element"));
-        let mut e = Emit { ir: Ir::new(self.h.file_size()), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must };
+        let mut e = Emit { ir: Ir::new(self.h.file_size()), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must, rec: Default::default() };
         let sb = self.h.sb.clone().ok_or("internal: no superblock")?;
         e.superblock(&sb)?;
         if let Some(ext) = self.extension.take() {
@@ -1252,8 +1234,14 @@ impl Hdf5 {
             }
         }
         // each array's storage element: the struct of its chunks, or its contiguous data
+        let struct_of: HashMap<u64, u32> = order.iter().copied().zip(structs.iter().copied()).collect();
         for n in facts["nodes"].as_array_mut().into_iter().flatten() {
+            let header = n["own"]["address"].as_u64();
             let Some(a) = n.get_mut("array") else { continue };
+            // the key of the dataset's stored-array description: its object's struct
+            if let Some(key) = header.and_then(|h| struct_of.get(&h)) {
+                a["declared_by"] = json!(key);
+            }
             let store = &mut a["store"];
             let Some(at) = store["at"].as_u64() else { continue };
             let el = match store["kind"].as_str() {
@@ -1263,9 +1251,11 @@ impl Hdf5 {
             let Some(&el) = el else { return Err(format!("internal: the storage of the dataset at {at} is not described")) };
             store["element"] = json!(el);
         }
-        let mut ir = e.ir;
+        let super::walk::Emit { mut ir, rec, data_of, .. } = e;
         ir.sort_values();
         crate::check::finish(&mut ir)?;
+        let em = super::stored::Emitted { order: &order, structs: &structs, rec: &rec, data_of: &data_of };
+        super::stored::describe(&mut ir, &mut self.h, &em, &self.visited, &self.slots, self.found.as_ref())?;
         facts["requests"] = json!(self.requests);
         facts["requested"] = json!(self.requested);
         facts["rounds"] = json!(self.rounds);
@@ -1430,8 +1420,10 @@ fn attaches_none(attrs: &super::Attrs) -> bool {
 
 /// The value of the `_FillValue` attribute, of one number, of a dataset of the numeric datatype
 /// `of`, as xarray's Zarr backend reads the member of that name (spec/zarrify/hdf5.md §6
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>): an integer's
-/// a number, a float's the Base64 of its 8 little-endian bytes as a float64.
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>): for an integer
+/// dataset the integer, exactly, whatever its magnitude (one the dataset's type does not have
+/// too: xarray reads the number, where it refuses the attribute's list); a float's the Base64 of
+/// its 8 little-endian bytes as a float64.
 fn xarray_fill(attrs: &super::Attrs, of: &Dt) -> Option<J> {
     let a = attrs.list.iter().find(|a| a.name == b"_FillValue")?;
     let (t, dims, data) = super::attribute_parts(&a.data).ok()?;
@@ -1439,10 +1431,21 @@ fn xarray_fill(attrs: &super::Attrs, of: &Dt) -> Option<J> {
     if super::product(&dims) != 1 || data.len() as u64 != dt.size {
         return None;
     }
-    let value = types::as_f64(&dt, &data)?;
     match of.kind {
-        Kind::Float { .. } => Some(json!(crate::mirror::base64(&value.to_le_bytes()))),
-        Kind::Int { .. } if value.fract() == 0.0 && value.abs() <= 9007199254740991.0 => Some(json!(value as i64)),
+        Kind::Float { .. } => Some(json!(crate::mirror::base64(&types::as_f64(&dt, &data)?.to_le_bytes()))),
+        Kind::Int { .. } if types::number(of).is_some() => {
+            // the attribute's integer, read exactly (an integer attribute's), or a float's value
+            // when it is an integer, exactly (its decimal digits, every one, however large)
+            match dt.kind {
+                Kind::Int { big, signed, .. } if types::number(&dt).is_some() => Some(crate::out::int_json(types::int_of(&data, big, signed))),
+                Kind::Float { .. } => {
+                    let x = types::as_f64(&dt, &data)?;
+                    // + 0.0: -0.0 as 0
+                    (x.is_finite() && x.fract() == 0.0).then(|| J::Number(format!("{:.0}", x + 0.0).parse().expect("an integer's digits")))
+                }
+                _ => None,
+            }
+        }
         _ => None,
     }
 }
@@ -1529,27 +1532,10 @@ fn fill_json(dt: &Dt, p: &Present, f: &[u8]) -> Option<J> {
     match p {
         Present::Strings | Present::References | Present::Records(_) => Some(json!("")),
         Present::Bytes { .. } => f.iter().all(|&b| b == f[0]).then(|| json!(f.first().copied().unwrap_or(0))),
-        // an integer's exact value, as Zarr v3 writes one, whatever its magnitude (the digits past
-        // 2^53 of spec/zarrify/hdf5.md §6
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes> are an attribute's form, not a fill value's)
-        Present::Fixed { .. } => match &dt.kind {
-            Kind::Int { big, signed, .. } if types::number(dt).is_some() && f.len() as u64 == dt.size => {
-                Some(exact_int(types::int_of(f, *big, *signed)))
-            }
-            Kind::Bitfield { big, .. } if types::number(dt).is_some() && f.len() as u64 == dt.size => {
-                Some(exact_int(types::int_of(f, *big, false)))
-            }
-            _ => types::value_json(dt, f, &NoLookup),
-        },
-    }
-}
-
-/// An integer as a JSON number, exact: an i64's or a u64's.
-fn exact_int(v: i128) -> J {
-    match (i64::try_from(v), u64::try_from(v)) {
-        (Ok(i), _) => json!(i),
-        (_, Ok(u)) => json!(u),
-        _ => json!(v.to_string()),
+        // an integer's exact value whatever its magnitude, as Zarr v3 writes one, at the top
+        // level and as an enumeration's or a compound's member alike (spec/zarrify/hdf5.md §6
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>)
+        Present::Fixed { .. } => types::value_json(dt, f, &NoLookup),
     }
 }
 

@@ -496,6 +496,57 @@ fn flags_a_value_shown_above_the_size_limit() {
     assert!(p.starts_with(r#"view tree: member ["big"] is [7,7,"#) && p.ends_with(r#"where the rebuilt view has {"$vz":"element","id":1}"#), "{p}");
 }
 
+/// Integers in the view (conventions §8.7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>): exact JSON
+/// integers whatever their magnitude, as in §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>;
+/// and the validator's rebuild agrees.
+#[test]
+fn integers_show_exactly_whatever_their_magnitude() {
+    let mut data = Vec::new();
+    for v in [u64::MAX, i64::MIN as u64, (1 << 53) + 1, 7] {
+        data.extend(v.to_le_bytes());
+    }
+    let mut ir = Ir::new(data.len() as u64);
+    for (k, (name, ty)) in [("u", "u8"), ("i", "i8"), ("past", "u8"), ("small", "i8")].into_iter().enumerate() {
+        ir.value(0, name, u64::MAX, ty, 0, (8 * k as u64, 8), Some(&data[8 * k..8 * k + 8])).unwrap();
+    }
+    ir.finished = true;
+    ir.build_children();
+    let mut out = Out::new("u");
+    mirror(&ir, &mut out, "tiff").unwrap();
+    let text = String::from_utf8(entry(&out)("refkv_source/tree/zarr.json").unwrap()).unwrap();
+    assert!(text.contains(r#""tiff":{"u":18446744073709551615,"i":-9223372036854775808,"past":9007199254740993,"small":7}"#), "{text}");
+    let keys: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
+    let mut read = |o: u64, n: u64| Ok(data[o as usize..(o + n) as usize].to_vec());
+    assert_eq!(view_problem(&keys, &entry(&out), &mut read), None);
+}
+
+/// The validator compares a view's numbers by value (an integer exactly, a float by its binary64
+/// value): a stored float written another way (`1.50`, `15e-1`) is the rebuilt one; another value
+/// is not.
+#[test]
+fn the_view_s_floats_compare_by_value() {
+    let data = 1.5f64.to_le_bytes().to_vec();
+    let mut ir = Ir::new(8);
+    ir.value(0, "x", u64::MAX, "f8", 0, (0, 8), Some(&data)).unwrap();
+    ir.finished = true;
+    ir.build_children();
+    let mut out = Out::new("u");
+    mirror(&ir, &mut out, "tiff").unwrap();
+    let keys: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
+    for (literal, same) in [("1.50", true), ("15e-1", true), ("1.25", false)] {
+        let mut changed = Out::new("u");
+        mirror(&ir, &mut changed, "tiff").unwrap();
+        let e = changed.entries.iter_mut().find(|e| e.0 == "refkv_source/tree/zarr.json").unwrap();
+        let text = String::from_utf8(e.1.clone()).unwrap();
+        assert!(text.contains(r#""x":1.5"#), "{text}");
+        e.1 = text.replace(r#""x":1.5"#, &format!(r#""x":{literal}"#)).into_bytes();
+        let mut read = |o: u64, n: u64| Ok(data[o as usize..(o + n) as usize].to_vec());
+        assert_eq!(view_problem(&keys, &entry(&changed), &mut read).is_none(), same, "{literal}");
+    }
+}
+
 /// Text values in the view (conventions §8.7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>): §6
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>'s text,

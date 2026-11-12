@@ -598,7 +598,7 @@ fields and how each becomes a member of `S`. Unless it says otherwise:
 
   | kind of value | type | JSON |
   |---|---|---|
-  | an integer | <a id="type-integer"></a>`Integer` | a number when its magnitude is at most 2^53 − 1, and otherwise the string of its decimal digits (with a leading `-` if negative) |
+  | an integer | <a id="type-integer"></a>`Integer` | a JSON integer (an optional `-` and decimal digits, without a fraction or an exponent) of its exact value, whatever its magnitude |
   | a floating-point number | <a id="type-float"></a>`Float` | a number, the source's value converted to binary64 exactly (a binary32 value included); NaN, +∞ and −∞ are the strings `"NaN"`, `"Infinity"` and `"-Infinity"`, as Zarr fill values are. −0 may be written as `0` or `-0.0`; the two are equal |
   | a text field | <a id="type-text"></a>`Text` | a **text value**: a string, or the object `{"latin1": T}` (below) |
   | a name taken from the source (an attribute's or a chunk's name) | <a id="type-name"></a>`Name` | a string, read as a text value is but without the tag: UTF-8 if valid, else ISO 8859-1 |
@@ -614,8 +614,25 @@ fields and how each becomes a member of `S`. Unless it says otherwise:
 - **Names from the source.** When two names of one object read alike, the first, in the order the convention
   gives, is kept and the others are left out (their values are not read).
 
-Producers compare these as JSON values: numbers by their binary64 values,
-strings by their characters ([spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)).
+Producers compare these as JSON values: numbers by their values (an integer
+exactly, every digit), strings by their characters
+([spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)).
+
+An `Integer` past 2^53 − 1 in magnitude has more digits than a binary64
+value holds, so a consumer that needs its exact value parses integers as
+big integers. In JavaScript, `JSON.parse` with a reviver that turns into a
+`BigInt` only a number whose source text (`context.source`) matches
+`^-?(0|[1-9][0-9]*)$` and that lies outside −(2^53 − 1) to 2^53 − 1 (any
+other number, one with a fraction or an exponent among them, stays a
+binary64); an engine whose `JSON.parse` gives a reviver no source text needs
+a lossless JSON parser instead. Python's `json` module reads every integer
+exactly. A convention that reads an integer from decimal text reads it within
+the range its format declares for the value (as DICOM declares an `IS`
+value's, and ND2 an XML variant's by its runtype), or, where the format
+declares none, within a range the convention sets and says: an integer
+outside that range is no value of the format, and the convention reads it as
+it reads text that is not a number. An integer of the source's binary fields
+is within its field's width.
 
 These rules apply to values the convention translates from the source's
 bytes. Members copied from a JSON document of the source (a store's
@@ -1079,8 +1096,9 @@ members `$vz`, `$form` and `$partial` below are never a child's):
   (8.1; `""` for the root);
 - data, gaps and aliases of data or gaps are not shown.
 
-Values JSON cannot hold are tagged: `{"$vz": "int", "v": digits}` past
-2^53 − 1, `{"$vz": "float", "v": "NaN" | "Infinity" | "-Infinity"}`,
+An integer is a JSON integer, exact whatever its magnitude, as an
+[`Integer`](#type-integer) is. Values JSON cannot hold are tagged:
+`{"$vz": "float", "v": "NaN" | "Infinity" | "-Infinity"}`,
 `{"$vz": "bytes", "b64": ...}` and `{"$vz": "utf16", "b64": ...}`.
 
 <a id="type-viewdocument"></a>**`ViewDocument`**, a struct's or a derived element's
@@ -1102,7 +1120,6 @@ document, the source metadata of its group:
 | `{"$vz": "group", "path": p}` | a struct or a derived element whose document is the group `refkv_source/p` |
 | `{"$vz": "element", "id": i}` | the spill form: row `i` of the expanded table |
 | `{"$vz": "alias", "path": p}` | an alias whose target is neither data nor a gap |
-| `{"$vz": "int", "v": digits}` | an integer past 2^53 − 1 |
 | `{"$vz": "float", "v": "NaN" \| "Infinity" \| "-Infinity"}` | a float JSON cannot hold |
 | `{"$vz": "bytes", "b64": B}` | bytes |
 | `{"$vz": "utf16", "b64": B}` | UTF-16 that is not text |

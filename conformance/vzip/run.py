@@ -181,7 +181,7 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     impls = dict(i.split("=", 1) for i in args.impl)
     impls = {k: shlex.split(v) for k, v in impls.items()}
-    ref_cli = shlex.split(args.ref)
+    ref_cli = [*shlex.split(args.ref), "--allow-scheme", "file"]  # the vectors' file: sources
     readers = {"ref": ref_cli, **impls}
 
     http = Server(out)  # serves out/ (vectors/data/...) for the http profile

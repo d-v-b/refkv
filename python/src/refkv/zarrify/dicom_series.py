@@ -25,7 +25,7 @@ from refkv.compose import Options, map_keys, mount, normalize, union
 from refkv.policy import Policy
 from refkv.reader import Registry
 from refkv.refstore import ReferenceStore
-from refkv.zarrify.common import Rejected
+from refkv.zarrify.common import Rejected, reading_own_files
 
 Doc = dict[str, Any]
 """A JSON document of the store, as read from or written to a `zarr.json`."""
@@ -335,10 +335,9 @@ class SeriesOutput:
                  info: Doc | None = None) -> ReferenceStore:
         bounds: list[Bound] = [Key(k) for k in self.documents]
         header = ReferenceStore(dict(self.documents), bounds=bounds)
-        joined = union(header, *self.parts)
+        joined = union(header, *self.parts, policy=reading_own_files(
+            policy, (s for part in self.parts for s in part.sources)))
         options: Options = {"info": info or {}}
-        if policy is not None:
-            options["policy"] = policy
         if registry is not None:
             options["registry"] = registry
         return normalize(joined, **options)

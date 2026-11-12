@@ -229,9 +229,12 @@ fn tiff_codecs_of(tags: &Map<String, J>, little: bool, x: usize, row: u64, chunk
         let Some([rows, columns]) = chunk else {
             return Err(Refused::NoCodec("EER's codec follows the chunk shape: give chunk_shape".to_string()));
         };
-        // one shape for every chunk: a level in strips whose last is short has none
+        // one shape for every chunk: a level in strips whose last is short has none (an IFD is
+        // tiled with TileWidth and TileLength, spec/zarrify/tiff.md §2
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#2-the-source>)
         let length = int(tags, 257, 0)?;
-        if !tags.contains_key("322") && rows > 0 && length % rows != 0 {
+        let tiled = tags.contains_key("322") && tags.contains_key("323");
+        if !tiled && rows > 0 && length % rows != 0 {
             return Err(Refused::NoCodec(format!("an EER image of {length} rows in strips of {rows}: its last strip is short")));
         }
         let (skip, horz, vert) = crate::tiff::eer_bits(f.compression, |t, default| int(tags, t, default).unwrap_or(default));
@@ -280,6 +283,23 @@ mod tests {
         ]));
         let packed = tags(&[(258, json!(1)), (259, json!(1))]);
         assert_eq!(call("tiff_data_type", &json!({"tags": packed})).unwrap(), json!("uint8"));
+        // EER tiles do not divide the image's 10 rows: a tile is whole whatever the image's size
+        let tiles = tags(&[(257, json!([10])), (259, json!([65001])), (322, json!([8])), (323, json!([4]))]);
+        let p = json!({"tags": tiles, "little_endian": true, "x_axis": 1, "row_length": 8, "chunk_shape": [4, 8]});
+        assert_eq!(call("tiff_codecs", &p).unwrap(), json!([{"name": "imagecodecs_eer", "configuration": {
+            "shape": [4, 8], "skipbits": 7, "horzbits": 2, "vertbits": 2}}]));
+    }
+
+    /// An EER image in strips whose last strip is short has no codec, and an IFD without both
+    /// TileWidth and TileLength is in strips (spec/zarrify/tiff.md §2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#2-the-source>).
+    #[test]
+    fn tiff_codecs_refuse_eer_strips_whose_last_is_short() {
+        for size in [vec![], vec![(322, json!([8]))], vec![(323, json!([4]))]] {
+            let t = tags(&[vec![(257, json!([10])), (259, json!([65001]))], size].concat());
+            let p = json!({"tags": t, "little_endian": true, "x_axis": 1, "row_length": 8, "chunk_shape": [4, 8]});
+            assert!(matches!(call("tiff_codecs", &p), Err(Refused::NoCodec(m)) if m.contains("its last strip is short")), "{t}");
+        }
     }
 
     #[test]

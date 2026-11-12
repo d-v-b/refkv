@@ -486,14 +486,14 @@ object is written below.
 
 | form | when |
 |---|---|
-| a JSON object, with a member per record, in order, named by its name (above), its value an `Nd2Value` | an **object** (a level that is not a list, or a chunk's top-level records) whose records all have different names (as written above), except that it is pairs (next row) when it is one record named `utf16`, `int` or `float`, which would read as a tag ([`Nd2Tag`](#type-nd2tag)), and when a record's name is an **array index**: `0`, or a digit 1–9 followed by digits (`1`, `10`, but not `01`), which an ECMAScript object would move before the other members |
+| a JSON object, with a member per record, in order, named by its name (above), its value an `Nd2Value` | an **object** (a level that is not a list, or a chunk's top-level records) whose records all have different names (as written above), except that it is pairs (next row) when it is one record named `utf16` or `float`, which would read as a tag ([`Nd2Tag`](#type-nd2tag)), and when a record's name is an **array index**: `0`, or a digit 1–9 followed by digits (`1`, `10`, but not `01`), which an ECMAScript object would move before the other members |
 | [`Nd2Pairs`](#type-nd2pairs) | an object in which two records have the same name, or one of the two exceptions above: one pair per record, in order; and a **list** every member's value of which is a JSON array of two elements whose first is a string: such a list is written as pairs with empty names, `[["", v0], ["", v1], ...]` |
 | array of `Nd2Value` | any other **list**: its members' values |
 | array of integer | a byte array: its bytes (decoded as one value, however long) |
 | boolean | a bool (type 1): `true` or `false` |
 | string | a string (type 8) that is well-formed |
-| number | an integer (types 2–5, and 7) from −(2^53 − 1) to 2^53 − 1; a binary64 (type 6), with its exact value, when it is finite and not −0 |
-| [`Nd2Tag`](#type-nd2tag) | any other string, integer or binary64 |
+| number | an integer (types 2–5, and 7), a JSON integer exact whatever its magnitude ([`Integer`](../conventions.md#type-integer)); a binary64 (type 6), with its exact value, when it is finite and not −0 |
+| [`Nd2Tag`](#type-nd2tag) | any other string or binary64 |
 
 <a id="type-nd2pairs"></a>**`Nd2Pairs`**, a JSON array of **pairs**, one per record (or list
 member), in order: each pair is the array `[name, value]`:
@@ -508,7 +508,6 @@ member), in order: each pair is the array `[name, value]`:
 | form | when |
 |---|---|
 | `{"utf16": B}` | a string (type 8) that is not well-formed: `B` is the base64 of its UTF-16LE code units (without the NUL) |
-| `{"int": D}` | an integer (types 2–5, and 7) outside −(2^53 − 1) to 2^53 − 1: `D` is its value in decimal (a `-` sign when negative, no leading zeros), so that it reads apart from a string of digits |
 | `{"float": "NaN"}`, `{"float": "Infinity"}`, `{"float": "-Infinity"}`, `{"float": "-0"}` | a binary64 (type 6) that is not finite or is −0, so that it reads apart from a string, and −0 apart from 0 (which ECMAScript's `JSON.stringify` writes for both; this replaces the latitude of [conventions §6](../conventions.md#6-source-metadata-as-json)) |
 
 **Reading back.** A chunk's top level is always an object (pairs there
@@ -517,7 +516,7 @@ non-empty JSON array whose every element is an array of two elements, the
 first a string, is pairs. Pairs whose names are all empty are a list (an
 object with a repeated name has a name that is not empty); other pairs
 are an object. Any other array is a list or a byte array. A JSON object
-with one member, named `utf16`, `int` or `float`, is a **tag** (above);
+with one member, named `utf16` or `float`, is a **tag** (above);
 any other JSON object is an object.
 
 **XML variants.** A `CustomDataVar` chunk is a UTF-8 XML document whose
@@ -529,13 +528,13 @@ either a `value` attribute or child elements. Its tags are read as the TIFF conv
 | element | as JSON |
 |---|---|
 | an element with a `value` attribute | that value (below) |
-| any other element | the object of its child elements, a member per child by name, in order; or, when two of its children have the same name, a child's name is an array index (as for LV), or it has one child named `utf16`, `int` or `float`, the array of pairs `[name, value]`, one per child, in order ([`Nd2Pairs`](#type-nd2pairs)). (A document has no lists, so any array in it is pairs.) |
+| any other element | the object of its child elements, a member per child by name, in order; or, when two of its children have the same name, a child's name is an array index (as for LV), or it has one child named `utf16` or `float`, the array of pairs `[name, value]`, one per child, in order ([`Nd2Pairs`](#type-nd2pairs)). (A document has no lists, so any array in it is pairs.) |
 
 A value is:
 
 | runtype | and the value | as JSON |
 |---|---|---|
-| `lx_int8` … `lx_int64` or `lx_uint8` … `lx_uint64` | matches `[+-]?[0-9]+` | an integer: its value as a JSON number when it is from −(2^53 − 1) to 2^53 − 1, and otherwise the tag `{"int": D}` (as for LV, above) |
+| `lx_int8` … `lx_int64` or `lx_uint8` … `lx_uint64` | matches `[+-]?[0-9]+` | an integer: its value, a JSON integer exact (as for LV, above), when it is within its runtype's width (`lx_int<N>` from −2^(N−1) to 2^(N−1) − 1, `lx_uint<N>` from 0 to 2^N − 1); any other is the value as a string, which the runtype does not have ([conventions §6](../conventions.md#6-source-metadata-as-json)) |
 | `double` or `float` | is a decimal ([TIFF §3](tiff.md#3-ome-xml)) | a number: its binary64 value (rounding to nearest), or, when that is not finite or is −0, the tag `{"float": "Infinity"}`, `{"float": "-Infinity"}` or `{"float": "-0"}` |
 | `bool` | is `true` or `false` | `true` or `false`, that word |
 | otherwise | | the value as a string |

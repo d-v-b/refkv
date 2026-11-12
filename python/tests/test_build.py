@@ -87,8 +87,10 @@ def test_seal_of_the_built_in_output_reads_what_zarrify_writes(name, checksums):
     path = str(FIXTURES / name) + ("/" if name.endswith("/") else "")
     url = f"https://example.invalid/{name}" if name.endswith("/") else None  # a local store needs one
     with read(path, url, checksums=checksums) as p:
-        store = seal(project(p).written, [p])
+        pr = project(p)
+        store = seal(pr.written, [p])
         built = zarrify(path, url, checksums=checksums)
+        assert pr.base.checksums is checksums
         assert store.sources == built.sources
         assert store.mapping == built.mapping
         assert sorted(store.read_at_open) == sorted(built.read_at_open)
@@ -193,7 +195,7 @@ def test_a_stack_of_tiffs_built_from_the_ir(tmp_path, byteorder):
     for p in parsed:
         p.close()  # without checksums, sealing and saving read nothing more of an input
     store.save_vzip(tmp_path / "stack.vzip")
-    data = refkv.open(str(tmp_path / "stack.vzip")).get("stack.tif")
+    data = refkv.open(str(tmp_path / "stack.vzip"), policy=store.policy).get("stack.tif")
     expected = []
     for path in paths:
         with tifffile.TiffFile(path) as tf:

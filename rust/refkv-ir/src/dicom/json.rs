@@ -9,7 +9,7 @@ use super::elements::*;
 use crate::fed::{Word, uint};
 use crate::mirror::base64;
 use crate::text::{is_decimal, latin1};
-use crate::out::{json_size, js_string_size, MAX_CHUNK, SOURCE_NODE};
+use crate::out::{int_json, int_text, json_size, js_string_size, MAX_CHUNK, SOURCE_NODE};
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::OnceLock;
@@ -34,9 +34,7 @@ const MAX_PATHS: usize = 1024;
 const MAX_STRUCTURES: usize = 1 << 16;
 const MAX_COST: u64 = 16;
 const AS_BYTES: [&str; 3] = ["InlineBinary", "BulkDataURI", "Gathered"];
-const MAX_SAFE: i128 = (1 << 53) - 1;
 const MAX_EXPONENT_DIGITS: usize = 5;
-const MAX_INTEGER_DIGITS: usize = 16;
 
 pub fn is_text(vr: &str) -> bool {
     MULTI.contains(&vr) || matches!(vr, "LT" | "ST" | "UT" | "UR")
@@ -153,14 +151,6 @@ pub fn json_float(v: f64) -> J {
     }
 }
 
-pub fn json_int(v: i128) -> J {
-    if v.abs() <= MAX_SAFE {
-        if v < 0 { json!(v as i64) } else { json!(v as u64) }
-    } else {
-        json!(v.to_string())
-    }
-}
-
 
 /// `[+-]?[0-9]+`, whole.
 pub fn is_integer(t: &[u8]) -> bool {
@@ -234,15 +224,13 @@ pub fn ds_number(t: &str) -> Option<f64> {
     Some(v)
 }
 
-/// An IS value of the form [+-]?[0-9]+: a number up to 2^53 - 1, else the string of its digits.
-fn is_number(t: &str) -> J {
-    let negative = t.starts_with('-');
-    let digits = t.trim_start_matches(['+', '-']).trim_start_matches('0');
-    if digits.len() > MAX_INTEGER_DIGITS {
-        return json!(format!("{}{digits}", if negative { "-" } else { "" }));
+/// An IS value of the form [+-]?[0-9]+, trimmed: its integer, exactly, when it is a valid IS, of
+/// at most 12 characters and from -2^31 to 2^31 - 1 (PS3.5 Table 6.2-1); else None.
+fn is_number(t: &str) -> Option<J> {
+    if t.len() > 12 {
+        return None;
     }
-    let v: i128 = if digits.is_empty() { 0 } else { digits.parse().unwrap() };
-    json_int(if negative { -v } else { v })
+    int_text(t, i32::MIN as i128, i32::MAX as i128)
 }
 
 /// One string value: trimmed, decoded, then typed (PS3.18 §F.2.3).
@@ -261,7 +249,7 @@ fn text_value(vr: &str, b: &[u8]) -> J {
             if groups.is_empty() { J::Null } else { J::Object(groups) }
         }
         "DS" => ds_number(t).map(|v| json!(v)).unwrap_or_else(|| json!(t)),
-        "IS" if is_integer(b) => is_number(t),
+        "IS" if is_integer(b) => is_number(t).unwrap_or_else(|| json!(t)),
         _ => json!(t),
     }
 }
@@ -277,14 +265,9 @@ fn typed_values(vr: &str, data: &[u8]) -> Option<(&'static str, u64)> {
         let t = std::str::from_utf8(p).ok()?;
         if vr == "DS" {
             ds_number(t)?;
-        } else {
-            if !is_integer(p) || t.trim_start_matches(['+', '-']).trim_start_matches('0').len() > 19 {
-                return None;
-            }
-            let v: i128 = t.parse().ok()?;
-            if v < -(1i128 << 63) || v >= 1i128 << 63 {
-                return None;
-            }
+        } else if !is_integer(p) || is_number(t).is_none() {
+            // a valid IS only, which is an integer (as `text_value` reads it)
+            return None;
         }
         n += 1;
     }
@@ -325,10 +308,10 @@ pub fn value_json(vr: &str, data: &[u8], little: bool, multibyte: bool) -> J {
                 match vr {
                     "FL" => json_float(f32::from_bits(u as u32) as f64),
                     "FD" => json_float(f64::from_bits(u)),
-                    "SL" => json_int(u as u32 as i32 as i128),
-                    "SS" => json_int(u as u16 as i16 as i128),
-                    "SV" => json_int(u as i64 as i128),
-                    _ => json_int(u as i128),
+                    "SL" => int_json(u as u32 as i32 as i128),
+                    "SS" => int_json(u as u16 as i16 as i128),
+                    "SV" => int_json(u as i64 as i128),
+                    _ => int_json(u as i128),
                 }
             })
             .collect();
@@ -900,15 +883,44 @@ mod tests {
         }
     }
 
+    /// A DS or IS value's typed values, for the bounds of a gathered sequence: an IS value's
+    /// when every value is a valid IS, as int64.
+    #[test]
+    fn typed_values_of_numbers() {
+        assert_eq!(typed_values("IS", b" 12\\-2147483648\\+02147483647 "), Some(("int64", 24)));
+        assert_eq!(typed_values("DS", b"0.5\\2"), Some(("float64", 16)));
+    }
+
+    /// An IS value with a value that is no valid IS (more than 12 characters, or outside -2^31
+    /// to 2^31 - 1), which is text, has no typed values: its bytes as stored.
+    #[test]
+    fn an_is_value_past_its_limits_has_no_typed_values() {
+        for t in [&b"1\\2147483648"[..], b"1\\-2147483649", b"0000000000012", b"1\\x"] {
+            assert_eq!(typed_values("IS", t), None, "{}", String::from_utf8_lossy(t));
+        }
+    }
+
     #[test]
     fn text_values_are_trimmed_and_typed() {
         assert_eq!(text_value("DS", b" 2.50 "), json!(2.5));
         assert_eq!(text_value("IS", b"+0012"), json!(12));
-        assert_eq!(text_value("IS", b"-12345678901234567"), json!("-12345678901234567"));
+        assert_eq!(text_value("IS", b"-000"), json!(0));
+        // the IS limits: 12 characters, and -2^31 to 2^31 - 1
+        assert_eq!(text_value("IS", b" -2147483648"), json!(i32::MIN));
+        assert_eq!(text_value("IS", b"+02147483647 "), json!(i32::MAX));
         assert_eq!(text_value("LT", b" a \0"), json!(" a"));
         assert_eq!(text_value("PN", b"A^B==C"), json!({"Alphabetic": "A^B", "Phonetic": "C"}));
         assert_eq!(text_value("CS", b"  "), J::Null);
         assert_eq!(text_value("LO", b"\xe9"), json!({"latin1": "\u{e9}"}));
+    }
+
+    /// An IS value of more than 12 characters, or outside -2^31 to 2^31 - 1, is no valid IS: its
+    /// text (PS3.5 Table 6.2-1).
+    #[test]
+    fn an_is_value_past_its_limits_is_its_text() {
+        for t in ["2147483648", "-2147483649", "-12345678901234567", "0000000000012"] {
+            assert_eq!(text_value("IS", t.as_bytes()), json!(t), "{t}");
+        }
     }
 
     #[test]
@@ -918,7 +930,8 @@ mod tests {
         assert_eq!(value_json("AT", &[0x18, 0, 0x63, 0x10], true, false), json!({"vr": "AT", "Value": ["00181063"]}));
         assert_eq!(value_json("UL", &[1, 2, 3], true, false), json!({"vr": "UL", "InlineBinary": "AQID"}));
         assert_eq!(value_json("FD", &f64::NAN.to_le_bytes(), true, false), json!({"vr": "FD", "Value": ["NaN"]}));
-        assert_eq!(value_json("UV", &u64::MAX.to_le_bytes(), true, false), json!({"vr": "UV", "Value": ["18446744073709551615"]}));
+        assert_eq!(value_json("UV", &u64::MAX.to_le_bytes(), true, false), json!({"vr": "UV", "Value": [u64::MAX]}));
+        assert_eq!(value_json("SV", &i64::MIN.to_le_bytes(), true, false), json!({"vr": "SV", "Value": [i64::MIN]}));
         assert_eq!(value_json("PN", b"a\\b", true, true), json!({"vr": "PN", "InlineBinary": "YVxi"}));
         assert_eq!(value_json("OB", &[], true, false), json!({"vr": "OB"}));
     }

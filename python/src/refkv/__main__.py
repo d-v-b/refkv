@@ -7,7 +7,8 @@ import sys
 from refkv.zarrify.__main__ import main as zarrify
 
 COMMANDS = {"zarrify": zarrify}
-USAGE = "usage: refkv zarrify <url or path> <out.vzip> [options] (refkv zarrify --help for the options)"
+USAGE = ("usage: refkv zarrify <url or path> <out.vzip> [--format vzip|phkv] [options]"
+         " (refkv zarrify --help for the options)")
 
 
 def main(argv: list[str] | None = None) -> int:

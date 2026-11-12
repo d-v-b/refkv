@@ -531,6 +531,22 @@ pub unsafe extern "C" fn vz_store_ignore(p: *mut StoreRun, json: *mut u8, n: usi
     }
 }
 
+/// The scope of the input, before the first poll (`StoreRun::scope`): `json` (from `vz_alloc`,
+/// consumed) is `[key, ...]`, each a key or a directory's key followed by `/`. 0, or minus the
+/// length of a rejection's message.
+///
+/// # Safety
+/// `p` from `vz_store_new`; `json`, `n` from `vz_alloc(n)`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_store_scope(p: *mut StoreRun, json: *mut u8, n: usize) -> i64 {
+    let r = unsafe { &mut *p };
+    let b = unsafe { Vec::from_raw_parts(json, n, n) };
+    match serde_json::from_slice::<Vec<String>>(&b).map_err(|e| format!("the scope: {e}")).and_then(|w| r.scope(w)) {
+        Ok(()) => 0,
+        Err(e) => err_out(e),
+    }
+}
+
 /// The keys of a pending batch of probes (`StoreRun::probes`; `vz_store_poll` gave a count of
 /// 0): a JSON array of keys at `vz_out()`, its length. The host answers each, in order, with
 /// `vz_store_found`, then polls again.
@@ -539,7 +555,7 @@ pub unsafe extern "C" fn vz_store_ignore(p: *mut StoreRun, json: *mut u8, n: usi
 /// `p` from `vz_store_new`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vz_store_probes(p: *mut StoreRun) -> i64 {
-    let keys: Vec<String> = unsafe { &*p }.probes().to_vec();
+    let keys: Vec<String> = unsafe { &*p }.probes();
     set_out(serde_json::to_string(&keys).unwrap_or_default().into_bytes()) as i64
 }
 

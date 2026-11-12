@@ -49,8 +49,8 @@ pub struct TiffSet {
     keys: Vec<String>,
     elems: Vec<u32>,
     phase: Phase,
-    /// the parsed files, in the listing's order: (IR, facts, tile elements)
-    parsed: Vec<(Ir, J, Vec<Option<u32>>)>,
+    /// the parsed files, in the listing's order: (IR, facts, tile elements, IFD elements)
+    parsed: Vec<(Ir, J, Vec<Option<u32>>, Vec<u32>)>,
     fill: Vec<(usize, u32, u64, u64)>,
     /// the store IR and the facts, once the files' IRs have joined it
     finished: Option<(Ir, J)>,
@@ -107,12 +107,12 @@ impl TiffSet {
         files.push(self.named.take().ok_or("internal: no named file")?);
         files.append(&mut self.siblings);
         for f in files {
-            let tiles = f.parser.tile_elements();
+            let (tiles, ifds) = (f.parser.tile_elements(), f.parser.ifd_elements());
             let (ir, facts) = f.parser.finish()?;
             for (i, o, n) in unread_shown(&ir, "tiff") {
                 self.fill.push((f.index, i, o, n));
             }
-            self.parsed.push((ir, facts, tiles));
+            self.parsed.push((ir, facts, tiles, ifds));
         }
         let mut asked: Vec<(usize, u64, u64)> = self.fill.iter().map(|&(k, _, o, n)| (k, o, n)).collect();
         asked.sort_unstable();
@@ -127,27 +127,32 @@ impl TiffSet {
     fn join(&mut self) -> Res<Option<StoreStep>> {
         let mut ir = self.ir.take().ok_or("internal: no IR")?;
         let mut tiles: Vec<Vec<Option<u32>>> = Vec::with_capacity(self.parsed.len());
+        let mut ifds: Vec<Vec<u32>> = Vec::with_capacity(self.parsed.len());
         let mut facts = J::Null;
-        for (k, (mut file, f, t)) in std::mem::take(&mut self.parsed).into_iter().enumerate() {
+        for (k, (mut file, f, t, i)) in std::mem::take(&mut self.parsed).into_iter().enumerate() {
             file.sort_values();
             let e = self.elems[k];
             ir.describe_in_place(e)?;
             let at = ir.graft(&file, e)?;
             tiles.push(t.into_iter().map(|x| x.map(|i| at[i as usize])).collect());
+            ifds.push(i.into_iter().map(|i| at[i as usize]).collect());
             if k == 0 {
                 facts = f;
             }
         }
-        // each plane's tiles or strips, in the file that holds it
+        // each plane's tiles or strips, and its IFD (the key of its description), in the file that
+        // holds it
         let plan = facts["plan"].take();
+        let of = |p: &J| p.as_array().map(|fi| (fi[0].as_u64().unwrap_or(0) as usize, fi[1].as_u64().unwrap_or(0) as usize));
         let planes: Vec<J> = plan.as_array().into_iter().flatten().map(|p| {
-            p.as_array().map_or(J::Null, |fi| {
-                let (f, i) = (fi[0].as_u64().unwrap_or(0) as usize, fi[1].as_u64().unwrap_or(0) as usize);
-                json!(tiles.get(f).and_then(|t| t.get(i)).copied().flatten())
-            })
+            of(p).map_or(J::Null, |(f, i)| json!(tiles.get(f).and_then(|t| t.get(i)).copied().flatten()))
+        }).collect();
+        let declared_by: Vec<J> = plan.as_array().into_iter().flatten().map(|p| {
+            of(p).map_or(J::Null, |(f, i)| json!(ifds.get(f).and_then(|t| t.get(i))))
         }).collect();
         if let Some(lv) = facts["levels"].get_mut(0) {
             lv["planes"] = J::Array(planes);
+            lv["declared_by"] = J::Array(declared_by);
         }
         facts["named_key"] = json!(self.named_key);
         facts["files"] = json!(self.keys[1..]);

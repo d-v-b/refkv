@@ -9,7 +9,7 @@
 //! and MRC copy; the projection decodes them (`windows`).
 
 use super::{key, Copied};
-use crate::out::{omero_window, type_window, Out, Part};
+use crate::out::{int_json, omero_window, type_window, Out, Part};
 use serde_json::{json, Value as J};
 use std::collections::HashMap;
 
@@ -226,11 +226,6 @@ fn percentiles<T: Copy + PartialOrd>(v: &[T]) -> Option<(T, T)> {
     }
     let (lo, hi) = (v[(n * 5 / 100) as usize], v[(n * 999 / 1000).min(n - 1) as usize]);
     (lo < hi).then_some((lo, hi))
-}
-
-/// An integer of a data type as JSON.
-fn int_json(v: i128) -> J {
-    i64::try_from(v).map(J::from).unwrap_or_else(|_| json!(v as u64))
 }
 
 /// A channel's window from its values, leaving out the fill value 0 (and, of a float type, the

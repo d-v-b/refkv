@@ -6,6 +6,9 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# the core's strings of a codec name's form that name no codec: the chunk map's schema metadata key
+# (spec/stored-array.md §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#41-the-arrow-schema>)
+NOT_CODECS = {"refkv.chunk_map"}
 
 
 def codec_names() -> dict[str, str]:
@@ -21,6 +24,7 @@ def test_the_table_names_every_codec_refkv_writes_and_provides():
     core = set()
     for path in (ROOT / "rust" / "refkv-ir" / "src").rglob("*.rs"):
         core |= set(re.findall(r'"(imagecodecs_\w+|numcodecs\.\w+|refkv\.\w+)"', path.read_text(encoding="utf-8")))
+    core -= NOT_CODECS
     assert core <= set(names), core - set(names)
     pyproject = tomllib.loads((ROOT / "python" / "pyproject.toml").read_text(encoding="utf-8"))
     assert set(pyproject["project"]["entry-points"]["zarr.codecs"]) == {n for n, p in names.items() if p == "refkv"}

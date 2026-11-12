@@ -17,6 +17,8 @@ from refkv import _core, _sync
 from refkv.ir.kind import Kind as Kind  # re-exported: refkv.ir.Kind
 from refkv.ir.output import from_rust
 from refkv.ir.planner import Transport, drive, drive_async, new_run, open_transport
+from refkv.ir.stored import Stored
+from refkv.ir.stored import read as _read_stored
 from refkv.policy import Policy
 from refkv.uri import path_reference
 from refkv.zarrify.common import Output, Rejected
@@ -106,6 +108,18 @@ class Ir:
 
     def object_bases(self) -> list[tuple[str, int, int]]:
         return self._core.object_bases()
+
+    def stored_arrays(self) -> Stored:
+        """The arrays the source stores, as the IR describes them (spec/stored-array.md
+        <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md>): the chain table, the
+        descriptions and the `undescribed` mark."""
+        return _read_stored(self._core.stored_arrays())
+
+    def chunk_map(self) -> _core.ChunkMap:
+        """The chunk map, a row for each unit the source holds (spec/stored-array.md §4
+        <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#4-the-chunk-map>): an object
+        of the Arrow PyCapsule interface, which pyarrow, polars or nanoarrow read."""
+        return self._core.chunk_map()
 
     def at(self, path: str) -> int | None:
         """The index of the element at `path`, or None."""

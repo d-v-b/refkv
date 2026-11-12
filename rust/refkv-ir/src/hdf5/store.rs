@@ -133,11 +133,15 @@ fn linked_nodes(nodes: &[J], target: &str, at: &str) -> (Vec<J>, Vec<(String, Op
     (moved, left_out)
 }
 
-/// A file's facts with its storage elements as `map` numbers them in the store IR, and each array's
-/// object `object`.
+/// A file's facts with its storage elements and its descriptions' keys as `map` numbers them in the
+/// store IR, and each array's object `object`.
 fn placed(facts: &mut J, map: &[u32], object: u32) {
     for node in facts["nodes"].as_array_mut().into_iter().flatten() {
-        let Some(store) = node.get_mut("array").map(|a| &mut a["store"]) else { continue };
+        let Some(a) = node.get_mut("array") else { continue };
+        if let Some(e) = a["declared_by"].as_u64() {
+            a["declared_by"] = json!(map[e as usize]);
+        }
+        let store = &mut a["store"];
         if let Some(e) = store["element"].as_u64() {
             store["element"] = json!(map[e as usize]);
         }

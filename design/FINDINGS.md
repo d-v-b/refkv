@@ -14,7 +14,8 @@ classifier:
 | reference   | a `Range` (the default) or a `Concat` of several ranges     |
 | (neither)   | missing → zarr fill value                                   |
 
-The schema is a few small protobuf messages ([spec/proto/refkv.proto](../spec/proto/refkv.proto)).
+The schema is a few small protobuf messages ([spec/proto/refkv.proto](../spec/proto/refkv.proto),
+and the ZIP binding's page index in [spec/proto/vzip.proto](../spec/proto/vzip.proto)).
 
 - The archive has one **source table**: a deduplicated list of things bytes
   can come from. It is deflated, and the open request already fetches it.
@@ -256,7 +257,8 @@ Where vzip is clearly worse:
 ## Layout / reproduce
 
 ```
-spec/proto/refkv.proto          wire schema
+spec/proto/refkv.proto          wire schema (every store)
+spec/proto/vzip.proto           wire schema (the ZIP binding's page index)
 python/src/refkv/pb.py            protobuf codec (no protoc)
 python/src/refkv/vzip/archive.py       zip writer + CD/EOCD parsing, paged CD index
 python/src/refkv/vzip/store.py     zarr Store: overlay resolver (obstore IO, request stats)

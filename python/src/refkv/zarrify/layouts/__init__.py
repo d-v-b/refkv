@@ -1321,9 +1321,10 @@ def store_of(base: Base, prepared: Prepared, *, policy: Policy | None, info: Map
 
 
 def base_of(out: Output | StoreIrOutput, fmt: str, policy: Policy | None,
-            registry: Registry | None = None) -> tuple[Base, ReferenceStore]:
+            registry: Registry | None = None, *, checksums: bool | None = None) -> tuple[Base, ReferenceStore]:
     """The `Base` of a file input's output, and the output as a store (reading its sources under
-    `policy`, with the object stores of `registry`)."""
+    `policy`, with the object stores of `registry`). `checksums`: whether the call asks for them
+    (default: whether the output checksums its ranges)."""
     store = out.to_store(policy=policy, registry=registry, info={"format": fmt, **out.summary})
     if out.ir is None:
         raise TypeError("an output without an IR takes no layout")
@@ -1333,7 +1334,8 @@ def base_of(out: Output | StoreIrOutput, fmt: str, policy: Policy | None,
     else:
         objects: list[str] = []
         sizes = [out.size] + [None] * (len(store._sources) - 1)  # noqa: SLF001
-    return Base(store, refkv.ir.Ir(out.ir), checksums=out.checksum is not None, objects=objects, sizes=sizes), store
+    checksums = out.checksum is not None if checksums is None else checksums
+    return Base(store, refkv.ir.Ir(out.ir), checksums=checksums, objects=objects, sizes=sizes), store
 
 
 def apply(out: Output | StoreIrOutput, fmt: str, policy: Policy | None, planned: Planned,
@@ -1358,7 +1360,9 @@ def apply(out: Output | StoreIrOutput, fmt: str, policy: Policy | None, planned:
     if problems:
         raise LayoutFailed(_failure(name, problems))
     info = {**store.info, "layouts": [name]}
-    result, problems = store_of(base, prepared, policy=policy, info=info, checksum=out.checksum, registry=registry)
+    # the base store's policy, which reads the input's own files as well as `policy` allows
+    result, problems = store_of(base, prepared, policy=store.policy, info=info, checksum=out.checksum,
+                                registry=registry)
     if problems:
         raise LayoutFailed(_failure(name, problems))
     return result

@@ -1,4 +1,5 @@
-"""Hand-written protobuf codec for the messages in spec/proto/refkv.proto.
+"""Hand-written protobuf codec for the messages in spec/proto/refkv.proto, and for the ZIP
+binding's page index (`CdIndex`, in spec/proto/vzip.proto).
 
 No protoc / generated code needed; the wire format is checked against the
 official protobuf runtime in python/tests/test_pb.py.

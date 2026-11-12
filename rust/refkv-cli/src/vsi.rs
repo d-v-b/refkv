@@ -19,6 +19,7 @@ use crate::Fail;
 use refkv_ir::out::Out;
 use refkv_ir::store::{StoreFormat, StoreRun};
 use std::collections::HashMap;
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 /// (the directory, the named file's key) of an input of the format `title` names (VSI, NRRD):
@@ -46,6 +47,64 @@ pub fn split_input(location: &str, title: &str) -> Result<(String, String), Fail
         return Err(Fail::Other(format!("{location}: not a file name")));
     }
     Ok((dir.to_string(), name.to_string()))
+}
+
+/// `path` with its `.` and `..` components taken out, as Python's `os.path.normpath` does.
+fn lexical(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push(c);
+                }
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// The scope of the file input at `location` (spec/zarrify.md §1.9
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
+/// **Scope**) as the keys `StoreRun::scope` takes: each entry is a path or URL written as
+/// `location` is (local paths, or http(s) URLs), the input's directory or a file or directory
+/// below it. A directory's key ends in `/`; the input itself, always in scope, adds no key. None
+/// when the scope holds the input's directory, every key being in it. The twin of
+/// python/src/refkv/zarrify/store/beside.py's `scope_keys`.
+pub fn scope_keys(location: &str, scope: &[String]) -> Result<Option<Vec<String>>, Fail> {
+    let outside = |e: &str, d: &str| Fail::Usage(format!("scope \"{e}\" is not the input's directory \"{d}\" or below it"));
+    let mut keys = Vec::new();
+    if location.starts_with("http://") || location.starts_with("https://") {
+        let (d, named) = split_input(location, "the")?;
+        for e in scope {
+            let rest = e.strip_prefix(d.as_str()).ok_or_else(|| outside(e, &d))?;
+            let key = String::from_utf8(crate::store::percent_decode(rest)).map_err(|_| outside(e, &d))?;
+            if key.is_empty() {
+                return Ok(None);
+            }
+            if key != named {
+                keys.push(key);
+            }
+        }
+        return Ok(Some(keys));
+    }
+    let absolute = |p: &str| std::path::absolute(p).map(|a| lexical(&a)).map_err(|e| Fail::Other(format!("{p}: {e}")));
+    let named = absolute(location)?;
+    let d = named.parent().map(Path::to_path_buf).unwrap_or_default();
+    for e in scope {
+        let at = absolute(e)?;
+        let rel = at.strip_prefix(&d).map_err(|_| outside(e, &d.to_string_lossy()))?;
+        if rel.as_os_str().is_empty() {
+            return Ok(None);
+        }
+        if at != named {
+            let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+            keys.push(parts.join("/") + if at.is_dir() { "/" } else { "" });
+        }
+    }
+    Ok(Some(keys))
 }
 
 /// The files of a VSI or NRRD input: the named file, then every file found beside it, each with
@@ -190,17 +249,21 @@ impl Files {
 /// (the output, the files) of the VSI or NRRD input at `location` (`format`), its named file
 /// opened as `t`: a store run of the core's `format` over the files, probed as the run asks for
 /// them, read `connections` at a time when remote; sealed for ranges that carry checksums when
-/// `checksums`.
+/// `checksums`. `scope`, when given, is the keys of the input's scope (`scope_keys`): no file
+/// outside it is opened.
 pub fn zarrify_vsi(location: &str, url: Option<&str>, t: Transport, client: &Arc<Client>, connections: Option<usize>,
-                   format: StoreFormat, checksums: bool) -> Result<(Out, Files), Fail> {
+                   format: StoreFormat, checksums: bool, scope: Option<Vec<String>>) -> Result<(Out, Files), Fail> {
     let workers = concurrency(&t, connections)?;
     let mut files = Files::open(location, url, t, client, format)?;
     let listing = vec![(files.keys[0].clone(), files.sizes[&files.keys[0]])];
     let mut run = StoreRun::new(format, listing, workers).map_err(Fail::Rejected)?;
+    if let Some(within) = scope {
+        run.scope(within).map_err(Fail::Rejected)?;
+    }
     while let Some(reqs) = run.poll().map_err(Fail::Rejected)? {
         if reqs.is_empty() {
             // a batch of probes: each key answered with its size, or None when it does not exist
-            let keys: Vec<String> = run.probes().to_vec();
+            let keys = run.probes();
             for k in keys {
                 match files.probe(&k)? {
                     Some((size, key)) if key != k => run.found_as(size, &key),
@@ -229,7 +292,6 @@ pub fn zarrify_vsi(location: &str, url: Option<&str>, t: Transport, client: &Arc
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
-    use std::path::{Path, PathBuf};
     use std::time::Duration;
 
     /// A directory with a named file, its files and links, beside a directory with a secret.
@@ -295,5 +357,45 @@ mod tests {
     fn a_directory_outside_is_not_listed() {
         let dir = upload("list");
         assert_eq!(files(&dir, StoreFormat::Lif).listdir("dir_outside"), None);
+    }
+
+    #[test]
+    fn a_detached_header_whose_data_file_is_out_of_scope_is_rejected() {
+        let client = Client::new(crate::policy::Policy::default(), Duration::from_secs(5));
+        let named = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/nrrd/nrrd_detached_raw.nhdr");
+        let t = Transport::open(named, &client).ok().unwrap();
+        let Err(Fail::Rejected(m)) = zarrify_vsi(named, None, t, &client, None, StoreFormat::Nrrd, false, Some(Vec::new())) else {
+            panic!("not rejected");
+        };
+        assert_eq!(m, "out of scope: the input names the file \"nrrd_detached_raw.raw\"");
+    }
+
+    #[test]
+    fn a_scope_gives_keys_below_the_input_directory() {
+        let dir = upload("scope");
+        let at = |p: &str| dir.join(p).to_string_lossy().into_owned();
+        let named = at("a.nhdr");
+        let cases: &[(Vec<String>, Option<Vec<&str>>)] = &[
+            (vec![named.clone()], Some(vec![])),
+            (vec![], Some(vec![])),
+            (vec![at("plain.bin"), at("sub"), at("sub/../plain.bin")], Some(vec!["plain.bin", "sub/", "plain.bin"])),
+            (vec![at("plain.bin"), dir.to_string_lossy().into_owned()], None),
+            (vec![at("sub/..")], None),
+        ];
+        for (scope, want) in cases {
+            let got = scope_keys(&named, scope).ok().unwrap();
+            assert_eq!(got, want.as_ref().map(|w| w.iter().map(|s| s.to_string()).collect::<Vec<_>>()), "{scope:?}");
+        }
+        let url = scope_keys("https://h/d/a.nhdr", &["https://h/d/x%20y".into(), "https://h/d/s/".into()]).ok().unwrap();
+        assert_eq!(url, Some(vec!["x y".to_string(), "s/".to_string()]));
+    }
+
+    #[test]
+    fn a_scope_outside_the_input_directory_is_refused() {
+        let dir = upload("outside-scope");
+        let named = dir.join("a.nhdr").to_string_lossy().into_owned();
+        let outside = dir.parent().unwrap().join("outside").to_string_lossy().into_owned();
+        assert!(matches!(scope_keys(&named, &[outside]), Err(Fail::Usage(_))));
+        assert!(matches!(scope_keys("https://h/d/a.nhdr", &["https://h/e/b".into()]), Err(Fail::Usage(_))));
     }
 }

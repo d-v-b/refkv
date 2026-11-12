@@ -220,10 +220,10 @@ test("refuses a request through a proxy", async () => {
 });
 
 test("refuses a redirect to a file URL whatever the policy", async () => {
-  // allowFilesFromRemoteArchives does not apply to stores: a store is read over http(s) only.
+  // a store is read over http(s) only.
   const restore = mockResolver({ "public.test": "127.0.0.1" });
   const url = `http://public.test:${port}/b/s/`;
-  const policy = { allowFilesFromRemoteArchives: true };
+  const policy = {};
   state.redirect = "file:///etc/";
   try {
     const store = await openHttpStore(url, { concurrency: 1, policy, fetch: storeFetch(url, policy, {}, serverIsPublic) });
