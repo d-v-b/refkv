@@ -285,6 +285,15 @@ impl Grib {
         self.keys[0].1
     }
 
+    /// Sets the index aside, where the file disagrees with it (spec/zarrify/grib.md §8.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#82-finding-the-messages>): the
+    /// run walks the file from here, and the messages read at the offsets it listed from `from` on
+    /// are read again if the walk reaches them.
+    fn set_aside(&mut self, from: u64) {
+        self.listed = None;
+        self.messages.retain(|&s, _| s < from);
+    }
+
     /// Advances over the messages read in order from `pos`, and the padding between them: the
     /// reads that the next ones need, or none when the file is read to its end.
     fn advance_messages(&mut self) -> Res<Vec<(u64, u64)>> {
@@ -294,25 +303,39 @@ impl Grib {
                 return Ok(Vec::new());
             }
             if let Some(m) = self.messages.get(&self.pos) {
-                self.pos += m.length;
+                let (start, end) = (self.pos, self.pos.saturating_add(m.length));
+                // an offset the index lists inside this message is one where the file and the index
+                // disagree, whether or not it was read yet (the first listed past its start, the
+                // offsets being sorted)
+                if self.listed.as_ref().is_some_and(|l| l.get(l.partition_point(|&o| o <= start)).is_some_and(|&o| o < end)) {
+                    self.set_aside(start + 1);
+                }
+                self.pos = end;
                 continue;
             }
             // the offsets still to read: those an index lists, or the next one
             let starts: Vec<u64> = match &self.listed {
                 Some(l) if l.contains(&self.pos) => l.iter().copied().filter(|&s| s >= self.pos && !self.messages.contains_key(&s)).collect(),
                 _ => {
-                    // walking: the messages read at offsets the index listed past here are read
-                    // again if the walk reaches them
-                    if self.listed.take().is_some() {
-                        let pos = self.pos;
-                        self.messages.retain(|&s, _| s < pos);
+                    if self.listed.is_some() {
+                        self.set_aside(self.pos);
                     }
                     vec![self.pos]
                 }
             };
             let mut need = Vec::new();
             for s in starts {
-                match scan(self.rules, &self.fed, s, size)? {
+                let scanned = match scan(self.rules, &self.fed, s, size) {
+                    // a listed offset past here that is not a message the profile reads: the walk
+                    // says whether the run reaches it, and rejects the input only if it does
+                    Err(_) if s != self.pos => {
+                        self.set_aside(self.pos);
+                        need.clear();
+                        break;
+                    }
+                    r => r?,
+                };
+                match scanned {
                     Scan::Need(r) => need.extend(r.into_iter().map(|(o, n)| {
                         // a head from 4 bytes before, for the previous message's end
                         if o == s && s >= 4 { (s - 4, n + 4) } else { (o, n) }
@@ -332,11 +355,17 @@ impl Grib {
                         let gap = at.unwrap_or(size - s);
                         self.rules.check("padding", rules::env([("at", num(s as f64)), ("length", num(gap as f64)), ("found", flag(at.is_some() || window == size - s))]))?;
                         self.gaps.push((s, gap));
+                        self.set_aside(s);
                         self.pos = s + gap;
-                        self.listed = None;
+                        need.clear();
+                        break;
                     }
                     // an offset the index lists that is not a message's: the index is set aside
-                    Scan::NotGrib => self.listed = None,
+                    Scan::NotGrib => {
+                        self.set_aside(self.pos);
+                        need.clear();
+                        break;
+                    }
                 }
             }
             if !need.is_empty() {
@@ -588,9 +617,11 @@ impl StoreParser for Grib {
                     }
                     let size = self.size();
                     let mut need: Vec<(u64, u64)> = need.into_iter().map(|(o, n)| (o, n.min(size - o))).collect();
-                    // walking, a window rather than a head: the messages after it may be in it
+                    // walking, a window rather than a head: the messages after it may be in it. A
+                    // window is at least the read it stands for, which may be longer (a section
+                    // past 64 KiB), or the read never ends
                     if self.listed.is_none() {
-                        need = need.into_iter().map(|(o, n)| if n >= HEAD { (o, WALK.min(size - o)) } else { (o, n) }).collect();
+                        need = need.into_iter().map(|(o, n)| if n >= HEAD { (o, n.max(WALK).min(size - o)) } else { (o, n) }).collect();
                     }
                     self.asked.extend(need.into_iter().map(|(o, n)| (0, o, n)));
                 }
