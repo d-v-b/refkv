@@ -549,8 +549,10 @@ class ReferenceStore(ReferenceReader):
         lookup in a phkv store reads a few ranges of the file, however many keys it holds, where
         a vzip archive reads a page of its directory (see `save_vzip`).
 
-        The bytes values of `compressed` are DEFLATE-compressed. A phkv store reserves no names,
-        so the hidden values this store keeps under `__vz__/` are written as ordinary keys.
+        The bytes values of `compressed` are DEFLATE-compressed. The hidden values this store keeps
+        under `__vz__/` are the ZIP binding's bookkeeping, not the store's keys, so they are not
+        written, unless a `key` source refers to one (the reference could not be read without it),
+        and then it is written as an ordinary key.
         The store replaces a file at `path` only once it is complete: a save that raises leaves that
         file as it was.
 
@@ -567,10 +569,13 @@ class ReferenceStore(ReferenceReader):
         sources = self._sources_to_save(path, relative_to, policy)
         from refkv.phkv.writer import PhkvWriter  # noqa: PLC0415 (`import refkv` imports no phkv code)
 
+        needed = {s.key for s in sources if s.key is not None}  # the hidden keys a reference reads
         refs = 0
         with bulk(), replacing(path) as f, PhkvWriter(f, inline_max=inline_max, page_size=page_size) as w:
             index = [w.source(s) for s in sources]  # equal sources share an index
             for k, v in self._values.items():
+                if k.startswith(RESERVED_PREFIX) and k not in needed:
+                    continue
                 if isinstance(v, bytes):
                     w.add_bytes(k, v, codec="deflate" if k in self._compressed else None)
                 else:
