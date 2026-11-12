@@ -80,10 +80,11 @@ def test_convert_round_trip(tmp_path):
 
 
 def test_convert_names_with_a_hash_or_question_mark(tmp_path):
+    out = "x#1.phkv" if sys.platform == "win32" else "x?1.phkv"  # Windows forbids "?" in a file name
     refkv.ReferenceStore({"k": b"v"}).save_vzip(tmp_path / "a#1.vzip")
-    p = _run("refkv", "convert", str(tmp_path / "a#1.vzip"), str(tmp_path / "x?1.phkv"))
+    p = _run("refkv", "convert", str(tmp_path / "a#1.vzip"), str(tmp_path / out))
     assert p.returncode == 0, p.stderr
-    assert refkv.open(tmp_path / "x?1.phkv", binding="phkv").get("k") == b"v"
+    assert refkv.open(tmp_path / out, binding="phkv").get("k") == b"v"
 
 
 def test_convert_keeps_relative_sources_relative(tmp_path):
