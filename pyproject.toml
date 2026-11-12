@@ -72,6 +72,9 @@ bench = [
 package = false
 # `uv sync` and `uv run` install every group, as CI's `uv sync --all-groups` does
 default-groups = "all"
+# imagecodecs 2026.11.11 changes what czifile reads in the CZI comparison (python/tests/ir/test_czi_stored.py);
+# the free-threaded job does not use uv.lock and took it. Lift this once the comparison is updated for it.
+constraint-dependencies = ["imagecodecs<2026.11.11"]
 
 [tool.uv.workspace]
 members = ["python"]
