@@ -1,5 +1,5 @@
 """python -m refkv.ir <url or path> <out.vzip> [--url <source url>] [--no-mirror]
-[--allow-private-hosts]: as python -m refkv.zarrify, through the IR (exit status 3
+[--allow-private-hosts] [--format vzip|phkv]: as python -m refkv.zarrify, through the IR (exit status 3
 when rejected, 2 on a usage error). Every format reads through the read planner, under the reader
 policy (spec/refkv.md §6.7
 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>): a source on a loopback
@@ -14,7 +14,8 @@ from refkv.ir import zarrify
 from refkv.policy import Policy
 from refkv.zarrify.common import Rejected
 
-USAGE = "usage: python -m refkv.ir <url or path> <out.vzip> [--url <source url>] [--no-mirror] [--allow-private-hosts]"
+USAGE = ("usage: python -m refkv.ir <url or path> <out.vzip> [--url <source url>] [--no-mirror]"
+         " [--allow-private-hosts] [--format vzip|phkv]")
 
 
 def main(argv: list[str]) -> int:
@@ -29,6 +30,14 @@ def main(argv: list[str]) -> int:
         i = args.index("--url")
         url = args[i + 1]
         del args[i:i + 2]
+    fmt_out = "vzip"
+    if "--format" in args:
+        i = args.index("--format")
+        fmt_out = args[i + 1] if i + 1 < len(args) else ""
+        del args[i:i + 2]
+        if fmt_out not in ("vzip", "phkv"):
+            print(f"unknown --format {fmt_out!r}: vzip or phkv\n{USAGE}", file=sys.stderr)
+            return 2
     if len(args) != 2:
         print(USAGE, file=sys.stderr)
         return 2
@@ -41,7 +50,8 @@ def main(argv: list[str]) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 1
     try:  # the archive's sources are checked against the policy the input was read under
-        out.to_store(policy=policy).save_vzip(args[1], policy=policy)
+        store = out.to_store(policy=policy)
+        (store.save_phkv if fmt_out == "phkv" else store.save_vzip)(args[1], policy=policy)
     except ResolutionError as e:  # a source a reader under that policy could not read
         print(f"error: {e}", file=sys.stderr)
         return 1

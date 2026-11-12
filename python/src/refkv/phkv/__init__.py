@@ -1,10 +1,11 @@
 """The perfect-hash binding (spec/bindings/phkv.md
 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md>): a reference store kept in
 one file with a perfect hash of its keys, so that a lookup reads a few ranges of it, however many
-keys it holds. A phkv store.
+keys it holds. A phkv store. The binding is a draft: its format and this module may change.
 
 - `open(url)`: the phkv store at `url` (a local path or an `http(s)` URL), as a read-only store,
-  a `PhkvStore` (`refkv.phkv.store`). `refkv.open(url, binding="phkv")` comes here.
+  a `PhkvStore` (`refkv.phkv.store`). `refkv.open(url)` comes here for a name that ends in
+  `.phkv`, and `refkv.open(url, binding="phkv")` for any name.
 - `PhkvWriter`: writes a standalone phkv store to a binary file (`refkv.phkv.writer`), as
   `ReferenceStore.save_phkv` does.
 

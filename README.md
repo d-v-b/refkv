@@ -122,7 +122,7 @@ code is organized by language.
 | [rust/refkv-ir](rust/refkv-ir/) | the Rust core: the format parsers, the IR, the projections and the read planner, built for Python (through the bindings in [rust/refkv-python](rust/refkv-python/)) and for the browser (wasm32) |
 | [rust/refkv-python](rust/refkv-python/) | the core's Python bindings, which the `refkv` wheel builds in as the module `refkv._core` (`manifest-path` in [python/pyproject.toml](python/pyproject.toml)) |
 | [fixtures/](fixtures/) | the synthetic test inputs every implementation shares, one directory per format, and their generators ([fixtures/generators/](fixtures/generators/)) |
-| [conformance/](conformance/) | the conformance harnesses: [vzip/](conformance/vzip/HARNESS.md) for the vzip binding, [zarrify/](conformance/zarrify/HARNESS.md) for zarrification (with the frozen reference implementations, Python and TypeScript), and the agent-written independent implementations ([impls/](conformance/impls/README.md)) |
+| [conformance/](conformance/) | the conformance harnesses: [vzip/](conformance/vzip/HARNESS.md) for the vzip binding, [phkv/](conformance/phkv/HARNESS.md) for the draft phkv binding (`just conformance-phkv`), [zarrify/](conformance/zarrify/HARNESS.md) for zarrification (with the frozen reference implementations, Python and TypeScript), and the agent-written independent implementations ([impls/](conformance/impls/README.md)) |
 
 `just` lists the recipes: `just test` (Python), `just python::build` (a wheel), `just js::test` (Node),
 `just ir-test` (Rust), `just compare` and `just compare-mutants` (the

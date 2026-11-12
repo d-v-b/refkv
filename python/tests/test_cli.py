@@ -1,6 +1,7 @@
 """The command lines' usage: `-h` and `--help` print it to stdout with status 0, and a command
 line without its two arguments prints it to stderr with status 2."""
 
+import asyncio
 import json
 import subprocess
 import sys
@@ -121,3 +122,27 @@ def test_convert_help():
     p = _run("refkv", "convert", "--help")
     assert p.returncode == 0, p.stderr
     assert p.stdout.startswith("usage: refkv convert")
+
+
+@pytest.mark.parametrize("module", ["refkv.zarrify", "refkv.ir"])
+def test_format_phkv_writes_a_phkv_store(module, tmp_path):
+    """`--format phkv` writes a phkv store, which `refkv.open` reads by its name; the default is vzip."""
+    import refkv  # noqa: PLC0415
+
+    src = Path(__file__).resolve().parents[2] / "fixtures" / "npy" / "npy_c_float64.npy"
+    outs = {}
+    for fmt in ("phkv", "vzip"):
+        out = tmp_path / f"o.{fmt}"
+        p = _run(module, str(src), str(out), "--format", fmt, "--allow-private-hosts")
+        assert p.returncode == 0, p.stderr
+        outs[fmt] = refkv.open(str(out))
+    assert type(outs["phkv"]).__name__ == "PhkvStore"
+    assert type(outs["vzip"]).__name__ == "VZipStore"
+    assert asyncio.run(outs["phkv"].get_async("zarr.json")) == asyncio.run(outs["vzip"].get_async("zarr.json"))
+
+
+@pytest.mark.parametrize("module", ["refkv.zarrify", "refkv.ir"])
+def test_unknown_format_is_a_usage_error(module):
+    p = _run(module, "in.tif", "out", "--format", "hybrid")
+    assert p.returncode == 2
+    assert p.stderr.startswith("unknown --format")

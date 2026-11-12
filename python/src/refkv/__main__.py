@@ -72,7 +72,8 @@ def convert(argv: list[str]) -> int:
 
 
 COMMANDS = {"zarrify": zarrify, "convert": convert}
-USAGE = ("usage: refkv zarrify <url or path> <out.vzip> [options] (refkv zarrify --help for the options)\n"
+USAGE = ("usage: refkv zarrify <url or path> <out.vzip> [--format vzip|phkv] [options]"
+         " (refkv zarrify --help for the options)\n"
          "       refkv convert <in> <out> [--from vzip|phkv] [--to vzip|phkv] [--allow-scheme file]\n"
          "       (refkv convert --help for the options)")
 
