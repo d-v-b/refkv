@@ -18,6 +18,19 @@ def _source_store(tmp_path) -> refkv.ReferenceStore:
                                 policy=FILES)
 
 
+def _phkv_with(path, **entries) -> None:
+    """A phkv store holding `entries`, a bytes value or a Range each, with names `save_phkv` would leave
+    out: it keeps no `__vz__/` key a `key` source does not name (a phkv store itself reserves no names)."""
+    from refkv.phkv.writer import PhkvWriter  # noqa: PLC0415
+
+    with open(path, "wb") as f, PhkvWriter(f) as w:
+        for k, v in entries.items():
+            if isinstance(v, bytes):
+                w.add_bytes(k, v)
+            else:
+                w.add_ranges(k, [v])
+
+
 def _values(store) -> dict:
     """Every key's value as stored, a reference not followed."""
     return {k: store.value(k) for k in store.list()}
@@ -109,6 +122,37 @@ def test_a_key_source_naming_a_hidden_key_is_kept(tmp_path):
     assert refkv.open(tmp_path / "b.vzip", policy=FILES).get("__vz__/x") is None  # hidden again
 
 
+def test_vzip_to_phkv_to_vzip_is_stable(tmp_path):
+    """The first round trip drops the hidden keys no `key` source names; from then on every
+    conversion gives the same bytes back. A hidden key a `key` source names is an ordinary key in
+    phkv and is hidden again in vzip."""
+    (tmp_path / "blob.bin").write_bytes(b"0123456789" * 10)
+    store = refkv.ReferenceStore(
+        {"__vz__/x": b"hello world", "__vz__/orphan": b"o", "k": Range(source=0, offset=6, length=5),
+         "b": b"bytes", "z": b"a" * 5000, "r": Range(source=1, offset=2, length=3),
+         "c": Concat((Range(data=b"<"), Range(source=1, length=3)))},
+        [Source(key="__vz__/x"), Source(url=(tmp_path / "blob.bin").as_uri())], compressed=["z"], policy=FILES)
+    store.save_vzip(tmp_path / "a.vzip", policy=FILES)
+
+    def read(name, binding):
+        return refkv.open(tmp_path / name, binding=binding, policy=FILES)
+
+    refkv.vzip_to_phkv(tmp_path / "a.vzip", tmp_path / "p1.phkv", policy=FILES)
+    refkv.phkv_to_vzip(tmp_path / "p1.phkv", tmp_path / "b.vzip", policy=FILES)
+    refkv.vzip_to_phkv(tmp_path / "b.vzip", tmp_path / "p2.phkv", policy=FILES)
+    refkv.phkv_to_vzip(tmp_path / "p2.phkv", tmp_path / "c.vzip", policy=FILES)
+
+    a, p1, b = read("a.vzip", "vzip"), read("p1.phkv", "phkv"), read("b.vzip", "vzip")
+    assert p1.list() == ["__vz__/x", "b", "c", "k", "r", "z"]  # the named hidden key is listed, the orphan is gone
+    assert b.list() == a.list() == ["b", "c", "k", "r", "z"]  # hidden again
+    assert b.get("__vz__/x") is None
+    assert _values(b) == _values(a)
+    assert _everything(b) == _everything(a) == _everything(store)
+    assert [(s.url, s.key) for s in b.sources] == [(s.url, s.key) for s in a.sources]
+    assert (tmp_path / "p1.phkv").read_bytes() == (tmp_path / "p2.phkv").read_bytes()
+    assert (tmp_path / "b.vzip").read_bytes() == (tmp_path / "c.vzip").read_bytes()
+
+
 def test_a_vzip_archive_with_a_hybrid_entry_converts(tmp_path):
     """The mirrored payload of a reference entry is not mistaken for its value."""
     store = _source_store(tmp_path)
@@ -147,14 +191,14 @@ def test_a_file_of_the_wrong_binding_is_an_archive_error(tmp_path):
 
 
 def test_a_phkv_key_under_the_reserved_prefix_is_refused(tmp_path):
-    refkv.ReferenceStore({"__vz__/notes": b"n", "k": b"v"}).save_phkv(tmp_path / "a.phkv", policy=FILES)
+    _phkv_with(tmp_path / "a.phkv", **{"__vz__/notes": b"n", "k": b"v"})
     with pytest.raises(ValueError, match="__vz__/notes"):
         refkv.phkv_to_vzip(tmp_path / "a.phkv", tmp_path / "a.vzip", policy=FILES)
     assert not (tmp_path / "a.vzip").exists()
 
 
 def test_a_phkv_reference_under_the_reserved_prefix_is_refused(tmp_path):
-    refkv.ReferenceStore({"__vz__/r": Range(data=b"abc")}).save_phkv(tmp_path / "a.phkv", policy=FILES)
+    _phkv_with(tmp_path / "a.phkv", **{"__vz__/r": Range(data=b"abc")})
     with pytest.raises(ValueError, match="__vz__/r"):
         refkv.phkv_to_vzip(tmp_path / "a.phkv", tmp_path / "a.vzip", policy=FILES)
 
@@ -169,7 +213,7 @@ def test_a_reference_payload_too_long_for_vzip_is_refused_and_leaves_the_file(tm
 
 
 def test_a_failed_conversion_leaves_an_existing_destination(tmp_path):
-    refkv.ReferenceStore({"__vz__/n": b"n"}).save_phkv(tmp_path / "a.phkv", policy=FILES)
+    _phkv_with(tmp_path / "a.phkv", **{"__vz__/n": b"n"})
     (tmp_path / "a.vzip").write_bytes(b"previous")
     with pytest.raises(ValueError, match="__vz__/n"):
         refkv.phkv_to_vzip(tmp_path / "a.phkv", tmp_path / "a.vzip", policy=FILES)
