@@ -35,6 +35,7 @@ VirtualiZarr and concatenated with xarray:
 
 from __future__ import annotations
 
+import asyncio
 import bisect
 import contextlib
 import copy
@@ -48,9 +49,10 @@ from collections import Counter
 from collections.abc import AsyncIterator, Callable, Generator, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, BinaryIO, TypedDict, Unpack, override
+from typing import TYPE_CHECKING, Any, BinaryIO, TypedDict, Unpack, override
 
 from refkv._files import replacing
+from refkv._sync import run
 from refkv.bounds import Bound, derive
 from refkv.bounds import check as check_bounds
 from refkv.errors import ResolutionError
@@ -321,6 +323,51 @@ class ReferenceStore(ReferenceReader):
         # `save_vzip` writes in the mapping's order: the bytes values, then the references, each sorted
         mapping = {k: mapping[k] for k in sorted(mapping, key=lambda k: (not isinstance(mapping[k], bytes), k))}
         return cls(mapping, [Source(url=u) for u in urls], **kwargs)
+
+    @classmethod
+    def from_store(cls, store: ReferenceReader, **kwargs: Unpack[ReferenceStoreOptions]) -> ReferenceStore:
+        """A copy in memory of a saved store (a `refkv.vzip.VZipStore`, a `refkv.phkv.PhkvStore`, any
+        reference store): every key, with its bytes or its reference, unresolved, and its source
+        table. `save_vzip` and `save_phkv` write it with either binding, which is what
+        `refkv.vzip_to_phkv` and `refkv.phkv_to_vzip` do.
+
+        The whole store is read into memory, the directory of a vzip archive or the records of a
+        phkv store; the bytes a reference points to are not read. Relative source URLs are made
+        absolute against the store's URL, so the copy reads the same sources wherever it is saved:
+        pass `relative_to` to `save_vzip` or `save_phkv` to write them relative again.
+
+        What is not copied: the hidden keys of a vzip archive (the names under `__vz__/`), but
+        those a `key` source names; the archive's page index, pins and the order of its entries;
+        and whether a value was stored compressed (`compressed` says which keys to compress when
+        it is saved). A phkv store's properties and metadata are not copied either, and the
+        `Summary` of a vzip archive saved from the copy does not count the hidden keys a `key`
+        source keeps, which a phkv store lists. A vzip archive opened with `resolve=False`, whose
+        listing has the format entries, is a ValueError. Other keyword arguments go to the
+        constructor; `url` is the store's.
+
+        A remote phkv store costs about one lookup per key, so a store of a million keys is a
+        million requests.
+        """
+        if getattr(store, "resolve", True) is False:
+            raise ValueError("from_store copies a store as it resolves: open the archive with resolve=True")
+        kwargs.setdefault("url", store.url)
+        return run(cls._load(store, dict(kwargs)))
+
+    @classmethod
+    async def _load(cls, store: ReferenceReader, kwargs: dict[str, Any]) -> ReferenceStore:
+        keys = [k async for k in store.list_async("")]
+        values: dict[str, bytes | Reference] = {}
+        for i in range(0, len(keys), 256):  # a batch at a time: a store's own limit caps its reads
+            batch = keys[i : i + 256]
+            found = await asyncio.gather(*(store.value_async(k) for k in batch))
+            values.update({k: v for k, v in zip(batch, found, strict=True) if v is not None})
+        sources = [dataclasses.replace(s, url=resolve_reference(store.url, s.url)) if s.url is not None else s
+                   for s in store.sources]
+        # a `key` source may name a hidden key, which `list` does not give
+        hidden = sorted({s.key for s in sources if s.key is not None and s.key not in values})
+        found = await asyncio.gather(*(store.raw_async(k) for k in hidden))
+        values.update({k: v for k, v in zip(hidden, found, strict=True) if v is not None})
+        return cls(values, sources, **kwargs)
 
     # ------------------------------------------------------------ inspection
 
@@ -613,6 +660,10 @@ class ReferenceStore(ReferenceReader):
             return v[start:end]
         start, end = _abs_range(v.size, request)
         return await self._ref_bytes(v, start, end)
+
+    @override
+    async def value_async(self, key: str) -> bytes | Reference | None:
+        return self._visible(key)
 
     @override
     async def _value_size(self, key: str) -> int | None:

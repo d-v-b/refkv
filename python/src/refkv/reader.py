@@ -1110,6 +1110,10 @@ class ReferenceReader:
         """`raw`, as a coroutine."""
         raise NotImplementedError
 
+    async def value_async(self, key: str) -> bytes | Reference | None:
+        """`value`, as a coroutine."""
+        raise NotImplementedError
+
     async def _value_size(self, key: str) -> int | None:
         """The size of `key`'s value, None if the key is missing, without reading a reference's
         sources: its ranges' sizes say it."""
@@ -1140,6 +1144,13 @@ class ReferenceReader:
         too (spec §6.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>).
         None if it holds nothing."""
         return run(self.raw_async(key))
+
+    def value(self, key: str) -> bytes | Reference | None:
+        """What `key` holds, without following a reference: the bytes of a bytes value (decoded,
+        whatever codec the store keeps them in), or a reference's `Range` or `Concat`, not the
+        bytes it points to; None if the key is missing. A hidden key is missing, as for `get`.
+        `ReferenceStore.from_store` copies a store with it."""
+        return run(self.value_async(key))
 
     def list(self, prefix: str = "") -> list[str]:
         """Every key that starts with `prefix`, sorted (hidden keys are not listed)."""

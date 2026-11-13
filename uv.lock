@@ -18,6 +18,7 @@ members = [
     "refkv",
     "refkv-workspace",
 ]
+constraints = [{ name = "imagecodecs", specifier = "<2026.11.11" }]
 
 [[package]]
 name = "affine"
