@@ -8,6 +8,7 @@ the IR and each rejection's message, and python/tests/test_grib_codec.py the cod
 from __future__ import annotations
 
 import calendar
+import struct
 from pathlib import Path
 
 import numpy as np
@@ -411,6 +412,60 @@ def test_an_index_changes_the_reads_not_the_output(tmp_path):
     rebuilt = {k: held for k, _, held in _core.rebuild_store(out_i.entries.get)}
     assert rebuilt["f.grib2.idx"] == (indexed / "f.grib2.idx").read_bytes()
 
+
+
+# a message that holds bytes starting with GRIB, by the section that holds them and what it holds
+# before and at the offset the index lists: in its local use section (2), a whole message; one
+# past the first 64 KiB, a section longer than the run's window; the head of an edition 1
+# message, which the profile rejects; and, in its data section (7), which the run does not read, a
+# whole message past the first 64 KiB, still to read when the outer one is read
+SIMPLE = (GRIB / "grib_simple.grib2").read_bytes()
+INSIDE = {"message": (2, b"", SIMPLE), "past the first window": (2, bytes(70000), SIMPLE),
+          "edition 1": (2, b"", b"GRIB" + (100).to_bytes(3, "big") + b"\x01" + bytes(92)),
+          "in the data, past the first window": (7, bytes(70000), SIMPLE)}
+
+
+def holding(section: int, before: bytes, inner: bytes) -> tuple[bytes, int]:
+    """grib_simple's message with `before` and `inner` in section 2 (a section of their own) or at
+    the end of section 7, and the offset of `inner`."""
+    sections, at = {}, 16
+    while at < len(SIMPLE) - 4:
+        n = struct.unpack(">I", SIMPLE[at : at + 4])[0]
+        sections[SIMPLE[at + 4]] = (at, n)
+        at += n
+    if section == 2:
+        one = sum(sections[1])
+        local = struct.pack(">IB", 5 + len(before) + len(inner), 2) + before + inner
+        out = bytearray(SIMPLE[:one] + local + SIMPLE[one:])
+        offset = one + 5 + len(before)
+    else:
+        s7, n7 = sections[7]
+        out = bytearray(SIMPLE[: s7 + n7] + before + inner + SIMPLE[s7 + n7 :])
+        out[s7 : s7 + 4] = struct.pack(">I", n7 + len(before) + len(inner))
+        offset = s7 + n7 + len(before)
+    out[8:16] = struct.pack(">Q", len(out))
+    return bytes(out), offset
+
+
+@pytest.mark.parametrize("case", INSIDE)
+def test_an_index_that_lists_an_offset_inside_a_message_changes_no_output(case, tmp_path):
+    """§8.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#82-finding-the-messages>: a
+    message that holds bytes starting with GRIB, and an index that lists their offset too. The walk
+    reads one message, and so does the run with the index: an offset inside a message is one where
+    the file and the index disagree, so the index is set aside and the root names none."""
+    outer, listed = holding(*INSIDE[case])
+    alone, indexed = tmp_path / "alone", tmp_path / "indexed"
+    for d in (alone, indexed):
+        d.mkdir()
+        (d / "f.grib2").write_bytes(outer)
+    (indexed / "f.grib2.idx").write_text(f"1:0:d=2026102900:X:surface:anl:\n2:{listed}:d=2026102900:X:surface:anl:\n")
+    out_a, _ = zarrified(alone / "f.grib2")
+    out_i, root_i = zarrified(indexed / "f.grib2")
+    assert at(root_i.attrs, "refkv_zarrified", "grib", "index") is None
+    keep = lambda k: not k.startswith("refkv_source") and k != "zarr.json"  # noqa: E731
+    assert {k: v for k, v in out_a.entries.items() if keep(k)} == {k: v for k, v in out_i.entries.items() if keep(k)}
+    assert out_a.refs == out_i.refs
+    assert sorted(k.split("/")[1] for k in out_a.refs) == ["t_surface"]
 
 def test_xarray_opens_a_grid_as_a_dataset():
     """A grid's group opens in xarray, its time decoded as datetimes and its grid's coordinates
