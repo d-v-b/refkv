@@ -859,6 +859,9 @@ The store conventions say when they have the last two members, and their content
 | `types` | array of string | required | the interned types (8.6), likewise; `types[0]` is `""` |
 | `forms` | array of string | required | the interned forms (8.5), likewise, each a JSON text |
 
+A reader rejects a table whose `version` is not `2`, whose `rows` is not the number of rows the
+array `rows` stores, or whose `elements` is not the number of rows they expand to (8.3).
+
 <a id="table-mirror"></a>**The mirror's entries**, under `refkv_source` ([§11.5](#115-layout-tables)):
 
 | prefix | type | structure | description |
@@ -1124,8 +1127,10 @@ document, the source metadata of its group:
 | `{"$vz": "bytes", "b64": B}` | bytes |
 | `{"$vz": "utf16", "b64": B}` | UTF-16 that is not text |
 
-**Budgets.** A document holds at most 65536 bytes, and at most 2^20
-elements are visited in all. Each document starts with 65536 bytes left;
+**Budgets.** The members of a document's children spend at most 65536 bytes,
+and at most 2^20 elements are visited in all; the members `$vz`, `$form` and
+`$partial` spend none, and the last child's member may be larger than what is
+left, so a document may hold more than 65536 bytes. Each document starts with 65536 bytes left;
 for each child in order: the child is visited (counted); if fewer than 1024
 bytes are left, or more than 2^20 children have been visited, the document
 gets `"$partial": true` and stops. Otherwise the child's member is computed

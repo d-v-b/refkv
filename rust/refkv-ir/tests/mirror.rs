@@ -302,8 +302,7 @@ fn a_table_whose_derived_space_has_only_empty_descendants_is_invalid() {
 fn a_table_whose_alias_target_is_past_its_rows_is_invalid() {
     let mut t = derived_table(&[(4, 2, 2, 0, 0, 0)]);
     t.targets = vec![[2, 99]];
-    let ir = load(&t, &mut no_read).unwrap();
-    assert!(check(&ir).unwrap_err().contains("names no element (target 99)"));
+    assert_eq!(err(&t), "bad alias [2, 99]");
 }
 
 /// An IR a parser built has every descendant: only a table read back has left any out.
@@ -313,6 +312,57 @@ fn an_ir_whose_derived_element_has_no_descendants_is_invalid() {
     ir.derived(0, "z", 0, (0, 10), r#"{"size":8,"transform":"zlib"}"#).unwrap();
     assert!(check(&ir).unwrap_err().starts_with("derived bytes [0, 8) of element 1"));
 }
+
+// ---- the tables a reader rejects
+//
+// Each sentence of conventions §8.2
+// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table> (the table) and §8.3
+// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#83-column-runs> (column runs) that
+// makes a table invalid, with the tests of its rejection: a sentence with `none` has no test yet.
+// Reading (`table_from`) rejects what the description and the arrays say, loading (`load`) what
+// the rows and the tables say, and the checker (`check`) what the elements they stand for break.
+//
+// | sentence | tests |
+// |---|---|
+// | the table: `version` is required and is `2`; a reader rejects another | `rejects_another_version`, `rejects_a_description_of_no_version` |
+// | the table: `size` is required | none |
+// | the table: `objects` is an integer | none |
+// | the table: `elements` is the elements, every column run expanded | `rejects_a_description_whose_elements_are_not_the_expanded_rows`, `rejects_a_description_of_no_elements` |
+// | the table: `rows` is the rows the table stores | `rejects_a_description_whose_rows_are_not_the_stored_rows`, `rejects_a_description_of_no_rows` |
+// | the table: `names`, `types` and `forms` are required arrays of strings | none |
+// | the table: `rows` has the shape `[8, m]`, `tables` the shape `[k, 7]` | `rejects_rows_of_another_shape`, `rejects_tables_of_another_shape` |
+// | the table: the two arrays' data type, chunk shape and codecs | none |
+// | the table: a row's space is 0 or the expanded id of a derived element | `rejects_a_space_that_is_no_row`, `rejects_a_space_past_32_bits`; none for an element that is not derived |
+// | the table: a run's `count` is at least 1 | `rejects_a_run_of_no_members` |
+// | the table: an alias's target is a row, or `-1` | `rejects_an_alias_whose_target_is_no_row`, `a_table_whose_alias_target_is_past_its_rows_is_invalid`, `rejects_an_alias_column_whose_target_is_no_row` |
+// | the table: the alias rows name stored rows | `rejects_an_alias_row_of_a_row_that_is_not_stored`, `rejects_an_alias_row_of_no_row` |
+// | the table: the form rows name stored rows | `rejects_a_form_row_of_a_row_that_is_not_stored` |
+// | the table: the run rows name stored rows | `rejects_a_run_row_of_a_row_that_is_not_stored` |
+// | the table: the column run rows name stored rows | `rejects_a_column_run_at_a_row_that_is_not_stored` |
+// | the table: a row of another code makes the table invalid | `rejects_a_table_row_of_another_code` |
+// | the table: a column's column run is one of the rows of code 3 | `rejects_a_column_of_no_column_run` |
+// | column runs: a column's row offset is a row of member 0, its field one of 0 to 6 | `rejects_a_column_of_a_row_past_the_member` |
+// | column runs: the encodings are 0 to 3 | `rejects_a_column_of_another_encoding` |
+// | column runs: encoding 2's row is a value in space 0, with a length | `rejects_a_column_of_a_row_that_is_no_value`, `rejects_a_column_of_no_row` |
+// | column runs: encoding 2's row is of a type that is an array of unsigned integers | `rejects_a_column_of_a_row_that_is_no_array` |
+// | column runs: encoding 2's row is not in a column run that has a column of encoding 2 | `rejects_a_column_of_a_row_in_a_run_that_reads_columns` |
+// | column runs: encoding 3 is of the name index only | `rejects_encoding_3_of_a_field_other_than_the_name_index` |
+// | limits: the expanded table has at most 2^22 + floor(Z / 4) rows | `rejects_stored_rows_past_the_budget`, `rejects_a_column_run_past_the_budget` |
+// | limits: columns' lengths differ | `rejects_columns_of_different_lengths` |
+// | limits: a column refers to values past `column_values` | `rejects_a_column_past_its_values` |
+// | limits: a column refers to entries past its array | `rejects_a_column_past_its_array` |
+// | limits: a column run's member 0 is not `size` rows of sibling subtrees | `rejects_a_column_run_that_is_not_a_subtree` |
+// | limits: an up of 0 for a row other than the root, or larger than the row's id | `rejects_a_bad_parent` |
+// | limits: kinds out of range | `rejects_a_bad_kind`, `rejects_a_kind_past_8_bits` |
+// | limits: names out of range | `rejects_a_name_past_the_names`, `rejects_a_name_where_the_table_has_none` |
+// | limits: types out of range | `rejects_a_type_past_the_types`, `rejects_a_type_column_past_the_types` |
+// | limits: forms out of range | `rejects_a_form_row_of_no_form`, `rejects_a_form_column_past_the_forms` |
+// | limits: the expanded rows break the rules of the root or of the names | `flags_a_table_whose_root_is_named`, and each rule in tests/core.rs |
+//
+// Beside them: runs do not nest (§8.1
+// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>),
+// `rejects_a_run_inside_a_run`; and a store's limits (§8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>),
+// in tests/store_mirror.rs.
 
 fn err(t: &Table) -> String {
     match load(t, &mut no_read) {
@@ -392,6 +442,429 @@ fn rejects_a_column_run_that_is_not_a_subtree() {
     let mut t = three();
     t.cruns = vec![[1, 3, 2]];
     assert_eq!(err(&t), "column run 0: member 0 is not 2 rows of sibling subtrees");
+}
+
+/// A table of `m` stored rows and no column run, of a source of no bytes: the root and
+/// `m - 1` empty structs `s/0`, `s/1`, ….
+fn flat(m: usize) -> Table {
+    let mut t = Table {
+        kind: vec![0; m],
+        up: (0..m as u32).collect(),
+        name: vec![1; m],
+        nidx: (0..m as u64).map(|k| k.wrapping_sub(1)).collect(),
+        ty: vec![0; m],
+        space: vec![0; m],
+        start: vec![0; m],
+        length: vec![0; m],
+        names: vec!["".into(), "s/".into()],
+        types: vec!["".into()],
+        ..Default::default()
+    };
+    t.name[0] = 0;
+    t
+}
+
+/// The limit holds for the stored rows too: a table of no column run is not past it unseen.
+#[test]
+fn rejects_stored_rows_past_the_budget() {
+    assert_eq!(err(&flat((1 << 22) + 1)), "budget: more than 4194304 rows");
+}
+
+/// `three()` as a mirror's entries, `edit` applied to its description (`I`, conventions §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>).
+fn described(edit: impl Fn(&mut serde_json::Value)) -> Out {
+    let mut out = Out::new("u");
+    write(&three(), &mut out, "tiff", false);
+    let e = out.entries.iter_mut().find(|e| e.0 == "refkv_source/zarr.json").unwrap();
+    let mut doc: serde_json::Value = serde_json::from_slice(&e.1).unwrap();
+    edit(&mut doc["attributes"]["refkv_zarrified"]["tiff"]["ir"]);
+    e.1 = serde_json::to_vec(&doc).unwrap();
+    out
+}
+
+/// `three()` as a mirror's entries, with `value` in column `column` of its stored row 1 (`rows`
+/// is `[8, 2]`, a column after another).
+fn with_cell(column: usize, value: i64) -> Out {
+    let mut out = Out::new("u");
+    write(&three(), &mut out, "tiff", false);
+    let e = out.entries.iter_mut().find(|e| e.0 == "refkv_source/ir/rows/c/0/0").unwrap();
+    assert_eq!(e.1.len(), 8 * 8 * 2);
+    let at = 8 * (2 * column + 1);
+    e.1[at..at + 8].copy_from_slice(&value.to_le_bytes());
+    out
+}
+
+/// What reading the entries' table says: `table_from`'s error.
+fn unread(out: &Out) -> String {
+    match table_from_out(out) {
+        Ok(_) => panic!("read"),
+        Err(e) => e,
+    }
+}
+
+/// A name of 2^32 + 1 is not name 1: the column is checked as it is stored, 64 bits wide.
+#[test]
+fn rejects_a_name_past_the_names() {
+    assert_eq!(unread(&with_cell(2, (1 << 32) + 1)), "a row's name out of range");
+}
+
+#[test]
+fn rejects_a_type_past_the_types() {
+    assert_eq!(unread(&with_cell(4, 1 << 32)), "a row's type out of range");
+}
+
+#[test]
+fn rejects_a_space_past_32_bits() {
+    assert_eq!(unread(&with_cell(5, 1 << 32)), "a row's space out of range");
+}
+
+#[test]
+fn rejects_another_version() {
+    assert_eq!(unread(&described(|d| d["version"] = serde_json::json!(3))), "version 3, not 2");
+}
+
+#[test]
+fn rejects_a_description_of_no_version() {
+    assert_eq!(unread(&described(|d| { d.as_object_mut().unwrap().remove("version"); })), "no version");
+}
+
+#[test]
+fn rejects_a_description_whose_rows_are_not_the_stored_rows() {
+    assert_eq!(unread(&described(|d| d["rows"] = serde_json::json!(3))), "the description has 3 rows, ir/rows 2");
+}
+
+#[test]
+fn rejects_a_description_of_no_rows() {
+    assert_eq!(unread(&described(|d| { d.as_object_mut().unwrap().remove("rows"); })), "no rows");
+}
+
+#[test]
+fn rejects_a_description_whose_elements_are_not_the_expanded_rows() {
+    assert_eq!(unread(&described(|d| d["elements"] = serde_json::json!(2))), "the description has 2 elements, the table expands to 4");
+}
+
+#[test]
+fn rejects_a_description_of_no_elements() {
+    assert_eq!(unread(&described(|d| { d.as_object_mut().unwrap().remove("elements"); })), "no elements");
+}
+
+/// `three()` and a third stored row, an alias `x` of the root: element 4, after the column
+/// run's three members (elements 1 to 3, of which only element 1 is stored).
+fn three_and_an_alias() -> Table {
+    let mut t = three();
+    t.kind.push(4);
+    t.up.push(4);
+    t.name.push(2);
+    t.nidx.push(u64::MAX);
+    t.ty.push(0);
+    t.space.push(0);
+    t.start.push(0);
+    t.length.push(0);
+    t.names.push("x".into());
+    t.targets = vec![[4, 0]];
+    t
+}
+
+/// An alias row names a stored row: element 3 is member 2 of the column run, which is not stored.
+#[test]
+fn rejects_an_alias_row_of_a_row_that_is_not_stored() {
+    let mut t = three_and_an_alias();
+    t.targets = vec![[3, 0]];
+    assert_eq!(err(&t), "bad alias [3, 0]");
+}
+
+#[test]
+fn rejects_an_alias_row_of_no_row() {
+    let mut t = three_and_an_alias();
+    t.targets = vec![[(1 << 32) + 4, 0]];
+    assert_eq!(err(&t), "bad alias [4294967300, 0]");
+}
+
+#[test]
+fn rejects_an_alias_whose_target_is_no_row() {
+    let mut t = three_and_an_alias();
+    t.targets = vec![[4, 5]];
+    assert_eq!(err(&t), "bad alias [4, 5]");
+    t.targets = vec![[4, -2]];
+    assert_eq!(err(&t), "bad alias [4, -2]");
+}
+
+#[test]
+fn rejects_an_alias_column_whose_target_is_no_row() {
+    let mut t = three();
+    t.columns.push([0, 0, 5, 0, 3, 1]); // targets 3, 4, 5 for the three members
+    assert_eq!(err(&t), "a target column out of range");
+}
+
+#[test]
+fn rejects_a_form_row_of_a_row_that_is_not_stored() {
+    let mut t = three();
+    t.form_text = vec!["{}".into()];
+    t.forms = vec![[2, 0]];
+    assert_eq!(err(&t), "bad form [2, 0]");
+}
+
+#[test]
+fn rejects_a_run_row_of_a_row_that_is_not_stored() {
+    let mut t = three();
+    t.runs = vec![[2, 1, 0]];
+    assert_eq!(err(&t), "bad run [2, 1, 0]");
+}
+
+/// A column run of one member adds no rows, so the count of rows does not give it away.
+#[test]
+fn rejects_a_column_run_at_a_row_that_is_not_stored() {
+    let mut t = three();
+    t.cruns.push([2, 1, 1]);
+    assert_eq!(err(&t), "column run 1 at row 2");
+}
+
+/// A table of a 40-byte source: the root, a struct `s/0` and in it a gap `gaps/0` of 10 bytes,
+/// with the runs `runs` (root, count, stride).
+fn two_deep(runs: &[[i64; 3]]) -> Table {
+    Table {
+        size: 40,
+        kind: vec![0, 0, 5],
+        up: vec![0, 1, 1],
+        name: vec![0, 2, 1],
+        nidx: vec![u64::MAX, 0, 0],
+        ty: vec![0, 0, 0],
+        space: vec![0, 0, 0],
+        start: vec![0, 0, -40],
+        length: vec![40, 0, 10],
+        runs: runs.to_vec(),
+        names: vec!["".into(), "gaps/".into(), "s/".into()],
+        types: vec!["".into()],
+        ..Default::default()
+    }
+}
+
+/// Runs do not nest (conventions §8.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>).
+#[test]
+fn rejects_a_run_inside_a_run() {
+    assert_eq!(err(&two_deep(&[[1, 2, 20], [2, 2, 10]])), "the run at row 2 is inside the run at row 1");
+}
+
+#[test]
+fn rejects_a_run_of_no_members() {
+    let mut t = three();
+    t.runs = vec![[1, 0, 0]];
+    assert_eq!(err(&t), "bad run [1, 0, 0]");
+}
+
+#[test]
+fn rejects_a_form_row_of_no_form() {
+    let mut t = three();
+    t.forms = vec![[1, 0]];
+    assert_eq!(err(&t), "bad form [1, 0]");
+}
+
+#[test]
+fn rejects_a_name_where_the_table_has_none() {
+    let mut t = three();
+    t.names.clear();
+    assert_eq!(err(&t), "row 0: name or type out of range");
+}
+
+#[test]
+fn rejects_a_type_column_past_the_types() {
+    let mut t = three();
+    t.columns.push([0, 0, 1, 0, 0, 1]); // types 0, 1, 2 for the three members
+    assert_eq!(err(&t), "a type column out of range");
+}
+
+#[test]
+fn rejects_a_form_column_past_the_forms() {
+    let mut t = three();
+    t.columns.push([0, 0, 4, 0, 0, 1]); // forms 0, 1, 2 for the three members
+    assert_eq!(err(&t), "a form column out of range");
+}
+
+#[test]
+fn rejects_a_column_of_a_row_past_the_member() {
+    let mut t = three();
+    t.columns = vec![[0, 1, 2, 0, 0, 10]];
+    assert_eq!(err(&t), "column run 0: bad column [0, 1, 2, 0, 0, 10]");
+}
+
+#[test]
+fn rejects_a_column_of_another_encoding() {
+    let mut t = three();
+    t.columns = vec![[0, 0, 2, 7, 0, 10]];
+    assert_eq!(err(&t), "column run 0: encoding 7");
+}
+
+#[test]
+fn rejects_encoding_3_of_a_field_other_than_the_name_index() {
+    let mut t = three();
+    t.columns = vec![[0, 0, 2, 3, 0, 0]];
+    assert_eq!(err(&t), "column run 0: encoding 3 of field 2");
+}
+
+#[test]
+fn rejects_a_kind_past_8_bits() {
+    assert_eq!(unread(&with_cell(0, 256)), "a row's kind or parent out of range");
+}
+
+/// A space is 0 or an element's id.
+#[test]
+fn rejects_a_space_that_is_no_row() {
+    let mut t = three();
+    t.space[1] = 4;
+    assert_eq!(err(&t), "row 1: space 4");
+}
+
+/// `three()` as a mirror's entries, the document of its array `ir/<name>` edited.
+fn with_array(name: &str, edit: impl Fn(&mut serde_json::Value)) -> Out {
+    let mut out = Out::new("u");
+    write(&three(), &mut out, "tiff", false);
+    let key = format!("refkv_source/ir/{name}/zarr.json");
+    let e = out.entries.iter_mut().find(|e| e.0 == key).unwrap();
+    let mut doc: serde_json::Value = serde_json::from_slice(&e.1).unwrap();
+    edit(&mut doc);
+    e.1 = serde_json::to_vec(&doc).unwrap();
+    out
+}
+
+/// `rows` is `[8, m]`: the 16 values of `three()` read as `[4, 4]` are no table.
+#[test]
+fn rejects_rows_of_another_shape() {
+    let out = with_array("rows", |d| {
+        d["shape"] = serde_json::json!([4, 4]);
+        d["chunk_grid"]["configuration"]["chunk_shape"] = serde_json::json!([4, 4]);
+    });
+    assert_eq!(unread(&out), "ir/rows: shape [4, 4], not [8, m]");
+}
+
+/// `tables` is `[k, 7]`: the 21 values of `three()` read as `[7, 3]` are no table rows.
+#[test]
+fn rejects_tables_of_another_shape() {
+    let out = with_array("tables", |d| {
+        d["shape"] = serde_json::json!([7, 3]);
+        d["chunk_grid"]["configuration"]["chunk_shape"] = serde_json::json!([7, 3]);
+    });
+    assert_eq!(unread(&out), "ir/tables: shape [7, 3], not [k, 7]");
+}
+
+#[test]
+fn rejects_a_table_row_of_another_code() {
+    let mut out = Out::new("u");
+    write(&three(), &mut out, "tiff", false);
+    let e = out.entries.iter_mut().find(|e| e.0 == "refkv_source/ir/tables/c/0/0").unwrap();
+    e.1[..8].copy_from_slice(&9i64.to_le_bytes());
+    assert_eq!(unread(&out), "a table row of kind 9");
+}
+
+/// A table of a 10-byte source: the root, `counts` (a value of the type `<u2[2]`, 4 bytes) and
+/// three gaps of 2 bytes folded as one column run, whose lengths are a column read from row `x`.
+fn arrayed(x: i64) -> Table {
+    Table {
+        size: 10,
+        kind: vec![0, 1, 5],
+        up: vec![0, 1, 2],
+        name: vec![0, 1, 2],
+        nidx: vec![u64::MAX, u64::MAX, 0],
+        ty: vec![0, 1, 0],
+        space: vec![0; 3],
+        start: vec![0, -10, 0],
+        length: vec![10, 4, 2],
+        cruns: vec![[2, 3, 1]],
+        columns: vec![[0, 0, 3, 2, x, 0]],
+        names: vec!["".into(), "counts".into(), "gaps/".into()],
+        types: vec!["".into(), "<u2[2]".into()],
+        ..Default::default()
+    }
+}
+
+/// What loading `t` says, the source being all zeros.
+fn err_of_zeros(t: &Table) -> String {
+    match load(t, &mut |_, n| Ok(vec![0u8; n as usize])) {
+        Ok(_) => panic!("loaded"),
+        Err(e) => e,
+    }
+}
+
+/// Three members, and an array of two entries.
+#[test]
+fn rejects_a_column_past_its_array() {
+    assert_eq!(err_of_zeros(&arrayed(1)), "a column past its array");
+}
+
+#[test]
+fn rejects_a_column_of_a_row_that_is_no_value() {
+    let mut t = arrayed(1);
+    t.kind[1] = 5;
+    assert_eq!(err_of_zeros(&t), "a column of a row that is no value in the source");
+}
+
+#[test]
+fn rejects_a_column_of_no_row() {
+    assert_eq!(err_of_zeros(&arrayed(99)), "a column of no row");
+}
+
+/// The tables the checks above leave alone: a run and a form at a stored row, sibling runs,
+/// an alias whose target is a row that is not stored or is left out, a name the description
+/// has twice, and a description that says what its table holds.
+#[test]
+fn valid_tables_load() {
+    // one run of four gaps; and a run of two structs, each of one gap
+    for (runs, size) in [([[2, 4, 10]], 40), ([[1, 2, 10]], 20)] {
+        let mut t = two_deep(&runs);
+        t.size = size;
+        t.length[0] = size;
+        t.start[2] = -(size as i64);
+        let ir = load(&t, &mut no_read).unwrap();
+        assert_eq!(ir.runs.len(), 1);
+        check(&ir).unwrap();
+    }
+    // sibling runs: `gaps/0` and `gaps/1` of 10 bytes, then `tail/0` and `tail/1` of 5
+    let t = Table {
+        size: 30,
+        kind: vec![0, 5, 5],
+        up: vec![0, 1, 2],
+        name: vec![0, 1, 2],
+        nidx: vec![u64::MAX, 0, 0],
+        ty: vec![0; 3],
+        space: vec![0; 3],
+        start: vec![0, -30, 10],
+        length: vec![30, 10, 5],
+        runs: vec![[1, 2, 10], [2, 2, 5]],
+        names: vec!["".into(), "gaps/".into(), "tail/".into()],
+        types: vec!["".into()],
+        ..Default::default()
+    };
+    let ir = load(&t, &mut no_read).unwrap();
+    assert_eq!(leaves(&ir).unwrap(), [(0, 30)]);
+    check(&ir).unwrap();
+    // an alias row names a stored row; its target is any row, or none
+    for target in [0, 3, 4, -1] {
+        let mut t = three_and_an_alias();
+        t.targets = vec![[4, target]];
+        let ir = load(&t, &mut no_read).unwrap();
+        assert_eq!(ir.target(4) as i64, if target < 0 { u32::MAX as i64 } else { target });
+    }
+    // a form row at a stored row, in member 0 of a column run
+    let mut t = three();
+    t.form_text = vec!["{}".into()];
+    t.forms = vec![[1, 0]];
+    let ir = load(&t, &mut no_read).unwrap();
+    assert_eq!((1..4).map(|i| ir.form(i)).collect::<Vec<_>>(), [Some("{}"); 3]);
+    // a name the description has twice is one name, whichever place a row names it by
+    let mut t = three();
+    t.names = vec!["".into(), "".into(), "gaps/".into(), "gaps/".into()];
+    for name in [2, 3] {
+        t.name[1] = name;
+        let ir = load(&t, &mut no_read).unwrap();
+        assert_eq!((1..4).map(|i| ir.name_of(i)).collect::<Vec<_>>(), ["gaps/0", "gaps/1", "gaps/2"]);
+        check(&ir).unwrap();
+    }
+    // a description that says what the table holds, and cells in range
+    for out in [described(|_| {}), with_cell(2, 1), with_cell(4, 0), with_cell(5, 0)] {
+        let ir = load(&table_from_out(&out).unwrap(), &mut no_read).unwrap();
+        assert_eq!(ir.len(), 4);
+        check(&ir).unwrap();
+    }
 }
 
 /// A source of 4 bytes whose IR stands for 4,200,000 elements (a run of empty
@@ -613,4 +1086,25 @@ fn every_derived_transform_holding_shown_values_can_be_derived_again() {
         }
     }
     assert!(seen.len() >= 2, "{seen:?}");
+}
+
+/// The view's 65536 bytes are what the members of a document's children spend (conventions §8.7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>): `$vz` and `$form`
+/// spend none, so a derived element of a long form has a document that holds more, and is not
+/// partial.
+#[test]
+fn a_view_document_may_hold_more_than_its_children_spend() {
+    let form = format!(r#"{{"pad":"{}","size":0,"transform":"zlib"}}"#, "x".repeat(70_000));
+    let mut ir = Ir::new(10);
+    ir.derived(0, "z", 0, (0, 10), &form).unwrap();
+    ir.finished = true;
+    ir.build_children();
+    let mut out = Out::new("u");
+    mirror(&ir, &mut out, "tiff").unwrap();
+    let doc: serde_json::Value = serde_json::from_slice(&entry(&out)("refkv_source/tree/z/zarr.json").unwrap()).unwrap();
+    let view = &doc["attributes"]["refkv_zarrified"]["tiff"];
+    assert_eq!(view, &serde_json::json!({"$vz": "derived", "$form": form}));
+    assert!(serde_json::to_vec(view).unwrap().len() > 65536);
+    let keys: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
+    assert_eq!(view_problem(&keys, &entry(&out), &mut no_read), None);
 }
