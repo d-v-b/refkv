@@ -1411,8 +1411,9 @@ A producer rejects a store past one of these with the message
 `budget: the mirror's names would total more than 16777216 bytes`, and a reader
 rejects such a table. While it parses, refkv's producer allows 2^22 elements
 and `4 + floor(s / 4)` more for each object of `s` bytes, which is never more
-than `N`, and rejects a store past that with a message of the form
-`budget: more than M IR records` ([§8.3](#83-column-runs), limits). A reader also rejects a table whose held objects (objects with
+than `N`, and rejects a store past that with the message
+`budget: more than R IR records` (`R` that limit, in decimal;
+[§8.3](#83-column-runs), limits). A reader also rejects a table whose held objects (objects with
 children and a length, not described in place) are not as many as `ir/held`'s
 byte strings, or one of
 whose byte strings is not as long as its object.
