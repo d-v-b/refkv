@@ -81,8 +81,10 @@ feasibility.
   source's own id and parameters ([§3.2](../../../spec/stored-array.md#32-the-list)), or
   a description with no grid ([§2.3](../../../spec/stored-array.md#23-the-grid)).
 - **Describe every array the parser reaches,** whether or not the profile
-  presents it. The IR mirror rebuilds the file's non-data bytes exactly
-  ([conventions §8](../../../spec/conventions.md#8-the-ir-mirror)).
+  presents it ([stored-array §1](../../../spec/stored-array.md#1-stored-arrays)): an
+  output built with `refkv.build` may present an array the profile leaves out.
+  The descriptions are not in the IR mirror, which only has to rebuild the file's
+  non-data bytes exactly ([conventions §8](../../../spec/conventions.md#8-the-ir-mirror)).
 
 - **Real files over the standard.** Headers and tags lie, and writers deviate
   from standards. Derive facts from the coded stream. Follow de facto
