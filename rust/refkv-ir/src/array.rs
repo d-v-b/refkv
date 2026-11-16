@@ -25,8 +25,9 @@ pub struct StoredArray {
     /// the array's index among those `element` declares, for a kind of element that may declare
     /// several
     pub index: Option<u64>,
-    /// where the source declares what the array's elements are, as the format's document lists
-    /// them
+    /// where the source declares what the array's elements are, as the format's paragraph lists
+    /// them (spec/stored-array.md §7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>)
     pub declarations: Vec<Place>,
     /// the axes in storage order, the slowest-varying first; None where the source declares no
     /// extent (an HDF5 null dataspace), which holds no element, unlike a scalar's `Some([])`

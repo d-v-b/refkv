@@ -10,6 +10,24 @@ Read the section for each step before doing it. This file is only the
 procedure and the rules that are easy to miss; the guide is the source of
 truth.
 
+## The IR
+
+A profile works in two stages. The parser reads the file into an **IR**, and a
+projection builds the output from it. The IR describes the source, and the
+projection decides the output. Read these before designing a parser:
+
+- [conventions §8](../../../spec/conventions.md#8-the-ir-mirror), the IR mirror: the
+  normative rules for the IR's elements, its table and its canonical form.
+- [spec/stored-array.md](../../../spec/stored-array.md): how the IR describes each array
+  the source stores, at the byte level. [§6](../../../spec/stored-array.md#6-in-the-ir)
+  says when a parser builds the descriptions, and
+  [§7](../../../spec/stored-array.md#7-the-formats) has one paragraph per format that
+  describes its arrays.
+- [design/ARCHITECTURE.md §3](../../../design/ARCHITECTURE.md#3-proposal-an-intermediate-representation):
+  why the IR exists and what its invariants are.
+- [docs/build.md](../../../docs/build.md): `refkv.build`, which builds outputs other than
+  the profile's own from the IR. Anything the IR leaves out, no such output can have.
+
 ## If the question is "can we do X?"
 
 Answer it: whether the format fits, what a profile would cover, and what it
@@ -30,9 +48,15 @@ feasibility.
    Settle each decision there, with the spec section that governs it.
 4. **Write `spec/zarrify/<p>.md`** and `spec/source_metadata/<p>.py`. See
    [§4](../../../docs/adding-a-format.md#4-write-the-document).
+   - Add the format's paragraph to
+     [stored-array §7](../../../spec/stored-array.md#7-the-formats): the structures that
+     are its stored arrays, how each is keyed, what its declarations are, and
+     what is not described yet.
 5. **Implement.** See [§5](../../../docs/adding-a-format.md#5-implement-it).
    - The registry file, then `just profiles`.
    - The Rust module, its projection and its source model.
+   - The parser builds a stored-array description of every array it reaches
+     when its IR is finished ([stored-array §6](../../../spec/stored-array.md#6-in-the-ir)).
    - For a file read as a store, or a store input: the registry's `store_run`,
      `store_parser` and `store_project`. The hosts read the rest from the registry.
    - A codec, only if none fits. Every codec the profile writes, even another
@@ -44,6 +68,24 @@ feasibility.
 8. **Run the commands** in [§8](../../../docs/adding-a-format.md#8-before-opening-the-pull-request), then open the PR.
 
 ## Rules that are easy to miss
+
+- **A stored-array description holds the source, not the output.** No data
+  types, byte order names, output chunking, shards, padding or bytes the source
+  doesn't hold ([stored-array §1](../../../spec/stored-array.md#1-stored-arrays)).
+  Those are the projection's decisions. A description borrows from Zarr's array
+  model where that fits, but it isn't Zarr. An element's form is the older
+  place for a unit's geometry, and it still names a data type
+  ([conventions §8.5](../../../spec/conventions.md#85-forms-and-recipes)).
+- **Fall back instead of guessing.** Where a description can't interpret something, keep
+  it general: bytes, or where the source holds them
+  ([§2.2](../../../spec/stored-array.md#22-places-and-parameters)), a codec under the
+  source's own id and parameters ([§3.2](../../../spec/stored-array.md#32-the-list)), or
+  a description with no grid ([§2.3](../../../spec/stored-array.md#23-the-grid)).
+- **Describe every array the parser reaches,** whether or not the profile
+  presents it ([stored-array §1](../../../spec/stored-array.md#1-stored-arrays)): an
+  output built with `refkv.build` may present an array the profile leaves out.
+  The descriptions are not in the IR mirror, which only has to rebuild the file's
+  non-data bytes exactly ([conventions §8](../../../spec/conventions.md#8-the-ir-mirror)).
 
 - **Real files over the standard.** Headers and tags lie, and writers deviate
   from standards. Derive facts from the coded stream. Follow de facto

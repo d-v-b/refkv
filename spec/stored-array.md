@@ -28,11 +28,11 @@ source holds them ([§2.2](#22-places-and-parameters)); the source's own id and 
 codec `source`, [§3.2](#32-the-list)); an array whose storage it does not model (a description
 with no grid, [§2.3](#23-the-grid)).
 
-Every array a parser reaches has a description, whether or not its profile presents it. Each
-format's document lists the structures that are its stored arrays and what each of their
-declarations is. A format whose parser describes its arrays has a paragraph in
-[§7](#7-the-formats), which says what of the format is described and what is not yet; the parser
-of a format with no paragraph there describes nothing.
+Every array a parser reaches has a description, whether or not its profile presents it. A format
+whose parser describes its arrays has a paragraph in [§7](#7-the-formats), which lists the
+structures that are its stored arrays and what each of their declarations is, and says what of
+the format is described and what is not yet; the parser of a format with no paragraph there
+describes nothing.
 
 ## 2. The description
 
@@ -42,7 +42,7 @@ A description has these members (the Rust type `StoredArray` of `rust/refkv-ir/s
 | --- | --- |
 | `element` | the IR element that declares the array |
 | `index` | the array's index among those `element` declares, for a kind of element that may declare several; else absent |
-| `declarations` | the places where the source declares what the array's elements are, as the format's document lists them |
+| `declarations` | the places where the source declares what the array's elements are, as the format's paragraph of [§7](#7-the-formats) lists them |
 | `shape` | the axes in storage order, the slowest-varying first; absent where the source declares no extent (an HDF5 null dataspace), which holds no element, unlike a scalar's empty shape (the JSON form writes `"shape": null`, the member present) |
 | `axes` | the source's own order of the axes, where it differs from storage order: `axes[i]` is storage axis i's position in the source's list (a Fortran-order NumPy array of shape (3, 4) has `shape` [4, 3] and `axes` [1, 0]); else absent, never the identity |
 | `item_bits` | the bits of one element, decoded; absent for an array with no grid and no given fill, and, of an array with a grid, where its elements are those `source` makes ([§3.2](#32-the-list)) and the IR does not know their size |
@@ -62,13 +62,12 @@ reads them from the declarations, or, where a codec makes the elements, from the
 
 A description is keyed by the IR element that declares the array. For a kind of element that may
 declare several arrays, the key always adds the array's index among them, in the source's order,
-however many it declares; the format's document names those kinds. So `(element, index)` is one
+however many it declares; the format's paragraph of [§7](#7-the-formats) names those kinds. So `(element, index)` is one
 array's alone, and on each element either no description has an index or every one has, as 0 to
 n − 1. Within a run, the id is what is computed on; the JSON form also gives the element's path
 ([§2.5](#25-the-json-form)).
 
-Each format's document, and [§7](#7-the-formats) for the formats this document covers, says how a
-profile finds, from the facts its parser gives, the key of each array's description: the
+Each format's paragraph of [§7](#7-the-formats) says how a profile finds, from the facts its parser gives, the key of each array's description: the
 declaring element's id, and the index where the format's kind of element carries one. A profile so
 matches what its facts say of an array to the array's description, presented or not. A graft does
 not touch the facts: a format whose files a store grafts renumbers the ids its facts give in its
