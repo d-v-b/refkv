@@ -69,12 +69,14 @@ feasibility.
 
 ## Rules that are easy to miss
 
-- **The IR holds the source, not the output.** No data types, byte order names,
-  output chunking, shards, padding or bytes the source doesn't hold
-  ([stored-array §1](../../../spec/stored-array.md#1-stored-arrays)). Those are the
-  projection's decisions. The IR borrows from Zarr's array model where that fits,
-  but it isn't Zarr.
-- **Fall back instead of guessing.** Where the IR can't interpret something, keep
+- **A stored-array description holds the source, not the output.** No data
+  types, byte order names, output chunking, shards, padding or bytes the source
+  doesn't hold ([stored-array §1](../../../spec/stored-array.md#1-stored-arrays)).
+  Those are the projection's decisions. A description borrows from Zarr's array
+  model where that fits, but it isn't Zarr. An element's form is the older
+  place for a unit's geometry, and it still names a data type
+  ([conventions §8.5](../../../spec/conventions.md#85-forms-and-recipes)).
+- **Fall back instead of guessing.** Where a description can't interpret something, keep
   it general: bytes, or where the source holds them
   ([§2.2](../../../spec/stored-array.md#22-places-and-parameters)), a codec under the
   source's own id and parameters ([§3.2](../../../spec/stored-array.md#32-the-list)), or

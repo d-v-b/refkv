@@ -273,7 +273,7 @@ and [§5](../spec/conventions.md#5-units).
   names, output chunking, shards, padding, or bytes the source doesn't hold
   ([stored-array §1](../spec/stored-array.md#1-stored-arrays)). Those are the
   projection's decisions.
-- Where the IR can't interpret something, fall back to something more general:
+- Where a description can't interpret something, fall back to something more general:
   bytes, or where the source holds them
   ([§2.2](../spec/stored-array.md#22-places-and-parameters)); the codec `source`,
   with the source's own id and parameters
@@ -845,6 +845,6 @@ PR and the merge order in the description.
    Neuroglancer fork, and the demo's host needs CORS.
 9. **Silent metadata loss**: colors, large integers, null markers, duplicate
    IDs. Compare every metadata value with the reader, not only the pixels.
-10. **Output decisions in the IR.** Data types, output chunking, shards and
-    padding are the projection's. The IR describes the source
-    ([stored-array §1](../spec/stored-array.md#1-stored-arrays)).
+10. **Output decisions in a stored-array description.** Data types, output
+    chunking, shards and padding are the projection's. A description holds what
+    the source holds ([stored-array §1](../spec/stored-array.md#1-stored-arrays)).
