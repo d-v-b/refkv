@@ -172,8 +172,8 @@ def stack(inputs):
 def test_a_stack_of_tiffs_built_from_the_ir(tmp_path, byteorder):
     """One TIFF of the pages of several, every tag but the pointers copied from the IR's bytes:
     its pages read back equal to the files', in both byte orders, across strips, tiles, zlib with
-    a predictor, RGB, floats, and an OME-TIFF of several pages. A file of pages without OME-XML
-    is not among them: until TIFF's plan lands, `read` still raises the image layout's rejection
+    a predictor, RGB, floats, and an OME-TIFF of several pages. A file of pages with neither OME-XML nor an
+    ImageJ description is not among them: until TIFF's plan lands, `read` still raises the image layout's rejection
     of it (the design of d-v-b/refkv#278, "What a caller writes")."""
     rng = np.random.default_rng(0)
     plane = rng.integers(0, 4000, (64, 96), dtype=np.uint16)
