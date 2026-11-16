@@ -203,8 +203,6 @@ pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "jpeg2k_tile", parameters: &[fixed("header")] },
     CodecEntry { name: "lerc", parameters: &[] },
     CodecEntry { name: "eer", parameters: &[fixed("skip_bits"), fixed("horizontal_bits"), fixed("vertical_bits")] },
-    CodecEntry { name: "grib_scale", parameters: &[fixed("reference"), fixed("binary_scale"), fixed("decimal_scale")] },
-    CodecEntry { name: "grib_simple", parameters: &[fixed("bits")] },
     CodecEntry { name: "grib_complex", parameters: &[fixed("bits"), fixed("groups"), fixed("differencing")] },
     CodecEntry { name: "grib_png", parameters: &[] },
     CodecEntry { name: "grib_ccsds", parameters: &[fixed("bits"), fixed("flags"), fixed("block_size"), fixed("reference_sample_interval")] },
@@ -213,18 +211,6 @@ pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "av1", parameters: PICTURE },
     CodecEntry { name: "vp9", parameters: PICTURE },
     CodecEntry { name: "fits_rice", parameters: &[fixed("block_size"), fixed("byte_pix")] },
-    CodecEntry { name: "fits_quantize", parameters: FITS_QUANTIZE },
-];
-
-/// The parameters of FITS's quantization of floats: its dither's name, and for each tile, as a
-/// column, its scale and zero, where it enters the dither's random numbers, and its blank value
-/// (which a header gives once instead).
-const FITS_QUANTIZE: &[ParamEntry] = &[
-    fixed("method"),
-    ParamEntry { name: "scale", column: Some(ColumnType::Float64) },
-    ParamEntry { name: "zero", column: Some(ColumnType::Float64) },
-    ParamEntry { name: "seed", column: Some(ColumnType::Int64) },
-    ParamEntry { name: "zblank", column: Some(ColumnType::Int64) },
 ];
 
 /// The parameters of a codec of a video stream's pictures: its configuration, the plane of a

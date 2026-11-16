@@ -258,17 +258,14 @@ A chain's codec has only its entry's parameters.
 | `jpeg2k_tile` | the tile-parts of one tile of a JPEG 2000 codestream (ISO/IEC 15444-1), in the codestream's order, each from its SOT marker to its end, without the main header before them or the EOC after | `header`: a place of the codestream's main header, its bytes before its first tile-part: from its SOC through the last marker segment before the first SOT | none | the tile's samples, of `item_bits` bits, little-endian, a pixel's components together in the codestream's order: the tile is the one its SOT names, on the grid the header's SIZ gives, and of the unit's size |
 | `lerc` | one LERC blob | none | none | the blob's values in its own data type, little-endian, a pixel's bands together; a pixel its mask leaves out is as the LERC library decodes it |
 | `eer` | one frame of Electron Event Representation: run lengths of `skip_bits` bits, each with a sub-pixel position of `horizontal_bits` and `vertical_bits` bits | `skip_bits`, `horizontal_bits`, `vertical_bits`: each a value, or a place of a field's one value; absent, 7, 2 and 2 | none | elements of 1 bit, 1 where an event lands on the pixel, most significant bit first, each row padded to a whole byte; the sub-pixel positions are not made |
-| `grib_scale` | the integers `X` of a GRIB edition 2 field (FM 92 regulation 92.9.4), as the codec after it in its chain makes them: each of `item_bits` bits, 64, two's complement, little-endian | `reference`: a place of `R`, 4 octets, an IEEE binary32, big-endian (section 5's octets 12–15); `binary_scale` and `decimal_scale`: each a place of `E` or of `D`, 2 octets, an integer whose first bit is its sign and whose other 15, the most significant first, are its magnitude (octets 16–17 and 18–19) | none | floats of `item_bits` bits, binary64, little-endian: `(X × 2^E + R) × 10^−D`, computed in binary64, each operation rounded, in that order, `X` and `R` converted first; `2^E` is 1 multiplied by 2 as many times as `E`'s magnitude (divided, for a negative `E`), and `10^−D` is 1 divided by 10 as many times as `D`'s magnitude (multiplied, for a negative `D`), as ecCodes computes them. The integer −2^63, a missing value of `grib_complex`, makes NaN |
-| `grib_simple` | the data of FM 92's data template 7.0: the unit's integers, each of `bits` bits, the most significant first, one after another, then the bits that fill the last octet | `bits`: a place of one octet, an unsigned integer, from 1 to 63 (section 5's octet 20) | none | the integers, unsigned, as `grib_scale` takes them |
-| `grib_complex` | the data of FM 92's data template 7.2, or, with `differencing`, 7.3, every number the most significant bit first. With `differencing`: as many first values as its order, each an unsigned integer of its descriptors' octets, then the overall minimum of the differences, of as many octets, its first bit its sign and the others its magnitude. Then each group's reference, of `bits` bits; from the next whole octet, each group's coded width; from the next whole octet, each group's scaled length; from the next whole octet, the groups' coded values, each of its group's width, one after another | `bits`: a place of one octet, an unsigned integer, at most 64 (section 5's octet 20); `groups`: a place of section 5's octets 22–47, of data representation template 5.2, of which the codec reads the missing value management (octet 23), the number of groups (32–35), the reference of the groups' widths (36) and the bits of a coded width (37), the reference of the groups' lengths (38–41), their increment (42), the last group's length (43–46) and the bits of a scaled length (47), each an unsigned integer, big-endian; `differencing`: a place of section 5's octets 48–49, of template 5.3: the order of the spatial differencing, 1 or 2, and the octets of each of its descriptors, at most 8 | none | the unit's integers, as `grib_scale` takes them. A group's width is its coded width plus the widths' reference; its length is its scaled length times the increment plus the lengths' reference, and the last group's is the one given. A value is its group's reference plus its coded value. Under missing value management 1 or 2, a coded value whose bits are all 1 (in a group of width 0, a group's reference whose bits are all 1) is a missing value, and under 2 so is one that is 1 less: each makes −2^63. With `differencing`, the values that are not missing are differences, summed back in order: the first ones, as many as the order, are the first values, and each after them is itself plus the overall minimum plus the value before it (order 1), or plus twice the value before it less the one before that (order 2), as ecCodes reads them |
-| `grib_png` | a PNG file ([W3C PNG](https://www.w3.org/TR/png-3/)), as FM 92's data template 7.41 holds one: not interlaced, with no palette, of gray samples of 1, 2, 4, 8 or 16 bits, or of red, green and blue samples of 8 bits, with or without alpha | none | none | the unit's integers, as `grib_scale` takes them: the image's pixels, row after row, each pixel's bits as one unsigned integer, the most significant first (a gray sample; red, green and blue, 24 bits; with alpha after them, 32) |
-| `grib_ccsds` | one stream of CCSDS 121.0-B adaptive entropy coding, as [libaec](https://gitlab.dkrz.de/k202009/libaec) writes it and FM 92's data template 7.42 holds it: unsigned samples of `bits` bits, in blocks of `block_size` samples, `reference_sample_interval` blocks to an interval, with libaec's options `flags` | `bits`: a place of one octet, from 1 to 32 (section 5's octet 20); `flags`: a place of one octet, libaec's flags (octet 22: 8, the samples are preprocessed; 16, the restricted set of code options; 32, each interval ends on a whole octet; 2 and 4 say how a decoder lays its samples out, and nothing of the stream); `block_size`: a place of one octet (octet 23); `reference_sample_interval`: a place of 2 octets (octets 24–25); each an unsigned integer, big-endian | none | the unit's integers, the stream's first samples, as `grib_scale` takes them |
+| `grib_complex` | the data of FM 92's data template 7.2, or, with `differencing`, 7.3, every number the most significant bit first. With `differencing`: as many first values as its order, each an unsigned integer of its descriptors' octets, then the overall minimum of the differences, of as many octets, its first bit its sign and the others its magnitude. Then each group's reference, of `bits` bits; from the next whole octet, each group's coded width; from the next whole octet, each group's scaled length; from the next whole octet, the groups' coded values, each of its group's width, one after another | `bits`: a place of one octet, an unsigned integer, at most 64 (section 5's octet 20); `groups`: a place of section 5's octets 22–47, of data representation template 5.2, of which the codec reads the missing value management (octet 23), the number of groups (32–35), the reference of the groups' widths (36) and the bits of a coded width (37), the reference of the groups' lengths (38–41), their increment (42), the last group's length (43–46) and the bits of a scaled length (47), each an unsigned integer, big-endian; the missing value management is 0, none of the values missing; `differencing`: a place of section 5's octets 48–49, of template 5.3: the order of the spatial differencing, 1 or 2, and the octets of each of its descriptors, at most 8 | none | the unit's integers, each of `item_bits` bits, 64, two's complement, the most significant bit first. A group's width is its coded width plus the widths' reference; its length is its scaled length times the increment plus the lengths' reference, and the last group's is the one given. A value is its group's reference plus its coded value. With `differencing`, the values are differences, summed back in order: the first ones, as many as the order, are the first values, and each after them is itself plus the overall minimum plus the value before it (order 1), or plus twice the value before it less the one before that (order 2), as ecCodes reads them |
+| `grib_png` | a PNG file ([W3C PNG](https://www.w3.org/TR/png-3/)), as FM 92's data template 7.41 holds one: not interlaced, with no palette, of gray samples of 1, 2, 4, 8 or 16 bits, or of red, green and blue samples of 8 bits, with or without alpha, a pixel of `item_bits` bits | none | none | the unit's integers: the image's pixels, row after row, each pixel's bits as one unsigned integer of `item_bits` bits (a gray sample; red, green and blue, 24 bits; with alpha after them, 32), the most significant bit first, one after another, without the bits that end a row of the image on a whole octet, then the bits that fill the last octet |
+| `grib_ccsds` | one stream of CCSDS 121.0-B adaptive entropy coding, as [libaec](https://gitlab.dkrz.de/k202009/libaec) writes it and FM 92's data template 7.42 holds it: unsigned samples of `bits` bits, in blocks of `block_size` samples, `reference_sample_interval` blocks to an interval, with libaec's options `flags` | `bits`: a place of one octet, from 1 to 32 (section 5's octet 20); `flags`: a place of one octet, libaec's flags (octet 22: 8, the samples are preprocessed; 16, the restricted set of code options; 32, each interval ends on a whole octet; 2 and 4 say how a decoder lays its samples out, and nothing of the stream); `block_size`: a place of one octet (octet 23); `reference_sample_interval`: a place of 2 octets (octets 24–25); each an unsigned integer, big-endian | none | the unit's integers, the stream's first samples, each an unsigned integer of `item_bits` bits, which is `bits`, the most significant bit first, one after another, then the bits that fill the last octet |
 | `h264` | one access unit of an H.264 stream (ITU-T H.264), as ISO/IEC 14496-15 stores a sample: its NAL units, each after its length, of as many bytes as `setup` says | `setup`: a place of an AVCDecoderConfigurationRecord (an `avcC` box's payload), which holds the parameter sets; `plane`: a value, 0, 1 or 2, the picture's luma plane or one of its two chroma planes (Cb, then Cr); `sync` | `sync`: `UInt64`, 1 where a decoder may start at the unit, else 0 | plane `plane` of the access unit's picture, at the plane's own size: samples of 1 byte, or, of a bit depth above 8, of 2 bytes, little-endian. Its units are a stream ([§3.1](#31-chains)) |
 | `hevc` | one access unit of an HEVC stream (ITU-T H.265), stored as `h264`'s | as `h264`'s, `setup` a place of an HEVCDecoderConfigurationRecord (an `hvcC` box's payload) | as `h264`'s | as `h264`'s |
 | `av1` | one temporal unit of an AV1 stream, as [AV1-ISOBMFF](https://aomediacodec.github.io/av1-isobmff/) stores a sample: its OBUs, each with its size | as `h264`'s, `setup` a place of an AV1CodecConfigurationRecord (an `av1C` box's payload) | as `h264`'s | as `h264`'s |
 | `vp9` | one frame or superframe of a VP9 stream | as `h264`'s, `setup` a place of a VPCodecConfigurationRecord (a `vpcC` box's payload) | as `h264`'s | as `h264`'s |
 | `fits_rice` | one unit's stream of FITS's Rice coding (`RICE_1`, FITS Standard 4.0 section 10.4.1, as cfitsio's `fits_rcomp` writes it), its bits most significant first: a first value of `byte_pix` bytes; then the unit's pixels in blocks of `block_size`, each block a code of 3, 4 or 5 bits (for a `byte_pix` of 1, 2 or 4) and its pixels' differences, each pixel less the one before it (the first less the first value), a difference d mapped to 2d where it is not negative and to −2d − 1 where it is. A code of 0 has no more bits, every difference of its block 0; the highest code (7, 15 or 26) has each mapped difference in 8 × `byte_pix` bits; any other code c has each as its bits above its low c − 1 in unary (as many 0 bits, then a 1), then its low c − 1 bits | `block_size`, `byte_pix`: each a place of a card; absent, 32 and 4 | none | the unit's pixels, each an integer of `byte_pix` bytes, big-endian: the sums of the differences, modulo 2^(8 × `byte_pix`) |
-| `fits_quantize` | the integers FITS's quantization makes of a unit's floats (FITS Standard 4.0 section 10.2), each 4 bytes, big-endian, two's complement | `method`: a place of a card whose value is the dither's name, `NO_DITHER`, `SUBTRACTIVE_DITHER_1` or `SUBTRACTIVE_DITHER_2`; absent, `NO_DITHER`. `scale`, `zero`: columns. `seed`: a column, under a dither. `zblank`, the integer of a pixel of no value: a column, or a place of a card whose value it is; absent, there is none | `scale`, `zero`: `Float64`; `seed`, `zblank`: `Int64` | floats of `item_bits` bits (32 or 64), big-endian, an integer I's being NaN where I is `zblank`; else 0 where I is −2147483646 under `SUBTRACTIVE_DITHER_2`; else I × `scale` + `zero` without a dither, and (I − R + 0.5) × `scale` + `zero` under one, computed in binary64, each operation rounded, in that order, then rounded to the element's size. R is the dither's next random number, of the 10,000 cfitsio's `fits_init_randoms` makes (from s = 1, s ← 16807 × s mod (2^31 − 1) each time, the number s / (2^31 − 1) as a binary32): a unit starts at the number at floor(500 × N), N the number at (`seed` − 1) mod 10000, and takes one for each pixel, whatever its integer; after the last number it takes up the N after its own (after the last, the first) and goes on from floor(500 × N) |
 
 A place parameter of an HDF5 filter's codec holds client data values of the filter, as its filter
 pipeline message stores them: each 4 bytes, an unsigned integer, little-endian. A place of a TIFF
@@ -980,8 +977,10 @@ is section 5's number of values (octets 6–9).
 
 - **Declarations.** A field's: its section 3 (the grid's number of points, its template, `Ni`,
   `Nj` and the scanning mode); its section 5 (`n`, the data representation template and its
-  octets: the reference value and the scale factors, the type of the original values, complex
-  packing's substitutes for its missing values); the first 6 octets of its section 6, which end
+  octets: the reference value `R` at octets 12–15, the binary scale factor `E` at 16–17 and the
+  decimal scale factor `D` at 18–19, the type of the original values, complex packing's missing
+  value management at octet 23 and its substitutes for missing values at 24–31); the first 6
+  octets of its section 6, which end
   with the bitmap indicator (the section's element, or the `header` element of a section that
   holds more); and, where a bitmap says which points its values are, that bitmap's bits (the
   `bitmap` element of its section 6). A bitmap's: the section 3 in effect, and the first 6
@@ -1017,25 +1016,37 @@ is section 5's number of values (octets 6–9).
   32, the chain is empty, there is no row, and `fill` is given, the place of `R` (section 5's
   octets 12–15). ecCodes and NCEP's g2c read `R` itself whatever the decimal scale factor `D` is,
   as their encoders write it, where FM 92's regulation 92.9.4 would give `R × 10^−D`.
-- **A packed field** is the integers its packing codes, which `grib_scale` makes its values of:
-  `item_bits` is 64, and the chain is `grib_scale`, with the places of `R`, `E` and `D` in section
-  5, then the codec of the integers, each parameter a range of section 5
-  ([§3.2](#32-the-list)): `grib_simple` for 5.0 (a bit width of at most 63), the row's range the
-  octets that hold `n` integers; `grib_complex` for 5.2 and for 5.3, with `differencing` (missing
-  value management 0, 1 or 2; widths of at most 64 bits; an order of 1 or 2, and descriptors of at
-  most 8 octets); `jpeg2k` for 5.40, whose codestream's samples, in the image's order whatever its
-  rows, are the unit's integers; `grib_png` for 5.41; and `grib_ccsds` for 5.42 (unsigned samples
-  of at most 32 bits). The row's range, but simple packing's, is all of section 7 after its first
-  5 octets. The parser reads no octet of section 7 after them, so a stream that is not its
-  codec's, or holds other than `n` integers, is not detected. Complex packing's missing values are
-  NaN, whichever of its two kinds they are; their substitutes (section 5's octets 24–31) are among
-  the declarations.
+- **A field in simple packing** (5.0) is its integers as section 7 stores them: `item_bits` is
+  the bit width (octet 20), whatever it is, the chain empty, and the row's range the octets that
+  hold `n` integers.
+- **A packed field** is the integers its packing codes, in the codec of the integers, each
+  parameter a range of section 5 ([§3.2](#32-the-list)): `grib_complex` for 5.2 and for 5.3, with
+  `differencing` (missing value management 0; widths of at most 64 bits; an order of 1 or 2, and
+  descriptors of at most 8 octets), `item_bits` 64; `jpeg2k` for 5.40, whose codestream's samples,
+  in the image's order whatever its rows, are the unit's integers, `item_bits` the bit width in
+  the whole octets that hold it (8 × ⌈`bits` / 8⌉); `grib_png` for 5.41 and `grib_ccsds` for 5.42
+  (unsigned samples of at most 32 bits), `item_bits` the bit width. The row's range is all of
+  section 7 after its first 5 octets. The parser reads no octet of section 7 after them, so a
+  stream that is not its codec's, or holds other than `n` integers, or a PNG image of other pixels
+  than the bit width's, is not detected.
+- **Values.** The description stops at the integers `X`, which the profile makes the field's
+  values of with `R`, `E` and `D`, its declarations: FM 92's regulation 92.9.4 gives
+  `(X × 2^E + R) × 10^−D`. ecCodes computes it in binary64, `X` and `R` converted first, each
+  operation rounded, in that order, with `2^E` 1 multiplied by 2 as many times as `E`'s magnitude
+  (divided, for a negative `E`), and `10^−D` 1 divided by 10 as many times as `D`'s magnitude
+  (multiplied, for a negative `D`); `R` is an IEEE binary32, big-endian, and `E` and `D` are each
+  an integer whose first bit is its sign and whose other 15, the most significant first, are its
+  magnitude.
 - **`source`**, with `format` `grib`, `id` the data representation template's number and
   `parameters` the place of section 5's octets after it (from octet 12), for any other template
   (the spectral 5.50 and 5.51, 5.61, 5.200), and for one of those above with parameters its codec
-  does not take (IEEE floats of another precision, simple packing of 64 bits, complex packing of
-  other options, signed CCSDS samples, a section 5 shorter than its template's octets). The field
-  then has no `item_bits`, and its row's range is section 7 after its first 5 octets.
+  does not take (IEEE floats of another precision, complex packing of other options, signed CCSDS
+  samples, a section 5 shorter than its template's octets). Complex packing with groups and
+  missing value management 1 or 2 is `source` too: a coded value whose bits are all 1 (in a group
+  of width 0, a group's reference whose bits are all 1) is a missing value, and under 2 so is one
+  that is 1 less, for which the field codes no integer, so that an element would have to be made
+  for it. The field then has no `item_bits`, and its row's range is section 7 after its first 5
+  octets.
 - **No grid** for a field whose section 7 holds fewer octets than its IEEE floats or its simple
   packing's integers take, and for one of another named packing with values to code and a section
   7 of 5 octets.
@@ -1148,11 +1159,13 @@ no array. In a compressed file ([zarrify/fits.md §2.1](zarrify/fits.md#21-a-com
 the headers and the units' elements are in the `stream` element's space: a unit's bytes are the
 decoded file's.
 
-- **Declarations.** One, the header's element: its cards give the array's axes and what its
+- **Declarations.** The header's element: its cards give the array's axes and what its
   elements are (`BITPIX`, `BSCALE`, `BZERO` and `BLANK`; a table's `TFORMn`; a tile-compressed
-  image's `Z` cards). A parameter given as a place of a card is the card's 80 bytes, a range of
-  the header's element, and is the card's value (FITS Standard 4.0 section 4.2), an integer or a
-  string.
+  image's `Z` cards). A tile-compressed image whose table has a `ZSCALE`, `ZZERO` or `ZBLANK`
+  column, which gives each tile's scale, zero or blank value, has a second, the table's rows (the
+  `table` element), each tile's values in its row, at the places the header's `TFORMn` give the
+  columns. A parameter given as a place of a card is the card's 80 bytes, a range of the header's
+  element, and is the card's value (FITS Standard 4.0 section 4.2), an integer or a string.
 - **An image.** `shape` is `NAXISn` to `NAXIS1`, the slowest first, and for two or more axes
   `axes` is their reverse, since the header lists `NAXIS1` first. `item_bits` is |`BITPIX`|. It
   is one unit in an empty chain: each axis `Each` of its length, or an empty `List` for an axis
@@ -1177,9 +1190,10 @@ decoded file's.
   ASCII table's is empty unless its `PCOUNT` is not 0. Which of its bytes a row's descriptor
   names is the profile's.
 - **A tile-compressed image's image** has `shape` `ZNAXISn` to `ZNAXIS1`, `axes` as an image's,
-  and `item_bits` |`ZBITPIX`|. Its grid is its tiles: `Each` of `ZTILEn` to `ZTILE1` (with the
-  defaults of [zarrify/fits.md §3.3](zarrify/fits.md#33-tile-compressed-images)), under `short`,
-  an edge tile cut to the image. Each row of its table that holds a tile is a row of the chunk
+  and `item_bits` |`ZBITPIX`|, or, where it is quantized (below), 32. Its grid is its tiles:
+  `Each` of `ZTILEn` to `ZTILE1` (with the defaults of
+  [zarrify/fits.md §3.3](zarrify/fits.md#33-tile-compressed-images)), under `short`, an edge tile
+  cut to the image. Each row of its table that holds a tile is a row of the chunk
   map, at the tile's coordinates (the table's rows are the tiles in storage order, `ZNAXIS1`'s
   fastest): the tile's bytes in the heap, a range of the element of its chunk of the heap
   (`hdus/<i>/heap/<j>`, [zarrify/fits.md §6.1](zarrify/fits.md#61-elements)), or that element
@@ -1193,21 +1207,34 @@ decoded file's.
     shuffle's `element_size` a value, the bytes of an element (4 under quantization), for which
     the header has no card; and no codec for `NOCOMPRESS`.
   - **Quantization.** A float image (`ZBITPIX` below 0) whose table has the columns `ZSCALE` and
-    `ZZERO` is quantized: `fits_quantize` is the first codec of its first chain, before those
-    above, which then code 4-byte integers. Its `method` is the place of the `ZQUANTIZ` card,
-    absent with the card. Its unit parameters are `scale` and `zero`, the table row's `ZSCALE`
-    and `ZZERO`; under a dither, `seed`, the tile's index (from 0) plus `ZDITHER0`; and, where
-    the table has a `ZBLANK` column, `zblank`, the row's. Without that column, `zblank` is the
-    place of the header's `ZBLANK` card, else of its `BLANK` card where that is an integer, as
-    astropy reads it, else absent.
+    `ZZERO` is quantized (FITS Standard 4.0 section 10.2): its elements are the integers its
+    tiles store, each 4 bytes, big-endian, two's complement, which the codecs above code, and its
+    description stops at them. The profile makes the image's floats of them with what the
+    declarations give: the dither's name, the `ZQUANTIZ` card's value (`NO_DITHER`,
+    `SUBTRACTIVE_DITHER_1` or `SUBTRACTIVE_DITHER_2`; without the card, `NO_DITHER`); the tile's
+    scale and zero, its row's `ZSCALE` and `ZZERO`; and the integer of a pixel of no value, its
+    row's `ZBLANK` where the table has that column, else the header's `ZBLANK` card, else its
+    `BLANK` card, as astropy reads it, else none. An integer I is then NaN where it is that
+    blank; else 0 where it is −2147483646 under `SUBTRACTIVE_DITHER_2`; else I × scale + zero
+    without a dither, and (I − R + 0.5) × scale + zero under one, computed in binary64, each
+    operation rounded, in that order, then rounded to |`ZBITPIX`| bits. R is the dither's next
+    random number, of the 10,000 cfitsio's `fits_init_randoms` makes (from s = 1, s ← 16807 × s
+    mod (2^31 − 1) each time, the number s / (2^31 − 1) as a binary32). The source stores no seed
+    of a tile's dither: it is computed, the tile's index in the table (from 0, the tiles in
+    storage order) plus `ZDITHER0`. A tile starts at the number at floor(500 × N), N the number at
+    (seed − 1) mod 10000, and takes one for each pixel, whatever its integer; after the last
+    number it takes up the N after its own (after the last, the first) and goes on from
+    floor(500 × N).
   - **The second chain.** A tile in `GZIP_COMPRESSED_DATA` is a gzip stream of its elements as
-    an image stores them, never quantized. Where the table has that column and the first chain
-    is not `gzip` alone, the description has a second chain, `gzip`, which those tiles' rows
-    name, setting no unit parameter; where the first chain is `gzip` alone, they are in it.
+    an image stores them, never quantized. Where the table has that column, the image is not
+    quantized and the first chain is not `gzip` alone, the description has a second chain,
+    `gzip`, which those tiles' rows name; where the first chain is `gzip` alone, they are in it.
+    A quantized image has no second chain: such a tile holds its floats, not the integers of its
+    other tiles (below).
   - **`source`.** A `RICE_1` image whose `BYTEPIX` (4 where absent) is not the bytes of an
     element (not 4, where quantized), or whose elements are floats that are not quantized, has
     the one codec `source` as its first chain, with `format` `fits` and `id` the `ZCMPTYPE`
-    card's string, and no unit parameters: `fits_rice` makes integers of `BYTEPIX` bytes, which
+    card's string: `fits_rice` makes integers of `BYTEPIX` bytes, which
     are then not the image's elements. astropy converts their values to the image's type; the
     profile's codec does not.
   - **A tile's width.** A `GZIP_1`, `GZIP_2` or `NOCOMPRESS` tile, and one in
@@ -1216,15 +1243,17 @@ decoded file's.
     values from its decoded length, and converts those of a tile stored at another size: the
     parser reads no tile, so no description tells such a tile from the others.
   - **No grid** for an image that readers do not agree on, which keeps its shape, `item_bits`
-    and declaration: an integer image whose table has the columns `ZSCALE` and `ZZERO` (astropy
+    and declarations: an integer image whose table has the columns `ZSCALE` and `ZZERO` (astropy
     scales its values where there is no dither and refuses it where there is one; the profile
     reads them as stored); a float image without those columns whose header has a `ZSCALE` or a
     `ZZERO` card (cfitsio takes the cards as every tile's and dequantizes; astropy and the
     profile read the values as stored) or a `ZBLANK` or a `BLANK` card (astropy makes a stored
     value equal to it NaN; the profile reads it as stored); an image that is not quantized whose
     table has a `ZBLANK` column; a quantized image with neither that column nor a `ZBLANK` card
-    whose `BLANK` card is no integer; and an image whose table's rows are not its columns'
-    fields (as a table's, above), whose descriptors are then not where the parser read them.
+    whose `BLANK` card is no integer; a quantized image of which a tile is in
+    `GZIP_COMPRESSED_DATA`, whose units would hold two kinds of elements, its floats and its
+    integers; and an image whose table's rows are not its columns' fields (as a table's, above),
+    whose descriptors are then not where the parser read them.
   - **Its table's rows and heap** are described as a binary table's: the rows one unit, the
     `table` element; the heap one unit, the range of the HDU's element (`hdus/<i>`) that holds
     it, since its bytes are in the elements of its tiles' chunks.

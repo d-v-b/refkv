@@ -8,10 +8,15 @@ astropy, the reference reader. Every HDU astropy reads is compared with its desc
   holds them;
 - a tile-compressed image: its shape, its sample size, its tile grid, its chains and their
   parameters against astropy's reading of the header; each tile's row against the descriptor
-  astropy reads of the table, and its unit parameters against the table's columns; and each tile's
-  bytes, decoded through its chain, against the values astropy decompresses of that tile. The
-  chain is decoded here by each codec's entry of the list: `gzip` by zlib, `fits_rice` by
-  imagecodecs, `shuffle` and `fits_quantize` as their entries say.
+  astropy reads of the table; and each tile's bytes, decoded through its chain, against the values
+  astropy decompresses of that tile. The chain is decoded here by each codec's entry of the list:
+  `gzip` by zlib, `fits_rice` by imagecodecs, `shuffle` as its entry says;
+- a quantized image's: each tile's integers against those astropy decodes of it before it
+  dequantizes them, and those integers, dequantized here from the image's declarations (the
+  header's cards, and the scale, the zero and the blank value of the tile's row of the table, as
+  the FITS paragraph of spec/stored-array.md §7
+  <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats> says the profile
+  reads them), against the values astropy reads.
 
 A second test asserts which cases the fixtures reached. The others craft the cases no fixture
 holds: the valid ones in one test, and each fallback in a test of its own."""
@@ -35,11 +40,18 @@ import imagecodecs
 import numpy as np
 import pytest
 from astropy.io import fits
-from astropy.io.fits.hdu.compressed._tiled_compression import _header_to_settings
+from astropy.io.fits.hdu.compressed._tiled_compression import (
+    _column_dtype,
+    _decompress_tile,
+    _finalize_array,
+    _get_data_from_heap,
+    _header_to_settings,
+    _update_tile_settings,
+)
 from described import Described, described
 from ir_helpers import FIXTURES
 
-from refkv.ir.stored import Codec, Each, ElementPlace, Grid, Listed, Source, StoredArray, UnitParameter, Value
+from refkv.ir.stored import Codec, Each, ElementPlace, Grid, Listed, Source, StoredArray, Value
 
 FILES = sorted(p for p in (FIXTURES / "fits").iterdir() if ".fits" in p.name and "reject" not in p.name)
 BLOCK, CARD = 2880, 80
@@ -81,7 +93,8 @@ def card_at(d: Described, data: bytes, a: StoredArray, param: object) -> Astropy
 
 @cache
 def randoms() -> np.ndarray:
-    """The random numbers of FITS's dithers, as `fits_quantize`'s entry gives them."""
+    """The random numbers of FITS's dithers, as the FITS paragraph of spec/stored-array.md §7
+    <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats> gives them."""
     out, s = np.empty(RANDOMS, "f4"), 1
     for k in range(RANDOMS):
         s = 16807 * s % (2**31 - 1)
@@ -91,10 +104,11 @@ def randoms() -> np.ndarray:
 
 def dequantized(ints: np.ndarray, bits: int, method: str, linear: tuple[float, float], seed: int | None,
                 zblank: int | None, fused: bool) -> bytes:
-    """What `fits_quantize`'s decoding makes of a unit's integers, as its entry says: each
-    operation rounded. With `fused`, a dither's multiply and add are rounded once, together, as a
-    C compiler may contract them in a build of cfitsio's code: the sum is computed exactly here.
-    `linear` is the unit's scale and zero."""
+    """A quantized tile's values, as the profile makes them of its integers (the FITS paragraph of
+    spec/stored-array.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>):
+    each operation rounded. With `fused`, a dither's multiply and add are
+    rounded once, together, as a C compiler may contract them in a build of cfitsio's code: the
+    sum is computed exactly here. `linear` is the tile's scale and zero."""
     scale, zero = linear
     values = ints.astype("f8")
     if method == "NO_DITHER":
@@ -123,12 +137,10 @@ def dequantized(ints: np.ndarray, bits: int, method: str, linear: tuple[float, f
     return values.astype(f">f{bits // 8}").tobytes()
 
 
-def decoded(d: Described, data: bytes, a: StoredArray, chain: tuple[Codec, ...], row: dict, pixels: int,
-            fused: bool = False) -> bytes:
+def decoded(d: Described, data: bytes, a: StoredArray, chain: tuple[Codec, ...], row: dict, pixels: int) -> bytes:
     """A unit's bytes taken through its chain, from the last codec to the first, each decoded as
     its entry of the list says (spec/stored-array.md §3.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#32-the-list>); `fused`, as
-    `dequantized` takes it."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#32-the-list>)."""
     start, length = where(d, row)
     b = data[start:start + length]
     assert a.item_bits is not None
@@ -150,13 +162,6 @@ def decoded(d: Described, data: bytes, a: StoredArray, chain: tuple[Codec, ...],
             width, block = card_value(codec, "byte_pix", 4), card_value(codec, "block_size", 32)
             values = imagecodecs.rcomp_decode(b, shape=(pixels,), dtype=f"i{width}", nblock=block)
             b = values.astype(f">i{width}").tobytes()
-        elif codec.name == "fits_quantize":
-            # the blank value: the unit's, or the codec's, a card's
-            unit = {k.split(".")[-1]: v for k, v in row.items() if k.startswith("p.fits_quantize.")}
-            zblank = card_value(codec, "zblank", None) if "zblank" in codec.parameters else unit.get("zblank")
-            method = str(card_value(codec, "method", "NO_DITHER"))
-            linear = (unit["scale"], unit["zero"])
-            b = dequantized(np.frombuffer(b, ">i4"), a.item_bits, method, linear, unit.get("seed"), zblank, fused)
         else:
             raise AssertionError(codec.name)
     return b
@@ -165,6 +170,53 @@ def decoded(d: Described, data: bytes, a: StoredArray, chain: tuple[Codec, ...],
 def parameters(row: dict) -> dict[str, object]:
     """The unit parameters a row sets."""
     return {k.split(".")[-1]: v for k, v in row.items() if k.startswith("p.") and v is not None}
+
+
+def quantized_of(header: Astropy, names: list[str]) -> bool:
+    """Whether a tile-compressed image is quantized: floats whose table has the columns ZSCALE and
+    ZZERO."""
+    return header["ZBITPIX"] < 0 and "ZSCALE" in names and "ZZERO" in names
+
+
+def declared(names: list[str]) -> int:
+    """How many declarations a tile-compressed image has: its header, and its table's rows where
+    a column gives each tile's scale, zero or blank value."""
+    return 1 + any(n in names for n in ("ZSCALE", "ZZERO", "ZBLANK"))
+
+
+def tile_integers(table: Astropy, n: int, o: int, shape: tuple[int, ...]) -> bytes:
+    """The integers astropy decodes of a quantized image's tile in COMPRESSED_DATA, `n` bytes at
+    `o` in the heap, before it dequantizes them: its own steps, as big-endian 4-byte integers."""
+    header = table.header
+    kind = header["ZCMPTYPE"]
+    settings = _update_tile_settings(_header_to_settings(header), kind, shape)
+    cdata = _get_data_from_heap(table, n, o, _column_dtype(table.data._coldefs, "COMPRESSED_DATA"))
+    if kind == "GZIP_2":
+        settings["itemsize"] = np.asarray(_decompress_tile(cdata, algorithm="GZIP_1")).size // math.prod(shape)
+    tile = _decompress_tile(cdata, algorithm=kind, **settings)
+    ints = _finalize_array(tile, bitpix=header["ZBITPIX"], tile_shape=shape, algorithm=kind, lossless=False)
+    return np.asarray(ints).astype(">i4").tobytes()
+
+
+def tile_scaling(d: Described, a: StoredArray, table: Astropy, r: int) -> tuple[str, tuple[float, float], int | None,
+                                                                               int | None]:
+    """What a quantized tile's declarations say of its values: the dither's name and its seed,
+    from the header's cards; and the scale, the zero and the blank value, of the tile's row of the
+    table, the second declaration, where its columns give them, else of the header's cards."""
+    header = table.header
+    fields = table.data.view(np.ndarray).dtype.fields
+    rows = d.place(a.declarations[1])
+
+    def field(name: str) -> int | float:
+        dtype, at = fields[name][:2]
+        start = r * header["NAXIS1"] + at
+        return np.frombuffer(rows[start:start + dtype.itemsize], dtype.newbyteorder(">"))[0].item()
+
+    method = header.get("ZQUANTIZ", "NO_DITHER")
+    seed = r + header["ZDITHER0"] if method != "NO_DITHER" else None
+    blank = header.get("ZBLANK", header.get("BLANK"))
+    zblank = int(field("ZBLANK")) if "ZBLANK" in fields else blank
+    return method, (float(field("ZSCALE")), float(field("ZZERO"))), seed, zblank
 
 
 def check_whole(d: Described, data: bytes, k: int, want: tuple[tuple[int, ...], int], theirs: tuple[int, bytes],
@@ -206,34 +258,30 @@ def check_whole(d: Described, data: bytes, k: int, want: tuple[tuple[int, ...], 
     return said
 
 
-def expected_chain(header: Astropy, names: list[str]) -> tuple[list[str], bool]:
-    """The codecs of a tile in COMPRESSED_DATA and whether its values are quantized, by astropy's
-    reading of the table's header and columns."""
-    quantized = "ZSCALE" in names
+def expected_chain(header: Astropy, names: list[str]) -> list[str]:
+    """The codecs of a tile in COMPRESSED_DATA, which store a quantized image's integers, by
+    astropy's reading of the table's header and columns."""
+    quantized = quantized_of(header, names)
     width = 4 if quantized else abs(header["ZBITPIX"]) // 8
     kind = header["ZCMPTYPE"]
     if kind in ("RICE_1", "RICE_ONE"):
         # astropy decodes integers of BYTEPIX bytes, and converts them to the image's type
         fits_elements = _header_to_settings(header)["bytepix"] == width and (quantized or header["ZBITPIX"] > 0)
         if not fits_elements:
-            return ["source"], False
-        rest = ["fits_rice"]
-    else:
-        rest = {"GZIP_1": ["gzip"], "GZIP_2": ["shuffle", "gzip"], "NOCOMPRESS": []}[kind]
-    return (["fits_quantize", *rest] if quantized else rest), quantized
+            return ["source"]
+        return ["fits_rice"]
+    return {"GZIP_1": ["gzip"], "GZIP_2": ["shuffle", "gzip"], "NOCOMPRESS": []}[kind]
 
 
 def check_codecs(d: Described, data: bytes, a: StoredArray, header: Astropy, names: list[str]) -> list[str]:
     """The first chain's codecs and their parameters against astropy's reading of the header."""
-    want, quantized = expected_chain(header, names)
+    want = expected_chain(header, names)
     chain = d.stored.chains[a.chains[0]]
     if [c.name for c in chain] != want:
         return [f"chain {[c.name for c in chain]}, astropy's reading {want}"]
     said = []
-    width = 4 if quantized else abs(header["ZBITPIX"]) // 8
+    width = 4 if quantized_of(header, names) else abs(header["ZBITPIX"]) // 8
     settings = _header_to_settings(header)
-    method = header.get("ZQUANTIZ", "NO_DITHER")
-    listed = [u.name for u in a.unit_parameters]
     for codec in chain:
         cards = {name: card_at(d, data, a, p) for name, p in codec.parameters.items()}
         values = {name: None if c is None else c.value for name, c in cards.items()}
@@ -251,19 +299,10 @@ def check_codecs(d: Described, data: bytes, a: StoredArray, header: Astropy, nam
         elif codec.name == "shuffle":
             if codec.parameters != {"element_size": Value(width)}:
                 said.append(f"shuffle of {codec.parameters}, elements of {width} bytes")
-        elif codec.name == "fits_quantize":
-            blank = header.get("ZBLANK", header.get("BLANK"))
-            given = {"method": header.get("ZQUANTIZ"), "zblank": None if "ZBLANK" in names else blank}
-            if values != {name: v for name, v in given.items() if v is not None}:
-                said.append(f"fits_quantize of {values}, astropy {given}")
-            if any(c is None for c in cards.values()):
-                said.append(f"fits_quantize's parameters are not cards: {codec.parameters}")
         elif codec.parameters:
             said.append(f"{codec.name} with {codec.parameters}")
-    columns = ["scale", "zero"] if quantized else []
-    columns += ["seed"] * (quantized and method != "NO_DITHER") + ["zblank"] * (quantized and "ZBLANK" in names)
-    if a.unit_parameters != tuple(UnitParameter(0, 0, name) for name in columns) or listed != columns:
-        said.append(f"unit parameters {a.unit_parameters}, astropy's columns {columns}")
+    if a.unit_parameters:
+        said.append(f"unit parameters {a.unit_parameters}")
     return said
 
 
@@ -301,12 +340,16 @@ def tile_values(image: Astropy | None, at: tuple[slice, ...]) -> bytes | None:
 
 def check_tiled(d: Described, data: bytes, k: int, table: Astropy, image: Astropy | None, seen: Counter) -> list[str]:
     """A tile-compressed image against astropy's reading of its table (`table`) and of its tiles
-    (`image`; None where astropy does not read the image)."""
+    (`image`; None where astropy does not read the image). A quantized image's elements are its
+    4-byte integers."""
     a = d.stored.arrays[k]
     header = table.header
     rank = header["ZNAXIS"]
     shape = tuple(header[f"ZNAXIS{n}"] for n in range(rank, 0, -1))
-    bits = abs(header["ZBITPIX"])
+    names = [n.upper() for n in table.columns.names]
+    quantized = quantized_of(header, names)
+    floats = abs(header["ZBITPIX"])
+    bits = 32 if quantized else floats
     said = []
     axes = tuple(reversed(range(rank))) if rank > 1 else None
     if (a.shape, a.axes, a.item_bits) != (shape, axes, bits) or (image is not None and image.shape != shape):
@@ -320,14 +363,13 @@ def check_tiled(d: Described, data: bytes, k: int, table: Astropy, image: Astrop
     tile = tuple(header.get(f"ZTILE{n}", header["ZNAXIS1"] if n == 1 else 1) for n in range(rank, 0, -1))
     if a.grid != Grid(tuple(Each(t) for t in tile), "short") or (image is not None and tuple(image.tile_shape) != tile):
         return [*said, f"grid {a.grid}, tiles of {tile}"]
-    names = [n.upper() for n in table.columns.names]
     said += check_codecs(d, data, a, header, names)
     chains = [d.stored.chains[c] for c in a.chains]
-    quantized = chains[0][0].name == "fits_quantize" if chains[0] else False
     seen["quantized images"] += quantized
     fallback = (Codec("gzip", {}),)
-    # a tile in GZIP_COMPRESSED_DATA is a gzip stream of its elements: a second chain, unless the first is that
-    if chains[1:] != [fallback] * ("GZIP_COMPRESSED_DATA" in names and chains[0] != fallback):
+    # a tile in GZIP_COMPRESSED_DATA is a gzip stream of its elements: a second chain, unless the
+    # first is that, or the image is quantized, whose tiles are none of them there
+    if chains[1:] != [fallback] * ("GZIP_COMPRESSED_DATA" in names and chains[0] != fallback and not quantized):
         said.append(f"chains {chains[1:]} after the first, of the columns {names}")
     for codec in chains[0]:
         seen[f"images in {codec.name}"] += 1
@@ -361,15 +403,8 @@ def check_tiled(d: Described, data: bytes, k: int, table: Astropy, image: Astrop
         if row["chain"] != (chain or None) or row["skips"] is not None:
             said.append(f"tile {coords} in chain {row['chain']}, not {chain}")
             continue
-        columns = {}
-        if quantized and not gzipped:
-            columns = {"scale": float(raw["ZSCALE"][r]), "zero": float(raw["ZZERO"][r])}
-            if header.get("ZQUANTIZ", "NO_DITHER") != "NO_DITHER":
-                columns["seed"] = r + header["ZDITHER0"]
-            if "ZBLANK" in names:
-                columns["zblank"] = int(raw["ZBLANK"][r])
-        if parameters(row) != columns:
-            said.append(f"tile {coords} with {parameters(row)}, astropy's columns {columns}")
+        if parameters(row):
+            said.append(f"tile {coords} with unit parameters {parameters(row)}")
             continue
         if any(c.name == "source" for c in chains[chain]):
             seen["tiles in a source chain"] += 1
@@ -381,19 +416,31 @@ def check_tiled(d: Described, data: bytes, k: int, table: Astropy, image: Astrop
             seen["tiles of another width than their elements'"] += 1
             continue
         theirs = tile_values(image, at)
-        if theirs is not None and mine != theirs and quantized and chain == 0:
-            # astropy's build may fuse a dither's multiply and add: each pixel is then the one or the other
-            once = np.frombuffer(decoded(d, data, a, chains[chain], row, pixels, fused=True), f"V{bits // 8}")
-            each, read = np.frombuffer(mine, once.dtype), np.frombuffer(theirs, once.dtype)
-            mine = np.where(read == once, once, each).tobytes()
+        if quantized:
+            # the integers are astropy's, before it dequantizes them; and dequantized as the
+            # declarations say, they are its values
+            if mine != tile_integers(table, n, o, tuple(s.stop - s.start for s in at)):
+                said.append(f"tile {coords} decodes to other integers than astropy's")
+                continue
+            seen["quantized tiles' integers decoded"] += 1
+            method, linear, seed, zblank = tile_scaling(d, a, table, r)
+            ints = np.frombuffer(mine, ">i4")
+            mine = dequantized(ints, floats, method, linear, seed, zblank, fused=False)
+            if theirs is not None and mine != theirs:
+                # astropy's build may fuse a dither's multiply and add: each pixel is then the one
+                # or the other
+                fused = dequantized(ints, floats, method, linear, seed, zblank, fused=True)
+                once = np.frombuffer(fused, f"V{floats // 8}")
+                each, read = np.frombuffer(mine, once.dtype), np.frombuffer(theirs, once.dtype)
+                mine = np.where(read == once, once, each).tobytes()
         if theirs is None:
             seen["tiles astropy does not read"] += 1
         elif mine != theirs:
             said.append(f"tile {coords} decodes to other values than astropy reads")
         else:
             seen["tiles decoded"] += 1
-            floats = np.frombuffer(mine, f">f{bits // 8}" if header["ZBITPIX"] < 0 else "u1")
-            seen["tiles decoded to a NaN"] += bool(np.isnan(floats).any())
+            values = np.frombuffer(mine, f">f{floats // 8}" if header["ZBITPIX"] < 0 else "u1")
+            seen["tiles decoded to a NaN"] += bool(np.isnan(values).any())
     if held != len(rows):
         said.append(f"{len(rows)} rows, {held} tiles astropy's table holds")
     return said
@@ -413,11 +460,21 @@ def check_hdu(d: Described, data: bytes, arrays: list[int], table: Astropy, imag
     if len(arrays) != (3 if tiled else 2 if is_table else 1):
         return [f"{len(arrays)} descriptions of a {type(table).__name__}"]
     said = []
+    columns: Astropy = table.columns if tiled else None
+    names = [n.upper() for n in columns.names] if tiled else []
     for index, k in enumerate(arrays):
         a = d.stored.arrays[k]
-        # each is keyed by the header, which is its one declaration: the bytes astropy reads the header from
+        # each is keyed by the header, which is its first declaration: the bytes astropy reads the
+        # header from; a tile-compressed image's second, where its table gives each tile's scale,
+        # zero or blank value, is its table's rows, the bytes astropy reads them from
         start, length = d.ir.extent(a.element)
-        if a.index != index or a.declarations != (ElementPlace(a.element, None, None),):
+        count = declared(names) if tiled and index == 0 else 1
+        first = a.declarations[:1] == (ElementPlace(a.element, None, None),)
+        rows_at = (info["datLoc"], header["NAXIS1"] * header["NAXIS2"]) if tiled else None
+        table_rows = a.declarations[-1]
+        second = count == 1 or (isinstance(table_rows, ElementPlace) and table_rows.range is None
+                                and d.ir.extent(table_rows.element) == rows_at)
+        if a.index != index or len(a.declarations) != count or not first or not second:
             said.append(f"array {index}: index {a.index}, declarations {a.declarations}")
         if (start, length) != (info["hdrLoc"], info["datLoc"] - info["hdrLoc"]):
             said.append(f"array {index}: its header at {(start, length)}, astropy {info['hdrLoc']} to {info['datLoc']}")
@@ -549,7 +606,7 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
         "tile-compressed images": 32,
         "images astropy reads once given the default ZTILEn": 1,
         "quantized images": 13,
-        "images in fits_quantize": 13,
+        "quantized tiles' integers decoded": 158,
         "images in fits_rice": 28,
         "images in gzip": 3,
         "images in shuffle": 1,
@@ -632,8 +689,8 @@ def test_cases_no_fixture_holds_are_described_as_astropy_reads_them(tmp_path):
     in the first bytes of data that PCOUNT makes longer; Rice with no ZNAMEn cards, its parameters
     the defaults; a quantized image whose blank value is a BLANK card; quantized images in GZIP_1,
     GZIP_2 and NOCOMPRESS, of 32 and 64 bits; and floats and integers of 8 and 64 bits stored
-    whole, in GZIP_1 and GZIP_2; an image of one tile, which is all of its element; and tiles in
-    GZIP_COMPRESSED_DATA of an image in GZIP_1 and of a quantized one."""
+    whole, in GZIP_1 and GZIP_2; an image of one tile, which is all of its element; and a tile in
+    GZIP_COMPRESSED_DATA of an image in GZIP_1."""
     plain = written(tmp_path / "plain.fits", fits.ImageHDU(np.arange(12, dtype=">i2").reshape(3, 4)))
     d, said, seen = crafted(tmp_path, "pcount.fits", recarded(plain, {"PCOUNT": 4}))
     assert (said, seen["image units"], seen["image units in part of an element"]) == ((), 1, 1)
@@ -644,17 +701,12 @@ def test_cases_no_fixture_holds_are_described_as_astropy_reads_them(tmp_path):
     assert (said, seen["tiles decoded"], seen["tiles that are all of their element"]) == ((), 1, 1)
     assert d.rows[0][0]["range"] is None
 
-    # a tile in GZIP_COMPRESSED_DATA: in the first chain where that is gzip alone, else in a second,
-    # with none of a quantized image's unit parameters
-    integers, floats = gzip_fallbacks()
+    # a tile in GZIP_COMPRESSED_DATA: in the first chain where that is gzip alone
+    integers, _ = gzip_fallbacks()
     d, said, seen = crafted(tmp_path, "fallback_gzip.fits", integers)
     assert (said, seen["tiles decoded"], seen["tiles in GZIP_COMPRESSED_DATA"]) == ((), 2, 1)
     assert [d.stored.chains[c] for c in d.stored.arrays[0].chains] == [(Codec("gzip", {}),)]
     assert d.rows[0][1]["chain"] is None
-    d, said, seen = crafted(tmp_path, "fallback_quantized.fits", floats)
-    assert (said, seen["tiles decoded"], seen["tiles in GZIP_COMPRESSED_DATA"]) == ((), 2, 1)
-    assert (len(d.stored.arrays[0].chains), d.rows[0][1]["chain"], parameters(d.rows[0][1])) == (2, 1, {})
-    assert parameters(d.rows[0][0]) == {"scale": 0.5, "zero": 10.0}
 
     rice = (FIXTURES / "fits" / "fits_comp_rice_int32.fits").read_bytes()
     blanked = recarded(rice, dict.fromkeys(["ZNAME1", "ZVAL1", "ZNAME2", "ZVAL2"]))
@@ -665,10 +717,6 @@ def test_cases_no_fixture_holds_are_described_as_astropy_reads_them(tmp_path):
     blank = (FIXTURES / "fits" / "fits_comp_rice_float_nodither.fits").read_bytes()
     d, said, seen = crafted(tmp_path, "blank.fits", recarded(blank, {"ZBLANK": None}, (("BLANK", -2147483648),)))
     assert (said, seen["tiles decoded"], seen["tiles decoded to a NaN"]) == ((), 24, 2)
-    a = d.stored.arrays[0]
-    zblank = card_at(d, d.objects[None], a, d.stored.chains[a.chains[0]][0].parameters["zblank"])
-    assert zblank is not None
-    assert zblank.keyword == "BLANK"
 
     reached: Counter = Counter()
     for kind in ("GZIP_1", "GZIP_2", "NOCOMPRESS"):
@@ -677,8 +725,8 @@ def test_cases_no_fixture_holds_are_described_as_astropy_reads_them(tmp_path):
             quantized = fits.CompImageHDU(noise((12, 20), dtype), **how)
             d, said, seen = crafted(tmp_path, f"quantized_{kind}_{dtype}.fits", written(tmp_path / "q.fits", quantized))
             names = [c.name for c in d.stored.chains[d.stored.arrays[0].chains[0]]]
-            assert (said, names[0], seen["tiles decoded"]) == ((), "fits_quantize", 3), (kind, dtype)
-            reached[" ".join(names[1:])] += 1
+            assert (said, d.stored.arrays[0].item_bits, seen["tiles decoded"]) == ((), 32, 3), (kind, dtype)
+            reached[" ".join(names)] += 1
     assert reached == {"gzip": 2, "shuffle gzip": 2, "": 2}
     for kind in ("GZIP_1", "GZIP_2"):
         for dtype in ("f4", "f8", "u1", "i8"):
@@ -704,7 +752,7 @@ def tiled_file(columns: list[tuple[str, str]], rows: bytes, heap: bytes, row_byt
 def gzip_fallbacks() -> tuple[bytes, bytes]:
     """Two images, each of two tiles, the second in GZIP_COMPRESSED_DATA: one of integers in
     GZIP_1, whose first chain is `gzip` alone; and one of floats quantized with no dither, its
-    first tile's integers stored as they are."""
+    first tile's integers stored as they are, its second tile's floats."""
     both = [("COMPRESSED_DATA", "1PB"), ("GZIP_COMPRESSED_DATA", "1PB")]
     first, second = (gzip.compress(np.arange(k, k + 4, dtype=">i2").tobytes(), mtime=0) for k in (0, 4))
     rows = struct.pack(">iiii", len(first), 0, 0, 0) + struct.pack(">iiii", 0, 0, len(second), len(first))
@@ -755,6 +803,18 @@ def test_rice_of_other_integers_than_the_elements_is_source(tmp_path):
         assert (seen["tiles decoded"], a.unit_parameters) == (0, ()), name
         assert a.grid is not None, name
         assert a.item_bits is not None, name
+
+
+def test_a_quantized_image_with_a_tile_in_gzip_compressed_data_has_no_grid(tmp_path):
+    """A quantized image whose second tile is in GZIP_COMPRESSED_DATA, which holds its floats
+    where its first holds integers: its units would hold two kinds of elements. Its declarations
+    are its header and its table's rows, which give each tile's scale and zero."""
+    _, floats = gzip_fallbacks()
+    d = ungridded(tmp_path, "fallback_quantized.fits", floats)
+    a = d.stored.arrays[0]
+    assert a.item_bits == 32
+    places = [d.ir.path(p.element).rsplit("/", 1)[1] for p in a.declarations if isinstance(p, ElementPlace)]
+    assert places == ["header", "table"]
 
 
 def test_an_integer_image_with_scale_columns_has_no_grid(tmp_path):
