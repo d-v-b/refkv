@@ -2,7 +2,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): many sources, the
 //! objects of a listing. One test for the IRs that keep the invariants (per object coverage
 //! and injectivity, referenced objects as one leaf, the keys' names), and one per way to break
-//! them.
+//! them; one for the limits a store parses under, one for a store at its row limit and one for a
+//! store past it.
 
 use refkv_ir::check::{check, finish, held_leaves};
 use refkv_ir::ir::*;
@@ -77,6 +78,56 @@ fn a_store_ir_keeps_the_invariants_per_object_and_its_keys() {
     finish(&mut ir).unwrap();
     check(&ir).unwrap();
     assert_eq!(held_leaves(&ir).unwrap(), vec![(o, vec![(0, 64)])]);
+}
+
+/// The limits a store parses under are of its totals, `o` objects of `Z` bytes in all, whatever
+/// the sizes that sum to `Z`: its records' is the limit of its table's rows (conventions §8.9
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), `2^22 + floor(Z / 4)
+/// + 4 × o`, as its descriptions' is (spec/stored-array.md §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>).
+#[test]
+fn a_stores_limits_are_of_its_objects_count_and_total_size() {
+    for sizes in [vec![], vec![0], vec![3; 4], vec![1, 2, 3, 4, 5], vec![63, 1, 1000, 7], vec![u64::MAX - 5, 3]] {
+        let keys: Vec<(String, u64)> = sizes.iter().enumerate().map(|(k, &s)| (format!("d/k{k}"), s)).collect();
+        let mut ir = Ir::new_store();
+        ir.listing(&keys).unwrap();
+        let (z, o) = (sizes.iter().sum::<u64>(), sizes.len() as u64);
+        assert_eq!((ir.size, ir.objects), (z, o), "{sizes:?}");
+        let b = ir.budget.as_ref().unwrap();
+        let rows = (1 << 22) + z / 4 + 4 * o;
+        assert_eq!(rows, refkv_ir::mirror::store_row_limit(z, o), "{sizes:?}");
+        assert_eq!((b.records, b.descriptions, b.elements), (rows, rows, (1 << 30) + z / 4 + 4 * o), "{sizes:?}");
+        assert_eq!(b.rows, (1u64 << 22).saturating_add(z.saturating_mul(4)).saturating_add(4 * o), "{sizes:?}");
+        assert_eq!((b.read, b.reads), ((1u64 << 24).saturating_add(z.saturating_mul(2)), (1 << 20) + z / 64 + o), "{sizes:?}");
+    }
+}
+
+/// The row limit of a store of four objects of 3 bytes: `2^22 + floor(12 / 4) + 4 × 4`. (Four
+/// times an object's `4 + floor(3 / 4)` would be 3 less.)
+const SMALL_OBJECTS_ROWS: u64 = (1 << 22) + 3 + 16;
+
+/// A store of four objects of 3 bytes with `records` records: its root, its objects, and empty
+/// structs under the first of them.
+fn small_objects(records: u64) -> Res<Ir> {
+    let mut ir = Ir::new_store();
+    let keys: Vec<(String, u64)> = ["a", "b", "c", "d"].iter().map(|k| (k.to_string(), 3)).collect();
+    let o = ir.listing(&keys)?;
+    for k in ir.len() as u64..records {
+        ir.struct_(o[0], "s/", k, 0, None)?;
+    }
+    Ok(ir)
+}
+
+#[test]
+fn a_store_of_as_many_records_as_its_row_limit_parses() {
+    let ir = small_objects(SMALL_OBJECTS_ROWS).unwrap();
+    assert_eq!(ir.len() as u64, refkv_ir::mirror::store_row_limit(ir.size, ir.objects));
+}
+
+#[test]
+fn a_store_of_more_records_than_its_row_limit_is_refused() {
+    let e = small_objects(SMALL_OBJECTS_ROWS + 1).err().unwrap();
+    assert_eq!(e, "budget: more than 4194323 IR records");
 }
 
 #[test]

@@ -447,10 +447,12 @@ descriptions' entries are each description, each axis of its shape, each run of 
 its chains and each unit parameter; and of the chain table, each chain, each codec and each place
 a codec's parameter names. The chunk map's are each row, each of its coordinates, each of its
 `ranges` items and each unit-parameter value it sets (a row's `range` is part of it, and is none).
-The descriptions' limit is 2^22 once, plus one per 4 bytes of the source, growing with each object
-of a store as the store's other budgets do (4 plus one per 4 of its bytes). The chunk map's is 2^22
-once, plus four per byte of the source; a store's grows by 4 plus four per byte with each object
-the store lists, as its records do, and not when a file is grafted. Every unit in space 0 has at
+The descriptions' limit is `2^22 + floor(Z / 4)` entries for a source of `Z` bytes, and the chunk
+map's `2^22 + 4 × Z`. A store's are `2^22 + floor(Z / 4) + 4 × o` and `2^22 + 4 × Z + 4 × o`, for
+its `o` objects of `Z` bytes in all: a file's of `Z` bytes, and 4 more for each object, as the limit
+of its table's rows is ([conventions §8.9](conventions.md#89-stores)). The floor is of the total,
+not of each object's size. A store's limits grow as it lists its objects, and not when a file is
+grafted. Every unit in space 0 has at
 least one byte of its own (an HDF5 chunk of an implicit index may be a single byte), or an index
 entry of several, so where no two units share bytes or index entries, a map fits where each row's
 rank, plus the unit-parameter values it sets, is at most 3 for a unit held by an element of space 0
