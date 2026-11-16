@@ -830,7 +830,7 @@ bytes, from the first one's start to the last one's end, so that no two
 members' leaves overlap. Runs do not nest. A parser may fold its IR
 into runs; the canonical table (8.8) expands them, and a reader accepts them.
 
-A producer names each gap it adds `gaps`, with the gap's offset as its name
+A producer names each gap it adds `gaps/`, with the gap's offset as its name
 index (`gaps/<offset>`; in a store's IR, the offset in the gap's object).
 refkv's producer names a gap that repeats inside each member of a run
 `gaps/<offset>/` instead, `<offset>` the first one's, with the name indexes
@@ -983,8 +983,11 @@ than `N = 2^22 + floor(Z / 4)` rows, with the message
 before expanding when the elements outside derived spaces, every run expanded,
 are already more than `N`. While it parses, refkv's producer also rejects a
 source whose IR holds more than `N` elements as the parser stores them (a run
-counted once, the derived spaces included), with the message
-`budget: more than N IR records`. (A source can describe more than one element per
+counted once, the derived spaces and the gaps it adds included), with the
+message `budget: more than N IR records`, and one whose elements, every run
+expanded, are more than `2^30 + Z`, with that message or
+`budget: more than M IR elements`. These are that producer's budgets, and
+this section does not list every one. (A source can describe more than one element per
 four bytes, as a TIFF of many small IFDs does, so `floor(Z / 4)` alone does not
 admit every source; the limit bounds what a reader must expand.) So is one whose columns' lengths
 differ, whose column refers to values past `column_values` or entries past
@@ -1182,9 +1185,10 @@ compares mirrors entry for entry. In order:
    (`tiles/0`, `tiles/1`, …) its indexes, wherever its members lie. No two
    siblings tie: siblings of one name differ in name index, since their full
    names differ (8.1), so this order is total and depends on the IR alone.
-   Where two leaves claim one byte, the one that starts first keeps it, or,
-   of two that start at one byte, the one first in this order; the other
-   becomes an alias (8.1, injectivity).
+   Where leaves claim one byte, they are taken in order of their start, and
+   in this order among those that start at one byte: a leaf that overlaps
+   the last one kept becomes an alias of it and claims nothing, and any
+   other is kept (8.1, injectivity).
 3. **Derived spaces.** The derived elements are taken in order, skipping
    those inside another derived element. Each keeps its descendants when
    they, with the descendants kept so far, number at most 2^20; otherwise its

@@ -3,7 +3,8 @@
 //! first, a parent before its children; siblings by name group (the groups in order
 //! of their first byte, the least start of an element with a length in their
 //! subtrees), then by name index (none last), then by first byte. The mirror's table
-//! is in this order, and `finish` gives a byte two leaves claim to the one first in it.
+//! is in this order, and `finish` gives a byte two leaves claim to the one that starts first,
+//! or, of two that start at one byte, to the one first in it.
 //! In a store IR an object's first byte is 0, the start of its source (conventions §8.9
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), so the objects and
 //! directories of one directory are in order of their names.

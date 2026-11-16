@@ -928,7 +928,8 @@ grid, its rows are the plane's own strips, `imagej/planes/<p>/strips/<j>`.
   them in no order.
 - **`item_bits`** is BitsPerSample, where every sample has the same; absent otherwise. Where it
   is not a multiple of 8 and the image has a grid, `pad_from` is the columns' axis (1, or 2 with
-  the samples first): a unit's rows each end on a whole byte. An image with no grid has none.
+  the samples first): a unit's rows each end on a whole byte. An image the IR does not model (No
+  grid, below) has none; one that falls back at the limits of [§6](#6-in-the-ir) keeps it.
 - **The grid.** An IFD with TileWidth (322) and TileLength (323) is cut into tiles, `Each` of
   TileLength and of TileWidth, under `full`, as libtiff and tifffile read it; its tables are
   TileOffsets (324) and TileByteCounts (325), or, where it has not both, StripOffsets (273) and
