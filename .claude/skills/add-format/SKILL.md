@@ -48,11 +48,10 @@ feasibility.
    Settle each decision there, with the spec section that governs it.
 4. **Write `spec/zarrify/<p>.md`** and `spec/source_metadata/<p>.py`. See
    [§4](../../../docs/adding-a-format.md#4-write-the-document).
-   - List the structures that are the format's stored arrays, and what each of
-     their declarations is.
    - Add the format's paragraph to
-     [stored-array §7](../../../spec/stored-array.md#7-the-formats): what is described,
-     and what is not yet.
+     [stored-array §7](../../../spec/stored-array.md#7-the-formats): the structures that
+     are its stored arrays, how each is keyed, what its declarations are, and
+     what is not described yet.
 5. **Implement.** See [§5](../../../docs/adding-a-format.md#5-implement-it).
    - The registry file, then `just profiles`.
    - The Rust module, its projection and its source model.

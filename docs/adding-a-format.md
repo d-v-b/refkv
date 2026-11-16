@@ -339,8 +339,6 @@ good models.
   - data types;
   - the arrays;
   - source metadata and the IR mirror;
-  - the structures that are the format's stored arrays, and what each of their
-    declarations is ([stored-array §1](../spec/stored-array.md#1-stored-arrays));
   - an annotated example;
   - "What the layout does not express" (informative). On MRC, writing this
     section surfaced cell angles, symmetry and per-section tilt records, and
@@ -363,9 +361,11 @@ document. `uv run python spec/generate_schemas.py` writes
 `spec/zarrify/<p>/schema.json` from it.
 
 Add the format's paragraph to
-[stored-array §7](../spec/stored-array.md#7-the-formats). It says what of the
-format is described and what is not yet. The parser of a format with no
-paragraph there describes nothing.
+[stored-array §7](../spec/stored-array.md#7-the-formats). It names the
+structures that are the format's stored arrays, how each is keyed and what its
+declarations are, and says what of the format is described and what is not
+yet. The parser of a format with no paragraph there describes nothing. MRC's
+paragraph is a short model.
 
 ## 5. Implement it
 
