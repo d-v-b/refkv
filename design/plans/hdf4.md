@@ -143,9 +143,9 @@ From 70 files: the 7 of GDAL's sample set and the 63 test files of the HDF4 libr
   ([§1.4](#14-findings-that-shaped-the-design) 4).
 - **Data type:** by the NT element, its byte order from the class byte: `int8` … `uint64`,
   `float32`, `float64`, `bytes` with that `endian`. `uchar8` is `uint8`.
-- **A `char8` SDS** — decision D1 ([§9](#9-decisions)): `null_terminated_bytes` of the last axis's
+- **A `char8` SDS** (decided, [D1](#9-decisions)): `null_terminated_bytes` of the last axis's
   length, the other axes the array's, as FITS presents a text column; the last axis's name in
-  source metadata.
+  source metadata. A `char8` SDS of rank 1 is a scalar of one string.
 - **Chunks and codecs** by the special element ([§1.4](#14-findings-that-shaped-the-design) 2):
   a plain dataset as contiguous values cut with the limit 2^20 bytes
   ([conventions §7](../../spec/conventions.md#7-source-values-as-arrays)); a compressed one as one
@@ -284,12 +284,12 @@ login): AIRS Level 2 and 3 (plain datasets; compressed linked blocks), CALIPSO L
 
 ## 9. Decisions
 
-- **D1. A `char8` SDS.** Recommended: `null_terminated_bytes` of the last axis's length, as FITS
-  presents a text column, referencing the file's bytes and read by numpy as `S<n>`. The alternative
-  is HDF5's choice for a fixed-length string, `uint8` with a trailing axis named `string<n>`
-  ([hdf5 §3](../../spec/zarrify/hdf5.md#3-datasets)), which xarray reads as bytes, not text. Either
-  way the two profiles should agree; if D1 takes the first, HDF5's fixed-length strings could
-  follow it in a change of their own.
+- **D1. A `char8` SDS. Decided 2026-11-16:** `null_terminated_bytes` of the last axis's length,
+  as FITS presents a text column, referencing the file's bytes and read by numpy as `S<n>`. Not
+  HDF5's choice for a fixed-length string, `uint8` with a trailing axis named `string<n>`
+  ([hdf5 §3](../../spec/zarrify/hdf5.md#3-datasets)), which xarray reads as bytes, not text. The
+  two profiles then differ; HDF5's fixed-length strings could follow this one in a change of their
+  own.
 - **D2. HDF-EOS2.** Version 0 keeps the ODL texts verbatim. A later layout (`hdf4-eos`) would parse
   `StructMetadata.0` into grid coordinates and swath geolocation links, which is what users of MODIS
   grids need and what GDAL does. Its oracle would be GDAL's geotransform.
