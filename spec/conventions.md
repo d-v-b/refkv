@@ -749,10 +749,11 @@ source 0, with no knowledge of the format; the format's convention says what
 the elements are (its **source model**). Sections 8.1 to 8.7 are all a reader
 needs to read the table, check it, and rebuild the source; 8.8 is how a
 producer writes it, one way only, so that the mirror of a source is the same
-whoever writes it. A store (an N5, Zarr v2 or OME-Zarr store, a SAFE
-directory, a safetensors store) is many objects, and so is a file that its
-profile reads as a store (VSI, NRRD and GRIB,
-[spec/zarrify.md §1.8](zarrify.md#18-files-read-as-stores)): its IR has many
+whoever writes it. A store (an N5, Zarr v2, Zarr v3, OME-Zarr or Precomputed
+store, a SAFE directory, a safetensors store) is many objects, and so is a file
+that its profile reads as a store (VSI, NRRD and GRIB always, and others when
+the file names more files; the table of
+[spec/zarrify.md §1.8](zarrify.md#18-files-read-as-stores) lists them): its IR has many
 sources, one per object, and [§8.9](#89-stores) says how 8.1 to 8.8 apply to
 it. Any other file's IR is the special case of one source, source 0, which 8.1
 to 8.8 describe as they stand.
@@ -824,8 +825,17 @@ The IR a parser builds leaves nothing out.
 A **run** is an element whose subtree stands for `count` copies of itself
 (its **members**): member `j` has every extent of the subtree shifted by
 `j × stride` and the run's root's name index increased by `j`. A run's
-leaves are its members' leaves. Runs do not nest. A parser may fold its IR
+leaves are its members' leaves. The leaves of one member lie within `stride`
+bytes, from the first one's start to the last one's end, so that no two
+members' leaves overlap. Runs do not nest. A parser may fold its IR
 into runs; the canonical table (8.8) expands them, and a reader accepts them.
+
+A producer names each gap it adds `gaps/`, with the gap's offset as its name
+index (`gaps/<offset>`; in a store's IR, the offset in the gap's object).
+refkv's producer names a gap that repeats inside each member of a run
+`gaps/<offset>/` instead, `<offset>` the first one's, with the name indexes
+0, 1, … for the members it repeats in (`gaps/<offset>/0`, …). Which runs'
+gaps it names so is not specified here yet.
 
 ### 8.2 The table
 
@@ -858,6 +868,9 @@ The store conventions say when they have the last two members, and their content
 | `names` | array of string | required | the interned names, whose indexes the rows and tables use; `names[0]` is `""`, the root's name (8.1) |
 | `types` | array of string | required | the interned types (8.6), likewise; `types[0]` is `""` |
 | `forms` | array of string | required | the interned forms (8.5), likewise, each a JSON text |
+
+A reader rejects a table whose `version` is not `2`, whose `rows` is not the number of rows the
+array `rows` stores, or whose `elements` is not the number of rows they expand to (8.3).
 
 <a id="table-mirror"></a>**The mirror's entries**, under `refkv_source` ([§11.5](#115-layout-tables)):
 
@@ -904,7 +917,8 @@ none; edge chunks padded with zeros; no attributes):
   - `1`, an alias: (alias, target), `-1`: no target;
   - `2`, a form: (element, form), into `forms`;
   - `3`, a **column run**: (first row, count, size), 8.3;
-  - `4`, a column: (column run, row offset, field, encoding, x, y), 8.3;
+  - `4`, a column: (column run, row offset, field, encoding, x, y), 8.3, its
+    column run named by its position, from 0, among the rows of code 3;
   - `5`, six values of `column_values`: the rows of code 5, in order,
     concatenated, are the list `column_values` (padded with zeros to a
     multiple of six).
@@ -970,7 +984,13 @@ canonical mirror (8.8: runs expanded, derived spaces left out) would have more
 than `N = 2^22 + floor(Z / 4)` rows, with the message
 `budget: the mirror would have more than N rows` (N in decimal), and may do so
 before expanding when the elements outside derived spaces, every run expanded,
-are already more than `N`. (A source can describe more than one element per
+are already more than `N`. While it parses, refkv's producer also rejects a
+source whose IR holds more than `N` elements as the parser stores them (a run
+counted once, the derived spaces and the gaps it adds included), with the
+message `budget: more than N IR records`, and one whose elements, every run
+expanded, are more than `M = 2^30 + Z`, with that message or
+`budget: more than M IR elements` (M in decimal). These are that producer's budgets, and
+this section does not list every one. (A source can describe more than one element per
 four bytes, as a TIFF of many small IFDs does, so `floor(Z / 4)` alone does not
 admit every source; the limit bounds what a reader must expand.) So is one whose columns' lengths
 differ, whose column refers to values past `column_values` or entries past
@@ -1124,8 +1144,10 @@ document, the source metadata of its group:
 | `{"$vz": "bytes", "b64": B}` | bytes |
 | `{"$vz": "utf16", "b64": B}` | UTF-16 that is not text |
 
-**Budgets.** A document holds at most 65536 bytes, and at most 2^20
-elements are visited in all. Each document starts with 65536 bytes left;
+**Budgets.** The members of a document's children spend at most 65536 bytes,
+and at most 2^20 elements are visited in all; the members `$vz`, `$form` and
+`$partial` spend none, and the last child's member may be larger than what is
+left, so a document may hold more than 65536 bytes. Each document starts with 65536 bytes left;
 for each child in order: the child is visited (counted); if fewer than 1024
 bytes are left, or more than 2^20 children have been visited, the document
 gets `"$partial": true` and stops. Otherwise the child's member is computed
@@ -1168,8 +1190,10 @@ compares mirrors entry for entry. In order:
    (`tiles/0`, `tiles/1`, …) its indexes, wherever its members lie. No two
    siblings tie: siblings of one name differ in name index, since their full
    names differ (8.1), so this order is total and depends on the IR alone.
-   Where two leaves claim one byte, the one first in this order keeps it and
-   the other becomes an alias (8.1, injectivity).
+   Where leaves claim one byte, they are taken in order of their start, and
+   in this order among those that start at one byte: a leaf that overlaps
+   the last one kept becomes an alias of it and claims nothing, and any
+   other is kept (8.1, injectivity).
 3. **Derived spaces.** The derived elements are taken in order, skipping
    those inside another derived element. Each keeps its descendants when
    they, with the descendants kept so far, number at most 2^20; otherwise its
@@ -1336,8 +1360,8 @@ hold no `/`: 8.1's rules for names hold. The rule makes the chunk keys of one
 array siblings of one name with consecutive indexes (`0`, `1`, … in a nested
 directory, `3.0`, `3.1`, … after a `.`), which canonical form folds (below).
 
-**Held, referenced and empty objects.** An object that has children is
-**held**: the leaves among its descendants partition `[0, s)` of its bytes, as
+**Held, referenced and empty objects.** An object that has children and a
+length is **held**: the leaves among its descendants partition `[0, s)` of its bytes, as
 the leaves of a file IR partition its source (8.1's coverage and injectivity,
 for each object), and the table holds its bytes (`ir/held`, below), so the
 mirror alone rebuilds it. A store's documents (an N5 `attributes.json`, a Zarr
@@ -1358,7 +1382,7 @@ bytes: they are its own source's, which a reader reads at the object's URL
 ([spec/zarrify.md §1.4](zarrify.md#14-store-inputs)), as it reads a file
 IR's source 0 ([§8.4](#84-reading-the-source-back)). A producer reads every value
 the view shows in such an object (its parser holds them). A held object is
-then an object with children that is not described in place.
+then an object with children and a length that is not described in place.
 
 The invariants of 8.1 then become, for a store IR: the elements outside every object
 are the root and the directories above; each object's leaves (a referenced
@@ -1390,7 +1414,11 @@ A producer rejects a store past one of these with the message
 `budget: more than 16777216 objects`,
 `budget: the mirror would have more than N rows` (N in decimal) or
 `budget: the mirror's names would total more than 16777216 bytes`, and a reader
-rejects such a table. A reader also rejects a table whose held objects (objects with
+rejects such a table. While it parses, refkv's producer allows a store `N`
+elements as the parser stores them, and `M = 2^30 + floor(Z / 4) + 4 × o` with
+every run expanded, and rejects a store past either with the messages of
+[§8.3](#83-column-runs)'s limits, `budget: more than N IR records` and
+`budget: more than M IR elements` (in decimal). A reader also rejects a table whose held objects (objects with
 children and a length, not described in place) are not as many as `ir/held`'s
 byte strings, or one of
 whose byte strings is not as long as its object.
@@ -1430,8 +1458,9 @@ Within an object, 8.8's order holds, its first bytes being those of that
 object's source. The rest of 8.8 is unchanged. In particular, column runs fold
 sibling subtrees of one shape: the chunk objects of one array, siblings of one
 name with consecutive indexes, fold into a column run of one stored row whose
-columns are the name index (encoding 0) and the length (encoding 1, the chunks'
-sizes, or 0 when they are all one size). Nested chunk keys (`i/j/k`) fold whole
+columns are the name index (encoding 0) and, when the chunks' sizes differ,
+the length (encoding 1, or 0 when each size differs from the one before by
+the same amount; chunks all of one size have no length column). Nested chunk keys (`i/j/k`) fold whole
 directories at once, one column run for a full grid; flat keys (`i.j.k`) fold one
 column run per name (`i.j.`). The held objects' byte strings are in id order.
 
