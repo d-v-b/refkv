@@ -111,6 +111,24 @@ def test_an_archive_whose_root_is_named_is_a_violation():
     assert problem == 'invalid: the root (element 0) is named "!", not ""'
 
 
+def test_an_archive_whose_mirror_is_of_another_version_is_a_violation():
+    """A reader rejects a mirror's table of another version (conventions §8.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>), as Violation: the
+    bindings read an archive's table with the core's reader, so with its checks."""
+    path = FIXTURES / "tiff" / "edge_duplicate_tags.tif"
+    data = path.read_bytes()
+    _, out, _ = via_ir(str(path), "https://data.test/a.tif")
+    doc = json.loads(out.bytes_entries["refkv_source/zarr.json"])
+    ir = doc["attributes"]["refkv_zarrified"]["tiff"]["ir"]
+    assert ir["version"] == 2
+    ir["version"] = 3
+    entries = dict(out.bytes_entries, **{"refkv_source/zarr.json": json.dumps(doc).encode()})
+    with pytest.raises(_core.Violation, match=r"^version 3, not 2$"):
+        _core.Ir.from_archive(entries.get, lambda o, n: data[o:o + n])
+    problem = _core.canonical_problem(entries.get, lambda o, n: data[o:o + n])
+    assert problem == "invalid: version 3, not 2"
+
+
 def test_the_fill_batch_is_empty_on_every_probe(probes):
     """Every parser keeps every value the view shows (conventions §8.7
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>): on every probe
