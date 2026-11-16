@@ -822,6 +822,11 @@ Stale builds gave agents false results more than once:
   `just js::wasm` and `npm ci` in `js/` before trusting a failure.
 - Leave `CARGO_TARGET_DIR` unset; don't set it to an empty string.
 
+A PR that lands a step of a proposal in
+[design/proposals/](../design/proposals/) updates that proposal's
+`Status (YYYY-MM-DD):` line and its date: `just sections` checks that every
+proposal has the line, and can't tell whether it is still true.
+
 Open the PR against `main`, not stacked on another PR: PRs merged into a
 branch that was then squash-merged never reached `main`
 ([#20](https://github.com/d-v-b/refkv/pull/20),

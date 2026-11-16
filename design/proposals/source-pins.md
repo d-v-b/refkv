@@ -1,5 +1,17 @@
 # Proposal: source pins (for spec revision 3)
 
+Status (2026-11-16): landed, in specification revision 3
+([the revisions' log](../../spec/history/archive/REVISIONS.md)), which is
+older than this repository's first commit, so no pull request is its own. The
+normative text is now [spec/refkv.md §5.1](../../spec/refkv.md#51-pins) and
+[§5.2](../../spec/refkv.md#52-reading-over-http), which govern where they and
+this note differ: since revision 6 a reader also checks each successful
+response's `ETag` and `Last-Modified` against the pins, because a server may
+ignore the conditional headers. The pins' conformance cases are in
+[conformance/vzip/cases.py](../../conformance/vzip/cases.py); that every case
+of [Conformance cases to add](#conformance-cases-to-add) has one there was not
+checked. The rest of this note is as it was proposed.
+
 ## What icechunk does
 
 The icechunk 2.2.2 `VirtualChunkSpec` holds `location, offset, length`, plus
