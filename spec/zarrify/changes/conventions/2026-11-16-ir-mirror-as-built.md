@@ -1,7 +1,8 @@
 Changed 2026-11-16, with no change to any output: the IR mirror's text says what refkv's producer and
 reader do where it said otherwise or nothing
-([§8](../../../conventions.md#8-the-ir-mirror)). Of leaves that claim one byte, the one that starts
-first keeps it, and canonical order decides only between those that start at one byte
+([§8](../../../conventions.md#8-the-ir-mirror)). Leaves that claim one byte are taken in order of
+their start, and in canonical order only among those that start at one byte; one that overlaps the
+last one kept becomes an alias of it
 ([§8.8](../../../conventions.md#88-canonical-form)). A column names its column run by its position
 among the rows of code 3 ([§8.2](../../../conventions.md#82-the-table)). The leaves of one member of a
 run lie within its stride, and the gaps a producer adds are named `gaps/` with their offset as name index

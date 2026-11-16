@@ -985,8 +985,8 @@ are already more than `N`. While it parses, refkv's producer also rejects a
 source whose IR holds more than `N` elements as the parser stores them (a run
 counted once, the derived spaces and the gaps it adds included), with the
 message `budget: more than N IR records`, and one whose elements, every run
-expanded, are more than `2^30 + Z`, with that message or
-`budget: more than M IR elements`. These are that producer's budgets, and
+expanded, are more than `M = 2^30 + Z`, with that message or
+`budget: more than M IR elements` (M in decimal). These are that producer's budgets, and
 this section does not list every one. (A source can describe more than one element per
 four bytes, as a TIFF of many small IFDs does, so `floor(Z / 4)` alone does not
 admit every source; the limit bounds what a reader must expand.) So is one whose columns' lengths

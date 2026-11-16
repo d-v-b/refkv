@@ -2,9 +2,9 @@
 
 **Status (2026-11-03).** This is a dated log, kept as history. Each section says what
 was true when it was written, so a section's numbers and limits may since have changed.
-Some of its names are of its time (`vzip_source`, `vzip_ir`, the function `virtualize`);
-the package and path renames (`vzip` to `refkv`, the `virtualize` package to `zarrify`)
-were applied to it. Every profile
+Its names are a mix: many are of its time (`vzip_source`, `vzip_ir`, `virtualize`, the
+old Python profiles' paths), and some later renames of packages and paths were applied
+to it, so check a name against the tree before relying on it. Every profile
 now goes through the Rust core, [rust/refkv-ir](../rust/refkv-ir/).
 
 - The design as built is [ARCHITECTURE.md](ARCHITECTURE.md).
