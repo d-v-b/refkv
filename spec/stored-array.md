@@ -62,13 +62,12 @@ reads them from the declarations, or, where a codec makes the elements, from the
 
 A description is keyed by the IR element that declares the array. For a kind of element that may
 declare several arrays, the key always adds the array's index among them, in the source's order,
-however many it declares; the format's document names those kinds. So `(element, index)` is one
+however many it declares; the format's paragraph of [§7](#7-the-formats) names those kinds. So `(element, index)` is one
 array's alone, and on each element either no description has an index or every one has, as 0 to
 n − 1. Within a run, the id is what is computed on; the JSON form also gives the element's path
 ([§2.5](#25-the-json-form)).
 
-Each format's document, and [§7](#7-the-formats) for the formats this document covers, says how a
-profile finds, from the facts its parser gives, the key of each array's description: the
+Each format's paragraph of [§7](#7-the-formats) says how a profile finds, from the facts its parser gives, the key of each array's description: the
 declaring element's id, and the index where the format's kind of element carries one. A profile so
 matches what its facts say of an array to the array's description, presented or not. A graft does
 not touch the facts: a format whose files a store grafts renumbers the ids its facts give in its
