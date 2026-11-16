@@ -1,7 +1,13 @@
 # Proposal: every format describes its stored arrays
 
-Status: proposed. Follows [ir-array-model.md](ir-array-model.md), whose step 1 (the type, and
-NumPy's descriptions) has landed.
+Status (2026-11-16): landed, but for NumPy's deflated `.npz` members. The describe-only PRs are
+d-v-b/refkv#296 (HDF5 and IMS), #297 (TIFF and QPTIFF), #300 (NDPI), #303 (MP4), #305
+(safetensors), #306 (NRRD), #307 (NIfTI), #308 (MRC), #309 (ND2), #311 (FITS), #312 (SAFE), #313
+(CZI), #314 (VSI), #315 (LIF), #316 (DICOM) and #317 (GRIB), with the fallback at the
+descriptions' limit in #295. MP4 was not in this plan, which left coded streams to a proposal of
+their own. The rest of this document is the plan as it was proposed. It follows
+[ir-array-model.md](ir-array-model.md), whose step 1 (the type, and NumPy's descriptions) had
+landed.
 
 This document is a plan, not a specification. What it says of a format's bytes is a starting
 point for that format's PR, which is checked against the format's reference reader; where the two
