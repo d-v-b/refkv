@@ -10,6 +10,25 @@ source model by its document in [spec/zarrify/](../spec/zarrify/), and the rest
 by [spec/zarrify.md](../spec/zarrify.md) and [spec/refkv.md](../spec/refkv.md).
 Where this document and those differ, they are right.
 
+**Since this review.** Four things on main are later than it, and it does not
+describe them:
+- stored arrays, the IR's description of each array a source stores, which
+  [spec/stored-array.md](../spec/stored-array.md) specifies;
+- `refkv.build` and the core's `seal` ([docs/build.md](../docs/build.md));
+- layout plugins ([spec/layout.md](../spec/layout.md));
+- the Zarr v3 profile.
+
+**Which IR document is which.**
+
+| document | what it is |
+|---|---|
+| [spec/conventions.md §8](../spec/conventions.md#8-the-ir-mirror) | normative: the IR's elements and the mirror |
+| [spec/stored-array.md](../spec/stored-array.md) | normative: the stored-array descriptions and the chunk map, which the mirror does not record |
+| this document, [§3](#3-proposal-an-intermediate-representation) | the design as built on 2026-11-03, with no rules of its own |
+| [IR_NOTES.md](IR_NOTES.md) | history: a dated log |
+| [proposals/ir-array-model.md](proposals/ir-array-model.md), [proposals/ir-format-descriptions.md](proposals/ir-format-descriptions.md), [proposals/profile-plugins.md](proposals/profile-plugins.md) | proposals, each with a status line that says what of it has landed |
+| [docs/build.md](../docs/build.md) | the user's guide to building an output from the IR |
+
 **How to read it.** It began as a proposal of 2026-10-08, when the project was
 called vzip: an adversarial design review of the whole (five independent reviews:
 the data model, the archive format, resource bounds, the two implementations, and
@@ -23,7 +42,7 @@ from the proposal. [IR_NOTES.md](IR_NOTES.md) is the log of how it got there.
 ## 1. Verdict
 
 vzip worked: eleven formats zarrified into Zarr v3 (the
-[registry](../spec/zarrify/profiles/) now has 25 profiles and one dataset layout),
+[registry](../spec/zarrify/profiles/) now has 26 profiles and one dataset layout),
 two implementations agreed on 667 fixtures and the public corpora, and independent
 readers confirmed the pixels. Four rounds of per-format review made every format lossless and
 bounded on the inputs reviewers could think of.
@@ -128,8 +147,9 @@ Before the IR, each profile went from bytes to Zarr in one step. The core splits
 
 1. A **parser** reads the source into an IR: a typed tree of the format's own
    elements, each with its extent in the source.
-2. **Projections** turn an IR into a Zarr hierarchy. A projection never reads
-   the source.
+2. **Projections** turn an IR into a Zarr hierarchy. A projection does no
+   I/O: it names the source ranges it needs (an edge chunk it copies, the
+   chunks a display window samples), and the run reads them for it.
 
 The same TIFF IR can then feed an OME-NGFF image, a raw per-IFD view, a
 GeoZarr layout or a sharded layout. Shared machinery (the mirror, the reference
@@ -183,9 +203,13 @@ The checks run on **virtual offsets** ([rust/refkv-ir/src/check.rs](../rust/refk
 the objects end to end, in id order, each byte of object `o` at `x` being at
 `base(o) + x`.
 
-The framing repairs vzip already does (JPEG tables and restart segments,
+The framing repairs refkv already does (JPEG tables and restart segments,
 J2K headers and empty packets, padded rows) are recipes of `data` elements:
-they belong to the parse, not the projection.
+they belong to the parse, not the projection. (The stored-array design counts
+the JPEG tables' prefix and the padded rows' join among the output's
+decisions, with FITS's `tile_cut`, and would move them to the projection:
+[proposals/ir-array-model.md](proposals/ir-array-model.md). The parsers still
+make them.)
 
 ### 3.3 Invariants
 
@@ -212,7 +236,7 @@ These invariants give, for every format at once:
   to 2^22 + 4 × size, and exact repeats, up to 2^20: a repeat has the source ranges
   of an earlier reference. It does not consult aliases, and a
   reference that overlaps another without equaling it is not a repeat. The
-  projections of ND2, SAFE, GRIB, N5, Zarr v2, OME-Zarr and Neuroglancer precomputed
+  projections of ND2, SAFE, GRIB, N5, Zarr v2, Zarr v3, OME-Zarr and Neuroglancer precomputed
   do not use `Refs`: they write their references to the output directly.
 
 ### 3.4 Projections
@@ -230,7 +254,8 @@ These invariants give, for every format at once:
   ([conventions §6](../spec/conventions.md#6-source-metadata-as-json)).
 - Variants: [dataset layouts](../spec/conventions.md#9-dataset-layouts) and
   [virtual shards](../spec/zarrify.md#21-virtual-shards) exist. Alternate chunkings,
-  and a raw view next to a stitched one, have not been built.
+  and a raw view next to a stitched one, have not been built as projections; two
+  example layout plugins do each ([docs/layout-plugins.md](../docs/layout-plugins.md)).
 
 JSON in the mirror becomes a view of the IR, not the record: it need not be
 lossless, because the record is the IR's extents. The tagged-form arms race
@@ -364,7 +389,8 @@ All four are decided.
    [§11.3](../spec/conventions.md#113-the-ir-mirror)), and the mirror is canonical, so
    two producers write the same one
    ([§8.8](../spec/conventions.md#88-canonical-form)). The columns and runs a parser
-   holds in memory are not.
+   holds in memory are not. (Since then, [spec/stored-array.md](../spec/stored-array.md)
+   specifies a part of the IR that no output stores: the stored-array descriptions.)
 2. Should the mirror projection be on by default, or opt-in? **Always on.** Every
    convention's `refkv_source` is its mirror, and the public `zarrify` has no option
    to leave it out.

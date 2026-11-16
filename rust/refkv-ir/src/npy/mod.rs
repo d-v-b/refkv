@@ -14,7 +14,8 @@
 //! The parser describes the arrays it reaches as the source stores them (spec/stored-array.md
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md>): a `.npy` file's, and each
 //! stored `.npz` member's whose header it read, keyed by its `header` element. A deflated
-//! member's array has none yet: its header lies in the stream, which no element holds.
+//! member's array has none yet: its header lies in what its stream inflates to, which the IR
+//! holds as one derived element, with none for the header.
 
 pub mod header;
 
