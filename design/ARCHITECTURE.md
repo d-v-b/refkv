@@ -282,10 +282,13 @@ ends at "readable".
   | the view's documents | 2^24 bytes | `TOTAL`, mirror.rs |
   | a format's own loops and tables | by format | the `limits` of `rust/refkv-ir/schema/<p>.json` |
 
-  A store IR's rows and elements grow with each object, by 4 and one per 4 of its
-  bytes. `Budget` also has the fields `read` and `reads`, which nothing charges: the
-  planners keep their own counts. Nothing bounds wall time or a run's output entries
-  as such.
+  A store IR's size is the sum of its objects' sizes, and its limits are of that sum
+  and the count of its objects (`Budget::store`, ir.rs), never a sum over the objects:
+  2^22 + size / 4 + 4 × objects rows, the limit of its mirror's table
+  ([conventions §8.9](../spec/conventions.md#89-stores)), and 2^30 + size / 4 +
+  4 × objects elements. `Budget` also has the fields `read` and `reads`, which
+  nothing charges: the planners keep their own counts. Nothing bounds wall time or a
+  run's output entries as such.
 - One **read planner**, sans-IO ([plan.rs](../rust/refkv-ir/src/plan.rs)): a parser
   gives the ranges of each step, never single reads in loops, and the planner
   coalesces them with a gap cost model calibrated from the first requests, detects

@@ -579,14 +579,16 @@ share, and the map. They are not in the facts. So:
   of duplicating source bytes, which the description avoids (see the alternatives).
 - **They count against limits** of their own, in new `Budget` fields, never against the IR's
   room (`records` and `elements`), with entries as `spec/stored-array.md` defines them:
-  - the descriptions, at 2^22 entries once, plus 4 and one per 4 bytes for each object (in a file
-    IR, the source). An array that would pass it falls back as at the map's limit
+  - the descriptions, at 2^22 entries once, plus one per 4 bytes of the source (in a store, of
+    its objects' total size, and 4 for each object). An array that would pass it falls back as
+    at the map's limit
     ([ir-format-descriptions.md](ir-format-descriptions.md#the-descriptions-limit-falls-back-too)),
     and no source is promised to fit: a rank-32 HDF5 dataset whose header shares its messages can
     pass it even so, and its source then keeps no descriptions;
-  - the chunk map, at 2^22 entries once, plus 4 and four per byte for each object. Each row,
-    each of its coordinates, each item of its `ranges` and each parameter value it sets is an
-    entry; a row's `range` is part of the row.
+  - the chunk map, at 2^22 entries once, plus four per byte of the source (in a store, of its
+    objects' total size, and 4 for each object). Each row, each of its coordinates, each item
+    of its `ranges` and each parameter value it sets is an entry; a row's `range` is part of the
+    row.
 
   A unit can cost a single byte of the source: the HDF5 spike's (below) 4 MB file of 2000 × 2000
   one-byte chunks under an implicit index parses today, and refkv's parser bounds a chunk count
