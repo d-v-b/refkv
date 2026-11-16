@@ -5,8 +5,10 @@ takes for every format (a file here, a `.SAFE.zip` included; a store, a `.SAFE` 
 included, through `store.py`): the Rust core (rust/refkv-ir, the `refkv._core` module)
 parses, checking each format's source model schema, plans the reads, projects the
 convention's hierarchy and mirrors the IR under `refkv_source`; this package is the
-host: the I/O (`planner.py`), the archive writer (`output.py` into `Output`), and
-the rebuild from an archive (`cmirror.py`)."""
+host: the I/O (`planner.py`), the archive writer (`output.py` into `Output`), the
+rebuild from an archive (`cmirror.py`), and the reader of the IR's stored-array descriptions
+(`stored.py`; spec/stored-array.md
+<https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md>)."""
 
 from __future__ import annotations
 

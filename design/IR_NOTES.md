@@ -7,10 +7,12 @@ now goes through the Rust core, [rust/refkv-ir](../rust/refkv-ir/).
 
 - The design as built is [ARCHITECTURE.md](ARCHITECTURE.md).
 - The normative text is
-  [spec/conventions.md §8](../spec/conventions.md#8-the-ir-mirror), the IR mirror. This
-  log adds no rules.
+  [spec/conventions.md §8](../spec/conventions.md#8-the-ir-mirror), the IR mirror, and
+  [spec/stored-array.md](../spec/stored-array.md), the stored-array descriptions, which are
+  later than this log. This log adds no rules.
 - A **Now:** note below corrects a claim that still reads as current. Earlier text
-  stays as it was written.
+  stays as it was written, but for the project's renames, which were applied to it, and
+  where a **Now:** note says a sentence was changed.
 
 These notes are a log of the IR's rounds. The round-1 Python prototype they
 start from (`model.py`, `types.py`, `check.py`, `emit.py`, `mirror.py`) and
@@ -100,7 +102,8 @@ invariants on it, and concatenates `bytes[o : o + n]` for each leaf in offset
 order.
 
 **The view** (`tree/`) is one vocabulary for every format: values are JSON
-where JSON holds them (an integer exactly, at any magnitude); otherwise
+where JSON holds them (an integer exactly, at any magnitude; **Now:** this sentence was changed
+on 2026-11-08, when the view's `int` form for an integer past 2^53 was dropped); otherwise
 `{"$vz": kind, ...}` (`float` for NaN and infinities, `bytes` up to 64 bytes, `array` for a large
 value written as a conventions §7 array referenced in place, `alias`, `group`,
 and the one spill form `{"$vz": "element", "id": i}`, "read element i in the
@@ -1295,7 +1298,8 @@ over entries, references and data sources, and each host writes them.
 
 ## 32. The switch-over
 
-- `refkv.zarrify.virtualize` opens a file through the IR's transport (under the
+- `refkv.zarrify.virtualize` (**Now:** `refkv.zarrify.zarrify`; then
+  `refkv.virtualize.virtualize`) opens a file through the IR's transport (under the
   reader policy for http(s): `Policy()`, private hosts and proxies refused; the CLI
   takes `--allow-private-hosts`), sniffs its first bytes, and sends TIFF (but NDPI),
   ND2 and CZI to `refkv.ir.virtualize`; the other profiles keep their code and
@@ -1937,6 +1941,9 @@ Hamamatsu-1 56):
 Not done: the store readers (`refkv.reader`, `js/src/archive.ts`) still read chunk
 by chunk with a 64 KiB gap; adopting the planner there (a batch per view, a
 span cache, a ceiling of its own) is the open step this benchmark argues for.
+**Now:** the readers combine the reads of different values into shared requests, within the
+policy's `max_read_amplification`
+([spec/refkv.md §6.3](../spec/refkv.md#63-resolving-a-reference)). They do not use the planner.
 
 **Code size** (lines): shipped NDPI code removed 2,024 (Python 800:
 `virtualize/ndpi` 404 and the tag translator `virtualize/tiff` 396 only NDPI
