@@ -92,7 +92,7 @@ From 70 files: the 7 of GDAL's sample set and the 63 test files of the HDF4 libr
 3. **Compression methods** **[inspected]**: deflate (4) in MODIS and the library; skipping Huffman
    (3) and SZIP (5) in the library's `sds_compressed.hdf`; RLE (1), NBIT (2) and JPEG (7, GR
    images only) by the library's documentation. Deflate is zlib (`numcodecs.zlib`); SZIP has
-   `imagecodecs.szip`, to check against HDF4's framing of it. RLE (HDF4's own, not PackBits), NBIT
+   imagecodecs' `szip` decoder, to check against HDF4's framing of it. RLE (HDF4's own, not PackBits), NBIT
    and skipping Huffman have no codec. The pyhdf wheel is built without SZIP (`-DNOSZIP`), so it
    cannot be the oracle for SZIP ([§7](#7-verifier)).
 4. **An unlimited dimension's length is not in its SDD** **[inspected]**. The library's `test.hdf`
@@ -101,7 +101,9 @@ From 70 files: the 7 of GDAL's sample set and the 63 test files of the HDF4 libr
    length. The slots of a record never written read as the fill value (−127 there).
 5. **A dataset with no data element is all fill value** **[inspected]**: created and never written
    (the library's `fakeDim*` scales in `ntcheck.hdf`, the examples' `Test SD`). Such datasets are
-   reached through their `Var0.0` Vgroup, not an NDG.
+   reached through their `Var0.0` Vgroup, not an NDG. Without a `_FillValue`, the fill value is
+   netCDF's default for the type, not 0: pyhdf reads −127 for `int8`, −2147483647 for `int32` and
+   9.96921 × 10^36 for `float32` in the library's unwritten datasets.
 6. **Text is one string per value, in one range** **[inspected]**. Every `char8` field in the corpus,
    in attributes (`Attr0.0`, `RIATTR0.0C`) and in tables, holds one text of ASCII, padded with NULs
    to its order, padded with spaces, or filling the field exactly. None holds two texts, and none
@@ -151,10 +153,14 @@ From 70 files: the 7 of GDAL's sample set and the 63 test files of the HDF4 libr
   ([conventions §7](../../spec/conventions.md#7-source-values-as-arrays)); a compressed one as one
   chunk with its codec; a chunked one with its chunk sizes, each chunk a reference to its
   element (with the chunk's codec when compressed). Codecs: deflate `numcodecs.zlib`; SZIP
-  `imagecodecs_szip` with its parameters; RLE, NBIT and skipping Huffman not presented in version
+  imagecodecs' `szip` with its parameters (the codec's Zarr name to settle when SZIP is added); RLE, NBIT and skipping Huffman not presented in version
   0, with the reason (decision D3).
-- **Fill value:** the chunked header's fill value, else the `_FillValue` attribute, else 0. An
-  unwritten dataset and unwritten chunks read as it.
+- **Fill value:** the chunked header's fill value, else the `_FillValue` attribute, else
+  netCDF's default fill for the number type, as the SD library applies it (−127, −32767,
+  −2147483647, 9.96921 × 10^36 for 32-bit floats, 9.969209968386869 × 10^36 for 64-bit, and the
+  unsigned types' defaults, to check against the library's `netcdf.h`). An unwritten dataset,
+  unwritten chunks and records past the data read as it. This departs from
+  [conventions §3](../../spec/conventions.md#3-arrays)'s fill value 0, as HDF5's does.
 - **Dimension names:** each SDS dimension's name (`fakeDim<n>` when the writer gave none, as the
   library names it). A dimension with a scale (`DimVal0.0`) is a coordinate array of its name in the
   dataset's group, as netCDF-3 presents a coordinate variable, so xarray reads it as one.
@@ -197,8 +203,10 @@ metadata, so the file can be rebuilt ([conventions §8](../../spec/conventions.m
 Each SDS (written or not), each chunk table's dataset, each GR image and each presented Vdata is a
 stored array ([spec/stored-array.md](../../spec/stored-array.md)): keyed by its NDG, RI or VH
 element; declarations the NT and SDD (and the special header); a grid from the chunk sizes or the
-whole array; the chain from the special elements (`zlib`, `szip`, or `source` with HDF4's
-compression id for the others). The paragraph in [stored-array §7](../../spec/stored-array.md#7-the-formats) comes with the describe-only PR
+whole array; the chain from the special elements: `zlib`, a new entry for HDF4's SZIP framing
+in [stored-array §3.2](../../spec/stored-array.md#32-the-list) (the list has `h5_szip`, HDF5's
+framing with a 4-byte length; HDF4's is to be checked against it), or `source` with HDF4's
+compression id for the others. The paragraph in [stored-array §7](../../spec/stored-array.md#7-the-formats) comes with the describe-only PR
 ([§4](#4-order-of-work)), checked against pyhdf.
 
 ## 3. The profile (Part 2)
@@ -276,8 +284,8 @@ Inspected so far:
   Vdatas, Vgroups, compressed, empty and long-named datasets, external elements, DFSD-era files.
 
 The survey scripts (`survey.py` with pyhdf, `layout.py` over the descriptors, `check.py` comparing
-the two, `strings.py` on text) are to be committed under `design/experiments/hdf4/` with the
-first PR. To add, by range reads where the archive allows (most NASA DAACs need an Earthdata
+the two, `strings.py` on text) are in
+[design/experiments/hdf4/](../experiments/hdf4/README.md). To add, by range reads where the archive allows (most NASA DAACs need an Earthdata
 login): AIRS Level 2 and 3 (plain datasets; compressed linked blocks), CALIPSO Level 1B and 2
 (datasets outside Vgroups; the version text), MOD11_L2 (floats), a MISR or CERES product (SZIP,
 `char8` SDS), and any product with little-endian number types.
