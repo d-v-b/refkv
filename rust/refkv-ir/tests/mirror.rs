@@ -356,7 +356,7 @@ fn an_ir_whose_derived_element_has_no_descendants_is_invalid() {
 // | limits: kinds out of range | `rejects_a_bad_kind`, `rejects_a_kind_past_8_bits` |
 // | limits: names out of range | `rejects_a_name_past_the_names`, `rejects_a_name_where_the_table_has_none` |
 // | limits: types out of range | `rejects_a_type_past_the_types`, `rejects_a_type_column_past_the_types` |
-// | limits: forms out of range | `rejects_a_form_row_of_no_form`, `rejects_a_form_column_past_the_forms` |
+// | limits: forms out of range | `rejects_a_form_row_of_no_form`, `rejects_a_form_column_that_is_no_form` |
 // | limits: the expanded rows break the rules of the root or of the names | `flags_a_table_whose_root_is_named`, and each rule in tests/core.rs |
 //
 // Beside them: runs do not nest (§8.1
@@ -589,11 +589,14 @@ fn rejects_an_alias_whose_target_is_no_row() {
     assert_eq!(err(&t), "bad alias [4, -2]");
 }
 
+/// A target column holds a row or -1, for none: 4 is past the rows, and -2 is neither.
 #[test]
 fn rejects_an_alias_column_whose_target_is_no_row() {
-    let mut t = three();
-    t.columns.push([0, 0, 5, 0, 3, 1]); // targets 3, 4, 5 for the three members
-    assert_eq!(err(&t), "a target column out of range");
+    for (x, y) in [(3, 1), (-1, -1)] {
+        let mut t = three();
+        t.columns.push([0, 0, 5, 0, x, y]); // targets 3, 4, 5, or -1, -2, -3, for the three members
+        assert_eq!(err(&t), "a target column out of range");
+    }
 }
 
 #[test]
@@ -674,11 +677,15 @@ fn rejects_a_type_column_past_the_types() {
     assert_eq!(err(&t), "a type column out of range");
 }
 
+/// A form column holds a form or -1, for none: 1 is past the forms, and -2 is neither.
 #[test]
-fn rejects_a_form_column_past_the_forms() {
-    let mut t = three();
-    t.columns.push([0, 0, 4, 0, 0, 1]); // forms 0, 1, 2 for the three members
-    assert_eq!(err(&t), "a form column out of range");
+fn rejects_a_form_column_that_is_no_form() {
+    for (x, y) in [(0, 1), (-1, -1)] {
+        let mut t = three();
+        t.form_text = vec!["{}".into()];
+        t.columns.push([0, 0, 4, 0, x, y]); // forms 0, 1, 2, or -1, -2, -3, for the three members
+        assert_eq!(err(&t), "a form column out of range");
+    }
 }
 
 #[test]
@@ -850,6 +857,17 @@ fn valid_tables_load() {
     t.forms = vec![[1, 0]];
     let ir = load(&t, &mut no_read).unwrap();
     assert_eq!((1..4).map(|i| ir.form(i)).collect::<Vec<_>>(), [Some("{}"); 3]);
+    // a form column and a target column of -1 for a member: none
+    let mut t = three();
+    t.form_text = vec!["{}".into()];
+    t.forms = vec![[1, 0]];
+    t.targets = vec![[1, 0]];
+    t.columns.push([0, 0, 4, 1, 0, 0]); // forms 0, -1, -1, stored as differences
+    t.columns.push([0, 0, 5, 1, 3, 0]); // targets 0, -1, -1
+    t.column_values = vec![0, -1, 0, 0, -1, 0];
+    let ir = load(&t, &mut no_read).unwrap();
+    assert_eq!((1..4).map(|i| ir.form(i)).collect::<Vec<_>>(), [Some("{}"), None, None]);
+    assert_eq!((1..4).map(|i| ir.target(i)).collect::<Vec<_>>(), [0, u32::MAX, u32::MAX]);
     // a name the description has twice is one name, whichever place a row names it by
     let mut t = three();
     t.names = vec!["".into(), "".into(), "gaps/".into(), "gaps/".into()];

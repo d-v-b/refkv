@@ -1316,12 +1316,13 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
                     F_TYPE => ir.ty[dst] = listed(&type_at, x).ok_or("a type column out of range")?,
                     F_START => ir.start[dst] = x as u64,
                     F_LEN => ir.len[dst] = x as u64,
-                    F_FORM if x >= t.form_text.len() as i64 => return Err("a form column out of range".into()),
+                    // a form, or -1 for none; a target likewise, a row or -1
+                    F_FORM if !(-1..t.form_text.len() as i64).contains(&x) => return Err("a form column out of range".into()),
                     F_FORM => match forms.iter_mut().find(|e| e.0 == dst) {
                         Some(e) => e.1 = x,
                         None => forms.push((dst, x)),
                     },
-                    F_TARGET if x >= n as i64 => return Err("a target column out of range".into()),
+                    F_TARGET if !(-1..n as i64).contains(&x) => return Err("a target column out of range".into()),
                     F_TARGET => match targets.iter_mut().find(|e| e.0 == dst) {
                         Some(e) => e.1 = x,
                         None => targets.push((dst, x)),
