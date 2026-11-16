@@ -1,8 +1,10 @@
 # IR prototype: notes
 
 **Status (2026-11-03).** This is a dated log, kept as history. Each section says what
-was true when it was written, in the names of its time (`vzip_source`, `vzip_ir`,
-`virtualize`), so a section's numbers and limits may since have changed. Every profile
+was true when it was written, so a section's numbers and limits may since have changed.
+Some of its names are of its time (`vzip_source`, `vzip_ir`, the function `virtualize`);
+the package and path renames (`vzip` to `refkv`, the `virtualize` package to `zarrify`)
+were applied to it. Every profile
 now goes through the Rust core, [rust/refkv-ir](../rust/refkv-ir/).
 
 - The design as built is [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -11,8 +13,8 @@ now goes through the Rust core, [rust/refkv-ir](../rust/refkv-ir/).
   [spec/stored-array.md](../spec/stored-array.md), the stored-array descriptions, which are
   later than this log. This log adds no rules.
 - A **Now:** note below corrects a claim that still reads as current. Earlier text
-  stays as it was written, but for the project's renames, which were applied to it, and
-  where a **Now:** note says a sentence was changed.
+  stays as it was written, but for those renames, and where a **Now:** note says a
+  sentence was changed.
 
 These notes are a log of the IR's rounds. The round-1 Python prototype they
 start from (`model.py`, `types.py`, `check.py`, `emit.py`, `mirror.py`) and
@@ -1299,7 +1301,7 @@ over entries, references and data sources, and each host writes them.
 ## 32. The switch-over
 
 - `refkv.zarrify.virtualize` (**Now:** `refkv.zarrify.zarrify`; then
-  `refkv.virtualize.virtualize`) opens a file through the IR's transport (under the
+  `vzip.virtualize.virtualize`) opens a file through the IR's transport (under the
   reader policy for http(s): `Policy()`, private hosts and proxies refused; the CLI
   takes `--allow-private-hosts`), sniffs its first bytes, and sends TIFF (but NDPI),
   ND2 and CZI to `refkv.ir.virtualize`; the other profiles keep their code and

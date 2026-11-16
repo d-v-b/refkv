@@ -206,7 +206,8 @@ the objects end to end, in id order, each byte of object `o` at `x` being at
 The framing repairs refkv already does (JPEG tables and restart segments,
 J2K headers and empty packets, padded rows) are recipes of `data` elements:
 they belong to the parse, not the projection. (The stored-array design counts
-these among the output's decisions and would move them to the projection:
+the JPEG tables' prefix and the padded rows' join among the output's
+decisions, with FITS's `tile_cut`, and would move them to the projection:
 [proposals/ir-array-model.md](proposals/ir-array-model.md). The parsers still
 make them.)
 
