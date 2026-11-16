@@ -12,7 +12,8 @@ mirror does not record it.
 
 Version: 0 (draft) · Schema: [stored-array.json](stored-array.json)
 
-Added 2026-11-08. The design is design/proposals/ir-array-model.md (d-v-b/refkv#289).
+Added 2026-11-08. The design is design/proposals/ir-array-model.md (d-v-b/refkv#289); where the
+two differ, this document governs.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be interpreted as described in
 RFC 2119.
@@ -33,6 +34,10 @@ whose parser describes its arrays has a paragraph in [§7](#7-the-formats), whic
 structures that are its stored arrays and what each of their declarations is, and says what of
 the format is described and what is not yet; the parser of a format with no paragraph there
 describes nothing.
+
+These rules are of the descriptions. An element's form
+([conventions §8.5](conventions.md#85-forms-and-recipes)) is older, and still gives a format's own
+geometry of a unit, a data type's name among it.
 
 ## 2. The description
 
@@ -147,7 +152,8 @@ The descriptions cross the bindings as one JSON document,
 a source that kept no descriptions at all at the descriptions' limit ([§6](#6-in-the-ir)), in a file
 IR `true` or `false`, in a store IR a list of the keys of the objects whose arrays kept none, empty
 where none is marked. A description has every member of [§2](#2-the-description),
-`null` where it is absent, and `path`, its element's path in the IR. A place is
+`null` where it is absent, and `path`, its element's path in the IR (null for an element the IR
+does not hold, which no checked IR has). A place is
 `{"element": e, "member": j, "range": [offset, length]}` (`member` and `range` may be null) or
 `{"object": key, "offset": o, "length": n}` (`object` null for the parsed source). A grid is
 `{"axes": [...], "edge": "full" | "short"}`, each axis `{"each": n}` or `{"list": [...]}`, each
@@ -349,7 +355,7 @@ list names its objects, once each, none of which holds a description's key or a 
   chains' parameters name, is an element of the IR; its own element is in no run's subtree (an
   unfold would leave the key behind); a place's `member` is set exactly when its element is in a
   run's subtree, and is below the run's count; an object key is any key or none in a file IR (an
-  external file's key is checked when the file is grafted), and in a store IR is never none and
+  external file's key is checked in the store's IR, once the file is grafted), and in a store IR is never none and
   names one of the store's objects; a place lies within what it names
   ([§2.2](#22-places-and-parameters)), its end below 2^64.
 - **No extent.** A description without a shape has no grid, no `axes` and no `pad_from`.
@@ -405,7 +411,8 @@ list names its objects, once each, none of which holds a description's key or a 
 **Built at finish.** A parser keeps what it learns about its arrays to itself while it reads.
 When its IR is finished (after its last fold and rollback, and after `check::finish`), it builds a
 description for each array it reaches and the chunk map's rows from the finished IR, and adds
-them to the IR, which, in order: fits the map to its limit (below); drops from the chain table the
+them to the IR, which, in order: sorts the descriptions by `(element, index)`, so that which
+arrays fall back follows from the source alone; fits the map to its limit (below); drops from the chain table the
 chains no description names, keeping the others' order, and renumbers the descriptions' positions
 in it; fits the descriptions to their limit (below), which falls back the same way and drops the
 chains it leaves unnamed; sorts the rows; and checks them ([§5](#5-checks)). They are
@@ -422,7 +429,9 @@ the descriptions.
   - it carries into the store's chain table only the chains the file's remaining descriptions
     name, each with its places' element ids renumbered and then found in the table by its value:
     a chain the table has keeps its position, and a new one is appended, in the order the file's
-    descriptions first name them. The table's existing chains and positions are untouched;
+    descriptions first name them. The table's existing chains and positions are untouched. Two
+    chains of one array that the renumbering makes equal become one, which the array's rows and
+    unit parameters then name; the two give the same unit parameters, or the graft fails;
   - it fits the file's descriptions, last, to what remains of the store's descriptions' limit, as
     describe does (below): where even their fallen-back descriptions do not fit, the file joins the
     store with none, its key added to the store's `undescribed` list, as is the key of a file
@@ -432,13 +441,12 @@ the descriptions.
   `element`, every place's element and the `element` column take their new ids; `array` takes the
   description's new position, after the store's; parameter columns of one name join; and the
   parsed source's null key, in every place and in `ranges`, becomes the file's key in the store.
-- **An unfold** of a run (a store's own `check::finish` may unfold one, as may the mirror's
-  canonical form) gives its members after the first new ids: each row's and place's element in
+- **An unfold** of a run (a store's own `check::finish` may unfold one) gives its members after the first new ids: each row's and place's element in
   member j's subtree moves to member j's copy, and `member` is cleared on every element that was
   in the run.
 
 The mirror's canonical form ([conventions §8.8](conventions.md#88-canonical-form)) leaves the
-descriptions and the chunk map out.
+descriptions and the chunk map out before it unfolds the runs, so its unfolds renumber none.
 
 **Limits.** The IR's budget counts the descriptions' entries and the chunk map's in fields of its
 own, each against a limit of its own, never against the IR's room (its records and elements). The
@@ -500,6 +508,9 @@ without a copy, and refkv itself depends on none of them. The WebAssembly module
 neither, and compiles no Arrow code.
 
 ## 7. The formats
+
+The parsers of FLAC, MP3, N5, OME-Zarr, Precomputed, Zarr v2 and Zarr v3 describe no array yet,
+and have no paragraph here.
 
 **CZI** ([spec/zarrify/czi.md](zarrify/czi.md)). Every subblock the parser reads is a stored
 array, whether or not the profile places it: the `ZISRAWSUBBLOCK` segment an entry of the subblock
@@ -606,7 +617,8 @@ no fill value: `undefined`. An array whose data is not presented (its `descr` ha
 its data does not fit) has no grid, nor, by the general fallback ([§1](#1-stored-arrays)), has one
 whose element's bits would pass 2^64 (an array of no elements may be of such a type), whose
 `item_bits` is then absent too. A deflated member's array is not
-described yet: its header and data lie in its stream, which no element holds.
+described yet: its header and data lie in what its stream inflates to, which the IR holds as one
+derived element, with none for the header or for the data.
 
 **MRC** ([spec/zarrify/mrc.md](zarrify/mrc.md)). An MRC file's data is one stored array, keyed by
 the file's `header` element, with no index. The facts give the key: `declared_by` is that element's
@@ -638,8 +650,8 @@ the same file, and has no description of its own.
 - **A file gzipped whole** ([zarrify/mrc.md §8.4](zarrify/mrc.md#84-gzipped-files)) has no
   `header` element: its bytes are the stream, which holds the header. Its array is keyed by its
   `data` element, the stream, as `declared_by` says, and that element is its one unit. It has no
-  declarations: the header is the first 1024 bytes the stream inflates to, which no place names,
-  the IR having no derived space for them yet. Its `shape`, `item_bits` and `pad_from` are those
+  declarations: the header is the first 1024 bytes the stream inflates to, which no place names:
+  the parser gives the inflated bytes no derived space yet. Its `shape`, `item_bits` and `pad_from` are those
   of the header the parser inflated. Its chain ends with `skip`, then `gzip`: the values are what
   the stream inflates to, after the header and the extended header. `skip`'s `length`, 1024 plus
   `nsymbt`, is a value, since no place holds `nsymbt` either.
@@ -915,8 +927,8 @@ grid, its rows are the plane's own strips, `imagej/planes/<p>/strips/<j>`.
   than 1 comes before ImageLength. `axes` is absent: TIFF names its dimensions by tag, and lists
   them in no order.
 - **`item_bits`** is BitsPerSample, where every sample has the same; absent otherwise. Where it
-  is not a multiple of 8, `pad_from` is the columns' axis (1, or 2 with the samples first): a
-  unit's rows each end on a whole byte.
+  is not a multiple of 8 and the image has a grid, `pad_from` is the columns' axis (1, or 2 with
+  the samples first): a unit's rows each end on a whole byte. An image with no grid has none.
 - **The grid.** An IFD with TileWidth (322) and TileLength (323) is cut into tiles, `Each` of
   TileLength and of TileWidth, under `full`, as libtiff and tifffile read it; its tables are
   TileOffsets (324) and TileByteCounts (325), or, where it has not both, StripOffsets (273) and
