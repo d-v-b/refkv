@@ -253,7 +253,7 @@ def groups(path: Path) -> None:
     twin[:] = ramp([2], "i2")
     twin.endaccess()
     # two datasets of one name in one Vgroup, the second also in another, where it is presented
-    for k in range(2):
+    for k in range(3):
         s = sd.create("pair", SDC.INT16, [2 + k])
         s[:] = ramp([2 + k], "i2")
         refs[f"pair{k}"] = s.ref()
@@ -269,7 +269,7 @@ def groups(path: Path) -> None:
     for key, name, cls in (("outer", "outer", "Grid"), ("inner", "inner", ""), ("second", "second", "Grid"),
                            ("loop_a", "loop_a", "Loop"), ("loop_b", "loop_b", "Loop"), ("bad", "bad/name", "Grid"),
                            ("under", "under", ""), ("outer2", "outer", "Grid"), ("pairs", "pairs", ""),
-                           ("pair_again", "pair_again", "")):
+                           ("pair_child", "pair_child", ""), ("pair_again", "pair_again", "")):
         vgs[key] = v.create(name)
         vgs[key]._class = cls
     vgs["outer"].insert(vgs["inner"])
@@ -283,9 +283,14 @@ def groups(path: Path) -> None:
     vgs["bad"].insert(vgs["under"])
     vgs["under"].add(HC.DFTAG_NDG, refs["under_data"])
     vgs["outer2"].add(HC.DFTAG_NDG, refs["dup_member"])
+    # `pairs` holds pair0, pair1, a subgroup that holds pair2 and pair1, then pair1 again: pair1 is
+    # recorded once in each of the two groups, and presented in `pair_again`
     vgs["pairs"].add(HC.DFTAG_NDG, refs["pair0"])
     vgs["pairs"].add(HC.DFTAG_NDG, refs["pair1"])
-    vgs["pairs"].add(HC.DFTAG_NDG, refs["pair1"])  # reached again in its group: recorded once there
+    vgs["pairs"].insert(vgs["pair_child"])
+    vgs["pair_child"].add(HC.DFTAG_NDG, refs["pair2"])
+    vgs["pair_child"].add(HC.DFTAG_NDG, refs["pair1"])
+    vgs["pairs"].add(HC.DFTAG_NDG, refs["pair1"])
     vgs["pair_again"].add(HC.DFTAG_NDG, refs["pair1"])
     vgs["outer"].add(HC.DFTAG_NDG, refs["shared"])
     vgs["second"].add(HC.DFTAG_NDG, refs["shared"])

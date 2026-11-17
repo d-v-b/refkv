@@ -114,6 +114,7 @@ def test_groups_follow_the_writers_vgroups():
         "second": "Group", "loop_a": "Group", "loop_a/loop_b": "Group", "under": "Group", "under/under_data": "Array",
         # of two datasets named `pair` in `pairs`, the second is presented where the walk reaches it next
         "pairs": "Group", "pairs/pair": "Array", "pair_again": "Group", "pair_again/pair": "Array",
+        "pairs/pair_child": "Group", "pairs/pair_child/pair": "Array",
     }
     groups = dict(nodes(root))
     # a Vgroup and a dataset reached again are links of the group that holds them, in member order
@@ -133,5 +134,7 @@ def test_groups_follow_the_writers_vgroups():
     # a table two Vgroups hold is recorded once, where the walk first reaches it
     assert reasons["outer"] == [("table", "table")]
     assert reasons["second"] == [("__hidden", "name"), ("a/b", "name")]
+    # recorded once in each group that holds a `pair` already, however often the walk reaches it there
     assert reasons["pairs"] == [("pair", "duplicate")]
-    assert info["unpresented"] == {"char8": 1, "duplicate": 3, "name": 3, "reserved": 1, "table": 3}
+    assert reasons["pairs/pair_child"] == [("pair", "duplicate")]
+    assert info["unpresented"] == {"char8": 1, "duplicate": 4, "name": 3, "reserved": 1, "table": 3}
