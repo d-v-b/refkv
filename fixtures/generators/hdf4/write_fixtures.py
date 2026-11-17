@@ -376,6 +376,7 @@ def little_fields(path: Path, name: bytes, fields: list[int]) -> None:
     for (t, r), (o, _) in els.items():
         if t != 1962:
             continue
+        interlace = struct.unpack_from(">H", b, o)[0]
         nvert, ivsize, n = struct.unpack_from(">IHH", b, o + 2)
         types = struct.unpack_from(f">{n}H", b, o + 10)
         sizes = struct.unpack_from(f">{n}H", b, o + 10 + 2 * n)
@@ -389,7 +390,8 @@ def little_fields(path: Path, name: bytes, fields: list[int]) -> None:
         for k in fields:
             struct.pack_into(">H", b, o + 10 + 2 * k, types[k] | 0x4000)
             for rec in range(nvert):
-                at = data + rec * ivsize + offs[k]
+                # interlaced, each record its fields; not, each field its values, in field order
+                at = data + rec * ivsize + offs[k] if interlace == 0 else data + sum(sizes[:k]) * nvert + rec * sizes[k]
                 b[at:at + sizes[k]] = b[at:at + sizes[k]][::-1]
     path.write_bytes(bytes(b))
 
@@ -427,6 +429,16 @@ def tables(path: Path) -> None:
     bad._interlace = HC.NO_INTERLACE
     bad.write([[1, 2]])
     bad.detach()
+    # fields not interlaced of two byte orders, each its own array; and more than 4096 leaves
+    split = vs.create("split", (("a", HC.INT16, 1), ("b", HC.INT32, 1)))
+    split._class = "Columns"
+    split._interlace = HC.NO_INTERLACE
+    split.write([[1, 2], [-3, 400000]])
+    split.detach()
+    wide = vs.create("wide", (("v", HC.UINT8, 5000),))
+    wide._class = "Series"
+    wide.write([[list(range(256)) * 19 + list(range(136))]])
+    wide.detach()
     empty = vs.create("empty", (("v", HC.INT16, 1),))
     empty._class = "Series"
     for name in ("little", "mixed"):
@@ -445,6 +457,7 @@ def tables(path: Path) -> None:
     hdf.close()
     little_fields(path, b"little", [0, 1])
     little_fields(path, b"mixed", [0])
+    little_fields(path, b"split", [0])
 
 
 def small(path: Path) -> None:

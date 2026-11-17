@@ -189,4 +189,7 @@ def test_tables_are_arrays_of_their_records():
     assert arrays["empty"].shape == (0,)
     little = [{"name": "bytes", "configuration": {"endian": "little"}}]
     assert [c.to_dict() for c in v3(arrays["little"]).codecs] == little
-    assert info["unpresented"] == {"byte_order": 1, "fields": 1}
+    # not interlaced, two byte orders: each field's array its own
+    assert [c.to_dict() for c in v3(arrays["split/a"]).codecs] == little
+    assert ndarray(arrays["split/b"][...]).tolist() == [2, 400000]
+    assert info["unpresented"] == {"byte_order": 1, "fields": 2}

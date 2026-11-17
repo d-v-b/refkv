@@ -44,7 +44,7 @@ UNPRESENTED = {
     "hdf4_groups.hdf": {"a/b": "name", "__hidden": "name", "refkv_source": "reserved", "twin": "duplicate",
                         "pair": "duplicate", "x/y": "name"},
     "hdf4_layouts.hdf": {"text_cut": "chunks"},
-    "hdf4_tables.hdf": {"mixed": "byte_order", "bad_columns": "fields"},
+    "hdf4_tables.hdf": {"mixed": "byte_order", "bad_columns": "fields", "wide": "fields"},
 }
 
 

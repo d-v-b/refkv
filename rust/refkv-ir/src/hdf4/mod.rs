@@ -846,10 +846,16 @@ enum TableForm {
     Not(&'static str),
 }
 
-/// A Vdata field's Zarr data type, fill value, leaf count and whether it has a byte order, or why
-/// it has none: `char8` of order `n` is `null_terminated_bytes` of `n`, a number of order 1 its type,
-/// of order `n > 1` a `struct` of the fields `0` … `n − 1`.
-fn field_type(ty: u16, isize: u16, order: u16) -> Result<(J, J, u64, bool), &'static str> {
+/// The leaves of a Vdata field of type `ty` and order `order` in a record's `struct`: one for text,
+/// one a value for numbers.
+fn leaves_of(ty: u16, order: u16) -> u64 {
+    if ty & 0xFF == 4 { 1 } else { order as u64 }
+}
+
+/// A Vdata field's Zarr data type, fill value and whether it has a byte order, or why it has none:
+/// `char8` of order `n` is `null_terminated_bytes` of `n`, a number of order 1 its type, of order
+/// `n > 1` a `struct` of the fields `0` … `n − 1`.
+fn field_type(ty: u16, isize: u16, order: u16) -> Result<(J, J, bool), &'static str> {
     if ty & !0x40FF != 0 {
         return Err("datatype");
     }
@@ -862,7 +868,7 @@ fn field_type(ty: u16, isize: u16, order: u16) -> Result<(J, J, u64, bool), &'st
         if isize != order {
             return Err("fields");
         }
-        return Ok((json!({"name": "null_terminated_bytes", "configuration": {"length_bytes": order}}), json!(""), 1, false));
+        return Ok((json!({"name": "null_terminated_bytes", "configuration": {"length_bytes": order}}), json!(""), false));
     }
     let Some((one, size, _)) = numeric(code) else { return Err("datatype") };
     if isize != size * order {
@@ -870,11 +876,11 @@ fn field_type(ty: u16, isize: u16, order: u16) -> Result<(J, J, u64, bool), &'st
     }
     let zero = if code == 5 || code == 6 { json!(0.0) } else { json!(0) };
     if order == 1 {
-        return Ok((json!(one), zero, 1, size > 1));
+        return Ok((json!(one), zero, size > 1));
     }
     let fields: Vec<J> = (0..order).map(|k| json!({"name": k.to_string(), "data_type": one})).collect();
     let fill: Map<String, J> = (0..order).map(|k| (k.to_string(), zero.clone())).collect();
-    Ok((json!({"name": "struct", "configuration": {"fields": fields}}), J::Object(fill), order, size > 1))
+    Ok((json!({"name": "struct", "configuration": {"fields": fields}}), J::Object(fill), size > 1))
 }
 
 /// The `bytes` codec of a struct or value whose elements are `ordered` (of more than one byte, a
@@ -1215,18 +1221,20 @@ impl Hdf4 {
         own.insert("fields".into(), J::Array(described));
         // each field's attributes, by the field's name
         let mut by_field: Map<String, J> = Map::new();
+        let mut seen: HashSet<(String, String)> = HashSet::new();
         for &(k, t, a) in &vh.attrs {
             let Some(field) = usize::try_from(k).ok().and_then(|k| vh.fields.get(k)) else { continue };
             if t != VH || !vhs.get(&a).is_some_and(|h| h.class == ATTRIBUTE) {
                 continue;
             }
             for at in Self::attributes(p, vhs, &[a])? {
+                // the first of each name, presented or not, claims it
+                if !seen.insert((utf8_or_latin1(&field.0), utf8_or_latin1(&at.name))) {
+                    continue;
+                }
                 if let Ok(v) = at.value {
                     let e = by_field.entry(utf8_or_latin1(&field.0)).or_insert_with(|| json!({}));
-                    let key = utf8_or_latin1(&at.name);
-                    if e.get(&key).is_none() {
-                        e[key] = v;
-                    }
+                    e[utf8_or_latin1(&at.name)] = v;
                 }
             }
         }
@@ -1244,7 +1252,7 @@ impl Hdf4 {
         let (mut names, mut leaves) = (HashSet::new(), 0u64);
         for (name, ty, isize, _, order) in &vh.fields {
             // the leaves bounded before a field's type is built: an order is up to 65535
-            leaves += if ty & 0xFF == 4 { 1 } else { *order as u64 };
+            leaves += leaves_of(*ty, *order);
             if leaves > p.limit("max_fields") {
                 return Ok(TableForm::Not("fields"));
             }
@@ -1252,7 +1260,7 @@ impl Hdf4 {
             if vh.interlace == 1 && node_name(name).is_none() {
                 return Ok(TableForm::Not("fields"));
             }
-            let (dt, fill, _, ordered) = match field_type(*ty, *isize, *order) {
+            let (dt, fill, ordered) = match field_type(*ty, *isize, *order) {
                 Ok(t) => t,
                 Err(why) => return Ok(TableForm::Not(why)),
             };
