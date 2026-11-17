@@ -943,7 +943,7 @@ impl Hdf4 {
         };
         let internal_members: HashSet<u16> = vgs.values().filter(|v| internal_vg(&v.class)).flat_map(|v| v.members.iter().filter(|m| m.0 == VH).map(|m| m.1)).collect();
 
-        let mut b = Builder { nodes: Vec::new(), paths: HashSet::new(), reached: HashSet::new(), tables: HashSet::new(), paths_vg: HashMap::new(), paths_ds: HashMap::new(), unpresented: BTreeMap::new(), groups: 0, arrays: 0, chunks: 0 };
+        let mut b = Builder { nodes: Vec::new(), paths: HashSet::new(), reached: HashSet::new(), tables: HashSet::new(), retry: HashSet::new(), paths_vg: HashMap::new(), paths_ds: HashMap::new(), unpresented: BTreeMap::new(), groups: 0, arrays: 0, chunks: 0 };
         // the root
         let mut root_own = Map::new();
         if let Some(i) = p.dds.iter().position(|d| d.tag == VERSION) {
@@ -1044,10 +1044,11 @@ impl Hdf4 {
             };
             top.2 += 1;
             if let Some(k) = dataset_of(t, r) {
-                // presented once, at its first visit; recorded once, where it is first not presented
+                // presented once, at its first visit where it can be; recorded once, where it is first
+                // not presented, but for a name another member of a group holds
                 match b.paths_ds.get(&k).cloned() {
                     Some(path) => b.link(node, &vars[k].name, t, r, &path),
-                    None if b.reached.contains(&k) => {}
+                    None if b.reached.contains(&k) && !b.retry.contains(&k) => {}
                     None => b.dataset(node, k, &vars[k], &decided[k], &var_attrs[k]),
                 }
                 continue;
@@ -1279,6 +1280,10 @@ impl Hdf4 {
                         mixed = mixed || method != Some(Some(m));
                         continue;
                     }
+                    // a stream as long as the chunk (stored) or of a byte at least (deflated)
+                    if data.len < if m == COMP_NONE { chunk_bytes } else { 1 } {
+                        return bad(format!("the chunk at {at:?} of {what} holds {} bytes of its stream", data.len));
+                    }
                     if m == COMP_NONE {
                         (data.prefix(chunk_bytes), None)
                     } else {
@@ -1358,6 +1363,8 @@ struct Builder {
     /// the datasets and tables the walk reached, presented or recorded
     reached: HashSet<usize>,
     tables: HashSet<u16>,
+    /// the datasets reached and not presented for their name in one group alone
+    retry: HashSet<usize>,
     /// the canonical path of each Vgroup and dataset presented
     paths_vg: HashMap<u16, String>,
     paths_ds: HashMap<usize, String>,
@@ -1438,7 +1445,15 @@ impl Builder {
             }
             return;
         };
-        let Some(name) = self.name_in(parent, &var.name, VG, var.vg) else { return };
+        let Some(name) = self.name_in(parent, &var.name, VG, var.vg) else {
+            // a name another member of this group holds: the dataset is tried again where the walk
+            // reaches it next
+            if self.unpresented.get(&parent).and_then(|l| l.last()).is_some_and(|u| u["reason"] == "duplicate" || u["reason"] == "reserved") {
+                self.retry.insert(k);
+            }
+            return;
+        };
+        self.retry.remove(&k);
         let path = self.path_of(&[parent], &name);
         let mut own = own.clone();
         let float = array["data_type"].as_str().is_some_and(|t| t.starts_with("float"));

@@ -37,7 +37,7 @@ OWN = "refkv_zarrified"
 # with the reason its generator plants
 UNPRESENTED = {
     "hdf4_groups.hdf": {"a/b": "name", "__hidden": "name", "refkv_source": "reserved", "twin": "duplicate",
-                        "text": "char8"},
+                        "text": "char8", "pair": "duplicate"},
 }
 
 

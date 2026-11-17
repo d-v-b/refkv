@@ -112,6 +112,8 @@ def test_groups_follow_the_writers_vgroups():
         "": "Group", "alone": "Array", "twin": "Array", "orphan": "Array", "dup_member": "Array",
         "outer": "Group", "outer/inner": "Group", "outer/inner/inner_data": "Array", "outer/shared": "Array",
         "second": "Group", "loop_a": "Group", "loop_a/loop_b": "Group", "under": "Group", "under/under_data": "Array",
+        # of two datasets named `pair` in `pairs`, the second is presented where the walk reaches it next
+        "pairs": "Group", "pairs/pair": "Array", "pair_again": "Group", "pair_again/pair": "Array",
     }
     groups = dict(nodes(root))
     # a Vgroup and a dataset reached again are links of the group that holds them, in member order
@@ -126,7 +128,10 @@ def test_groups_follow_the_writers_vgroups():
     assert own(groups["outer"])["class"] == "Grid"
     # what is not presented, by group: names, the tables, the dataset of text
     reasons = {p: sorted((u.get("name"), u["reason"]) for u in own(n).get("unpresented", [])) for p, n in nodes(root)}
-    assert reasons[""] == [("bad/name", "name"), ("lone", "table"), ("outer", "duplicate"),
+    assert reasons[""] == [("bad/name", "name"), ("hidden_table", "table"), ("lone", "table"), ("outer", "duplicate"),
                            ("refkv_source", "reserved"), ("text", "char8"), ("twin", "duplicate")]
-    assert reasons["second"] == [("__hidden", "name"), ("a/b", "name"), ("table", "table")]
-    assert info["unpresented"] == {"char8": 1, "duplicate": 2, "name": 3, "reserved": 1, "table": 2}
+    # a table two Vgroups hold is recorded once, where the walk first reaches it
+    assert reasons["outer"] == [("table", "table")]
+    assert reasons["second"] == [("__hidden", "name"), ("a/b", "name")]
+    assert reasons["pairs"] == [("pair", "duplicate")]
+    assert info["unpresented"] == {"char8": 1, "duplicate": 3, "name": 3, "reserved": 1, "table": 3}

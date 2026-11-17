@@ -252,6 +252,12 @@ def groups(path: Path) -> None:
     twin = sd.create("twin", SDC.INT16, [2])
     twin[:] = ramp([2], "i2")
     twin.endaccess()
+    # two datasets of one name in one Vgroup, the second also in another, where it is presented
+    for k in range(2):
+        s = sd.create("pair", SDC.INT16, [2 + k])
+        s[:] = ramp([2 + k], "i2")
+        refs[f"pair{k}"] = s.ref()
+        s.endaccess()
     text = sd.create("text", SDC.CHAR8, [2, 4])
     text[:] = np.frombuffer(b"abcdefgh", "S1").reshape(2, 4)
     text.endaccess()
@@ -262,7 +268,8 @@ def groups(path: Path) -> None:
     vgs = {}
     for key, name, cls in (("outer", "outer", "Grid"), ("inner", "inner", ""), ("second", "second", "Grid"),
                            ("loop_a", "loop_a", "Loop"), ("loop_b", "loop_b", "Loop"), ("bad", "bad/name", "Grid"),
-                           ("under", "under", ""), ("outer2", "outer", "Grid")):
+                           ("under", "under", ""), ("outer2", "outer", "Grid"), ("pairs", "pairs", ""),
+                           ("pair_again", "pair_again", "")):
         vgs[key] = v.create(name)
         vgs[key]._class = cls
     vgs["outer"].insert(vgs["inner"])
@@ -276,6 +283,9 @@ def groups(path: Path) -> None:
     vgs["bad"].insert(vgs["under"])
     vgs["under"].add(HC.DFTAG_NDG, refs["under_data"])
     vgs["outer2"].add(HC.DFTAG_NDG, refs["dup_member"])
+    vgs["pairs"].add(HC.DFTAG_NDG, refs["pair0"])
+    vgs["pairs"].add(HC.DFTAG_NDG, refs["pair1"])
+    vgs["pair_again"].add(HC.DFTAG_NDG, refs["pair1"])
     vgs["outer"].add(HC.DFTAG_NDG, refs["shared"])
     vgs["second"].add(HC.DFTAG_NDG, refs["shared"])
     vgs["second"].add(HC.DFTAG_NDG, refs["a/b"])
@@ -290,10 +300,15 @@ def groups(path: Path) -> None:
     table._class = "Table"
     table.write([[1, 0.5], [2, 1.5]])
     vgs["second"].insert(table)
+    vgs["outer"].insert(table)  # a table two Vgroups hold, recorded once
+    hidden = vs.create("hidden_table", (("v", HC.INT16, 1),))
+    hidden._class = "Table"
+    hidden.write([[4]])
+    vgs["bad"].insert(hidden)  # a table only a Vgroup not presented holds: the root's
     lone = vs.create("lone", (("v", HC.INT16, 1),))
     lone._class = "Lone"
     lone.write([[3]])
-    for x in (fv, table, lone):
+    for x in (fv, table, lone, hidden):
         x.detach()
     for g in vgs.values():
         g.detach()

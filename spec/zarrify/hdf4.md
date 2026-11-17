@@ -115,7 +115,8 @@ only when its name is a **node name**: valid UTF-8, not empty, not `.` or `..`, 
 a name; the first in the walk keeps it, and a later one is not presented (reason `duplicate`). The
 walk does not enter a Vgroup it does not present, so what that Vgroup holds is the root's, unless
 the walk reaches it elsewhere ([§2.1](#21-groups)). A dataset or table not presented is recorded once,
-where the walk first reaches it.
+where the walk first reaches it, but for a dataset whose name another member of its group holds
+(`duplicate`, `reserved`), which the walk tries again where it reaches it next.
 
 ## 3. Datasets
 
@@ -281,7 +282,8 @@ A group's `hdf4` member:
 
 The root's `unpresented` also lists each Vdata of a class not the interfaces' own (the library's
 `INTERNAL_HDF_VDS`: `DimVal0.0`, `DimVal0.1`, `Attr0.0`, `SDSVar`, `CoordVar`, `RIATTR0.0N`,
-`RIATTR0.0C`, and the chunk tables' `_HDF_CHK_TBL_` prefix) that no Vgroup holds, as `table`, and,
+`RIATTR0.0C`, and the chunk tables' `_HDF_CHK_TBL_` prefix) that the walk did not reach (in no
+Vgroup, or only in Vgroups not presented), as `table`, and,
 in a file without a `CDF0.0` Vgroup, each NDG, as `dfsd`.
 
 ### 7.2 Datasets
@@ -435,7 +437,8 @@ A zarrifier MUST reject the input, with these messages, in this order:
   its header counts, or of more than 2^20 chunks or 2^26 bytes; a chunk placed outside the grid of the header's
   lengths or placed twice (`the chunk table of tag <t> ref <r> places a chunk at <coords>, outside
   its grid <grid>`, `… places two chunks at <coords>`); a chunk element that no descriptor describes,
-  shorter than a chunk, or that decodes to another length.
+  shorter than a chunk, that decodes to another length, or whose stream is empty, or shorter than a
+  chunk for method 0 (`the chunk at <coords> of tag <t> ref <r> holds <n> bytes of its stream`).
 - **Rounds:** more than 4096 rounds of dependent reads (`more than 4096 rounds of dependent
   reads`).
 
