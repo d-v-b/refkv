@@ -7,7 +7,7 @@ js/conformance/zarrify.ts (the browser code, run under Node). Every dataset the 
 must be presented with the values, shape, dimension names and attributes pyhdf reads, or listed with
 a reason (python/tests/ir/hdf4_oracle.py; of the fixtures, the reasons their generator plants), and
 the file must be rebuilt byte for byte from the archive's IR mirror (refkv_source,
-spec/zarrify/hdf4.md §7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#73-the-ir-mirror>).
+spec/zarrify/hdf4.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#83-the-ir-mirror>).
 `hdf4_reject_*` files must be rejected. A note gives what a corpus file leaves out, by reason.
 
 Usage: uv run python js/test/hdf4/verify.py [<dir of .hdf files>]

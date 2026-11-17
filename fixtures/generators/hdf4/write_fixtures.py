@@ -16,6 +16,10 @@ type):
   other in a loop, a dataset in no Vgroup, Vgroups not presented (a name with `/`, a second
   `outer`) and what they hold, a Vgroup's attributes (its own and an `Attr0.0` member),
   tables, a dataset of text, and names the hierarchy cannot take;
+- `hdf4_tables.hdf`: Vdatas of the writer's classes, MO36's `Calibration` table's fields among them
+  (integers, a float of order 6, text padded with NULs, with spaces and exact), their attributes,
+  records in linked blocks, fields not interlaced, no records, little-endian and mixed-order fields
+  (patched, as pyhdf writes only big-endian ones), and a table two Vgroups hold;
 - `hdf4_small.hdf`: one plain and two chunked datasets, which write_rejects.py patches into the
   inputs the profile rejects.
 
@@ -205,6 +209,22 @@ def layouts(path: Path) -> None:
     filled.endaccess()
     sd.create("empty_records", SDC.FLOAT32, [SDC.UNLIMITED, 2]).endaccess()
 
+    # datasets of text: of rank 1 (a scalar of one string), 2 and 3, padded with NULs, with spaces,
+    # and exact; chunked whole along the strings, and across them (not presented); never written
+    for name, shape, raw in (("text1", [8], b"hello\0\0\0"), ("text2", [3, 4], b"ab\0\0cd  efgh"),
+                             ("text3", [2, 2, 3], b"abcde\0fg\0hij")):
+        s = sd.create(name, SDC.CHAR8, shape)
+        s[:] = np.frombuffer(raw, "S1").reshape(shape)
+        s.endaccess()
+    for name, shape, chunk in (("text_chunked", [4, 5], [2, 5]), ("text_cut", [4, 6], [2, 3])):
+        s = sd.create(name, SDC.CHAR8, shape)
+        set_chunk(s, chunk, False)
+        for at in ([0, 0], [1, 0], [0, 1], [1, 1])[:4 if chunk[1] < shape[1] else 2]:
+            first = 97 + 4 * at[0] + at[1]
+            write_chunk(s, at, np.frombuffer(bytes(range(first, first + chunk[0] * chunk[1])), "S1").reshape(chunk))
+        s.endaccess()
+    sd.create("text_empty", SDC.CHAR8, [2, 3]).endaccess()
+
     # rank 3, named dimensions, and a scale on one: the coordinate variable `lat`
     cube = sd.create("cube", SDC.FLOAT32, [2, 3, 4])
     cube[:] = ramp([2, 3, 4], "f4")
@@ -324,6 +344,93 @@ def groups(path: Path) -> None:
     hdf.close()
 
 
+def elements(b: bytes) -> dict[tuple[int, int], tuple[int, int]]:
+    """Each element's (offset, length), by (tag, ref)."""
+    out, at = {}, 4
+    while at:
+        ndd, nxt = struct.unpack_from(">hI", b, at)
+        for k in range(ndd):
+            t, r, o, n = struct.unpack_from(">HHII", b, at + 6 + 12 * k)
+            out[(t, r)] = (o, n)
+        at = nxt
+    return out
+
+
+def little_fields(path: Path, name: bytes, fields: list[int]) -> None:
+    """Makes the fields `fields` (by index) of the Vdata `name`, all `int16` or `int32`, of the type's
+    little-endian form (the flag 0x4000), their values swapped to match: pyhdf writes only big-endian
+    fields."""
+    b = bytearray(path.read_bytes())
+    els = elements(bytes(b))
+    for (t, r), (o, _) in els.items():
+        if t != 1962:
+            continue
+        nvert, ivsize, n = struct.unpack_from(">IHH", b, o + 2)
+        types = struct.unpack_from(f">{n}H", b, o + 10)
+        sizes = struct.unpack_from(f">{n}H", b, o + 10 + 2 * n)
+        offs = struct.unpack_from(f">{n}H", b, o + 10 + 4 * n)
+        p = o + 10 + 8 * n
+        for _ in range(n):
+            p += 2 + struct.unpack_from(">H", b, p)[0]
+        if bytes(b[p + 2:p + 2 + struct.unpack_from(">H", b, p)[0]]) != name:
+            continue
+        data, _ = els[(1963, r)]
+        for k in fields:
+            struct.pack_into(">H", b, o + 10 + 2 * k, types[k] | 0x4000)
+            for rec in range(nvert):
+                at = data + rec * ivsize + offs[k]
+                b[at:at + sizes[k]] = b[at:at + sizes[k]][::-1]
+    path.write_bytes(bytes(b))
+
+
+def tables(path: Path) -> None:
+    """Vdatas of the writer's classes: MO36's `Calibration` table's fields (integers, a float of order
+    6, text padded with NULs, with spaces and exact) and its attributes; records in linked blocks;
+    fields not interlaced; no records; little-endian and mixed-order fields; a table two Vgroups hold."""
+    hdf = HDF(str(path), HC.WRITE | HC.CREATE | HC.TRUNC)
+    vs, v = hdf.vstart(), hdf.vgstart()
+    cal = vs.create("Calibration", (("band", HC.INT32, 1), ("coeff", HC.FLOAT32, 6), ("name", HC.CHAR8, 16),
+                                    ("units", HC.CHAR8, 8), ("code", HC.CHAR8, 4)))
+    cal._class = "Calibration"
+    cal.write([[1, [0.002, -5.0, 0.0, 0.0, 0.0, 0.0], "Chlorophyll", "mg/m^3  ", "ABCD"],
+               [2, [1.5, 0.25, -1.0, 2.0, 3.0, 4.0], "sst", "deg_C   ", "EFGH"]])
+    cal.attr("note").set(HC.CHAR8, "calibration")
+    cal.field("band").attr("units").set(HC.CHAR8, "1")
+    # records written in two calls with another table's between: linked blocks
+    grown = vs.create("grown", (("x", HC.INT16, 1), ("y", HC.FLOAT64, 1)))
+    grown._class = "Series"
+    grown.write([[k, k * 0.5] for k in range(3)])
+    grown.detach()
+    between = vs.create("between", (("v", HC.UINT8, 2),))
+    between._class = "Series"
+    between.write([[[1, 2]], [[3, 4]]])
+    grown = vs.attach("grown", 1)
+    grown.seekend()
+    grown.write([[k, k * 0.5] for k in range(3, 7)])
+    columns = vs.create("columns", (("a", HC.INT32, 1), ("b", HC.CHAR8, 3)))
+    columns._class = "Columns"
+    columns._interlace = HC.NO_INTERLACE
+    columns.write([[10, "abc"], [20, "de"], [30, "f"]])
+    empty = vs.create("empty", (("v", HC.INT16, 1),))
+    empty._class = "Series"
+    for name in ("little", "mixed"):
+        t = vs.create(name, (("a", HC.INT16, 1), ("b", HC.INT32, 1)))
+        t._class = "Series"
+        t.write([[1, 2], [-3, 400000]])
+        t.detach()
+    group, other = v.create("Per File Data"), v.create("Other")
+    group._class = other._class = "Grid"
+    group.insert(cal)
+    other.insert(cal)
+    for x in (cal, grown, between, columns, empty, group, other):
+        x.detach()
+    v.end()
+    vs.end()
+    hdf.close()
+    little_fields(path, b"little", [0, 1])
+    little_fields(path, b"mixed", [0])
+
+
 def small(path: Path) -> None:
     """One plain dataset and two chunked ones whose chunk tables are linked blocks: what the
     rejected inputs are patched from."""
@@ -352,6 +459,7 @@ def main() -> None:
     layouts(OUT / "hdf4_layouts.hdf")
     stale_sdd(OUT / "hdf4_layouts.hdf", b"records", 2)
     groups(OUT / "hdf4_groups.hdf")
+    tables(OUT / "hdf4_tables.hdf")
     small(OUT / "hdf4_small.hdf")
     for p in sorted(OUT.glob("*.hdf")):
         if "reject" not in p.name:

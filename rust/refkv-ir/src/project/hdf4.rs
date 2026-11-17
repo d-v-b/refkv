@@ -86,8 +86,10 @@ fn cut(a: &J) -> Result<Cut, String> {
     grid_chunks(0, &shape, n(&a["item"]).max(1), CHUNK_BYTES, usize::MAX).ok_or_else(|| "internal: the data cannot be cut into chunks".to_string())
 }
 
+/// The key of the chunk at `coords` of the array at `path`: `c` alone for an array of rank 0.
 fn chunk_key(path: &str, coords: &[u64]) -> String {
-    key(&if path.is_empty() { "c/".to_string() } else { format!("{path}/c/") }, coords.iter().copied())
+    let base = if path.is_empty() { "c".to_string() } else { format!("{path}/c") };
+    if coords.is_empty() { base } else { key(&format!("{base}/"), coords.iter().copied()) }
 }
 
 pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, String> {

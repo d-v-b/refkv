@@ -6,8 +6,8 @@
 //! **Sans-IO by replay**, as the HDF5 reader is (`hdf5/mod.rs`): `analyze` reads the file from
 //! the start over the bytes fed so far, through a [`Src`] that records each range it lacks; a
 //! round asks for every range one pass lacked, and the next pass goes further. Each pass reads in
-//! the profile's order (spec/zarrify/hdf4.md §8.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#82-reading>): the descriptor
+//! the profile's order (spec/zarrify/hdf4.md §9.2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#92-reading>): the descriptor
 //! blocks, one per round; every header element at once; then what the headers name (link tables,
 //! attribute and chunk table records, the chunks' headers), each independent thing going on past a
 //! miss ([`Acc`]), so that a rejection never depends on the order of the reads.
@@ -24,8 +24,8 @@ use crate::text::{text_json, utf8_or_latin1};
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-/// The file's first 4 bytes (spec/zarrify/hdf4.md §8
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#8-hdf4-profile>).
+/// The file's first 4 bytes (spec/zarrify/hdf4.md §9
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#9-hdf4-profile>).
 pub const MAGIC: [u8; 4] = [0x0e, 0x03, 0x13, 0x01];
 
 // Tags (HDF4's htags.h)
@@ -163,6 +163,10 @@ pub struct Vh {
     pub fields: Vec<(Vec<u8>, u16, u16, u16, u16)>,
     pub name: Vec<u8>,
     pub class: Vec<u8>,
+    /// its version, the `uint16` 5 bytes before its end
+    pub version: u16,
+    /// a version 4 header's attributes: (field index, or -1 for the whole Vdata; tag; ref)
+    pub attrs: Vec<(i32, u16, u16)>,
 }
 
 /// A logical element's bytes, as ranges of the file (with the descriptor that holds each) or
@@ -186,6 +190,26 @@ impl Logical {
             let k = m.min(left);
             out.segs.push((d, o, k));
             left -= k;
+        }
+        out
+    }
+    /// Its `n` bytes from `at`.
+    fn range(&self, mut at: u64, n: u64) -> Logical {
+        let mut out = Logical { len: 0, segs: Vec::new() };
+        let mut left = n;
+        for &(d, o, m) in &self.segs {
+            if left == 0 {
+                break;
+            }
+            if at >= m {
+                at -= m;
+                continue;
+            }
+            let k = left.min(m - at);
+            out.segs.push((d, if d.is_some() { o + at } else { 0 }, k));
+            out.len += k;
+            left -= k;
+            at = 0;
         }
         out
     }
@@ -603,8 +627,8 @@ impl Hdf4 {
         }
     }
 
-    /// One pass over the bytes fed so far (spec/zarrify/hdf4.md §8.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#82-reading>): the facts and
+    /// One pass over the bytes fed so far (spec/zarrify/hdf4.md §9.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#92-reading>): the facts and
     /// what the IR is built from, or the first failure in the profile's order.
     fn analyze(&mut self) -> R<()> {
         let size = self.size;
@@ -764,7 +788,24 @@ pub fn parse_vh(b: &[u8]) -> Option<Vh> {
     let l = r.u16()? as usize;
     let class = r.bytes(l)?.to_vec();
     let fields = (0..n).map(|k| (names[k].clone(), types[k], isize[k], offs[k], order[k])).collect();
-    Some(Vh { interlace, nvert, ivsize, fields, name, class })
+    let version = Rd::at(b, b.len().checked_sub(5)?).u16()?;
+    let mut attrs = Vec::new();
+    // the expansion tag and ref, the version and `more`, then a version 4 header's flags and,
+    // when bit 0 (VS_ATTR_SET) is set, its attributes
+    let _ex = (r.u16()?, r.u16()?, r.u16()?, r.u16()?);
+    if version == 4 {
+        let flags = r.u32()?;
+        if flags & 1 != 0 {
+            let k = r.u32()? as usize;
+            if k > b.len() / 8 {
+                return None;
+            }
+            for _ in 0..k {
+                attrs.push((r.u32()? as i32, r.u16()?, r.u16()?));
+            }
+        }
+    }
+    Some(Vh { interlace, nvert, ivsize, fields, name, class, version, attrs })
 }
 
 /// A Zarr node name (spec/zarrify/hdf4.md §2.2
@@ -789,9 +830,67 @@ enum Decided {
     Not(&'static str),
 }
 
+/// A writer's Vdata decided (spec/zarrify/hdf4.md §4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#4-tables>): an array of its
+/// records, a group of an array per field (interlace 1), or why it is not presented; with its name
+/// and attributes.
+struct Table {
+    name: Vec<u8>,
+    form: TableForm,
+    attrs: Vec<Attr>,
+}
+
+enum TableForm {
+    Records { array: J, own: Map<String, J> },
+    Fields { own: Map<String, J>, arrays: Vec<(Vec<u8>, J)> },
+    Not(&'static str),
+}
+
+/// A Vdata field's Zarr data type, fill value, leaf count and whether it has a byte order, or why
+/// it has none: `char8` of order `n` is `null_terminated_bytes` of `n`, a number of order 1 its type,
+/// of order `n > 1` a `struct` of the fields `0` … `n − 1`.
+fn field_type(ty: u16, isize: u16, order: u16) -> Result<(J, J, u64, bool), &'static str> {
+    if ty & !0x40FF != 0 {
+        return Err("datatype");
+    }
+    let (order, isize) = (order as u64, isize as u64);
+    if order == 0 {
+        return Err("fields");
+    }
+    let code = (ty & 0xFF) as u8;
+    if code == 4 {
+        if isize != order {
+            return Err("fields");
+        }
+        return Ok((json!({"name": "null_terminated_bytes", "configuration": {"length_bytes": order}}), json!(""), 1, false));
+    }
+    let Some((one, size, _)) = numeric(code) else { return Err("datatype") };
+    if isize != size * order {
+        return Err("fields");
+    }
+    let zero = if code == 5 || code == 6 { json!(0.0) } else { json!(0) };
+    if order == 1 {
+        return Ok((json!(one), zero, 1, size > 1));
+    }
+    let fields: Vec<J> = (0..order).map(|k| json!({"name": k.to_string(), "data_type": one})).collect();
+    let fill: Map<String, J> = (0..order).map(|k| (k.to_string(), zero.clone())).collect();
+    Ok((json!({"name": "struct", "configuration": {"fields": fields}}), J::Object(fill), order, size > 1))
+}
+
+/// The `bytes` codec of a struct or value whose elements are `ordered` (of more than one byte, a
+/// struct with a text field among them, which zarr-python reads as needing an order): big- or
+/// little-endian; else without a byte order.
+fn bytes_codec(ordered: bool, big: bool) -> J {
+    if ordered {
+        json!({"name": "bytes", "configuration": {"endian": if big { "big" } else { "little" }}})
+    } else {
+        json!({"name": "bytes"})
+    }
+}
+
 impl Hdf4 {
-    /// The attribute Vdatas `refs` as the hierarchy presents them (spec/zarrify/hdf4.md §6
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#6-attributes>), in order.
+    /// The attribute Vdatas `refs` as the hierarchy presents them (spec/zarrify/hdf4.md §7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#7-attributes>), in order.
     fn attributes(p: &mut Pass, vhs: &BTreeMap<u16, Vh>, refs: &[u16]) -> R<Vec<Attr>> {
         let mut out = Vec::new();
         let mut acc = Acc::default();
@@ -835,7 +934,10 @@ impl Hdf4 {
         let b = p.read(&l.prefix(total))?;
         let big = ty & 0x4000 == 0;
         a.value = match code {
-            4 => Ok(text_json(&b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())])),
+            4 => {
+                a.raw = Some((4, true, b.clone()));
+                Ok(text_json(&b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())]))
+            }
             c => match numeric(c) {
                 Some((_, item, _)) if isize as u64 == item * order as u64 => {
                     let vals: Vec<J> = b.chunks(item as usize).map(|v| number_json(c, v, big)).collect();
@@ -943,7 +1045,23 @@ impl Hdf4 {
         };
         let internal_members: HashSet<u16> = vgs.values().filter(|v| internal_vg(&v.class)).flat_map(|v| v.members.iter().filter(|m| m.0 == VH).map(|m| m.1)).collect();
 
-        let mut b = Builder { nodes: Vec::new(), paths: HashSet::new(), reached: HashSet::new(), tables: HashSet::new(), retry: HashMap::new(), paths_vg: HashMap::new(), paths_ds: HashMap::new(), unpresented: BTreeMap::new(), groups: 0, arrays: 0, chunks: 0 };
+        // the writer's tables: the Vdatas of a class not the interfaces' own that no interface's
+        // Vgroup holds, each decided in one round
+        let mut table_defs = BTreeMap::new();
+        let mut acc = Acc::default();
+        for (&r, h) in vhs {
+            if internal_vd(&h.class) || internal_members.contains(&r) {
+                continue;
+            }
+            if let Some(t) = acc.take(Self::table(p, h, r, vhs)) {
+                table_defs.insert(r, t);
+            }
+            if acc.stopped() {
+                break;
+            }
+        }
+        acc.done()?;
+        let mut b = Builder { nodes: Vec::new(), paths: HashSet::new(), reached: HashSet::new(), tables: HashSet::new(), retry: HashMap::new(), paths_vg: HashMap::new(), paths_ds: HashMap::new(), paths_tables: HashMap::new(), table_defs, unpresented: BTreeMap::new(), groups: 0, arrays: 0, chunks: 0 };
         // the root
         let mut root_own = Map::new();
         if let Some(i) = p.dds.iter().position(|d| d.tag == VERSION) {
@@ -979,12 +1097,11 @@ impl Hdf4 {
                 b.dataset(root, k, &vars[k], &decided[k], &var_attrs[k]);
             }
         }
-        // what the root holds that the profile does not present: the writer's tables in no Vgroup,
-        // and the datasets of a file without a CDF0.0 Vgroup
-        for (&r, h) in vhs {
-            if !internal_vd(&h.class) && !b.tables.contains(&r) && !internal_members.contains(&r) {
-                b.not(root, Some(&h.name), VH, r, "table");
-            }
+        // the writer's tables the walk did not reach, and the datasets of a file without a CDF0.0
+        // Vgroup, which the profile does not present
+        let tables: Vec<u16> = b.table_defs.keys().copied().filter(|r| !b.tables.contains(r)).collect();
+        for r in tables {
+            b.table(root, r);
         }
         if cdf.is_none() {
             for d in p.dds.iter().filter(|d| d.tag == NDG) {
@@ -1062,14 +1179,131 @@ impl Hdf4 {
                 VG => b.not(node, vgs.get(&r).map(|c| c.name.as_slice()), t, r, "object"),
                 VH => match vhs.get(&r) {
                     Some(h) if h.class == ATTRIBUTE => {}
-                    Some(_) if !b.tables.insert(r) => {}
-                    Some(h) => b.not(node, Some(&h.name), t, r, "table"),
+                    Some(_) if b.table_defs.contains_key(&r) => b.table(node, r),
+                    Some(h) => b.not(node, Some(&h.name), t, r, "object"),
                     None => b.not(node, None, t, r, "object"),
                 },
                 _ => b.not(node, None, t, r, "object"),
             }
         }
         Ok(())
+    }
+
+    /// Whether and how the writer's Vdata `vh`, of ref `r`, is presented (spec/zarrify/hdf4.md §4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#4-tables>).
+    fn table(p: &mut Pass, vh: &Vh, r: u16, vhs: &BTreeMap<u16, Vh>) -> R<Table> {
+        let attr_refs: Vec<u16> = vh.attrs.iter().filter(|a| a.0 == -1 && a.1 == VH).map(|a| a.2).collect();
+        let attrs = Self::attributes(p, vhs, &attr_refs)?;
+        let form = Self::table_form(p, vh, r, vhs)?;
+        Ok(Table { name: vh.name.clone(), form, attrs })
+    }
+
+    fn table_form(p: &mut Pass, vh: &Vh, r: u16, vhs: &BTreeMap<u16, Vh>) -> R<TableForm> {
+        let mut own = Map::new();
+        own.insert("ref".into(), json!(r));
+        own.insert("class".into(), text_json(&vh.class));
+        own.insert("interlace".into(), json!(vh.interlace));
+        own.insert("records".into(), json!(vh.nvert));
+        let described: Vec<J> = vh.fields.iter().map(|(n, t, isize, off, order)| {
+            let mut f = json!({"name": text_json(n), "type": type_name(*t), "order": order, "offset": off, "size": isize});
+            if t & 0x4000 != 0 {
+                f["endian"] = json!("little");
+            }
+            f
+        }).collect();
+        own.insert("fields".into(), J::Array(described));
+        // each field's attributes, by the field's name
+        let mut by_field: Map<String, J> = Map::new();
+        for &(k, t, a) in &vh.attrs {
+            let Some(field) = usize::try_from(k).ok().and_then(|k| vh.fields.get(k)) else { continue };
+            if t != VH {
+                continue;
+            }
+            for at in Self::attributes(p, vhs, &[a])? {
+                if let Ok(v) = at.value {
+                    let e = by_field.entry(utf8_or_latin1(&field.0)).or_insert_with(|| json!({}));
+                    e[utf8_or_latin1(&at.name)] = v;
+                }
+            }
+        }
+        if !by_field.is_empty() {
+            own.insert("field_attributes".into(), J::Object(by_field));
+        }
+        if vh.version <= 2 {
+            return Ok(TableForm::Not("version"));
+        }
+        if vh.fields.is_empty() || vh.interlace > 1 {
+            return Ok(TableForm::Not("fields"));
+        }
+        let mut types = Vec::with_capacity(vh.fields.len());
+        let mut big: Option<bool> = None;
+        let (mut names, mut leaves) = (HashSet::new(), 0u64);
+        for (name, ty, isize, _, order) in &vh.fields {
+            let (dt, fill, n, ordered) = match field_type(*ty, *isize, *order) {
+                Ok(t) => t,
+                Err(why) => return Ok(TableForm::Not(why)),
+            };
+            if ordered {
+                let b = ty & 0x4000 == 0;
+                if big.is_some_and(|x| x != b) {
+                    return Ok(TableForm::Not("byte_order"));
+                }
+                big = Some(b);
+            }
+            if !names.insert(utf8_or_latin1(name)) {
+                return Ok(TableForm::Not("fields"));
+            }
+            leaves += n;
+            types.push((utf8_or_latin1(name), dt, fill, ordered, *isize as u64));
+        }
+        if leaves > p.limit("max_fields") {
+            return Ok(TableForm::Not("fields"));
+        }
+        // interlace 0: each record its fields in order, at their offsets, nothing between
+        let mut at = 0u64;
+        for (_, _, isize, off, _) in &vh.fields {
+            if vh.interlace == 0 && *off as u64 != at {
+                return Ok(TableForm::Not("fields"));
+            }
+            at += *isize as u64;
+        }
+        if at != vh.ivsize as u64 {
+            return Ok(TableForm::Not("fields"));
+        }
+        let record = at;
+        if record > p.limit("record_bytes") {
+            return Ok(TableForm::Not("record_size"));
+        }
+        let rows = vh.nvert as u64;
+        let total = rows * record;
+        let data = match p.stored(VS, r)? {
+            Stored::Plain(l) if l.len >= total => l,
+            Stored::None if total == 0 => Logical::default(),
+            Stored::Plain(_) | Stored::None => return Ok(TableForm::Not("length")),
+            Stored::External => return Ok(TableForm::Not("external")),
+            _ => return Ok(TableForm::Not("special")),
+        };
+        let store = |l: Logical| if l.len == 0 { json!({"kind": "none"}) } else { json!({"kind": "contiguous", "segments": l.json()}) };
+        if vh.interlace == 0 {
+            let fields: Vec<J> = types.iter().map(|t| json!({"name": t.0, "data_type": t.1})).collect();
+            let fill: Map<String, J> = types.iter().map(|t| (t.0.clone(), t.2.clone())).collect();
+            let array = json!({"shape": [rows], "data_type": {"name": "struct", "configuration": {"fields": fields}}, "item": record,
+                               "fill_value": fill, "codecs": [bytes_codec(types.iter().any(|t| t.4 > 1), big.unwrap_or(true))],
+                               "store": store(data.prefix(total)), "dimension_names": ["record"]});
+            return Ok(TableForm::Records { array, own });
+        }
+        // interlace 1: each field's values together, the fields in order
+        let mut arrays = Vec::with_capacity(types.len());
+        let mut at = 0u64;
+        for ((name, dt, fill, ordered, isize), field) in types.into_iter().zip(&vh.fields) {
+            let n = rows * isize;
+            let array = json!({"shape": [rows], "data_type": dt, "item": isize, "fill_value": fill,
+                               "codecs": [bytes_codec(ordered || isize > 1, field.1 & 0x4000 == 0)], "store": store(data.range(at, n)),
+                               "dimension_names": ["record"]});
+            arrays.push((name.into_bytes(), array));
+            at += n;
+        }
+        Ok(TableForm::Fields { own, arrays })
     }
 
     /// Whether and how the dataset `var` is an array (spec/zarrify/hdf4.md §3
@@ -1085,10 +1319,13 @@ impl Hdf4 {
         let ntb = p.header(nt)?;
         let [_, code, width, class, ..] = ntb[..] else { return Ok(Decided::Not("number_type")) };
         own.insert("number_type".into(), json!({"type": type_name(code as u16), "width": width, "class": class}));
-        if code == 4 {
-            return Ok(Decided::Not("char8"));
-        }
-        let Some((data_type, item, _)) = numeric(code) else { return Ok(Decided::Not("number_type")) };
+        // a dataset of text: its bytes are read as `uint8` until its last axis is made its strings'
+        // length (spec/zarrify/hdf4.md §3.3
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#33-text>)
+        let text = code == 4;
+        let Some((data_type, item, _)) = (if text { Some(("uint8", 1, false)) } else { numeric(code) }) else {
+            return Ok(Decided::Not("number_type"));
+        };
         let big = match class {
             _ if item == 1 => true,
             0 | 1 => true,
@@ -1193,6 +1430,14 @@ impl Hdf4 {
         };
         // the fill value: the chunk header's, else `_FillValue`'s, else netCDF's default
         let fill_attr = Self::attributes(p, vhs, &var.attrs)?.into_iter().find(|a| a.name == b"_FillValue").and_then(|a| a.raw);
+        if text {
+            let byte = match (&chunk_fill, &fill_attr) {
+                (Some(f), _) => f.first().copied().unwrap_or(0),
+                (None, Some((4, _, raw))) => raw.first().copied().unwrap_or(0),
+                _ => 0,
+            };
+            return Ok(Self::as_text(shape, names, store, codecs, byte, own, nchunks));
+        }
         let fill = match (&chunk_fill, &fill_attr) {
             (Some(f), _) => number_json(code, f, big),
             (None, Some((c, b, raw))) if *c == code || numeric(*c).map(|n| n.0) == Some(data_type) && numeric(*c).map(|n| n.1) == Some(item) => number_json(code, raw, *b),
@@ -1204,6 +1449,41 @@ impl Hdf4 {
             own,
             chunks: nchunks,
         })
+    }
+
+    /// A `char8` dataset of `shape`, read as bytes, as an array of strings
+    /// (spec/zarrify/hdf4.md §3.3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#33-text>): `null_terminated_bytes`
+    /// of its last axis's length, its other axes the array's, its chunks the same bytes with that
+    /// axis dropped from their coordinates; every byte of the fill value the fill byte.
+    #[allow(clippy::too_many_arguments)]
+    fn as_text(shape: Vec<u64>, names: Vec<J>, mut store: J, codecs: Vec<J>, fill: u8, mut own: Map<String, J>, nchunks: u64) -> Decided {
+        let Some((&length, outer)) = shape.split_last() else { return Decided::Not("dimensions") };
+        if length == 0 || length > 1 << 20 {
+            return Decided::Not("size");
+        }
+        if store["kind"] == "chunked" {
+            if store["chunk"].as_array().and_then(|c| c.last()).and_then(J::as_u64) != Some(length) {
+                return Decided::Not("chunks");
+            }
+            if let Some(c) = store["chunk"].as_array_mut() {
+                c.pop();
+            }
+            for ch in store["chunks"].as_array_mut().into_iter().flatten() {
+                if let Some(at) = ch["at"].as_array_mut() {
+                    at.pop();
+                }
+            }
+        }
+        own.insert("text_axis".into(), names.last().cloned().unwrap_or(J::Null));
+        let fill = if fill == 0 { json!("") } else { json!(crate::mirror::base64(&vec![fill; length as usize])) };
+        Decided::Array {
+            array: json!({"shape": outer, "data_type": {"name": "null_terminated_bytes", "configuration": {"length_bytes": length}},
+                          "item": length, "fill_value": fill, "codecs": codecs, "store": store,
+                          "dimension_names": names[..names.len() - 1]}),
+            own,
+            chunks: nchunks,
+        }
     }
 
     /// A chunked dataset's chunk shape and chunks (each its grid coordinates and the segments of its
@@ -1363,6 +1643,9 @@ struct Builder {
     /// the datasets and tables the walk reached, presented or recorded
     reached: HashSet<usize>,
     tables: HashSet<u16>,
+    /// the writer's tables, decided, and the canonical path of each presented
+    table_defs: BTreeMap<u16, Table>,
+    paths_tables: HashMap<u16, String>,
     /// the datasets reached and not presented for their name alone, with the groups that recorded them
     retry: HashMap<usize, HashSet<usize>>,
     /// the canonical path of each Vgroup and dataset presented
@@ -1431,6 +1714,58 @@ impl Builder {
         self.nodes.len() - 1
     }
 
+    /// The writer's table of ref `r` under `parent`: presented at its first visit, a link at a later
+    /// one, recorded once when not presented.
+    fn table(&mut self, parent: usize, r: u16) {
+        if let Some(path) = self.paths_tables.get(&r).cloned() {
+            let name = self.table_defs.get(&r).map(|t| t.name.clone()).unwrap_or_default();
+            self.link(parent, &name, VH, r, &path);
+            return;
+        }
+        if !self.tables.insert(r) {
+            return;
+        }
+        let Some(t) = self.table_defs.remove(&r) else { return };
+        let Table { name, form, attrs } = t;
+        match form {
+            TableForm::Not(why) => self.not(parent, Some(&name), VH, r, why),
+            TableForm::Records { array, own } => {
+                let Ok(n) = self.name_in(parent, &name, VH, r) else { return };
+                let path = self.array_node(parent, &n, array, own, attrs);
+                self.paths_tables.insert(r, path);
+            }
+            TableForm::Fields { own, arrays } => {
+                let Ok(n) = self.name_in(parent, &name, VH, r) else { return };
+                let group = self.group(n, vec![parent], attrs, own);
+                for (field, array) in arrays {
+                    if let Ok(f) = self.name_in(group, &field, VH, r) {
+                        self.array_node(group, &f, array, Map::new(), Vec::new());
+                    }
+                }
+                let path = self.nodes[group]["path"].as_str().unwrap_or("").to_string();
+                self.paths_tables.insert(r, path);
+            }
+        }
+        // keep the decision, for a link from a later visit
+        self.table_defs.insert(r, Table { name, form: TableForm::Not("table"), attrs: Vec::new() });
+    }
+
+    /// An array node `name` under `parent` of `array`, its own metadata and attributes: its path.
+    fn array_node(&mut self, parent: usize, name: &str, array: J, mut own: Map<String, J>, attrs: Vec<Attr>) -> String {
+        let path = self.path_of(&[parent], name);
+        let (attributes, described, not) = presented_attributes(attrs, None);
+        if !described.is_empty() {
+            own.insert("attributes".into(), J::Object(described));
+        }
+        if !not.is_empty() {
+            own.insert("unpresented_attributes".into(), J::Object(not));
+        }
+        self.arrays += 1;
+        self.paths.insert(path.clone());
+        self.nodes.push(json!({"path": path, "attributes": attributes, "own": own, "array": array}));
+        path
+    }
+
     fn dataset(&mut self, parent: usize, k: usize, var: &Var, decided: &Decided, attrs: &[Attr]) {
         self.reached.insert(k);
         let Decided::Array { array, own, chunks } = decided else {
@@ -1475,8 +1810,8 @@ impl Attr {
 }
 
 /// A node's attributes as presented, each one's described type, and the reasons for those not
-/// presented (spec/zarrify/hdf4.md §6
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#6-attributes>). `float`: of a
+/// presented (spec/zarrify/hdf4.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#7-attributes>). `float`: of a
 /// dataset, whether its type is a float's, for `_FillValue`'s form.
 fn presented_attributes(attrs: Vec<Attr>, float: Option<bool>) -> (Map<String, J>, Map<String, J>, Map<String, J>) {
     let (mut presented, mut described, mut not) = (Map::new(), Map::new(), Map::new());

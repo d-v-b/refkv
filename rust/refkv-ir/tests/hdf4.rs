@@ -51,11 +51,16 @@ fn accepted_fixtures_rebuild() {
     }
 }
 
-/// Every prefix of a small fixture, and every copy with one byte of its headers changed, is
+/// Every prefix of the small and the tables fixture, and every copy with one byte of its headers changed, is
 /// accepted or rejected, never a panic: the wasm build must not abort.
 #[test]
 fn cut_and_corrupted_files_never_panic() {
-    let data = std::fs::read(fixtures().join("hdf4/hdf4_small.hdf")).unwrap();
+    for name in ["hdf4/hdf4_small.hdf", "hdf4/hdf4_tables.hdf"] {
+        corrupt(&std::fs::read(fixtures().join(name)).unwrap());
+    }
+}
+
+fn corrupt(data: &[u8]) {
     for n in (0..data.len()).step_by(7) {
         let _ = parse_bytes::<Hdf4>(&data[..n]);
     }
@@ -66,7 +71,7 @@ fn cut_and_corrupted_files_never_panic() {
             continue;
         }
         for v in [0xFF, 0x00, data[k] ^ 0x40] {
-            let mut d = data.clone();
+            let mut d = data.to_vec();
             d[k] = v;
             let _ = parse_bytes::<Hdf4>(&d);
         }

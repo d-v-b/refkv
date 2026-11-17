@@ -20,6 +20,7 @@ import pytest
 import zarr
 
 import refkv.zarr
+from refkv._narrow import at, ndarray, sequence
 from refkv.zarrify import zarrify
 
 # pyhdf, where it has a wheel (pyproject.toml); the oracle imports it
@@ -68,8 +69,8 @@ def test_each_storage_is_presented_as_the_convention_says():
         a = arrays[p]
         assert a.chunks == (2, 4)
         assert own(a)["chunks"] == [2, 4]
-    # 5 chunks a chunked dataset, [1, 1] never written; and 1 compressed whole
-    assert info["chunks"] == 10
+    # 5 chunks a chunked dataset of numbers, [1, 1] never written, and 2 of text
+    assert info["chunks"] == 12
     # byte order by the number type's class
     assert own(arrays["little_int16"])["number_type"]["class"] == 4
     assert {"name": "bytes", "configuration": {"endian": "little"}} in codecs("little_int16")
@@ -91,6 +92,18 @@ def test_each_storage_is_presented_as_the_convention_says():
     assert v3(arrays["cube"]).dimension_names == ("level", "lat", "lon")
     assert v3(arrays["lat"]).dimension_names == ("lat",)
     assert np.array_equal(arrays["lat"][...], [-10.0, 0.0, 10.0])
+    # text: strings of the last axis's length, trailing spaces kept; a scalar of rank 1; chunks whole
+    # along the strings, or the dataset is not presented
+    assert arrays["text1"].shape == ()
+    assert ndarray(arrays["text1"][...]).tolist() == b"hello"
+    assert ndarray(arrays["text2"][...]).tolist() == [b"ab", b"cd  ", b"efgh"]
+    assert arrays["text3"].shape == (2, 2)
+    assert own(arrays["text3"])["text_axis"] == "fakeDim54"
+    assert v3(arrays["text2"]).data_type.to_json(zarr_format=3) == {"name": "null_terminated_bytes",
+                                                                    "configuration": {"length_bytes": 4}}
+    assert arrays["text_chunked"].chunks == (2,)
+    assert "text_cut" not in arrays
+    assert ndarray(arrays["text_empty"][...]).tolist() == [b"", b""]
     # attributes: text to its first NUL, trailing spaces kept; numbers one and several
     assert root.attrs["title_nul"] == "padded"
     assert root.attrs["title_spaces"] == "padded   "
@@ -109,7 +122,8 @@ def test_groups_follow_the_writers_vgroups():
     # a Vgroup not presented holds nothing below it: what it holds is the root's, its datasets after
     # the walk and its Vgroups as the walk's last top Vgroups
     assert kinds == {
-        "": "Group", "alone": "Array", "twin": "Array", "orphan": "Array", "dup_member": "Array",
+        "": "Group", "alone": "Array", "twin": "Array", "orphan": "Array", "dup_member": "Array", "text": "Array",
+        "lone": "Array", "hidden_table": "Array", "outer/table": "Array",
         "outer": "Group", "outer/inner": "Group", "outer/inner/inner_data": "Array", "outer/shared": "Array",
         "second": "Group", "loop_a": "Group", "loop_a/loop_b": "Group", "under": "Group", "under/under_data": "Array",
         # of the datasets named `pair`, the second is presented in the first group the walk reaches
@@ -122,20 +136,53 @@ def test_groups_follow_the_writers_vgroups():
     assert own(groups["second"])["links"] == [
         {"name": "inner", "tag": 1965, "ref": own(groups["outer/inner"])["ref"], "path": "outer/inner"},
         {"name": "shared", "tag": 720, "ref": own(groups["outer/shared"])["ndg"], "path": "outer/shared"},
+        {"name": "table", "tag": 1962, "ref": own(groups["outer/table"])["ref"], "path": "outer/table"},
     ]
     # Vgroups that hold each other: the one of the least ref at the root, the other below it
     assert own(groups["loop_a/loop_b"])["links"][0]["path"] == "loop_a"
     # a Vgroup's attributes: its own (version 4) and an Attr0.0 member, as HDF-EOS writes them
     assert {k: groups["outer"].attrs[k] for k in ("note", "_FV_inner_data")} == {"note": "grid", "_FV_inner_data": -1}
     assert own(groups["outer"])["class"] == "Grid"
-    # what is not presented, by group: names, the tables, the dataset of text
+    # what is not presented, by group: names that are no node names or that a member holds already
     reasons = {p: sorted((u.get("name"), u["reason"]) for u in own(n).get("unpresented", [])) for p, n in nodes(root)}
-    assert reasons[""] == [("bad/name", "name"), ("hidden_table", "table"), ("lone", "table"), ("outer", "duplicate"),
-                           ("refkv_source", "reserved"), ("text", "char8"), ("twin", "duplicate")]
-    # a table two Vgroups hold is recorded once, where the walk first reaches it
-    assert reasons["outer"] == [("table", "table")]
+    assert reasons[""] == [("bad/name", "name"), ("outer", "duplicate"), ("refkv_source", "reserved"),
+                           ("twin", "duplicate")]
     assert reasons["second"] == [("__hidden", "name"), ("a/b", "name")]
     # recorded once in each group that holds a `pair` already, however often the walk reaches it there
     assert reasons["pairs"] == [("pair", "duplicate")]
     assert reasons["pairs/pair_child"] == [("pair", "duplicate")]
-    assert info["unpresented"] == {"char8": 1, "duplicate": 4, "name": 3, "reserved": 1, "table": 3}
+    assert info["unpresented"] == {"duplicate": 4, "name": 3, "reserved": 1}
+
+
+def test_tables_are_arrays_of_their_records():
+    root, info = opened(HDF4 / "hdf4_tables.hdf")
+    nodes_ = dict(nodes(root))
+    arrays = {p: a for p, a in nodes_.items() if isinstance(a, zarr.Array)}
+    cal = arrays["Per File Data/Calibration"]
+    # MO36's Calibration table: a struct of its fields, a float of order 6 a nested struct, text of
+    # each padding as null_terminated_bytes, the trailing spaces kept
+    fields = sequence(at(v3(cal).data_type.to_json(zarr_format=3), "configuration", "fields"))
+    assert [at(f, "name") for f in fields] == ["band", "coeff", "name", "units", "code"]
+    assert at(fields[1], "data_type", "name") == "struct"
+    assert len(sequence(at(fields[1], "data_type", "configuration", "fields"))) == 6
+    assert at(fields[2], "data_type") == {"name": "null_terminated_bytes", "configuration": {"length_bytes": 16}}
+    rows = ndarray(cal[...])
+    assert rows["name"].tolist() == [b"Chlorophyll", b"sst"]
+    assert rows["units"].tolist() == [b"mg/m^3  ", b"deg_C   "]
+    assert rows["code"].tolist() == [b"ABCD", b"EFGH"]
+    assert v3(cal).dimension_names == ("record",)
+    # its attributes: the Vdata's on the array, a field's in its source metadata
+    assert cal.attrs["note"] == "calibration"
+    assert own(cal)["field_attributes"] == {"band": {"units": "1"}}
+    # a table two Vgroups hold: presented once, linked from the other
+    assert own(nodes_["Other"])["links"][0]["path"] == "Per File Data/Calibration"
+    # records in linked blocks, fields not interlaced (a group of an array per field), no records,
+    # little-endian fields, and fields of two byte orders, not presented
+    assert own(nodes_["grown"])["records"] == 7
+    assert arrays["grown"].shape == (7,)
+    assert sorted(k for k in nodes_ if k.startswith("columns/")) == ["columns/a", "columns/b"]
+    assert ndarray(arrays["columns/b"][...]).tolist() == [b"abc", b"de", b"f"]
+    assert arrays["empty"].shape == (0,)
+    little = [{"name": "bytes", "configuration": {"endian": "little"}}]
+    assert [c.to_dict() for c in v3(arrays["little"]).codecs] == little
+    assert info["unpresented"] == {"byte_order": 1}

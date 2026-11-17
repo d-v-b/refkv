@@ -138,7 +138,7 @@
       "anyOf": [
         {
           "type": "object",
-          "description": "A group's: the root's or a Vgroup's (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#71-groups)",
+          "description": "A group's: the root's or a Vgroup's (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#81-groups)",
           "properties": {
             "ref": {
               "type": "integer",
@@ -239,7 +239,7 @@
             },
             "unpresented": {
               "type": "array",
-              "description": "The members not presented, in the walk's order (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#74-what-is-not-presented)",
+              "description": "The members not presented, in the walk's order (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#84-what-is-not-presented)",
               "items": {
                 "type": "object",
                 "properties": {
@@ -290,7 +290,7 @@
         },
         {
           "type": "object",
-          "description": "A dataset's (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#72-datasets)",
+          "description": "A dataset's (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#82-datasets)",
           "properties": {
             "ref": {
               "type": "integer",
@@ -600,7 +600,7 @@
         "count"
       ],
       "additionalProperties": false,
-      "description": "An attribute's field type and value count (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#71-groups)"
+      "description": "An attribute's field type and value count (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#81-groups)"
     },
     "nodeProperty": {
       "type": "object",

@@ -1,5 +1,5 @@
 {
-  "about": "The inputs the hdf4 profile rejects, each with the start of its message, in the order of the checks of spec/zarrify/hdf4.md (its section 8.3, Checks). rust/refkv-ir/build.rs writes a Rust test per case into tests/hdf4.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "about": "The inputs the hdf4 profile rejects, each with the start of its message, in the order of the checks of spec/zarrify/hdf4.md (its section 9.3, Checks). rust/refkv-ir/build.rs writes a Rust test per case into tests/hdf4.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
   "cases": [
     {
       "test": "hdf4_reject_magic",
