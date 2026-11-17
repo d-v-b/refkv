@@ -112,7 +112,8 @@ def test_groups_follow_the_writers_vgroups():
         "": "Group", "alone": "Array", "twin": "Array", "orphan": "Array", "dup_member": "Array",
         "outer": "Group", "outer/inner": "Group", "outer/inner/inner_data": "Array", "outer/shared": "Array",
         "second": "Group", "loop_a": "Group", "loop_a/loop_b": "Group", "under": "Group", "under/under_data": "Array",
-        # of two datasets named `pair` in `pairs`, the second is presented where the walk reaches it next
+        # of the datasets named `pair`, the second is presented in the first group the walk reaches
+        # it in where the name is free
         "pairs": "Group", "pairs/pair": "Array", "pair_again": "Group", "pair_again/pair": "Array",
         "pairs/pair_child": "Group", "pairs/pair_child/pair": "Array",
     }

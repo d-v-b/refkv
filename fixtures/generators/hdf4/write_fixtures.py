@@ -252,7 +252,8 @@ def groups(path: Path) -> None:
     twin = sd.create("twin", SDC.INT16, [2])
     twin[:] = ramp([2], "i2")
     twin.endaccess()
-    # two datasets of one name in one Vgroup, the second also in another, where it is presented
+    # three datasets of one name: two in one Vgroup, the third and the second in its subgroup, the
+    # second also in another Vgroup, where it is presented
     for k in range(3):
         s = sd.create("pair", SDC.INT16, [2 + k])
         s[:] = ramp([2 + k], "i2")
