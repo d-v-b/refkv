@@ -127,6 +127,13 @@ feasibility.
   with the real downstream consumer where there is one. CI doesn't run it.
 - **Docs and spec:** every section reference is a link, never a bare "§n"
   (`just sections`). Write American spelling. Say "zarrify".
+- **One statement, one place.** A code comment that cites a rule of the spec
+  links to the rule's section and doesn't restate it: a restated rule goes
+  stale when the spec changes.
+- **A proposal's status.** A PR that lands a step of a proposal in
+  `design/proposals/` updates that proposal's `Status (YYYY-MM-DD):` line and
+  its date. `just sections` checks that the line is there, and can't tell
+  whether it is still true.
 - **Stale builds give false results.** Rebuild after `just profiles` or any
   Rust change. Run `just js::wasm` after a rebase, and in a fresh worktree
   also `npm ci` in `js/`.
