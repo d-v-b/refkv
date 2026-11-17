@@ -1,0 +1,19 @@
+{
+  "name": "hdf4",
+  "title": "HDF4",
+  "uuid": "af66c29e-fc1a-44a4-bb71-1055ad5fdb0a",
+  "version": 0,
+  "kind": "file",
+  "store_run": null,
+  "sniff": 68,
+  "chosen_by": null,
+  "suffixes": [
+    ".hdf",
+    ".hdf4",
+    ".h4"
+  ],
+  "reference": null,
+  "source": "HDF4 (the HDF Group's Hierarchical Data Format 4)",
+  "inputs": "HDF4 files, HDF-EOS2 ones among them: the scientific datasets of numeric types the SD interface wrote, plain, linked, deflated or chunked, with their attributes and the writer's Vgroups",
+  "for": "HDF4 and HDF-EOS2 files (`.hdf`) of NASA's EOS-era archives, such as MODIS, SeaWiFS and AIRS products, as labeled arrays"
+}

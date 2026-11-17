@@ -2,7 +2,7 @@
 
 refkv maps about two dozen source formats ([the formats table](../docs/zarrify/README.md#formats):
 image files, chunked array stores, and Sentinel-2 SAFE products, a directory or a zip file
-of JPEG 2000 bands and XML metadata, audio and video files, and HDF5, GRIB and NumPy files) to
+of JPEG 2000 bands and XML metadata, audio and video files, and HDF4, HDF5, GRIB and NumPy files) to
 Zarr v3 without copying their data.
 
 Doing the same thing two dozen times shows which problems recur, and which
@@ -216,6 +216,7 @@ From [§1](#1-three-kinds-of-information), [§4](#4-numeric-metadata-as-arrays) 
 | MP4 | the brands, the movie's timescale and duration, and every track (its handler, codec, and why it is not zarrified when it is not); each track's timescale, edit list, size or sample rate, and the SPS's profile and level, on its group | none | every box, field by field, with its tables (sample sizes, offsets, times, sync samples); each sample by reference |
 | MP3 | the stream's parameters (version, sample rate, channels, frames, bitrate), the Xing or Info frame's counts and LAME fields, the ID3v1 tag's fields; the ID3v2 and APE tags, and every frame, by reference | none | none |
 | FLAC | the stream's parameters, STREAMINFO's fields (its MD5 as hex), each metadata block's type and size, the Vorbis comments, the cue sheet, each picture's fields, the seek table's counts, the ID3v2 and ID3v1 tags' fields | none | each picture's data, by reference (`pictures/<i>`) |
+| HDF4 | the library version that wrote the file; the file's attributes beside the convention's, HDF-EOS2's ODL text whole | each group's Vgroup ref and class and each dataset's refs, number type, storage and chunk shape, with the members not presented and their reasons; attributes beside the convention's | none; the descriptor blocks and every header element held in the IR mirror, the data by reference |
 | IMS | none | the whole HDF5 tree, mirrored under `refkv_source/hdf5`: each group's attributes, links and named datatypes on its own group | every dataset but the image's (histograms, thumbnail, `DataSetTimes`, `Scene8` tables), by reference, typed when its elements are numbers; large attributes, copied |
 | N5 | each node's `attributes.json` without its layout members (`dimensions`, `blockSize`, `dataType`, `compression`, `n5`) | none | none |
 | Neuroglancer precomputed | the `info` document, every member, and on each array its scale; scales not presented, each with its reason | none | none |
