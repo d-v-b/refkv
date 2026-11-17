@@ -1,5 +1,5 @@
-"""Writes the HDF4 inputs the profile rejects (spec/zarrify/hdf4.md §8.3
-<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#83-checks>) to fixtures/hdf4/:
+"""Writes the HDF4 inputs the profile rejects (spec/zarrify/hdf4.md §9.3
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#93-checks>) to fixtures/hdf4/:
 each `hdf4_reject_*` is the committed `hdf4_small.hdf` or `hdf4_layouts.hdf` (write_fixtures.py)
 with a few bytes patched, so that it breaks one check, the first its message names. The patches need no HDF4
 library, so this runs everywhere and gives the same bytes. conformance/zarrify/rejects/hdf4.json

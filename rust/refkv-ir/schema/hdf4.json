@@ -1,7 +1,7 @@
 {
   "source_model": "hdf4",
   "version": 1,
-  "about": "The source model of an HDF4 file (spec/zarrify/hdf4.md §7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#73-the-ir-mirror>): the elements a parser emits, and the bounds of what it reads (§8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#83-checks>). The checks are the reader's (`hdf4/mod.rs`), in the profile's order; projections read a valid IR and check nothing.",
+  "about": "The source model of an HDF4 file (spec/zarrify/hdf4.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#83-the-ir-mirror>): the elements a parser emits, and the bounds of what it reads (§9.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#93-checks>). The checks are the reader's (`hdf4/mod.rs`), in the profile's order; projections read a valid IR and check nothing.",
   "limits": {
     "max_blocks": 65536,
     "max_descriptors": 1048576,
@@ -9,6 +9,7 @@
     "attribute_bytes": 16777216,
     "max_chunks": 1048576,
     "chunk_table_bytes": 67108864,
+    "max_fields": 4096,
     "max_linked_blocks": 1048576,
     "max_depth": 64,
     "max_rounds": 4096

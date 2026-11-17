@@ -41,6 +41,14 @@ which most products use):
   An unlimited dimension's length is its record count, and a dataset or chunk
   never written reads as its fill value: the chunked header's, the
   `_FillValue`, or netCDF's default, as the HDF4 library reads it.
+- **Datasets of text** (`char8`) are arrays of strings, `null_terminated_bytes`
+  of the last axis's length, as netCDF reads a `char` variable: xarray and
+  NumPy read them as `S<n>` strings, trailing spaces kept.
+- **Tables** (the writer's Vdatas) are arrays of one `struct` per record, as
+  refkv presents a FITS binary table: numbers, numbers of several values as
+  nested structs, and text as `null_terminated_bytes`; a table of fields not
+  interlaced is a group of an array per field. MO36's `Calibration` table is a
+  record of three integers, six floats and three texts.
 - **Dimension names** are the SD interface's dimensions (`fakeDim<n>` where the
   writer named none), and a dimension scale is its coordinate variable, an
   array of the dimension's name.
@@ -54,11 +62,11 @@ which most products use):
   does not present, each with the reason; the whole file is described on
   `refkv_source` by the IR mirror, from which it is rebuilt byte for byte.
 
-**What is not presented yet**, and recorded instead: datasets of text
-(`char8`) and Vdata tables, the next step; SZIP and the other codecs (RLE,
-N-bit, skipping Huffman, JPEG); external elements; raster images and
-annotations; and files the older DFSD interface wrote, which have no SD
-dataset. [spec/zarrify/hdf4.md §7.4](../../../spec/zarrify/hdf4.md#74-what-is-not-presented)
+**What is not presented yet**, and recorded instead: SZIP and the other codecs
+(RLE, N-bit, skipping Huffman, JPEG); external elements; raster images and
+annotations; files the older DFSD interface wrote, which have no SD dataset;
+tables of the oldest Vdata headers (version 2), and of fields of two byte
+orders. [spec/zarrify/hdf4.md §8.4](../../../spec/zarrify/hdf4.md#84-what-is-not-presented)
 lists them, and [design/plans/hdf4.md](../../../design/plans/hdf4.md) the
 order of the work.
 
@@ -109,7 +117,9 @@ Supported:
   blocks, a compressed stream in linked blocks, a linked element whose first
   block is empty).
 - The SD interface's datasets, written or not, with an unlimited dimension or
-  not, of the numeric number types, big- and little-endian.
+  not, of the numeric number types, big- and little-endian, and of text.
+- Vdata tables of the writer's classes, interlaced or not, plain or in linked
+  blocks, with their attributes.
 
 Rejected:
 
@@ -121,7 +131,7 @@ Rejected:
 - More than 2^16 descriptor blocks, 2^20 descriptors, 2^20 chunks a dataset (or
   64 MiB of chunk table) or 2^20 blocks of a linked element.
 
-[spec/zarrify/hdf4.md §8.3](../../../spec/zarrify/hdf4.md#83-checks) has
+[spec/zarrify/hdf4.md §9.3](../../../spec/zarrify/hdf4.md#93-checks) has
 the messages.
 
 ## Performance
@@ -141,12 +151,13 @@ the messages.
 [fixtures/hdf4/](../../../fixtures/hdf4/) (written with pyhdf and, where pyhdf
 has no wrapper, the HDF4 library itself, by
 [the generator](../../../fixtures/generators/hdf4/write_fixtures.py)) and
-compares every dataset with what pyhdf reads: values, shape, dimension names
-and attributes. `just verify-of hdf4` does the same through the browser code,
-and checks that the mirror rebuilds each file; given a directory, it checks the
-files of [corpus_hdf4.txt](../../../conformance/zarrify/corpus_hdf4.txt): all
-103 datasets of GDAL's 7 HDF4 samples, and every SD dataset of the HDF4
-library's test files that pyhdf reads, match. The Rust tests rebuild every
+compares every dataset and table with what the HDF4 library reads through pyhdf:
+values, shape, dimension names, fields and attributes. `just verify-of hdf4`
+does the same through the browser code, and checks that the mirror rebuilds
+each file; given a directory, it checks the files of
+[corpus_hdf4.txt](../../../conformance/zarrify/corpus_hdf4.txt): all 103
+datasets of GDAL's 7 HDF4 samples and MO36's `Calibration` table, and every SD
+dataset and table of the HDF4 library's test files that pyhdf reads, match. The Rust tests rebuild every
 fixture byte for byte from its mirror and parse thousands of corrupted copies
 without a panic.
 

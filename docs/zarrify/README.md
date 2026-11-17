@@ -24,7 +24,7 @@ who each one is for, what you get, and how to run it.
 | FITS | FITS images and tables (`.fits`, `.fz`) | [fits](fits/README.md) | [fits.md §9](../../spec/zarrify/fits.md#9-fits-profile) |
 | FLAC | FLAC audio files, as a sharded array of samples (`.flac`) | [flac](flac/README.md) | [flac.md §8](../../spec/zarrify/flac.md#8-flac-profile) |
 | GRIB | GRIB2 files of gridded weather and climate fields (`.grib2`), as labeled arrays with CF coordinates | [grib](grib/README.md) | [grib.md §8](../../spec/zarrify/grib.md#8-grib-profile) |
-| HDF4 | HDF4 and HDF-EOS2 files (`.hdf`) of NASA's EOS-era archives, such as MODIS, SeaWiFS and AIRS products, as labeled arrays | [hdf4](hdf4/README.md) | [hdf4.md §8](../../spec/zarrify/hdf4.md#8-hdf4-profile) |
+| HDF4 | HDF4 and HDF-EOS2 files (`.hdf`) of NASA's EOS-era archives, such as MODIS, SeaWiFS and AIRS products, as labeled arrays | [hdf4](hdf4/README.md) | [hdf4.md §9](../../spec/zarrify/hdf4.md#9-hdf4-profile) |
 | HDF5 | HDF5 files (`.h5`, `.hdf5`), and NWB files (`.nwb`), which pynwb's `NWBZarrIO` opens | [hdf5](hdf5/README.md) | [hdf5.md §8](../../spec/zarrify/hdf5.md#8-hdf5-profile) |
 | IMS | Imaris `.ims` files | [ims](ims/README.md) | [ims.md §7](../../spec/zarrify/ims.md#7-ims-profile) |
 | LIF | Leica LIF, LOF and LIFEXT files, and LAS X projects (`.lif`, `.lof`, `.lifext`, `.xlef`, `.xlcf`, `.xlif`, `.xllf`) | [lif](lif/README.md) | [lif.md §7](../../spec/zarrify/lif.md#7-lif-profile) |
@@ -428,8 +428,8 @@ each format's metadata is:
   version that wrote the file; each group its Vgroup's ref and class, each attribute's
   type and count, the members the walk reached again, and those it does not present,
   with the reason. Each dataset's array keeps its refs, number type, storage, chunk
-  shape and compression
-  ([hdf4 §7](../../spec/zarrify/hdf4.md#7-source-metadata)).
+  shape and compression, and each table its ref, class, fields and record count
+  ([hdf4 §8](../../spec/zarrify/hdf4.md#8-source-metadata)).
 - **MP4:** the IR mirror on `refkv_source`, from the file's boxes down. The root
   keeps the `ftyp` brands, the movie's timescale and duration, and a row per track
   (its ID, handler and codec, with its path or the reason it is not presented). Each
