@@ -38,6 +38,7 @@ The table, generated from the registry, lists them:
 | [FITS](zarrify/fits.md#part-2-the-profile) | file | FITS files: images, multi-extension files, binary and ASCII tables |
 | [FLAC](zarrify/flac.md#part-2-the-profile) | file | FLAC files (`.flac`) of a fixed block size, with their metadata blocks and ID3v2 and ID3v1 tags; one sharded array of integer samples, not an image |
 | [GRIB](zarrify/grib.md#part-2-the-profile) | file | GRIB edition 2 files of gridded fields, such as NOAA's and ECMWF's forecasts, whose fields on latitude/longitude, Gaussian, rotated, Lambert conformal, polar stereographic, Mercator, reduced and unstructured grids it presents |
+| [HDF4](zarrify/hdf4.md#part-2-the-profile) | file | HDF4 files, HDF-EOS2 ones among them: the scientific datasets of numeric types the SD interface wrote, plain, linked, deflated or chunked, with their attributes and the writer's Vgroups |
 | [HDF5](zarrify/hdf5.md#part-2-the-profile) | file | HDF5 files, NWB files first among them: every group, dataset, attribute, link and object reference the profile can present, in hdmf-zarr's Zarr v3 form |
 | [IMS](zarrify/ims.md#part-2-the-profile) | file | Imaris IMS files (HDF5) |
 | [LIF](zarrify/lif.md#part-2-the-profile) | file | Leica LIF files (LAS X and LAS AF, versions 1 and 2), its object files (LOF) and extension files (LIFEXT), and LAS X projects of XLEF, XLCF, XLIF and XLLF documents and LOFs: every image of the element tree, with interleaved or planar channels, z-stacks, time series and mosaics, uncompressed |
@@ -244,6 +245,7 @@ profile name:
 | FITS ([fits.md §9](zarrify/fits.md#9-fits-profile)) | 110 |
 | FLAC ([flac.md §8](zarrify/flac.md#8-flac-profile)) | 95 |
 | GRIB ([grib.md §8](zarrify/grib.md#8-grib-profile)) | 65 |
+| HDF4 ([hdf4.md §8](zarrify/hdf4.md#8-hdf4-profile)) | 68 |
 | HDF5 ([hdf5.md §8](zarrify/hdf5.md#8-hdf5-profile)) | 70 |
 | LIF ([lif.md §7](zarrify/lif.md#7-lif-profile)) | 55 |
 | MP3 ([mp3.md §8](zarrify/mp3.md#8-mp3-profile)) | 100 |
@@ -1093,6 +1095,7 @@ else. The profiles, generated from the registry:
 - the FITS profile: [spec/zarrify/fits.md §9](zarrify/fits.md#9-fits-profile);
 - the FLAC profile: [spec/zarrify/flac.md §8](zarrify/flac.md#8-flac-profile);
 - the GRIB profile: [spec/zarrify/grib.md §8](zarrify/grib.md#8-grib-profile);
+- the HDF4 profile: [spec/zarrify/hdf4.md §8](zarrify/hdf4.md#8-hdf4-profile);
 - the HDF5 profile: [spec/zarrify/hdf5.md §8](zarrify/hdf5.md#8-hdf5-profile);
 - the IMS profile: [spec/zarrify/ims.md §7](zarrify/ims.md#7-ims-profile);
 - the LIF profile: [spec/zarrify/lif.md §7](zarrify/lif.md#7-lif-profile);

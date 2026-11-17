@@ -48,6 +48,9 @@ dev = [
     "bioio-bioformats>=1.3.0",
     "astropy>=8.0",
     "ruff>=0.17.2",
+    # HDF4: the HDF4 library's Python binding, the reference reader the HDF4 tests compare with, and
+    # the HDF4 fixture generator's writer; its macOS wheels are for macOS 26 (Darwin 25) and later
+    "pyhdf>=0.11.7; sys_platform != 'darwin' or platform_release >= '25'",
     "pyrefly>=1.4.0",
     "types-protobuf>=7.35.1.20260906",
     "types-jsonschema>=4.26.0.20261006",
