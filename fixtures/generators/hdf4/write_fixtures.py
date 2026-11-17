@@ -437,8 +437,15 @@ def tables(path: Path) -> None:
     split.detach()
     wide = vs.create("wide", (("v", HC.UINT8, 5000),))
     wide._class = "Series"
-    wide.write([[list(range(256)) * 19 + list(range(136))]])
+    wide.write([[[0] * 5000]])
     wide.detach()
+    # a field with two attributes of one name, the first not presentable (patched below)
+    dup = vs.create("dup_attr", (("v", HC.INT16, 1),))
+    dup._class = "Series"
+    dup.write([[1]])
+    dup.field("v").attr("aa").set(HC.CHAR8, "first")
+    dup.field("v").attr("ab").set(HC.INT16, 7)
+    dup.detach()
     empty = vs.create("empty", (("v", HC.INT16, 1),))
     empty._class = "Series"
     for name in ("little", "mixed"):
@@ -458,6 +465,35 @@ def tables(path: Path) -> None:
     little_fields(path, b"little", [0, 1])
     little_fields(path, b"mixed", [0])
     little_fields(path, b"split", [0])
+    same_name(path, b"aa", b"ab")
+
+
+def vdata_headers(b: bytes) -> dict[bytes, int]:
+    """Each Vdata header's offset, by the Vdata's name."""
+    out = {}
+    for (t, _), (o, _) in elements(b).items():
+        if t != 1962:
+            continue
+        n = struct.unpack_from(">H", b, o + 8)[0]
+        p = o + 10 + 8 * n
+        for _ in range(n):
+            p += 2 + struct.unpack_from(">H", b, p)[0]
+        out[bytes(b[p + 2:p + 2 + struct.unpack_from(">H", b, p)[0]])] = p
+    return out
+
+
+def same_name(path: Path, first: bytes, second: bytes) -> None:
+    """Names the attribute Vdata `second` `first` (as long), and makes `first` of interlace 1, which
+    an attribute is not: a field's two attributes of one name, the first not presentable. The
+    library writes no second attribute of a name."""
+    b = bytearray(path.read_bytes())
+    at = vdata_headers(bytes(b))
+    b[at[second] + 2:at[second] + 2 + len(second)] = first
+    els = elements(bytes(b))
+    head = next(o for (t, _), (o, _) in els.items() if t == 1962 and o < at[first] and
+                all(not (o < o2 < at[first]) for (t2, _), (o2, _) in els.items() if t2 == 1962))
+    struct.pack_into(">H", b, head, 1)
+    path.write_bytes(bytes(b))
 
 
 def small(path: Path) -> None:
