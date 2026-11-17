@@ -103,7 +103,9 @@ From 70 files: the 7 of GDAL's sample set and the 63 test files of the HDF4 libr
    (the library's `fakeDim*` scales in `ntcheck.hdf`, the examples' `Test SD`). Such datasets are
    reached through their `Var0.0` Vgroup, not an NDG. Without a `_FillValue`, the fill value is
    netCDF's default for the type, not 0: pyhdf reads −127 for `int8`, −2147483647 for `int32` and
-   9.96921 × 10^36 for `float32` in the library's unwritten datasets.
+   9.96921 × 10^36 for `float32` in the library's unwritten datasets. An unsigned type takes the
+   default of the signed netCDF type of its width, read unsigned: pyhdf reads 129, 32769 and
+   2147483649 for unwritten `uint8`, `uint16` and `uint32` datasets, and 0 for `uchar8`.
 6. **Text is one string per value, in one range** **[inspected]**. Every `char8` field in the corpus,
    in attributes (`Attr0.0`, `RIATTR0.0C`) and in tables, holds one text of ASCII, padded with NULs
    to its order, padded with spaces, or filling the field exactly. None holds two texts, and none
@@ -156,9 +158,10 @@ From 70 files: the 7 of GDAL's sample set and the 63 test files of the HDF4 libr
   imagecodecs' `szip` with its parameters (the codec's Zarr name to settle when SZIP is added); RLE, NBIT and skipping Huffman not presented in version
   0, with the reason (decision D3).
 - **Fill value:** the chunked header's fill value, else the `_FillValue` attribute, else
-  netCDF's default fill for the number type, as the SD library applies it (−127, −32767,
-  −2147483647, 9.96921 × 10^36 for 32-bit floats, 9.969209968386869 × 10^36 for 64-bit, and the
-  unsigned types' defaults, to check against the library's `netcdf.h`). An unwritten dataset,
+  netCDF's default fill for the number type, as the SD library applies it: `uchar8` and `char8`
+  0; −127, −32767 and −2147483647 for the signed integers; 129, 32769 and 2147483649 for the
+  unsigned ones (the signed default's bytes); 9.96921 × 10^36 for 32-bit floats and
+  9.969209968386869 × 10^36 for 64-bit. An unwritten dataset,
   unwritten chunks and records past the data read as it. This departs from
   [conventions §3](../../spec/conventions.md#3-arrays)'s fill value 0, as HDF5's does.
 - **Dimension names:** each SDS dimension's name (`fakeDim<n>` when the writer gave none, as the

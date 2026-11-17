@@ -113,7 +113,7 @@ class File:
                 else:
                     chunk_kinds["missing"] += 1
             return {"kind": "CHUNKED", "flag": flag, "elem_tot": tot, "chunk_size": csize,
-                    "nt_size": ntsize, "dims(flag,len,chunk)": dims, "fill_len": flen,
+                    "nt_size": ntsize, "dims(flag,len,chunk)": dims, "fill": self.b[fo + 4:fo + 4 + flen],
                     "table": (ttag, tref), "chunks": len(rows), "chunk_kinds": dict(chunk_kinds),
                     "comps": dict(comps)}
         return {"kind": kind}
