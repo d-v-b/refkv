@@ -285,6 +285,7 @@ def groups(path: Path) -> None:
     vgs["outer2"].add(HC.DFTAG_NDG, refs["dup_member"])
     vgs["pairs"].add(HC.DFTAG_NDG, refs["pair0"])
     vgs["pairs"].add(HC.DFTAG_NDG, refs["pair1"])
+    vgs["pairs"].add(HC.DFTAG_NDG, refs["pair1"])  # reached again in its group: recorded once there
     vgs["pair_again"].add(HC.DFTAG_NDG, refs["pair1"])
     vgs["outer"].add(HC.DFTAG_NDG, refs["shared"])
     vgs["second"].add(HC.DFTAG_NDG, refs["shared"])

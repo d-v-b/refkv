@@ -1048,7 +1048,7 @@ impl Hdf4 {
                 // not presented, but for a name another member of a group holds
                 match b.paths_ds.get(&k).cloned() {
                     Some(path) => b.link(node, &vars[k].name, t, r, &path),
-                    None if b.reached.contains(&k) && b.retry.get(&k).is_none_or(|&g| g == node) => {}
+                    None if b.reached.contains(&k) && b.retry.get(&k).is_none_or(|g| g.contains(&node)) => {}
                     None => b.dataset(node, k, &vars[k], &decided[k], &var_attrs[k]),
                 }
                 continue;
@@ -1363,8 +1363,8 @@ struct Builder {
     /// the datasets and tables the walk reached, presented or recorded
     reached: HashSet<usize>,
     tables: HashSet<u16>,
-    /// the datasets reached and not presented for their name in one group alone, with that group
-    retry: HashMap<usize, usize>,
+    /// the datasets reached and not presented for their name alone, with the groups that recorded them
+    retry: HashMap<usize, HashSet<usize>>,
     /// the canonical path of each Vgroup and dataset presented
     paths_vg: HashMap<u16, String>,
     paths_ds: HashMap<usize, String>,
@@ -1444,7 +1444,7 @@ impl Builder {
             // a name another member of this group holds: the dataset is tried again where the walk
             // reaches it next in another group
             Err("duplicate") => {
-                self.retry.insert(k, parent);
+                self.retry.entry(k).or_default().insert(parent);
                 return;
             }
             Err(_) => return,
