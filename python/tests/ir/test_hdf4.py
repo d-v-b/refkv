@@ -178,8 +178,8 @@ def test_tables_are_arrays_of_their_records():
     # its attributes: the Vdata's on the array, a field's in its source metadata
     assert cal.attrs["note"] == "calibration"
     assert own(cal)["field_attributes"] == {"band": {"units": "1"}}
-    # a field's first attribute of a name claims it, presented or not
-    assert "field_attributes" not in own(arrays["dup_attr"])
+    # a field's first attribute of a name claims it, presented or not; another name is presented
+    assert own(arrays["dup_attr"])["field_attributes"] == {"v": {"zz": 3}}
     # a table two Vgroups hold: presented once, linked from the other
     assert own(nodes_["Other"])["links"][0]["path"] == "Per File Data/Calibration"
     # records in linked blocks, fields not interlaced (a group of an array per field), no records,

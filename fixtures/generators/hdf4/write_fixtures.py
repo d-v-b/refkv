@@ -445,6 +445,7 @@ def tables(path: Path) -> None:
     dup.write([[1]])
     dup.field("v").attr("aa").set(HC.CHAR8, "first")
     dup.field("v").attr("ab").set(HC.INT16, 7)
+    dup.field("v").attr("zz").set(HC.INT16, 3)
     dup.detach()
     empty = vs.create("empty", (("v", HC.INT16, 1),))
     empty._class = "Series"
