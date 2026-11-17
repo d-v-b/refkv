@@ -262,7 +262,6 @@
                       "reserved",
                       "duplicate",
                       "depth",
-                      "char8",
                       "number_type",
                       "dimensions",
                       "size",
@@ -272,7 +271,10 @@
                       "external",
                       "special",
                       "dfsd",
-                      "table",
+                      "version",
+                      "datatype",
+                      "fields",
+                      "byte_order",
                       "object"
                     ]
                   }
@@ -360,6 +362,10 @@
             "coordinate": {
               "type": "boolean"
             },
+            "text_axis": {
+              "$ref": "#/$defs/text",
+              "description": "A dataset of text's last axis's name"
+            },
             "attributes": {
               "type": "object",
               "additionalProperties": {
@@ -384,6 +390,99 @@
             "ref",
             "number_type",
             "layout"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A table's, on its array or its group (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#82-datasets)",
+          "properties": {
+            "ref": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65535
+            },
+            "class": {
+              "$ref": "#/$defs/text"
+            },
+            "interlace": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "records": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "order": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "endian": {
+                    "const": "little"
+                  }
+                },
+                "required": [
+                  "name",
+                  "type",
+                  "order",
+                  "offset",
+                  "size"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "field_attributes": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object"
+              },
+              "description": "Each field's attributes as JSON, by the field's name"
+            },
+            "attributes": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/hdf4AttributeType"
+              },
+              "description": "Each attribute's type, by name"
+            },
+            "unpresented_attributes": {
+              "type": "object",
+              "additionalProperties": {
+                "enum": [
+                  "reserved",
+                  "budget",
+                  "datatype",
+                  "attribute"
+                ]
+              },
+              "description": "The attributes not presented, by name, each with the reason"
+            }
+          },
+          "required": [
+            "ref",
+            "class",
+            "interlace",
+            "records",
+            "fields"
           ],
           "additionalProperties": false
         },

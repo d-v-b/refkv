@@ -155,6 +155,12 @@ def layouts(path: Path) -> None:
     plain.attr("missing").set(SDC.FLOAT32, float("nan"))
     plain.endaccess()
 
+    # a float dataset whose _FillValue is text: an attribute of its text, not a fill value
+    textfill = sd.create("text_fill", SDC.FLOAT32, [2])
+    textfill[:] = np.array([1.5, 2.5], "f4")
+    textfill.attr("_FillValue").set(SDC.CHAR8, "-9999")
+    textfill.endaccess()
+
     deflated = sd.create("deflated", SDC.FLOAT32, [6, 7])
     deflated.setcompress(SDC.COMP_DEFLATE, LEVEL)
     deflated[:] = ramp([6, 7], "f4")
@@ -327,7 +333,12 @@ def groups(path: Path) -> None:
     table._class = "Table"
     table.write([[1, 0.5], [2, 1.5]])
     vgs["second"].insert(table)
-    vgs["outer"].insert(table)  # a table two Vgroups hold, recorded once
+    vgs["outer"].insert(table)  # a table two Vgroups hold, presented once
+    slashed = vs.create("x/y", (("v", HC.INT16, 1),))
+    slashed._class = "Table"
+    slashed.write([[5]])
+    vgs["outer"].insert(slashed)  # a table whose name is no node name, two Vgroups hold: recorded once
+    vgs["second"].insert(slashed)
     hidden = vs.create("hidden_table", (("v", HC.INT16, 1),))
     hidden._class = "Table"
     hidden.write([[4]])
@@ -335,7 +346,7 @@ def groups(path: Path) -> None:
     lone = vs.create("lone", (("v", HC.INT16, 1),))
     lone._class = "Lone"
     lone.write([[3]])
-    for x in (fv, table, lone, hidden):
+    for x in (fv, table, lone, hidden, slashed):
         x.detach()
     for g in vgs.values():
         g.detach()
@@ -411,6 +422,11 @@ def tables(path: Path) -> None:
     columns._class = "Columns"
     columns._interlace = HC.NO_INTERLACE
     columns.write([[10, "abc"], [20, "de"], [30, "f"]])
+    bad = vs.create("bad_columns", (("__x", HC.INT16, 1), ("y", HC.INT16, 1)))
+    bad._class = "Columns"
+    bad._interlace = HC.NO_INTERLACE
+    bad.write([[1, 2]])
+    bad.detach()
     empty = vs.create("empty", (("v", HC.INT16, 1),))
     empty._class = "Series"
     for name in ("little", "mixed"):

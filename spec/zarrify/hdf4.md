@@ -262,12 +262,14 @@ field, named by the field's name, each of shape `[records]`, of the field's data
 byte order, its values the field's `records × s` bytes.
 
 A table is not presented when its header is of version 2 or older (`version`: the older types), two
-fields have one name or the fields number more than 4096 leaves (`fields`), a record is more than
-2^20 bytes (`record_size`), or its records element holds fewer than `records × size` bytes
-(`length`). A table with no records is an array of shape `[0]`, with no chunk.
+fields have one name, the fields number more than 4096 leaves, or, of interlace 1, a field's name is
+not a node name ([§2.2](#22-paths)) (`fields`), or its records element holds fewer than
+`records × size` bytes (`length`). A record is at most 65535 bytes, the header's `uint16`. A table
+with no records is an array of shape `[0]`, with no chunk.
 
-**Attributes.** The Vdata's own attributes (a version 4 header's of field index −1) are the table's
-attributes ([§7](#7-attributes)); a field's are in its source metadata.
+**Attributes.** The Vdata's own attributes (a version 4 header's of field index −1 that are Vdatas
+of class `Attr0.0`) are the table's attributes ([§7](#7-attributes)); a field's are in its source
+metadata, the first of each name.
 
 ## 5. Dimensions and coordinates
 
@@ -386,7 +388,7 @@ claims is a gap: the mirror rebuilds the file.
 | `compression`, `chunks`, `length` | [§3.2](#32-chunks): a method other than deflate (SZIP, RLE, NBIT, skipping Huffman, JPEG), a model other than the standard one; chunks of mixed methods; data shorter than the array |
 | `external`, `special` | data in an external file (special code 2), or in a special element of another code |
 | `dfsd` | the datasets of a file without a `CDF0.0` Vgroup ([§3](#3-datasets)) |
-| `version`, `datatype`, `fields`, `byte_order`, `record_size` | a table's ([§4](#4-tables)) |
+| `version`, `datatype`, `fields`, `byte_order` | a table's ([§4](#4-tables)) |
 | `object` | any other member of a group: a raster image, a palette, an annotation, an interface's Vgroup |
 
 Every byte of an object not presented is in the mirror, so the hierarchy loses none of the file:
@@ -457,7 +459,11 @@ Structures:
 - **A Vdata header** (VH, `vunpackvs` in `hdf/src/vio.c`): its interlace (`uint16`), record count
   (`uint32`), record size (`uint16`), field count `n` (`int16`), the fields' `n` types, sizes, offsets
   and orders (`uint16` each), their names, its name and its class (each a `uint16` length and the
-  bytes). A Vdata's records are its VS element of its ref, plain or in linked blocks.
+  bytes), the expansion tag and ref, its version and `more` (`uint16` each), and its version again,
+  the `uint16` 5 bytes before the element's end; a version 4 header has, after those, flags
+  (`uint32`) and, when bit 0 is set, its attributes: a count (`uint32`) and that many field indexes
+  (`int32`, −1 for the whole Vdata), tags and refs. A Vdata's records are its VS element of its ref,
+  plain or in linked blocks.
 - **An SDD**: the rank (`uint16`), then a size (`uint32`) per axis.
 - **Special headers** ([§3.2](#32-chunks)): a code (`uint16`), then for linked blocks the length,
   the block length and the blocks per link table (`uint32` each) and the first link table's ref

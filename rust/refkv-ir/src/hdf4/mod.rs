@@ -1192,7 +1192,8 @@ impl Hdf4 {
     /// Whether and how the writer's Vdata `vh`, of ref `r`, is presented (spec/zarrify/hdf4.md §4
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#4-tables>).
     fn table(p: &mut Pass, vh: &Vh, r: u16, vhs: &BTreeMap<u16, Vh>) -> R<Table> {
-        let attr_refs: Vec<u16> = vh.attrs.iter().filter(|a| a.0 == -1 && a.1 == VH).map(|a| a.2).collect();
+        let is_attribute = |r: u16| vhs.get(&r).is_some_and(|h| h.class == ATTRIBUTE);
+        let attr_refs: Vec<u16> = vh.attrs.iter().filter(|a| a.0 == -1 && a.1 == VH && is_attribute(a.2)).map(|a| a.2).collect();
         let attrs = Self::attributes(p, vhs, &attr_refs)?;
         let form = Self::table_form(p, vh, r, vhs)?;
         Ok(Table { name: vh.name.clone(), form, attrs })
@@ -1216,13 +1217,16 @@ impl Hdf4 {
         let mut by_field: Map<String, J> = Map::new();
         for &(k, t, a) in &vh.attrs {
             let Some(field) = usize::try_from(k).ok().and_then(|k| vh.fields.get(k)) else { continue };
-            if t != VH {
+            if t != VH || !vhs.get(&a).is_some_and(|h| h.class == ATTRIBUTE) {
                 continue;
             }
             for at in Self::attributes(p, vhs, &[a])? {
                 if let Ok(v) = at.value {
                     let e = by_field.entry(utf8_or_latin1(&field.0)).or_insert_with(|| json!({}));
-                    e[utf8_or_latin1(&at.name)] = v;
+                    let key = utf8_or_latin1(&at.name);
+                    if e.get(&key).is_none() {
+                        e[key] = v;
+                    }
                 }
             }
         }
@@ -1239,13 +1243,23 @@ impl Hdf4 {
         let mut big: Option<bool> = None;
         let (mut names, mut leaves) = (HashSet::new(), 0u64);
         for (name, ty, isize, _, order) in &vh.fields {
-            let (dt, fill, n, ordered) = match field_type(*ty, *isize, *order) {
+            // the leaves bounded before a field's type is built: an order is up to 65535
+            leaves += if ty & 0xFF == 4 { 1 } else { *order as u64 };
+            if leaves > p.limit("max_fields") {
+                return Ok(TableForm::Not("fields"));
+            }
+            // a field of a table not interlaced is an array of its own, named by the field
+            if vh.interlace == 1 && node_name(name).is_none() {
+                return Ok(TableForm::Not("fields"));
+            }
+            let (dt, fill, _, ordered) = match field_type(*ty, *isize, *order) {
                 Ok(t) => t,
                 Err(why) => return Ok(TableForm::Not(why)),
             };
             if ordered {
                 let b = ty & 0x4000 == 0;
-                if big.is_some_and(|x| x != b) {
+                // a record's fields share its one `bytes` codec; a field not interlaced has its own
+                if vh.interlace == 0 && big.is_some_and(|x| x != b) {
                     return Ok(TableForm::Not("byte_order"));
                 }
                 big = Some(b);
@@ -1253,11 +1267,7 @@ impl Hdf4 {
             if !names.insert(utf8_or_latin1(name)) {
                 return Ok(TableForm::Not("fields"));
             }
-            leaves += n;
             types.push((utf8_or_latin1(name), dt, fill, ordered, *isize as u64));
-        }
-        if leaves > p.limit("max_fields") {
-            return Ok(TableForm::Not("fields"));
         }
         // interlace 0: each record its fields in order, at their offsets, nothing between
         let mut at = 0u64;
@@ -1270,10 +1280,8 @@ impl Hdf4 {
         if at != vh.ivsize as u64 {
             return Ok(TableForm::Not("fields"));
         }
+        // at most 65535 bytes, the header's `uint16`: within the chunk limit
         let record = at;
-        if record > p.limit("record_bytes") {
-            return Ok(TableForm::Not("record_size"));
-        }
         let rows = vh.nvert as u64;
         let total = rows * record;
         let data = match p.stored(VS, r)? {
@@ -1730,23 +1738,26 @@ impl Builder {
         match form {
             TableForm::Not(why) => self.not(parent, Some(&name), VH, r, why),
             TableForm::Records { array, own } => {
-                let Ok(n) = self.name_in(parent, &name, VH, r) else { return };
-                let path = self.array_node(parent, &n, array, own, attrs);
-                self.paths_tables.insert(r, path);
+                if let Ok(n) = self.name_in(parent, &name, VH, r) {
+                    let path = self.array_node(parent, &n, array, own, attrs);
+                    self.paths_tables.insert(r, path);
+                }
             }
             TableForm::Fields { own, arrays } => {
-                let Ok(n) = self.name_in(parent, &name, VH, r) else { return };
-                let group = self.group(n, vec![parent], attrs, own);
-                for (field, array) in arrays {
-                    if let Ok(f) = self.name_in(group, &field, VH, r) {
+                if let Ok(n) = self.name_in(parent, &name, VH, r) {
+                    let group = self.group(n, vec![parent], attrs, own);
+                    for (field, array) in arrays {
+                        // node names, one each (`table_form`)
+                        let f = utf8_or_latin1(&field);
                         self.array_node(group, &f, array, Map::new(), Vec::new());
                     }
+                    let path = self.nodes[group]["path"].as_str().unwrap_or("").to_string();
+                    self.paths_tables.insert(r, path);
                 }
-                let path = self.nodes[group]["path"].as_str().unwrap_or("").to_string();
-                self.paths_tables.insert(r, path);
             }
         }
-        // keep the decision, for a link from a later visit
+        // the table is reached: a later visit links it when it is presented, and passes it by when
+        // it is not (recorded once)
         self.table_defs.insert(r, Table { name, form: TableForm::Not("table"), attrs: Vec::new() });
     }
 
@@ -1831,7 +1842,7 @@ fn presented_attributes(attrs: Vec<Attr>, float: Option<bool>) -> (Map<String, J
             Ok(mut v) => {
                 // `_FillValue` in the form xarray's Zarr backend reads (spec/zarrify/hdf5.md §6
                 // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>)
-                if let (true, Some(true), Some((c, big, raw))) = (name == "_FillValue", float, &a.raw) {
+                if let (true, Some(true), Some((c, big, raw))) = (name == "_FillValue", float, a.raw.as_ref().filter(|r| numeric(r.0).is_some())) {
                     {
                         let x = match c {
                             5 => raw.get(..4).map(|b| f32::from_bits(int_of(b, *big, false) as u32) as f64),

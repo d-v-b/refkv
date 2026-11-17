@@ -42,9 +42,9 @@ INTERNAL_VDS = {"DimVal0.0", "DimVal0.1", "Attr0.0", "SDSVar", "CoordVar", "RIAT
 # name, with the reason its generator plants
 UNPRESENTED = {
     "hdf4_groups.hdf": {"a/b": "name", "__hidden": "name", "refkv_source": "reserved", "twin": "duplicate",
-                        "pair": "duplicate"},
+                        "pair": "duplicate", "x/y": "name"},
     "hdf4_layouts.hdf": {"text_cut": "chunks"},
-    "hdf4_tables.hdf": {"mixed": "byte_order"},
+    "hdf4_tables.hdf": {"mixed": "byte_order", "bad_columns": "fields"},
 }
 
 
@@ -95,7 +95,7 @@ def attribute_problems(where: str, want: dict, got, float_dataset: bool) -> list
             problems.append(f"{where}: attribute {name!r} absent")
             continue
         g = got[name]
-        if name == "_FillValue" and float_dataset and isinstance(g, str):
+        if name == "_FillValue" and float_dataset and isinstance(g, str) and not isinstance(w, str):
             g = struct.unpack("<d", base64.b64decode(g))[0]
         if isinstance(w, str):
             ok = text_of(w) == g

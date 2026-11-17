@@ -6,7 +6,7 @@ which every schema accepts."""
 
 _HDF4 = "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md"
 _REASONS = ["name", "reserved", "duplicate", "depth", "number_type", "dimensions", "size", "compression", "chunks",
-            "length", "external", "special", "dfsd", "version", "datatype", "fields", "byte_order", "record_size",
+            "length", "external", "special", "dfsd", "version", "datatype", "fields", "byte_order",
             "object"]
 _ATTRIBUTE_REASONS = ["reserved", "budget", "datatype", "attribute"]
 _REF = {"type": "integer", "minimum": 0, "maximum": 65535}

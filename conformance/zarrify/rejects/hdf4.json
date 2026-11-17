@@ -40,7 +40,7 @@
     {
       "test": "hdf4_reject_compressed_loop",
       "input": "hdf4_reject_compressed_loop.hdf",
-      "message": "the compressed element tag 17086 ref 5 holds its data in a special element other than linked blocks"
+      "message": "the compressed element tag 17086 ref 7 holds its data in a special element other than linked blocks"
     },
     {
       "test": "hdf4_reject_link_loop",
@@ -55,7 +55,7 @@
     {
       "test": "hdf4_reject_chunk_without_stream",
       "input": "hdf4_reject_chunk_without_stream.hdf",
-      "message": "the chunk at [0, 0] of tag 17086 ref 10 holds 0 bytes of its stream"
+      "message": "the chunk at [0, 0] of tag 17086 ref 12 holds 0 bytes of its stream"
     }
   ]
 }

@@ -98,12 +98,14 @@ def test_each_storage_is_presented_as_the_convention_says():
     assert ndarray(arrays["text1"][...]).tolist() == b"hello"
     assert ndarray(arrays["text2"][...]).tolist() == [b"ab", b"cd  ", b"efgh"]
     assert arrays["text3"].shape == (2, 2)
-    assert own(arrays["text3"])["text_axis"] == "fakeDim54"
+    assert own(arrays["text3"])["text_axis"].startswith("fakeDim")
     assert v3(arrays["text2"]).data_type.to_json(zarr_format=3) == {"name": "null_terminated_bytes",
                                                                     "configuration": {"length_bytes": 4}}
     assert arrays["text_chunked"].chunks == (2,)
     assert "text_cut" not in arrays
     assert ndarray(arrays["text_empty"][...]).tolist() == [b"", b""]
+    # a float dataset's _FillValue of text is its text
+    assert arrays["text_fill"].attrs["_FillValue"] == "-9999"
     # attributes: text to its first NUL, trailing spaces kept; numbers one and several
     assert root.attrs["title_nul"] == "padded"
     assert root.attrs["title_spaces"] == "padded   "
@@ -148,10 +150,12 @@ def test_groups_follow_the_writers_vgroups():
     assert reasons[""] == [("bad/name", "name"), ("outer", "duplicate"), ("refkv_source", "reserved"),
                            ("twin", "duplicate")]
     assert reasons["second"] == [("__hidden", "name"), ("a/b", "name")]
+    # a table whose name is no node name, which two Vgroups hold: recorded once, where first reached
+    assert reasons["outer"] == [("x/y", "name")]
     # recorded once in each group that holds a `pair` already, however often the walk reaches it there
     assert reasons["pairs"] == [("pair", "duplicate")]
     assert reasons["pairs/pair_child"] == [("pair", "duplicate")]
-    assert info["unpresented"] == {"duplicate": 4, "name": 3, "reserved": 1}
+    assert info["unpresented"] == {"duplicate": 4, "name": 4, "reserved": 1}
 
 
 def test_tables_are_arrays_of_their_records():
@@ -185,4 +189,4 @@ def test_tables_are_arrays_of_their_records():
     assert arrays["empty"].shape == (0,)
     little = [{"name": "bytes", "configuration": {"endian": "little"}}]
     assert [c.to_dict() for c in v3(arrays["little"]).codecs] == little
-    assert info["unpresented"] == {"byte_order": 1}
+    assert info["unpresented"] == {"byte_order": 1, "fields": 1}

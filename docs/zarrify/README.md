@@ -429,7 +429,7 @@ each format's metadata is:
   type and count, the members the walk reached again, and those it does not present,
   with the reason. Each dataset's array keeps its refs, number type, storage, chunk
   shape and compression, and each table its ref, class, fields and record count
-  ([hdf4 §7](../../spec/zarrify/hdf4.md#8-source-metadata)).
+  ([hdf4 §8](../../spec/zarrify/hdf4.md#8-source-metadata)).
 - **MP4:** the IR mirror on `refkv_source`, from the file's boxes down. The root
   keeps the `ftyp` brands, the movie's timescale and duration, and a row per track
   (its ID, handler and codec, with its path or the reason it is not presented). Each
