@@ -8,6 +8,7 @@
     "header_bytes": 1048576,
     "attribute_bytes": 16777216,
     "max_chunks": 1048576,
+    "chunk_table_bytes": 67108864,
     "max_linked_blocks": 1048576,
     "max_depth": 64,
     "max_rounds": 4096

@@ -5,11 +5,11 @@ shape, dimension names and attributes the library reads, or listed with the reas
 plants (hdf4_oracle.py). The fixtures' hierarchy, storage and source metadata are then checked
 against what the generator wrote. The rejected fixtures are test_rejects.py's.
 
-The kerchunk and VirtualiZarr HDF4 readers' bugs (design/plans/hdf4.md §1.4
-<https://github.com/d-v-b/refkv/blob/main/design/plans/hdf4.md#14-findings-that-shaped-the-design>,
-item 10) that step 1 covers each have a fixture here: floats and integers of both byte orders
-(`little_*`), plain datasets referenced in place (`plain`), deflate named only where the data is
-deflated (`deflated`, `chunked_deflate`, and `chunked` without it), datasets in no Vgroup (`alone`),
+The kerchunk and VirtualiZarr HDF4 readers' bugs (the plan design/plans/hdf4.md lists them among
+its findings that shaped the design, item 10) that step 1 covers each have a fixture here: floats
+and integers of both byte orders (`little_*`), plain datasets referenced in place (`plain`), deflate
+named only where the data is deflated (`deflated`, `chunked_deflate`, and `chunked` without it),
+datasets in no Vgroup (`alone`),
 data in linked blocks referenced, compressed or not (`records`, the chunk tables), dimension names of
 a rank-3 dataset (`cube`), and nested Vgroups (`outer/inner`)."""
 
@@ -18,11 +18,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 import zarr
-from hdf4_oracle import UNPRESENTED, nodes, own, problems, v3
-from ir_helpers import FIXTURES
 
 import refkv.zarr
 from refkv.zarrify import zarrify
+
+# pyhdf, where it has a wheel (pyproject.toml); the oracle imports it
+pytest.importorskip("pyhdf")
+from hdf4_oracle import UNPRESENTED, nodes, own, problems, v3
+from ir_helpers import FIXTURES
 
 HDF4 = FIXTURES / "hdf4"
 ACCEPTED = sorted(p for p in HDF4.glob("*.hdf") if "reject" not in p.name)
@@ -103,10 +106,12 @@ def test_each_storage_is_presented_as_the_convention_says():
 def test_groups_follow_the_writers_vgroups():
     root, info = opened(HDF4 / "hdf4_groups.hdf")
     kinds = {p: type(n).__name__ for p, n in nodes(root)}
+    # a Vgroup not presented holds nothing below it: what it holds is the root's, its datasets after
+    # the walk and its Vgroups as the walk's last top Vgroups
     assert kinds == {
-        "": "Group", "alone": "Array", "twin": "Array",
+        "": "Group", "alone": "Array", "twin": "Array", "orphan": "Array", "dup_member": "Array",
         "outer": "Group", "outer/inner": "Group", "outer/inner/inner_data": "Array", "outer/shared": "Array",
-        "second": "Group", "loop_a": "Group", "loop_a/loop_b": "Group",
+        "second": "Group", "loop_a": "Group", "loop_a/loop_b": "Group", "under": "Group", "under/under_data": "Array",
     }
     groups = dict(nodes(root))
     # a Vgroup and a dataset reached again are links of the group that holds them, in member order
@@ -121,6 +126,7 @@ def test_groups_follow_the_writers_vgroups():
     assert own(groups["outer"])["class"] == "Grid"
     # what is not presented, by group: names, the tables, the dataset of text
     reasons = {p: sorted((u.get("name"), u["reason"]) for u in own(n).get("unpresented", [])) for p, n in nodes(root)}
-    assert reasons[""] == [("lone", "table"), ("refkv_source", "reserved"), ("text", "char8"), ("twin", "duplicate")]
+    assert reasons[""] == [("bad/name", "name"), ("lone", "table"), ("outer", "duplicate"),
+                           ("refkv_source", "reserved"), ("text", "char8"), ("twin", "duplicate")]
     assert reasons["second"] == [("__hidden", "name"), ("a/b", "name"), ("table", "table")]
-    assert info["unpresented"] == {"char8": 1, "duplicate": 1, "name": 2, "reserved": 1, "table": 2}
+    assert info["unpresented"] == {"char8": 1, "duplicate": 2, "name": 3, "reserved": 1, "table": 2}

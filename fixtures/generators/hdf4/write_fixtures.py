@@ -13,7 +13,8 @@ type):
   every kind: text padded with NULs, with spaces and exact, an HDF-EOS `StructMetadata.0`,
   numbers one and several, a NaN;
 - `hdf4_groups.hdf`: nested Vgroups, a Vgroup and a dataset reached twice, Vgroups that hold each
-  other in a loop, a dataset in no Vgroup, a Vgroup's attributes (its own and an `Attr0.0` member),
+  other in a loop, a dataset in no Vgroup, Vgroups not presented (a name with `/`, a second
+  `outer`) and what they hold, a Vgroup's attributes (its own and an `Attr0.0` member),
   tables, a dataset of text, and names the hierarchy cannot take;
 - `hdf4_small.hdf`: one plain and two chunked datasets, which write_rejects.py patches into the
   inputs the profile rejects.
@@ -242,7 +243,8 @@ def stale_sdd(path: Path, name: bytes, size: int) -> None:
 def groups(path: Path) -> None:
     sd = SD(str(path), SDC.WRITE | SDC.CREATE | SDC.TRUNC)
     refs = {}
-    for name in ("alone", "inner_data", "shared", "a/b", "__hidden", "twin", "refkv_source"):
+    for name in ("alone", "inner_data", "shared", "a/b", "__hidden", "twin", "refkv_source", "orphan", "under_data",
+                 "dup_member"):
         s = sd.create(name, SDC.INT32, [3])
         s[:] = ramp([3], "i4")
         refs[name] = s.ref()
@@ -258,14 +260,22 @@ def groups(path: Path) -> None:
     hdf = HDF(str(path), HC.WRITE)
     v, vs = hdf.vgstart(), hdf.vstart()
     vgs = {}
-    for name, cls in (("outer", "Grid"), ("inner", ""), ("second", "Grid"), ("loop_a", "Loop"), ("loop_b", "Loop")):
-        vgs[name] = v.create(name)
-        vgs[name]._class = cls
+    for key, name, cls in (("outer", "outer", "Grid"), ("inner", "inner", ""), ("second", "second", "Grid"),
+                           ("loop_a", "loop_a", "Loop"), ("loop_b", "loop_b", "Loop"), ("bad", "bad/name", "Grid"),
+                           ("under", "under", ""), ("outer2", "outer", "Grid")):
+        vgs[key] = v.create(name)
+        vgs[key]._class = cls
     vgs["outer"].insert(vgs["inner"])
     vgs["second"].insert(vgs["inner"])
     vgs["loop_a"].insert(vgs["loop_b"])
     vgs["loop_b"].insert(vgs["loop_a"])
     vgs["inner"].add(HC.DFTAG_NDG, refs["inner_data"])
+    # a Vgroup whose name is no node name, and a second of one name: neither is presented, and what
+    # they hold is the root's
+    vgs["bad"].add(HC.DFTAG_NDG, refs["orphan"])
+    vgs["bad"].insert(vgs["under"])
+    vgs["under"].add(HC.DFTAG_NDG, refs["under_data"])
+    vgs["outer2"].add(HC.DFTAG_NDG, refs["dup_member"])
     vgs["outer"].add(HC.DFTAG_NDG, refs["shared"])
     vgs["second"].add(HC.DFTAG_NDG, refs["shared"])
     vgs["second"].add(HC.DFTAG_NDG, refs["a/b"])

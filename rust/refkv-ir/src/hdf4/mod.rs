@@ -524,10 +524,18 @@ impl Pass<'_> {
             Special::Linked { length, block, per_table, link } => Stored::Plain(self.linked(i, length, block, per_table, link)?),
             Special::External => Stored::External,
             Special::Compressed { length, data, model, method } => {
-                let data = match self.stored(COMPRESSED, data)? {
-                    Stored::Plain(l) => l,
-                    Stored::None => Logical::default(),
-                    _ => return bad(format!("the compressed element {} holds its data in a special element other than linked blocks", self.what(i))),
+                // the stream: a plain element, or linked blocks; never another special element, so
+                // that no chain of them is followed
+                let data = if let Some(&k) = self.by.get(&(COMPRESSED, data)) {
+                    let d = self.dds[k];
+                    Logical { len: d.len, segs: if d.len > 0 { vec![(Some(k), d.off, d.len)] } else { Vec::new() } }
+                } else if let Some(&k) = self.by.get(&(COMPRESSED | SPECIAL, data)) {
+                    match self.special(k)? {
+                        Special::Linked { length, block, per_table, link } => self.linked(k, length, block, per_table, link)?,
+                        _ => return bad(format!("the compressed element {} holds its data in a special element other than linked blocks", self.what(i))),
+                    }
+                } else {
+                    Logical::default()
                 };
                 Stored::Compressed { length, method, model, data }
             }
@@ -759,8 +767,9 @@ pub fn parse_vh(b: &[u8]) -> Option<Vh> {
     Some(Vh { interlace, nvert, ivsize, fields, name, class })
 }
 
-/// A Zarr node name (hdf5.md §2.2's rule, and no `/`): valid UTF-8, not empty, not `.` or `..`, not
-/// starting with `__`.
+/// A Zarr node name (spec/zarrify/hdf4.md §2.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#22-paths>, HDF5's rule and no `/`):
+/// valid UTF-8, not empty, not `.` or `..`, not starting with `__`.
 fn node_name(b: &[u8]) -> Option<String> {
     let s = std::str::from_utf8(b).ok()?;
     (!s.is_empty() && s != "." && s != ".." && !s.starts_with("__") && !s.contains('/')).then(|| s.to_string())
@@ -932,11 +941,9 @@ impl Hdf4 {
                 _ => None,
             }
         };
-        let in_group: HashSet<usize> = writer.iter().flat_map(|g| vgs[g].members.iter().filter_map(|&(t, r)| dataset_of(t, r))).collect();
-        let tables_in_groups: HashSet<u16> = writer.iter().flat_map(|g| vgs[g].members.iter().filter(|m| m.0 == VH).map(|m| m.1)).collect();
         let internal_members: HashSet<u16> = vgs.values().filter(|v| internal_vg(&v.class)).flat_map(|v| v.members.iter().filter(|m| m.0 == VH).map(|m| m.1)).collect();
 
-        let mut b = Builder { nodes: Vec::new(), paths_vg: HashMap::new(), paths_ds: HashMap::new(), unpresented: BTreeMap::new(), groups: 0, arrays: 0, chunks: 0 };
+        let mut b = Builder { nodes: Vec::new(), paths: HashSet::new(), reached: HashSet::new(), tables: HashSet::new(), paths_vg: HashMap::new(), paths_ds: HashMap::new(), unpresented: BTreeMap::new(), groups: 0, arrays: 0, chunks: 0 };
         // the root
         let mut root_own = Map::new();
         if let Some(i) = p.dds.iter().position(|d| d.tag == VERSION) {
@@ -967,14 +974,15 @@ impl Hdf4 {
             }
         }
         for k in 0..vars.len() {
-            if !in_group.contains(&k) {
+            // a dataset the walk did not reach: in no Vgroup, or only in Vgroups not presented
+            if !b.reached.contains(&k) {
                 b.dataset(root, k, &vars[k], &decided[k], &var_attrs[k]);
             }
         }
         // what the root holds that the profile does not present: the writer's tables in no Vgroup,
         // and the datasets of a file without a CDF0.0 Vgroup
         for (&r, h) in vhs {
-            if !internal_vd(&h.class) && !tables_in_groups.contains(&r) && !internal_members.contains(&r) {
+            if !internal_vd(&h.class) && !b.tables.contains(&r) && !internal_members.contains(&r) {
                 b.not(root, Some(&h.name), VH, r, "table");
             }
         }
@@ -1036,8 +1044,10 @@ impl Hdf4 {
             };
             top.2 += 1;
             if let Some(k) = dataset_of(t, r) {
+                // presented once, at its first visit; recorded once, where it is first not presented
                 match b.paths_ds.get(&k).cloned() {
                     Some(path) => b.link(node, &vars[k].name, t, r, &path),
+                    None if b.reached.contains(&k) => {}
                     None => b.dataset(node, k, &vars[k], &decided[k], &var_attrs[k]),
                 }
                 continue;
@@ -1051,6 +1061,7 @@ impl Hdf4 {
                 VG => b.not(node, vgs.get(&r).map(|c| c.name.as_slice()), t, r, "object"),
                 VH => match vhs.get(&r) {
                     Some(h) if h.class == ATTRIBUTE => {}
+                    Some(_) if !b.tables.insert(r) => {}
                     Some(h) => b.not(node, Some(&h.name), t, r, "table"),
                     None => b.not(node, None, t, r, "object"),
                 },
@@ -1147,7 +1158,7 @@ impl Hdf4 {
                     }
                     json!({"kind": "contiguous", "segments": data.prefix(nbytes).json()})
                 } else if method == COMP_DEFLATE {
-                    if length != nbytes {
+                    if length != nbytes || data.len == 0 {
                         return Ok(Decided::Not("length"));
                     }
                     codecs.push(zlib.clone());
@@ -1220,6 +1231,9 @@ impl Hdf4 {
         let rows = vh.nvert as u64;
         if rows > p.limit("max_chunks") {
             return bad(format!("budget: the chunk table ref {} of {what} has more than {} chunks", h.table, p.limit("max_chunks")));
+        }
+        if rows * record > p.limit("chunk_table_bytes") {
+            return bad(format!("budget: the chunk table ref {} of {what} is more than {} bytes", h.table, p.limit("chunk_table_bytes")));
         }
         let table = match p.stored(VS, h.table)? {
             Stored::Plain(l) if l.len >= rows * record => p.read(&l.prefix(rows * record))?,
@@ -1339,6 +1353,11 @@ impl Hdf4 {
 /// The nodes as the walk presents them, each group's unpresented members, and the counts.
 struct Builder {
     nodes: Vec<J>,
+    /// the nodes' paths
+    paths: HashSet<String>,
+    /// the datasets and tables the walk reached, presented or recorded
+    reached: HashSet<usize>,
+    tables: HashSet<u16>,
     /// the canonical path of each Vgroup and dataset presented
     paths_vg: HashMap<u16, String>,
     paths_ds: HashMap<usize, String>,
@@ -1371,7 +1390,7 @@ impl Builder {
             return None;
         }
         let path = self.path_of(&[parent], &n);
-        if self.nodes.iter().any(|x| x["path"] == json!(path)) {
+        if self.paths.contains(&path) {
             self.not(parent, Some(name), tag, rf, "duplicate");
             return None;
         }
@@ -1406,11 +1425,13 @@ impl Builder {
             own.insert("unpresented_attributes".into(), J::Object(not));
         }
         self.groups += u64::from(!path.is_empty());
+        self.paths.insert(path.clone());
         self.nodes.push(json!({"path": path, "attributes": attributes, "own": own}));
         self.nodes.len() - 1
     }
 
     fn dataset(&mut self, parent: usize, k: usize, var: &Var, decided: &Decided, attrs: &[Attr]) {
+        self.reached.insert(k);
         let Decided::Array { array, own, chunks } = decided else {
             if let Decided::Not(why) = decided {
                 self.not(parent, Some(&var.name), VG, var.vg, why);
@@ -1431,6 +1452,7 @@ impl Builder {
         self.arrays += 1;
         self.chunks += chunks;
         self.paths_ds.insert(k, path.clone());
+        self.paths.insert(path.clone());
         self.nodes.push(json!({"path": path, "attributes": attributes, "own": own, "array": array}));
     }
 }
@@ -1461,7 +1483,8 @@ fn presented_attributes(attrs: Vec<Attr>, float: Option<bool>) -> (Map<String, J
         }
         match a.value {
             Ok(mut v) => {
-                // `_FillValue` in the form xarray's Zarr backend reads (hdf5.md §6)
+                // `_FillValue` in the form xarray's Zarr backend reads (spec/zarrify/hdf5.md §6
+                // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>)
                 if let (true, Some(true), Some((c, big, raw))) = (name == "_FillValue", float, &a.raw) {
                     {
                         let x = match c {

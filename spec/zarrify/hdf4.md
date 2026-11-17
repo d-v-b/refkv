@@ -20,8 +20,8 @@ Added 2026-11-17.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
-This version covers the first step of the plan
-([design/plans/hdf4.md §4](../../design/plans/hdf4.md#4-order-of-work)): the SD interface's
+This version covers the first step of the plan's order of work
+([design/plans/hdf4.md](../../design/plans/hdf4.md)): the SD interface's
 datasets of numeric types, their attributes, and the writer's Vgroups. Datasets of text, Vdata
 tables, raster images, external elements and the codecs other than deflate are listed with a
 reason ([§7.4](#74-what-is-not-presented)), and their bytes stay in the IR mirror.
@@ -95,9 +95,10 @@ The root's members are, in this order:
 
 1. the **top Vgroups**: the groups no group holds, in ascending order of their refs, and then, while
    any group is left that the walk ([§2.2](#22-paths)) did not reach (Vgroups that hold one another
-   in a loop), the one of them with the least ref;
-2. every dataset that no group holds, in the order of the `CDF0.0` Vgroup's members. CALIPSO keeps all
-   of its datasets so.
+   in a loop, or that only a Vgroup not presented holds), the one of them with the least ref;
+2. every dataset the walk did not reach, in the order of the `CDF0.0` Vgroup's members: a dataset
+   that no group holds (CALIPSO keeps all of its datasets so), or that only Vgroups not presented
+   hold.
 
 ### 2.2 Paths
 
@@ -110,9 +111,11 @@ the group that holds it ([§7.1](#71-groups)). A group is presented at most 64 l
 A group's name is its Vgroup's name, and a dataset's its `Var0.0` Vgroup's. An object is presented
 only when its name is a **node name**: valid UTF-8, not empty, not `.` or `..`, not starting with
 `__` (which Zarr v3 reserves), without `/`, and, at the root, not `refkv_source` (reason
-`reserved`); otherwise it is not presented (reason `name`), nor is anything below it. HDF4 lets
-two members of a group share a name; the first in the walk keeps it, and a later one is not
-presented (reason `duplicate`).
+`reserved`); otherwise it is not presented (reason `name`). HDF4 lets two members of a group share
+a name; the first in the walk keeps it, and a later one is not presented (reason `duplicate`). The
+walk does not enter a Vgroup it does not present, so what that Vgroup holds is the root's, unless
+the walk reaches it elsewhere ([§2.1](#21-groups)). A dataset or table not presented is recorded once,
+where the walk first reaches it.
 
 ## 3. Datasets
 
@@ -420,6 +423,8 @@ A zarrifier MUST reject the input, with these messages, in this order:
   element tag <t> ref <r> has the unknown code <c>`); a linked header with no blocks a table or more
   than 65535; a VG or VH element too short for what it lists (`the Vgroup ref <r> runs past its
   element`, `the Vdata header ref <r> runs past its element`).
+- **Compressed elements:** a stream in a special element other than linked blocks (`the compressed
+  element tag <t> ref <r> holds its data in a special element other than linked blocks`).
 - **Linked blocks**, of each linked element the profile follows, along the chain of link tables
   its length needs: a link table that no descriptor describes, or too short for its blocks; link
   tables that loop (`the link tables of tag <t> ref <r> loop`); more than 2^20 blocks
@@ -427,7 +432,7 @@ A zarrifier MUST reject the input, with these messages, in this order:
   describes, or shorter than the bytes it holds; blocks that hold less than the element's length.
 - **Chunks**, of each chunked dataset presented: a chunk length of 0; a chunk table whose Vdata
   header is absent, whose records are not of `4 × rank + 4` bytes, which holds fewer records than
-  its header counts, or of more than 2^20 chunks; a chunk placed outside the grid of the header's
+  its header counts, or of more than 2^20 chunks or 2^26 bytes; a chunk placed outside the grid of the header's
   lengths or placed twice (`the chunk table of tag <t> ref <r> places a chunk at <coords>, outside
   its grid <grid>`, `… places two chunks at <coords>`); a chunk element that no descriptor describes,
   shorter than a chunk, or that decodes to another length.

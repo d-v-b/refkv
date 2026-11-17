@@ -1,7 +1,7 @@
 """Writes the HDF4 inputs the profile rejects (spec/zarrify/hdf4.md §8.3
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#83-checks>) to fixtures/hdf4/:
-each `hdf4_reject_*` is the committed `hdf4_small.hdf` (write_fixtures.py) with a few bytes
-patched, so that it breaks one check, the first its message names. The patches need no HDF4
+each `hdf4_reject_*` is the committed `hdf4_small.hdf` or `hdf4_layouts.hdf` (write_fixtures.py)
+with a few bytes patched, so that it breaks one check, the first its message names. The patches need no HDF4
 library, so this runs everywhere and gives the same bytes. conformance/zarrify/rejects/hdf4.json
 lists each with its message.
 
@@ -15,7 +15,7 @@ from pathlib import Path
 
 OUT = Path(__file__).parents[2] / "hdf4"
 
-LINKED, NT, VS, SD, SPECIAL = 20, 106, 1963, 702, 0x4000
+LINKED, COMPRESSED, NT, VS, SD, SPECIAL = 20, 40, 106, 1963, 702, 0x4000
 
 
 def descriptors(b: bytes):
@@ -77,11 +77,30 @@ def rejects(source: Path) -> dict[str, bytes]:
     }
 
 
+def compressed_loop(source: Path) -> bytes:
+    """`hdf4_layouts.hdf` with the stream of its dataset deflated whole made a special element whose
+    compressed header names itself as its stream."""
+    b = bytearray(source.read_bytes())
+    dds = descriptors(bytes(b))
+    for _, (t, _, o, _) in dds:
+        if t != SPECIAL | SD or struct.unpack_from(">H", b, o)[0] != 3:
+            continue
+        stream = struct.unpack_from(">H", b, o + 8)[0]
+        at = next(d for d, (t2, r2, _, _) in dds if (t2, r2) == (COMPRESSED, stream))
+        struct.pack_into(">H", b, at, SPECIAL | COMPRESSED)
+        so = struct.unpack_from(">I", b, at + 4)[0]
+        # a compressed header: code 3, version, length, the stream's ref (its own), model, method
+        struct.pack_into(">HHIHHH", b, so, 3, 0, 168, stream, 0, 4)
+        return bytes(b)
+    raise ValueError("no dataset deflated whole")
+
+
 def main() -> None:
     for p in OUT.glob("hdf4_reject_*.hdf"):
         p.unlink()
     for name, data in rejects(OUT / "hdf4_small.hdf").items():
         (OUT / name).write_bytes(data)
+    (OUT / "hdf4_reject_compressed_loop.hdf").write_bytes(compressed_loop(OUT / "hdf4_layouts.hdf"))
 
 
 if __name__ == "__main__":

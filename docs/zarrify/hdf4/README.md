@@ -116,9 +116,10 @@ Rejected:
 - Files whose structure does not read: descriptor blocks past the end of the
   file or in a loop, elements past the end, two descriptors of one tag and
   ref, a special element of an unknown code, link tables in a loop, a chunk
-  outside its dataset's grid.
-- More than 2^16 descriptor blocks, 2^20 descriptors, 2^20 chunks a dataset or
-  2^20 blocks of a linked element.
+  outside its dataset's grid, a compressed stream held in a special element other than linked
+  blocks.
+- More than 2^16 descriptor blocks, 2^20 descriptors, 2^20 chunks a dataset (or
+  64 MiB of chunk table) or 2^20 blocks of a linked element.
 
 [spec/zarrify/hdf4.md §8.3](../../../spec/zarrify/hdf4.md#83-checks) has
 the messages.
