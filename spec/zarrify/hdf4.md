@@ -116,7 +116,7 @@ a name; the first in the walk keeps it, and a later one is not presented (reason
 walk does not enter a Vgroup it does not present, so what that Vgroup holds is the root's, unless
 the walk reaches it elsewhere ([§2.1](#21-groups)). A dataset or table not presented is recorded once,
 where the walk first reaches it, but for a dataset whose name another member of its group holds
-(`duplicate`, `reserved`), which the walk tries again where it reaches it next.
+(`duplicate`), which the walk tries again where it reaches it next in another group.
 
 ## 3. Datasets
 

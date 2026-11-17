@@ -15,7 +15,7 @@ from pathlib import Path
 
 OUT = Path(__file__).parents[2] / "hdf4"
 
-LINKED, COMPRESSED, NT, VS, SD, SPECIAL = 20, 40, 106, 1963, 702, 0x4000
+LINKED, COMPRESSED, CHUNK, NT, VS, SD, SPECIAL = 20, 40, 61, 106, 1963, 702, 0x4000
 
 
 def descriptors(b: bytes):
@@ -95,12 +95,25 @@ def compressed_loop(source: Path) -> bytes:
     raise ValueError("no dataset deflated whole")
 
 
+def chunk_without_stream(source: Path) -> bytes:
+    """`hdf4_layouts.hdf` with a deflated chunk's compressed header naming a stream that no
+    descriptor describes."""
+    b = bytearray(source.read_bytes())
+    for _, (t, _, o, _) in descriptors(bytes(b)):
+        if t == SPECIAL | CHUNK and struct.unpack_from(">H", b, o)[0] == 3:
+            # a compressed header: code, version, length, then the stream's ref
+            struct.pack_into(">H", b, o + 8, 0xFFFE)
+            return bytes(b)
+    raise ValueError("no deflated chunk")
+
+
 def main() -> None:
     for p in OUT.glob("hdf4_reject_*.hdf"):
         p.unlink()
     for name, data in rejects(OUT / "hdf4_small.hdf").items():
         (OUT / name).write_bytes(data)
     (OUT / "hdf4_reject_compressed_loop.hdf").write_bytes(compressed_loop(OUT / "hdf4_layouts.hdf"))
+    (OUT / "hdf4_reject_chunk_without_stream.hdf").write_bytes(chunk_without_stream(OUT / "hdf4_layouts.hdf"))
 
 
 if __name__ == "__main__":

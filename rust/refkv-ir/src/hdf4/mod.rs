@@ -943,7 +943,7 @@ impl Hdf4 {
         };
         let internal_members: HashSet<u16> = vgs.values().filter(|v| internal_vg(&v.class)).flat_map(|v| v.members.iter().filter(|m| m.0 == VH).map(|m| m.1)).collect();
 
-        let mut b = Builder { nodes: Vec::new(), paths: HashSet::new(), reached: HashSet::new(), tables: HashSet::new(), retry: HashSet::new(), paths_vg: HashMap::new(), paths_ds: HashMap::new(), unpresented: BTreeMap::new(), groups: 0, arrays: 0, chunks: 0 };
+        let mut b = Builder { nodes: Vec::new(), paths: HashSet::new(), reached: HashSet::new(), tables: HashSet::new(), retry: HashMap::new(), paths_vg: HashMap::new(), paths_ds: HashMap::new(), unpresented: BTreeMap::new(), groups: 0, arrays: 0, chunks: 0 };
         // the root
         let mut root_own = Map::new();
         if let Some(i) = p.dds.iter().position(|d| d.tag == VERSION) {
@@ -1023,7 +1023,7 @@ impl Hdf4 {
                 b.not(parent, Some(&v.name), VG, g, "depth");
                 return None;
             }
-            let name = b.name_in(parent, &v.name, VG, g)?;
+            let name = b.name_in(parent, &v.name, VG, g).ok()?;
             let mut own = Map::new();
             own.insert("ref".into(), json!(g));
             own.insert("class".into(), text_json(&v.class));
@@ -1048,7 +1048,7 @@ impl Hdf4 {
                 // not presented, but for a name another member of a group holds
                 match b.paths_ds.get(&k).cloned() {
                     Some(path) => b.link(node, &vars[k].name, t, r, &path),
-                    None if b.reached.contains(&k) && !b.retry.contains(&k) => {}
+                    None if b.reached.contains(&k) && b.retry.get(&k).is_none_or(|&g| g == node) => {}
                     None => b.dataset(node, k, &vars[k], &decided[k], &var_attrs[k]),
                 }
                 continue;
@@ -1363,8 +1363,8 @@ struct Builder {
     /// the datasets and tables the walk reached, presented or recorded
     reached: HashSet<usize>,
     tables: HashSet<u16>,
-    /// the datasets reached and not presented for their name in one group alone
-    retry: HashSet<usize>,
+    /// the datasets reached and not presented for their name in one group alone, with that group
+    retry: HashMap<usize, usize>,
     /// the canonical path of each Vgroup and dataset presented
     paths_vg: HashMap<u16, String>,
     paths_ds: HashMap<usize, String>,
@@ -1386,22 +1386,16 @@ impl Builder {
     }
 
     /// A child of `parent` named `name` (a node name, the first of its name in the group), or
-    /// None, the child recorded as not presented.
-    fn name_in(&mut self, parent: usize, name: &[u8], tag: u16, rf: u16) -> Option<String> {
-        let Some(n) = node_name(name) else {
-            self.not(parent, Some(name), tag, rf, "name");
-            return None;
+    /// the reason it is not presented, which is recorded.
+    fn name_in(&mut self, parent: usize, name: &[u8], tag: u16, rf: u16) -> Result<String, &'static str> {
+        let reason = match node_name(name) {
+            None => "name",
+            Some(n) if self.nodes[parent]["path"] == json!("") && RESERVED_ROOT.contains(&n.as_str()) => "reserved",
+            Some(n) if self.paths.contains(&self.path_of(&[parent], &n)) => "duplicate",
+            Some(n) => return Ok(n),
         };
-        if self.nodes[parent]["path"] == json!("") && RESERVED_ROOT.contains(&n.as_str()) {
-            self.not(parent, Some(name), tag, rf, "reserved");
-            return None;
-        }
-        let path = self.path_of(&[parent], &n);
-        if self.paths.contains(&path) {
-            self.not(parent, Some(name), tag, rf, "duplicate");
-            return None;
-        }
-        Some(n)
+        self.not(parent, Some(name), tag, rf, reason);
+        Err(reason)
     }
 
     fn not(&mut self, parent: usize, name: Option<&[u8]>, tag: u16, rf: u16, reason: &str) {
@@ -1445,13 +1439,15 @@ impl Builder {
             }
             return;
         };
-        let Some(name) = self.name_in(parent, &var.name, VG, var.vg) else {
+        let name = match self.name_in(parent, &var.name, VG, var.vg) {
+            Ok(name) => name,
             // a name another member of this group holds: the dataset is tried again where the walk
-            // reaches it next
-            if self.unpresented.get(&parent).and_then(|l| l.last()).is_some_and(|u| u["reason"] == "duplicate" || u["reason"] == "reserved") {
-                self.retry.insert(k);
+            // reaches it next in another group
+            Err("duplicate") => {
+                self.retry.insert(k, parent);
+                return;
             }
-            return;
+            Err(_) => return,
         };
         self.retry.remove(&k);
         let path = self.path_of(&[parent], &name);

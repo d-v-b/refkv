@@ -51,6 +51,11 @@
       "test": "hdf4_reject_chunk_outside",
       "input": "hdf4_reject_chunk_outside.hdf",
       "message": "the chunk table of tag 17086 ref 5 places a chunk at [9, 0], outside its grid [2, 2]"
+    },
+    {
+      "test": "hdf4_reject_chunk_without_stream",
+      "input": "hdf4_reject_chunk_without_stream.hdf",
+      "message": "the chunk at [0, 0] of tag 17086 ref 10 holds 0 bytes of its stream"
     }
   ]
 }
