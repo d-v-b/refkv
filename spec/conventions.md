@@ -828,15 +828,18 @@ A **run** is an element whose subtree stands for `count` copies of itself
 `j × stride` and the run's root's name index increased by `j`. A run's
 leaves are its members' leaves. The leaves of one member lie within `stride`
 bytes, from the first one's start to the last one's end, so that no two
-members' leaves overlap. Runs do not nest. A parser may fold its IR
+members' leaves overlap. Runs do not nest. A run holds no derived element,
+no alias and no element in a derived space: its members copy member 0's
+elements into space 0, and copy no alias's target. A parser may fold its IR
 into runs; the canonical table (8.8) expands them, and a reader accepts them.
 
-A producer names each gap it adds `gaps/`, with the gap's offset as its name
-index (`gaps/<offset>`; in a store's IR, the offset in the gap's object).
-refkv's producer names a gap that repeats inside each member of a run
-`gaps/<offset>/` instead, `<offset>` the first one's, with the name indexes
-0, 1, … for the members it repeats in (`gaps/<offset>/0`, …). Which runs'
-gaps it names so is not specified here yet.
+Canonical form ([§8.8](#88-canonical-form), step 1) names every gap `gaps/`, with the gap's offset as
+its name index (`gaps/<offset>`; in a store's IR, the offset in the gap's
+object; in a derived space, the offset in its derived bytes), whatever name the
+producer gave it. A producer may name the gaps it folds into a run otherwise:
+refkv's names a gap that repeats inside each member of a run `gaps/<offset>/`,
+`<offset>` the first one's, with the name indexes 0, 1, … for the members it
+repeats in, and canonical form renames each by its own offset.
 
 ### 8.2 The table
 
@@ -979,8 +982,9 @@ member 0's, except:
 Forms and alias targets without a column are member 0's. A reader expands
 the column runs that have no column of encoding 2 first, then the others.
 
-**Limits.** The expanded table has at most `2^22 + floor(Z / 4)` rows; a
-table that would have more is invalid. A producer **rejects** a source whose
+**Limits.** The expanded table, with every run (code 0) expanded as well,
+has at most `2^22 + floor(Z / 4)` rows; a table that would have more is
+invalid (`budget: more than N rows`, N that limit in decimal). A producer **rejects** a source whose
 canonical mirror (8.8: runs expanded, derived spaces left out) would have more
 than `N = 2^22 + floor(Z / 4)` rows, with the message
 `budget: the mirror would have more than N rows` (N in decimal), and may do so
@@ -1003,8 +1007,14 @@ whose expanded rows break the rules of the root or of the names (8.1): a
 root that is not a struct named `""` with no name index in space 0 with the
 extent `(0, Z)`; an element other than the root with an empty full name; or
 siblings whose full names are equal, or one of which is another's followed
-by `/` and more. A reader rejects such a table (8.4) and a validator flags it
-as invalid.
+by `/` and more. So is one whose runs (code 0) break the rules of runs
+([§8.1](#81-elements)): for the first expanded row `i` in a run's subtree that
+is a derived element, an alias or in a derived space, `r` its run's root, the
+message is `the run at row r holds a derived element (row i)`,
+`the run at row r holds an alias (row i)` or, for an element of another kind,
+`the run at row r holds an element in a derived space (row i)` (`r` and `i`
+in decimal). A reader rejects such a table (8.4) and a validator flags it as
+invalid.
 
 ### 8.4 Reading the source back
 
@@ -1173,7 +1183,11 @@ compares mirrors entry for entry. In order:
 1. **Runs.** Every run (8.1) is expanded into its members: member `j`'s root
    has the run root's name index plus `j`, and each element of member `j`
    the extent of member 0's shifted by `j × stride` (the same length), and
-   its type, value and form. The table has no row of code 0.
+   its type, value and form. The table has no row of code 0. Then every gap
+   is named `gaps/`, with its start as its name index ([§8.1](#81-elements)),
+   and the root and the names of [§8.1](#81-elements) must hold of the
+   elements so named: an IR whose renamed gaps break them has no canonical
+   form, and a producer rejects it with the message of the rule broken.
 2. **Order.** The elements are numbered depth first from the root (id 0), a
    parent before its children, each subtree contiguous. An element's **first
    byte** is its start when it has a length, else the least first byte of its

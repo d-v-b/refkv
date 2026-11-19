@@ -14,7 +14,7 @@ use std::path::Path;
 use std::time::Instant;
 use refkv_ir::check::check;
 use refkv_ir::ir::*;
-use refkv_ir::mirror::{canonical_problem, load, mirror, ordered, rebuild_store, table_from_out, view_problem, write, Table};
+use refkv_ir::mirror::{canonical_problem, load, mirror, ordered, rebuild_store, row_limit, store_row_limit, table_from_out, view_problem, write, Table};
 use refkv_ir::out::Out;
 use refkv_ir::store::{run_store, StoreFormat};
 
@@ -188,4 +188,29 @@ fn a_store_column_read_from_an_array_is_refused() {
         t.columns[c][3] = 2;
     });
     assert_eq!(e, "a column read from an array, in a store IR");
+}
+
+/// A store table's runs expand to at most the store's `N = 2^22 + floor(Z / 4) + 4 × o` rows
+/// (conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), past
+/// the file limit `2^22 + floor(Z / 4)`: a run of a stored leaf row, expanding the table to that `N`
+/// rows, loads; one more member is refused.
+#[test]
+fn a_store_table_s_runs_expand_to_at_most_the_store_limit() {
+    let t = table_from_out(&small()).unwrap();
+    let ir = load(&t, &mut no_source).unwrap();
+    let rows = ir.len() as u64;
+    let limit = store_row_limit(t.size, t.objects.unwrap());
+    assert!(limit > row_limit(t.size));
+    // the last row of the table that is stored (no member 1.. of a column run) and has no children
+    let kids = ir.has_children();
+    let unstored = |i: usize| t.cruns.iter().any(|c| (c[0] + c[2]) as usize <= i && i < (c[0] + c[1] * c[2]) as usize);
+    let leaf = (0..ir.len()).rev().find(|&i| !kids[i] && !unstored(i)).unwrap();
+    let out = small();
+    let with_run = |count: u64| {
+        let mut t = table_from_out(&out).unwrap();
+        t.runs = vec![[leaf as i64, count as i64, 0]];
+        t
+    };
+    load(&with_run(limit - rows + 1), &mut no_source).unwrap();
+    assert_eq!(load(&with_run(limit - rows + 2), &mut no_source).err().unwrap(), format!("budget: more than {limit} rows"));
 }

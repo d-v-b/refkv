@@ -98,7 +98,7 @@ pub fn store_row_limit(size: u64, objects: u64) -> u64 {
 /// The most bytes of a store IR's distinct names (the description holds them).
 pub const NAME_BYTES: u64 = 1 << 24;
 
-fn limit_of(ir: &Ir) -> u64 {
+pub(crate) fn limit_of(ir: &Ir) -> u64 {
     if ir.store { store_row_limit(ir.size, ir.objects) } else { row_limit(ir.size) }
 }
 
@@ -122,10 +122,10 @@ fn shared_refs(form: &str) -> Vec<(usize, usize, usize)> {
 
 /// The canonical IR of `ir` (conventions §8.8
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>), or why it has
-/// none (the root and the
-/// names of §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>,
-/// `check::names`, do not hold): every run expanded; the elements in
-/// canonical order, numbered by it (a parent before its children, siblings by first
+/// none (the rules of runs, `check::runs`, or the root and the names, `check::names`, of §8.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements> do not hold, the names
+/// of the gaps as renamed): every run expanded and every gap named `gaps/<offset>`; the
+/// elements in canonical order, numbered by it (a parent before its children, siblings by first
 /// byte, name, name index); the descendants of a derived element left out when they
 /// would bring the derived rows kept past 2^20 (derived elements in canonical order,
 /// those inside a kept derived space counted with it); names and types the ones used,
@@ -141,9 +141,21 @@ pub fn canonical(ir: &Ir) -> Result<Ir, String> {
     if x.runs.iter().any(|r| (r.0 as usize) >= x.len() || x.nidx[r.0 as usize] == NO_INDEX) {
         return Err("a run whose root has no name index".into());
     }
+    // the rules of runs (§8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>):
+    // a run that breaks them has no members to expand
+    crate::check::runs(&x)?;
     let roots: Vec<u32> = x.runs.iter().map(|r| r.0).collect();
     for r in roots {
         x.unfold(r)?;
+    }
+    // every gap is `gaps/<offset>`, however the producer named it (step 1 of §8.8
+    // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>)
+    let gaps = x.names.id("gaps/");
+    for i in 0..x.len() {
+        if x.kind[i] == GAP {
+            x.name[i] = gaps;
+            x.nidx[i] = x.start[i];
+        }
     }
     // the root and the names (§8.1
     // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>): a table that
@@ -602,11 +614,8 @@ pub fn mirror(ir: &Ir, out: &mut Out, profile: &str) -> Result<Folded, String> {
     let limit = limit_of(ir);
     let over = || format!("budget: the mirror would have more than {limit} rows");
     // at least the rows outside derived spaces, every run expanded: rejected before expanding
-    let extra: u64 = ir.runs.iter()
-        .map(|&(r, c, _)| c.saturating_sub(1).saturating_mul((ir.subtree_end(r) - r) as u64))
-        .fold(0u64, |a, b| a.saturating_add(b));
     let outside = ir.space.iter().filter(|&&d| d == 0).count() as u64;
-    if outside.saturating_add(extra) > limit {
+    if outside.saturating_add(ir.run_rows()) > limit {
         return Err(over());
     }
     let mut y = canonical(ir)?;
@@ -1062,8 +1071,9 @@ pub struct Table {
 /// for the columns read from arrays in the source. A table that conventions §8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table> and §8.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#83-column-runs> call invalid by
-/// its rows and tables alone is an error here, as is one whose runs nest; the rules of the
-/// elements it stands for (coverage, the root, the names) are the checker's (`check::check`).
+/// its rows and tables alone is an error here, as is one whose runs break the rules of runs
+/// (`check::runs`); the rules of the elements it stands for (coverage, the root, the names) are the
+/// checker's (`check::check`).
 pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>) -> Result<Ir, String> {
     let m = t.kind.len();
     if [t.up.len(), t.name.len(), t.nidx.len(), t.ty.len(), t.space.len(), t.start.len(), t.length.len()].iter().any(|&x| x != m) {
@@ -1350,20 +1360,8 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
             new_targets.extend(targets.into_iter().filter(|t| t.1 >= 0).map(|(e, t)| (e as u32, t as u32)));
         }
     }
-    // runs do not nest (§8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>):
-    // no run's root is below another's. Every row's parent is an earlier row by now.
-    if ir.runs.len() > 1 {
-        let mut within = vec![NONE; n]; // the run whose root is above each row
-        for i in 1..n {
-            let p = ir.parent[i];
-            let Some(&above) = within.get(p as usize) else { continue };
-            let outer = if ir.run(p).is_some() { p } else { above };
-            if outer != NONE && ir.run(i as u32).is_some() {
-                return Err(format!("the run at row {i} is inside the run at row {outer}"));
-            }
-            within[i] = outer;
-        }
-    }
+    // every row's parent is an earlier row by now
+    crate::check::runs(&ir)?;
     ir.shared = t.shared.clone();
     ir.form_of.extend(new_forms);
     ir.targets.extend(new_targets);
