@@ -53,7 +53,7 @@ SCHEMA = {"anyOf": [
             **_MP4_TRACK_COMMON,
             "format": {"enum": ["h264", "hevc", "av1", "vp9"]},
             "width": {"type": "integer", "minimum": 1}, "height": {"type": "integer", "minimum": 1},
-            "chroma": {"enum": ["4:2:0", "4:2:2"], "description": "The chroma planes' subsampling"},
+            "chroma": {"enum": ["4:0:0", "4:2:0", "4:2:2"], "description": "The chroma planes' subsampling (4:0:0: none)"},
             "bit_depth": {"enum": [8, 10, 12],
                           "description": "The bits of a sample: uint8 planes for 8, uint16 for more"},
             "profile": {"type": "integer",

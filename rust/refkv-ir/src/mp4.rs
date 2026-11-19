@@ -1252,9 +1252,11 @@ impl Mp4 {
                     b"hvc1" | b"hev1" => {
                         let hvcc = e.child(b"hvcC").ok_or_else(|| format!("an {} sample entry without an hvcC box", codec.trim()))?;
                         let sps = hevc_sps(hvcc).ok_or("an hvcC box without a VPS, SPS and PPS the profile reads")?;
-                        if !matches!(sps.chroma, 1 | 2) || sps.luma != sps.chroma_depth || !matches!(sps.luma, 8 | 10 | 12) {
+                        // a 4:0:0 picture has no chroma, whatever bit depth the SPS gives it
+                        let depths = sps.chroma == 0 || sps.luma == sps.chroma_depth;
+                        if !matches!(sps.chroma, 0..=2) || !depths || !matches!(sps.luma, 8 | 10 | 12) {
                             let depth = if sps.luma == sps.chroma_depth { format!("bit depth {}", sps.luma) } else { format!("bit depths {} and {}", sps.luma, sps.chroma_depth) };
-                            return Err(format!("HEVC with chroma format {} and {depth} is not supported: only 4:2:0 or 4:2:2 of 8, 10 or 12 bits is", sps.chroma));
+                            return Err(format!("HEVC with chroma format {} and {depth} is not supported: only 4:0:0, 4:2:0 or 4:2:2 of 8, 10 or 12 bits is", sps.chroma));
                         }
                         ("hevc", hvcc, sps)
                     }
@@ -1284,8 +1286,12 @@ impl Mp4 {
                 gops(&pts, &sync)?;
                 f["format"] = json!(format);
                 let data_type = if sps.luma > 8 { "uint16" } else { "uint8" };
-                let chroma = if sps.chroma == 2 { "4:2:2" } else { "4:2:0" };
-                f["geometry"] = json!({"width": e.width, "height": e.height, "planes": 3, "data_type": data_type, "chroma": chroma});
+                let (chroma, planes) = match sps.chroma {
+                    0 => ("4:0:0", 1),
+                    2 => ("4:2:2", 3),
+                    _ => ("4:2:0", 3),
+                };
+                f["geometry"] = json!({"width": e.width, "height": e.height, "planes": planes, "data_type": data_type, "chroma": chroma});
                 f["setup"] = json!(crate::mirror::base64(setup));
                 f["profile"] = json!(sps.profile);
                 f["level"] = json!(sps.level);

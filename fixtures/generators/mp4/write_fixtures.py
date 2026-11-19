@@ -175,6 +175,9 @@ def main() -> None:
     write("mov_hevc_main10_aac.mov",
           ffmpeg(*video(), *audio(), *x265(f"{OPEN_GOP}:{HLG}", "yuv420p10le"), *AAC, fmt="mov"))
     write("mov_hevc_aac.mov", ffmpeg(*video(), *audio(), *x265(OPEN_GOP), *AAC, fmt="mov"))
+    # monochrome (4:0:0) HEVC of 12 bits in hev1, as Janelia's H5J channels hold it: range
+    # extensions, B-frames, one group of pictures
+    write("mp4_hevc_gray12.mp4", ffmpeg(*video("40x24", seconds=2), *x265("bframes=2", "gray12le", tag="hev1")))
     # HE-AAC and HE-AAC v2, as AudioToolbox writes them (macOS only), and the same streams with the
     # hierarchical signaling; SBR that does not double the rate, and another AAC object type
     he = ("-c:a", "aac_at", "-profile:a", "4", "-b:a", "32k")

@@ -92,14 +92,15 @@ def check_samples(d: Described, k: int, packets: list[av.Packet]) -> list[str]:
 
 def check_video(d: Described, ks: list[int], stream: av.VideoStream, packets: list[av.Packet],
                 seen: Counter) -> list[str]:
-    """A video track's three planes against ffmpeg's demuxer and decoder."""
+    """A video track's three planes (its luma plane alone, of 4:0:0) against ffmpeg's demuxer and
+    decoder."""
     arrays = [d.stored.arrays[k] for k in ks]
     said = [s for k in ks for s in check_samples(d, k, packets)]
-    if said or len(ks) != 3:
-        return said or [f"{len(ks)} arrays, not a picture's three planes"]
+    if said or len(ks) not in (1, 3):
+        return said or [f"{len(ks)} arrays, not a picture's three planes or its luma alone"]
     chains = [d.stored.chains[a.chains[0]] for a in arrays]
     codec = chains[0][0]
-    want = [(codec.name, {"setup", "plane"}, p) for p in range(3)]
+    want = [(codec.name, {"setup", "plane"}, p) for p in range(len(ks))]
     got = []
     for c in (c for chain in chains for c in chain):
         p = c.parameters.get("plane")
@@ -136,6 +137,8 @@ def check_video(d: Described, ks: list[int], stream: av.VideoStream, packets: li
     if sorted(whole) != list(range(len(units))):
         said.append(f"{len(whole)} pictures of {len(units)} units")
         return said
+    if (len(ks) == 1) != whole[0].format.name.startswith("gray"):
+        said.append(f"{len(ks)} planes of pictures of {whole[0].format.name}")
     for p, a in enumerate(arrays):
         assert a.shape is not None
         assert a.item_bits is not None
@@ -145,10 +148,14 @@ def check_video(d: Described, ks: list[int], stream: av.VideoStream, packets: li
                         f"{got_plane.dtype}")
         if any(plane(whole[j], p).tobytes() != plane(reference[j], p).tobytes() for j in whole):
             said.append(f"plane {p} decodes to other values than ffmpeg's")
-    luma, chroma = arrays[0].shape, arrays[1].shape
+    luma = arrays[0].shape
     assert luma is not None
-    assert chroma is not None
-    seen[f"tracks of chroma planes 1/{luma[2] // chroma[2]} by 1/{luma[1] // chroma[1]}"] += 1
+    if len(arrays) == 1:
+        seen["tracks of luma alone"] += 1
+    else:
+        chroma = arrays[1].shape
+        assert chroma is not None
+        seen[f"tracks of chroma planes 1/{luma[2] // chroma[2]} by 1/{luma[1] // chroma[1]}"] += 1
     seen["tracks of 16-bit samples"] += arrays[0].item_bits == 16
     seen["pictures decoded"] += len(whole)
     # a decoder started at a sync unit: the group's pictures but its leading ones, which are
@@ -316,9 +323,9 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
     for path in FILES:
         seen += compared(path)[1]
     assert {k: v for k, v in seen.items() if v} == {
-        "tracks": 118,
+        "tracks": 119,
         "tracks of h264": 35,
-        "tracks of hevc": 14,
+        "tracks of hevc": 15,
         "tracks of av1": 2,
         "tracks of vp9": 5,
         "tracks of jpeg": 8,
@@ -331,10 +338,11 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
         "tracks of chroma planes 1/2 by 1/2": 48,
         "tracks of chroma planes 1/2 by 1/1": 6,
         "tracks of chroma planes 1/1 by 1/1": 2,
-        "tracks of 16-bit samples": 9,
-        "pictures": 2265,
-        "sync units": 211,
-        "pictures decoded": 2265,
+        "tracks of luma alone": 1,
+        "tracks of 16-bit samples": 10,
+        "pictures": 2285,
+        "sync units": 212,
+        "pictures decoded": 2285,
         "groups decoded from their sync unit": 138,
         "pictures decoded from a sync unit": 1362,
         "leading pictures": 64,

@@ -102,7 +102,8 @@ def cut(order: list[int], sync: list[int], most: int) -> list[int]:
 
 def check_video(d: Described, ks: list[int], out: Output, path: str, times: list[int], frames: int,
                 seen: Counter) -> list[str]:
-    """A video track's three planes, as the profile wrote them at `path`, against its descriptions."""
+    """A video track's three planes (its luma plane alone, of 4:0:0), as the profile wrote them at
+    `path`, against its descriptions."""
     arrays = [d.stored.arrays[k] for k in ks]
     rows = d.rows[ks[0]]
     codec = d.stored.chains[arrays[0].chains[0]][0]
@@ -121,7 +122,7 @@ def check_video(d: Described, ks: list[int], out: Output, path: str, times: list
     starts = [j for j, s in enumerate(sync) if s]
     said = []
     first: list | None = None
-    for plane, a in zip("yuv", arrays, strict=True):
+    for plane, a in zip("yuv"[:len(arrays)], arrays, strict=True):
         assert a.shape is not None
         assert a.item_bits is not None
         doc = mapping(json.loads(out.bytes_entries[f"{path}/{plane}/zarr.json"]), plane)
@@ -245,9 +246,9 @@ def test_the_fixtures_hold_every_case_the_profile_is_compared_in():
     assert {k: v for k, v in seen.items() if v} == {
         "chunks decoded from the sync sample before, 4 a chunk": 11,
         "chunks that decode samples they do not hold, 256 a chunk": 2,
-        "chunks that decode samples they do not hold, 4 a chunk": 528,
-        "chunks, 256 a chunk": 54,
-        "chunks, 4 a chunk": 613,
+        "chunks that decode samples they do not hold, 4 a chunk": 532,
+        "chunks, 256 a chunk": 55,
+        "chunks, 4 a chunk": 618,
         "described tracks the profile writes no array of, 256 a chunk": 4,
         "described tracks the profile writes no array of, 4 a chunk": 4,
         "jpeg chunks, 256 a chunk": 80,
@@ -257,7 +258,7 @@ def test_the_fixtures_hold_every_case_the_profile_is_compared_in():
         "tracks of no codec the list names, 256 a chunk": 54,
         "tracks of no codec the list names, 4 a chunk": 54,
         "video tracks of several chunks, 256 a chunk": 2,
-        "video tracks of several chunks, 4 a chunk": 52,
-        "video tracks, 256 a chunk": 52,
-        "video tracks, 4 a chunk": 52,
+        "video tracks of several chunks, 4 a chunk": 53,
+        "video tracks, 256 a chunk": 53,
+        "video tracks, 4 a chunk": 53,
     }

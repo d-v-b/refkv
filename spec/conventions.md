@@ -1589,7 +1589,7 @@ array-to-bytes codec `refkv.stream` decodes such a chunk.
 |---|---|---|---|
 | `format` | string | required | the coding of the frames: `"mp3"` (MPEG-1, 2 or 2.5 Layer III frames), `"aac"` (raw AAC frames, without ADTS headers), `"flac"` (FLAC frames, [RFC 9639 §9](https://www.rfc-editor.org/rfc/rfc9639#section-9)), `"h264"` (H.264 access units as an MP4 file holds them: each NAL unit preceded by its length, in the length's size the setup gives), `"hevc"` (HEVC access units, the same way), `"av1"` (AV1 temporal units as an MP4 file holds them: OBUs with their sizes) or `"vp9"` (VP9 frames or superframes) |
 | `setup` | string | optional | when the format has one: the decoder's configuration, base64 ([RFC 4648 §4](https://www.rfc-editor.org/rfc/rfc4648#section-4)): for `"aac"` the AudioSpecificConfig (ISO/IEC 14496-3 §1.6.2.1), HE-AAC's and HE-AAC v2's with it, for `"flac"` `fLaC` and the stream's STREAMINFO block, header included (42 bytes: the form ffmpeg's decoder and WebCodecs' `description` take), for `"h264"` the AVCDecoderConfigurationRecord (an MP4 file's avcC box, ISO/IEC 14496-15 §5.3.3.1), which holds the parameter sets, for `"hevc"` the HEVCDecoderConfigurationRecord (an MP4 file's hvcC box, ISO/IEC 14496-15 §8.3.3.1), which holds the VPS, SPS and PPS and the NAL unit lengths' size (the form WebCodecs' `description` takes for both) |
-| `plane` | string | optional | for `"h264"`, `"hevc"`, `"av1"` and `"vp9"` only: the plane of a decoded picture the array holds, `"y"`, `"u"` or `"v"` |
+| `plane` | string | optional | for `"h264"`, `"hevc"`, `"av1"` and `"vp9"` only: the plane of a decoded picture the array holds, `"y"`, `"u"` or `"v"` (`"y"` of a 4:0:0 picture, which has no other) |
 
 There are no other members.
 
@@ -1626,7 +1626,7 @@ AAC, the stream's integer samples for FLAC (of the bits per sample the
 setup gives, in the array's signed integer type: a decoder that gives them
 in the high bits of a wider integer is shifted back), and the planes of a
 4:2:0 or 4:2:2 picture for H.264, HEVC, AV1 and VP9 (`u` and `v` half the size of `y` along each
-axis, or along `x` alone for 4:2:2, rounded up), `uint8` for 8 bits a sample and `uint16` for 10 or
+axis, or along `x` alone for 4:2:2, rounded up), or the `y` plane alone of a 4:0:0 HEVC picture, `uint8` for 8 bits a sample and `uint16` for 10 or
 12, the sample's value (from 0 to 2^bits − 1, not scaled to the type's range).
 
 The outputs are placed by the frame each comes from, whatever order the

@@ -136,9 +136,13 @@ def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
         elif kind == "video":
             assert tm["frames"] == len(frames)
             assert tm["width"] == frames[0].width
-            assert tm["chroma"] == ("4:2:2" if "422" in frames[0].format.name else "4:2:0")
-            assert tm["bit_depth"] == {"10le": 10, "12le": 12}.get(frames[0].format.name[-4:], 8)
-            for k, p in enumerate("yuv"):
+            fmt = frames[0].format.name
+            gray = fmt.startswith("gray")
+            assert tm["chroma"] == ("4:0:0" if gray else "4:2:2" if "422" in fmt else "4:2:0")
+            assert tm["bit_depth"] == {"10le": 10, "12le": 12}.get(fmt[-4:], 8)
+            # a 4:0:0 picture has its Y plane alone
+            assert set(g.array_keys()) == ({"y", "time"} if gray else {"y", "u", "v", "time"})
+            for k, p in enumerate("y" if gray else "yuv"):
                 want = np.stack([plane(f, k) for f in frames])
                 got = ndarray(g.get_array(p)[...])
                 assert got.dtype == (np.uint8 if tm["bit_depth"] == 8 else np.uint16), p

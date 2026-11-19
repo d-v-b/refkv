@@ -307,8 +307,10 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
             refs.out.json(&format!("{dir}/zarr.json"), &declared_group(Map::new(), "mp4", None, Some(track_json(t, chunk))));
             // a 4:2:2 picture's chroma is half the width alone
             let ch = if t["geometry"]["chroma"] == "4:2:2" { h } else { h.div_ceil(2) };
-            let planes = [("y", w, h), ("u", w.div_ceil(2), ch), ("v", w.div_ceil(2), ch)];
-            for (p, pw, ph) in planes {
+            // a 4:0:0 picture has its luma alone
+            let all = [("y", w, h), ("u", w.div_ceil(2), ch), ("v", w.div_ceil(2), ch)];
+            let planes = if t["geometry"]["chroma"] == "4:0:0" { &all[..1] } else { &all[..] };
+            for &(p, pw, ph) in planes {
                 let doc = rectilinear_array_json(&[count as u64, ph, pw], data_type, &json!([along, ph, pw]), stream_codec(format, &t["setup"], Some(p)), &["time", "y", "x"]);
                 refs.out.json(&format!("{dir}/{p}/zarr.json"), &doc);
             }
@@ -322,8 +324,9 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
                 let parts = stream_parts(&units);
                 let (o, len) = sample(order[a]);
                 refs.chunk(format!("{dir}/y/c/{q}/0/0"), o, len, form, Some(parts.clone()))?;
-                refs.out.refs(&format!("{dir}/u/c/{q}/0/0"), parts.clone());
-                refs.out.refs(&format!("{dir}/v/c/{q}/0/0"), parts);
+                for &(p, _, _) in &planes[1..] {
+                    refs.out.refs(&format!("{dir}/{p}/c/{q}/0/0"), parts.clone());
+                }
             }
             time_array(&mut refs.out, &dir, &order, &pts);
         } else {

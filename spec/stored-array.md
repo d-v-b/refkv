@@ -1410,8 +1410,9 @@ the element `samples/<T>/<j>`.
 - **A video track of H.264, HEVC, AV1 or VP9** (the sample entries `avc1`; `hvc1` and `hev1`;
   `av01`; `vp09`), of one sample description, whose configuration box (`avcC`, `hvcC`, `av1C`,
   `vpcC`) the parser reads as pictures of three planes of one bit depth, from 8 to 16 (4:2:0,
-  4:2:2 or 4:4:4), has three arrays, the planes of its pictures: index 0 the luma plane, 1 and 2
-  the chroma planes.
+  4:2:2 or 4:4:4), or of a luma plane alone of such a depth (4:0:0), has three arrays, the planes
+  of its pictures: index 0 the luma plane, 1 and 2 the chroma planes; of 4:0:0, the luma plane's
+  alone.
   - `shape` is the samples, then the plane's height and width: the sample entry's `height` and
     `width` for the luma plane, and for a chroma plane those halved, rounded up, as the format
     subsamples (both for 4:2:0, the width for 4:2:2, neither for 4:4:4). The first axis is the
@@ -1424,7 +1425,7 @@ the element `samples/<T>/<j>`.
   - The chain is the codec (`h264`, `hevc`, `av1` or `vp9`): its `setup` the configuration box's
     `data` value, its `plane` the array's index, and `sync` a unit parameter, 1 for a sync sample
     ([zarrify/mp4.md §3](zarrify/mp4.md#3-tracks-and-samples)) and 0 for any other.
-  - Each sample is a row of each of the three arrays: its element.
+  - Each sample is a row of each of the track's arrays: its element.
 - **A Motion JPEG track** (`jpeg`, `mjpa`, `dmb1`, or `mp4v` of object type indication 0x6C), of
   one sample description, whose first sample's frame header the parser read, of the sample entry's
   width and height, 8 bits and 1 or 3 components, has one array, index 0: `shape` the samples,
@@ -1433,8 +1434,8 @@ the element `samples/<T>/<j>`.
 - **Any other track of one sample description** has one array, index 0, of its samples as the
   sample entry encodes them, by the general fallback ([§1](#1-stored-arrays)): an audio track,
   whose decoded samples are not described yet; a video track of another codec, of a sample entry
-  of width or height 0, or whose configuration the parser does not read as above (pictures of one
-  plane, or of planes of unlike bit depths); and a Motion JPEG track of another frame (a
+  of width or height 0, or whose configuration the parser does not read as above (pictures of
+  chroma planes of another bit depth than luma's); and a Motion JPEG track of another frame (a
   picture's fields, 12 bits, streams with no markers). `shape` is the track's sample elements,
   one axis; there is no `item_bits`, since the IR does not say what a sample decodes to; the grid
   is `Each(1)` under `short`; and the chain is `source`, with `format` `mp4` and `id` the sample
