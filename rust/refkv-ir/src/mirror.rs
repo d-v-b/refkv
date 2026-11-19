@@ -1071,7 +1071,7 @@ pub struct Table {
 /// for the columns read from arrays in the source. A table that conventions §8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table> and §8.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#83-column-runs> call invalid by
-/// its rows and tables alone is an error here, as is one whose runs nest or hold what a run may not
+/// its rows and tables alone is an error here, as is one whose runs break the rules of runs
 /// (`check::runs`); the rules of the elements it stands for (coverage, the root, the names) are the
 /// checker's (`check::check`).
 pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>) -> Result<Ir, String> {
@@ -1360,20 +1360,7 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
             new_targets.extend(targets.into_iter().filter(|t| t.1 >= 0).map(|(e, t)| (e as u32, t as u32)));
         }
     }
-    // runs do not nest (§8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>):
-    // no run's root is below another's. Every row's parent is an earlier row by now.
-    if ir.runs.len() > 1 {
-        let mut within = vec![NONE; n]; // the run whose root is above each row
-        for i in 1..n {
-            let p = ir.parent[i];
-            let Some(&above) = within.get(p as usize) else { continue };
-            let outer = if ir.run(p).is_some() { p } else { above };
-            if outer != NONE && ir.run(i as u32).is_some() {
-                return Err(format!("the run at row {i} is inside the run at row {outer}"));
-            }
-            within[i] = outer;
-        }
-    }
+    // every row's parent is an earlier row by now
     crate::check::runs(&ir)?;
     ir.shared = t.shared.clone();
     ir.form_of.extend(new_forms);

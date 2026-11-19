@@ -165,6 +165,40 @@ fn canonical_form_names_every_gap_by_its_offset() {
     assert!(t.columns.contains(&[1, 0, 0, 3, 0, 0]));
     let mut read = |_: u64, n: u64| Ok(vec![0u8; n as usize]);
     assert_eq!(canonical_problem(&entry(&out), &mut read), None);
+    // a gap in each member of a run, named `pad` in member 0: `s/0/gaps/6` and `s/1/gaps/16`
+    let mut ir = Ir::new(20);
+    ir.budget = None;
+    let s = ir.struct_(0, "s/", 0, 0, Some((0, 10))).unwrap();
+    ir.value(s, "v", NO_INDEX, "bytes[6]", 0, (0, 6), None).unwrap();
+    ir.gap(s, "pad", (6, 4)).unwrap();
+    ir.runs.push((s, 2, 10));
+    ir.build_children();
+    assert_eq!(gap_paths(&canonical(&ir).unwrap()), ["s/0/gaps/6", "s/1/gaps/16"]);
+    // a gap in a derived space, by its offset in the derived bytes: `z/gaps/4`
+    let mut ir = Ir::new(10);
+    ir.budget = None;
+    let z = ir.derived(0, "z", 0, (0, 10), r#"{"size":8,"transform":"zlib"}"#).unwrap();
+    ir.value(z, "a", NO_INDEX, "bytes[4]", z, (0, 4), None).unwrap();
+    ir.add(GAP, z, "pad", NO_INDEX, "", z, Some((4, 4))).unwrap();
+    ir.build_children();
+    assert_eq!(gap_paths(&canonical(&ir).unwrap()), ["z/gaps/4"]);
+}
+
+/// The names hold of the gaps as canonical form names them (conventions §8.8
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>, step 1): a
+/// gap `pad` at offset 10, beside a value `gaps/10`, has no canonical form.
+#[test]
+fn an_ir_whose_gaps_renamed_break_the_names_has_no_canonical_form() {
+    let mut ir = Ir::new(20);
+    ir.budget = None;
+    ir.value(0, "gaps/", 10, "bytes[10]", 0, (0, 10), None).unwrap();
+    ir.gap(0, "pad", (10, 10)).unwrap();
+    ir.build_children();
+    check(&ir).unwrap();
+    assert_eq!(
+        canonical(&ir).err().unwrap(),
+        "element 1 (value \"gaps/10\") and element 2 (gap \"gaps/10\") have one path, \"gaps/10\""
+    );
 }
 
 #[test]
@@ -388,8 +422,7 @@ fn an_ir_whose_derived_element_has_no_descendants_is_invalid() {
 // | limits: types out of range | `rejects_a_type_past_the_types`, `rejects_a_type_column_past_the_types` |
 // | limits: forms out of range | `rejects_a_form_row_of_no_form`, `rejects_a_form_column_that_is_no_form` |
 // | limits: the expanded rows break the rules of the root or of the names | `flags_a_table_whose_root_is_named`, and each rule in tests/core.rs |
-// | limits: the runs have more than `N` members besides each run's member 0 | `rejects_run_members_past_the_budget` |
-// | limits: the runs' leaves, member by member, are more than `N` | `rejects_run_leaves_past_the_budget` |
+// | limits: the expanded table, every run expanded too, has more than `N` rows | `rejects_runs_past_the_budget` |
 //
 // Beside them, the runs of §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>:
 //
@@ -399,6 +432,7 @@ fn an_ir_whose_derived_element_has_no_descendants_is_invalid() {
 // | a run holds no derived element | `rejects_a_run_holding_a_derived_element`, `an_ir_whose_run_holds_a_derived_element_is_invalid` |
 // | a run holds no alias | `rejects_a_run_holding_an_alias`, `an_ir_whose_run_holds_an_alias_is_invalid` |
 // | a run holds no element in a derived space | `rejects_a_run_holding_an_element_in_a_derived_space`, `an_ir_whose_run_holds_an_element_in_a_derived_space_is_invalid` |
+// | canonical form names every gap by its offset, then the names hold | `canonical_form_names_every_gap_by_its_offset`, `an_ir_whose_gaps_renamed_break_the_names_has_no_canonical_form` |
 //
 // And a store's limits (§8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>),
 // in tests/store_mirror.rs.
@@ -757,39 +791,32 @@ fn an_ir_whose_run_holds_an_element_in_a_derived_space_is_invalid() {
     assert_eq!(check(&ir).unwrap_err(), "the run at row 2 holds an element in a derived space (row 2)");
 }
 
-/// A table of a `size`-byte source: the root and a row of kind `kind` with the extent
-/// `(0, length)`, a run of `count` members `stride` bytes apart.
-fn one_run(size: u64, kind: u8, length: u64, count: i64, stride: i64) -> Table {
-    Table {
-        size,
-        kind: vec![0, kind],
-        up: vec![0, 1],
-        name: vec![0, 1],
-        nidx: vec![u64::MAX, 0],
-        ty: vec![0, 0],
-        space: vec![0, 0],
-        start: vec![0, -(size as i64)],
-        length: vec![size, length],
-        runs: vec![[1, count, stride]],
+/// The limit of conventions §8.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#83-column-runs> counts the rows
+/// of every run expanded: a run of 2^40 empty structs, and one of 2^21 whose members are two rows
+/// each (a struct and an empty struct in it), so that neither its members nor its 3 stored rows are
+/// past `N = 2^22`, but the `3 + (2^21 - 1) × 2 = N + 1` rows it expands to are (one member fewer:
+/// `N - 1`).
+#[test]
+fn rejects_runs_past_the_budget() {
+    let run = |count: i64, child: bool| Table {
+        size: 0,
+        kind: if child { vec![0, 0, 0] } else { vec![0, 0] },
+        up: if child { vec![0, 1, 1] } else { vec![0, 1] },
+        name: if child { vec![0, 1, 1] } else { vec![0, 1] },
+        nidx: if child { vec![u64::MAX, 0, 0] } else { vec![u64::MAX, 0] },
+        ty: if child { vec![0; 3] } else { vec![0; 2] },
+        space: if child { vec![0; 3] } else { vec![0; 2] },
+        start: if child { vec![0; 3] } else { vec![0; 2] },
+        length: if child { vec![0; 3] } else { vec![0; 2] },
+        runs: vec![[1, count, 0]],
         names: vec!["".into(), "s/".into()],
         types: vec!["".into()],
         ..Default::default()
-    }
-}
-
-/// The limits of conventions §8.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#83-column-runs> bound a table's
-/// runs too: a run of 2^40 empty structs, which no leaf limits.
-#[test]
-fn rejects_run_members_past_the_budget() {
-    let ir = load(&one_run(0, STRUCT as u8, 0, 1 << 40, 0), &mut no_read).unwrap();
-    assert_eq!(check(&ir).unwrap_err(), "budget: more than 4194304 members of runs to name");
-}
-
-/// 2^23 one-byte gaps of a source of 2^23 bytes: one leaf a member, past `N = 2^22 + 2^21`.
-#[test]
-fn rejects_run_leaves_past_the_budget() {
-    assert_eq!(err(&one_run(1 << 23, GAP, 1, 1 << 23, 1)), "budget: more than 6291456 leaves of runs");
+    };
+    assert_eq!(err(&run(1 << 40, false)), "budget: more than 4194304 rows");
+    assert_eq!(err(&run(1 << 21, true)), "budget: more than 4194304 rows");
+    load(&run((1 << 21) - 1, true), &mut no_read).unwrap();
 }
 
 #[test]

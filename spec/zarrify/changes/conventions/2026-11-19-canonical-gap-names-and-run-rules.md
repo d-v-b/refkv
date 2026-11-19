@@ -4,6 +4,7 @@ the name of a gap repeated inside a run's members, becomes the gap's own `gaps/<
 ([§8.1](../../../conventions.md#81-elements),
 [§8.8](../../../conventions.md#88-canonical-form) step 1). A run holds no derived element, no
 alias and no element in a derived space ([§8.1](../../../conventions.md#81-elements)). A reader
-rejects a table whose runs break those rules, whose runs have more than `N` members besides each
-run's member 0, or whose runs' leaves, counted member by member, are more than `N`, with the
-messages [§8.3](../../../conventions.md#83-column-runs) gives.
+rejects a table whose runs break those rules, or that has more than `N` rows with its runs expanded
+as well as its column runs, with the messages
+[§8.3](../../../conventions.md#83-column-runs) gives. The names hold of the gaps as canonical form
+names them ([§8.8](../../../conventions.md#88-canonical-form) step 1).

@@ -410,17 +410,30 @@ fn expansion_limit(ir: &Ir) -> u64 {
     ir.budget.as_ref().map(|b| b.records).unwrap_or_else(|| crate::mirror::limit_of(ir))
 }
 
-/// What a run may hold (conventions §8.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>), and how many
-/// leaves its members may have in all (the limits of §8.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#83-column-runs>). Runs do not
-/// nest (checked first, by `mirror::load` for a table).
+/// The rules of runs (conventions §8.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>), and the rows they
+/// expand to (the limits of §8.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#83-column-runs>). Parents precede
+/// their children.
 pub fn runs(ir: &Ir) -> Res<()> {
     if ir.runs.is_empty() {
         return Ok(());
     }
+    let n = ir.len();
+    if ir.runs.len() > 1 {
+        let mut within = vec![NONE; n]; // the run whose root is above each row
+        for i in 1..n {
+            let p = ir.parent[i];
+            let Some(&above) = within.get(p as usize) else { continue };
+            let outer = if ir.run(p).is_some() { p } else { above };
+            if outer != NONE && ir.run(i as u32).is_some() {
+                return Err(format!("the run at row {i} is inside the run at row {outer}"));
+            }
+            within[i] = outer;
+        }
+    }
     let rr = ir.run_roots();
-    for i in 0..ir.len() {
+    for i in 0..n {
         let r = rr[i];
         if r == NONE {
             continue;
@@ -434,14 +447,12 @@ pub fn runs(ir: &Ir) -> Res<()> {
         return Err(format!("the run at row {r} holds {what} (row {i})"));
     }
     let limit = expansion_limit(ir);
-    let kids = if ir.store { ir.has_children() } else { Vec::new() };
-    let mut leaves = 0u64;
-    for i in 0..ir.len() {
-        if rr[i] != NONE && claims(ir, &kids, i) {
-            leaves = leaves.saturating_add(ir.run(rr[i]).map_or(1, |r| r.0));
-            if leaves > limit {
-                return Err(format!("budget: more than {limit} leaves of runs"));
-            }
+    let mut rows = n as u64;
+    for &(r, count, _) in &ir.runs {
+        let size = (ir.subtree_end(r) - r) as u64;
+        rows = rows.saturating_add(count.saturating_sub(1).saturating_mul(size));
+        if rows > limit {
+            return Err(format!("budget: more than {limit} rows"));
         }
     }
     Ok(())

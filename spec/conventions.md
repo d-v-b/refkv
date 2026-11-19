@@ -982,8 +982,9 @@ member 0's, except:
 Forms and alias targets without a column are member 0's. A reader expands
 the column runs that have no column of encoding 2 first, then the others.
 
-**Limits.** The expanded table has at most `2^22 + floor(Z / 4)` rows; a
-table that would have more is invalid. A producer **rejects** a source whose
+**Limits.** The expanded table, with every run (code 0) expanded as well,
+has at most `2^22 + floor(Z / 4)` rows; a table that would have more is
+invalid (`budget: more than N rows`, N that limit in decimal). A producer **rejects** a source whose
 canonical mirror (8.8: runs expanded, derived spaces left out) would have more
 than `N = 2^22 + floor(Z / 4)` rows, with the message
 `budget: the mirror would have more than N rows` (N in decimal), and may do so
@@ -1012,12 +1013,8 @@ is a derived element, an alias or in a derived space, `r` its run's root, the
 message is `the run at row r holds a derived element (row i)`,
 `the run at row r holds an alias (row i)` or, for an element of another kind,
 `the run at row r holds an element in a derived space (row i)` (`r` and `i`
-in decimal). So is one whose runs have more than `N` members besides each
-run's member 0, in all (`budget: more than N members of runs to name`), or
-whose runs' leaves,
-counted member by member (each run's `count` times the leaves of its member
-0), are more than `N` (`budget: more than N leaves of runs`). A reader
-rejects such a table (8.4) and a validator flags it as invalid.
+in decimal). A reader rejects such a table (8.4) and a validator flags it as
+invalid.
 
 ### 8.4 Reading the source back
 
@@ -1187,7 +1184,10 @@ compares mirrors entry for entry. In order:
    has the run root's name index plus `j`, and each element of member `j`
    the extent of member 0's shifted by `j × stride` (the same length), and
    its type, value and form. The table has no row of code 0. Then every gap
-   is named `gaps/`, with its start as its name index ([§8.1](#81-elements)).
+   is named `gaps/`, with its start as its name index ([§8.1](#81-elements)),
+   and the root and the names of [§8.1](#81-elements) must hold of the
+   elements so named: an IR whose renamed gaps break them has no canonical
+   form, and a producer rejects it with the message of the rule broken.
 2. **Order.** The elements are numbered depth first from the root (id 0), a
    parent before its children, each subtree contiguous. An element's **first
    byte** is its start when it has a length, else the least first byte of its
