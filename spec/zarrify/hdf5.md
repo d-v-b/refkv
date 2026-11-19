@@ -496,8 +496,9 @@ file: the IMS profile reads it ([ims.md §7](ims.md#7-ims-profile); its registry
 `chosen_by` is `hdf5`), from its first bytes, and the output is that profile's. Otherwise, when
 the root group has a link `Channels` to a group whose links, at least one, are each named
 `Channel_<n>`, the file is taken for a Janelia H5J file: this profile reads it, then the H5J
-profile reads its channels and the output is that profile's, unless it has no channel to present
-([h5j.md §8.1](h5j.md#81-choosing-the-profile); its `chosen_by` is `hdf5` too). Otherwise this
+profile reads its channels and the output is that profile's, unless the file fails one of that
+profile's checks ([h5j.md §8.1](h5j.md#81-choosing-the-profile), [§8.3](h5j.md#83-checks); its
+`chosen_by` is `hdf5` too). Otherwise this
 profile reads it. A store run ([§8.6](#86-external-files)) takes no file for an H5J file. A file named as the IMS or H5J
 profile's input is read by that profile alone
 ([spec/zarrify.md §1.7](../zarrify.md#17-named-inputs-and-layouts)).

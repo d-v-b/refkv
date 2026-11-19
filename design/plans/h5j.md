@@ -134,8 +134,8 @@ the microscope's data; the comparison is with the decoded stream, not the origin
 8. **Record, don't reject.** A channel that is not a contiguous, unfiltered, one-dimensional
    `uint8` dataset, whose bytes the MP4 parser rejects, whose track the MP4 profile does not present,
    or whose padding is not less than its coded size, is listed on the root with the reason. A file
-   with no channel to present is the HDF5 profile's when the HDF5 profile chose H5J for it, and
-   rejected when it was named as the H5J profile's input, as an MP4 file with no track to present
+   that fails the profile's checks (no channel to present, or more than 1024) is the HDF5 profile's
+   when the HDF5 profile chose H5J for it, and rejected when it was named as the H5J profile's input, as an MP4 file with no track to present
    is.
 9. **Fixtures.** A generator writes tiny H5J files with h5py (untimed, as the HDF5 fixtures are)
    holding MP4 files that ffmpeg and libx265 encode (`gray12le`, `info=0`): two channels with

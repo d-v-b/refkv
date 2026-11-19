@@ -243,8 +243,9 @@ its registry entry's `chosen_by` is `hdf5`): an HDF5 file that is not an Imaris 
 group has a link `Channels` (hard, or soft through hard links) to a group with at least one link,
 every one of them named `Channel_<n>` (`n` one to nine decimal digits), is taken for an H5J file. A
 structure on that path that can't be read makes the file no H5J file. The names are generic, so the
-channels confirm the choice: a file taken for an H5J file with no channel to present
-([§8.3](#83-checks)) is the HDF5 profile's, whose output it then has. A file named as the H5J
+channels confirm the choice: a file taken for an H5J file that fails one of the checks of
+[§8.3](#83-checks), as one with no channel to present does, is the HDF5 profile's, whose output it
+then has. A file named as the H5J
 profile's input ([spec/zarrify.md §1.7](../zarrify.md#17-named-inputs-and-layouts)) that is not an
 H5J file is rejected: `not an H5J file: the root has no group Channels of links Channel_<n>`.
 
