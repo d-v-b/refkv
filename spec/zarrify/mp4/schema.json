@@ -298,10 +298,11 @@
             },
             "chroma": {
               "enum": [
+                "4:0:0",
                 "4:2:0",
                 "4:2:2"
               ],
-              "description": "The chroma planes' subsampling"
+              "description": "The chroma planes' subsampling (4:0:0: none)"
             },
             "bit_depth": {
               "enum": [
