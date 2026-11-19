@@ -29,8 +29,8 @@ pub(super) struct Media {
 pub(super) enum Kind {
     /// pictures of a codec the list names: its name, the element of its configuration, the luma
     /// plane's width and height, the bits of a decoded sample, the chroma planes' width and height
-    /// and the samples a decoder may start at
-    Video { codec: &'static str, setup: u32, luma: (u64, u64), bits: u64, chroma: (u64, u64), sync: HashSet<u64> },
+    /// (none for a 4:0:0 picture) and the samples a decoder may start at
+    Video { codec: &'static str, setup: u32, luma: (u64, u64), bits: u64, chroma: Option<(u64, u64)>, sync: HashSet<u64> },
     /// a JPEG stream a sample: its width, height and components
     Jpeg { width: u64, height: u64, components: u64 },
     /// samples of an encoding the list has no name for, or whose elements the IR does not model:
@@ -78,11 +78,12 @@ pub(super) fn kind(t: &Track, count: u64, sync: Vec<u64>, ragged: bool) -> Kind 
     }
     let Some((codec, config, sps)) = video(e) else { return source() };
     let Some(setup) = e.config_element(config) else { return source() };
-    // three planes of one bit depth: 4:2:0, 4:2:2 or 4:4:4
+    // three planes of one bit depth (4:2:0, 4:2:2 or 4:4:4), or a luma plane alone (4:0:0)
     let halved = |n: u64, by: bool| if by { n.div_ceil(2) } else { n };
     let chroma = match sps.chroma {
+        0 if (8..=16).contains(&sps.luma) => None,
         1 | 2 | 3 if sps.luma == sps.chroma_depth && (8..=16).contains(&sps.luma) => {
-            (halved(e.width, sps.chroma < 3), halved(e.height, sps.chroma == 1))
+            Some((halved(e.width, sps.chroma < 3), halved(e.height, sps.chroma == 1)))
         }
         _ => return source(),
     };
@@ -112,7 +113,8 @@ pub(super) fn described(media: &[Media]) -> Res<(Vec<StoredArray>, Vec<Chain>, C
         let mut planes: Vec<(Vec<u64>, Option<u64>, Chain, Option<String>)> = Vec::new();
         match &m.kind {
             Kind::Video { codec, setup, luma, bits, chroma, .. } => {
-                for (plane, &(w, h)) in [luma, chroma, chroma].into_iter().enumerate() {
+                let sizes: Vec<&(u64, u64)> = std::iter::once(luma).chain(chroma.iter()).chain(chroma.iter()).collect();
+                for (plane, &&(w, h)) in sizes.iter().enumerate() {
                     let parameters = [("setup".to_string(), Param::Source(place(*setup))), ("plane".to_string(), Param::Value(json!(plane)))];
                     let chain = vec![Codec { name: codec.to_string(), parameters: parameters.into_iter().collect() }];
                     planes.push((vec![h, w], Some(*bits), chain, Some(format!("p.{codec}.sync"))));

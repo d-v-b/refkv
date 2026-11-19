@@ -877,6 +877,61 @@ impl Ir {
             b.spent_records += added;
             b.spent_elements += added;
         }
+        let map = self.copy_elements(from, &at, 0);
+        if let Some(plan) = plan {
+            let s = Arc::make_mut(&mut self.stored);
+            let first = s.arrays.len();
+            s.graft(plan, &from.stored, &at, &key);
+            s.add_columns(crate::array::CODECS, first);
+        }
+        Ok(map)
+    }
+
+    /// The file IR `from` joined to this file IR, which is not finished, under its struct `under`,
+    /// the struct taking the place of its root: as a file held in a range of this one's bytes is
+    /// described in place, `from`'s byte 0 being this one's byte `shift` (an H5J channel's MP4 file,
+    /// spec/zarrify/h5j.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md>). `from`
+    /// may be finished; its stored arrays are not joined (the caller joins them with the ids this
+    /// gives, [`crate::array::join_grafted`]). The ids `from`'s elements have here, by their ids there.
+    pub fn graft_file(&mut self, from: &Ir, under: u32, shift: u64) -> Res<Vec<u32>> {
+        if self.store || from.store || self.finished {
+            return Err("internal: a file graft takes a file IR into an unfinished file IR".into());
+        }
+        if from.space.iter().any(|&s| s != 0) {
+            return Err("internal: a graft of an IR with derived spaces".into());
+        }
+        if (under as usize) >= self.len() || self.kind[under as usize] != STRUCT {
+            return Err("internal: a file graft goes under a struct".into());
+        }
+        if shift.checked_add(from.size).is_none_or(|e| e > self.size) {
+            return Err("internal: a grafted file lies outside the file".into());
+        }
+        let added = from.len().saturating_sub(1) as u64;
+        if let Some(b) = self.budget.as_mut() {
+            if b.spent_records.saturating_add(added) > b.records {
+                return Err(format!("budget: more than {} IR records", b.records));
+            }
+            if b.spent_elements.saturating_add(added) > b.elements {
+                return Err(format!("budget: more than {} IR elements", b.elements));
+            }
+            b.spent_records += added;
+            b.spent_elements += added;
+        }
+        let base = self.len() as u32;
+        let at = |i: u32| if i == 0 { under } else { base + i - 1 };
+        let map = self.copy_elements(from, &at, shift);
+        // the tables are kept sorted by element, as `find` reads them
+        self.values.sort_by_key(|v| v.0);
+        self.form_of.sort_by_key(|f| f.0);
+        self.targets.sort_by_key(|t| t.0);
+        self.was.sort_by_key(|w| w.0);
+        self.runs.sort_by_key(|r| r.0);
+        Ok(map)
+    }
+
+    /// `from`'s elements but its root appended, each element `i` at `at(i)`, their extents moved
+    /// `shift` bytes on, with their values, forms, targets and runs: the ids by `from`'s.
+    fn copy_elements(&mut self, from: &Ir, at: &dyn Fn(u32) -> u32, shift: u64) -> Vec<u32> {
         let map: Vec<u32> = (0..from.len() as u32).map(at).collect();
         let shared: Vec<u32> = from.shared.iter().map(|b| self.share(b)).collect();
         for i in 1..from.len() {
@@ -888,7 +943,8 @@ impl Ir {
             self.nidx.push(from.nidx[i]);
             self.ty.push(ty);
             self.space.push(0);
-            self.start.push(from.start[i]);
+            // an element of no extent (a struct of none) stays at 0
+            self.start.push(if from.len[i] == 0 && from.start[i] == 0 { 0 } else { from.start[i] + shift });
             self.len.push(from.len[i]);
         }
         for &(i, o, n) in &from.values {
@@ -903,13 +959,7 @@ impl Ir {
         self.targets.extend(from.targets.iter().map(|&(i, t)| (at(i), at(t))));
         self.was.extend(from.was.iter().map(|&(i, k)| (at(i), k)));
         self.runs.extend(from.runs.iter().map(|&(r, c, s)| (at(r), c, s)));
-        if let Some(plan) = plan {
-            let s = Arc::make_mut(&mut self.stored);
-            let first = s.arrays.len();
-            s.graft(plan, &from.stored, &at, &key);
-            s.add_columns(crate::array::CODECS, first);
-        }
-        Ok(map)
+        map
     }
 
     /// A second name for element `target` (an earlier one): it claims nothing.

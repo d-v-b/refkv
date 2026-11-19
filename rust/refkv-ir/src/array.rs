@@ -3508,3 +3508,65 @@ mod tests {
         .contains("in an object marked undescribed"));
     }
 }
+
+/// What a description's place names once its IR is grafted into another (`Ir::graft_file`): an
+/// element by `at`; a range of the parsed source `shift` bytes on, where the graft put its bytes.
+fn moved_place(p: &mut Place, at: &dyn Fn(u32) -> u32, shift: u64) {
+    match p {
+        Place::Element { element, .. } => *element = at(*element),
+        Place::Extent { object: None, offset, .. } => *offset += shift,
+        Place::Extent { .. } => {}
+    }
+}
+
+/// The descriptions, chains and rows of a file IR's stored arrays `from`, after those of `into`
+/// (a parser's own, not yet described), as `Ir::graft_file` grafted the IR: elements renumbered
+/// by `at`, ranges of the source moved `shift` bytes on, and chains after `into`'s (spec/stored-array.md
+/// §6 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>: an H5J file's
+/// channels are its MP4 files' arrays).
+pub fn join_grafted(into: &mut (Vec<StoredArray>, Vec<Chain>, ChunkMap), from: &Stored, at: &dyn Fn(u32) -> u32, shift: u64) -> Res<()> {
+    let (arrays, chains, map) = into;
+    let chain_base = chains.len() as u32;
+    let array_base = arrays.len() as u32;
+    for c in &from.chains {
+        let mut c = c.clone();
+        for p in c.iter_mut().flat_map(|x| x.parameters.values_mut().filter_map(Param::places)) {
+            moved_place(p, at, shift);
+        }
+        chains.push(c);
+    }
+    for a in &from.arrays {
+        let mut a = a.clone();
+        a.element = at(a.element);
+        for p in a.places() {
+            moved_place(p, at, shift);
+        }
+        for c in a.chains.iter_mut() {
+            *c += chain_base;
+        }
+        arrays.push(a);
+    }
+    let m = &from.map;
+    for k in 0..m.len() {
+        let ranges = m.ranges_of(k).map(|r| {
+            r.map(|x| match m.range_object[x] {
+                Some(o) => (Some(m.objects[o as usize].clone()), m.range_offset[x], m.range_length[x]),
+                None => (None, m.range_offset[x] + shift, m.range_length[x]),
+            })
+            .collect()
+        });
+        let params = m.params.iter().filter_map(|(name, col)| col.get(k).map(|v| (name.clone(), v))).collect();
+        map.push(Row {
+            array: m.array[k] + array_base,
+            coords: m.coords_of(k).to_vec(),
+            element: m.element[k].map(at),
+            member: m.member[k],
+            range: m.range[k],
+            ranges,
+            chain: m.chain[k],
+            skips: m.skips[k],
+            params,
+        })?;
+    }
+    Ok(())
+}

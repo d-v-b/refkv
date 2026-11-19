@@ -116,6 +116,11 @@ pub struct Emit<'a> {
     pub must: HashSet<u64>,
     /// the elements emitted that the stored arrays' descriptions name (`super::stored`)
     pub rec: Recorded,
+    /// the IRs that take the place of contiguous datasets' data, by the dataset header's address:
+    /// a file the dataset holds, read as a file of its own (an H5J channel's MP4 file)
+    pub inner: HashMap<u64, &'a Ir>,
+    /// the ids each of them was grafted at, by the dataset header's address ([`Ir::graft_file`])
+    pub grafted: HashMap<u64, Vec<u32>>,
 }
 
 /// The elements the emission made that a stored array's description names: each message's `data`
@@ -538,7 +543,13 @@ impl Emit<'_> {
             }
             if ds.layout == hdf5::Layout::Contiguous {
                 if let (Some(a), n) = ds.contiguous {
-                    if n > 0 && self.h.src.within(a, n) {
+                    if let (Some(inner), true) = (self.inner.get(&at), n > 0 && self.h.src.within(a, n)) {
+                        // a file of its own: its IR in place of the data, of the same extent
+                        let id = self.ir.struct_(o, "data", NO_INDEX, 0, Some((a + self.h.src.base, n)))?;
+                        let map = self.ir.graft_file(inner, id, a + self.h.src.base)?;
+                        self.grafted.insert(at, map);
+                        self.data_of.insert(at, id);
+                    } else if n > 0 && self.h.src.within(a, n) {
                         let form = json!({"geometry": {"shape": ds.dims, "size": ds.datatype.size}, "codec": {"filters": ds.filters}, "recipe": [["src", 0, null]]});
                         let id = self.ir.data(o, "data", NO_INDEX, 0, (a + self.h.src.base, n), &form.to_string())?;
                         self.data_of.insert(at, id);

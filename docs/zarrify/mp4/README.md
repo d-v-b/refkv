@@ -28,9 +28,10 @@ needs: back to the keyframe before it, for video. The archive's
 A group at the archive root, and a group per track refkv zarrifies, at
 `tracks/<id>`.
 
-- **Video (H.264 and AV1 4:2:0 of 8 or 10 bits; HEVC and VP9 4:2:0 or 4:2:2 of 8, 10 or 12):** three
+- **Video (H.264 and AV1 4:2:0 of 8 or 10 bits; VP9 4:2:0 or 4:2:2 of 8, 10 or 12; HEVC 4:0:0, 4:2:0
+  or 4:2:2 of 8, 10 or 12):** three
   arrays, `y`, `u` and `v`, the decoder's planes, `[time, y, x]` (the chroma planes
-  half the size along each axis, or along `x` alone for 4:2:2), in presentation order: `uint8` for 8
+  half the size along each axis, or along `x` alone for 4:2:2; `y` alone for monochrome 4:0:0 HEVC), in presentation order: `uint8` for 8
   bits, `uint16` for more (values from 0 to 2^bits − 1); and `time`, each
   picture's presentation time in the track's timescale (`int64`). Each
   chunk is whole groups of pictures from a keyframe, up to 256 pictures

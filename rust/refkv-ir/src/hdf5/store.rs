@@ -49,7 +49,11 @@ impl Hdf5Store {
             tree: Tree::default(),
             keys: keys.to_vec(),
             elems: objects,
-            named: Hdf5::new(*size),
+            named: {
+                let mut p = Hdf5::new(*size);
+                p.not_h5j();
+                p
+            },
             stage: Stage::Named,
             followers: Vec::new(),
         })
@@ -60,6 +64,7 @@ impl Hdf5Store {
         for (object, (key, size)) in self.keys.iter().enumerate().skip(1) {
             if self.named.link_keys().contains(key) {
                 let mut parser = Hdf5::new(*size);
+                parser.not_h5j();
                 parser.resolve(HashMap::new());
                 self.followers.push(Follower { object, parser: Some(parser), done: false });
             }
