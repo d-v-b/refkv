@@ -41,6 +41,7 @@ const neuroglancer = process.env.NEUROGLANCER ?? path.join(here, "../../neurogla
 const decoders = [
   path.join(neuroglancer, "src/sliceview/jpeg2000/jpeg2000_decoder.wasm"),
   path.join(neuroglancer, "src/sliceview/jpegxr/jpegxr.wasm"),
+  path.join(neuroglancer, "src/sliceview/hevc/libde265.wasm"),
 ];
 fs.rmSync(dist, { recursive: true, force: true });
 // The profile registry, spec/zarrify/profiles/<name>.json, inlined as `#profiles`

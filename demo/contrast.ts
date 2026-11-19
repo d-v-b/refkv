@@ -11,9 +11,11 @@
 import { decodeGrib } from "../js/src/embed.ts";
 import { decodeJpeg2000 } from "./map/jpeg2k_decoder.ts";
 import { decodeJpegXr } from "./jpegxr_decoder.ts";
+import { decodeHevcPlane } from "./hevc_decoder.ts";
 
 const JPEG2K_WASM = new URL("jpeg2000_decoder.wasm", location.href);
 const JPEGXR_WASM = new URL("jpegxr.wasm", location.href);
+const HEVC_WASM = new URL("libde265.wasm", location.href);
 
 const TYPES: Record<string, [number, (v: DataView, i: number, le: boolean) => number]> = {
   uint8: [1, (v, i) => v.getUint8(i)], int8: [1, (v, i) => v.getInt8(i)],
@@ -56,8 +58,9 @@ export function usableWindow(w: Window | undefined, dataType: string): boolean {
 
 /**
  * The decoded samples of a chunk, as bytes and their byte order, for the
- * codecs this page decodes: `bytes`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`
- * and `refkv.grib` (with refkv's Rust core, which the service worker also
+ * codecs this page decodes: `bytes`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`,
+ * `refkv.stream` of HEVC (the pictures the chunk outputs, as the fork's
+ * libde265 gives them) and `refkv.grib` (with refkv's Rust core, which the service worker also
  * runs), after any `transpose` (the order of the samples does not matter for
  * their percentiles), with `gzip` or `numcodecs.zlib` after them. Undefined
  * for any other chain.
@@ -81,6 +84,12 @@ async function decodeChunk(meta: any, encoded: Uint8Array): Promise<[Uint8Array,
     case "imagecodecs_jpegxr": {
       const d = await decodeJpegXr(JPEGXR_WASM, bytes);
       return d.bytesPerSample === size ? [d.data, true] : undefined;
+    }
+    case "refkv.stream": {
+      const { format, setup, plane } = first.configuration ?? {};
+      if (format !== "hevc" || (size !== 1 && size !== 2)) return undefined;
+      const setupBytes = Uint8Array.from(atob(setup), (c) => c.charCodeAt(0));
+      return [await decodeHevcPlane(HEVC_WASM, setupBytes, bytes, ["y", "u", "v"].indexOf(plane ?? "y")), true];
     }
     case "refkv.grib": {
       const values = await decodeGrib(bytes, first.configuration, meta.chunk_grid.configuration.chunk_shape, meta.data_type);
