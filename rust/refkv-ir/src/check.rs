@@ -446,14 +446,12 @@ pub fn runs(ir: &Ir) -> Res<()> {
         };
         return Err(format!("the run at row {r} holds {what} (row {i})"));
     }
+    // a table's rows; of a parser's IR, those outside derived spaces, as `mirror::mirror` counts
+    // them before canonical form leaves derived descendants out
     let limit = expansion_limit(ir);
-    let mut rows = n as u64;
-    for &(r, count, _) in &ir.runs {
-        let size = (ir.subtree_end(r) - r) as u64;
-        rows = rows.saturating_add(count.saturating_sub(1).saturating_mul(size));
-        if rows > limit {
-            return Err(format!("budget: more than {limit} rows"));
-        }
+    let rows = if ir.loaded { n as u64 } else { ir.space.iter().filter(|&&d| d == 0).count() as u64 };
+    if rows.saturating_add(ir.run_rows()) > limit {
+        return Err(format!("budget: more than {limit} rows"));
     }
     Ok(())
 }
@@ -626,6 +624,8 @@ pub fn names(ir: &Ir) -> Res<()> {
     if ir.run(0).is_some() {
         return Err("the root (element 0) is a run".into());
     }
+    // a guard for a caller that has not checked `runs` (which bounds the members, among the rows
+    // they expand to), not a rejection of its own: `check` and `canonical` never reach it
     let limit = expansion_limit(ir);
     let mut extra = 0u64;
     // (parent, full name, element, member)

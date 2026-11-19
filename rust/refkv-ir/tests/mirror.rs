@@ -422,7 +422,7 @@ fn an_ir_whose_derived_element_has_no_descendants_is_invalid() {
 // | limits: types out of range | `rejects_a_type_past_the_types`, `rejects_a_type_column_past_the_types` |
 // | limits: forms out of range | `rejects_a_form_row_of_no_form`, `rejects_a_form_column_that_is_no_form` |
 // | limits: the expanded rows break the rules of the root or of the names | `flags_a_table_whose_root_is_named`, and each rule in tests/core.rs |
-// | limits: the expanded table, every run expanded too, has more than `N` rows | `rejects_runs_past_the_budget` |
+// | limits: the expanded table, every run expanded too, has more than `N` rows | `rejects_runs_past_the_budget` (and `an_ir_past_the_budget_only_by_its_left_out_derived_rows_is_valid`, a parser's IR) |
 //
 // Beside them, the runs of §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>:
 //
@@ -770,6 +770,7 @@ fn an_ir_whose_run_holds_a_derived_element_is_invalid() {
         ir.derived(s, "z", 0, (0, 10), r#"{"transform":"zlib"}"#).unwrap();
     });
     assert_eq!(check(&ir).unwrap_err(), "the run at row 1 holds a derived element (row 2)");
+    assert_eq!(canonical(&ir).err().unwrap(), "the run at row 1 holds a derived element (row 2)");
 }
 
 #[test]
@@ -778,6 +779,7 @@ fn an_ir_whose_run_holds_an_alias_is_invalid() {
         ir.alias(s, "a", NO_INDEX, 0).unwrap();
     });
     assert_eq!(check(&ir).unwrap_err(), "the run at row 1 holds an alias (row 2)");
+    assert_eq!(canonical(&ir).err().unwrap(), "the run at row 1 holds an alias (row 2)");
 }
 
 #[test]
@@ -789,6 +791,30 @@ fn an_ir_whose_run_holds_an_element_in_a_derived_space_is_invalid() {
     ir.runs.push((v, 2, 4));
     ir.build_children();
     assert_eq!(check(&ir).unwrap_err(), "the run at row 2 holds an element in a derived space (row 2)");
+    assert_eq!(canonical(&ir).err().unwrap(), "the run at row 2 holds an element in a derived space (row 2)");
+}
+
+/// A parser's IR counts its rows outside derived spaces, as the producer does before canonical form
+/// leaves derived descendants out (conventions §8.8
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>, step 3): an IR
+/// of `2^20 + 1` structs in a derived space and a run that brings the rows outside it to `N = 2^22`
+/// passes `check`, and the producer mirrors it in `N` rows.
+#[test]
+fn an_ir_past_the_budget_only_by_its_left_out_derived_rows_is_valid() {
+    let mut ir = Ir::new(0);
+    ir.budget = None;
+    let z = ir.add(refkv_ir::ir::DERIVED, 0, "z", NO_INDEX, "", 0, None).unwrap();
+    for k in 0..(1u64 << 20) + 1 {
+        ir.struct_(z, "d/", k, z, None).unwrap();
+    }
+    let s = ir.struct_(0, "s/", 0, 0, None).unwrap();
+    ir.runs.push((s, (1 << 22) - 2, 0));
+    ir.build_children();
+    check(&ir).unwrap();
+    let mut out = Out::new("u");
+    assert_eq!(mirror(&ir, &mut out, "tiff").unwrap().rows, 1 << 22);
+    ir.runs[0].1 += 1;
+    assert_eq!(check(&ir).unwrap_err(), "budget: more than 4194304 rows");
 }
 
 /// The limit of conventions §8.3

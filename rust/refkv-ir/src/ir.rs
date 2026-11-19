@@ -1008,6 +1008,15 @@ impl Ir {
         find(&self.was, i)
     }
 
+    /// The rows the runs add when they are expanded: each run's members past member 0, each as
+    /// many rows as the run's subtree.
+    pub fn run_rows(&self) -> u64 {
+        self.runs
+            .iter()
+            .map(|&(r, c, _)| c.saturating_sub(1).saturating_mul((self.subtree_end(r) - r) as u64))
+            .fold(0u64, |a, b| a.saturating_add(b))
+    }
+
     /// The end (exclusive) of the subtree rooted at `r`, whose ids are contiguous.
     pub fn subtree_end(&self, r: u32) -> u32 {
         let n = self.len() as u32;

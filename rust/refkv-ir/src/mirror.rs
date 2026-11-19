@@ -141,6 +141,9 @@ pub fn canonical(ir: &Ir) -> Result<Ir, String> {
     if x.runs.iter().any(|r| (r.0 as usize) >= x.len() || x.nidx[r.0 as usize] == NO_INDEX) {
         return Err("a run whose root has no name index".into());
     }
+    // the rules of runs (§8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>):
+    // a run that breaks them has no members to expand
+    crate::check::runs(&x)?;
     let roots: Vec<u32> = x.runs.iter().map(|r| r.0).collect();
     for r in roots {
         x.unfold(r)?;
@@ -611,11 +614,8 @@ pub fn mirror(ir: &Ir, out: &mut Out, profile: &str) -> Result<Folded, String> {
     let limit = limit_of(ir);
     let over = || format!("budget: the mirror would have more than {limit} rows");
     // at least the rows outside derived spaces, every run expanded: rejected before expanding
-    let extra: u64 = ir.runs.iter()
-        .map(|&(r, c, _)| c.saturating_sub(1).saturating_mul((ir.subtree_end(r) - r) as u64))
-        .fold(0u64, |a, b| a.saturating_add(b));
     let outside = ir.space.iter().filter(|&&d| d == 0).count() as u64;
-    if outside.saturating_add(extra) > limit {
+    if outside.saturating_add(ir.run_rows()) > limit {
         return Err(over());
     }
     let mut y = canonical(ir)?;
