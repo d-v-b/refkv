@@ -12,9 +12,17 @@ messages:
   section in its message;
 - those octets, decoded through the chain by decoders written here from the list's entries
   (spec/stored-array.md §3.2 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#32-the-list>),
-  are exactly, bit for bit, the values ecCodes reads, in the file's order: NaN where ecCodes
-  reports a missing value of complex packing, and, of a field with a bitmap, the values of the
-  points the bitmap keeps.
+  are exactly the integers ecCodes reads, in the file's order, of a field with a bitmap those of
+  the points the bitmap keeps. ecCodes gives no integers, so they are its values of the field's
+  message with the reference value and the scale factors set to 0, which it then reads as its
+  integers;
+- those integers, scaled here by the reference value and the scale factors of the section 5
+  declaration, as the profile scales them (the GRIB paragraph of spec/stored-array.md §7
+  <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>), are
+  exactly, bit for bit, the values ecCodes reads;
+- a field of complex packing with missing values, which is `source`, decoded here from its
+  section 5 declaration, is the integers ecCodes reads and, scaled, its values, NaN where ecCodes
+  reports a missing value.
 
 ecCodes reads a message of several fields a field at a time, each as a message of its own that it
 makes of the field's sections, so it gives the offsets in the file of a message's first field
@@ -24,15 +32,17 @@ message ecCodes makes for every field.
 
 ecCodes 2.50 departs from the file in three ways, each counted where it is met. It aborts on a PNG
 field of 1, 2 or 4 bits, whose values are then those of `fixtures/grib/expected`, which the
-fixtures' generator wrote. Under bitmap indicator 254 it takes the bitmap of the field just before
-(none, where that field has none), not of the last field that has one: such a field's values are
-then its coded values, as the description has them. And it reads a constant field as its
-reference value whatever its decimal scale factor is, as the description does.
+fixtures' generator wrote, and whose integers are compared through those values alone. Under
+bitmap indicator 254 it takes the bitmap of the field just before (none, where that field has
+none), not of the last field that has one: such a field's values are then its coded values, as
+the description has them. And it reads a constant field as its reference value whatever its
+decimal scale factor is, as the description does.
 
 A second test asserts which cases the fixtures reached; the tests after it write cases no fixture
 holds."""
 
 import struct
+import sys
 import zlib
 from collections import Counter
 from collections.abc import Callable
@@ -58,12 +68,11 @@ FILES = sorted(p for p in GRIB.glob("*.grib2") if "reject" not in p.name)
 MISSING = 1e300  # ecCodes' missing value while reading: no field holds it
 # the grid templates whose rows the parser reads
 ROWS = (0, 1, 10, 20, 30, 40)
-# the codec of the integers of each packing the list names, by data representation template
-PACKINGS = {0: "grib_simple", 2: "grib_complex", 3: "grib_complex", 40: "jpeg2k", 41: "grib_png", 42: "grib_ccsds"}
+# the codec of the integers of each packing the list names, by data representation template, but
+# simple packing's (5.0), which section 7 stores as they are
+PACKINGS = {2: "grib_complex", 3: "grib_complex", 40: "jpeg2k", 41: "grib_png", 42: "grib_ccsds"}
 # the octets of section 5 that are each codec's parameters: (first octet, count)
 OCTETS = {
-    "grib_scale": {"reference": (12, 4), "binary_scale": (16, 2), "decimal_scale": (18, 2)},
-    "grib_simple": {"bits": (20, 1)},
     "grib_complex": {"bits": (20, 1), "groups": (22, 26), "differencing": (48, 2)},
     "jpeg2k": {},
     "grib_png": {},
@@ -140,14 +149,15 @@ def walked(b: bytes) -> list[Held]:
 class Read:
     """What ecCodes reads of a field: the message of that field alone that it makes, where that
     message's sections are, its keys, its values in the file's order (or, where it gives none,
-    why: it "aborts", or it "refuses" them with an error) and its bitmap's bits (None where it
-    reads none)."""
+    why: it "aborts", or it "refuses" them with an error), its integers likewise, and its bitmap's
+    bits (None where it reads none)."""
 
     message: bytes
     sections: dict[int, Span]
     keys: dict[str, int]
     reference: float
     values: np.ndarray | str
+    integers: np.ndarray | str
     bitmap: np.ndarray | None
 
 
@@ -164,27 +174,45 @@ def sections_read(h: int) -> dict[int, Span]:
             for s in (3, 5, 6, 7)}
 
 
+def values_of(h: int) -> np.ndarray | str:
+    """A handle's values, or "refuses"."""
+    eccodes.codes_set(h, "missingValue", MISSING)
+    try:
+        return np.array(eccodes.codes_get_values(h), dtype=np.float64)
+    except eccodes.CodesInternalError:
+        return "refuses"
+
+
+def unscaled(message: bytes, s5: int) -> bytes:
+    """The message with its section 5, at `s5`, of a reference value and scale factors of 0
+    (octets 12–19): the values ecCodes reads of it are its integers."""
+    return message[:s5 + 11] + bytes(8) + message[s5 + 19:]
+
+
 def read_field(h: int) -> Read:
     """One handle's field."""
     keys = {k: eccodes.codes_get_long(h, k) for k in KEYS}
     keys |= {k: eccodes.codes_get_long(h, k) for k in OPTIONAL
              if eccodes.codes_is_defined(h, k) and not eccodes.codes_is_missing(h, k)}
     sections = sections_read(h)
+    message = eccodes.codes_get_message(h)
     template, bits = keys["dataRepresentationTemplateNumber"], keys["bitsPerValue"]
     values: np.ndarray | str = "aborts"
+    integers: np.ndarray | str = "aborts"
     # ecCodes 2.50 aborts on a PNG image of samples that are not whole bytes
     if not (template == 41 and bits in (1, 2, 4)):
-        eccodes.codes_set(h, "missingValue", MISSING)
+        values = values_of(h)
+        u = eccodes.codes_new_from_message(unscaled(message, sections[5][0]))
         try:
-            values = np.array(eccodes.codes_get_values(h), dtype=np.float64)
-        except eccodes.CodesInternalError:
-            values = "refuses"
+            integers = values_of(u)
+        finally:
+            eccodes.codes_release(u)
     bitmap = None
     # of a predefined bitmap (indicator 1 to 253) ecCodes has no bits
     if keys["bitMapIndicator"] == 0:
         bitmap = np.array(eccodes.codes_get_array(h, "bitmap"), dtype=np.uint8)
     reference = eccodes.codes_get_double(h, "referenceValue")
-    return Read(eccodes.codes_get_message(h), sections, keys, reference, values, bitmap)
+    return Read(message, sections, keys, reference, values, integers, bitmap)
 
 
 def read_fields(path: Path) -> tuple[list[Read], list[tuple[int, dict[int, Span]]]]:
@@ -230,10 +258,27 @@ def integers(bits: np.ndarray, at: int, count: int, width: int) -> np.ndarray:
     return (cut << np.arange(width - 1, -1, -1, dtype=np.uint64)).sum(axis=1, dtype=np.uint64)
 
 
-def grib_scale(x: bytes, reference: bytes, binary_scale: bytes, decimal_scale: bytes) -> bytes:
-    """`(X × 2^E + R) × 10^−D` in binary64, the powers by repeated multiplication or division;
-    NaN for −2^63."""
-    ints = np.frombuffer(x, dtype="<i8")
+def packed(ints: np.ndarray, width: int) -> bytes:
+    """Unsigned integers of `width` bits each, the most significant bit first, one after another,
+    then the bits that fill the last octet: elements of `width` bits as a chain ends in them where
+    its codec does not say otherwise (spec/stored-array.md §3.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#31-chains>)."""
+    shifts = np.arange(width - 1, -1, -1, dtype=np.uint64)
+    bits = ((ints.astype(np.uint64)[:, None] >> shifts) & np.uint64(1)).astype(np.uint8)
+    return np.packbits(bits.ravel()).tobytes()
+
+
+def little(ints: np.ndarray, width: int) -> bytes:
+    """Unsigned integers of `width` bits, a multiple of 8, each little-endian."""
+    shifts = np.uint64(8) * np.arange(width // 8, dtype=np.uint64)
+    return ((ints.astype(np.uint64)[:, None] >> shifts) & np.uint64(0xFF)).astype(np.uint8).tobytes()
+
+
+def scale(ints: np.ndarray, reference: bytes, binary_scale: bytes, decimal_scale: bytes) -> np.ndarray:
+    """A field's values, as the profile makes them of its integers `X` (the GRIB paragraph of
+    spec/stored-array.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>):
+    `(X × 2^E + R) × 10^−D` in binary64, the powers by repeated multiplication or
+    division, of `R`, `E` and `D` as section 5 holds them."""
     r = np.float64(np.frombuffer(reference, dtype=">f4")[0])
     e, d = signed(binary_scale), signed(decimal_scale)
     two, ten = np.float64(1.0), np.float64(1.0)
@@ -241,19 +286,14 @@ def grib_scale(x: bytes, reference: bytes, binary_scale: bytes, decimal_scale: b
         two = two * 2.0 if e > 0 else two / 2.0
     for _ in range(abs(d)):
         ten = ten / 10.0 if d > 0 else ten * 10.0
-    out = (ints.astype(np.float64) * two + r) * ten
-    out[ints == np.iinfo(np.int64).min] = np.nan
-    return out.astype("<f8").tobytes()
+    return (ints.astype(np.float64) * two + r) * ten
 
 
-def grib_simple(unit: bytes, n: int, bits: bytes) -> bytes:
-    """`n` integers of `bits` bits each, one after another."""
-    return integers(np.unpackbits(np.frombuffer(unit, dtype=np.uint8)), 0, n, bits[0]).astype("<u8").tobytes()
-
-
-def grib_complex(unit: bytes, n: int, bits: bytes, groups: bytes, differencing: bytes | None) -> bytes:
-    """The groups' values, each its group's reference plus its coded value; a missing value
-    −2^63; and spatial differences summed back over the values that are not missing."""
+def complex_values(unit: bytes, n: int, bits: bytes, groups: bytes,
+                   differencing: bytes | None) -> tuple[np.ndarray, np.ndarray]:
+    """The groups' values, each its group's reference plus its coded value, with spatial
+    differences summed back over the values that are not missing; and which are missing, as
+    ecCodes reads complex packing of any missing value management."""
     octet = lambda first, count=1: uint(groups[first - 22:first - 22 + count])  # noqa: E731
     management, count = octet(23), octet(32, 4)
     width_reference, width_bits = octet(36), octet(37)
@@ -272,8 +312,8 @@ def grib_complex(unit: bytes, n: int, bits: bytes, groups: bytes, differencing: 
     pos = -(-(pos + count * length_bits) // 8) * 8
     if int(lengths.sum()) != n:
         raise ValueError(f"the groups hold {int(lengths.sum())} values, not the unit's {n}")
-    gone = np.iinfo(np.int64).min
     values = np.empty(n, dtype=np.int64)
+    gone = np.zeros(n, dtype=bool)
     done = 0
     for reference, width, length in zip(references.tolist(), widths.tolist(), lengths.tolist(), strict=True):
         coded = integers(stream, pos, length, width)
@@ -283,11 +323,11 @@ def grib_complex(unit: bytes, n: int, bits: bytes, groups: bytes, differencing: 
             # all ones, of the group's width or, for a group of width 0, of the reference's
             ones = np.uint64((1 << width) - 1 if width else (1 << bits[0]) - 1)
             of = coded if width else np.full(length, reference, dtype=np.uint64)
-            group[(of == ones) | ((of == ones - np.uint64(1)) if management == 2 else False)] = gone
+            gone[done:done + length] = (of == ones) | ((of == ones - np.uint64(1)) if management == 2 else False)
         values[done:done + length] = group
         done += length
     if order:
-        kept = values != gone
+        kept = ~gone
         d = values[kept]
         first = np.array(firsts, dtype=np.uint64).astype(np.int64)
         if order == 1 and len(d):
@@ -304,7 +344,16 @@ def grib_complex(unit: bytes, n: int, bits: bytes, groups: bytes, differencing: 
             steps = d[1:] + np.int64(minimum)
             steps[0] = first[1] - first[0]
             values[kept] = np.concatenate([first[:1], first[0] + np.cumsum(np.cumsum(steps))])
-    return values.astype("<i8").tobytes()
+    return values, gone
+
+
+def grib_complex(unit: bytes, n: int, bits: bytes, groups: bytes, differencing: bytes | None) -> bytes:
+    """The values of complex packing of no missing values, as integers of 64 bits, two's
+    complement, the most significant bit first."""
+    if groups[1]:
+        raise ValueError(f"missing value management {groups[1]}, which the entry does not take")
+    values, _ = complex_values(unit, n, bits, groups, differencing)
+    return values.astype(">i8").tobytes()
 
 
 def unfiltered(raw: bytes, row: int, pixel: int) -> bytes:
@@ -358,8 +407,9 @@ def grib_png(unit: bytes, n: int) -> bytes:
     row = -(-width * pixel // 8)
     lines = unfiltered(zlib.decompress(data), row, max(pixel // 8, 1))
     rows = np.frombuffer(lines, dtype=np.uint8).reshape(height, row)
+    # each row's pixels, without the bits that end it on a whole octet
     bits = np.unpackbits(rows, axis=1)[:, :width * pixel]
-    return integers(np.ascontiguousarray(bits).ravel(), 0, n, pixel).astype("<u8").tobytes()
+    return np.packbits(np.ascontiguousarray(bits).ravel()).tobytes()
 
 
 def grib_ccsds(unit: bytes, n: int, bits: bytes, flags: bytes, block_size: bytes,
@@ -380,35 +430,41 @@ def grib_ccsds(unit: bytes, n: int, bits: bytes, flags: bytes, block_size: bytes
     octets = np.frombuffer(raw[:n * size], dtype=np.uint8).reshape(n, size).astype(np.uint64)
     # the most significant octet first with the flag 4, else the least
     shifts = np.arange(size, dtype=np.uint64)[::-1] if options & 4 else np.arange(size, dtype=np.uint64)
-    return (octets << (np.uint64(8) * shifts)).sum(axis=1, dtype=np.uint64).astype("<u8").tobytes()
+    return packed((octets << (np.uint64(8) * shifts)).sum(axis=1, dtype=np.uint64), depth)
 
 
-def jpeg2k(unit: bytes, n: int) -> bytes:
-    """A JPEG 2000 codestream's samples, in the image's order, as integers of 64 bits."""
+def jpeg2k(unit: bytes, n: int, item_bits: int) -> bytes:
+    """A JPEG 2000 codestream's samples, in the image's order, each of `item_bits` bits,
+    little-endian."""
     image = imagecodecs.jpeg2k_decode(unit)
     if image.size != n:
         raise ValueError(f"an image of {image.size} samples, not the unit's {n}")
-    return image.ravel().astype("<i8").tobytes()
+    return little(image.ravel(), item_bits)
 
 
-DECODERS: dict[str, Callable[..., bytes]] = {
-    "grib_simple": grib_simple, "grib_png": grib_png, "grib_ccsds": grib_ccsds, "jpeg2k": jpeg2k}
-
-
-def decoded(d: Described, chain: tuple[Codec, ...], unit: bytes, n: int) -> bytes:
-    """A unit of `n` elements taken through its chain, from its last codec to its first: the
-    elements' bytes."""
+def decoded(d: Described, chain: tuple[Codec, ...], unit: bytes, n: int, item_bits: int) -> np.ndarray:
+    """A unit of `n` elements of `item_bits` bits taken through its chain, from its last codec to
+    its first, and its elements read as integers: as the chain's first codec makes them, or, of
+    an empty chain, as stored."""
     for codec in reversed(chain):
         given = {k: d.place(v.place) for k, v in codec.parameters.items() if isinstance(v, Source)}
         if len(given) != len(codec.parameters):
             raise ValueError(f"{codec.name} with a parameter that is no place")
-        if codec.name == "grib_scale":
-            unit = grib_scale(unit, **given)
-        elif codec.name == "grib_complex":
+        if codec.name == "grib_complex":
             unit = grib_complex(unit, n, given["bits"], given["groups"], given.get("differencing"))
+        elif codec.name == "jpeg2k":
+            unit = jpeg2k(unit, n, item_bits)
+        elif codec.name == "grib_png":
+            unit = grib_png(unit, n)
         else:
-            unit = DECODERS[codec.name](unit, n, **given)
-    return unit
+            unit = grib_ccsds(unit, n, **given)
+    if chain and chain[0].name == "jpeg2k":
+        size = item_bits // 8
+        octets = np.frombuffer(unit[:n * size], dtype=np.uint8).reshape(n, size).astype(np.uint64)
+        return (octets << (np.uint64(8) * np.arange(size, dtype=np.uint64))).sum(axis=1, dtype=np.uint64)
+    ints = integers(np.unpackbits(np.frombuffer(unit, dtype=np.uint8)), 0, n, item_bits)
+    # complex packing's are two's complement
+    return ints.view(np.int64) if chain and chain[0].name == "grib_complex" else ints
 
 
 # ---- the comparison
@@ -454,6 +510,15 @@ def expected_values(read: Read, seen: Counter) -> np.ndarray:
     return np.where(missing, np.nan, values)
 
 
+def expected_integers(read: Read) -> np.ndarray | None:
+    """A field's coded integers, in the file's order, as ecCodes reads them (`MISSING` for a
+    missing value), under a bitmap those of the points it keeps; None where ecCodes aborts."""
+    if isinstance(read.integers, str) and read.integers == "aborts":
+        return None
+    assert not isinstance(read.integers, str), "ecCodes refuses the integers of a field the description decodes"
+    return read.integers if read.bitmap is None else read.integers[read.bitmap == 1]
+
+
 def check_bitmap(d: Described, k: int, name: str, held: Held, read: Read) -> list[str]:
     """A bitmap's array against ecCodes' bitmap of the field it is first read in."""
     a = d.stored.arrays[k]
@@ -484,8 +549,9 @@ def check_bitmap(d: Described, k: int, name: str, held: Held, read: Read) -> lis
 
 
 def expected_chain(read: Read) -> tuple[str, list[str]]:
-    """How a field's values are stored, by ecCodes' keys: "floats", "constant", "packed" with the
-    chain's codecs, "source", or "no grid" where its section 7 does not hold them."""
+    """How a field's values are stored, by ecCodes' keys: "floats", "constant", "integers" as
+    stored, "packed" with the chain's codecs, "source", or "no grid" where its section 7 does not
+    hold them."""
     k = read.keys
     template, bits, n = k["dataRepresentationTemplateNumber"], k["bitsPerValue"], k["numberOfValues"]
     data = read.sections[7][1] - 5
@@ -493,6 +559,11 @@ def expected_chain(read: Read) -> tuple[str, list[str]]:
         if k["precision"] not in (1, 2):
             return "source", ["source"]
         return ("floats", []) if 4 * k["precision"] * n <= data else ("no grid", [])
+    if template == 0:
+        # simple packing's integers, as stored
+        if bits == 0:
+            return "constant", []
+        return ("integers", []) if -(-n * bits // 8) <= data else ("no grid", [])
     if template not in PACKINGS:
         return "source", ["source"]
     if template in (2, 3):
@@ -503,15 +574,24 @@ def expected_chain(read: Read) -> tuple[str, list[str]]:
             return "source", ["source"]
         if k["numberOfGroupsOfDataValues"] == 0:
             return "constant", []
+        # missing values, for which no integer is coded
+        if k["missingValueManagementUsed"]:
+            return "source", ["source"]
     else:
-        takes = {0: bits <= 63, 40: True, 41: True, 42: bits <= 32 and not k.get("ccsdsFlags", 0) & 1}
+        takes = {40: True, 41: True, 42: bits <= 32 and not k.get("ccsdsFlags", 0) & 1}
         if not takes[template]:
             return "source", ["source"]
         if bits == 0:
             return "constant", []
-    # simple packing's integers, or a stream of at least an octet
-    held = -(-n * bits // 8) <= data if template == 0 else data > 0 or n == 0
-    return ("packed", ["grib_scale", PACKINGS[template]]) if held else ("no grid", [])
+    # a stream of at least an octet
+    return ("packed", [PACKINGS[template]]) if data > 0 or n == 0 else ("no grid", [])
+
+
+def expected_bits(read: Read) -> int:
+    """The bits of a field's integers, by ecCodes' keys: simple packing's, PNG's and CCSDS's bit
+    width, a JPEG 2000 codestream's in whole octets, and complex packing's 64."""
+    template, bits = read.keys["dataRepresentationTemplateNumber"], read.keys["bitsPerValue"]
+    return 64 if template in (2, 3) else -(-bits // 8) * 8 if template == 40 else bits
 
 
 def check_parameters(d: Described, chain: tuple[Codec, ...], held: Held, read: Read) -> list[str]:
@@ -530,12 +610,6 @@ def check_parameters(d: Described, chain: tuple[Codec, ...], held: Held, read: R
             said.append(f"{codec.name}'s parameters at {got}, of a section 5 at {held.s5[0]}")
             continue
         given = {name: d.place(p.place) for name, p in codec.parameters.items() if isinstance(p, Source)}
-        if codec.name == "grib_scale":
-            r = struct.unpack(">f", given["reference"])[0]
-            mine = (r, signed(given["binary_scale"]), signed(given["decimal_scale"]))
-            theirs = (read.reference, k["binaryScaleFactor"], k["decimalScaleFactor"])
-            if mine != theirs:
-                said.append(f"R, E and D {mine}, ecCodes' {theirs}")
         if "bits" in given and uint(given["bits"]) != k["bitsPerValue"]:
             said.append(f"a bit width of {uint(given['bits'])}, ecCodes' {k['bitsPerValue']}")
         if codec.name == "grib_complex":
@@ -613,25 +687,57 @@ def check_field(d: Described, k: int, path: Path, held: Held, read: Read, seen: 
             said.append(f"{a.item_bits} bits, of IEEE floats of precision {keys['precision']}")
         length = n * size
     else:
-        if a.item_bits != 64:
-            said.append(f"{a.item_bits} bits, of packed values")
+        if a.item_bits != expected_bits(read):
+            said.append(f"{a.item_bits} bits, of integers of {expected_bits(read)}")
         said += check_parameters(d, chain, held, read)
         length = -(-n * keys["bitsPerValue"] // 8) if template == 0 else data[1]
     want_rows = [([0] * len(shape), [(name, data[0], length)])] if n and length else []
     if [(r["coords"], d.parts(r)) for r in rows] != want_rows:
         return [*said, f"rows {[(r['coords'], d.parts(r)) for r in rows]}, of a section 7 at {held.s7}: {want_rows}"]
-    if said or not rows or kind == "source":
+    if said or not rows:
         return said
-    # the unit, through its chain, is ecCodes' values, bit for bit
     unit = d.unit(rows[0])
-    stored = "<f8" if chain else ">f4" if a.item_bits == 32 else ">f8"
-    got = np.frombuffer(decoded(d, chain, unit, n), dtype=stored).astype(np.float64)
+    if kind == "floats":
+        # the unit is ecCodes' values, bit for bit
+        got = np.frombuffer(unit, dtype=">f4" if a.item_bits == 32 else ">f8").astype(np.float64)
+        seen["units decoded"] += 1
+        return compare_values(got, read, seen)
+    # the integers: the unit through its chain, or, of complex packing with missing values, the
+    # unit decoded from its section 5 declaration
+    s5 = d.place(a.declarations[1])
+    if kind == "source":
+        if template not in (2, 3) or keys["missingValueManagementUsed"] not in (1, 2):
+            return said
+        octet = lambda first, count=1: s5[first - 1:first - 1 + count]  # noqa: E731
+        ints, missing = complex_values(unit, n, octet(20), octet(22, 26), octet(48, 2) if template == 3 else None)
+        seen["source units decoded from their declarations"] += 1
+    else:
+        assert a.item_bits is not None
+        ints, missing = decoded(d, chain, unit, n, a.item_bits), np.zeros(n, dtype=bool)
+        seen["units decoded"] += 1
+    # are ecCodes' integers, where it reads them, `MISSING` where a value is missing
+    theirs = expected_integers(read)
+    if theirs is None:
+        seen["units whose integers ecCodes cannot read"] += 1
+    elif theirs.shape != ints.shape or not np.array_equal(np.where(missing, MISSING, ints.astype(np.float64)), theirs):
+        said.append(f"integers {ints[:4]}, ecCodes' {theirs[:4]}")
+    # which, scaled by the reference value and the scale factors section 5 holds, are ecCodes'
+    # values, bit for bit
+    r, e, f = s5[11:15], s5[15:17], s5[17:19]
+    mine = (struct.unpack(">f", r)[0], signed(e), signed(f))
+    theirs_scaling = (read.reference, keys["binaryScaleFactor"], keys["decimalScaleFactor"])
+    if mine != theirs_scaling:
+        said.append(f"R, E and D {mine}, ecCodes' {theirs_scaling}")
+    return said + compare_values(np.where(missing, np.nan, scale(ints, r, e, f)), read, seen)
+
+
+def compare_values(got: np.ndarray, read: Read, seen: Counter) -> list[str]:
+    """A field's values against ecCodes', bit for bit."""
     want = expected_values(read, seen)
     same = got.shape == want.shape and np.array_equal(got, want, equal_nan=True)
     if not same or not np.array_equal(np.signbit(got), np.signbit(want)):
-        said.append(f"values {got[:4]}, ecCodes' {want[:4]}")
-    seen["units decoded"] += 1
-    return said
+        return [f"values {got[:4]}, ecCodes' {want[:4]}"]
+    return []
 
 
 def held_against_eccodes(b: bytes, held: list[Held], fields: list[Read], firsts: list[tuple[int, dict[int, Span]]],
@@ -725,7 +831,9 @@ def test_grib_fields_are_described_as_eccodes_reads_them(path):
 
 def test_the_fixtures_hold_every_case_the_comparison_reads():
     """The fixtures reach each case of the comparison, so that none of it passes for want of a
-    file. The three fields ecCodes cannot decode are the PNG fields of 1, 2 and 4 bits; the field
+    file. The three fields ecCodes cannot decode, and whose integers it cannot read, are the PNG
+    fields of 1, 2 and 4 bits; the six fields of complex packing with missing values are `source`,
+    decoded from their declarations; the field
     of indicator 254 whose bitmap ecCodes leaves is `grib_bitmap_254`'s third, after a field with
     no bitmap; the constant fields of a decimal scale factor of 2 are `grib_constant` and
     `grib_jpeg2000_constant`, which ecCodes wrote and reads as their reference value."""
@@ -744,10 +852,12 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
         "fields under an earlier bitmap": 2,
         "fields of indicator 254 whose bitmap ecCodes applies": 1,
         "fields of indicator 254 whose bitmap ecCodes leaves": 1,
-        "fields of 5.0, packed": 36,
+        "fields of 5.0, integers": 36,
         "fields of 5.0, constant": 2,
-        "fields of 5.2, packed": 3,
-        "fields of 5.3, packed": 12,
+        "fields of 5.2, packed": 1,
+        "fields of 5.2, source": 2,
+        "fields of 5.3, packed": 8,
+        "fields of 5.3, source": 4,
         "fields of 5.4, floats": 2,
         "fields of 5.40, packed": 10,
         "fields of 5.40, constant": 1,
@@ -756,7 +866,9 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
         "constant fields whose decimal scale factor is not 0": 2,
         "fields with missing values of complex packing": 6,
         "fields ecCodes cannot decode": 3,
-        "units decoded": 76,
+        "units decoded": 70,
+        "units whose integers ecCodes cannot read": 3,
+        "source units decoded from their declarations": 6,
     }
 
 
@@ -967,7 +1079,7 @@ def test_written_fields_are_described_as_eccodes_reads_them(tmp_path):
         "fields under an earlier bitmap": 1,
         "fields of indicator 254 whose bitmap ecCodes applies": 1,
         "fields of indicator 254 whose bitmap ecCodes leaves": 1,
-        "fields of 5.0, packed": 13,
+        "fields of 5.0, integers": 13,
         "fields of 5.0, constant": 1,
         "fields of 5.2, packed": 2,
         "fields of 5.2, constant": 1,
@@ -978,6 +1090,7 @@ def test_written_fields_are_described_as_eccodes_reads_them(tmp_path):
         "fields of 5.42, packed": 1,
         "fields ecCodes cannot decode": 1,
         "units decoded": 18,
+        "units whose integers ecCodes cannot read": 1,
     }
     d = described(path)
     by_message = {int(d.ir.path(a.element).rsplit("/", 1)[1]): k for k, a in enumerate(d.stored.arrays)}
@@ -1013,13 +1126,24 @@ def test_ieee_floats_of_another_precision_are_source(tmp_path):
     assert_source(path, 4)
 
 
-def test_simple_packing_of_64_bits_is_source(tmp_path):
-    """Simple packing of a bit width of 64, past the integers `grib_scale` takes, is `source`."""
-    path = written(tmp_path, "wide", edited(fixture("grib_simple"), 5, octets(20, bytes([64]))))
+def test_simple_packing_of_64_bits_is_its_integers(tmp_path):
+    """Simple packing of a bit width of 64 is its integers as stored, of 64 bits, whatever their
+    value: those here take every bit. Its unit, through its empty chain, is the stored octets read
+    as big-endian 64-bit integers; and, where ecCodes reads the field, it is compared with ecCodes
+    as the fixtures are. ecCodes refuses a width past its C `long`'s, which on Windows has 32 bits."""
+    stored = (np.arange(192 * 8, dtype=np.uint64) * 37 % 256).astype(np.uint8).tobytes()
+    wide = edited(edited(fixture("grib_simple"), 5, octets(20, bytes([64]))), 7, lambda _: stored)
+    path = written(tmp_path, "wide", wide)
+    d, a, rows, _ = last_field(path)
+    assert (a.item_bits, [d.stored.chains[c] for c in a.chains]) == (64, [()])
+    (row,) = rows
+    assert np.array_equal(decoded(d, (), d.unit(row), 192, 64), np.frombuffer(stored, dtype=">u8"))
+    if isinstance(read_fields(path)[0][-1].values, str):
+        assert sys.platform == "win32"
+        return
     said, seen = compare(path)
     assert said == ()
-    assert seen["fields of 5.0, source"] == 1
-    assert_source(path, 0)
+    assert (seen["fields of 5.0, integers"], seen["units decoded"]) == (2, 2)
 
 
 def test_complex_packing_of_other_options_is_source(tmp_path):
@@ -1090,8 +1214,8 @@ def test_a_bitmap_of_fewer_bits_than_points_has_no_grid(tmp_path):
         assert (a.index, b.shape, b.item_bits, b.grid, b.chains) == (1, (192,), 1, None, ())
         assert spans(d, b) == [held.s3, (held.s6[0], 6)]
         assert not d.rows.get(d.stored.arrays.index(b))
-        # the field: its 180 coded values, in simple packing
-        assert [c.name for c in d.stored.chains[a.chains[0]]] == ["grib_scale", "grib_simple"]
+        # the field: its 180 coded values, in simple packing, its integers as stored
+        assert (a.item_bits, d.stored.chains[a.chains[0]]) == (12, ())
         assert (a.shape, units_of(a)) == ((180,), (180,))
         assert [d.parts(r) for r in rows] == [[(path.name, held.s7[0] + 5, 270)]]
         assert spans(d, a) == [held.s3, held.s5, (held.s6[0], 6)] + ([(held.s6[0] + 6, keep)] if keep else [])

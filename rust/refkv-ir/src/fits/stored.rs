@@ -2,12 +2,14 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): for every HDU
 //! that holds data, descriptions keyed by its header. An image is one unit, its data; a table is
 //! its rows, a record each, and its heap, each one unit; a tile-compressed image is its pixels, a
-//! tile a unit in the chain of its compression, and its table's rows and heap. Built from the
+//! tile a unit in the chain of its compression, and its table's rows and heap. A quantized image's
+//! pixels are the integers its tiles store: its scales, zeros and dither, in its header and its
+//! table's rows, are declarations, which the profile reads to make the floats. Built from the
 //! facts and the IR the parser made, before the IR is finished: it reads no byte the parser did
 //! not.
 
 use super::{card, field_of, parse_card, parse_cards, str_of, tile_at, Card, Value, CARD};
-use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Param, Place, Row, Scalar, StoredArray, UnitParameter};
+use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Param, Place, Row, StoredArray};
 use crate::fed::Word;
 use crate::ir::{Ir, Res};
 use serde_json::{json, Value as J};
@@ -118,7 +120,8 @@ impl Built {
 
     /// The pixels of the tile-compressed image of the HDU `h`, array 0 of its header `key`, whose
     /// bytes are `raw`: `records` cards before END, which are `cards` with CONTINUE cards joined;
-    /// `fields`, whether a row of its table is its columns' fields.
+    /// `fields`, whether a row of its table is its columns' fields. A quantized image's pixels are
+    /// the 4-byte integers its tiles store.
     fn tiled(&mut self, ir: &Ir, h: &J, key: u32, (cards, raw, records): (&[Card], &[u8], usize), fields: bool) -> Res<()> {
         let c = &h["compression"];
         let cols = &c["columns"];
@@ -131,38 +134,46 @@ impl Built {
         let quantized = float && scaled;
         let blank_column = cols["ZBLANK"].as_u64();
         let has = |k: &str| card(cards, k).is_some();
-        let place = |k: &str| card_place(key, raw, records, k);
-        // the blank value of a quantized tile's integers: the row's, the header's ZBLANK, or its
-        // BLANK, as astropy reads it
-        let blank = if blank_column.is_some() {
-            Ok(None)
-        } else if has("ZBLANK") {
-            Ok(place("ZBLANK"))
-        } else {
-            match card(cards, "BLANK").map(|c| &c.value) {
-                None => Ok(None),
-                Some(Value::Int(_)) => Ok(place("BLANK")),
-                // a BLANK that is no integer is one readers take each their own way
-                Some(_) => Err(()),
+        // a BLANK that is no integer is one readers take each their own way, as the blank value
+        // of a quantized tile's integers where neither its row nor a ZBLANK card gives one
+        let blank_agreed = blank_column.is_some() || has("ZBLANK") || card(cards, "BLANK").is_none_or(|c| matches!(c.value, Value::Int(_)));
+        // the tables of the descriptors, read where the image is modeled
+        let (rows, row_bytes) = (size(&c["rows"]), size(&c["row_bytes"]));
+        let table = || element(h, "table").and_then(|t| ir.value_bytes(t)).filter(|t| t.len() as u64 >= rows * row_bytes);
+        let descriptor = |table: &[u8], col: &J, r: u64| -> (i64, i64) {
+            let Some(at) = col["offset"].as_u64() else { return (0, 0) };
+            let o = (r * row_bytes + at) as usize;
+            if col["q"].as_bool().unwrap_or(false) {
+                (i64::be_at(table, o), i64::be_at(table, o + 8))
+            } else {
+                (i32::be_at(table, o) as i64, i32::be_at(table, o + 4) as i64)
             }
         };
+        // a tile of a quantized image in GZIP_COMPRESSED_DATA holds the image's floats, not the
+        // integers the others hold: one array's units would hold two kinds of elements
+        let gzip_tile = |table: &[u8]| (0..rows).any(|r| descriptor(table, &cols["COMPRESSED_DATA"], r).0 == 0 && descriptor(table, &cols["GZIP_COMPRESSED_DATA"], r).0 != 0);
         // what readers do not agree on, and the IR does not model: quantization that an integer
         // image's columns or a float image's cards alone give; a blank value of pixels that are
-        // not quantized; and rows that are not their columns' bytes
+        // not quantized; rows that are not their columns' bytes; and the floats of a quantized
+        // image's tile among its integers
         let agreed = if quantized {
-            blank.is_ok()
+            blank_agreed && !table().is_some_and(gzip_tile)
         } else {
             !scaled && !(float && (has("ZSCALE") || has("ZZERO") || has("ZBLANK") || has("BLANK"))) && blank_column.is_none()
         };
         let modeled = agreed && fields;
         let array = self.arrays.len() as u32;
+        // the header, and the table's rows where they give each tile's scale, zero or blank value
+        let mut declarations = vec![whole_place(key)];
+        let per_tile = ["ZSCALE", "ZZERO", "ZBLANK"].iter().any(|k| cols[*k].is_u64());
+        declarations.extend(element(h, "table").filter(|_| per_tile).map(whole_place));
         let mut described = StoredArray {
             element: key,
             index: Some(0),
-            declarations: vec![whole_place(key)],
+            declarations,
             shape: Some(shape.clone()),
             axes: (rank >= 2).then(|| (0..rank as u32).rev().collect()),
-            item_bits: Some(8 * item),
+            item_bits: Some(if quantized { 32 } else { 8 * item }),
             pad_from: None,
             grid: None,
             chains: Vec::new(),
@@ -176,7 +187,7 @@ impl Built {
         // the ZVALn cards the parser read BLOCKSIZE and BYTEPIX from: the last of each name
         let (mut block, mut bytes) = (None, None);
         for k in 1..=9 {
-            let value = || place(&format!("ZVAL{k}")).map(Param::Source);
+            let value = || card_place(key, raw, records, &format!("ZVAL{k}")).map(Param::Source);
             match card(cards, &format!("ZNAME{k}")).map(str_of).as_deref() {
                 Some("BLOCKSIZE") => block = value(),
                 Some("BYTEPIX") => bytes = value(),
@@ -185,8 +196,9 @@ impl Built {
         }
         let bytepix = size(&c["parameters"]["BYTEPIX"]);
         let gzip = || codec("gzip", []);
-        // the steps after quantization; None where the list's entry cannot state what the stream
-        // decodes to for this image: Rice of integers of another width than the elements'
+        // the steps that store the elements (a quantized image's integers); None where the list's
+        // entry cannot state what the stream decodes to for this image: Rice of integers of
+        // another width than the elements'
         let compressor: Option<Chain> = match c["type"].as_str() {
             Some("RICE_1") => {
                 let fits = if quantized { bytepix == 4 } else { !float && bytepix == item };
@@ -200,36 +212,22 @@ impl Built {
             Some("NOCOMPRESS") => Some(Vec::new()),
             _ => None,
         };
-        let dithered = quantized && c["quantize"].as_str().is_some_and(|q| q != "NO_DITHER");
-        let (first, columns) = match compressor {
-            Some(rest) if quantized => {
-                let method = place("ZQUANTIZ").map(Param::Source);
-                let quantize = codec("fits_quantize", [("method", method), ("zblank", blank.ok().flatten().map(Param::Source))]);
-                let mut names = vec!["scale", "zero"];
-                names.extend(dithered.then_some("seed"));
-                names.extend(blank_column.map(|_| "zblank"));
-                (std::iter::once(quantize).chain(rest).collect(), names)
-            }
-            Some(rest) => (rest, Vec::new()),
-            None => {
-                let id = card(cards, "ZCMPTYPE").map(str_of).unwrap_or_default();
-                (vec![codec("source", [("format", Some(Param::Value(json!("fits")))), ("id", Some(Param::Value(json!(id))))])], Vec::new())
-            }
-        };
+        let first = compressor.unwrap_or_else(|| {
+            let id = card(cards, "ZCMPTYPE").map(str_of).unwrap_or_default();
+            vec![codec("source", [("format", Some(Param::Value(json!("fits")))), ("id", Some(Param::Value(json!(id))))])]
+        });
         // a tile in GZIP_COMPRESSED_DATA is a gzip stream of its elements, whatever the image's
-        // compression
+        // compression; a quantized image has none (above)
         let fallback = vec![gzip()];
-        let second = cols["GZIP_COMPRESSED_DATA"].is_object() && first != fallback;
+        let second = cols["GZIP_COMPRESSED_DATA"].is_object() && first != fallback && !quantized;
         described.chains = vec![self.chain(first)];
         if second {
             described.chains.push(self.chain(fallback));
         }
         described.grid = Some(Grid { axes: tile.iter().map(|&n| AxisUnits::Each(n.max(1))).collect(), edge: Edge::Short });
-        described.unit_parameters = columns.iter().map(|n| UnitParameter { chain: 0, codec: 0, name: n.to_string() }).collect();
         self.arrays.push(described);
         // the tiles, from the table's rows, each in its chunk of the heap
-        let (rows, row_bytes) = (size(&c["rows"]), size(&c["row_bytes"]));
-        let Some(table) = element(h, "table").and_then(|t| ir.value_bytes(t)).filter(|t| t.len() as u64 >= rows * row_bytes) else {
+        let Some(table) = table() else {
             return if rows == 0 { Ok(()) } else { Err(format!("internal: HDU {}'s tile table is not held", h["index"])) };
         };
         let mut chunks: Vec<(u64, u64, u32)> = Vec::new();
@@ -241,19 +239,9 @@ impl Built {
         chunks.sort_unstable();
         let t = &h["table"];
         let heap = size(&h["data_offset"]) + size(&t["row_bytes"]) * size(&t["rows"]) + size(&t["gap"]);
-        let descriptor = |col: &J, r: u64| -> (i64, i64) {
-            let Some(at) = col["offset"].as_u64() else { return (0, 0) };
-            let o = (r * row_bytes + at) as usize;
-            if col["q"].as_bool().unwrap_or(false) {
-                (i64::be_at(table, o), i64::be_at(table, o + 8))
-            } else {
-                (i32::be_at(table, o) as i64, i32::be_at(table, o + 4) as i64)
-            }
-        };
-        let seed = c["dither_seed"].as_i64().unwrap_or(0);
         for r in 0..rows {
-            let (n, o) = descriptor(&cols["COMPRESSED_DATA"], r);
-            let (gn, go) = descriptor(&cols["GZIP_COMPRESSED_DATA"], r);
+            let (n, o) = descriptor(table, &cols["COMPRESSED_DATA"], r);
+            let (gn, go) = descriptor(table, &cols["GZIP_COMPRESSED_DATA"], r);
             let (n, o, gzipped) = if n != 0 { (n as u64, o as u64, false) } else if gn != 0 { (gn as u64, go as u64, true) } else { continue };
             // the chunk whose element holds the tile
             let k = chunks.partition_point(|&(first, _, _)| first <= r);
@@ -269,21 +257,8 @@ impl Built {
             // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#42-rows>): the
             // recipe of an element of one tile is the identity
             let range = (n != length).then_some((at, n));
-            let mut params = Vec::new();
-            if !gzipped {
-                let field = |col: &J| (r * row_bytes + size(col)) as usize;
-                for name in &columns {
-                    let value = match *name {
-                        "scale" => Scalar::Float64(f64::be_at(table, field(&cols["ZSCALE"]))),
-                        "zero" => Scalar::Float64(f64::be_at(table, field(&cols["ZZERO"]))),
-                        "seed" => Scalar::Int64(r as i64 + seed),
-                        _ => Scalar::Int64(i32::be_at(table, field(&cols["ZBLANK"])) as i64),
-                    };
-                    params.push((format!("p.fits_quantize.{name}"), value));
-                }
-            }
             let chain = (gzipped && second).then_some(1);
-            self.map.push(Row { array, coords: tile_at(&shape, &tile, r).0, element: Some(e), range, chain, params, ..Row::default() })?;
+            self.map.push(Row { array, coords: tile_at(&shape, &tile, r).0, element: Some(e), range, chain, ..Row::default() })?;
         }
         Ok(())
     }

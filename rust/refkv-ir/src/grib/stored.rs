@@ -3,11 +3,13 @@
 //! message, descriptions keyed by its `messages/<i>` struct, one for each bitmap its sections 6
 //! hold and one for each field, in the message's order. A field's array is the values its
 //! section 7 codes, in the file's order: the grid's rows and columns where every point has one,
-//! and one axis of the coded values where a bitmap leaves points out. Its values are IEEE floats
-//! as section 7 stores them (template 5.4), the reference value alone where the packing codes
-//! none (a bit width of 0), or what `grib_scale` makes of the integers the packing's codec
-//! decodes; a packing the list has no name for is `source`. Built from the sections the parser
-//! read: of a section 7, its length alone.
+//! and one axis of the coded values where a bitmap leaves points out. Its elements are IEEE
+//! floats as section 7 stores them (template 5.4), the reference value alone where the packing
+//! codes none (a bit width of 0), or the integers the packing codes: simple packing's as section 7
+//! stores them, another packing's as its codec decodes them. Scaling those integers by the
+//! reference value and the scale factors of section 5, a declaration, is the profile's. A packing
+//! the list has no name for is `source`. Built from the sections the parser read: of a section 7,
+//! its length alone.
 
 use super::meta::Grid;
 use super::sections::uint;
@@ -83,12 +85,15 @@ pub(super) enum Values {
     /// no value is coded: every one is the reference value (a bit width of 0, or complex packing
     /// of no groups)
     Constant,
-    /// integers a codec decodes, which `grib_scale` makes the values of: the codec, the octets of
-    /// section 5 that are its parameters as (name, first octet, count), and the octets of section
-    /// 7 that hold them
-    Packed { codec: &'static str, parameters: Vec<(&'static str, u64, u64)>, length: u64 },
+    /// integers of `bits` bits each, the most significant bit first, as simple packing (template
+    /// 5.0) stores them in the octets of section 7 that hold them
+    Integers { bits: u64, length: u64 },
+    /// integers of `bits` bits a codec decodes: the codec, the octets of section 5 that are its
+    /// parameters as (name, first octet, count), and the octets of section 7 that hold them
+    Packed { codec: &'static str, bits: u64, parameters: Vec<(&'static str, u64, u64)>, length: u64 },
     /// a packing the list has no name for, or one of its packings with parameters the list's
-    /// entry does not take
+    /// entry does not take: complex packing with missing values among them, which no integer the
+    /// field codes stands for
     Source,
     /// section 7 holds fewer octets than the values take
     Short,
@@ -111,16 +116,26 @@ pub(super) fn values(s5: &[u8], data: u64, n: u64) -> Values {
         return Values::Source;
     }
     let bits = s5[19] as u64;
-    let (codec, parameters): (&'static str, Vec<(&'static str, u64, u64)>) = match template {
-        0 => ("grib_simple", vec![("bits", 20, 1)]),
+    if template == 0 {
+        if bits == 0 {
+            return Values::Constant;
+        }
+        let length = n.checked_mul(bits).map(|b| b.div_ceil(8));
+        return match length {
+            Some(length) if length <= data => Values::Integers { bits, length },
+            _ => Values::Short,
+        };
+    }
+    // the width of the integers each codec decodes to
+    let (codec, width, parameters): (&'static str, u64, Vec<(&'static str, u64, u64)>) = match template {
         2 | 3 => {
             let spatial = template == 3;
             if s5.len() < if spatial { 49 } else { 47 } {
                 return Values::Source;
             }
-            // missing value management above 2, a width past 64 bits, and spatial differencing
-            // of another order than 1 and 2, or of descriptors of more than 8 octets, are not
-            // the list's
+            // missing value management (octet 23) above 2, a width past 64 bits, and spatial
+            // differencing of another order than 1 and 2, or of descriptors of more than 8
+            // octets, are not the list's
             let wide = bits > 64 || s5[36] > 64 || s5[46] > 64;
             if s5[22] > 2 || wide || (spatial && (!(1..=2).contains(&s5[47]) || s5[48] > 8)) {
                 return Values::Source;
@@ -129,39 +144,34 @@ pub(super) fn values(s5: &[u8], data: u64, n: u64) -> Values {
             if uint(s5, 31, 4) == 0 {
                 return Values::Constant;
             }
+            // nor are missing values (management 1 or 2): a missing value is no integer the field
+            // codes, and an element would have to be made for it
+            if s5[22] != 0 {
+                return Values::Source;
+            }
             let mut p = vec![("bits", 20, 1), ("groups", 22, 26)];
             if spatial {
                 p.push(("differencing", 48, 2));
             }
-            ("grib_complex", p)
+            ("grib_complex", 64, p)
         }
-        40 => ("jpeg2k", Vec::new()),
-        41 => ("grib_png", Vec::new()),
+        // a codestream's samples of `bits` bits, in the whole octets that hold them
+        40 => ("jpeg2k", bits.div_ceil(8) * 8, Vec::new()),
+        41 => ("grib_png", bits, Vec::new()),
         _ => {
             // samples of more than 32 bits, and signed ones (libaec's flag 1, at octet 22), are
             // not the list's
             if s5.len() < 25 || bits > 32 || s5[21] & 1 != 0 {
                 return Values::Source;
             }
-            ("grib_ccsds", vec![("bits", 20, 1), ("flags", 22, 1), ("block_size", 23, 1), ("reference_sample_interval", 24, 2)])
+            ("grib_ccsds", bits, vec![("bits", 20, 1), ("flags", 22, 1), ("block_size", 23, 1), ("reference_sample_interval", 24, 2)])
         }
     };
     if !matches!(template, 2 | 3) && bits == 0 {
         return Values::Constant;
     }
-    if template == 0 {
-        // the integers of `grib_scale` are of 64 bits, two's complement
-        if bits > 63 {
-            return Values::Source;
-        }
-        let length = n.checked_mul(bits).map(|b| b.div_ceil(8));
-        return match length {
-            Some(length) if length <= data => Values::Packed { codec, parameters, length },
-            _ => Values::Short,
-        };
-    }
     // a stream: all of section 7's data
-    if data == 0 && n > 0 { Values::Short } else { Values::Packed { codec, parameters, length: data } }
+    if data == 0 && n > 0 { Values::Short } else { Values::Packed { codec, bits: width, parameters, length: data } }
 }
 
 /// One unit of the whole of an axis of `n` elements: an axis of none has no unit.
@@ -235,13 +245,10 @@ pub(super) fn described(reached: &[Reached]) -> Res<(Vec<StoredArray>, Vec<Chain
                     Values::Floats { size } => (Some(size * 8), Some(Chain::new()), n * size, Fill::Undefined),
                     // the reference value, an IEEE binary32, is every value: none is stored
                     Values::Constant => (Some(32), Some(Chain::new()), 0, Fill::Given(Param::Source(within(12, 4)))),
-                    Values::Packed { codec, parameters, length } => {
-                        let scale = [("reference", 12, 4), ("binary_scale", 16, 2), ("decimal_scale", 18, 2)];
-                        let codec_of = |name: &str, parameters: &[(&'static str, u64, u64)]| Codec {
-                            name: name.to_string(),
-                            parameters: parameters.iter().map(|&(k, first, count)| (k.to_string(), Param::Source(within(first, count)))).collect(),
-                        };
-                        (Some(64), Some(vec![codec_of("grib_scale", &scale), codec_of(codec, parameters)]), *length, Fill::Undefined)
+                    Values::Integers { bits, length } => (Some(*bits), Some(Chain::new()), *length, Fill::Undefined),
+                    Values::Packed { codec, bits, parameters, length } => {
+                        let parameters = parameters.iter().map(|&(k, first, count)| (k.to_string(), Param::Source(within(first, count)))).collect();
+                        (Some(*bits), Some(vec![Codec { name: codec.to_string(), parameters }]), *length, Fill::Undefined)
                     }
                     Values::Source => {
                         let mut parameters = BTreeMap::from([
@@ -296,28 +303,36 @@ mod tests {
         b
     }
 
-    fn packed(v: Values) -> Option<(&'static str, Vec<&'static str>, u64)> {
+    fn packed(v: Values) -> Option<(&'static str, u64, Vec<&'static str>, u64)> {
         match v {
-            Values::Packed { codec, parameters, length } => Some((codec, parameters.into_iter().map(|p| p.0).collect(), length)),
+            Values::Packed { codec, bits, parameters, length } => Some((codec, bits, parameters.into_iter().map(|p| p.0).collect(), length)),
             _ => None,
         }
     }
 
-    /// Each packing the list names is its codec, over the octets of section 7 that hold its
-    /// values: simple packing's bits, a stream's whole data, and IEEE floats as they are.
+    /// Each packing is its integers, over the octets of section 7 that hold them: simple
+    /// packing's as stored, of its bit width, whatever the width (64, and past it); another
+    /// packing's in its codec, of the width the codec decodes to (complex packing's 64 bits, a
+    /// JPEG 2000 codestream's whole octets, PNG's and CCSDS's bit width), over the stream's whole
+    /// data; and IEEE floats as they are.
     #[test]
-    fn each_packing_is_its_codec() {
-        assert_eq!(packed(values(&s5(0, 10, 21, 12), 15, 10)), Some(("grib_simple", vec!["bits"], 15)));
-        assert_eq!(packed(values(&s5(0, 10, 21, 12), 40, 10)), Some(("grib_simple", vec!["bits"], 15)));
+    fn each_packing_is_its_integers() {
+        assert_eq!(values(&s5(0, 10, 21, 12), 15, 10), Values::Integers { bits: 12, length: 15 });
+        assert_eq!(values(&s5(0, 10, 21, 12), 40, 10), Values::Integers { bits: 12, length: 15 });
+        assert_eq!(values(&s5(0, 10, 21, 64), 80, 10), Values::Integers { bits: 64, length: 80 });
+        assert_eq!(values(&s5(0, 10, 21, 65), 82, 10), Values::Integers { bits: 65, length: 82 });
         let mut complex = s5(2, 10, 47, 8);
         complex[34] = 3;
-        assert_eq!(packed(values(&complex, 40, 10)), Some(("grib_complex", vec!["bits", "groups"], 40)));
+        assert_eq!(packed(values(&complex, 40, 10)), Some(("grib_complex", 64, vec!["bits", "groups"], 40)));
         let mut spatial = s5(3, 10, 49, 8);
         (spatial[34], spatial[47], spatial[48]) = (3, 2, 2);
-        assert_eq!(packed(values(&spatial, 40, 10)), Some(("grib_complex", vec!["bits", "groups", "differencing"], 40)));
-        assert_eq!(packed(values(&s5(40, 10, 23, 12), 40, 10)), Some(("jpeg2k", vec![], 40)));
-        assert_eq!(packed(values(&s5(41, 10, 21, 16), 40, 10)), Some(("grib_png", vec![], 40)));
-        assert_eq!(packed(values(&s5(42, 10, 25, 12), 40, 10)), Some(("grib_ccsds", vec!["bits", "flags", "block_size", "reference_sample_interval"], 40)));
+        assert_eq!(packed(values(&spatial, 40, 10)), Some(("grib_complex", 64, vec!["bits", "groups", "differencing"], 40)));
+        assert_eq!(packed(values(&s5(40, 10, 23, 12), 40, 10)), Some(("jpeg2k", 16, vec![], 40)));
+        assert_eq!(packed(values(&s5(40, 10, 23, 20), 40, 10)), Some(("jpeg2k", 24, vec![], 40)));
+        assert_eq!(packed(values(&s5(40, 10, 23, 8), 40, 10)), Some(("jpeg2k", 8, vec![], 40)));
+        assert_eq!(packed(values(&s5(41, 10, 21, 4), 40, 10)), Some(("grib_png", 4, vec![], 40)));
+        assert_eq!(packed(values(&s5(41, 10, 21, 24), 40, 10)), Some(("grib_png", 24, vec![], 40)));
+        assert_eq!(packed(values(&s5(42, 10, 25, 12), 40, 10)), Some(("grib_ccsds", 12, vec!["bits", "flags", "block_size", "reference_sample_interval"], 40)));
         let mut ieee = s5(4, 10, 12, 0);
         ieee[11] = 1;
         assert_eq!(values(&ieee, 40, 10), Values::Floats { size: 4 });
@@ -338,6 +353,9 @@ mod tests {
         let mut spatial = s5(3, 10, 49, 8);
         (spatial[47], spatial[48]) = (1, 1);
         assert_eq!(values(&spatial, 0, 10), Values::Constant);
+        // whatever its missing value management, which no coded value is
+        spatial[22] = 2;
+        assert_eq!(values(&spatial, 0, 10), Values::Constant);
     }
 
     #[test]
@@ -352,11 +370,6 @@ mod tests {
         let mut ieee = s5(4, 10, 12, 0);
         ieee[11] = 3;
         assert_eq!(values(&ieee, 160, 10), Values::Source);
-    }
-
-    #[test]
-    fn simple_packing_of_64_bits_is_source() {
-        assert_eq!(values(&s5(0, 10, 21, 64), 80, 10), Values::Source);
     }
 
     #[test]
@@ -380,16 +393,16 @@ mod tests {
 
     #[test]
     fn complex_packing_of_other_options_is_source() {
-        // missing value management 3; a coded width of 65 bits; spatial differencing of order 0
-        // and of order 3, and of descriptors of 9 octets
+        // missing value management 1, 2 and 3; a coded width of 65 bits; spatial differencing of
+        // order 0 and of order 3, and of descriptors of 9 octets
         let complex = |at: usize, v: u8| {
             let mut b = s5(3, 10, 49, 8);
             (b[34], b[47], b[48]) = (3, 1, 1);
             b[at] = v;
             values(&b, 80, 10)
         };
-        assert!(matches!(complex(22, 2), Values::Packed { .. }));
-        for (at, v) in [(22, 3), (36, 65), (47, 0), (47, 3), (48, 9)] {
+        assert!(matches!(complex(22, 0), Values::Packed { .. }));
+        for (at, v) in [(22, 1), (22, 2), (22, 3), (36, 65), (47, 0), (47, 3), (48, 9)] {
             assert_eq!(complex(at, v), Values::Source, "octet {} of {v}", at + 1);
         }
     }

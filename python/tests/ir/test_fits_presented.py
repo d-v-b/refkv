@@ -21,13 +21,14 @@ What no description holds, and where the test takes it from:
 - the chunk shape the profile cuts a unit stored whole into, and whether a table's rows are a
   `struct` or bytes, with the struct's byte order: from the output. The cut is the projection's
   choice, and a row's fields are the profile's reading of the header;
-- of a tile-compressed image, what its header gives and its chains have no codec for: the sign of
-  ZBITPIX; BLOCKSIZE and BYTEPIX where the chain is not Rice's; ZQUANTIZ where the image is not
-  quantized; and ZDITHER0 where no tile is dithered. Each is read from the description's
-  declaration, the header;
-- of a tile in GZIP_COMPRESSED_DATA, which is never quantized, and of a table row with no tile:
-  the scale, zero and blank value of its record, which the codec does not read, are the table's.
-  They are not compared;
+- of a tile-compressed image, what its header gives and its chains have no codec for: ZBITPIX;
+  BLOCKSIZE and BYTEPIX where the chain is not Rice's; and of a quantized image, ZQUANTIZ,
+  ZDITHER0 and the blank value. Each is read from the description's first declaration, the
+  header. A quantized tile's scale, zero and blank value are read from its row of the table, the
+  description's second declaration, where the header's TFORMn place them;
+- of a tile in GZIP_COMPRESSED_DATA, which is never in a quantized image's description, and of a
+  table row with no tile: the scale, zero and blank value of its record, which the codec does not
+  read, are the table's. They are not compared;
 - of an image whose one chain is `gzip` alone, which of its two columns a tile is in: both are
   gzip streams of the tile's elements, and the record's kind is either's.
 
@@ -39,8 +40,10 @@ import gzip
 import json
 import math
 import struct
+import warnings
 from collections import Counter
 from functools import cache
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -105,6 +108,24 @@ def card_at(d: Described, data: bytes, a: StoredArray, param: object) -> Astropy
         return None
     start = d.ir.extent(a.element)[0] + param.place.range[0]
     return fits.Card.fromstring(data[start:start + CARD].decode("latin-1"))
+
+
+def scaling(d: Described, data: bytes, a: StoredArray, header: Astropy) -> np.ndarray | None:
+    """A tile-compressed image's table's rows, as its second declaration holds them and its
+    header's TFORMn lay them out (astropy's layout of its HDU's columns); None where it has no
+    second declaration."""
+    if len(a.declarations) < 2:
+        return None
+    place = a.declarations[1]
+    assert isinstance(place, ElementPlace)
+    hdu = int((a.path or "").split("/")[-2])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with fits.open(BytesIO(data), disable_image_compression=True) as hdus:
+            table: Astropy = hdus[hdu]
+            dtype = table.data.view(np.ndarray).dtype
+    rows = d.place(place)
+    return np.frombuffer(rows[:header["NAXIS2"] * dtype.itemsize], dtype)
 
 
 def setting(header: Astropy, name: str, default: int) -> int:
@@ -201,14 +222,17 @@ def check_tiled(d: Described, data: bytes, k: int, doc: dict[str, JSON], chunks:
     assert a.grid is not None
     assert a.item_bits is not None
     start, length = d.ir.extent(a.element)
-    # the declaration: the header, whose cards astropy reads
+    # the first declaration: the header, whose cards astropy reads
     header = fits.Header.fromstring(data[start:start + length].decode("latin-1"))
     tile = tuple(x.length for x in a.grid.axes if isinstance(x, Each))
     chains = [d.stored.chains[c] for c in a.chains]
-    quantize = chains[0][0] if chains[0] and chains[0][0].name == "fits_quantize" else None
-    rest = chains[0][quantize is not None:]
+    rest = chains[0]
     names = tuple(c.name for c in rest)
-    listed = [u.name for u in a.unit_parameters]
+    # the second, where the table gives each tile's scale and zero: its rows, which a quantized
+    # image's records read, as the header's TFORMn lay them out
+    table = scaling(d, data, a, header)
+    columns = set(table.dtype.names or ()) if table is not None else set()
+    quantize = header["ZBITPIX"] < 0 and "ZSCALE" in columns
     rows = {tuple(r["coords"]): r for r in d.rows.get(k, [])}
     counts = [math.ceil(n / t) for n, t in zip(a.shape, tile, strict=True)]
     said = []
@@ -221,36 +245,39 @@ def check_tiled(d: Described, data: bytes, k: int, doc: dict[str, JSON], chunks:
         said.append(f"fits_rice of {rice.parameters}, the header's {parameters}")
     source = rest[0].parameters.get("id") if names == ("source",) else None
     compression = source.value if isinstance(source, Value) else COMPRESSION.get(names)
-    method = card_at(d, data, a, quantize.parameters.get("method")) if quantize else None
-    dithers = {r["p.fits_quantize.seed"] - int(np.ravel_multi_index(c, counts)) for c, r in rows.items()
-               if "seed" in listed and r["chain"] is None}
-    if len(dithers) > 1:
-        said.append(f"tiles whose seeds are not their indexes past one ZDITHER0: {sorted(dithers)}")
-    dithered = quantize is not None and "seed" in listed
+    method = header.get("ZQUANTIZ", "NO_DITHER")
+    dithered = quantize and method != "NO_DITHER"
     config: dict[str, Any] = {
         "compression": "RICE_1" if compression == "RICE_ONE" else compression,
         "parameters": parameters,
         "zbitpix": header["ZBITPIX"],
         "shape": list(a.shape),
         "tile_shape": list(tile),
-        "quantize": (method.value if method else "NO_DITHER") if quantize else header.get("ZQUANTIZ", "NO_DITHER"),
-        "dither_seed": (min(dithers) if dithers else header["ZDITHER0"]) if dithered else 0,
+        "quantize": method,
+        "dither_seed": header["ZDITHER0"] if dithered else 0,
     }
     codecs = [{"name": "refkv.fits_tiles", "configuration": config}]
-    if abs(header["ZBITPIX"]) != a.item_bits or doc["codecs"] != codecs:
+    # a quantized image's elements are its integers, of 4 bytes; the profile's data type is ZBITPIX's
+    bits = 32 if quantize else abs(header["ZBITPIX"])
+    if bits != a.item_bits or np.dtype(string(doc["data_type"])).itemsize * 8 != abs(header["ZBITPIX"]):
+        said.append(f"{a.item_bits} bits and the profile's {doc['data_type']}, of ZBITPIX {header['ZBITPIX']}")
+    if doc["codecs"] != codecs:
         said.append(f"codecs {doc['codecs']}, the description's {config}")
     seen[f"tiled arrays in {config['compression']}"] += 1
-    seen["tiled arrays quantized"] += quantize is not None
+    seen["tiled arrays quantized"] += quantize
     if 0 in counts:
         seen["tiled arrays of no tiles"] += 1
         return [*said, f"chunks {sorted(chunks)} of no tiles"] if chunks else said
-    chunk, axis, held = tile_cut(a.shape, tile, a.item_bits // 8)
+    chunk, axis, held = tile_cut(a.shape, tile, abs(header["ZBITPIX"]) // 8)
     if at(doc, "chunk_grid", "configuration", "chunk_shape") != chunk:
         return [*said, f"chunks of {at(doc, 'chunk_grid')}, the cut of the tile grid gives {chunk}"]
     # each chunk: its tiles, consecutive in storage order; present where one of them has a row
     grid = [*counts[:axis], math.ceil(counts[axis] / held), *[1] * (len(counts) - axis - 1)]
     wanted = set()
-    blank = card_at(d, data, a, quantize.parameters.get("zblank")) if quantize else None
+    # the blank value of a quantized image's integers: the row's, else the header's ZBLANK, else
+    # its BLANK, as astropy reads it
+    card = header.get("ZBLANK", header.get("BLANK"))
+    blank = card if quantize and "ZBLANK" not in columns else None
     for coords in np.ndindex(*grid):
         along = min(held, counts[axis] - coords[axis] * held)
         origin = (*coords[:axis], coords[axis] * held, *[0] * (len(counts) - axis - 1))
@@ -290,18 +317,20 @@ def check_tiled(d: Described, data: bytes, k: int, doc: dict[str, JSON], chunks:
                 if (size, kind) != (place[1], 1):
                     said.append(f"chunk {coords}: record {t} is {(size, kind)}, not {(place[1], 1)}")
                 continue
-            unit = {name.split(".")[-1]: v for name, v in row.items() if name.startswith("p.") and v is not None}
-            has_blank = "zblank" in unit or blank is not None
-            flags = (quantize is not None) | has_blank << 1
+            fields = table[first + t] if quantize and table is not None else None
+            per_tile = fields is not None and "ZBLANK" in columns
+            has_blank = per_tile or blank is not None
+            flags = int(quantize) | has_blank << 1
             # where the one chain is gzip alone, a tile of either column is in it, and decodes alike
-            either = kind == 1 and names == ("gzip",) and len(chains) == 1 and quantize is None
+            either = kind == 1 and names == ("gzip",) and len(chains) == 1 and not quantize
             seen["records of a tile of either column"] += either
-            zblank = unit.get("zblank", blank.value if blank else 0)
-            want = (place[1], int(either), zblank, flags, unit.get("scale", 0.0), unit.get("zero", 0.0))
+            zblank = int(fields["ZBLANK"]) if per_tile else blank or 0
+            scale, zero = (float(fields["ZSCALE"]), float(fields["ZZERO"])) if fields is not None else (0.0, 0.0)
+            want = (place[1], int(either), zblank, flags, scale, zero)
             if record != want:
                 said.append(f"chunk {coords}: record {t} is {record}, not {want}")
             seen["records of a tile"] += 1
-            seen["records of a quantized tile"] += quantize is not None
+            seen["records of a quantized tile"] += quantize
             seen["records with a blank value"] += has_blank
         # one range where each tile starts where the one before it ends, else a range a tile
         seen["chunks whose tiles are not end to end"] += len(ranges) > 1
@@ -335,8 +364,8 @@ def check_array(d: Described, data: bytes, k: int, kind: str, doc: dict[str, JSO
     item = a.item_bits // 8
     said = []
     if tiled:
-        if tuple(shape) != a.shape or np.dtype(string(doc["data_type"])).itemsize != item:
-            said.append(f"shape {a.shape} of {a.item_bits} bits; the profile's {shape} of {doc['data_type']}")
+        if tuple(shape) != a.shape:
+            said.append(f"shape {a.shape}; the profile's {shape}")
         said += check_tiled(d, data, k, doc, chunks, seen)
     else:
         codec: JSON = {"name": "bytes", "configuration": {"endian": "big"}} if item > 1 else BYTES
@@ -483,7 +512,8 @@ def test_cases_no_fixture_holds_are_written_as_their_descriptions_give(tmp_path)
     """The cases the fixtures lack: tiles each over the chunk limit, which the profile cuts along
     the fastest axis; Rice the header names RICE_ONE, in a `source` chain; tiles of which some start
     where the one before ends and one does not, each then a range of its own; and tiles in
-    GZIP_COMPRESSED_DATA, of a quantized image and of one whose first chain is gzip alone."""
+    GZIP_COMPRESSED_DATA, of one whose first chain is gzip alone, and of a quantized image, whose
+    description has no grid."""
     def reached(name: str, data: bytes) -> Counter:
         (tmp_path / name).write_bytes(data)
         said, seen = compared(tmp_path / name)
@@ -510,7 +540,7 @@ def test_cases_no_fixture_holds_are_written_as_their_descriptions_give(tmp_path)
     seen = reached("fallback_gzip.fits", integers)
     assert (seen["records of a tile"], seen["records of a tile of either column"]) == (2, 1)
     seen = reached("fallback_quantized.fits", floats)
-    assert (seen["records of a quantized tile"], seen["records of a tile in the second chain"]) == (1, 1)
+    assert (seen["arrays of a description with no grid"], seen["records of a tile"]) == (1, 0)
 
 
 def test_a_chunk_that_is_no_one_run_of_its_array_is_told():
