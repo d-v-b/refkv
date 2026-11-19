@@ -122,9 +122,9 @@ fn shared_refs(form: &str) -> Vec<(usize, usize, usize)> {
 
 /// The canonical IR of `ir` (conventions §8.8
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>), or why it has
-/// none (the root and the
-/// names of §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>,
-/// `check::names`, do not hold): every run expanded and every gap named `gaps/<offset>`; the
+/// none (the rules of runs, `check::runs`, or the root and the names, `check::names`, of §8.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements> do not hold, the names
+/// of the gaps as renamed): every run expanded and every gap named `gaps/<offset>`; the
 /// elements in canonical order, numbered by it (a parent before its children, siblings by first
 /// byte, name, name index); the descendants of a derived element left out when they
 /// would bring the derived rows kept past 2^20 (derived elements in canonical order,
