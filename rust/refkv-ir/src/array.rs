@@ -210,6 +210,7 @@ pub const CODECS: &[CodecEntry] = &[
     CodecEntry { name: "hevc", parameters: PICTURE },
     CodecEntry { name: "av1", parameters: PICTURE },
     CodecEntry { name: "vp9", parameters: PICTURE },
+    CodecEntry { name: "flac", parameters: &[fixed("setup")] },
     CodecEntry { name: "fits_rice", parameters: &[fixed("block_size"), fixed("byte_pix")] },
 ];
 
