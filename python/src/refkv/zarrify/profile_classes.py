@@ -52,6 +52,14 @@ class GribSource(Source):
 
 
 @dataclass(frozen=True)
+class H5jSource(Source):
+    """Janelia H5J: a file the `h5j` profile reads, its first bytes untested (`Source` lists its
+    read options)."""
+
+    profile: ClassVar[str] = "h5j"
+
+
+@dataclass(frozen=True)
 class Hdf4Source(Source):
     """HDF4 (the HDF Group's Hierarchical Data Format 4): a file the `hdf4` profile reads, its
     first bytes untested (`Source` lists its read options)."""
@@ -259,6 +267,7 @@ CLASSES: dict[str, type[Source | Store]] = {
     "FitsSource": FitsSource,
     "FlacSource": FlacSource,
     "GribSource": GribSource,
+    "H5jSource": H5jSource,
     "Hdf4Source": Hdf4Source,
     "Hdf5Source": Hdf5Source,
     "ImsSource": ImsSource,
@@ -292,6 +301,7 @@ __all__ = [
     "FitsSource",
     "FlacSource",
     "GribSource",
+    "H5jSource",
     "Hdf4Source",
     "Hdf5Source",
     "ImsSource",

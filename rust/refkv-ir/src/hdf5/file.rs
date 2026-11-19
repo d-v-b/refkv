@@ -37,6 +37,8 @@ enum Phase {
     Names,
     Data,
     Facts,
+    /// an H5J file's channels, each an MP4 file (`crate::h5j`)
+    Channels,
     Done,
 }
 
@@ -73,6 +75,11 @@ pub struct Hdf5 {
     ims: Option<Box<crate::ims::Ims>>,
     /// the bytes fed while sniffing, which the IMS parser is given
     log: Vec<(u64, Vec<u8>)>,
+    /// the file is an H5J file (spec/zarrify/h5j.md): found so by the sniff, or required to be by
+    /// a run of the H5J profile; and its channels' parses, once the facts are made
+    h5j: bool,
+    h5j_required: bool,
+    channels: Option<crate::h5j::Channels>,
     rounds: u64,
     requests: u64,
     requested: u64,
@@ -121,6 +128,9 @@ impl Hdf5 {
             phase: Phase::Sniff,
             ims: None,
             log: Vec::new(),
+            h5j: false,
+            h5j_required: false,
+            channels: None,
             rounds: 0,
             requests: 0,
             requested: 0,
@@ -198,6 +208,7 @@ impl Hdf5 {
                 Phase::Names => self.read_names(),
                 Phase::Data => self.data(),
                 Phase::Facts => self.make_facts(),
+                Phase::Channels => self.read_channels(),
                 Phase::Done => return Ok(Step::Done),
             };
             match r {
@@ -212,6 +223,7 @@ impl Hdf5 {
                         Phase::Check => Phase::Names,
                         Phase::Names => Phase::Data,
                         Phase::Data => Phase::Facts,
+                        Phase::Facts if self.h5j => Phase::Channels,
                         _ => Phase::Done,
                     };
                     if named && self.found.is_none() && !self.names.is_empty() {
@@ -261,15 +273,37 @@ impl Hdf5 {
             let Some(at) = lenient(self.h.follow(&root, b"DataSet"))? else { return Ok(false) };
             Ok(lenient(self.h.links(at))?.is_some_and(|l| l.has("ResolutionLevel 0")))
         })()?;
-        if imaris {
+        if imaris && !self.h5j_required {
             let mut ims = Box::new(crate::ims::Ims::new(self.h.file_size()));
             for (o, d) in std::mem::take(&mut self.log) {
                 ims.feed(o, d);
             }
             self.ims = Some(ims);
+        } else {
+            // an H5J file (spec/zarrify/h5j.md §8.1
+            // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#81-choosing-the-profile>)
+            self.h5j = crate::h5j::is_h5j(&mut self.h, sb.root)?;
+            if self.h5j_required && !self.h5j {
+                return super::bad("not an H5J file: the root has no group Channels of links Channel_<n>");
+            }
         }
         self.log.clear();
         Ok(())
+    }
+
+    /// An H5J file's channels: each one's MP4 file read, its reads moved by its dataset's address
+    /// (`crate::h5j::Channels`).
+    fn read_channels(&mut self) -> R<()> {
+        if self.channels.is_none() {
+            let facts = self.facts.as_ref().ok_or(Fail::Bad("internal: no facts".into()))?;
+            self.channels = Some(crate::h5j::Channels::new(facts).map_err(Fail::Bad)?);
+        }
+        let channels = self.channels.as_mut().expect("the channels");
+        if channels.advance(&self.h.src.store, &mut self.h.src.want) {
+            Ok(())
+        } else {
+            Err(Fail::Miss)
+        }
     }
 
     // ---- phase 2: the walk (spec/zarrify/hdf5.md §8.2
@@ -1192,7 +1226,8 @@ impl Hdf5 {
             .filter_map(|n| n["array"]["store"]["at"].as_u64())
             .collect();
         let room = self.room.unwrap_or(self.limit("walk_elements") + size / self.limit("walk_bytes_per_element"));
-        let mut e = Emit { ir: Ir::new(self.h.file_size()), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must, rec: Default::default() };
+        let inner = self.channels.as_ref().map(|c| c.inner()).unwrap_or_default();
+        let mut e = Emit { ir: Ir::new(self.h.file_size()), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must, rec: Default::default(), inner, grafted: HashMap::new() };
         let sb = self.h.sb.clone().ok_or("internal: no superblock")?;
         e.superblock(&sb)?;
         if let Some(ext) = self.extension.take() {
@@ -1251,11 +1286,15 @@ impl Hdf5 {
             let Some(&el) = el else { return Err(format!("internal: the storage of the dataset at {at} is not described")) };
             store["element"] = json!(el);
         }
-        let super::walk::Emit { mut ir, rec, data_of, .. } = e;
+        let super::walk::Emit { mut ir, rec, data_of, grafted, .. } = e;
         ir.sort_values();
         crate::check::finish(&mut ir)?;
         let em = super::stored::Emitted { order: &order, structs: &structs, rec: &rec, data_of: &data_of };
-        super::stored::describe(&mut ir, &mut self.h, &em, &self.visited, &self.slots, self.found.as_ref())?;
+        let grafts = self.channels.as_ref().map(|c| c.grafts(&grafted)).unwrap_or_default();
+        super::stored::describe(&mut ir, &mut self.h, &em, &self.visited, &self.slots, self.found.as_ref(), &grafts)?;
+        if let Some(c) = &self.channels {
+            facts["h5j"] = c.facts(&grafted)?;
+        }
         facts["requests"] = json!(self.requests);
         facts["requested"] = json!(self.requested);
         facts["rounds"] = json!(self.rounds);
@@ -1714,7 +1753,37 @@ impl crate::Parser for Hdf5 {
         Hdf5::finish(self)
     }
     fn found(&self) -> Option<&'static str> {
-        self.ims.as_ref().map(|_| "ims")
+        if self.ims.is_some() {
+            Some("ims")
+        } else if self.h5j {
+            Some("h5j")
+        } else {
+            None
+        }
+    }
+}
+
+/// The HDF5 parser of a run of the H5J profile, which requires the file to be an H5J file
+/// (spec/zarrify/h5j.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md>).
+pub struct H5jParser(Hdf5);
+
+impl crate::Parser for H5jParser {
+    fn new(size: u64) -> Self {
+        let mut h = Hdf5::new(size);
+        h.h5j_required = true;
+        H5jParser(h)
+    }
+    fn step(&mut self) -> Result<Step, String> {
+        self.0.step()
+    }
+    fn feed(&mut self, offset: u64, data: Vec<u8>) {
+        self.0.feed(offset, data)
+    }
+    fn finish(self) -> Result<(Ir, J), String> {
+        self.0.finish()
+    }
+    fn found(&self) -> Option<&'static str> {
+        crate::Parser::found(&self.0)
     }
 }
 

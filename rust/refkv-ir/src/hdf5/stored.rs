@@ -230,7 +230,11 @@ pub struct Emitted<'a> {
 /// in the finished IR `ir`: with `slots`, the external files' slots of each dataset the parser
 /// resolved, and `found`, the siblings a store run found (None in a file run, which looks for
 /// none: a dataset in external files then has no grid).
-pub fn describe(ir: &mut Ir, h5: &mut H5, em: &Emitted, visited: &HashMap<u64, Visit>, slots: &HashMap<u64, Vec<ExternalSlot>>, found: Option<&HashMap<String, u64>>) -> Res<()> {
+///
+/// `grafts` are the stored arrays of the IRs grafted in place of datasets' data
+/// ([`super::walk::Emit::inner`]): each one's arrays, the ids the graft gave its elements and
+/// where its bytes start, described after the datasets'.
+pub fn describe(ir: &mut Ir, h5: &mut H5, em: &Emitted, visited: &HashMap<u64, Visit>, slots: &HashMap<u64, Vec<ExternalSlot>>, found: Option<&HashMap<String, u64>>, grafts: &[(&crate::array::Stored, &[u32], u64)]) -> Res<()> {
     let base = h5.src.base;
     let file_size = h5.file_size();
     let mut arrays: Vec<StoredArray> = Vec::new();
@@ -365,6 +369,11 @@ pub fn describe(ir: &mut Ir, h5: &mut H5, em: &Emitted, visited: &HashMap<u64, V
         }
         arrays.push(a);
     }
+    let mut all = (arrays, chains, map);
+    for &(stored, ids, shift) in grafts {
+        crate::array::join_grafted(&mut all, stored, &|i| ids.get(i as usize).copied().unwrap_or(crate::ir::NONE), shift)?;
+    }
+    let (arrays, chains, map) = all;
     ir.describe(arrays, chains, map)
 }
 

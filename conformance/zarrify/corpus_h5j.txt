@@ -1,0 +1,8 @@
+# url|name|no-ref of the public H5J files in the corpus (the frozen reference has no H5J profile, so each compares
+# py with web alone). Janelia FlyLight's confocal stacks on S3 (janelia-flylight-imagery, public, range requests;
+# the survey of design/plans/h5j.md): two Split-GAL4 brains, aligned (padded) and unaligned (not padded), a ventral
+# nerve cord, and a four-channel Gen1 MCFO brain whose streams have two keyframes.
+https://s3.amazonaws.com/janelia-flylight-imagery/Split-GAL4+Omnibus+Broad/SS21347/SS21347-20151117_32_D4-m-20x-brain-Split_GAL4-JRC2018_Unisex_20x_HR-aligned_stack.h5j|flylight_SS21347_D4_brain_aligned|no-ref|ends-sha256=40433525835f47503f54e434661ca4cc4c38acc154bae208024c48b352953cb5
+https://s3.amazonaws.com/janelia-flylight-imagery/Split-GAL4+Omnibus+Broad/SS21347/SS21347-20151117_32_D1-m-20x-brain-Split_GAL4-unaligned_stack.h5j|flylight_SS21347_D1_brain_unaligned|no-ref|ends-sha256=302480a5f5fea91775ce76a22914fb5c69df47ea72a1bc03a98dda589f819bf3
+https://s3.amazonaws.com/janelia-flylight-imagery/Split-GAL4+Omnibus+Broad/SS21347/SS21347-20151117_32_D1-m-20x-ventral_nerve_cord-Split_GAL4-JRC2018_VNC_Unisex_40x_DS-aligned_stack.h5j|flylight_SS21347_D1_vnc_aligned|no-ref|ends-sha256=c99a86c0e88e5d939c4f60309309e59c628d77feb2d3b5358554dd2ca83a525c
+https://s3.amazonaws.com/janelia-flylight-imagery/Gen1+MCFO/R10A07/R10A07-20181121_61_G1-f-40x-central-GAL4-unaligned_stack.h5j|flylight_R10A07_G1_central_unaligned|no-ref|ends-sha256=a49940d6ea1cd2cfd01b887abc43b8b22f5ef725536566f59467c0676e517058

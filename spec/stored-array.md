@@ -1449,6 +1449,16 @@ the element `samples/<T>/<j>`.
   frames by the sample entry's size).
 - **The fill value** is `undefined`: MP4 has none.
 
+**H5J** ([spec/zarrify/h5j.md](zarrify/h5j.md)). An H5J file is described as the two formats it
+is made of. Its datasets are described as HDF5's, by the same code: a channel's dataset is an
+array of one dimension of 8-bit elements, the bytes of its MP4 file, whose one row is the struct
+that holds that file in the IR ([zarrify/h5j.md §5.3](zarrify/h5j.md#53-elements)). Each channel
+the profile zarrifies ([zarrify/h5j.md §8.2](zarrify/h5j.md#82-channels)) also has its MP4 file's
+tracks described as MP4's, keyed by each track's `trak` box in that struct, every element and
+range renumbered to the H5J file's IR and bytes: a track of 4:0:0 pictures is one array, the luma
+plane, in an `hevc` chain. A channel the profile records keeps its dataset's description alone:
+its bytes, as an MP4 file, are not described.
+
 **SAFE** ([spec/zarrify/safe.md](zarrify/safe.md)). Each band file of a Sentinel-2 product, a JP2
 file, holds one image, a stored array, in both forms of the product: in the directory form's
 store IR, whose parser describes its objects' arrays itself ([§6](#6-in-the-ir)), and in the zip

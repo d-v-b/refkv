@@ -24,6 +24,7 @@ who each one is for, what you get, and how to run it.
 | FITS | FITS images and tables (`.fits`, `.fz`) | [fits](fits/README.md) | [fits.md §9](../../spec/zarrify/fits.md#9-fits-profile) |
 | FLAC | FLAC audio files, as a sharded array of samples (`.flac`) | [flac](flac/README.md) | [flac.md §8](../../spec/zarrify/flac.md#8-flac-profile) |
 | GRIB | GRIB2 files of gridded weather and climate fields (`.grib2`), as labeled arrays with CF coordinates | [grib](grib/README.md) | [grib.md §8](../../spec/zarrify/grib.md#8-grib-profile) |
+| H5J | Janelia's H5J confocal stacks (`.h5j`), as FlyLight and the Janelia Workstation publish them | [h5j](h5j/README.md) | [h5j.md §8](../../spec/zarrify/h5j.md#8-h5j-profile) |
 | HDF4 | HDF4 and HDF-EOS2 files (`.hdf`) of NASA's EOS-era archives, such as MODIS, SeaWiFS and AIRS products, as labeled arrays | [hdf4](hdf4/README.md) | [hdf4.md §9](../../spec/zarrify/hdf4.md#9-hdf4-profile) |
 | HDF5 | HDF5 files (`.h5`, `.hdf5`), and NWB files (`.nwb`), which pynwb's `NWBZarrIO` opens | [hdf5](hdf5/README.md) | [hdf5.md §8](../../spec/zarrify/hdf5.md#8-hdf5-profile) |
 | IMS | Imaris `.ims` files | [ims](ims/README.md) | [ims.md §7](../../spec/zarrify/ims.md#7-ims-profile) |
@@ -423,6 +424,12 @@ each format's metadata is:
   reason. Each dataset's array keeps its address, datatype, layout, chunk index,
   filters and fill value bytes
   ([hdf5 §7](../../spec/zarrify/hdf5.md#7-source-metadata)).
+- **H5J:** the IR mirror on `refkv_source`: the HDF5 file's, with each channel's MP4
+  file in place of its dataset's data, its boxes and tables down to each sample. The
+  root keeps the file's attributes and `/Channels`'s, and each channel with its path or
+  the reason it is not presented; each channel's image keeps its dataset's attributes,
+  where its MP4 file is, and its track's codec, profile, level, size and sync samples
+  ([h5j §5](../../spec/zarrify/h5j.md#5-source-metadata)).
 - **HDF4:** the IR mirror on `refkv_source`: the descriptor blocks and every element
   they describe, the headers held and the data referenced. The root keeps the library
   version that wrote the file; each group its Vgroup's ref and class, each attribute's

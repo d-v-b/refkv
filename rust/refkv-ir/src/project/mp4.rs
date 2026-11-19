@@ -141,7 +141,7 @@ pub fn pcm_parts(a: u64, b: u64, frame: u64, runs: &[(u64, u64)], at: &mut (usiz
     parts
 }
 
-fn stream_codec(format: &str, setup: &J, plane: Option<&str>) -> J {
+pub fn stream_codec(format: &str, setup: &J, plane: Option<&str>) -> J {
     let mut c = Map::new();
     c.insert("format".into(), json!(format));
     if let Some(s) = setup.as_str() {

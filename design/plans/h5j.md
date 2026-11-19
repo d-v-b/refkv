@@ -147,8 +147,9 @@ the microscope's data; the comparison is with the decoded stream, not the origin
 3. Fixtures, `test_h5j.py` (the arrays against ffmpeg's decode, voxel for voxel, and every metadata
    value against h5py) and `test_h5j_stored.py`.
 4. The docs page, the example script, the corpus line.
-5. Later, in a session of its own: the Neuroglancer fork. Browsers' WebCodecs don't decode 4:0:0
-   HEVC of 12 bits, so the fork refuses these pictures until it has a decoder that does.
+5. Later, in a session of its own: the Neuroglancer fork. Its `refkv.stream` decoder takes 4:2:0
+   and 4:2:2 pictures, not 4:0:0, and decodes HEVC with WebCodecs only where the platform has a
+   decoder for it; range extensions decoders are rare.
 
 ## 5. Open questions
 

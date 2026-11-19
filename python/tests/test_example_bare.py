@@ -38,6 +38,7 @@ CASES = [
     ("fits/fits_gzip_image.fits.gz", None, False),
     ("flac/flac_mono_16.flac", "av", False),
     ("grib/grib_complex.grib2", None, False),
+    ("h5j/h5j_two_channels.h5j", "av", False),
     ("hdf4/hdf4_layouts.hdf", None, False),
     ("hdf4/hdf4_groups.hdf", None, False),
     ("hdf5/hdf5_attributes.h5", None, False),

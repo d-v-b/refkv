@@ -15,6 +15,7 @@ its JSON Schema `zarrify/<format>/schema.json`. Its changes are in [zarrify/chan
 | FITS | [fits](zarrify/fits.md) | `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` |
 | FLAC (Free Lossless Audio Codec) | [flac](zarrify/flac.md) | `e9108d07-b24b-432f-a8ce-09d80c8073b4` |
 | WMO FM 92 GRIB edition 2 (WMO-No. 306, Manual on Codes, Volume I.2) | [grib](zarrify/grib.md) | `c9bbe039-8dfa-49f9-a655-756f822a42d6` |
+| Janelia H5J | [h5j](zarrify/h5j.md) | `5bd31fac-d92d-452b-bcb6-15ca89c0f931` |
 | HDF4 (the HDF Group's Hierarchical Data Format 4) | [hdf4](zarrify/hdf4.md) | `af66c29e-fc1a-44a4-bb71-1055ad5fdb0a` |
 | HDF5, NWB | [hdf5](zarrify/hdf5.md) | `6c006834-424b-451b-b786-f8c502ec32af` |
 | Imaris IMS | [ims](zarrify/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
