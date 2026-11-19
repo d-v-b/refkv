@@ -309,7 +309,16 @@ impl Hdf5 {
     fn read_channels(&mut self) -> R<()> {
         if self.channels.is_none() {
             let facts = self.facts.as_ref().ok_or(Fail::Bad("internal: no facts".into()))?;
-            self.channels = Some(crate::h5j::Channels::new(facts).map_err(Fail::Bad)?);
+            match crate::h5j::Channels::new(facts) {
+                Ok(c) => self.channels = Some(c),
+                Err(m) if self.h5j_required => return Err(Fail::Bad(m)),
+                // too many channels: a file the sniff chose is the HDF5 profile's (spec/zarrify/h5j.md
+                // §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#83-checks>)
+                Err(_) => {
+                    self.h5j = false;
+                    return Ok(());
+                }
+            }
         }
         let channels = self.channels.as_mut().expect("the channels");
         if !channels.advance(&self.h.src.store, &mut self.h.src.want) {

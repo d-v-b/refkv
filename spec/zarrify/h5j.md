@@ -272,12 +272,13 @@ and the channel keeps its dataset's `data` element ([§5.3](#53-elements)):
 
 ### 8.3 Checks
 
-In this order, after the HDF5 profile's:
+In this order, after the HDF5 profile's. A file the HDF5 profile took for an H5J file
+([§8.1](#81-choosing-the-profile)) that fails one is the HDF5 profile's instead; a file named as the
+H5J profile's input is rejected with the message.
 
 1. **Channels:** at most 1024: `budget: more than 1024 channels`.
-2. **A channel:** the profile zarrifies at least one ([§8.2](#82-channels)). Without one, a file
-   the HDF5 profile took for an H5J file is that profile's ([§8.1](#81-choosing-the-profile)), and a
-   file named as the H5J profile's input is rejected with each channel's reason, joined by `; `:
+2. **A channel:** the profile zarrifies at least one ([§8.2](#82-channels)): the message names each
+   channel's reason, joined by `; `:
    `no channel can be zarrified: Channel_0: its pictures are 4:2:0, not 4:0:0 (monochrome)`.
 
 ### 8.4 Chunks

@@ -1621,7 +1621,8 @@ from `position[k]`, `[s, channels]`; for video, the one row `position[k]`,
 its output dropped: it is the chunk's lead-in. Every row no frame fills is
 the fill value: the rows past the array's end in its last chunk, and the
 rows of a frame the decoder gives no output for. An output that does not
-fit its rows, or whose shape is not the array's, is an error. The outputs
+fit its rows, or whose shape is not the array's, is an error, and so is a `plane` of `"u"` or `"v"`
+of a stream whose pictures are 4:0:0, which have no such plane. The outputs
 are the decoder's own samples, with no conversion: `float32` for MP3 and
 AAC, the stream's integer samples for FLAC (of the bits per sample the
 setup gives, in the array's signed integer type: a decoder that gives them

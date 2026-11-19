@@ -167,6 +167,24 @@ def test_a_file_of_no_channel_to_present_is_the_hdf5_profiles(name, tmp_path):
     assert np.array_equal(ndarray(root.get_array("Channels/Channel_0")[...]), data)
 
 
+def test_more_channels_than_the_budget_are_the_hdf5_profiles_or_rejected(tmp_path):
+    """A file of 1025 links Channel_<n> passes the budget of channels (spec/zarrify/h5j.md §8.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#83-checks>): taken for an H5J
+    file, it is the HDF5 profile's; named as the H5J profile's input, it is rejected."""
+    path = tmp_path / "many.h5"
+    with h5py.File(path, "w", libver="earliest") as f:
+        g = f.create_group("Channels")
+        for n in range(1025):
+            g.create_dataset(f"Channel_{n}", data=np.zeros(4, dtype=np.uint8))
+    t = planner.open_transport(str(path))
+    run = planner.new_run("hdf5", t)
+    planner.drive(run, t)
+    assert run.format == "hdf5"
+    run = planner.new_run("h5j", t)
+    with pytest.raises(planner.Rejected, match=r"^budget: more than 1024 channels$"):
+        planner.drive(run, t)
+
+
 def test_a_file_named_h5j_that_is_not_one_is_rejected():
     """An HDF5 file with no group Channels of links Channel_<n>, given as the H5J profile's input,
     is rejected (spec/zarrify/h5j.md §8.1
