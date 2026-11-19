@@ -15,12 +15,12 @@ Four public files, all from the `janelia-flylight-imagery` bucket on S3, read wh
 PyAV (ffmpeg 8.0's decoders). Scripts in a scratch directory; every claim below is **[inspected]**
 on all four unless it names one.
 
-| file | channels | coded size | true size | frames | keyframes |
-|---|---|---|---|---|---|
-| `Split-GAL4 Omnibus Broad/SS21347/…_D4-m-20x-brain-…-JRC2018_Unisex_20x_HR-aligned_stack.h5j` (the example) | 2 (`sr`) | 1216 × 568 | 1210 × 566 | 174 | 1 |
-| `…/SS21347/…_D1-m-20x-brain-Split_GAL4-unaligned_stack.h5j` | 2 (`sr`) | 1024 × 1024 | 1024 × 1024 | 130 | 1 |
-| `…/SS21347/…_D1-m-20x-ventral_nerve_cord-…-JRC2018_VNC_Unisex_40x_DS-aligned_stack.h5j` | 2 (`sr`) | 576 × 1120 | 573 × 1119 | 219 | 1 |
-| `Gen1 MCFO/R10A07/R10A07-20181121_61_G1-f-40x-central-GAL4-unaligned_stack.h5j` | 4 (`sssr`) | 688 × 688 | 686 × 685 | 406 | 2 |
+| file | channels | coded size | true size | frames | keyframes | HEVC level | `hvcC` bytes |
+|---|---|---|---|---|---|---|---|
+| `Split-GAL4 Omnibus Broad/SS21347/…_D4-m-20x-brain-…-JRC2018_Unisex_20x_HR-aligned_stack.h5j` (the example) | 2 (`sr`) | 1216 × 568 | 1210 × 566 | 174 | 1 | 3.1 | 1,991 and 1,992 |
+| `…/SS21347/…_D1-m-20x-brain-Split_GAL4-unaligned_stack.h5j` | 2 (`sr`) | 1024 × 1024 | 1024 × 1024 | 130 | 1 | 4 | 1,991 and 1,992 |
+| `…/SS21347/…_D1-m-20x-ventral_nerve_cord-…-JRC2018_VNC_Unisex_40x_DS-aligned_stack.h5j` | 2 (`sr`) | 576 × 1120 | 573 × 1119 | 219 | 1 | 3.1 | 1,991 and 1,992 |
+| `Gen1 MCFO/R10A07/R10A07-20181121_61_G1-f-40x-central-GAL4-unaligned_stack.h5j` | 4 (`sssr`) | 688 × 688 | 686 × 685 | 406 | 2 | 3 | 1,990 or 1,991 |
 
 ### 1.1 The HDF5 layout
 
@@ -39,10 +39,10 @@ on all four unless it names one.
 
 ### 1.2 The coded stream
 
-- One track, `vide`, sample entry `hev1`, with an `hvcC` box of 1,991 bytes (the VPS, SPS, PPS and
-  x265's SEI).
-- HEVC **Format Range Extensions** profile (general_profile_idc 4), level 3.1, **4:0:0 (monochrome)
-  of 12 bits**: ffmpeg decodes it to `gray12le`. So a channel's samples are integers from 0 to 4095.
+- One track, `vide`, sample entry `hev1`, with an `hvcC` box of about 1,990 bytes (the VPS, SPS,
+  PPS and x265's SEI; the table gives each file's).
+- HEVC **Format Range Extensions** profile (general_profile_idc 4), at the level the picture size
+  needs (the table), **4:0:0 (monochrome) of 12 bits**: ffmpeg decodes it to `gray12le`. So a channel's samples are integers from 0 to 4095.
 - The stream has B-frames (two pictures of reordering) and few keyframes: one in the three
   two-channel files, two in the four-channel one. A chunk that starts past the first keyframe
   decodes from the keyframe before it ([conventions §10](../../spec/conventions.md#10-coded-streams)),
@@ -96,8 +96,11 @@ the microscope's data; the comparison is with the decoded stream, not the origin
    ([hdf5.md §8.1](../../spec/zarrify/hdf5.md#81-choosing-the-profile)): its output is an image,
    unlike the HDF5 profile's hdmf-zarr hierarchy, and finding the image means reading inside a
    dataset's bytes, which neither the HDF5 profile nor a layout plugin does (findings 1 and 2). An
-   HDF5 file whose root has a link `Channels` to a group whose links are each `Channel_<n>` is an
-   H5J file.
+   HDF5 file whose root has a link `Channels` to a group whose links, at least one, are each
+   `Channel_<n>` is taken for an H5J file. The names are generic, so the choice is confirmed by
+   the channels: a file the HDF5 profile chose this way with no channel to present is the HDF5
+   profile's after all (decision 8). The H5J profile reads one file: a store run of HDF5's,
+   following external links, reads its files as HDF5.
 2. **The parser is the HDF5 parser, then an MP4 parse of each channel.** The HDF5 parser reads the
    file as it would any other: every object, the strict checks, the facts. Then the MP4 parser
    reads each channel dataset's bytes as a file of their own, its reads moved by the dataset's
@@ -131,11 +134,15 @@ the microscope's data; the comparison is with the decoded stream, not the origin
 8. **Record, don't reject.** A channel that is not a contiguous, unfiltered, one-dimensional
    `uint8` dataset, whose bytes the MP4 parser rejects, whose track the MP4 profile does not present,
    or whose padding is not less than its coded size, is listed on the root with the reason. A file
-   with no channel to present is rejected, as an MP4 file with no track to present is.
+   with no channel to present is the HDF5 profile's when the HDF5 profile chose H5J for it, and
+   rejected when it was named as the H5J profile's input, as an MP4 file with no track to present
+   is.
 9. **Fixtures.** A generator writes tiny H5J files with h5py (untimed, as the HDF5 fixtures are)
    holding MP4 files that ffmpeg and libx265 encode (`gray12le`, `info=0`): two channels with
-   padding, one of 8 bits, one with two groups of pictures, one with a channel that is not an MP4
-   file. It needs ffmpeg, so it is on demand. The 7.7 MB example is in the public corpus, not
+   padding, one of 8 bits, one of 10 bits with several groups of pictures, one with channels that
+   are not MP4 files, one after a user block (a nonzero base address), one with an external link,
+   and the files of no channel to present. The MP4 fixtures gain 12-bit and 10-bit monochrome
+   streams. It needs ffmpeg, so it is on demand. The 7.7 MB example is in the public corpus, not
    committed.
 
 ## 4. Order of work

@@ -1,15 +1,17 @@
 {
-  "about": "The inputs the h5j profile rejects, each with the start of its message (the Rust tests' prefix), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/h5j.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "about": "The inputs the h5j profile rejects, each with the start of its message (the Rust tests' prefix), and, where the Python host rejects it earlier, the host's message; each case has the `profile` h5j and is given to the host named as that profile's input, since a file the HDF5 profile chose H5J for with no channel to present is the HDF5 profile's, which accepts it (spec/zarrify/h5j.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#83-checks>). rust/refkv-ir/build.rs writes a Rust test per case into tests/h5j.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
   "cases": [
     {
       "test": "h5j_reject_no_channel",
       "input": "h5j_reject_no_channel.h5j",
-      "message": "no channel can be zarrified: Channel_0: its MP4 file: the 1852797984-byte an M box at 0 is outside its parent, which ends at 1024"
+      "message": "no channel can be zarrified: Channel_0: its MP4 file: the 1852797984-byte an M box at 0 is outside its parent, which ends at 1024",
+      "profile": "h5j"
     },
     {
       "test": "h5j_reject_padding",
       "input": "h5j_reject_padding.h5j",
-      "message": "no channel can be zarrified: Channel_0: a padding of 16 by 0 of pictures of 16 by 16"
+      "message": "no channel can be zarrified: Channel_0: a padding of 16 by 0 of pictures of 16 by 16",
+      "profile": "h5j"
     }
   ]
 }

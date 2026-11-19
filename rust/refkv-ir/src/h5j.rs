@@ -211,9 +211,18 @@ impl Channels {
             .collect()
     }
 
+    /// With no channel to present, once every parse is done, the rejection that names each
+    /// channel's reason (spec/zarrify/h5j.md §8.3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#83-checks>); else None.
+    pub fn none_presented(&self) -> Option<String> {
+        let presented = self.list.iter().filter(|c| c.reason.is_none()).count();
+        let reasons: Vec<String> = self.list.iter().filter_map(|c| Some(format!("{}: {}", c.name, c.reason.as_ref()?))).collect();
+        self.rules.check("presented", rules::env([("presented", num(presented as f64)), ("reasons", text(&reasons.join("; ")))])).err()
+    }
+
     /// The facts the projection reads (`facts["h5j"]`): each channel's name, dataset, attributes,
     /// track (its first sample's element renumbered as `grafted` gives it) or reason, and the
-    /// padding. With no channel to present, the input is rejected with each one's reason.
+    /// padding.
     pub fn facts(&self, grafted: &HashMap<u64, Vec<u32>>) -> Result<J, String> {
         let mut channels = Vec::new();
         for c in &self.list {
@@ -240,10 +249,6 @@ impl Channels {
             };
             m.insert("track".into(), track);
             channels.push(J::Object(m));
-        }
-        if channels.iter().all(|c| !c["reason"].is_null()) {
-            let reasons: Vec<String> = channels.iter().map(|c| format!("{}: {}", c["name"].as_str().unwrap_or(""), c["reason"].as_str().unwrap_or(""))).collect();
-            self.rules.check("presented", rules::env([("presented", num(0.0)), ("reasons", text(&reasons.join("; ")))]))?;
         }
         let pad = self.pad.as_ref().map_or(J::Null, |&(r, b)| json!([r, b]));
         Ok(json!({"channels": channels, "pad": pad}))

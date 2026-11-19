@@ -57,12 +57,15 @@ def mp4(size: str, frames: int, pix_fmt: str = "gray12le", x265: str = "bframes=
 
 
 def write(name: str, channels: list[tuple[str, bytes | np.ndarray]], pad: tuple[int, int] | None,
-          size: tuple[int, int, int], spec: str | None = None) -> None:
+          size: tuple[int, int, int], spec: str | None = None, userblock: int = 0, link: bool = False) -> None:
     """An H5J file of `channels` (name, the MP4 file's bytes or a dataset's array), `/Channels`'s
     padding `pad` (right, bottom; none: no such attributes) and `size` (width, height, frames), with
-    the root's attributes the FlyLight files have."""
+    the root's attributes the FlyLight files have; after a user block of `userblock` bytes, and with
+    a root link `notes` to a file beside it when `link`."""
     w, h, frames = size
-    with h5py.File(OUT / name, "w", libver="earliest", track_order=False) as f:
+    with h5py.File(OUT / name, "w", libver="earliest", track_order=False, userblock_size=userblock) as f:
+        if link:
+            f["notes"] = h5py.ExternalLink("notes.h5", "/notes")
         f.attrs["channel_spec"] = np.bytes_(spec or "s" * (len(channels) - 1) + "r")
         f.attrs["unit"] = np.bytes_("micron")
         f.attrs["voxel_size"] = np.array([0.5189161, 0.5189161, 1.0])
@@ -94,9 +97,16 @@ def main() -> None:
           [("Channel_0", mp4("40x24", 20)), ("Channel_1", mp4("40x24", 20, source="mandelbrot"))], (3, 3), (37, 21, 20))
     # 8 bits, no padding and no padding attributes
     write("h5j_8bit.h5j", [("Channel_0", mp4("32x16", 12, "gray"))], None, (32, 16, 12), spec="r")
-    # groups of 8 pictures: chunks cut at sync samples, and a rectilinear grid when the limit is less
-    write("h5j_groups.h5j",
-          [("Channel_0", mp4("24x16", 30, x265="keyint=8:min-keyint=8:scenecut=0:bframes=3"))], (1, 0), (23, 16, 30))
+    # 10 bits in groups of 8 pictures: chunks cut at sync samples, and a rectilinear grid when the
+    # limit is less
+    write("h5j_gray10_groups.h5j",
+          [("Channel_0", mp4("24x16", 30, "gray10le", x265="keyint=8:min-keyint=8:scenecut=0:bframes=3"))],
+          (1, 0), (23, 16, 30))
+    # after a user block of 512 bytes: every address is 512 on from where the file's bytes are
+    write("h5j_userblock.h5j", [("Channel_0", mp4("40x24", 10)), ("Channel_1", mp4("40x24", 10, source="mandelbrot"))],
+          (3, 3), (37, 21, 10), userblock=512)
+    # a root link to a file beside it, which the H5J profile does not read
+    write("h5j_external_link.h5j", [("Channel_0", mp4("16x16", 6))], (0, 0), (16, 16, 6), link=True)
     # the channels recorded and not zarrified: bytes that are no MP4 file, an MP4 file of 4:2:0
     # pictures, a chunked dataset of bytes, a dataset of another type; beside one it zarrifies
     junk = b"not an MP4 file " * 64

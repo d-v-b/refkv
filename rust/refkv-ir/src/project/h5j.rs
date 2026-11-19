@@ -5,10 +5,10 @@
 //! the MP4 projection cuts them (spec/zarrify/mp4.md §8.3
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>).
 
-use super::mp4::{grid_lengths, stream_codec, video_chunk, video_lengths, video_units};
+use super::mp4::{grid_lengths, stream_codec, video_chunk, video_chunks};
 use super::{arr, n};
 use crate::ir::Ir;
-use crate::out::{declare, declared_group, full_window, group_doc, image_ome, omero_channel, omero_json, rectilinear_array_json, stream_parts, Out};
+use crate::out::{declare, declared_group, full_window, group_doc, image_ome, omero_channel, omero_json, rectilinear_array_json, Out};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -72,22 +72,12 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         let bits = n(&t["bit_depth"]);
         let limit = n(&c["chunk_frames"]).max(1);
         let chunk = video_chunk(limit, w, hgt, if data_type == "uint16" { 2 } else { 1 });
-        let pts: Vec<i64> = arr(&t["pts"]).iter().map(|v| v.as_i64().unwrap_or(0)).collect();
-        let sync: Vec<u64> = arr(&t["sync"]).iter().map(n).collect();
-        if pts.len() != count || first + count > ir.len() {
-            return Err("internal: a channel's samples are not its track's".into());
-        }
-        // the pictures in presentation order, a picture a slice (§4.1
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#41-a-channel>)
-        let mut order: Vec<usize> = (0..count).collect();
-        order.sort_by_key(|&d| pts[d]);
-        let mut rank = vec![0usize; count];
-        for (p, &d) in order.iter().enumerate() {
-            rank[d] = p;
-        }
-        let mut presented: Vec<usize> = sync.iter().map(|&d| rank[d as usize]).collect();
-        presented.sort_unstable();
-        let lengths = video_lengths(count, chunk as usize, &presented);
+        // the pictures in presentation order, a picture a slice, in the MP4 profile's chunks (§4.1
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#41-a-channel>, §8.4
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#84-chunks>)
+        let (cut, _) = video_chunks(ir, t, first, count, chunk)?;
+        let lengths: Vec<u64> = cut.iter().map(|c| c.0).collect();
+        let sync = arr(&t["sync"]).len();
         // the image group, its source metadata (§5.2
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#52-a-channel>)
         let mut ome = image_ome(&AXES, &units, &scales, Some(&json!(name)), None)?;
@@ -102,7 +92,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         track.insert("height".into(), t["geometry"]["height"].clone());
         track.insert("chroma".into(), t["geometry"]["chroma"].clone());
         track.insert("frames".into(), json!(count));
-        track.insert("sync_samples".into(), json!(sync.len()));
+        track.insert("sync_samples".into(), json!(sync));
         let own = json!({
             "dataset": c["path"], "offset": c["offset"], "length": c["length"], "attributes": c["attributes"],
             "brand": c["brand"], "movie_timescale": c["timescale"], "movie_duration": c["duration"],
@@ -117,20 +107,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         let doc = rectilinear_array_json(&shape, data_type, &json!([grid_lengths(&lengths), hgt, w]), codecs, &AXES);
         refs.out.json(&format!("{name}/0/zarr.json"), &doc);
         let form = ir.form_id(first as u32).ok_or("internal: a sample has no form")?;
-        let sample = |j: usize| (ir.start[first + j], ir.len[first + j]);
-        let mut b = 0;
-        for (q, &len) in lengths.iter().enumerate() {
-            let a = b;
-            b = a + len as usize;
-            let units: Vec<(u64, u64, i64)> = video_units(a, b, &order, &rank, &sync)
-                .into_iter()
-                .map(|(d, pos)| {
-                    let (o, len) = sample(d);
-                    (o, len, pos)
-                })
-                .collect();
-            let (o, len) = sample(order[a]);
-            refs.chunk(format!("{name}/0/c/{q}/0/0"), o, len, form, Some(stream_parts(&units)))?;
+        for (q, (_, (o, len), parts)) in cut.into_iter().enumerate() {
+            refs.chunk(format!("{name}/0/c/{q}/0/0"), o, len, form, Some(parts))?;
         }
         summary.push(json!({"name": name, "path": format!("{name}/0"), "frames": count, "chunkFrames": chunk, "chunks": lengths.len()}));
     }

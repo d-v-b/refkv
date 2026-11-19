@@ -141,6 +141,45 @@ pub fn pcm_parts(a: u64, b: u64, frame: u64, runs: &[(u64, u64)], at: &mut (usiz
     parts
 }
 
+/// A video track's chunks of at most `chunk` pictures (§4.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#41-video-tracks>, §8.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>), its `count` samples
+/// the IR's elements from `first` on and its facts `t`: each chunk's length along the pictures'
+/// axis, with its first presented picture's range and its `refkv.stream` parts; and the pictures
+/// in presentation order, by decode index.
+pub fn video_chunks(ir: &Ir, t: &J, first: usize, count: usize, chunk: u64) -> Result<(Vec<(u64, (u64, u64), Vec<Part>)>, Vec<usize>), String> {
+    let pts: Vec<i64> = arr(&t["pts"]).iter().map(|v| v.as_i64().unwrap_or(0)).collect();
+    let sync: Vec<u64> = arr(&t["sync"]).iter().map(n).collect();
+    if pts.len() != count || first + count > ir.len() || sync.iter().any(|&s| s as usize >= count) {
+        return Err("internal: a video track's samples are not its tables'".into());
+    }
+    let sample = |j: usize| (ir.start[first + j], ir.len[first + j]);
+    let mut order: Vec<usize> = (0..count).collect();
+    order.sort_by_key(|&d| pts[d]);
+    let mut rank = vec![0usize; count];
+    for (p, &d) in order.iter().enumerate() {
+        rank[d] = p;
+    }
+    // runs of whole groups of pictures, a group longer than a chunk split
+    let mut presented: Vec<usize> = sync.iter().map(|&d| rank[d as usize]).collect();
+    presented.sort_unstable();
+    let mut chunks = Vec::new();
+    let mut b = 0;
+    for len in video_lengths(count, chunk as usize, &presented) {
+        let a = b;
+        b = a + len as usize;
+        let units: Vec<(u64, u64, i64)> = video_units(a, b, &order, &rank, &sync)
+            .into_iter()
+            .map(|(d, pos)| {
+                let (o, len) = sample(d);
+                (o, len, pos)
+            })
+            .collect();
+        chunks.push((len, sample(order[a]), stream_parts(&units)));
+    }
+    Ok((chunks, order))
+}
+
 pub fn stream_codec(format: &str, setup: &J, plane: Option<&str>) -> J {
     let mut c = Map::new();
     c.insert("format".into(), json!(format));
@@ -291,18 +330,9 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
             let (w, h) = (n(&t["geometry"]["width"]), n(&t["geometry"]["height"]));
             let data_type = t["geometry"]["data_type"].as_str().unwrap_or("uint8");
             chunk = video_chunk(limit, w, h, if data_type == "uint16" { 2 } else { 1 });
+            let (cut, order) = video_chunks(ir, t, first, count, chunk)?;
             let pts: Vec<i64> = arr(&t["pts"]).iter().map(|v| v.as_i64().unwrap_or(0)).collect();
-            let sync: Vec<u64> = arr(&t["sync"]).iter().map(n).collect();
-            let mut order: Vec<usize> = (0..count).collect();
-            order.sort_by_key(|&d| pts[d]);
-            let mut rank = vec![0usize; count];
-            for (p, &d) in order.iter().enumerate() {
-                rank[d] = p;
-            }
-            // the chunks: runs of whole groups of pictures, a group longer than a chunk split
-            let mut presented: Vec<usize> = sync.iter().map(|&d| rank[d as usize]).collect();
-            presented.sort_unstable();
-            let lengths = video_lengths(count, chunk as usize, &presented);
+            let lengths: Vec<u64> = cut.iter().map(|c| c.0).collect();
             let along = grid_lengths(&lengths);
             refs.out.json(&format!("{dir}/zarr.json"), &declared_group(Map::new(), "mp4", None, Some(track_json(t, chunk))));
             // a 4:2:2 picture's chroma is half the width alone
@@ -315,14 +345,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
                 refs.out.json(&format!("{dir}/{p}/zarr.json"), &doc);
             }
             chunks = lengths.len();
-            let mut b = 0;
-            for (q, &len) in lengths.iter().enumerate() {
-                let a = b;
-                b = a + len as usize;
-                let units: Vec<(u64, u64, i64)> = video_units(a, b, &order, &rank, &sync)
-                    .into_iter().map(|(d, pos)| { let (o, len) = sample(d); (o, len, pos) }).collect();
-                let parts = stream_parts(&units);
-                let (o, len) = sample(order[a]);
+            for (q, (_, (o, len), parts)) in cut.into_iter().enumerate() {
                 refs.chunk(format!("{dir}/y/c/{q}/0/0"), o, len, form, Some(parts.clone()))?;
                 for &(p, _, _) in &planes[1..] {
                     refs.out.refs(&format!("{dir}/{p}/c/{q}/0/0"), parts.clone());

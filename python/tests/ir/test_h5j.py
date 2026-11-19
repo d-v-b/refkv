@@ -45,6 +45,12 @@ def attributes(obj) -> dict:
     return {k: attribute(v) for k, v in obj.attrs.items()}
 
 
+def bit_depth(data: bytes) -> int:
+    """The bits of a sample of an MP4 file's video track, as ffmpeg's decoder gives them."""
+    c = av.open(io.BytesIO(data), mode="r")
+    return max(x.bits for x in next(iter(c.decode(video=0))).format.components)
+
+
 def decoded(data: bytes) -> np.ndarray:
     """ffmpeg's decoding of an MP4 file's video track: the luma plane of each picture, in the
     order the decoder outputs them, which is presentation order: [pictures, height, width]."""
@@ -95,7 +101,7 @@ def test_channels_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
             assert got.shape == want.shape
             assert np.array_equal(got, want)
             bits = integer(at(image.attrs, "refkv_zarrified", "h5j", "track", "bit_depth"))
-            assert bits == (8 if want.dtype == np.uint8 else 12)
+            assert bits == bit_depth(data)
             (channel,) = sequence(at(ome, "omero", "channels"))
             assert at(channel, "label") == d.attrs["content_type"].decode()
             assert at(channel, "window") == {"min": 0, "max": 2**bits - 1, "start": 0, "end": 2**bits - 1}
@@ -141,11 +147,24 @@ def test_a_rectilinear_grid_cuts_chunks_at_sync_samples(tmp_path):
     group split, its last picture a chunk of its own, and the last 7 pictures one chunk, since they
     fit one, so the grid along z is rectilinear (spec/zarrify/h5j.md §8.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#84-chunks>)."""
-    out, _ = zarrified(FIXTURES / "h5j" / "h5j_groups.h5j", tmp_path, 7)
+    out, _ = zarrified(FIXTURES / "h5j" / "h5j_gray10_groups.h5j", tmp_path, 7)
     doc = json.loads(out.bytes_entries["Channel_0/0/zarr.json"])
     assert doc["chunk_grid"] == {"name": "rectilinear",
                                  "configuration": {"kind": "inline", "chunk_shapes": [[7, 1, 7, 1, [7, 2]], 16, 24]}}
     assert doc["shape"] == [30, 16, 23]
+
+
+@pytest.mark.parametrize("name", ["h5j_reject_no_channel.h5j", "h5j_reject_padding.h5j"])
+def test_a_file_of_no_channel_to_present_is_the_hdf5_profiles(name, tmp_path):
+    """A file the HDF5 profile takes for an H5J file, by its names, with no channel to present is the
+    HDF5 profile's, its channels arrays of bytes (spec/zarrify/h5j.md §8.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#83-checks>); named as the H5J
+    profile's input, it is rejected (conformance/zarrify/rejects/h5j.json)."""
+    path = FIXTURES / "h5j" / name
+    _out, root, _ir = shared_zarrified(path, tmp_path, "hdf5")
+    with h5py.File(path, "r") as f:
+        data = f["Channels/Channel_0"][()]
+    assert np.array_equal(ndarray(root.get_array("Channels/Channel_0")[...]), data)
 
 
 def test_a_file_named_h5j_that_is_not_one_is_rejected():

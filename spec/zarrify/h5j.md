@@ -241,10 +241,17 @@ profile does ([mp4.md §8](mp4.md#8-mp4-profile)), each read moved by the datase
 The profile has no signature. The HDF5 profile chooses it ([hdf5.md §8.1](hdf5.md#81-choosing-the-profile);
 its registry entry's `chosen_by` is `hdf5`): an HDF5 file that is not an Imaris file, whose root
 group has a link `Channels` (hard, or soft through hard links) to a group with at least one link,
-every one of them named `Channel_<n>` (`n` one to nine decimal digits), is an H5J file. A
-structure on that path that can't be read makes the file no H5J file. A file named as the H5J
+every one of them named `Channel_<n>` (`n` one to nine decimal digits), is taken for an H5J file. A
+structure on that path that can't be read makes the file no H5J file. The names are generic, so the
+channels confirm the choice: a file taken for an H5J file with no channel to present
+([§8.3](#83-checks)) is the HDF5 profile's, whose output it then has. A file named as the H5J
 profile's input ([spec/zarrify.md §1.7](../zarrify.md#17-named-inputs-and-layouts)) that is not an
 H5J file is rejected: `not an H5J file: the root has no group Channels of links Channel_<n>`.
+
+The profile reads one file. The files an H5J file names, by external links or external storage
+([hdf5.md §8.6](hdf5.md#86-external-files)), are not read: the HDF5 profile's rules for a file
+whose siblings are not found apply. A store run of the HDF5 profile reads every file it reads as
+HDF5, an H5J file among them.
 
 ### 8.2 Channels
 
@@ -268,9 +275,10 @@ and the channel keeps its dataset's `data` element ([§5.3](#53-elements)):
 In this order, after the HDF5 profile's:
 
 1. **Channels:** at most 1024: `budget: more than 1024 channels`.
-2. **A channel:** the profile zarrifies at least one ([§8.2](#82-channels)). Without one, the input
-   is rejected with each channel's reason, joined by `; `: `no channel can be zarrified:
-   Channel_0: its pictures are 4:2:0, not 4:0:0 (monochrome)`.
+2. **A channel:** the profile zarrifies at least one ([§8.2](#82-channels)). Without one, a file
+   the HDF5 profile took for an H5J file is that profile's ([§8.1](#81-choosing-the-profile)), and a
+   file named as the H5J profile's input is rejected with each channel's reason, joined by `; `:
+   `no channel can be zarrified: Channel_0: its pictures are 4:2:0, not 4:0:0 (monochrome)`.
 
 ### 8.4 Chunks
 

@@ -96,7 +96,8 @@ Supported:
 
 Rejected:
 
-- Whatever the HDF5 profile rejects, and a file with no channel to present.
+- Whatever the HDF5 profile rejects. A file with no channel to present is
+  zarrified as HDF5, or rejected when named as an H5J file.
   [spec/zarrify/h5j.md §8.3](../../../spec/zarrify/h5j.md#83-checks) has the
   messages.
 

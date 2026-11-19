@@ -79,6 +79,8 @@ pub struct Hdf5 {
     /// a run of the H5J profile; and its channels' parses, once the facts are made
     h5j: bool,
     h5j_required: bool,
+    /// a parser of a store run, which reads an H5J file as HDF5: the H5J profile reads one file
+    h5j_off: bool,
     channels: Option<crate::h5j::Channels>,
     rounds: u64,
     requests: u64,
@@ -130,6 +132,7 @@ impl Hdf5 {
             log: Vec::new(),
             h5j: false,
             h5j_required: false,
+            h5j_off: false,
             channels: None,
             rounds: 0,
             requests: 0,
@@ -169,6 +172,13 @@ impl Hdf5 {
     /// The keys of the files external links name, which a store run reads.
     pub fn link_keys(&self) -> &BTreeSet<String> {
         &self.link_keys
+    }
+
+    /// A parser that never finds the file to be an H5J file, as a store run's are (the H5J profile
+    /// reads one file, spec/zarrify/h5j.md §8.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#81-choosing-the-profile>).
+    pub fn not_h5j(&mut self) {
+        self.h5j_off = true;
     }
 
     /// Whether the parser handed the file to the IMS profile.
@@ -217,6 +227,7 @@ impl Hdf5 {
                         continue;
                     }
                     let named = self.phase == Phase::Names;
+                    let channels_read = self.phase == Phase::Channels;
                     self.phase = match self.phase {
                         Phase::Sniff => Phase::Walk,
                         Phase::Walk => Phase::Check,
@@ -226,7 +237,9 @@ impl Hdf5 {
                         Phase::Facts if self.h5j => Phase::Channels,
                         _ => Phase::Done,
                     };
-                    if named && self.found.is_none() && !self.names.is_empty() {
+                    // an H5J file is read alone: the files it names are not read (spec/zarrify/h5j.md
+                    // §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#81-choosing-the-profile>)
+                    if (named || channels_read) && self.found.is_none() && !self.names.is_empty() && !self.h5j {
                         return Ok(Step::Beside);
                     }
                 }
@@ -282,7 +295,7 @@ impl Hdf5 {
         } else {
             // an H5J file (spec/zarrify/h5j.md §8.1
             // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#81-choosing-the-profile>)
-            self.h5j = crate::h5j::is_h5j(&mut self.h, sb.root)?;
+            self.h5j = !self.h5j_off && crate::h5j::is_h5j(&mut self.h, sb.root)?;
             if self.h5j_required && !self.h5j {
                 return super::bad("not an H5J file: the root has no group Channels of links Channel_<n>");
             }
@@ -299,11 +312,20 @@ impl Hdf5 {
             self.channels = Some(crate::h5j::Channels::new(facts).map_err(Fail::Bad)?);
         }
         let channels = self.channels.as_mut().expect("the channels");
-        if channels.advance(&self.h.src.store, &mut self.h.src.want) {
-            Ok(())
-        } else {
-            Err(Fail::Miss)
+        if !channels.advance(&self.h.src.store, &mut self.h.src.want) {
+            return Err(Fail::Miss);
         }
+        // with no channel to present, a file the sniff chose is the HDF5 profile's; one named as the
+        // H5J profile's input is rejected (spec/zarrify/h5j.md §8.3
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#83-checks>)
+        if let Some(m) = channels.none_presented() {
+            if self.h5j_required {
+                return Err(Fail::Bad(m));
+            }
+            self.h5j = false;
+            self.channels = None;
+        }
+        Ok(())
     }
 
     // ---- phase 2: the walk (spec/zarrify/hdf5.md §8.2
