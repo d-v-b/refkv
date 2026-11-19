@@ -348,7 +348,8 @@ jobs:
       - run: uv sync --all-groups --locked --no-install-package refkv
       # every "§n" is a link to its heading, and every such link resolves (spec/tools/sections.py);
       # on a pull request, each format document it changes records the change with a file of its changelog,
-      # spec/zarrify/changes/<name>/ (spec/tools/changelog.py)
+      # spec/zarrify/changes/<name>/ (spec/tools/changelog.py); every proposal in design/proposals/
+      # has a dated status line (spec/tools/proposals.py)
       - if: github.event_name != 'pull_request'
         run: just sections
       - if: github.event_name == 'pull_request'

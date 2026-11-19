@@ -231,11 +231,12 @@ pub struct Budget {
 impl Budget {
     pub fn new(size: u64) -> Self {
         Budget {
-            // physical rows: one per 4 bytes of the source, at most, past 2^22
-            records: (1 << 22) + size / 4,
+            // physical rows: one per 4 bytes of the source, at most, past 2^22 (the rows the
+            // mirror's table may expand to)
+            records: crate::mirror::row_limit(size),
             // rows with every run expanded: the elements a source describes
-            elements: (1 << 30) + size,
-            read: (1 << 24) + 2 * size,
+            elements: (1u64 << 30).saturating_add(size),
+            read: (1u64 << 24).saturating_add(size.saturating_mul(2)),
             reads: (1 << 20) + size / 64,
             spent_records: 0,
             spent_elements: 0,
@@ -245,10 +246,32 @@ impl Budget {
             // map entries: four per byte, so that, where no two units share bytes, an element's
             // unit of rank 3 or less, or a range's of rank 2 or less, fits (spec/stored-array.md §6
             // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>)
-            descriptions: (1 << 22) + size / 4,
+            descriptions: crate::mirror::row_limit(size),
             rows: (1u64 << 22).saturating_add(size.saturating_mul(4)),
             spent_descriptions: 0,
             spent_rows: 0,
+        }
+    }
+
+    /// The limits of a store IR of `objects` objects of `size` bytes in all, each of the totals
+    /// and not a sum over the objects, so that the sizes that sum to `size` do not change them.
+    /// The records' is the limit of the table's rows (conventions §8.9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), `2^22 +
+    /// floor(size / 4) + 4 × objects`, and the descriptions' the same (spec/stored-array.md §6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>); the elements'
+    /// is `2^30 + floor(size / 4) + 4 × objects`; the chunk map's a file's of `size` bytes and 4
+    /// for each object; the bytes read a file's; and the reads a file's and one for each object.
+    pub fn store(size: u64, objects: u64) -> Self {
+        let file = Budget::new(size);
+        let each = objects.saturating_mul(4);
+        let rows = crate::mirror::store_row_limit(size, objects);
+        Budget {
+            records: rows,
+            elements: (1u64 << 30).saturating_add(size / 4).saturating_add(each),
+            reads: file.reads.saturating_add(objects),
+            descriptions: rows,
+            rows: file.rows.saturating_add(each),
+            ..file
         }
     }
 
@@ -369,7 +392,7 @@ impl Ir {
         let mut ir = Ir {
             size: 0,
             store: true,
-            budget: Some(Budget::new(0)),
+            budget: Some(Budget::store(0, 0)),
             ..Default::default()
         };
         ir.types.id("");
@@ -378,27 +401,33 @@ impl Ir {
     }
 
     /// An object of `size` bytes under `parent` (the root or a directory) of a store IR: its
-    /// extent is `(0, size)` of its own source. The budgets grow with it: the records, elements
-    /// and stored-array descriptions by 4, and one per 4 of its bytes; the chunk map by 4, and
-    /// four entries per byte; the bytes read by two per byte; and the reads by 1, and one per 64
-    /// bytes.
+    /// extent is `(0, size)` of its own source. The limits grow with it, each by what the limit
+    /// of the store's totals ([`Budget::store`]) grows by: the records, elements, stored-array
+    /// descriptions, chunk map, bytes read and reads.
     pub fn object(&mut self, parent: u32, name: &str, nidx: u64, size: u64) -> Res<u32> {
         if !self.store {
             return Err("an object in a file IR".into());
         }
+        let was = Budget::store(self.size, self.objects);
         self.objects += 1;
         if self.objects > MAX_OBJECTS {
             return Err(format!("budget: more than {MAX_OBJECTS} objects"));
         }
         self.size = self.size.checked_add(size).ok_or("the store's objects total more than 2^64 bytes")?;
         if let Some(b) = self.budget.as_mut() {
-            let more = 4 + size / 4;
-            b.records += more;
-            b.elements += more;
-            b.read += 2 * size;
-            b.reads += 1 + size / 64;
-            b.descriptions += more;
-            b.rows = b.rows.saturating_add(size.saturating_mul(4).saturating_add(4));
+            // by the difference, not to the new limit: a limit that was set apart from the totals
+            // (a profile's own allowance, a test's) keeps what was added to it or taken from it
+            let now = Budget::store(self.size, self.objects);
+            for (limit, was, now) in [
+                (&mut b.records, was.records, now.records),
+                (&mut b.elements, was.elements, now.elements),
+                (&mut b.read, was.read, now.read),
+                (&mut b.reads, was.reads, now.reads),
+                (&mut b.descriptions, was.descriptions, now.descriptions),
+                (&mut b.rows, was.rows, now.rows),
+            ] {
+                *limit = limit.saturating_add(now.saturating_sub(was));
+            }
         }
         self.add(OBJECT, parent, name, nidx, "", 0, Some((0, size)))
     }

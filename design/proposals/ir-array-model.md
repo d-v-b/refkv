@@ -1,5 +1,16 @@
 # Proposal: a description of stored arrays in the IR, at the byte level
 
+Status (2026-11-16): landed in part. Step 1, the type and NumPy's descriptions, is d-v-b/refkv#290,
+and the normative text is now [spec/stored-array.md](../../spec/stored-array.md), which governs
+where it and this note differ: its list columns are `LargeList`, `item_bits` may be absent for an
+array whose chains begin with `source`, and `axes` is never the identity. The type's name is
+settled, `StoredArray` ([open question 1](#open-questions)). Every format of
+[ir-format-descriptions.md](ir-format-descriptions.md) now describes its arrays, but for NumPy's
+deflated `.npz` members, and so do MP4's tracks (d-v-b/refkv#303), which this note left to a
+proposal of their own; MP3 and FLAC are still not described. No projection reads the descriptions
+yet: that is the plan of [profile-plugins.md](profile-plugins.md#order-of-work). The rest of this
+note is as it was proposed.
+
 refkv's parsers describe the arrays a source holds in untyped JSON, in a different shape for each
 format, and each projection works out from that JSON and from the units' bytes the grid and codecs
 it writes. This note proposes one description of an array as the source stores it, at the byte
@@ -568,14 +579,16 @@ share, and the map. They are not in the facts. So:
   of duplicating source bytes, which the description avoids (see the alternatives).
 - **They count against limits** of their own, in new `Budget` fields, never against the IR's
   room (`records` and `elements`), with entries as `spec/stored-array.md` defines them:
-  - the descriptions, at 2^22 entries once, plus 4 and one per 4 bytes for each object (in a file
-    IR, the source). An array that would pass it falls back as at the map's limit
+  - the descriptions, at 2^22 entries once, plus one per 4 bytes of the source (in a store, of
+    its objects' total size, and 4 for each object). An array that would pass it falls back as
+    at the map's limit
     ([ir-format-descriptions.md](ir-format-descriptions.md#the-descriptions-limit-falls-back-too)),
     and no source is promised to fit: a rank-32 HDF5 dataset whose header shares its messages can
     pass it even so, and its source then keeps no descriptions;
-  - the chunk map, at 2^22 entries once, plus 4 and four per byte for each object. Each row,
-    each of its coordinates, each item of its `ranges` and each parameter value it sets is an
-    entry; a row's `range` is part of the row.
+  - the chunk map, at 2^22 entries once, plus four per byte of the source (in a store, of its
+    objects' total size, and 4 for each object). Each row, each of its coordinates, each item
+    of its `ranges` and each parameter value it sets is an entry; a row's `range` is part of the
+    row.
 
   A unit can cost a single byte of the source: the HDF5 spike's (below) 4 MB file of 2000 × 2000
   one-byte chunks under an implicit index parses today, and refkv's parser bounds a chunk count

@@ -1,5 +1,14 @@
 # Proposal: store operators and key bounds
 
+Status (2026-11-16): landed in Python, in d-v-b/refkv#197: the four kinds of
+bound (`refkv.bounds`) and the six operators (`refkv.compose`), with
+[docs/combining-stores.md](../../docs/combining-stores.md) as the user's
+guide. The JavaScript reader and the Rust core have neither. What
+[Bounds in a saved archive](#bounds-in-a-saved-archive) proposes has not
+landed: `save` writes no bounds, and no composition is lazy. Of the
+[open questions](#open-questions), the last three stand as written; the
+first, on two pins of one URL, was not checked.
+
 refkv builds a `ReferenceStore` from one input: a file, a store, or a
 VirtualiZarr dataset. Combining stores is left to the caller. The TIFF-stack
 example ([docs/tiff-stack.md](../../docs/tiff-stack.md)), written by hand,

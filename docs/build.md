@@ -5,7 +5,10 @@ refkv does not write (one TIFF made of several, an OME-Zarr 0.6 image) can be bu
 read, and checked as refkv checks its own. It is the first step of the design in
 [d-v-b/refkv#278](https://github.com/d-v-b/refkv/pull/278) (design/proposals/profile-plugins.md there): reading an input,
 values that name the bytes they read, and `seal`, which checks an output and makes it a store. A
-format's description, its plan and the routines that build on them come in later steps.
+format's description, its plan and the routines that build on them come in later steps. One part of
+the description is there already: the IR describes each array the source stores
+([spec/stored-array.md](../spec/stored-array.md)), as `p.ir.stored_arrays()` and `p.ir.chunk_map()`
+give them.
 
 ## Reading an input
 
@@ -100,4 +103,5 @@ The tests (`python/tests/test_build.py`, `stack`) build one classic TIFF of the 
 files from their IRs alone: each page's tags are copied from the IR's bytes (`ir.value` of a tag's
 entry, `p.bytes` of its value), the strip and tile tables rewritten, and the strips referenced as
 `Ref`s; the new header and IFDs are one `Data` part. Until the TIFF profile's plan lands, `read`
-still refuses a file its image layout refuses, such as a stack of pages without OME-XML.
+still refuses a file its image layout refuses, such as a stack of pages with neither OME-XML nor
+an ImageJ description.

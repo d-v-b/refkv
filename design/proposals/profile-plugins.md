@@ -24,6 +24,20 @@ It is a design note. It replaces this note's earlier versions;
 [What changes on main](#what-changes-on-main) says what of the plugin
 implementation stays.
 
+Status (2026-11-16): step 1 of the [order of work](#order-of-work) has landed,
+as `refkv.build` (d-v-b/refkv#283) and the core's `seal` (d-v-b/refkv#284);
+[docs/build.md](../../docs/build.md) is its user document. Steps 2 to 4 (the
+plan's machine, and each format's description and plan) have not, though
+NumPy's arrays, MP4's tracks and the stored arrays of every format in the
+scope of [ir-format-descriptions.md](ir-format-descriptions.md) are described,
+but for NumPy's deflated `.npz` members; those of the store profiles, MP3 and
+FLAC are not.
+[The gap](#the-gap) describes main before step 1.
+[Open question 3](#open-questions) is settled: a reader follows symbolic links
+in a file's path and in a `file:` prefix
+([spec/refkv.md §6.7](../../spec/refkv.md#67-reader-policy), d-v-b/refkv#266).
+The rest of this note is as it was proposed.
+
 **The design criterion: what a built-in projection can build, a caller can
 build with public tools.** Two tests check it
 ([Testing that the tools suffice](#testing-that-the-tools-suffice)):

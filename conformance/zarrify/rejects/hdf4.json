@@ -1,0 +1,61 @@
+{
+  "about": "The inputs the hdf4 profile rejects, each with the start of its message, in the order of the checks of spec/zarrify/hdf4.md (its section 9.3, Checks). rust/refkv-ir/build.rs writes a Rust test per case into tests/hdf4.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "hdf4_reject_magic",
+      "input": "hdf4_reject_magic.hdf",
+      "message": "not an HDF4 file",
+      "host": "not a file of any supported format"
+    },
+    {
+      "test": "hdf4_reject_block_past_end",
+      "input": "hdf4_reject_block_past_end.hdf",
+      "message": "the descriptor block at byte 4 runs past the end of the file"
+    },
+    {
+      "test": "hdf4_reject_block_count",
+      "input": "hdf4_reject_block_count.hdf",
+      "message": "the descriptor block at byte 4 has -2 descriptors"
+    },
+    {
+      "test": "hdf4_reject_block_loop",
+      "input": "hdf4_reject_block_loop.hdf",
+      "message": "the descriptor blocks loop at byte 4"
+    },
+    {
+      "test": "hdf4_reject_described_twice",
+      "input": "hdf4_reject_described_twice.hdf",
+      "message": "two descriptors describe tag 106 ref 26"
+    },
+    {
+      "test": "hdf4_reject_element_past_end",
+      "input": "hdf4_reject_element_past_end.hdf",
+      "message": "tag 106 ref 23 (4 bytes at byte 12425) runs past the end of the file"
+    },
+    {
+      "test": "hdf4_reject_special_code",
+      "input": "hdf4_reject_special_code.hdf",
+      "message": "the special element tag 17086 ref 5 has the unknown code 9"
+    },
+    {
+      "test": "hdf4_reject_compressed_loop",
+      "input": "hdf4_reject_compressed_loop.hdf",
+      "message": "the compressed element tag 17086 ref 7 holds its data in a special element other than linked blocks"
+    },
+    {
+      "test": "hdf4_reject_link_loop",
+      "input": "hdf4_reject_link_loop.hdf",
+      "message": "the link tables of tag 18347 ref 6 loop"
+    },
+    {
+      "test": "hdf4_reject_chunk_outside",
+      "input": "hdf4_reject_chunk_outside.hdf",
+      "message": "the chunk table of tag 17086 ref 5 places a chunk at [9, 0], outside its grid [2, 2]"
+    },
+    {
+      "test": "hdf4_reject_chunk_without_stream",
+      "input": "hdf4_reject_chunk_without_stream.hdf",
+      "message": "the chunk at [0, 0] of tag 17086 ref 12 holds 0 bytes of its stream"
+    }
+  ]
+}

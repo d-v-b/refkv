@@ -668,6 +668,7 @@ output. The readers so far:
 | ND2 | nd2 |
 | DICOM, NIfTI | pydicom, nibabel |
 | IMS, HDF5 | h5py |
+| HDF4 | pyhdf (the HDF4 library) |
 | MRC | mrcfile |
 | VSI | Bio-Formats (needs a JVM) |
 | FITS | astropy |
@@ -821,6 +822,11 @@ Stale builds gave agents false results more than once:
 - A fresh worktree has no wasm build and no `js/node_modules`. Run
   `just js::wasm` and `npm ci` in `js/` before trusting a failure.
 - Leave `CARGO_TARGET_DIR` unset; don't set it to an empty string.
+
+A PR that lands a step of a proposal in
+[design/proposals/](../design/proposals/) updates that proposal's
+`Status (YYYY-MM-DD):` line and its date: `just sections` checks that every
+proposal has the line, and can't tell whether it is still true.
 
 Open the PR against `main`, not stacked on another PR: PRs merged into a
 branch that was then squash-merged never reached `main`
