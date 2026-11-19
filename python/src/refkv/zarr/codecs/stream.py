@@ -264,6 +264,8 @@ def _video_frames(name: str, title: str) -> Decoder:
             if dtype is None:
                 raise ValueError(f"refkv.stream: an {title} frame decodes to {fmt}, "
                                  "not 4:0:0, 4:2:0 or 4:2:2 of 8, 10 or 12 bits")
+            if fmt in GRAY_FORMATS and codec.plane not in (None, "y"):
+                raise ValueError(f"refkv.stream: a 4:0:0 {title} picture has no {codec.plane} plane")
             planes: Planes = {}
             for plane, i in PLANES.items() if fmt not in GRAY_FORMATS else [("y", 0)]:
                 p = f.planes[i]

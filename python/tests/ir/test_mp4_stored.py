@@ -172,7 +172,7 @@ def check_video(d: Described, ks: list[int], stream: av.VideoStream, packets: li
                 seen["leading pictures"] += 1
                 continue
             made = group.get(j - start)
-            if made is None or any(plane(made, p).tobytes() != plane(whole[j], p).tobytes() for p in range(3)):
+            if made is None or any(plane(made, p).tobytes() != plane(whole[j], p).tobytes() for p in range(len(ks))):
                 said.append(f"picture {j}, decoded from the sync unit {start}, is not the stream's")
             seen["pictures decoded from a sync unit"] += 1
     return said
@@ -323,9 +323,9 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
     for path in FILES:
         seen += compared(path)[1]
     assert {k: v for k, v in seen.items() if v} == {
-        "tracks": 119,
+        "tracks": 120,
         "tracks of h264": 35,
-        "tracks of hevc": 15,
+        "tracks of hevc": 16,
         "tracks of av1": 2,
         "tracks of vp9": 5,
         "tracks of jpeg": 8,
@@ -338,13 +338,13 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
         "tracks of chroma planes 1/2 by 1/2": 48,
         "tracks of chroma planes 1/2 by 1/1": 6,
         "tracks of chroma planes 1/1 by 1/1": 2,
-        "tracks of luma alone": 1,
-        "tracks of 16-bit samples": 10,
-        "pictures": 2285,
-        "sync units": 212,
-        "pictures decoded": 2285,
-        "groups decoded from their sync unit": 138,
-        "pictures decoded from a sync unit": 1362,
-        "leading pictures": 64,
+        "tracks of luma alone": 2,
+        "tracks of 16-bit samples": 11,
+        "pictures": 2305,
+        "sync units": 215,
+        "pictures decoded": 2305,
+        "groups decoded from their sync unit": 140,
+        "pictures decoded from a sync unit": 1373,
+        "leading pictures": 66,
         "jpeg pictures decoded": 80,
     }

@@ -186,8 +186,8 @@ fn moof_boxes_past_the_limit_fail() {
 /// Each video or audio track of an accepted fixture names its descriptions by their key, the
 /// element of its trak box (spec/stored-array.md §7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): indexed from 0,
-/// and, of a track of a video codec the profile zarrifies, three planes with a row for each
-/// sample, whose element is the sample's.
+/// and, of a track of a video codec the profile zarrifies, three planes (the luma plane alone of a
+/// 4:0:0 track) with a row for each sample, whose element is the sample's.
 #[test]
 fn every_accepted_fixtures_tracks_name_their_descriptions() {
     let (mut tracks, mut planes) = (0, 0);

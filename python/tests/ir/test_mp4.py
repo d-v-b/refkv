@@ -509,3 +509,19 @@ def test_reads_a_fragmented_file_s_tracks(tmp_path):
     for p in ("y", "u", "v", "time"):
         assert np.array_equal(ndarray(hybrid.get_array(f"tracks/1/{p}")[...]),
                               ndarray(plain.get_array(f"tracks/1/{p}")[...])), p
+
+
+def test_a_chroma_plane_of_a_monochrome_stream_is_an_error(tmp_path):
+    """A 4:0:0 picture has a Y plane alone (conventions §10
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#10-coded-streams>): a codec that
+    asks for its U plane is an error, not a plane of zeros."""
+    path = FIXTURES / "mp4" / "mp4_hevc_gray12.mp4"
+    out, root = zarrified(path, tmp_path)
+    units, positions = chunk_units(out, "tracks/1/y/c/0/0/0", path.read_bytes())
+    meta = root.get_array("tracks/1/y").metadata
+    assert isinstance(meta, ArrayV3Metadata)
+    first = meta.codecs[0]
+    assert isinstance(first, StreamCodec)
+    codec = StreamCodec(format="hevc", setup=first.setup, plane="u")
+    with pytest.raises(ValueError, match=r"^refkv\.stream: a 4:0:0 HEVC picture has no u plane$"):
+        list(stream._hevc_frames(codec, units, positions))

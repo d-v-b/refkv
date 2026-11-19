@@ -246,9 +246,9 @@ def test_the_fixtures_hold_every_case_the_profile_is_compared_in():
     assert {k: v for k, v in seen.items() if v} == {
         "chunks decoded from the sync sample before, 4 a chunk": 11,
         "chunks that decode samples they do not hold, 256 a chunk": 2,
-        "chunks that decode samples they do not hold, 4 a chunk": 532,
-        "chunks, 256 a chunk": 55,
-        "chunks, 4 a chunk": 618,
+        "chunks that decode samples they do not hold, 4 a chunk": 536,
+        "chunks, 256 a chunk": 56,
+        "chunks, 4 a chunk": 623,
         "described tracks the profile writes no array of, 256 a chunk": 4,
         "described tracks the profile writes no array of, 4 a chunk": 4,
         "jpeg chunks, 256 a chunk": 80,
@@ -258,7 +258,7 @@ def test_the_fixtures_hold_every_case_the_profile_is_compared_in():
         "tracks of no codec the list names, 256 a chunk": 54,
         "tracks of no codec the list names, 4 a chunk": 54,
         "video tracks of several chunks, 256 a chunk": 2,
-        "video tracks of several chunks, 4 a chunk": 53,
-        "video tracks, 256 a chunk": 53,
-        "video tracks, 4 a chunk": 53,
+        "video tracks of several chunks, 4 a chunk": 54,
+        "video tracks, 256 a chunk": 54,
+        "video tracks, 4 a chunk": 54,
     }
