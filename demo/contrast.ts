@@ -127,17 +127,36 @@ function percentiles(bytes: Uint8Array, le: boolean, dataType: string, fill: unk
 }
 
 /**
+ * The index of the chunk that holds index `at` along axis `i` of a regular or rectilinear
+ * chunk grid (`chunks` its largest chunk along each axis).
+ */
+function chunkIndex(grid: any, chunks: number[], i: number, at: number): number {
+  const lengths = grid.name === "rectilinear" ? grid.configuration.chunk_shapes[i] : chunks[i];
+  if (typeof lengths === "number") return Math.floor(at / lengths);
+  let k = 0;
+  let from = 0;
+  for (const run of lengths as (number | [number, number])[]) {
+    const [length, count] = Array.isArray(run) ? run : [run, 1];
+    if (at < from + length * count) return k + Math.floor((at - from) / length);
+    from += length * count;
+    k += count;
+  }
+  return k - 1;
+}
+
+/**
  * Contrast ranges sampled from `level` (an array at `url`, of axes `axes`,
- * chunked by `chunks`): one per channel in `channels` (indices along the `c`
- * axis, which must be chunked one channel at a time), or with no channels a
- * single one. Each is undefined where the chunk is missing or not decodable
- * here. The chunk is that of the index `start` when given.
+ * chunked by `chunks`, at most, on a regular or rectilinear grid): one per channel in
+ * `channels` (indices along the `c` axis, which must be chunked one channel at a time), or
+ * with no channels a single one. Each is undefined where the chunk is missing or not
+ * decodable here. The chunk is that of the index `start` when given.
  */
 export async function sampleRanges(
   url: string, meta: any, axes: { name: string }[], chunks: number[], channels?: number[], start?: number[],
 ): Promise<([number, number] | undefined)[]> {
   // (a shard is many chunks, which `decodeChunk` does not decode: no need to fetch it to find that out)
-  if (!TYPES[meta.data_type] || meta.chunk_grid.name !== "regular" || meta.codecs[0]?.name === "sharding_indexed") {
+  const grid = meta.chunk_grid;
+  if (!TYPES[meta.data_type] || !["regular", "rectilinear"].includes(grid.name) || meta.codecs[0]?.name === "sharding_indexed") {
     return channels?.map(() => undefined) ?? [undefined];
   }
   const c = axes.findIndex((a) => a.name === "c");
@@ -145,7 +164,7 @@ export async function sampleRanges(
   // The chunk the view opens on: at `start`, else the first time point and the
   // middle elsewhere.
   const index = meta.shape.map((n: number, i: number) =>
-    Math.floor((start?.[i] ?? (axes[i]?.name === "t" ? 0 : Math.floor(n / 2))) / chunks[i]));
+    chunkIndex(grid, chunks, i, start?.[i] ?? (axes[i]?.name === "t" ? 0 : Math.floor(n / 2))));
   const enc = meta.chunk_key_encoding ?? { name: "default" };
   const sep = enc.configuration?.separator ?? (enc.name === "v2" ? "." : "/");
   const one = async (k?: number) => {

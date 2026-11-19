@@ -79,11 +79,16 @@ stack = root["Channel_0/0"][...]  # (174, 566, 1210) uint16
 
 ## Viewing
 
-The demo does not show H5J files yet. The Neuroglancer fork's `refkv.stream`
-decoder takes 4:2:0 and 4:2:2 pictures, not 4:0:0 ones, and decodes HEVC with
-WebCodecs only where the platform has a decoder for it, which few have for the
-range extensions profile these streams use. Open the images with zarr-python,
-napari or any OME-NGFF reader that runs the codec in Python.
+The [demo](https://d-v-b.github.io/vzip-demo/image-to-zarr/) opens an H5J
+file's channels in Neuroglancer: all of them together, each a layer in its
+color (a signal channel green, the reference magenta), added together, and
+then each alone. Its example is the FlyLight stack above, read from Janelia's
+bucket, which serves CORS and range requests. The Neuroglancer fork decodes
+`refkv.stream` HEVC chunks with libde265 built to wasm, in every browser and
+exactly (the same samples as PyAV's decoding), and the page samples each
+channel's contrast from the data with the same decoder, since the images'
+omero window is the samples' whole range. Elsewhere, open the images with
+zarr-python, napari or any OME-NGFF reader that runs the codec in Python.
 
 ## Supported and not supported
 

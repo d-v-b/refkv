@@ -119,40 +119,32 @@ fetches and decodes its chunk, 21 groups of 12 pictures from a keyframe, in
 about 2 seconds over HTTP.
 
 **In the browser.** The service worker serves a zarrified MP4 as a Zarr
-hierarchy like any other, and the demo page opens each 8-bit H.264 and HEVC
-track's luma (its Y plane) in Neuroglancer, scrolled over time: the
-Neuroglancer fork decodes `refkv.stream` chunks with the browser's WebCodecs
-`VideoDecoder`. The demo's MP4 examples are behavior videos, read from the
+hierarchy like any other, and the demo page opens each HEVC track's and each
+8-bit H.264, AV1 and VP9 track's luma (its Y plane) in Neuroglancer, scrolled
+over time: the Neuroglancer fork decodes HEVC chunks with libde265 built to
+wasm, and the others with the browser's WebCodecs `VideoDecoder`. The demo's MP4 examples are behavior videos, read from the
 DANDI archive's S3 bucket, which serves its files with CORS (both CC BY 4.0):
 from DANDI 001195, a study of loneliness-like state in mice, a mouse after 24
 hours alone; and from DANDI 001538, a study of levodopa-induced dyskinesia, a
 parkinsonian mouse 80 minutes after L-DOPA, a QuickTime `.mov` from Apple's
 encoder.
 
-HEVC decodes only where the browser's platform has a decoder for it: in
-practice Chrome and Edge on macOS, Windows and Android with a hardware
-decoder (not Linux), and Safari on Apple's platforms; Firefox's reports HEVC
-as unsupported. The fork checks the `hvcC` box's codec string
-(`hvc1.1.6.L30.90` for x265's Main at level 3) with
-`VideoDecoder.isConfigSupported`, and shows HEVC only as the decoder gives
-it, in the stream's range and bit depth. A browser that converts the
-pictures shows the layer's error instead, since its conversion is not
-invertible (the chroma comes back tens of levels off). Measured against
-ffmpeg's decoding, on macOS, with Playwright's builds:
+HEVC decodes the same in every browser, Firefox and Linux included, in
+software: libde265 gives every plane of 4:0:0, 4:2:0 and 4:2:2 pictures of 8
+to 12 bits as ffmpeg's decoding does, sample for sample, on refkv's fixtures.
+WebCodecs is not used for HEVC because, measured against ffmpeg's decoding on
+macOS with Playwright's builds, no browser gives every stream's pictures
+unconverted. Chrome (Chromium 148) narrows a full-range stream and keeps
+pictures of more than 8 bits in GPU memory with no pixel format, which
+WebCodecs cannot copy; headless, it decodes no HEVC. WebKit 26 widens a
+limited-range stream, gives 10- and 12-bit pictures as 8-bit ones, and its
+chroma of x265's streams is off by up to 58 levels with nothing to detect it
+by. Firefox 150 decodes no HEVC.
 
-- Chrome (Chromium 148) gives limited-range 8-bit pictures exactly, the
-  range of refkv's fixtures and, typically, of an iPhone's videos. It narrows a
-  full-range stream, and its 10-bit pictures stay in GPU memory with no
-  pixel format, which WebCodecs cannot copy: both are errors.
-- WebKit 26 gives full-range 8-bit pictures exactly when Apple's encoder
-  wrote them. It widens a limited-range stream and gives 10-bit pictures as
-  8-bit ones, both errors. Its chroma of x265's full-range streams is off by
-  up to 58 levels with nothing to detect it by; the demo shows only the
-  luma, which is exact.
-
-The demo names a 10-bit track in its note instead of opening it, since no
-browser measured gives its pictures unconverted. In Python, PyAV's software
-decoder decodes every HEVC track the profile zarrifies, exactly.
+The demo opens HEVC tracks of any bit depth, and names a 10-bit H.264, AV1
+or VP9 track in its note instead of opening it, since only Chrome gives
+those pictures unconverted. In Python, PyAV's software decoder decodes every
+HEVC track the profile zarrifies, exactly.
 
 ## Supported and not supported
 

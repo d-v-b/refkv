@@ -111,8 +111,9 @@ interface ShownImage {
   name: string;
   translation?: number[];
   /** Of an image shown beside others as a channel of its own (an H5J file's): its coarsest
-   * level, from which its contrast is sampled, and its color. */
-  channel?: { level: Level; color: string };
+   * level, from which its contrast is sampled, its color, and its omero window, the range
+   * when none can be sampled. */
+  channel?: { level: Level; color: string; window?: { start: number; end: number } };
 }
 
 /**
@@ -466,11 +467,25 @@ async function gribViews(zarrUrl: string): Promise<View[]> {
   return views.sort((a, b) => rank(a) - rank(b));
 }
 
+/**
+ * The range of the samples a `refkv.stream` HEVC array's stream can hold, `[0, 2^bits - 1]` by
+ * its hvcC payload's luma bit depth: a 10- or 12-bit stream's `uint16` samples, which
+ * Neuroglancer would otherwise show against the type's whole range, nearly black. Undefined
+ * for other arrays.
+ */
+function nominalRange(meta: ArrayMeta): [number, number] | undefined {
+  const c = meta.codecs.find((x: { name: string }) => x.name === "refkv.stream")?.configuration;
+  if (c?.format !== "hevc" || typeof c.setup !== "string") return undefined;
+  const hvcc = atob(c.setup);
+  return hvcc.length > 17 ? [0, 2 ** ((hvcc.charCodeAt(17) & 7) + 8) - 1] : undefined;
+}
+
 /** The colors of an H5J file's channels shown together, by their content type, when their
  * omero colors do not tell them apart: FlyLight's signal in green, its neuropil reference in
- * magenta. */
+ * magenta; a second channel of a type (a Gen1 MCFO file has three signals) takes the next
+ * unused color of the others. */
 const H5J_COLORS: Record<string, string> = { signal: "#00ff00", reference: "#ff00ff" };
-const OTHER_COLORS = ["#00ffff", "#ffff00", "#ff8000", "#8080ff"];
+const OTHER_COLORS = ["#00ffff", "#ffff00", "#ff8000", "#8080ff", "#ff4040", "#ffffff"];
 
 /**
  * The views of an H5J file: all its channels together, each an image of its own (`Channel_<n>`,
@@ -489,15 +504,24 @@ async function h5jViews(zarrUrl: string, h5j: { channels?: { name: string; path:
   }));
   if (views.length < 2) return views;
   const distinct = new Set(views.map((v) => v.omero[0]?.color?.toLowerCase())).size === views.length;
-  let other = 0;
-  const color = (v: View) =>
-    distinct && v.omero[0]?.color ? `#${v.omero[0].color}` : H5J_COLORS[v.omero[0]?.label ?? ""] ?? OTHER_COLORS[other++ % OTHER_COLORS.length];
+  const used = new Set<string>();
+  const color = (v: View) => {
+    const own = H5J_COLORS[v.omero[0]?.label ?? ""];
+    const c = distinct && v.omero[0]?.color ? `#${v.omero[0].color}`
+      : own !== undefined && !used.has(own) ? own
+      : OTHER_COLORS.find((o) => !used.has(o)) ?? OTHER_COLORS[used.size % OTHER_COLORS.length];
+    used.add(c);
+    return c;
+  };
   const all: View = {
     ...views[0],
     label: `all ${views.length} channels`,
     name: `all ${views.length} channels`,
     url: zarrUrl,
-    images: views.map((v) => ({ ...v.images[0], name: v.label, channel: { level: v.levels[v.levels.length - 1], color: color(v) } })),
+    images: views.map((v) => ({
+      ...v.images[0], name: v.label,
+      channel: { level: v.levels[v.levels.length - 1], color: color(v), window: v.omero[0]?.window },
+    })),
     omero: [],
     labels: [],
     note: `${views.length} channels, each an image of its own, shown in its color and added together.`,
@@ -657,17 +681,22 @@ async function showView(view: View & { input: Input }) {
   const plain = state.layers.filter((l) => l.type === "image" && !("shader" in l));
   const channels = view.images.map((img) => img.channel);
   if (plain.length === channels.length && channels.every((ch) => ch !== undefined)) {
-    const ranges = await Promise.all(channels.map(async ({ level }) =>
-      dataType === "uint8" ? undefined : (await sampleRanges(level.url, level.meta, view.axes, chunkShapeOf(level.meta), undefined, view.start))[0]));
+    const ranges = await Promise.all(channels.map(async ({ level, window }) => {
+      if (dataType === "uint8") return undefined;
+      const [r] = await sampleRanges(level.url, level.meta, view.axes, chunkShapeOf(level.meta), undefined, view.start);
+      return r ?? (window && !tooNarrow(window, dataType) ? [window.start, window.end] : nominalRange(level.meta));
+    }));
+    Object.assign(state, { crossSectionBackgroundColor: "#000000" });
     plain.forEach((l, i) => {
       const range = ranges[i] ? `(range=[${ranges[i][0]}, ${ranges[i][1]}])` : "";
       Object.assign(l, {
         blend: "additive",
+        opacity: 1,
         shader: `#uicontrol vec3 color color(default="${channels[i].color}")\n#uicontrol invlerp normalized${range}\nvoid main() {\n  emitRGB(color * normalized());\n}\n`,
       });
     });
   } else if (plain.length > 0 && dataType !== "uint8") {
-    const [range] = await sample();
+    const [range] = (await sample()).map((r) => r ?? nominalRange(coarsest.meta));
     if (range !== undefined) {
       for (const l of plain) {
         Object.assign(l, { shader: `#uicontrol invlerp normalized(range=[${range[0]}, ${range[1]}])\nvoid main() {\n  emitGrayscale(normalized());\n}\n` });
@@ -686,7 +715,8 @@ let pythonUrl: string | undefined;
  * script shown before the input was read. */
 function mediaProfile(url: string): string | undefined {
   const ext = new URL(url).pathname.toLowerCase().match(/\.(\w+)$/)?.[1];
-  return ext === "mp3" ? "mp3" : ext === "flac" ? "flac" : ext && ["mp4", "mov", "m4a", "m4v"].includes(ext) ? "mp4" : undefined;
+  return ext === "mp3" ? "mp3" : ext === "flac" ? "flac" : ext === "h5j" ? "h5j"
+    : ext && ["mp4", "mov", "m4a", "m4v"].includes(ext) ? "mp4" : undefined;
 }
 
 /** Shows the Python script that builds the same hierarchy as `input`, and links it as a file. */

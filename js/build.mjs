@@ -5,10 +5,10 @@
 // and its worker), and the Rust core's wasm32 build (refkv_ir.wasm, which
 // `#irwasm` fetches from beside the script; `just js::wasm` builds it).
 //
-// The JPEG 2000 and JPEG XR decoders (jpeg2000_decoder.wasm: hayro-jpeg2000,
-// Apache-2.0 OR MIT; jpegxr.wasm: jxrlib, BSD-2-Clause) are the Neuroglancer
-// fork's (https://github.com/d-v-b/neuroglancer, branch vzip,
-// src/sliceview/jpeg2000/ and src/sliceview/jpegxr/), read from
+// The JPEG 2000, JPEG XR and HEVC decoders (jpeg2000_decoder.wasm: hayro-jpeg2000,
+// Apache-2.0 OR MIT; jpegxr.wasm: jxrlib, BSD-2-Clause; libde265.wasm: libde265,
+// LGPL-3.0) are the Neuroglancer fork's (https://github.com/d-v-b/neuroglancer,
+// branch vzip, src/sliceview/jpeg2000/, src/sliceview/jpegxr/ and src/sliceview/hevc/), read from
 // $NEUROGLANCER, by default a clone next to this repository (../neuroglancer),
 // as serve.mjs and pages.sh read the fork. Without them the map page cannot
 // decode bands, and the demo cannot sample contrast from such chunks.
