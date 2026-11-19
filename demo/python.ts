@@ -3,7 +3,7 @@
 // opens it with zarr-python. `uv run` reads its dependencies from the header.
 
 /** The profiles whose arrays the refkv.stream codec decodes, which needs refkv's media extra. */
-const MEDIA = ["mp3", "flac", "mp4"];
+const MEDIA = ["mp3", "flac", "mp4", "h5j"];
 
 /**
  * A name for the input's files: the last segment of its URL path that is not `content`

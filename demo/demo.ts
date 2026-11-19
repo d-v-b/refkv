@@ -110,6 +110,10 @@ interface ShownImage {
   url: string;
   name: string;
   translation?: number[];
+  /** Of an image shown beside others as a channel of its own (an H5J file's): its coarsest
+   * level, from which its contrast is sampled, its color, and its omero window, the range
+   * when none can be sampled. */
+  channel?: { level: Level; color: string; window?: { start: number; end: number } };
 }
 
 /**
@@ -395,15 +399,13 @@ const AUDIO = ["mp3", "flac"];
 const DECODED_VIDEO = ["avc1", "hvc1", "hev1", "av01", "vp09"];
 
 /**
- * The views of an MP4 file: each 8-bit H.264, HEVC, AV1 or VP9 track's luma (its Y
- * plane), scrolled over time. Neuroglancer shows one array per layer, and a
- * picture's color needs all three planes, the chroma at half size; the U and
- * V planes are in the archive beside Y. The fork's `refkv.stream` codec
- * decodes HEVC where the browser's WebCodecs has a decoder for it that gives
- * the stream's own pictures, and says why in the layer's error where not. A
- * track of more than 8 bits (`uint16` planes) is named in a note, not opened: only
- * Chrome gives those of H.264, AV1 and VP9 unconverted, and no browser measured
- * those of HEVC (Chrome's cannot be copied, WebKit's are 8-bit).
+ * The views of an MP4 file: each HEVC track's luma (its Y plane), and each 8-bit
+ * H.264, AV1 or VP9 track's, scrolled over time. Neuroglancer shows one array per
+ * layer, and a picture's color needs all three planes, the chroma at half size;
+ * the U and V planes are in the archive beside Y. The fork's `refkv.stream` codec
+ * decodes HEVC with libde265 in wasm, exactly in every browser, and the others with
+ * WebCodecs. An H.264, AV1 or VP9 track of more than 8 bits (`uint16` planes) is
+ * named in a note, not opened: only Chrome gives those unconverted.
  */
 async function videoViews(zarrUrl: string, mp4: { tracks?: { path: string | null; handler: string; codec: string }[] }): Promise<View[]> {
   const video = (mp4.tracks ?? []).filter((t) => t.path !== null && t.handler === "vide");
@@ -411,11 +413,13 @@ async function videoViews(zarrUrl: string, mp4: { tracks?: { path: string | null
     const url = `${zarrUrl}${t.path}/y/`;
     return { t, url, meta: DECODED_VIDEO.includes(t.codec) ? await getJson(`${url}zarr.json`) : undefined };
   }));
-  const shown = planes.filter((p) => p.meta?.data_type === "uint8");
-  const others = planes.filter((p) => p.meta?.data_type !== "uint8")
+  const hevc = (codec: string) => codec === "hvc1" || codec === "hev1";
+  const isShown = (p: (typeof planes)[number]) => p.meta !== undefined && (p.meta.data_type === "uint8" || hevc(p.t.codec));
+  const shown = planes.filter(isShown);
+  const others = planes.filter((p) => !isShown(p))
     .map(({ t, meta }) => `${t.path} (${t.codec}${meta === undefined ? "" : ", more than 8 bits"})`);
   if (shown.length === 0 && others.length > 0) {
-    throw new Error(`no 8-bit H.264, HEVC, AV1 or VP9 track to show: Neuroglancer does not decode ${others.join(", ")}, which the archive holds`);
+    throw new Error(`no HEVC or 8-bit H.264, AV1 or VP9 track to show: Neuroglancer does not decode ${others.join(", ")}, which the archive holds`);
   }
   return shown.map(({ t, url, meta }) => {
     const view = arrayView(url, `${t.path}/y`, meta);
@@ -461,6 +465,70 @@ async function gribViews(zarrUrl: string): Promise<View[]> {
     return k < 0 ? GRIB_FIRST.length : k;
   };
   return views.sort((a, b) => rank(a) - rank(b));
+}
+
+/**
+ * The range of the samples a `refkv.stream` HEVC array's stream can hold, `[0, 2^bits - 1]` by
+ * its hvcC payload's luma bit depth: a 10- or 12-bit stream's `uint16` samples, which
+ * Neuroglancer would otherwise show against the type's whole range, nearly black. Undefined
+ * for other arrays.
+ */
+function nominalRange(meta: ArrayMeta): [number, number] | undefined {
+  const c = meta.codecs.find((x: { name: string }) => x.name === "refkv.stream")?.configuration;
+  if (c?.format !== "hevc" || typeof c.setup !== "string") return undefined;
+  const hvcc = atob(c.setup);
+  return hvcc.length > 17 ? [0, 2 ** ((hvcc.charCodeAt(17) & 7) + 8) - 1] : undefined;
+}
+
+/** The colors of an H5J file's channels shown together, by their content type, when their
+ * omero colors do not tell them apart: FlyLight's signal in green, its neuropil reference in
+ * magenta; a second channel of a type (a Gen1 MCFO file has three signals) takes the next
+ * unused color of the others. */
+const H5J_COLORS: Record<string, string> = { signal: "#00ff00", reference: "#ff00ff" };
+const OTHER_COLORS = ["#00ffff", "#ffff00", "#ff8000", "#8080ff", "#ff4040", "#ffffff"];
+
+/**
+ * The views of an H5J file: all its channels together, each an image of its own (`Channel_<n>`,
+ * one 12-bit or 8-bit HEVC stream) shown as a layer of its color, added to the others; then
+ * each channel alone.
+ */
+async function h5jViews(zarrUrl: string, h5j: { channels?: { name: string; path: string | null }[] }): Promise<View[]> {
+  const channels = (h5j.channels ?? []).filter((c) => c.path !== null);
+  const views = await Promise.all(channels.map(async (c) => {
+    const url = `${zarrUrl}${c.path}/`;
+    const ms = (await getJson(`${url}zarr.json`)).attributes?.ome?.multiscales?.[0];
+    const view = await omeView(url, ms, c.name);
+    const label = view.omero[0]?.label;
+    if (label) view.label = `${c.name} (${label})`;
+    return view;
+  }));
+  if (views.length < 2) return views;
+  const distinct = new Set(views.map((v) => v.omero[0]?.color?.toLowerCase())).size === views.length;
+  const used = new Set<string>();
+  let shown = 0;
+  const color = (v: View) => {
+    const own = H5J_COLORS[v.omero[0]?.label ?? ""];
+    const c = distinct && v.omero[0]?.color ? `#${v.omero[0].color}`
+      : own !== undefined && !used.has(own) ? own
+      : OTHER_COLORS.find((o) => !used.has(o)) ?? OTHER_COLORS[shown % OTHER_COLORS.length];
+    used.add(c);
+    shown += 1;
+    return c;
+  };
+  const all: View = {
+    ...views[0],
+    label: `all ${views.length} channels`,
+    name: `all ${views.length} channels`,
+    url: zarrUrl,
+    images: views.map((v) => ({
+      ...v.images[0], name: v.label,
+      channel: { level: v.levels[v.levels.length - 1], color: color(v), window: v.omero[0]?.window },
+    })),
+    omero: [],
+    labels: [],
+    note: `${views.length} channels, each an image of its own, shown in its color and added together.`,
+  };
+  return [all, ...views];
 }
 
 /** The views of a bioformats2raw layout: each series, and all of them together when they can be. */
@@ -610,10 +678,27 @@ async function showView(view: View & { input: Input }) {
     view.images.map((img) => ({ ...img, url: source(img.url) })), view.axes, view.scale, level0.shape, dataType, omero,
     view.labels.map((l) => ({ ...l, url: source(l.url) })), view.flipY, view.start,
   );
-  // An image shown with Neuroglancer's default shader gets a sampled range too.
+  // An image shown with Neuroglancer's default shader gets a sampled range too: images shown as
+  // channels of their own (an H5J file's) each their own, in their color, added together.
   const plain = state.layers.filter((l) => l.type === "image" && !("shader" in l));
-  if (plain.length > 0 && dataType !== "uint8") {
-    const [range] = await sample();
+  const channels = view.images.map((img) => img.channel);
+  if (plain.length === channels.length && channels.every((ch) => ch !== undefined)) {
+    const ranges = await Promise.all(channels.map(async ({ level, window }) => {
+      if (dataType === "uint8") return undefined;
+      const [r] = await sampleRanges(level.url, level.meta, view.axes, chunkShapeOf(level.meta), undefined, view.start);
+      return r ?? (window && !tooNarrow(window, dataType) ? [window.start, window.end] : nominalRange(level.meta));
+    }));
+    Object.assign(state, { crossSectionBackgroundColor: "#000000" });
+    plain.forEach((l, i) => {
+      const range = ranges[i] ? `(range=[${ranges[i][0]}, ${ranges[i][1]}])` : "";
+      Object.assign(l, {
+        blend: "additive",
+        opacity: 1,
+        shader: `#uicontrol vec3 color color(default="${channels[i].color}")\n#uicontrol invlerp normalized${range}\nvoid main() {\n  emitRGB(color * normalized());\n}\n`,
+      });
+    });
+  } else if (plain.length > 0 && dataType !== "uint8") {
+    const [range] = (await sample()).map((r) => r ?? nominalRange(coarsest.meta));
     if (range !== undefined) {
       for (const l of plain) {
         Object.assign(l, { shader: `#uicontrol invlerp normalized(range=[${range[0]}, ${range[1]}])\nvoid main() {\n  emitGrayscale(normalized());\n}\n` });
@@ -632,7 +717,8 @@ let pythonUrl: string | undefined;
  * script shown before the input was read. */
 function mediaProfile(url: string): string | undefined {
   const ext = new URL(url).pathname.toLowerCase().match(/\.(\w+)$/)?.[1];
-  return ext === "mp3" ? "mp3" : ext === "flac" ? "flac" : ext && ["mp4", "mov", "m4a", "m4v"].includes(ext) ? "mp4" : undefined;
+  return ext === "mp3" ? "mp3" : ext === "flac" ? "flac" : ext === "h5j" ? "h5j"
+    : ext && ["mp4", "mov", "m4a", "m4v"].includes(ext) ? "mp4" : undefined;
 }
 
 /** Shows the Python script that builds the same hierarchy as `input`, and links it as a file. */
@@ -718,6 +804,9 @@ async function zarrify(url: string) {
       found = [await omeView(zarrUrl, ms0, ms0.name ?? "image", attrs.refkv_zarrified?.profile === "ome-zarr")];
     } else if (attrs.ome?.["bioformats2raw.layout"] !== undefined) {
       found = await seriesViews(zarrUrl);
+    } else if (attrs.refkv_zarrified?.profile === "h5j") {
+      found = await h5jViews(zarrUrl, attrs.refkv_zarrified.h5j ?? {});
+      if (found.length === 0) throw new Error("no H5J channel to show");
     } else if (attrs.refkv_zarrified?.profile === "grib") {
       found = await gribViews(zarrUrl);
       if (found.length === 0) throw new Error("no GRIB variable to show");
