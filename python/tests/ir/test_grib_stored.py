@@ -42,6 +42,7 @@ A second test asserts which cases the fixtures reached; the tests after it write
 holds."""
 
 import struct
+import sys
 import zlib
 from collections import Counter
 from collections.abc import Callable
@@ -1126,16 +1127,23 @@ def test_ieee_floats_of_another_precision_are_source(tmp_path):
 
 
 def test_simple_packing_of_64_bits_is_its_integers(tmp_path):
-    """Simple packing of a bit width of 64, which ecCodes reads, is its integers as stored, of 64
-    bits, whatever their value: those here take every bit."""
-    wide = edited(fixture("grib_simple"), 5, octets(20, bytes([64])))
-    wide = edited(wide, 7, lambda _: (np.arange(192 * 8, dtype=np.uint64) * 37 % 256).astype(np.uint8).tobytes())
+    """Simple packing of a bit width of 64 is its integers as stored, of 64 bits, whatever their
+    value: those here take every bit. Its unit, through its empty chain, is the stored octets read
+    as big-endian 64-bit integers; and, where ecCodes reads the field, it is compared with ecCodes
+    as the fixtures are. ecCodes refuses a width past its C `long`'s, which on Windows has 32 bits."""
+    stored = (np.arange(192 * 8, dtype=np.uint64) * 37 % 256).astype(np.uint8).tobytes()
+    wide = edited(edited(fixture("grib_simple"), 5, octets(20, bytes([64]))), 7, lambda _: stored)
     path = written(tmp_path, "wide", wide)
+    d, a, rows, _ = last_field(path)
+    assert (a.item_bits, [d.stored.chains[c] for c in a.chains]) == (64, [()])
+    (row,) = rows
+    assert np.array_equal(decoded(d, (), d.unit(row), 192, 64), np.frombuffer(stored, dtype=">u8"))
+    if isinstance(read_fields(path)[0][-1].values, str):
+        assert sys.platform == "win32"
+        return
     said, seen = compare(path)
     assert said == ()
     assert (seen["fields of 5.0, integers"], seen["units decoded"]) == (2, 2)
-    d, a, _, _ = last_field(path)
-    assert (a.item_bits, [d.stored.chains[c] for c in a.chains]) == (64, [()])
 
 
 def test_complex_packing_of_other_options_is_source(tmp_path):
