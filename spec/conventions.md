@@ -974,7 +974,11 @@ member 0's, except:
     its bytes are those of source 0 at its extent, and the column is entries
     `y` to `y + count − 1` (so a TIFF's tiles take their offsets and byte
     counts from its TileOffsets and TileByteCounts, which the source holds);
-  - `3` (name index only): the row's start.
+  - `3` (name index only): the row's start;
+  - `4`: the column as `y` arithmetic **pieces**, each three values of
+    `column_values` from `x` on, `(v, d, c)`: the next `c` members' values
+    are `v`, `v + d`, …, `v + (c − 1) × d` (wrapping); each `c` is at least
+    1, and the pieces' `c` sum to `count`.
 - **start, without a column**: a row with a length, in a member whose
   first row has a length, is shifted as its member's first row is (its start
   plus member `j`'s first-row start minus member 0's); any other row keeps
@@ -1000,7 +1004,8 @@ this section does not list every one. (A source can describe more than one eleme
 four bytes, as a TIFF of many small IFDs does, so `floor(Z / 4)` alone does not
 admit every source; the limit bounds what a reader must expand.) So is one whose columns' lengths
 differ, whose column refers to values past `column_values` or entries past
-its array, whose column run's member 0 is not `size` rows of sibling
+its array, whose column of encoding 4 has a piece of no member or pieces that are not
+its column run's members, whose column run's member 0 is not `size` rows of sibling
 subtrees (every row's parent is the first row's parent or an earlier row of
 the member), whose up is 0 for a row other than the root or larger than the
 row's id, or whose kinds, names, types or forms are out of range. So is one
@@ -1258,6 +1263,16 @@ compares mirrors entry for entry. In order:
    - `2`, when one of the profile's **named array rules** (below) gives,
      for this column, a value row `x` and an index `y`, and entries `y` to
      `y + count − 1` of the array `x` holds are `v_0` to `v_{count−1}`;
+   - `4`, when its pieces are fewer than a third of the members (3 × `y` <
+     `count`): `x` is the length of `column_values` so far, and the pieces
+     are taken from member 0 on, each as long as it can be: a piece starts at
+     member `a` with `v = v_a`; with no member after it, it is `(v_a, 0, 1)`;
+     else `d = v_{a+1} − v_a` (wrapping), and it holds every member from `a`
+     on while each value is the one before it plus `d`. Its `(v, d, c)` are
+     appended to `column_values`, and `y` is the number of pieces (a column
+     of a source's units in runs of one stride, such as an audio track's
+     samples, chunk by chunk, costs three values a run instead of one a
+     member);
    - `1`: `x` is the length of `column_values` so far, `y = 0`, and
      `v_0, v_1 − v_0, …, v_{count−1} − v_{count−2}` (wrapping) are appended
      to it.
@@ -1475,8 +1490,9 @@ object's source. The rest of 8.8 is unchanged. In particular, column runs fold
 sibling subtrees of one shape: the chunk objects of one array, siblings of one
 name with consecutive indexes, fold into a column run of one stored row whose
 columns are the name index (encoding 0) and, when the chunks' sizes differ,
-the length (encoding 1, or 0 when each size differs from the one before by
-the same amount; chunks all of one size have no length column). Nested chunk keys (`i/j/k`) fold whole
+the length (encoding 0 when each size differs from the one before by the
+same amount, 4 when the sizes fall in few such runs, else 1; chunks all of one
+size have no length column). Nested chunk keys (`i/j/k`) fold whole
 directories at once, one column run for a full grid; flat keys (`i.j.k`) fold one
 column run per name (`i.j.`). The held objects' byte strings are in id order.
 

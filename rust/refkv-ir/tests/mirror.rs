@@ -7,7 +7,7 @@
 use std::path::Path;
 use refkv_ir::check::{check, finish, leaves};
 use refkv_ir::ir::{Ir, GAP, NO_INDEX, STRUCT, VALUE};
-use refkv_ir::mirror::{text_json, canonical, canonical_problem, load, mirror, ordered, shown, table, table_from_out, view_problem, write, Table};
+use refkv_ir::mirror::{text_json, canonical, canonical_problem, load, mirror, ordered, pieces, shown, table, table_from_out, view_problem, write, Table};
 use refkv_ir::out::Out;
 use refkv_ir::run::{run_bytes, Format};
 
@@ -406,7 +406,8 @@ fn an_ir_whose_derived_element_has_no_descendants_is_invalid() {
 // | the table: a row of another code makes the table invalid | `rejects_a_table_row_of_another_code` |
 // | the table: a column's column run is one of the rows of code 3 | `rejects_a_column_of_no_column_run` |
 // | column runs: a column's row offset is a row of member 0, its field one of 0 to 6 | `rejects_a_column_of_a_row_past_the_member` |
-// | column runs: the encodings are 0 to 3 | `rejects_a_column_of_another_encoding` |
+// | column runs: the encodings are 0 to 4 | `rejects_a_column_of_another_encoding` |
+// | column runs: encoding 4's pieces are each of a member at least, and are the column run's members | `rejects_a_piece_of_no_member`, `rejects_pieces_short_of_the_members`, `rejects_pieces_past_the_members` |
 // | column runs: encoding 2's row is a value in space 0, with a length | `rejects_a_column_of_a_row_that_is_no_value`, `rejects_a_column_of_no_row` |
 // | column runs: encoding 2's row is of a type that is an array of unsigned integers | `rejects_a_column_of_a_row_that_is_no_array` |
 // | column runs: encoding 2's row is not in a column run that has a column of encoding 2 | `rejects_a_column_of_a_row_in_a_run_that_reads_columns` |
@@ -451,6 +452,84 @@ fn a_column_run_expands() {
     assert_eq!(ir.start, vec![0, 0, 10, 20]);
     assert_eq!(ir.nidx[1..], [0, 1, 2]);
     check(&ir).unwrap();
+}
+
+/// A column's pieces, each as long as it can be from the first value on (conventions §8.8
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>, step 6).
+#[test]
+fn a_column_is_cut_into_its_longest_arithmetic_pieces() {
+    for (v, want) in [
+        (vec![5], vec![(5, 0, 1)]),
+        (vec![5, 7], vec![(5, 2, 2)]),
+        (vec![0, 10, 20, 100, 110, 120, 7], vec![(0, 10, 3), (100, 10, 3), (7, 0, 1)]),
+        (vec![0, 10, 20, 30, 0, 0, 0], vec![(0, 10, 4), (0, 0, 3)]),
+        (vec![i64::MAX, i64::MIN, i64::MIN + 1], vec![(i64::MAX, 1, 3)]),
+    ] {
+        assert_eq!(pieces(&v), want, "{v:?}");
+    }
+}
+
+/// Units in runs of one stride, gaps between: their starts take encoding 4 where the pieces are
+/// fewer than a third of the members, else encoding 1; either loads back to the same IR, and the
+/// table is canonical.
+#[test]
+fn a_column_in_runs_of_one_stride_is_stored_as_pieces() {
+    let run = |n: u64, at: u64| (0..n).map(move |j| at + 10 * j);
+    let cases: [(Vec<u64>, Option<Vec<i64>>); 3] = [
+        (run(20, 0).chain(run(20, 300)).collect(), Some(vec![0, 10, 20, 300, 10, 20])),
+        (run(4, 0).chain(run(3, 100)).collect(), Some(vec![0, 10, 4, 100, 10, 3])),
+        (run(3, 0).chain(run(3, 100)).collect(), None),
+    ];
+    for (starts, pieces) in cases {
+        let mut ir = Ir::new(500);
+        ir.budget = None;
+        for (j, &at) in starts.iter().enumerate() {
+            ir.data(0, "u/", j as u64, 0, (at, 10), r#"{"recipe":[["src",0,null]]}"#).unwrap();
+        }
+        finish(&mut ir).unwrap();
+        let y = canonical(&ir).unwrap();
+        let (t, _) = table(&y, "flac", &|_| None);
+        let at = format!("{starts:?}: {:?}", t.columns);
+        let start = t.columns.iter().find(|c| c[2] == 2).expect(&at);
+        match &pieces {
+            Some(want) => {
+                assert_eq!(start[3], 4, "{at}");
+                let (x, k) = (start[4] as usize, start[5] as usize);
+                assert_eq!(&t.column_values[x..x + 3 * k], &want[..], "{at}");
+            }
+            None => assert_eq!(start[3], 1, "{at}"),
+        }
+        let back = load(&t, &mut no_read).unwrap();
+        assert_eq!(ordered(&back), ordered(&y), "{at}");
+        let mut out = Out::new("u");
+        write(&t, &mut out, "flac", false);
+        let data = vec![0u8; 500];
+        assert_eq!(canonical_problem(&entry(&out), &mut |o, n| Ok(data[o as usize..(o + n) as usize].to_vec())), None, "{at}");
+    }
+}
+
+#[test]
+fn rejects_a_piece_of_no_member() {
+    let mut t = three();
+    t.columns = vec![[0, 0, 2, 4, 0, 2]];
+    t.column_values = vec![0, 10, 3, 30, 0, 0];
+    assert_eq!(err(&t), "column run 0: pieces that are not its members");
+}
+
+#[test]
+fn rejects_pieces_short_of_the_members() {
+    let mut t = three();
+    t.columns = vec![[0, 0, 2, 4, 0, 1]];
+    t.column_values = vec![0, 10, 2];
+    assert_eq!(err(&t), "column run 0: pieces that are not its members");
+}
+
+#[test]
+fn rejects_pieces_past_the_members() {
+    let mut t = three();
+    t.columns = vec![[0, 0, 2, 4, 0, 2]];
+    t.column_values = vec![0, 10, 2, 20, 10, 2];
+    assert_eq!(err(&t), "column run 0: pieces that are not its members");
 }
 
 #[test]
