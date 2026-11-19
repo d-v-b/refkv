@@ -79,7 +79,7 @@ stack = root["Channel_0/0"][...]  # (174, 566, 1210) uint16
 
 ## Viewing
 
-The [demo](https://d-v-b.github.io/vzip-demo/image-to-zarr/) opens an H5J
+The [demo](https://d-v-b.github.io/refkv-demo/image-to-zarr/?url=https%3A%2F%2Fs3.amazonaws.com%2Fjanelia-flylight-imagery%2FSplit-GAL4%2BOmnibus%2BBroad%2FSS21347%2FSS21347-20151117_32_D4-m-20x-brain-Split_GAL4-JRC2018_Unisex_20x_HR-aligned_stack.h5j) opens an H5J
 file's channels in Neuroglancer: all of them together, each a layer in its
 color (a signal channel green, the reference magenta), added together, and
 then each alone. Its example is the FlyLight stack above, read from Janelia's

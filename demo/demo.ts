@@ -505,12 +505,14 @@ async function h5jViews(zarrUrl: string, h5j: { channels?: { name: string; path:
   if (views.length < 2) return views;
   const distinct = new Set(views.map((v) => v.omero[0]?.color?.toLowerCase())).size === views.length;
   const used = new Set<string>();
+  let shown = 0;
   const color = (v: View) => {
     const own = H5J_COLORS[v.omero[0]?.label ?? ""];
     const c = distinct && v.omero[0]?.color ? `#${v.omero[0].color}`
       : own !== undefined && !used.has(own) ? own
-      : OTHER_COLORS.find((o) => !used.has(o)) ?? OTHER_COLORS[used.size % OTHER_COLORS.length];
+      : OTHER_COLORS.find((o) => !used.has(o)) ?? OTHER_COLORS[shown % OTHER_COLORS.length];
     used.add(c);
+    shown += 1;
     return c;
   };
   const all: View = {
