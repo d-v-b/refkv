@@ -215,7 +215,9 @@ fn every_accepted_fixtures_tracks_name_their_descriptions() {
             if !matches!(track["format"].as_str(), Some("h264" | "hevc" | "av1" | "vp9")) {
                 continue;
             }
-            assert_eq!(described.len(), 3, "{at}");
+            // a 4:0:0 track's luma plane alone
+            let planes_of = if track["geometry"]["chroma"] == "4:0:0" { 1 } else { 3 };
+            assert_eq!(described.len(), planes_of, "{at}");
             let (first, count) = (track["first"].as_u64().unwrap() as u32, track["count"].as_u64().unwrap() as u32);
             for &k in &described {
                 let rows: Vec<u32> = (0..s.map.len()).filter(|&r| s.map.array[r] == k as u32).map(|r| s.map.element[r].unwrap()).collect();
