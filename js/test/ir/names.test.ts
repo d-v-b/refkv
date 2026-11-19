@@ -62,8 +62,10 @@ test("an empty full name is a rejection", async () => {
   assert.equal(e.message, 'element 1 (value "") has an empty full name');
 });
 
+// two values: a gap would be named by its offset (conventions §8.1
+// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>), whatever its name
 test("siblings of one path are a rejection", async () => {
-  const e = await mirrored(ir({ name: ["", "a", "a"], nidx: [-1, -1, -1] }));
+  const e = await mirrored(ir({ kind: [0, 1, 1], name: ["", "a", "a"], nidx: [-1, -1, -1] }));
   assert.ok(e instanceof ImageError);
-  assert.equal(e.message, 'element 1 (value "a") and element 2 (gap "a") have one path, "a"');
+  assert.equal(e.message, 'element 1 (value "a") and element 2 (value "a") have one path, "a"');
 });

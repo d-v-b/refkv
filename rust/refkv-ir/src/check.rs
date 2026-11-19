@@ -402,11 +402,49 @@ fn who(ir: &Ir, i: u32) -> String {
     )
 }
 
+/// `N` of the limits of conventions §8.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#83-column-runs> (a store IR's, of
+/// §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): the parser's
+/// record budget, or that of a table read back.
 fn expansion_limit(ir: &Ir) -> u64 {
-    ir.budget
-        .as_ref()
-        .map(|b| b.records)
-        .unwrap_or((1 << 22) + ir.size / 4)
+    ir.budget.as_ref().map(|b| b.records).unwrap_or_else(|| crate::mirror::limit_of(ir))
+}
+
+/// What a run may hold (conventions §8.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>), and how many
+/// leaves its members may have in all (the limits of §8.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#83-column-runs>). Runs do not
+/// nest (checked first, by `mirror::load` for a table).
+pub fn runs(ir: &Ir) -> Res<()> {
+    if ir.runs.is_empty() {
+        return Ok(());
+    }
+    let rr = ir.run_roots();
+    for i in 0..ir.len() {
+        let r = rr[i];
+        if r == NONE {
+            continue;
+        }
+        let what = match ir.kind[i] {
+            DERIVED => "a derived element",
+            ALIAS => "an alias",
+            _ if ir.space[i] != 0 => "an element in a derived space",
+            _ => continue,
+        };
+        return Err(format!("the run at row {r} holds {what} (row {i})"));
+    }
+    let limit = expansion_limit(ir);
+    let kids = if ir.store { ir.has_children() } else { Vec::new() };
+    let mut leaves = 0u64;
+    for i in 0..ir.len() {
+        if rr[i] != NONE && claims(ir, &kids, i) {
+            leaves = leaves.saturating_add(ir.run(rr[i]).map_or(1, |r| r.0));
+            if leaves > limit {
+                return Err(format!("budget: more than {limit} leaves of runs"));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Injectivity, then coverage: claims of claimed bytes become aliases of their
@@ -666,6 +704,7 @@ pub fn check(ir: &Ir) -> Res<()> {
             }
         }
     }
+    runs(ir)?;
     names(ir)?;
     store_shape(ir)?;
     let (v, src) = sweep(ir)?;

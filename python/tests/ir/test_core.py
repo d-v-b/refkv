@@ -88,9 +88,11 @@ def test_a_full_name_that_continues_a_siblings_with_a_slash_is_a_violation():
 
 
 def test_the_mirror_of_an_ir_whose_names_break_the_rules_is_rejected():
-    """The producer writes no invalid table: Rejected, as any rejection."""
+    """The producer writes no invalid table: Rejected, as any rejection. (Two values: a gap would
+    be named by its offset, conventions §8.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>, whatever its name.)"""
     with pytest.raises(_core.Rejected, match=r'have one path, "a"$'):
-        _core.mirror(table(name=["", "a", "a"], nidx=[None, None, None]), "tiff")
+        _core.mirror(table(kind=[0, 1, 1], name=["", "a", "a"], nidx=[None, None, None]), "tiff")
 
 
 def test_an_archive_whose_root_is_named_is_a_violation():

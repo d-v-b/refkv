@@ -5,8 +5,8 @@
 //! per way a valid table can be non-canonical, which the validator flags.
 
 use std::path::Path;
-use refkv_ir::check::{check, leaves};
-use refkv_ir::ir::{Ir, NO_INDEX, STRUCT, VALUE};
+use refkv_ir::check::{check, finish, leaves};
+use refkv_ir::ir::{Ir, GAP, NO_INDEX, STRUCT, VALUE};
 use refkv_ir::mirror::{text_json, canonical, canonical_problem, load, mirror, ordered, shown, table, table_from_out, view_problem, write, Table};
 use refkv_ir::out::Out;
 use refkv_ir::run::{run_bytes, Format};
@@ -98,13 +98,13 @@ fn every_value_the_view_shows_is_held() {
     }
 }
 
-/// A source of 30 bytes: the root and three gaps of 10 bytes, `gaps/0` to `gaps/2`.
+/// A source of 30 bytes: the root and three gaps of 10 bytes, `gaps/0`, `gaps/10` and `gaps/20`.
 fn three_ir() -> Ir {
     let mut ir = Ir::new(30);
     ir.budget = None;
     for k in 0..3u64 {
         ir.gap(0, "gaps/", (10 * k, 10)).unwrap();
-        ir.nidx[k as usize + 1] = k;
+        ir.nidx[k as usize + 1] = 10 * k;
     }
     ir.finished = true;
     ir.build_children();
@@ -133,6 +133,36 @@ fn the_canonical_mirror_of_three_gaps_is_one_column_run() {
     let t = table_from_out(&out).unwrap();
     assert_eq!(t.kind.len(), 2);
     assert_eq!(t.cruns, vec![[1, 3, 1]]);
+    let mut read = |_: u64, n: u64| Ok(vec![0u8; n as usize]);
+    assert_eq!(canonical_problem(&entry(&out), &mut read), None);
+}
+
+/// Canonical form names every gap `gaps/<offset>` (conventions §8.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>), however the
+/// producer named it. refkv's producer fills the holes of a run's members with a run of gaps,
+/// `gaps/6/0` to `gaps/6/2`; canonical form names them `gaps/6`, `gaps/16` and `gaps/26`, and
+/// they fold with the gap after the run, `gaps/36`, into one column run whose name index is its
+/// start (encoding 3).
+#[test]
+fn canonical_form_names_every_gap_by_its_offset() {
+    let gap_paths = |ir: &Ir| -> Vec<String> {
+        (0..ir.len() as u32).filter(|&i| ir.kind[i as usize] == GAP).map(|i| ir.path(i)).collect()
+    };
+    let mut ir = Ir::new(40);
+    ir.budget = None;
+    let d = ir.value(0, "d/", 0, "bytes[6]", 0, (0, 6), None).unwrap();
+    ir.runs.push((d, 4, 10));
+    finish(&mut ir).unwrap();
+    assert_eq!(gap_paths(&ir), ["gaps/6/0", "gaps/36"]);
+    assert_eq!(gap_paths(&canonical(&ir).unwrap()), ["gaps/6", "gaps/16", "gaps/26", "gaps/36"]);
+    let mut out = Out::new("u");
+    mirror(&ir, &mut out, "tiff").unwrap();
+    let t = table_from_out(&out).unwrap();
+    // stored: the root, d/0 and gaps/6 (expanded ids 0, 1 and 5), each of the last two member 0
+    // of a column run
+    assert_eq!(t.kind.len(), 3);
+    assert_eq!(t.cruns, vec![[1, 4, 1], [5, 4, 1]]);
+    assert!(t.columns.contains(&[1, 0, 0, 3, 0, 0]));
     let mut read = |_: u64, n: u64| Ok(vec![0u8; n as usize]);
     assert_eq!(canonical_problem(&entry(&out), &mut read), None);
 }
@@ -199,11 +229,11 @@ fn flags_a_foldable_run_left_unfolded() {
 #[test]
 fn flags_a_stored_column_where_arithmetic_holds() {
     let out = edited(|t| {
-        let c = t.columns.iter_mut().find(|c| c[3] == 0 && c[2] == 0).expect("an arithmetic name index column");
+        let c = t.columns.iter_mut().find(|c| c[3] == 0 && c[2] == 2).expect("an arithmetic start column");
         c[3] = 1;
         c[4] = t.column_values.len() as i64;
         c[5] = 0;
-        t.column_values.extend([0, 1, 1]);
+        t.column_values.extend([0, 10, 10]);
     }, false);
     assert!(problem(&out).starts_with("table row"));
 }
@@ -358,10 +388,19 @@ fn an_ir_whose_derived_element_has_no_descendants_is_invalid() {
 // | limits: types out of range | `rejects_a_type_past_the_types`, `rejects_a_type_column_past_the_types` |
 // | limits: forms out of range | `rejects_a_form_row_of_no_form`, `rejects_a_form_column_that_is_no_form` |
 // | limits: the expanded rows break the rules of the root or of the names | `flags_a_table_whose_root_is_named`, and each rule in tests/core.rs |
+// | limits: the runs have more than `N` members besides each run's member 0 | `rejects_run_members_past_the_budget` |
+// | limits: the runs' leaves, member by member, are more than `N` | `rejects_run_leaves_past_the_budget` |
 //
-// Beside them: runs do not nest (§8.1
-// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>),
-// `rejects_a_run_inside_a_run`; and a store's limits (§8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>),
+// Beside them, the runs of §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>:
+//
+// | sentence | tests |
+// |---|---|
+// | runs do not nest | `rejects_a_run_inside_a_run` |
+// | a run holds no derived element | `rejects_a_run_holding_a_derived_element`, `an_ir_whose_run_holds_a_derived_element_is_invalid` |
+// | a run holds no alias | `rejects_a_run_holding_an_alias`, `an_ir_whose_run_holds_an_alias_is_invalid` |
+// | a run holds no element in a derived space | `rejects_a_run_holding_an_element_in_a_derived_space`, `an_ir_whose_run_holds_an_element_in_a_derived_space_is_invalid` |
+//
+// And a store's limits (§8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>),
 // in tests/store_mirror.rs.
 
 fn err(t: &Table) -> String {
@@ -647,6 +686,110 @@ fn two_deep(runs: &[[i64; 3]]) -> Table {
 #[test]
 fn rejects_a_run_inside_a_run() {
     assert_eq!(err(&two_deep(&[[1, 2, 20], [2, 2, 10]])), "the run at row 2 is inside the run at row 1");
+}
+
+/// `derived_table(extra)` (the root, a derived element `z` and the rows `extra`) whose element
+/// `root` is a run of two members, `stride` bytes apart, with the alias rows `targets`.
+fn run_in_derived_table(extra: &[(u8, u32, i32, u32, i64, u64)], root: usize, stride: i64, targets: Vec<[i64; 2]>) -> Table {
+    let mut t = derived_table(extra);
+    t.nidx[root] = 0;
+    t.runs = vec![[root as i64, 2, stride]];
+    t.targets = targets;
+    t
+}
+
+/// A run's members are copies of member 0 (conventions §8.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>), so it holds no
+/// derived element, no alias and no element in a derived space.
+#[test]
+fn rejects_a_run_holding_a_derived_element() {
+    assert_eq!(err(&run_in_derived_table(&[], 1, 10, vec![])), "the run at row 1 holds a derived element (row 1)");
+}
+
+#[test]
+fn rejects_a_run_holding_an_alias() {
+    let t = run_in_derived_table(&[(4, 2, 2, 0, 0, 0)], 2, 0, vec![[2, 0]]);
+    assert_eq!(err(&t), "the run at row 2 holds an alias (row 2)");
+}
+
+#[test]
+fn rejects_a_run_holding_an_element_in_a_derived_space() {
+    let t = run_in_derived_table(&[(1, 1, 2, 1, -10, 4)], 2, 4, vec![]);
+    assert_eq!(err(&t), "the run at row 2 holds an element in a derived space (row 2)");
+}
+
+/// A 20-byte source whose struct `s/0`, at `[0, 10)`, is a run of two members 10 bytes apart,
+/// with what `fill` adds.
+fn run_of(fill: impl Fn(&mut Ir, u32)) -> Ir {
+    let mut ir = Ir::new(20);
+    ir.budget = None;
+    let s = ir.struct_(0, "s/", 0, 0, Some((0, 10))).unwrap();
+    ir.runs.push((s, 2, 10));
+    fill(&mut ir, s);
+    ir.build_children();
+    ir
+}
+
+#[test]
+fn an_ir_whose_run_holds_a_derived_element_is_invalid() {
+    let ir = run_of(|ir, s| {
+        ir.derived(s, "z", 0, (0, 10), r#"{"transform":"zlib"}"#).unwrap();
+    });
+    assert_eq!(check(&ir).unwrap_err(), "the run at row 1 holds a derived element (row 2)");
+}
+
+#[test]
+fn an_ir_whose_run_holds_an_alias_is_invalid() {
+    let ir = run_of(|ir, s| {
+        ir.alias(s, "a", NO_INDEX, 0).unwrap();
+    });
+    assert_eq!(check(&ir).unwrap_err(), "the run at row 1 holds an alias (row 2)");
+}
+
+#[test]
+fn an_ir_whose_run_holds_an_element_in_a_derived_space_is_invalid() {
+    let mut ir = Ir::new(20);
+    ir.budget = None;
+    let z = ir.derived(0, "z", 0, (0, 20), r#"{"size":8,"transform":"zlib"}"#).unwrap();
+    let v = ir.value(z, "v/", 0, "u4", z, (0, 4), None).unwrap();
+    ir.runs.push((v, 2, 4));
+    ir.build_children();
+    assert_eq!(check(&ir).unwrap_err(), "the run at row 2 holds an element in a derived space (row 2)");
+}
+
+/// A table of a `size`-byte source: the root and a row of kind `kind` with the extent
+/// `(0, length)`, a run of `count` members `stride` bytes apart.
+fn one_run(size: u64, kind: u8, length: u64, count: i64, stride: i64) -> Table {
+    Table {
+        size,
+        kind: vec![0, kind],
+        up: vec![0, 1],
+        name: vec![0, 1],
+        nidx: vec![u64::MAX, 0],
+        ty: vec![0, 0],
+        space: vec![0, 0],
+        start: vec![0, -(size as i64)],
+        length: vec![size, length],
+        runs: vec![[1, count, stride]],
+        names: vec!["".into(), "s/".into()],
+        types: vec!["".into()],
+        ..Default::default()
+    }
+}
+
+/// The limits of conventions §8.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#83-column-runs> bound a table's
+/// runs too: a run of 2^40 empty structs, which no leaf limits.
+#[test]
+fn rejects_run_members_past_the_budget() {
+    let ir = load(&one_run(0, STRUCT as u8, 0, 1 << 40, 0), &mut no_read).unwrap();
+    assert_eq!(check(&ir).unwrap_err(), "budget: more than 4194304 members of runs to name");
+}
+
+/// 2^23 one-byte gaps of a source of 2^23 bytes: one leaf a member, past `N = 2^22 + 2^21`.
+#[test]
+fn rejects_run_leaves_past_the_budget() {
+    assert_eq!(err(&one_run(1 << 23, GAP, 1, 1 << 23, 1)), "budget: more than 6291456 leaves of runs");
 }
 
 #[test]
