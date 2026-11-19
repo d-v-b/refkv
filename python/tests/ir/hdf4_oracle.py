@@ -45,6 +45,7 @@ UNPRESENTED = {
                         "pair": "duplicate", "x/y": "name"},
     "hdf4_layouts.hdf": {"text_cut": "chunks"},
     "hdf4_tables.hdf": {"mixed": "byte_order", "bad_columns": "fields", "wide": "fields"},
+    "hdf4_methods.hdf": {"rle": "compression", "huffman": "compression"},
 }
 
 

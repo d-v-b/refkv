@@ -21,7 +21,10 @@ type):
   records in linked blocks, fields not interlaced, no records, little-endian and mixed-order fields
   (patched, as pyhdf writes only big-endian ones), and a table two Vgroups hold;
 - `hdf4_small.hdf`: one plain and two chunked datasets, which write_rejects.py patches into the
-  inputs the profile rejects.
+  inputs the profile rejects;
+- `hdf4_methods.hdf`: datasets compressed whole by run-length coding and skipping Huffman, which
+  the profile does not present, each with a `_FillValue`, and a little-endian dataset whose
+  `_FillValue` is big-endian.
 
 The files are committed, and this generator runs on demand: pyhdf's wheels bundle different HDF4
 libraries (4.3.0 in the macOS wheel, 4.2.14 in the Linux one), whose files differ in their VERSION
@@ -517,6 +520,24 @@ def small(path: Path) -> None:
     sd.end()
 
 
+def methods(path: Path) -> None:
+    """Datasets the profile describes and does not present: compressed by methods the IR names
+    only by `source`, each with a `_FillValue`; and a little-endian dataset whose `_FillValue` is
+    big-endian, a fill value the description does not give."""
+    sd = SD(str(path), SDC.WRITE | SDC.CREATE | SDC.TRUNC)
+    for name, method, args in (("rle", SDC.COMP_RLE, ()), ("huffman", SDC.COMP_SKPHUFF, (2,))):
+        s = sd.create(name, SDC.INT16, [4, 5])
+        s.setfillvalue(-7)
+        s.setcompress(method, *args)
+        s[:] = ramp([4, 5], "i2")
+        s.endaccess()
+    s = sd.create("little_filled", SDC.INT16 | LITEND, [3, 4])
+    s.attr("_FillValue").set(SDC.INT16, -9)
+    write(s, [0, 0], ramp([3, 4], "<i2").astype(np.dtype("<i2").newbyteorder("=")))
+    s.endaccess()
+    sd.end()
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for p in OUT.glob("*.hdf"):
@@ -527,6 +548,7 @@ def main() -> None:
     groups(OUT / "hdf4_groups.hdf")
     tables(OUT / "hdf4_tables.hdf")
     small(OUT / "hdf4_small.hdf")
+    methods(OUT / "hdf4_methods.hdf")
     for p in sorted(OUT.glob("*.hdf")):
         if "reject" not in p.name:
             print(p.name, p.stat().st_size)

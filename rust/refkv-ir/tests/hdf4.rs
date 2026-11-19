@@ -38,6 +38,19 @@ fn accepted_fixtures_rebuild() {
         assert_eq!(rebuilt(&ir, &data), data, "{name}");
         let nodes = facts["nodes"].as_array().unwrap();
         assert!(nodes.iter().any(|n| n.get("array").is_some()), "{name}: no array");
+        // each presented dataset names its description, keyed by its Vgroup; a table names none
+        let keys: Vec<u32> = ir.stored.arrays.iter().map(|d| d.element).collect();
+        for node in nodes.iter().filter(|n| n.get("array").is_some()) {
+            let at = format!("{name}: {}", node["path"]);
+            let key = node["array"].get("declared_by").and_then(|k| k.as_u64());
+            if node["own"].get("number_type").is_none() {
+                assert_eq!(key, None, "{at}");
+                continue;
+            }
+            let key = key.unwrap_or_else(|| panic!("{at}: no declared_by")) as u32;
+            assert_eq!(keys.iter().filter(|&&k| k == key).count(), 1, "{at}");
+            assert_eq!(ir.path(key), format!("elements/1965/{}", node["own"]["ref"]), "{at}");
+        }
         for node in nodes {
             let store = &node["array"]["store"];
             let mut segs: Vec<&serde_json::Value> = vec![&store["segments"]];
