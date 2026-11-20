@@ -8,6 +8,7 @@ import importlib
 import io
 import json
 import struct
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, BinaryIO, cast
@@ -140,45 +141,67 @@ def test_project_asked_for_together_makes_one_output():
 
 
 def test_a_cancelled_caller_of_project_leaves_the_others_their_output():
-    """Of two callers that ask for one input's built-in output together: when the one waiting is
-    cancelled, the one making it goes on, and the output is there for a later call; when the one
-    making it is cancelled, the one waiting makes it instead."""
+    """The built-in output is made by a task of its own, not by the caller that asked first: of
+    two callers that ask together, whichever is cancelled, while a thread of the work is inside
+    the run, stops waiting; the work goes on, once, the other gets the output, and it is there
+    for a later call."""
     path = FIXTURES / "tiff" / "edge_aperio_position.tif"
 
     async def two_callers(cancel: str) -> tuple[int, list[str]]:
         with read(path) as p:
-            real, gate, calls = cast("Any", p._parse), asyncio.Event(), 0
+            real, gate, calls = cast("Any", p._parse), threading.Event(), 0
 
             class Held:
-                """The parse, its output held back until `gate` opens."""
+                """The parse, its output held back on a thread until `gate` opens."""
 
                 async def output_async(self, written: bool = True):
                     nonlocal calls
                     calls += 1
-                    await gate.wait()
+                    await asyncio.to_thread(gate.wait)
                     return await real.output_async(written)
 
                 def close(self) -> None:
                     real.close()
 
             cast("Any", p)._parse = Held()
-            tasks = {"maker": asyncio.create_task(project_async(p))}
-            await asyncio.sleep(0)  # the maker is making it
-            tasks["waiter"] = asyncio.create_task(project_async(p))
-            await asyncio.sleep(0)  # the waiter is waiting
+            tasks = {"first": asyncio.create_task(project_async(p))}
+            await asyncio.sleep(0)  # the first has asked, and the work has begun
+            tasks["second"] = asyncio.create_task(project_async(p))
+            await asyncio.sleep(0)
             tasks[cancel].cancel()
             with pytest.raises(asyncio.CancelledError):
                 await tasks[cancel]
             gate.set()
-            other = await tasks["waiter" if cancel == "maker" else "maker"]
+            other = await tasks["second" if cancel == "first" else "first"]
             again = await project_async(p)
             assert dict(again.written) == dict(other.written)
             return calls, sorted(other.written)
 
-    made_once, keys = asyncio.run(two_callers("waiter"))
-    made_again, same_keys = asyncio.run(two_callers("maker"))
-    assert (made_once, made_again) == (1, 2)
+    once, keys = asyncio.run(two_callers("second"))
+    once_too, same_keys = asyncio.run(two_callers("first"))
+    assert (once, once_too) == (1, 1)
     assert keys == same_keys == sorted(project(read_closing(path)).written)
+
+
+def test_a_failed_built_in_output_is_made_again_when_next_asked_for():
+    with read(FIXTURES / "npy" / "npy_c_float64.npy") as p:
+        real, failures = cast("Any", p._parse), [OSError("the read failed")]
+
+        class Failing:
+            """The parse, whose output fails the first time."""
+
+            async def output_async(self, written: bool = True):
+                if failures:
+                    raise failures.pop()
+                return await real.output_async(written)
+
+            def close(self) -> None:
+                real.close()
+
+        cast("Any", p)._parse = Failing()
+        with pytest.raises(OSError, match="the read failed"):
+            project(p)
+        assert "zarr.json" in project(p).written
 
 
 def read_closing(path):

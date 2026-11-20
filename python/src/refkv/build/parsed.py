@@ -42,11 +42,6 @@ STRUCT, VALUE, DATA, DERIVED, ALIAS, GAP, OBJECT = (Kind.STRUCT, Kind.VALUE, Kin
 MAX_BYTES = 64 << 20  # the default bound on what `Parsed.bytes` reads from sources
 
 
-class _MakerStoppedError(Exception):
-    """The caller that was making a `Parsed`'s built-in output was cancelled: one that waited for
-    it makes the output itself."""
-
-
 class Parsed:
     """An input as `read` read it: its profile, its IR, its sources (each url source with its size
     as the run found it), and the accessors that turn IR elements into values.
@@ -128,40 +123,49 @@ class Parsed:
     async def _output_async(self) -> Output | StoreIrOutput:
         """The built-in output of the input, made once (`refkv.build.project`): an output only
         built from, so not held to the payload limit with checksums, which `seal` holds what is
-        written to. Callers that ask together, from any thread or loop, get the one output: the
-        first makes it and the others wait. A waiter that is cancelled stops waiting, and changes
-        nothing for the rest; when the one making it is cancelled, a waiter makes it instead. One
-        that failed is made again when next asked for, and those waiting for it get its error."""
-        while True:
-            with self._making:
-                made, first = self._made, self._made is None
-                if made is None:
-                    made = self._made = concurrent.futures.Future()
-                    # running: a waiter's cancellation, which asyncio passes on to the future it
-                    # waits for, does not cancel it
-                    made.set_running_or_notify_cancel()
-            if first:
-                break
-            try:
-                return await asyncio.wrap_future(made)
-            except _MakerStoppedError:
-                continue
-        try:
+        written to.
+
+        It is made by a task of its own on refkv's loop, which the first to ask starts and every
+        caller waits for, from any thread or loop: so one output is made, one caller at a time
+        uses the run, and a caller that is cancelled stops waiting without stopping the work or
+        the others. One that failed is made again when next asked for, and those waiting for it
+        get its error."""
+        return await asyncio.wrap_future(self._output())
+
+    def _output(self) -> concurrent.futures.Future[Output | StoreIrOutput]:
+        """The future of the built-in output, its making started if it was not."""
+        with self._making:
+            if self._made is not None:
+                return self._made
             if self._parse is None:
-                raise ValueError(f"{self._location}: closed before its built-in output was asked for")  # noqa: TRY301
-            out = await self._parse.output_async(written=False)
-        except BaseException as e:
+                raise ValueError(f"{self._location}: closed before its built-in output was asked for")
+            # a future of its own, running: a waiter's cancellation, which asyncio passes on to
+            # the future it waits for, neither cancels it nor reaches the task
+            made: concurrent.futures.Future[Output | StoreIrOutput] = concurrent.futures.Future()
+            made.set_running_or_notify_cancel()
+            self._made = made
+            task = _sync.submit(self._make(self._parse))
+
+        def settle(done: concurrent.futures.Future[Output | StoreIrOutput]) -> None:
+            error = concurrent.futures.CancelledError() if done.cancelled() else done.exception()
+            if error is None:
+                made.set_result(done.result())
+                return
             with self._making:
                 self._made = None
-            made.set_exception(_MakerStoppedError() if isinstance(e, asyncio.CancelledError) else e)
-            raise
+            made.set_exception(error)
+
+        task.add_done_callback(settle)
+        return made
+
+    async def _make(self, parse: _Parse) -> Output | StoreIrOutput:
+        out = await parse.output_async(written=False)
         # the run's checksum function holds what read the input: `Parsed` reads its sources
         # itself, and `seal` checksums them
         out.checksum = None
         if isinstance(out, Output):  # the pin, after the output's own reads
             self.sources = (dataclasses.replace(self.sources[0], etag=out.etag),)
             self._sources_read = None
-        made.set_result(out)
         return out
 
     def __enter__(self) -> Self:
