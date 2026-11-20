@@ -62,6 +62,12 @@ dev = [
     # the GRIB fixture generator's tiled JPEG 2000 codestream (OpenJPEG, through Pillow)
     "pillow>=13.0.0",
     "tensorstore>=0.1.70",
+    # the VirtualiZarr parity harness (conformance/virtualizarr): scipy writes its netCDF3 fixture,
+    # and VirtualiZarr's NetCDF3Parser reads it through kerchunk, which reads it with scipy; its
+    # ZarrParser lists a store with obstore's arrow results, which need arro3-core
+    "arro3-core>=0.6",
+    "kerchunk>=0.2.10",
+    "scipy>=1.16",
 ]
 # the comparison with kerchunk and Icechunk (design/comparison, design/experiments)
 bench = [

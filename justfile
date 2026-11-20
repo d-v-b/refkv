@@ -86,6 +86,11 @@ base-install-check python="" mode="":
 example-oisst:
     cd "$(mktemp -d)" && uv run --project "{{justfile_directory()}}" python "{{justfile_directory()}}/docs/examples/oisst.py"
 
+# Compare refkv's VirtualiZarr parser (refkv.virtualizarr) with VirtualiZarr's own parsers on generated
+# fixtures (conformance/virtualizarr/test_parity.py); each open gap of issue #271 is a strict xfail
+virtualizarr-parity *args: ir-build
+    uv run pytest -q conformance/virtualizarr {{args}}
+
 # Check that every section reference ("§n") is a link to a heading that exists, and test the check;
 # that what derives from the profile registry (spec/zarrify/profiles/) is current; and that each
 # format document's changelog is in spec/zarrify.md's form, and, with a base (`just sections
