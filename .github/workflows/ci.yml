@@ -143,7 +143,9 @@ jobs:
   # numpy's among them (numpy>=2.1.0, VirtualiZarr's floor), on the oldest Python it allows: the
   # test environment, then refkv and every extra installed again with uv's lowest-direct
   # resolution, which takes each of refkv's own requirements at its floor and reads them from
-  # python/pyproject.toml, so a floor that falls behind the code fails here.
+  # python/pyproject.toml, so a floor that falls behind the code fails here. Only refkv's own
+  # requirements are checked: hdmf-zarr, which only the tests use (python/tests/ir/test_hdf5.py),
+  # declares numpy>=2.2.3 and runs here below it, and passes; drop its tests here if it stops.
   pytest-min-versions:
     name: pytest (ubuntu-latest, minimum versions)
     runs-on: ubuntu-latest
