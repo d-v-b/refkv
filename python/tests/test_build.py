@@ -8,6 +8,7 @@ import importlib
 import io
 import json
 import struct
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -722,6 +723,9 @@ def test_seal_refuses_a_zero_source_past_a_source_table(tmp_path, n):
     assert e.value.code == "archive"
 
 
+# refkv maps a local file into memory while it reads it (refkv.ir.planner), and Windows refuses to
+# shrink a mapped file (OSError: Invalid argument), so the source cannot change under it there
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows does not let a file mapped into memory shrink")
 def test_seal_refuses_a_range_it_cannot_read_to_checksum(tmp_path):
     path = _npy(tmp_path)
     with read(path, checksums=True) as p:
