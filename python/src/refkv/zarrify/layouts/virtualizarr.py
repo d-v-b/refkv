@@ -25,8 +25,9 @@ The reference is VirtualiZarr 2.8.0 (`virtualizarr/parsers/hdf/hdf.py`, `parsers
 - **FITS** (`FITSParser`): each HDU with data is an array at the root named by `EXTNAME` (else
   `PRIMARY`, `COMPRESSED_IMAGE` or its index, a repeat suffixed `_<index>`), its axes named
   `<name>_row`, `<name>_y`, `<name>_x`, `<name>_z` or `<name>_axis<n>`, its attributes its header's
-  cards (the first of a repeated keyword, without commentary cards, a complex value as Python's text
-  of it). An image with `BSCALE` or `BZERO` is float64 through `numcodecs.fixedscaleoffset`, and an
+  cards (the first of a repeated keyword, each record of a record-valued keyword its own
+  `<keyword>.<field>` member, without commentary cards, a complex value as Python's text of it).
+  An image with `BSCALE` or `BZERO` is float64 through `numcodecs.fixedscaleoffset`, and an
   integer image's `BLANK` its `_FillValue`, scaled. An ASCII table is a struct array read by
   VirtualiZarr's `virtualizarr.fits_ascii_table` codec, which a reader registers by importing
   `virtualizarr`. A primary HDU with no data gives the root its attributes; another is left out.
@@ -95,11 +96,16 @@ def _nonfinite(value: object, token: bool) -> object:
     return value
 
 
-def _one(value: object) -> object:
-    """An array of one element as that element, as HDFParser takes `v.flatten()[0]`."""
-    while isinstance(value, list) and len(value) == 1:
-        value = value[0]
-    return value
+def _one(value: object, kind: object) -> object:
+    """An array of one element in all as that element, as HDFParser takes `v.flatten()[0]`, but
+    an array of fixed-length strings (datatype class `kind` `string`), which HDFParser keeps a
+    list."""
+    if kind == "string":
+        return value
+    inner = value
+    while isinstance(inner, list) and len(inner) == 1:
+        inner = inner[0]
+    return value if isinstance(inner, list) else inner
 
 
 def _fill_value_coded(value: object, kind: str | None) -> object:
@@ -123,7 +129,7 @@ def _presented(base: Base, path: str, kind: str | None) -> dict[str, Any]:
     for name, given in hdf5_attributes(base, path).items():
         if name in HIDDEN:
             continue
-        value = _one(given)
+        value = _one(given, (described.get(name) or {}).get("class"))
         if value is None and (described.get(name) or {}).get("class") is not None:
             value = ""  # a null dataspace: h5py's Empty, which HDFParser writes as ""
         if value == "DIMENSION_SCALE":
@@ -223,6 +229,10 @@ def _card_value(value: object) -> object:
     return value
 
 
+# astropy's record-valued keyword cards (astropy/io/fits/card.py, _rvkc_field_specifier_val)
+RECORD = re.compile(r"(?P<field>[a-zA-Z_]\w*(\.\d+)?(\.[a-zA-Z_]\w*(\.\d+)?)*): +"
+                    r"(?P<value>[+-]?(\.\d+|\d+(\.\d*)?)([DE][+-]?\d+)?)")
+STANDARD = re.compile(r"[A-Z0-9_-]{1,8}")  # a keyword that is no HIERARCH one
 INTEGER = re.compile(r"[+-]?[0-9]+")
 REAL = re.compile(r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[EeDd][+-]?[0-9]+)?")
 COMPLEX = re.compile(r"\(\s*(" + REAL.pattern + r")\s*,\s*(" + REAL.pattern + r")\s*\)")
@@ -288,12 +298,24 @@ def _parsed_cards(records: list[str]) -> list[list[Any]]:
     return out
 
 
+def _record(keyword: str, value: object) -> tuple[str, object] | None:
+    """A record-valued keyword card (`DP1 = 'AXIS.1: 1'`) as astropy reads it, `DP1.AXIS.1` and
+    its number as a float, or None for another card."""
+    match = RECORD.fullmatch(value) if isinstance(value, str) and STANDARD.fullmatch(keyword) else None
+    if match is None:
+        return None
+    return f"{keyword}.{match.group('field')}", float(match.group("value").replace("D", "E"))
+
+
 def _header(cards: list[list[Any]]) -> dict[str, Any]:
-    """A header's cards as attributes: `dict(header)` keeps a repeated keyword's first value."""
+    """A header's cards as attributes, as `dict(header)` gives them: a repeated keyword's first
+    value, and each record of a record-valued keyword its own member."""
     out: dict[str, Any] = {}
     for keyword, value, _comment in cards:
-        if keyword not in COMMENTARY and keyword not in out:
-            out[keyword] = _card_value(value)
+        record = _record(keyword, value)
+        key, shown = record if record is not None else (keyword, _card_value(value))
+        if keyword not in COMMENTARY and key not in out:
+            out[key] = shown
     return out
 
 
@@ -319,7 +341,9 @@ def _image_header(cards: list[list[Any]]) -> list[list[Any]]:
         head += [["PCOUNT", table.get("ZPCOUNT", 0), None], ["GCOUNT", table.get("ZGCOUNT", 1), None]]
     rest = [c for c in cards if not _reserved_compressed(c[0]) and c[0] not in STRUCTURAL
             and not (c[0].startswith("NAXIS") and c[0][5:].isdigit())]
-    rest = [c for c in rest if not (c[0] == "EXTNAME" and c[1] == "COMPRESSED_IMAGE")]
+    # astropy keeps BSCALE and BZERO only when they are not zero, and the default EXTNAME not
+    rest = [c for c in rest if not (c[0] == "EXTNAME" and c[1] == "COMPRESSED_IMAGE")
+            and not (c[0] in ("BSCALE", "BZERO") and not c[1])]
     for key, image in (("ZEXTEND", "EXTEND"), ("ZBLOCKED", "BLOCKED"), ("ZHECKSUM", "CHECKSUM"),
                        ("ZDATASUM", "DATASUM")):
         if key in table:
@@ -391,7 +415,8 @@ def _ascii_table(base: Base, path: str, name: str, cards: list[list[Any]]) -> En
     table = {k: v for k, v, _ in reversed(cards)}
     nrows, row_nbytes = int(table.get("NAXIS2", 0)), int(table.get("NAXIS1", 0))
     whole = [nrows, row_nbytes]
-    if doc.get("shape") != whole or doc["chunk_grid"]["configuration"]["chunk_shape"] != whole:
+    if doc.get("shape") != whole or doc["chunk_grid"]["configuration"]["chunk_shape"] != whole \
+            or doc["codecs"][0].get("name") != "bytes":
         return None
     columns: list[list[object]] = []
     fields: list[dict[str, object]] = []
@@ -422,7 +447,9 @@ def _ascii_table(base: Base, path: str, name: str, cards: list[list[Any]]) -> En
         "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [nrows]}},
         "chunk_key_encoding": {"name": "default", "configuration": {"separator": "/"}},
         "fill_value": fills,
-        "codecs": [{"name": ASCII_CODEC, "configuration": {"columns": columns, "row_nbytes": row_nbytes}}],
+        # the base's bytes-to-bytes codecs after it: a FITS file compressed whole (gzip, bzip2)
+        "codecs": [{"name": ASCII_CODEC, "configuration": {"columns": columns, "row_nbytes": row_nbytes}},
+                   *doc["codecs"][1:]],
         "attributes": _header(cards),
         "dimension_names": _dimension_names(name, 1),
     }

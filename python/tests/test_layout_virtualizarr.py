@@ -5,6 +5,8 @@ every chunk reference is refkv's default layout's, and every array reads as Virt
 a tile-compressed FITS image reads as astropy reads it; and each way its options or an input are
 refused."""
 
+import bz2
+import gzip
 import json
 import math
 import os
@@ -61,6 +63,7 @@ def attributes_h5(path: Path) -> Path:
         a["matrix"], a["one_by_one"] = np.arange(6, dtype="i4").reshape(2, 3), np.array([[9]], "i8")
         a["vlen"], a["vlen_empty"] = "text", ""
         a["fixed"], a["fixed_array"] = np.bytes_(b"abc"), np.array([b"ab", b"c"], "S2")
+        a["fixed_one"], a["row"] = np.array([b"abc"], "S3"), np.array([[1, 2, 3]], "i4")  # lists to HDFParser
         a["empty"], a["flag"] = h5py.Empty("f4"), np.bool_(True)
         a["scale"], a["_NCProperties"] = "DIMENSION_SCALE", "hidden"
         t = f.create_dataset("t", data=np.arange(4, dtype="f4"), chunks=(2,), compression="gzip",
@@ -113,7 +116,8 @@ def blank_fits(path: Path) -> Path:
         ([("SIMPLE", True), ("BITPIX", 8), ("NAXIS", 0), ("EXTEND", True), ("ORIGIN", "test")], b""),
         image(True, 16, np.array([[1, -32768], [3, 4]], "i2"), ("BSCALE", 2.0), ("BZERO", 10.0),
               ("BLANK", -32768), ("EXTNAME", "SCALED")),
-        image(True, 32, np.array([5, -1, 7], "i4"), ("BLANK", -1), ("EXTNAME", "MASKED")),
+        image(True, 32, np.array([5, -1, 7], "i4"), ("BLANK", -1), ("EXTNAME", "MASKED"),
+              ("DP1", "EXTVER: 1"), ("DP1", "NAXES: 2"), ("DP1", "AXIS.1: 1.5"), ("NOTREC", "a: b")),
     ])
 
 
@@ -289,17 +293,26 @@ def test_the_layout_presents_a_file_as_virtualizarr_s_parser_does(tmp_path, name
         assert x.tolist() == y.tolist() if x.dtype.kind in "OT" else x.tobytes() == y.tobytes(), path_
 
 
+def zero_scaled_fits(path: Path) -> Path:
+    """A tile-compressed image whose table has BSCALE = 1 and BZERO = 0, which astropy's image
+    header leaves out."""
+    hdu = fits.CompImageHDU(np.arange(12, dtype="i2").reshape(3, 4), compression_type="RICE_1")
+    hdu.header["BSCALE"], hdu.header["BZERO"] = 1.0, 0.0
+    fits.HDUList([fits.PrimaryHDU(), hdu]).writeto(path)
+    return path
+
+
 COMPRESSED = sorted(p.name for p in (FIXTURES / "fits").glob("fits_comp_*.fits")
                     if p.name not in ("fits_comp_hand_no_ztile.fits", "fits_comp_hand_absent_tile.fits"))
 
 
-@pytest.mark.parametrize("name", COMPRESSED)
-def test_a_tile_compressed_fits_image_reads_as_astropy_reads_it(name):
+@pytest.mark.parametrize("name", [*COMPRESSED, "zero_scaled.fits"])
+def test_a_tile_compressed_fits_image_reads_as_astropy_reads_it(tmp_path, name):
     """FITSParser points a compressed HDU's table bytes at an uncompressed image; the layout
     presents refkv's decoded image under FITSParser's name, with the image header astropy
     reconstructs as its attributes and its axes named as FITSParser names them, and astropy's
     values (BSCALE and BZERO applied, in float64)."""
-    path = FIXTURES / "fits" / name
+    path = zero_scaled_fits(tmp_path / name) if name == "zero_scaled.fits" else FIXTURES / "fits" / name
     store = zarrify(str(path), layout=Layout(NAME))
     group = zarr.open_group(refkv.zarr.store(store), mode="r")
     with fits.open(path) as hdus:
@@ -317,6 +330,24 @@ def test_a_tile_compressed_fits_image_reads_as_astropy_reads_it(name):
             assert data.dtype == (np.dtype("f8") if scaled else hdu.data.dtype.newbyteorder("="))
             # refkv's float64 dequantization may differ from astropy's in the last bit (in its default layout too)
             np.testing.assert_allclose(data, hdu.data, rtol=0, atol=1e-12)
+
+
+@pytest.mark.parametrize("name", ["fits_asciitable.fits", "fits_mef_sci_err_dq.fits"])
+@pytest.mark.parametrize("compression", ["gz", "bz2"])
+def test_a_fits_file_compressed_whole_reads_as_the_file_does(tmp_path, name, compression):
+    """FITSParser does not read a gzip or bzip2 file; the layout presents it as the file itself,
+    each array behind the base's decompressing codecs, with the file's values."""
+    plain = FIXTURES / "fits" / name
+    packed = tmp_path / f"{name}.{compression}"
+    opener = gzip.open if compression == "gz" else bz2.open
+    with opener(packed, "wb") as f:
+        f.write(plain.read_bytes())
+    stores = [zarrify(str(p), layout=Layout(NAME)) for p in (plain, packed)]
+    expected, found = (_arrays(zarr.open_group(refkv.zarr.store(s), mode="r")) for s in stores)
+    assert sorted(found) == sorted(expected)
+    for path, array in expected.items():
+        assert dict(found[path].attrs) == dict(array.attrs), path
+        assert np.asarray(found[path][...]).tobytes() == np.asarray(array[...]).tobytes(), path
 
 
 def test_a_binary_table_is_refkv_s_group_under_its_name():
