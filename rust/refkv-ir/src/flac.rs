@@ -10,6 +10,8 @@
 //! next frame's header (a frame header gives no length). The schema (`schema/flac.json`) holds
 //! every check, in the profile's order.
 
+#[path = "flac/stored.rs"]
+mod stored;
 use crate::expr::V;
 use crate::fed::{Fed, Overlap, Word};
 use crate::ir::*;
@@ -423,6 +425,8 @@ pub struct Flac {
     scan: Option<Scan>,
     /// each frame's offset, length and block size
     frames: Vec<(u64, u64, u64)>,
+    /// each frame's element and samples, once the frames are done
+    units: Vec<(u32, u64)>,
     /// the bytes of frames a round reads
     window: u64,
     facts: J,
@@ -434,7 +438,7 @@ impl Flac {
             size, phase: Phase::Start, fed: Fed::new(Overlap::MergeNew), asked: Asked::default(), ir: Ir::new(size),
             rules: rules::of("flac"), a: 0, e: size, id3v2: Vec::new(), id3v1: None, m: 0, blocks: Vec::new(), info: None,
             info_value: 0, meta: json!({}), cuesheets: Vec::new(), pictures: Vec::new(), applications: Vec::new(), f0: 0, scan: None,
-            frames: Vec::new(), window: WINDOW, facts: J::Null,
+            frames: Vec::new(), units: Vec::new(), window: WINDOW, facts: J::Null,
         }
     }
 
@@ -794,6 +798,7 @@ impl Flac {
         let mut first = 0u32;
         for (j, &(o, n, b)) in self.frames.iter().enumerate() {
             let i = self.ir.data(s, "", j as u64, 0, (o, n), &form(b))?;
+            self.units.push((i, b));
             if j == 0 {
                 first = i;
             }
@@ -820,8 +825,14 @@ impl Flac {
         Ok(())
     }
 
+    /// The finished IR, with its samples described (`stored.rs`), and the facts.
     pub fn finish(self) -> Result<(Ir, J), String> {
-        sans::finish(self.phase == Phase::Done, self.ir, self.facts)
+        let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
+        if let Some(si) = self.info {
+            let (arrays, chains, map) = stored::described(self.info_value, si.channels, si.bits, &self.units)?;
+            ir.describe(arrays, chains, map)?;
+        }
+        Ok((ir, facts))
     }
 }
 

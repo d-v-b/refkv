@@ -20,6 +20,9 @@ NPY = "**NumPy** ([spec/zarrify/npy.md](zarrify/npy.md)). A file's array.\n\n- *
 def test_every_profile_in_a_paragraph_or_the_list():
     assert stored_formats.problems(["czi", "npy", "mp3", "zarr2"], spec(CZI, NPY)) == []
     assert stored_formats.accounted(spec(CZI, NPY)) == (["czi", "npy"], ["mp3", "zarr2"])
+    # the list wrapped where its sentence goes on
+    wrapped = LIST.replace(" describe", "\ndescribe")
+    assert stored_formats.accounted(spec(CZI, NPY, listed=wrapped)) == (["czi", "npy"], ["mp3", "zarr2"])
     assert stored_formats.check() == []
 
 

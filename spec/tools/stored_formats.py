@@ -24,7 +24,7 @@ SPEC = ROOT / "spec" / "stored-array.md"
 
 HEADING = "## 7. The formats"
 PARAGRAPH = re.compile(r"^\*\*[^*]+\*\* \(\[spec/zarrify/([a-z0-9-]+)\.md\]\(zarrify/\1\.md\)\)")
-LIST = re.compile(r"^The parsers of (.+?) describe no array yet", re.DOTALL)
+LIST = re.compile(r"^The parsers of (.+?)\s+describe\s+no\s+array\s+yet", re.DOTALL)
 LINK = re.compile(r"\[[^\]]+\]\(zarrify/([a-z0-9-]+)\.md\)")
 
 
