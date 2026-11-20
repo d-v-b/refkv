@@ -1,15 +1,15 @@
 """Building and checking a plugin layout's Zarr documents (spec/layout.md
 <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>), through zarr-metadata's models of Zarr
-v2 and v3 metadata: `copy` an array of the base, `array` and `group` documents written by hand,
-and `check`, which a plugin's tests call on its output. It needs the `layouts` extra
+v2 and v3 metadata: `copy` an array of refkv's own output, `array` and `group` documents written
+by hand, and `check`, which a plugin's tests call on its output. It needs the `layouts` extra
 (`pip install refkv[layouts]`).
 
-    from refkv.zarrify.layouts import base
+    from refkv.build import project, read
     from refkv.zarrify.layouts.hierarchy import check, copy, group
 
-    b = base("image.ome.tif")
-    out = {"zarr.json": group(), **copy(b, "0", to="0")}
-    assert check(b, out) == []
+    with read("image.ome.tif") as p:
+        out = {"zarr.json": group(), **copy(project(p), "0", to="0")}
+        assert check(out, [p]) == []
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import math
 import operator
 import posixpath
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
 try:
     from zarr_metadata.model import (
@@ -32,30 +32,26 @@ try:
 except ImportError as e:  # the extra is not installed
     raise ImportError("refkv.zarrify.layouts.hierarchy needs zarr-metadata: pip install refkv[layouts]") from e
 
-from refkv.pb import Concat, Range
+from refkv.build import Parsed, Projected, SealError, Written, project, seal
+from refkv.build import Value as Reference
+from refkv.zarrify.common import Rejected
 from refkv.zarrify.layouts import (
     DOCUMENTS,
     MIRROR,
     REFKV_MEMBERS,
     REFKV_UUIDS,
-    Base,
-    EntryValue,
     Problem,
-    Written,
     _str_keys,
-    _without_checksum,
     chunk_coords,
     chunk_key,
     described,
     dump,
-    prepare,
-    store_of,
 )
 
 # chunk_coords and chunk_key are refkv.zarrify.layouts', here too for a plugin that builds arrays
 __all__ = ["Problem", "array", "check", "chunk_coords", "chunk_key", "copy", "group", "node_name"]
 
-Value = EntryValue
+type Value = bytes | Reference  # an entry's value: bytes, or a value of the inputs' sources
 
 
 # ---- copying an array of the base (spec/layout.md)
@@ -81,9 +77,11 @@ def _with_transpose(codecs: list[dict[str, Any]], inverse: list[int]) -> list[di
     return [{"name": "transpose", "configuration": {"order": order}}, *rest]
 
 
-def copy(base: Base, path: str, order: Sequence[int] | None = None, attributes: Mapping[str, object] | None = None,
+def copy(base: Projected, path: str, order: Sequence[int] | None = None,
+         attributes: Mapping[str, object] | None = None,
          dimension_names: Sequence[str | None] | None = None, *, to: str | None = None) -> dict[str, Value]:
-    """The entries of the array at `path` of `base`, keys relative to the array, its `zarr.json`
+    """The entries of the array at `path` of `base`, refkv's own output of an input
+    (`refkv.build.project`), keys relative to the array, its `zarr.json`
     among them: its document with `attributes` as given (`{}` by default) and `dimension_names`
     as given, in the copy's axis order (else the base's, permuted with the axes), and its chunks'
     values as they are. With `order`, a permutation of its axes as `numpy.transpose` takes one
@@ -92,7 +90,7 @@ def copy(base: Base, path: str, order: Sequence[int] | None = None, attributes: 
     first (for a sharded array, first in the shard's inner and index codecs), so that it decodes
     to the base's values, transposed. With `to`, the keys are below that path, from the output's
     root. ValueError for arguments it cannot take."""
-    doc, chunks = base.array(path)
+    doc, chunks = base.array_entries(path)
     n = len(doc["shape"])
     if isinstance(dimension_names, str):
         raise ValueError("dimension_names is a list of names, each a string or None, not a string")  # noqa: TRY004 (as copy's other refusals)
@@ -399,14 +397,15 @@ def _models_equal(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
         return False
 
 
-def _copy_of(base: Base, doc: Mapping[str, Any], held: Mapping[str, Value], references: Mapping[str, Range | Concat],
+def _copy_of(base: Projected, doc: Mapping[str, Any], held: Mapping[str, Value],
+             references: Mapping[str, Reference],
              copies: dict[tuple[str, tuple[int, ...]], tuple[dict[str, Any], dict[str, Value]]]) -> bool:
     """Whether the array `doc`, holding the chunks `held` (by key relative to it; its references
     among them), is a `copy` of a base array: every chunk at the key `copy` gives it, and none
     left out, attributes and dimension names aside."""
     first = next(iter(references.values()))
-    for path in base._arrays_holding(first):  # noqa: SLF001 (the package's own Base)
-        base_doc = base.array(path)[0]
+    for path in base.arrays_holding(first):
+        base_doc = base.array_entries(path)[0]
         order = _order_of(base_doc, doc)
         for candidate in sorted({tuple(range(len(base_doc["shape"]))), *([order] if order else [])}):
             if (path, candidate) not in copies:
@@ -417,8 +416,7 @@ def _copy_of(base: Base, doc: Mapping[str, Any], held: Mapping[str, Value], refe
                 document = json.loads(entries.pop("zarr.json"))  # type: ignore[arg-type]
                 copies[path, candidate] = (document, entries)
             made, chunks = copies[path, candidate]
-            plain = {k: v if isinstance(v, bytes) else _without_checksum(v) for k, v in held.items()}
-            if _models_equal(made, doc) and plain == chunks:
+            if _models_equal(made, doc) and dict(held) == chunks:
                 return True
     return False
 
@@ -463,26 +461,36 @@ def _lenient(value: bytes) -> object:
     return json.loads(value.decode("utf-8", errors="replace"))
 
 
-def check(base: Base, written: Mapping[str, object] | Written) -> list[Problem]:
-    """The problems of a plugin's output (spec/layout.md): `key`, `reference`, `open` and
-    `archive`, what `zarrify` refuses; then `document`, `orphan`, `chunk`, `json`, `zarr`,
-    `consolidated`, `parent`, `copy`, `size` and `refkv`, which a plugin's tests may allow where
-    they expect them. `check(base, base.entries())` finds nothing. Raises TypeError for arguments
-    that are not a `Base` and a mapping or `Written`."""
-    if not isinstance(base, Base):
-        raise TypeError(f"check takes a Base, not {type(base).__name__}")
+def check(written: Mapping[str, object] | Written, inputs: Sequence[Parsed]) -> list[Problem]:
+    """The problems of an output built of `inputs` (spec/layout.md), a plugin's among them. First
+    what `refkv.build.seal` refuses, which `zarrify` refuses too, under `seal`'s code (`key`,
+    `value`, `range`, `payload`, `checksums`, `inputs`, `open`, `archive`, and `copy` for a `Copy`
+    left unfilled): the first such problem. Then what a Zarr reader would trip on, which a
+    plugin's tests may allow where they expect it: `document`, `orphan`, `chunk`, `json`, `zarr`,
+    `consolidated`, `parent`, `size`; `copy`, an array whose references are all refkv's own
+    output's (`refkv.build.project` of an input) without being a `copy` of an array of it; and
+    `refkv`, refkv's declarations on a node that is not refkv's own output's.
+    `check(project(p).entries(), [p])` finds nothing. The inputs are open: their built-in
+    outputs are made to compare with, for the last two codes; an input refkv's own projection
+    rejects has none, and nothing of the output is compared with it. Raises TypeError for
+    arguments that are not a mapping or `Written` and a sequence of `Parsed`."""
     if not isinstance(written, (Mapping, Written)):
         raise TypeError(f"check takes the output's entries or a Written, not {type(written).__name__}")
-    prepared, problems = prepare(base, written)
-    if base.checksums:  # the most the checksums can take, which only reading the bytes tells
-        for k in sorted(prepared.fresh):
-            why = base.fits(prepared.values[k])
-            if why:
-                problems.append(Problem(k, "reference", why))
-    if not problems:
-        problems += store_of(base, prepared, policy=None, info={})[1]
-    values = prepared.values
-    base_values = base.entries()
+    if isinstance(inputs, Parsed) or not isinstance(inputs, Sequence) or not all(isinstance(p, Parsed) for p in inputs):
+        raise TypeError("check takes the inputs the output was built of, a sequence of what refkv.build.read returns")
+    problems: list[Problem] = []
+    try:
+        seal(written, inputs)
+    except SealError as e:
+        problems.append(Problem(e.key, e.code, e.message))
+    try:
+        values: dict[str, Value] = dict(written if isinstance(written, Written)
+                                        else Written(cast("Mapping[str, Any]", written)))
+    except (TypeError, ValueError, AttributeError):  # an entry that is no value: seal's problem, above
+        return problems
+    if any(not isinstance(k, str) for k in values):
+        return problems
+    bases = _own_outputs(inputs)
     docs: dict[str, Any] = {}
     for k in sorted(values):
         v = values[k]
@@ -562,14 +570,14 @@ def check(base: Base, written: Mapping[str, object] | Written) -> list[Problem]:
         while holder not in nodes and holder:
             holder = _dir(holder)
         if nodes.get(holder) != "array":
-            if k.startswith(f"{MIRROR}/") and base_values.get(k) == _plain(values[k]):
+            if k.startswith(f"{MIRROR}/") and any(b.written.get(k) == values[k] for b in bases):
                 # the mirror's objects, as the base holds them (spec/conventions.md §8.9
                 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>)
                 continue
             problems.append(Problem(k, "orphan", "a chunk without its array's document above it"))
             continue
         held.setdefault(holder, {})[k[len(holder) + 1:] if holder else k] = values[k]
-    copies: dict[tuple[str, tuple[int, ...]], tuple[dict[str, Any], dict[str, Value]]] = {}
+    copies: dict[int, dict[tuple[str, tuple[int, ...]], tuple[dict[str, Any], dict[str, Value]]]] = {}
     for holder, chunks in sorted(held.items()):
         v3 = docs.get(f"{holder}/zarr.json" if holder else "zarr.json")
         doc = v3 if isinstance(v3, dict) and v3.get("node_type") == "array" else \
@@ -579,7 +587,7 @@ def check(base: Base, written: Mapping[str, object] | Written) -> list[Problem]:
         is_v3 = doc is v3
         grid = _grid(doc) if is_v3 else _v2_grid(doc)
         size = _item_size(doc.get("data_type")) if is_v3 else _v2_item_size(doc.get("dtype"))
-        references: dict[str, Range | Concat] = {k: v for k, v in chunks.items() if not isinstance(v, bytes)}
+        references: dict[str, Reference] = {k: v for k, v in chunks.items() if not isinstance(v, bytes)}
         for k, v in sorted(chunks.items()):
             where = f"{holder}/{k}" if holder else k
             try:
@@ -600,16 +608,14 @@ def check(base: Base, written: Mapping[str, object] | Written) -> list[Problem]:
                 got = len(v) if isinstance(v, bytes) else v.size
                 if got != want:
                     problems.append(Problem(where, "size", f"it holds {got} bytes of a chunk of {want}"))
-        if is_v3 and references and all(base.base_value(v) is not None for v in references.values()) \
-                and not _copy_of(base, v3, chunks, references, copies):  # type: ignore[arg-type] (is_v3: v3 is a dict)
-            problems.append(Problem(holder or "zarr.json", "copy", "its references are not a copy of a base array's, "
-                                                                   "each at the key copy() gives it"))
-    problems += _refkv_problems(base, values, docs)
+        if is_v3 and references:
+            # the input whose built-in output holds every one of them, if one does
+            base = next((b for b in bases if all(b.holds(v) for v in references.values())), None)
+            if base is not None and not _copy_of(base, v3, chunks, references, copies.setdefault(id(base), {})):  # type: ignore[arg-type] (is_v3: v3 is a dict)
+                problems.append(Problem(holder or "zarr.json", "copy", "its references are not a copy of an array "
+                                        "of refkv's own output, each at the key copy() gives it"))
+    problems += _refkv_problems(bases, values, docs)
     return problems
-
-
-def _plain(v: Value) -> Value:
-    return v if isinstance(v, bytes) else _without_checksum(v)
 
 
 def _consolidated(key: str, doc: Mapping[str, Any], docs: Mapping[str, Any]) -> list[Problem]:
@@ -632,11 +638,23 @@ def _consolidated(key: str, doc: Mapping[str, Any], docs: Mapping[str, Any]) -> 
     return out
 
 
-def _refkv_problems(base: Base, values: Mapping[str, Value], docs: Mapping[str, Any]) -> list[Problem]:
-    """refkv's declarations a plugin's output holds other than the base's, or whose subtree is
-    not the base's, entry for entry."""
+def _own_outputs(inputs: Sequence[Parsed]) -> list[Projected]:
+    """refkv's own output of each input that has one: an input its projection rejects has none
+    to compare with, which is no problem of an output built without it."""
+    out = []
+    for p in inputs:
+        try:
+            out.append(project(p))
+        except Rejected:
+            continue
+    return out
+
+
+def _refkv_problems(bases: Sequence[Projected], values: Mapping[str, Value],
+                    docs: Mapping[str, Any]) -> list[Problem]:
+    """refkv's declarations an output holds other than those of refkv's own output of an input,
+    or whose subtree is not that output's, entry for entry."""
     out: list[Problem] = []
-    base_values = base.entries()
     for k, doc in sorted(docs.items()):
         last = k.rpartition("/")[2]
         found: list[tuple[str, object]] = []
@@ -653,15 +671,14 @@ def _refkv_problems(base: Base, values: Mapping[str, Value], docs: Mapping[str, 
         for at, attrs in found:
             if not _refkv_declared(attrs):
                 continue
-            if at != k or base_values.get(at) != values.get(at):  # a document is bytes: no checksums
-                out.append(Problem(at, "refkv", "refkv's declarations, other than the base's at this key"))
+            declared = [b for b in bases if at == k and b.written.get(at) == values.get(at)]
+            if not declared:
+                out.append(Problem(at, "refkv", "refkv's declarations, other than refkv's own output's at this key"))
                 continue
             node = _dir(at)
             prefix = f"{node}/" if node else ""
-            mine = {x: v if isinstance(v, bytes) else _without_checksum(v) for x, v in values.items()
-                    if x.startswith(prefix)}
-            theirs = {x: v for x, v in base_values.items() if x.startswith(prefix)}
-            if mine != theirs:
-                out.append(Problem(at, "refkv", "a node that keeps refkv's declarations, whose subtree is not the "
-                                                "base's, entry for entry"))
+            mine = {x: v for x, v in values.items() if x.startswith(prefix)}
+            if not any(mine == {x: v for x, v in b.written.items() if x.startswith(prefix)} for b in declared):
+                out.append(Problem(at, "refkv", "a node that keeps refkv's declarations, whose subtree is not "
+                                                "refkv's own output's, entry for entry"))
     return out

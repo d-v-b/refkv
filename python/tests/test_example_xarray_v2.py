@@ -1,6 +1,6 @@
 """The example layout `refkv.example.xarray-v2` (python/src/refkv/zarrify/layouts/examples/xarray_v2.py):
 HDF5 and NetCDF-4 files as Zarr v2 with consolidated metadata, opened by xarray and zarr and compared
-with what h5netcdf reads of the file and with the base's own arrays."""
+with what h5netcdf reads of the file and with the arrays of refkv's own output."""
 
 import json
 import math
@@ -18,8 +18,9 @@ import xarray as xr
 import zarr
 
 import refkv.zarr
+from refkv.build import Written, project, read
 from refkv.zarrify import zarrify
-from refkv.zarrify.layouts import Layout, LayoutRejected, LayoutUsageError, Written, base
+from refkv.zarrify.layouts import Layout, LayoutRejected, LayoutUsageError
 from refkv.zarrify.layouts.examples.xarray_v2 import XarrayV2
 from refkv.zarrify.layouts.hierarchy import check
 
@@ -57,13 +58,15 @@ def netcdf(path: Path) -> Path:
     return path
 
 
-# the plugin's output for a file, as bytes to compare across processes
+# the plugin's output for a file, sealed, as bytes to compare across processes
 OUTPUT = """
 import sys
-from refkv.zarrify.layouts import base, encode_entries
+from refkv.build import read, seal
+from refkv.zarrify.layouts import encode_entries
 from refkv.zarrify.layouts.examples.xarray_v2 import XarrayV2
-w = XarrayV2().write(base(sys.argv[1]), XarrayV2().options({}))
-sys.stdout.buffer.write(encode_entries(w.entries) + "|".join(sorted(w.read_at_open)).encode())
+with read(sys.argv[1]) as p:
+    store = seal(XarrayV2().write([p], XarrayV2().options({})), [p])
+sys.stdout.buffer.write(encode_entries(store.mapping) + "|".join(sorted(store.read_at_open)).encode())
 """
 
 
@@ -96,13 +99,14 @@ def groups_of(entries) -> list[str | None]:
 ])
 def test_files_as_zarr_v2_for_xarray(tmp_path, name, options, codes, netcdf4, left_out):
     path = str(netcdf(tmp_path / name) if name == "made.nc" else HDF5 / name)
-    b = base(path)
     plugin = XarrayV2()
-    written = plugin.write(b, plugin.options(options))
-    assert isinstance(written, Written)
-    entries = written.entries
-    assert {p.code for p in check(b, written)} == codes
-    assert sorted(written.read_at_open or ()) == sorted(k for k in (".zattrs", ".zgroup", ".zmetadata") if k in entries)
+    with read(path) as parsed:
+        entries = plugin.write([parsed], plugin.options(options))
+        assert isinstance(entries, Written)
+        assert {p.code for p in check(entries, [parsed])} == codes
+        keys = set(project(parsed).keys())  # of refkv's own output
+    at_open = {k for k, opened in entries.at_open.items() if opened}
+    assert sorted(at_open) == sorted(k for k in (".zattrs", ".zgroup", ".zmetadata") if k in entries)
     consolidated = document(entries, ".zmetadata")["metadata"]
     assert consolidated == {k: document(entries, k) for k in entries if k.rpartition("/")[2] in
                             (".zgroup", ".zarray", ".zattrs")}
@@ -111,7 +115,7 @@ def test_files_as_zarr_v2_for_xarray(tmp_path, name, options, codes, netcdf4, le
     assert all("_ARRAY_DIMENSIONS" in consolidated[f"{a}/.zattrs"] for a in arrays)
 
     zarrified = zarrify(path, layout=Layout(XarrayV2(), options))
-    assert zarrified.read_at_open == set(written.read_at_open or ())
+    assert zarrified.read_at_open == at_open
     zarrified.save_vzip(tmp_path / "out.vzip")
     store = refkv.zarr.open(tmp_path / "out.vzip", policy=zarrified.policy)
     for g in groups_of(entries):  # each group opens in xarray, as the file does in h5netcdf
@@ -119,17 +123,16 @@ def test_files_as_zarr_v2_for_xarray(tmp_path, name, options, codes, netcdf4, le
         if netcdf4:
             xr.testing.assert_identical(got, xr.open_dataset(path, engine="h5netcdf", group=g).load())
 
-    base_store = refkv.zarr.store(zarrify(path))
+    own_store = refkv.zarr.store(zarrify(path))
     root = zarr.open_group(store, mode="r", zarr_format=2, use_consolidated=True)
-    keys = set(b.keys())
-    for a in sorted(arrays):  # every array holds the base's values
+    for a in sorted(arrays):  # every array holds the values of refkv's own output
         parent, _, leaf = a.rpartition("/")
         source = a if f"{a}/zarr.json" in keys else f"{parent}/_nc4_non_coord_{leaf}".lstrip("/")
         array = root[a]
         assert isinstance(array, zarr.Array)
         got = np.asarray(array[...])
-        want = np.asarray(zarr.open_array(base_store, path=source, mode="r")[...])
-        if got.dtype.kind == "S":  # a fixed-length string: the base's trailing axis of bytes
+        want = np.asarray(zarr.open_array(own_store, path=source, mode="r")[...])
+        if got.dtype.kind == "S":  # a fixed-length string: a trailing axis of bytes in refkv's own output
             want = np.ascontiguousarray(want).view(got.dtype).reshape(got.shape)
         assert got.shape == want.shape, a
         assert np.array_equal(got, want, equal_nan=got.dtype.kind in "fc"), a

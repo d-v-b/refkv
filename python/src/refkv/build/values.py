@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Self
 
 from refkv import Range
 from refkv.policy import MAX_SOURCES
-from refkv.zarrify.layouts import CRC_FIELD, MAX_PAYLOAD, chunk_key
+from refkv.zarrify.layouts import CRC_FIELD, MAX_OPEN, MAX_PAYLOAD, chunk_key
 
 if TYPE_CHECKING:
     from refkv.build.parsed import Parsed
@@ -149,11 +149,14 @@ def _cut_part(p: Part, a: int, b: int) -> Part:
 
 
 def cut(v: Value | Part | Sequence[Part], start: int, stop: int) -> Value:
-    """The value that reads bytes `start` to `stop` of what `v` reads. ValueError for
-    bounds outside it."""
+    """The value that reads bytes `start` to `stop` of what `v` reads: an empty literal for no
+    bytes (`start == stop`), which `concat` leaves out of what it joins. ValueError for bounds
+    outside it."""
     val = value(v)
-    if not (type(start) is int and type(stop) is int and 0 <= start < stop <= val.size):
+    if not (type(start) is int and type(stop) is int and 0 <= start <= stop <= val.size):
         raise ValueError(f"bytes {start} to {stop} of a value of {val.size} bytes: not within it")
+    if start == stop:
+        return Value((Literal(b""),))
     out: list[Part] = []
     at = 0
     for p in val.parts:
@@ -178,19 +181,22 @@ def _continues(p: Part, q: Part) -> Part | None:
 
 
 def concat(*values: Value | Part | Sequence[Part], merge: bool = False) -> Value:
-    """The one value of the parts of `values`, in order; with `merge`, parts that continue
+    """The one value of the parts of `values`, in order, an empty literal left out (an empty
+    cut; all of them empty give one); with `merge`, parts that continue
     one another (ranges of one source, of one data blob, or zeros) are joined."""
     if not values:
         raise ValueError("concat of no values")
     parts: list[Part] = []
     for v in values:
         for p in value(v).parts:
+            if isinstance(p, Literal) and not p.data:
+                continue
             joined = _continues(parts[-1], p) if merge and parts else None
             if joined is None:
                 parts.append(p)
             else:
                 parts[-1] = joined
-    return Value(tuple(parts))
+    return Value(tuple(parts) or (Literal(b""),))
 
 
 def _range_at_largest(p: Part) -> Range:
@@ -236,12 +242,23 @@ def _varint(n: int) -> bytes:
 
 
 def fits(v: Value | Part | Sequence[Part], *, checksums: bool | None = None) -> str | None:
-    """Why `seal` might not write `v`, measured before the sources are numbered, or None: its
+    """Why `seal` might not write `v`, measured before the sources are numbered, or None: a range
+    past its source, as the input's parser found its size; a run of zero bytes longer than the
+    zero data source may be; or its
     payload with every source index at its largest, with checksums as `payload_size` counts them.
     It may refuse a value `seal` would write, never the other way. How many reads or bytes a value
     takes is its reader's limit (spec/refkv.md §6.7
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5), not
     `seal`'s."""
+    for p in value(v).parts:
+        if isinstance(p, Zeros) and p.length > MAX_OPEN:
+            return f"a run of {p.length} zero bytes, more than the {MAX_OPEN} a zero data source holds"
+        if not isinstance(p, Ref):
+            continue
+        sources = p.parsed.sources
+        size = sources[p.source].size if 0 <= p.source < len(sources) else None
+        if size is not None and p.offset + p.length > size:
+            return f"a range of {p.length} bytes at {p.offset}, past its source of {size} bytes"
     n = payload_size(v, checksums=checksums)
     if n > MAX_PAYLOAD:
         return f"a payload of up to {n} bytes, more than {MAX_PAYLOAD}"
@@ -349,13 +366,16 @@ class Written(MutableMapping[str, "bytes | Value"]):
     def __init__(self, entries: Mapping[str, bytes | Value | Part | Sequence[Part]] | None = None, *,
                  at_open: Mapping[str, bool] | None = None, stored: set[str] | None = None) -> None:
         self._entries: dict[str, bytes | Value] = {}
-        self.at_open: dict[str, bool] = dict(at_open or {})
-        self.stored: set[str] = set(stored or ())
+        self.at_open: dict[str, bool] = {}
+        self.stored: set[str] = set()
         for k, v in (entries or {}).items():
             self[k] = v
         if isinstance(entries, Written):  # a Written's own placements come with its entries
-            self.at_open = {**entries.at_open, **self.at_open}
+            self.at_open |= entries.at_open
             self.stored |= entries.stored
+        # the placements given, as given: one of an entry that is no bytes entry is `seal`'s to refuse
+        self.at_open |= dict(at_open or {})
+        self.stored |= set(stored or ())
 
     def __getitem__(self, key: str) -> bytes | Value:
         return self._entries[key]

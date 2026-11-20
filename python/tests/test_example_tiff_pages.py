@@ -1,8 +1,9 @@
 """The example layout `refkv.example.tiff-pages` (refkv.zarrify.layouts.examples.tiff_pages): every
 main-chain IFD of a TIFF as an image of its own, its SubIFDs as further levels, checked with
-`check`, read back with zarr against tifffile and the base, and written alike under another
-PYTHONHASHSEED; and each way its options or an IFD are refused."""
+`check`, read back with zarr against tifffile and refkv's own output, written alike under another
+PYTHONHASHSEED, and made without refkv's own output; and each way its options or an IFD are refused."""
 
+import importlib
 import json
 import os
 import struct
@@ -16,10 +17,14 @@ import tifffile
 import zarr
 
 import refkv.zarr
+from refkv.build import Parsed, project, read, seal
 from refkv.zarrify import Rejected, zarrify
-from refkv.zarrify.layouts import Layout, LayoutUsageError, base, encode_entries
+from refkv.zarrify.layouts import Layout, LayoutUsageError, encode_entries
 from refkv.zarrify.layouts.examples.tiff_pages import TiffPages
 from refkv.zarrify.layouts.hierarchy import check
+
+# the module, not the function `refkv.build.project` that the package's attribute of the name is
+project_module = importlib.import_module("refkv.build.project")
 
 TIFF = Path(__file__).resolve().parents[2] / "fixtures" / "tiff"
 ALLOWED = frozenset({"copy"})  # the check codes the module's docstring names
@@ -50,30 +55,43 @@ CASES = [
 ]
 
 # tifffile reads these pages' strips as one contiguous run across the absent strip, shifting the
-# rows after it; the base reads each strip at its offset, as it says in spec/zarrify/tiff.md §4.4
-# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>: compared with the base
+# rows after it; refkv's own output reads each strip at its offset, as it says in spec/zarrify/tiff.md
+# §4.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>: compared with it
 TIFFFILE_DIFFERS = {"edge_strips_absent.tif"}
-# tifffile has no EER decoder: these pages are compared with the base's frames, page n its plane n
-BASE_FRAMES = {"eer_v1_frames.tif"}
+# tifffile has no EER decoder: these pages are compared with the frames of refkv's own output,
+# page n its plane n
+OWN_FRAMES = {"eer_v1_frames.tif"}
 
-# what the determinism check runs in a second process: each case's entries, encoded
+# what the determinism check runs in a second process: each case's entries, in the order written,
+# and encoded as `seal` seals them
 SCRIPT = """
 import json, sys
-from refkv.zarrify.layouts import base, encode_entries
+from refkv.build import read, seal
+from refkv.zarrify.layouts import encode_entries
 from refkv.zarrify.layouts.examples.tiff_pages import TiffPages
 
 plugin = TiffPages()
 out = []
 for path, options in json.loads(sys.argv[1]):
-    entries = plugin.write(base(path), plugin.options(options))
-    out.append([list(entries), encode_entries(entries).hex()])
+    with read(path) as p:
+        entries = plugin.write([p], plugin.options(options))
+        out.append([list(entries), encode_entries(seal(entries, [p]).mapping).hex()])
 print(json.dumps(out))
 """
 
 
-def read(path):
-    """The values of the base's image array, `0`."""
+def own_image(path):
+    """The values of the image array, `0`, of refkv's own output."""
     return zarr.open_array(refkv.zarr.store(zarrify(str(path))), path="0", mode="r")[...]
+
+
+def written(path, options):
+    """What the plugin writes of the TIFF at `path`: its keys in the order written, and its
+    entries encoded as `seal` seals them."""
+    plugin = TiffPages()
+    with read(str(path)) as p:
+        entries = plugin.write([p], plugin.options(options))
+        return [list(entries), encode_entries(seal(entries, [p]).mapping).hex()]
 
 
 def document(entries, key):
@@ -111,13 +129,14 @@ def levels(path, leave_out):
 def test_every_page_reads_as_tifffile_reads_it(name, options, skipped):
     """`check` finds only `copy`; zarrify writes the same entries; every page's every level, read
     through zarr (codecs, transposes, rectilinear grids, missing chunks), equals tifffile's; and
-    IFD 0's image equals the base's, where the base presents it alone."""
+    IFD 0's image equals that of refkv's own output, where that output presents it alone."""
     zarr.config.set({"array.rectilinear_chunks": True})
     path = TIFF / name
-    b = base(str(path))
     plugin = TiffPages()
-    entries = plugin.write(b, plugin.options(options))
-    assert {p.code for p in check(b, entries)} <= ALLOWED
+    with read(str(path)) as parsed:
+        entries = plugin.write([parsed], plugin.options(options))
+        assert {p.code for p in check(entries, [parsed])} <= ALLOWED
+        own = project(parsed).document("0/zarr.json")
     store = zarrify(str(path), layout=Layout(TiffPages(), options))
     assert sorted(store.mapping) == sorted(entries)
     zs = refkv.zarr.store(store)
@@ -127,7 +146,7 @@ def test_every_page_reads_as_tifffile_reads_it(name, options, skipped):
     for prefix in [f"{f}/" for f in files] or [""]:
         gone = {int(s.rpartition("/")[2]) for s in skipped if s.startswith(f"{prefix}ifds/")}
         assert all(f"{prefix}{n}/zarr.json" not in entries for n in gone)
-        found = ([(n, [frame]) for n, frame in enumerate(read(path))] if name in BASE_FRAMES
+        found = ([(n, [frame]) for n, frame in enumerate(own_image(path))] if name in OWN_FRAMES
                  else levels(path.parent / prefix if prefix else path, gone))
         for n, want in found:
             ifd = f"{prefix}ifds/{n}"
@@ -137,15 +156,14 @@ def test_every_page_reads_as_tifffile_reads_it(name, options, skipped):
                 if name not in TIFFFILE_DIFFERS:
                     np.testing.assert_array_equal(got[...], values)
     mine = f"{name}/0/0" if files else "0/0"
-    if b.document("0/zarr.json").get("dimension_names") == document(entries, f"{mine}/zarr.json")["dimension_names"]:
-        np.testing.assert_array_equal(zarr.open_array(zs, path=mine, mode="r")[...], read(path))
+    if own.get("dimension_names") == document(entries, f"{mine}/zarr.json")["dimension_names"]:
+        np.testing.assert_array_equal(zarr.open_array(zs, path=mine, mode="r")[...], own_image(path))
 
 
 def test_a_second_process_writes_the_same_entries():
     """Run under another PYTHONHASHSEED, write gives the same entries, in the same order."""
     cases = [(str(TIFF / n), o) for n, o, _ in CASES[:4] + CASES[-3:]]
-    plugin = TiffPages()
-    here = [[list(e), encode_entries(e).hex()] for e in (plugin.write(base(p), plugin.options(o)) for p, o in cases)]
+    here = [written(p, o) for p, o in cases]
     env = {**os.environ, "PYTHONHASHSEED": "12345"}
     done = subprocess.run([sys.executable, "-c", SCRIPT, json.dumps(cases)], env=env, capture_output=True,
                           text=True, check=True)
@@ -153,7 +171,7 @@ def test_a_second_process_writes_the_same_entries():
 
 
 def test_a_page_of_a_large_tile_table_reads_as_tifffile_reads_it(tmp_path):
-    """Page 1, which the base does not present, has tile tables of more than 64 KiB (16641
+    """Page 1, which refkv's own output does not present, has tile tables of more than 64 KiB (16641
     tiles): the IR holds them, as it does every IFD's (spec/zarrify/tiff.md §5.1
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#51-elements>), and the layout
     presents the page."""
@@ -162,8 +180,8 @@ def test_a_page_of_a_large_tile_table_reads_as_tifffile_reads_it(tmp_path):
     with tifffile.TiffWriter(path) as w:
         w.write(np.zeros((16, 16), np.uint8))
         w.write(values, tile=(16, 16), compression="zlib")
-    b = base(str(path))
-    held = b.ir.raw(b.ir.index("ifds/1/tags/324/value"))
+    with read(str(path)) as parsed:
+        held = parsed.ir.raw(parsed.ir.index("ifds/1/tags/324/value"))
     assert held is not None
     assert len(held) > 65536
     store = zarrify(str(path), layout=Layout(TiffPages()))
@@ -189,6 +207,27 @@ def test_a_page_of_tiles_listed_in_the_strips_tables_reads_as_tifffile_reads_it(
     assert got.chunks == (16, 16)
     np.testing.assert_array_equal(got[...], tifffile.imread(path, key=1))
     np.testing.assert_array_equal(got[...], np.arange(32 * 48, dtype=np.uint8).reshape(32, 48))
+
+
+def test_the_pages_are_written_without_refkv_s_own_output(monkeypatch):
+    """The layout is built of the IR alone: with what makes refkv's own output of an input
+    (`project_async`, and the run's output behind it) raising, zarrify writes the same pages, of
+    a file whose planes refkv's own output stacks in one array."""
+    path = str(TIFF / "tczyx_uint16_deflate.ome.tif")
+    want = zarrify(path, layout=Layout(TiffPages()))
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("refkv's own output was asked for")
+
+    monkeypatch.setattr(project_module, "project_async", refuse)
+    monkeypatch.setattr(Parsed, "_output_async", refuse)
+    monkeypatch.setattr(Parsed, "_output", refuse)
+    with read(path) as parsed, pytest.raises(AssertionError, match="own output was asked for"):
+        project(parsed)  # the patches reach what a plugin would call
+    store = zarrify(path, layout=Layout(TiffPages()))
+    assert store.mapping == want.mapping
+    assert store.sources == want.sources
+    assert sum(k.endswith("/0/zarr.json") for k in store.mapping) == 12  # an array of each page
 
 
 # ---- the errors: one test each

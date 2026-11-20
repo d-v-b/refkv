@@ -36,12 +36,13 @@ from urllib.parse import unquote
 
 from refkv import _sync
 from refkv._extras import missing
+from refkv.build import NoIrError, apply, project, read, seal
 from refkv.errors import ResolutionError
 from refkv.pb import parts
 from refkv.uri import resolve as resolve_uri
 from refkv.zarrify import Rejected, zarrify
 from refkv.zarrify.common import SOURCE_NODE
-from refkv.zarrify.layouts import Layout, LayoutRejected
+from refkv.zarrify.layouts import Layout, LayoutRejected, plan
 
 try:
     import zarr
@@ -83,9 +84,10 @@ class RefkvParser:
     - `policy`: the `refkv.Policy` refkv reads `url` under, and that the chunks' sources must
       satisfy; None for the policy `refkv.zarrify.zarrify` gives the store it builds.
     - `layout`: the `refkv.zarrify.layouts.Layout` to zarrify with; `DEFAULT_LAYOUT` when not
-      given, None for refkv's default layout. An input of a format the layout does not read is
-      zarrified with refkv's default layout instead, so that the parser takes any input refkv
-      can zarrify.
+      given, None for refkv's default layout. An input of a format the layout does not read, or
+      one the layout refuses (a FITS image with `BSCALE = 0`), is written as refkv's own output
+      instead, so that the parser takes any input refkv can zarrify. Either way the input is
+      read once: both are projections of the one parse.
 
     VirtualiZarr names an ENVI raster by its data file, refkv by its `.hdr` header: an input no
     profile accepts is zarrified by the header beside it, found as `ENVIParser` finds it (the
@@ -126,15 +128,24 @@ class RefkvParser:
         return _sync.run(_manifest_store(store, registry, self.group, set(self.skip_variables or ()), mirror))
 
     def _zarrify(self, url: str, registry: ObjectStoreRegistry[Any], scope: str | None = None) -> ReferenceReader:
-        """`url` zarrified with the parser's layout, or with refkv's default layout where the
-        parser's does not read its format; `scope` is `zarrify`'s."""
-        try:
-            return zarrify(url, policy=self.policy, registry=registry, layout=self.layout, scope=scope)
-        except LayoutRejected:
-            if self.layout is None:
-                raise
-            # read again: zarrify does not hand back the output it built for the layout
+        """`url` zarrified: read once, then written by the parser's layout where it reads the
+        input's profile and takes the input, and as refkv's own output of the same reading where
+        it does not. `scope` is `zarrify`'s."""
+        if self.layout is None:
             return zarrify(url, policy=self.policy, registry=registry, scope=scope)
+        planned = plan(self.layout)
+        try:
+            parsed = read(url, policy=self.policy, registry=registry, scope=scope)
+        except NoIrError:  # a store of DICOM files, which takes no layout: refkv's own output
+            return zarrify(url, policy=self.policy, registry=registry, scope=scope)
+        with parsed:
+            info = {"format": parsed.profile, "elements": len(parsed.ir)}
+            if planned.reads(parsed.profile, parsed.version):
+                try:
+                    return apply(planned, [parsed], info=info)
+                except LayoutRejected:  # an input the layout reads the profile of, and refuses
+                    pass
+            return seal(project(parsed).written, [parsed], info=info)
 
 
 def _envi_header(url: str, registry: ObjectStoreRegistry[Any]) -> str | None:
