@@ -852,8 +852,8 @@ index. The facts give the key: `array.declared_by` is the id of that object.
   than the header offset's bytes and the array's is not detected.
 - **No grid** for no input: the profile rejects what it does not read (other file types, framed
   data, a raw data file of another size), and builds no IR of it.
-- **The fill value** is `undefined`: the header's `data ignore value` marks pixels to ignore, and
-  is recorded, not made a fill value.
+- **The grid** is dense: ENVI has no fill value. The header's `data ignore value` marks pixels to
+  ignore, and is recorded, not made a fill value.
 
 **DICOM** ([spec/zarrify/dicom.md](zarrify/dicom.md)). A DICOM file's stored arrays are its
 Pixel Data (7FE0,0010), each lookup table of a `PALETTE COLOR` image, and each Pixel Data in an
