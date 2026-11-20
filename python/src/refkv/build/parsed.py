@@ -95,6 +95,7 @@ class Parsed:
         self.max_bytes = max_bytes
         self._read = 0  # bytes `bytes` has read from sources
         self._ir = refkv.ir.Ir(run.ir)
+        self._mirrored = run.mirrored  # what makes the IR mirror, kept past `close`
         self._description: dict[str, Any] | None = None if isinstance(run, StoreParse) else run.description
         # the profile the run decided, and the version of its convention, as an output's root
         # declares them

@@ -110,35 +110,27 @@ def mirror(parsed: Parsed) -> Written:
     """The IR mirror of an input (spec/conventions.md §8
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>): the entries
     refkv's own output holds under `refkv_source`, their keys from the output's root, with their
-    placement (the mirror's documents are not read when the archive is opened): the IR's table
-    and its view. A store's objects, which its own output also holds there
-    (`refkv_source/objects`), are its projection's to write, not the mirror's. Raises
-    `refkv.zarrify.Rejected` for an IR whose mirror would pass its budget, as `zarrify` does."""
+    placement (the mirror's documents are not read when the archive is opened): the IR's table,
+    its view, and what the input's convention records beside them, the keys and directories a
+    store's or an archive's listing ignored. All of them are bytes entries. A store's objects,
+    which its own output also holds there (`refkv_source/objects`), are its projection's to
+    write, not the mirror's.
+
+    It reads nothing, so it may be made of a closed input, and while the input's built-in output
+    is being made. Raises `refkv.zarrify.Rejected` for an IR whose mirror would pass its budget,
+    as `zarrify` does."""
     try:
-        (_, entries, refs, data, lazy, _), _ = _core.mirror(parsed.ir._core, parsed.profile)  # noqa: SLF001
+        _, entries, refs, _, lazy, _ = parsed._mirrored.entries()  # noqa: SLF001 (the parse's IR and facts)
     except _core.Rejected as e:
         raise Rejected(str(e)) from None
+    if refs:  # the mirror copies what it holds: a reference would be a change to the core's mirror
+        raise AssertionError(f"the IR mirror holds a reference, at {refs[0][0]!r}")
     out = Written()
     prefixes = tuple(lazy)
     for key, document in entries:
         out[key] = bytes(document)
         if key.rpartition("/")[2] == "zarr.json" and key.startswith(prefixes):
             out.at_open[key] = False
-    objects = parsed._objects  # noqa: SLF001 (a store's objects, in the order of its sources)
-    for key, parts in refs:
-        made: list[Part] = []
-        for part in parts:
-            if isinstance(part, bytes):
-                made.append(Literal(part))
-            elif len(part) == 2:  # a range of the file
-                made.append(Ref(parsed, 0, part[0], part[1]))
-            elif part[0] == "object":  # a range of a store's object
-                made.append(Ref(parsed, objects.index(part[1]), part[2], part[3]))
-            else:  # a range of a data source of the mirror's
-                source, offset, length = part
-                held = data[source][offset:offset + length]
-                made.append(Shared(bytes(held)) if held.strip(b"\0") else Zeros(length))
-        out[key] = Value(tuple(made))
     return out
 
 
