@@ -35,7 +35,10 @@ The reference is VirtualiZarr 2.8.0 (`virtualizarr/parsers/hdf/hdf.py`, `parsers
 - **Zipped Zarr v3** (`ZippedZarrParser`): the store's hierarchy as the base has it.
 - **Zarr v2** (`ZarrParser`): the base's nodes, each with its `.zattrs` as attributes, and an
   array's xarray `_ARRAY_DIMENSIONS` its `dimension_names` rather than an attribute (where it names
-  each axis with a string or null; another stays an attribute, on which `ZarrParser` fails).
+  each axis with a string or null; another stays an attribute, on which `ZarrParser` fails). An
+  array of `|S<n>` or `|V<n>`, which the base holds as uint8 with a trailing axis of its bytes, is a
+  `null_terminated_bytes` or `raw_bytes` array without that axis, blosc's `typesize` its length, as
+  `ZarrParser` keeps the source's data type. A root array is its own chunks.
 - **netCDF3** (`NetCDF3Parser`): the base's variables and dimension names, the attributes the base
   presents with a float attribute's values as numbers, and a variable's fill value its
   `_FillValue` in its data type, else zarr-python's default, 0.
@@ -99,8 +102,8 @@ Where VirtualiZarr's presentation is a defect rather than a contract, this layou
 `check` finds no problem on its output but `json` at a document that holds a `NaN` or `Infinity`
 token (only where a source attribute is not finite and `nonfinite` is `"token"`: zarr-python
 writes those tokens, and VirtualiZarr's metadata is written by zarr-python), and `copy` at a
-fixed-length string dataset or an ASCII table, whose chunks are the base's at the keys of a grid
-without the base's trailing axis of bytes, and at a netCDF3 variable whose fill value is
+fixed-length string dataset, a Zarr v2 array of bytes or an ASCII table, whose chunks are the
+base's at the keys of a grid without the base's trailing axis of bytes, and at a netCDF3 variable whose fill value is
 `NetCDF3Parser`'s rather than the base's.
 """
 
@@ -113,7 +116,7 @@ from typing import Any, ClassVar
 
 from refkv.zarrify import Rejected
 from refkv.zarrify.coding import hdf5_attributes, hdf5_value
-from refkv.zarrify.layouts import Base, Entries, EntryValue, chunk_coords, chunk_key, dump
+from refkv.zarrify.layouts import MIRROR, Base, Entries, EntryValue, chunk_coords, chunk_key, dump
 
 # ---- HDF5 and netCDF-4
 
@@ -201,6 +204,21 @@ def _bytes_fill(fill: object, length: int) -> str:
     return base64.standard_b64encode(bytes([byte] * length).rstrip(b"\0")).decode()
 
 
+def _without_byte_axis(doc: dict[str, Any], chunks: Mapping[str, EntryValue], name: str, length: int,
+                       fill: object) -> tuple[dict[str, Any], dict[str, EntryValue]]:
+    """An array the base holds as uint8 with a trailing axis of its items' `length` bytes as one of
+    the data type `name` (`null_terminated_bytes` or `raw_bytes`) of that length without the axis,
+    of fill value `fill`, its chunks at the keys the shorter grid gives them."""
+    doc = {**doc, "shape": doc["shape"][:-1],
+           "chunk_grid": {"name": "regular", "configuration": {
+               "chunk_shape": doc["chunk_grid"]["configuration"]["chunk_shape"][:-1]}},
+           "data_type": {"name": name, "configuration": {"length_bytes": length}}, "fill_value": fill}
+    if doc.get("dimension_names") is not None:
+        doc["dimension_names"] = doc["dimension_names"][:-1]
+    before = {**doc, "shape": [*doc["shape"], length]}
+    return doc, {chunk_key(chunk_coords(k, before)[:-1], doc): v for k, v in chunks.items()}
+
+
 def _hdf5(base: Base, token: bool) -> Entries:
     out: Entries = {}
     for path in base.nodes():
@@ -217,16 +235,9 @@ def _hdf5(base: Base, token: bool) -> Entries:
         doc = dict(doc)
         length = _string_length(base, path, doc)
         if length is not None:
-            doc["shape"] = doc["shape"][:-1]
-            doc["chunk_grid"] = {"name": "regular", "configuration": {
-                "chunk_shape": doc["chunk_grid"]["configuration"]["chunk_shape"][:-1]}}
-            doc["data_type"] = {"name": "null_terminated_bytes", "configuration": {"length_bytes": length}}
-            doc["fill_value"] = _bytes_fill(doc.get("fill_value"), length)
-            if doc.get("dimension_names") is not None:
-                doc["dimension_names"] = doc["dimension_names"][:-1]
+            doc, chunks = _without_byte_axis(doc, chunks, "null_terminated_bytes", length,
+                                             _bytes_fill(doc.get("fill_value"), length))
             kind = "string"
-            before = {**doc, "shape": [*doc["shape"], length]}
-            chunks = {chunk_key(chunk_coords(k, before)[:-1], doc): v for k, v in chunks.items()}
         if doc.get("dimension_names") is None and doc["shape"] == []:
             doc["dimension_names"] = list[str]()
         doc["codecs"] = [VLEN_UTF8 if c == {"name": "vlen-utf8"} else c for c in doc["codecs"]]
@@ -747,6 +758,22 @@ def _envi(base: Base) -> Entries:
 
 # ---- Zarr v2
 
+ZARR2_BYTES = re.compile(r"\|(?P<kind>[SV])(?P<length>[1-9][0-9]*)")  # a Zarr v2 dtype of bytes
+ZARR2_BYTES_TYPES = {"S": "null_terminated_bytes", "V": "raw_bytes"}
+
+
+def _zarr2_bytes_fill(fill: object, kind: str, length: int) -> str:
+    """The Zarr v3 fill value of a `|S<n>` (`kind` S) or `|V<n>` array of Zarr v2 fill value `fill`
+    (the Base64 of its bytes, or null for zero bytes): the Base64 of its `length` bytes, trailing
+    NULs dropped for `null_terminated_bytes`, as zarr-python writes them."""
+    try:
+        raw = base64.standard_b64decode(fill) if isinstance(fill, str) else b""
+    except ValueError:
+        raw = b""
+    raw = raw[:length].ljust(length, b"\0")
+    return base64.standard_b64encode(raw.rstrip(b"\0") if kind == "S" else raw).decode()
+
+
 def _zarr2(base: Base, token: bool) -> Entries:
     """Each node of the base with its `.zattrs` as attributes (refkv's source metadata, zarr2.md §4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#4-source-metadata>), an array's
@@ -763,6 +790,20 @@ def _zarr2(base: Base, token: bool) -> Entries:
             continue
         doc, chunks = base.array(path)
         doc = dict(doc)
+        if not path:  # a root array: its chunks, not the mirror's keys beside them
+            chunks = {k: v for k, v in chunks.items() if not k.startswith(f"{MIRROR}/")}
+        found = metadata.get("metadata") if isinstance(metadata, dict) else None
+        source: Mapping[str, Any] = found if isinstance(found, dict) else {}
+        dtype = ZARR2_BYTES.fullmatch(str(source.get("dtype")))
+        shape, grid = doc["shape"], doc["chunk_grid"]["configuration"]["chunk_shape"]
+        length = int(dtype["length"]) if dtype else 0
+        if dtype and doc["data_type"] == "uint8" and shape and shape[-1] == length and grid[-1] == length:
+            # zarr2.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#3-arrays> holds
+            # |S<n> and |V<n> as uint8 with a trailing axis; ZarrParser keeps the source's data type
+            doc, chunks = _without_byte_axis(doc, chunks, ZARR2_BYTES_TYPES[dtype["kind"]], length,
+                                             _zarr2_bytes_fill(source.get("fill_value"), dtype["kind"], length))
+            doc["codecs"] = [{**c, "configuration": {**c["configuration"], "typesize": length}}
+                             if c.get("name") == "blosc" and "configuration" in c else c for c in doc["codecs"]]
         names = attributes.get("_ARRAY_DIMENSIONS")
         # names a Zarr v3 array takes (ZarrParser fails on others, which stay an attribute)
         if isinstance(names, list) and len(names) == len(doc["shape"]) and \

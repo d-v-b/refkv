@@ -231,7 +231,8 @@ def latin_hdr(path: Path) -> Path:
 
 def zarr_v2(path: Path) -> Path:
     """A Zarr v2 directory: xarray's `_ARRAY_DIMENSIONS`, a null fill value, Fortran order, the `/`
-    separator, zstd, zlib and no compressor, a nested group, and an array without dimension names."""
+    separator, zstd, zlib and no compressor, a nested group, an array without dimension names, and
+    arrays of `|S<n>` (one a scalar) and `|V<n>`."""
     g = zarr.open_group(path, mode="w", zarr_format=2, attributes={"title": "v2", "list": [1, 2]})
     g.create_array("temp", shape=(4, 6), chunks=(2, 3), dtype="f4", fill_value=-1.0,
                    compressors=numcodecs.Zstd(level=3),
@@ -243,6 +244,12 @@ def zarr_v2(path: Path) -> Path:
                    attributes={"_ARRAY_DIMENSIONS": ["a", "b"], "valid": [0, 9]})[:] = np.arange(12).reshape(3, 4)
     g.create_group("sub", attributes={"note": "nested"}).create_array(
         "deep", shape=(2,), chunks=(2,), dtype="u1", attributes={"_ARRAY_DIMENSIONS": ["n"]})[:] = [1, 2]
+    # bytes, which the base holds as uint8 with a trailing axis
+    g.create_array("ids", shape=(3,), chunks=(2,), dtype="|S3", fill_value=b"aaa",
+                   attributes={"_ARRAY_DIMENSIONS": ["f"]})[:] = np.array([b"ab", b"cde", b"f"])
+    g.create_array("crs", shape=(), dtype="|S1", attributes={"_ARRAY_DIMENSIONS": []})[...] = b"x"
+    g.create_array("raw", shape=(2,), chunks=(2,), dtype="|V4",
+                   attributes={"_ARRAY_DIMENSIONS": ["r"]})[:] = np.frombuffer(b"abcdefgh", "V4")
     return path
 
 
@@ -583,6 +590,20 @@ def test_where_virtualizarr_fails_the_layout_reads_as_refkv_s_default_layout(tmp
     assert sorted(mine) == sorted(p for p in default if not p.startswith("refkv_source"))
     for path_, array in mine.items():
         assert np.asarray(array[...]).tobytes() == np.asarray(default[path_][...]).tobytes(), path_
+
+
+def test_a_zarr_v2_root_array_is_its_chunks_alone():
+    """A Zarr v2 store whose root is an array, which ZarrParser does not open as a group: the
+    array's own chunks, not the mirror's keys beside them, and it reads as refkv's default
+    layout's."""
+    path = str(FIXTURES / "zarr2/zarr2_root_array_objects")
+    b = base(path)
+    out = VirtualiZarr().write(b, {"nonfinite": "token"})
+    assert not [k for k in out if k.startswith("refkv_source/")]
+    assert [p for p in check(b, out) if p.code not in ALLOWED] == []
+    mine = zarr.open_array(refkv.zarr.store(zarrify(path, layout=Layout(NAME))), mode="r")
+    default = zarr.open_array(refkv.zarr.store(zarrify(path)), mode="r")
+    assert np.asarray(mine[...]).tobytes() == np.asarray(default[...]).tobytes()
 
 
 def test_a_fill_value_virtualizarr_fails_on_is_refkv_s(tmp_path):
