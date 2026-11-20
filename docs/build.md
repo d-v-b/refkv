@@ -134,9 +134,9 @@ with read("weights.npz") as p:
     position = {a.element: k for k, a in enumerate(described)}
     out = Written({"zarr.json": b'{"zarr_format":3,"node_type":"group","attributes":{}}'})
     for entry in p.description["arrays"]:          # what the NumPy parser found
-        k = position.get(entry["stored"])          # None for a deflated member: not described yet
-        if k is None or described[k].grid is None: # no grid: the IR does not model its storage
-            continue
+        k = position[entry["stored"]]
+        if "deflate" in entry or described[k].grid is None:
+            continue                               # see below
         t = npy_array_type(entry["header"])        # the header's declaration, as the profile reads it
         array = stored_array(p, k, t["data_type"], endian=t["endian"],
                              inner_shape=[t["trailing"]] if t["trailing"] else (),
@@ -153,8 +153,12 @@ the profile's description of the input, where its parser returns one: NumPy's do
 their projections read the descriptions too. `stored_array` raises `ValueError` for an array it
 cannot write so: one whose storage the IR does not model (a description with no grid, such as a
 NumPy `a<n>` array's, which the profile still presents from its header), whose elements are not
-whole bytes, whose units are encoded (`zarr_codecs` translates only the empty chain yet), or whose
-units lie in the members of a run of elements (an ND2 file's frames).
+whole bytes, whose units are encoded (`zarr_codecs` translates only the empty chain yet), whose
+units lie in the members of a run of elements (an ND2 file's frames), or whose units lie in a
+derived space: a deflated `.npz` member's data is a range of what its stream inflates to, which no
+range of the file holds. For such an array a caller references the stream itself,
+`p.encoded(p.ir.space(entry["stored"]))`, and writes the codecs that decode it (`gzip_member` and
+`gzip_codecs`, below).
 
 ## The pieces of refkv's own output
 
@@ -166,7 +170,7 @@ call, so that a caller's output can keep any piece of refkv's convention without
 | `grid(span, shape, item_size, limit=)` | contiguous values cut into chunks as [conventions §7](../spec/conventions.md#7-source-values-as-arrays) cuts them: the chunk shape, and each chunk's range of `span`, an edge chunk padded with `Zeros`, or a `Copy` where the padded reference would not fit |
 | `filled(value)` | a value with a `Copy` as its bytes, read through the input; any other value as it is |
 | `gzip_member(stream, crc32=, size=)` | a raw deflate stream (a ZIP member's) framed as the gzip member the `gzip` codec reads, the stream referenced where it lies |
-| `mirror(parsed)` | the IR mirror's entries under `refkv_source` ([conventions §8](../spec/conventions.md#8-the-ir-mirror)), with their placement |
+| `mirror(parsed)` | the IR mirror's entries under `refkv_source` ([conventions §8](../spec/conventions.md#8-the-ir-mirror)), with their placement: the table, the view, and the keys a store's or an archive's listing ignored, which the convention records there. A store's objects under `refkv_source/objects` are its projection's to write |
 | `declaration(parsed, path, own=, attributes=)` | a node's attributes with refkv's convention declared ([conventions §2](../spec/conventions.md#2-attributes)): at the root, the profile, its version and the source |
 
 ```python

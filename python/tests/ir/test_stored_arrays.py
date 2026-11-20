@@ -5,6 +5,7 @@ read through the Arrow PyCapsule interface; the reader's reading of every form o
 and one test per form it refuses."""
 
 import ast
+import io
 import json
 import struct
 import zipfile
@@ -85,8 +86,9 @@ def described(path: Path) -> tuple[Ir, Stored, dict]:
 
 def against_numpy(path: Path, stored: Stored, facts: dict) -> list[tuple[StoredArray, Header]]:
     """Each description with NumPy's reading of its header: a `.npy` file's one, and, of a `.npz`
-    archive, each stored member's whose header the parser read (a member the profile does not
-    present included); a deflated member has none."""
+    archive, each stored or deflated member's whose header the parser read (a member the profile
+    does not present included). A deflated member's header is read from what its stream inflates
+    to, where its description's elements are: NumPy's offsets are that stream's."""
     by_path = {a.path: a for a in stored.arrays}
     if path.suffix == ".npy":
         with path.open("rb") as f:
@@ -99,13 +101,17 @@ def against_numpy(path: Path, stored: Stored, facts: dict) -> list[tuple[StoredA
     with zipfile.ZipFile(path) as z, path.open("rb") as f:
         for i, info in enumerate(z.infolist()):
             mine = [a for p, a in by_path.items() if (p or "").startswith(f"entries/{i}/")]
-            if info.compress_type != zipfile.ZIP_STORED or "header" not in members[i]:
+            if info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED) or "header" not in members[i]:
                 assert not mine, info.filename
                 continue
-            f.seek(info.header_offset)
-            n, e = struct.unpack("<HH", f.read(30)[26:30])
-            f.seek(info.header_offset + 30 + n + e)
-            h = numpy_header(f)
+            if info.compress_type == zipfile.ZIP_DEFLATED:
+                with z.open(info) as member:
+                    h = numpy_header(io.BytesIO(member.read()))
+            else:
+                f.seek(info.header_offset)
+                n, e = struct.unpack("<HH", f.read(30)[26:30])
+                f.seek(info.header_offset + 30 + n + e)
+                h = numpy_header(f)
             assert h is not None, info.filename
             assert [a.path for a in mine] == [f"entries/{i}/data/header"], info.filename
             pairs.append((mine[0], h))

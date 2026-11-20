@@ -3,6 +3,7 @@ stores, built with no output of refkv's (the design of d-v-b/refkv#278: a layout
 the IR). NumPy is the first format whose description a caller reads: its files are presented here
 from their stored arrays and headers, and read back against `numpy.load`."""
 
+import zlib
 from pathlib import Path
 from typing import Any, cast
 
@@ -27,7 +28,7 @@ def as_stored(parsed: Parsed) -> Written:
     position = {a.element: k for k, a in enumerate(parsed.ir.stored_arrays().arrays)}
     out = Written({"zarr.json": dump({"zarr_format": 3, "node_type": "group", "attributes": {}})})
     for entry in description["arrays"]:
-        if entry["stored"] is None:  # a deflated member, which the IR does not describe yet
+        if "deflate" in entry:  # a deflated member: its data lies in what its stream inflates to
             continue
         declared = npy_array_type(entry["header"])
         array = stored_array(parsed, position[entry["stored"]], declared["data_type"], endian=declared["endian"],
@@ -69,7 +70,7 @@ def test_numpy_files_read_from_their_stored_arrays_as_numpy_reads_them(monkeypat
         with read(path) as parsed:
             assert parsed.profile == "npy"
             description: Any = parsed.description
-            presented = [e for e in description["arrays"] if e["stored"] is not None]
+            presented = [e for e in description["arrays"] if "deflate" not in e]
             store = refkv.zarr.store(seal(as_stored(parsed), [parsed]))
         for entry in presented:
             declared = npy_array_type(entry["header"])
@@ -165,3 +166,50 @@ def test_stored_array_refuses_a_chain_it_has_no_codecs_for():
                    and a.item_bits and a.item_bits % 8 == 0]
         with pytest.raises(ValueError, match="no Zarr codecs yet"):
             stored_array(parsed, encoded[0], "uint8")
+
+
+def test_a_deflated_members_stream_is_the_bytes_its_elements_are_derived_from():
+    """A deflated `.npz` member's header and data are elements of what its stream inflates to:
+    the description keys its stored array, whose one unit is the `data` element there, and
+    `Parsed.encoded` gives the stream, which inflates to the preamble, the header and the data."""
+    path = FIXTURES / "npy" / "npz_compressed.npz"
+    with read(path) as parsed:
+        description: Any = parsed.description
+        position = {a.element: k for k, a in enumerate(parsed.ir.stored_arrays().arrays)}
+        seen = 0
+        for entry in description["arrays"]:
+            header = entry["stored"]
+            stream = parsed.ir.space(header)
+            assert stream != 0
+            ref = parsed.encoded(stream)
+            inflated = zlib.decompress(parsed.bytes((ref.source, ref.offset, ref.length)), wbits=-15)
+            assert len(inflated) == entry["deflate"]["size"]
+            assert zlib.crc32(inflated) == entry["deflate"]["crc"]
+            start, length = parsed.ir.extent(header)
+            assert inflated[start:start + length].decode("latin-1") == entry["header"]
+            want = expected(path, entry["path"])
+            units = parsed.ir.units(position[header])
+            if not want.size:  # an array of no elements has no data, and no unit
+                assert units == []
+                assert start + length == len(inflated)
+                continue
+            [unit] = units
+            assert unit.element is not None
+            assert parsed.ir.space(unit.element) == stream
+            start, length = parsed.ir.extent(unit.element)
+            # the data ends the stream, in the order it is stored in
+            assert (start + length, inflated[start:]) == (len(inflated), want.tobytes("A"))
+            seen += 1
+        assert seen >= 2
+
+
+def test_stored_array_refuses_a_unit_in_a_derived_space():
+    with read(FIXTURES / "npy" / "npz_compressed.npz") as parsed, \
+            pytest.raises(ValueError, match="lies in what 'entries/0/data' decodes to"):
+        stored_array(parsed, 0, "float64", endian="little")
+
+
+def test_encoded_refuses_an_element_that_is_not_derived():
+    with read(FIXTURES / "npy" / "npz_compressed.npz") as parsed, \
+            pytest.raises(ValueError, match="'entries/0/data/header' is not an element derived from bytes"):
+        parsed.encoded(parsed.ir.index("entries/0/data/header"))

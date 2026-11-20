@@ -173,7 +173,7 @@ pub struct Run {
     /// the parser's IR and facts, once it is done; then the values the view shows
     /// that it did not read are read (`fill`) and held. The IR is shared once the run is done
     /// (`parsed`), and not changed after
-    parsed: Option<(Arc<Ir>, serde_json::Value)>,
+    parsed: Option<(Arc<Ir>, Arc<serde_json::Value>)>,
     fill: Vec<(u32, u64, u64)>,
     /// the fill batch's ranges, and the planner's (requests, bytes) before and after it
     fill_counts: (u64, (u64, u64), (u64, u64)),
@@ -281,7 +281,7 @@ impl Run {
                         r.dedup();
                         r
                     };
-                    self.parsed = Some((Arc::new(ir), facts));
+                    self.parsed = Some((Arc::new(ir), Arc::new(facts)));
                     if ranges.is_empty() {
                         return self.read_copies();
                     }
@@ -356,7 +356,7 @@ impl Run {
         if self.beside {
             return Err("internal: a file that names siblings has no file run's IR".into());
         }
-        self.parsed.as_ref().map(|(ir, facts)| (ir, facts)).ok_or_else(|| "internal: no IR".into())
+        self.parsed.as_ref().map(|(ir, facts)| (ir, &**facts)).ok_or_else(|| "internal: no IR".into())
     }
 
     /// The profile's description of the source (`FileProfile::described`), without the run's
@@ -439,6 +439,7 @@ impl Run {
         }
         let stats = self.stats();
         let (ir, facts) = self.parsed.ok_or("internal: no IR")?;
+        let facts = Arc::try_unwrap(facts).unwrap_or_else(|shared| (*shared).clone());
         Ok((Arc::try_unwrap(ir).unwrap_or_else(|shared| (*shared).clone()), facts, stats, self.copied))
     }
 }
@@ -479,17 +480,32 @@ pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_j
         m.insert("elements".into(), ir.len().into());
     }
     if mirror {
-        let folded = crate::mirror::mirror(ir, &mut out, format.name())?;
+        let folded = mirrored(format, ir, facts, &mut out)?;
         if let Some(m) = out.summary.as_object_mut() {
             m.insert("folded".into(), folded.json());
         }
-        format.profile().mirrored(&mut out, facts)?;
     }
     crate::seal::out(&mut out, Some(ir.size), &Default::default(), checksums && written)?;
     Ok(out)
 }
 
+/// Writes to `out` the mirror of a file's IR under `refkv_source`, and what its profile records
+/// beside it from the parser's facts (the entries a Zarr v3 or SAFE zip's listing ignored): what
+/// `output` writes there, and what the table folded.
+pub fn mirrored(format: Format, ir: &Ir, facts: &serde_json::Value, out: &mut crate::out::Out) -> Result<crate::mirror::Folded, String> {
+    let folded = crate::mirror::mirror(ir, out, format.name())?;
+    format.profile().mirrored(out, facts)?;
+    Ok(folded)
+}
+
 impl Run {
+    /// The IR and the facts of a run that is done, shared with the run: what `mirrored` reads,
+    /// for a host that makes the mirror while the run is used elsewhere.
+    pub fn shared(&self) -> Result<(Arc<Ir>, Arc<serde_json::Value>), String> {
+        self.parsed()?;
+        self.parsed.as_ref().map(|(ir, facts)| (Arc::clone(ir), Arc::clone(facts))).ok_or_else(|| "internal: no IR".into())
+    }
+
     /// Finishes, projects and mirrors: the output (`output`), for a host that records the
     /// ranges' checksums when `checksums`.
     pub fn into_output(self, url: &str, mirror: bool, checksums: bool) -> Result<crate::out::Out, crate::seal::Refusal> {
