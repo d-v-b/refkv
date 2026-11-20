@@ -280,4 +280,12 @@ class VsiFiles(Store):
 
     @override
     def close(self) -> None:
-        pass
+        """Nothing: the files stay open, since an output's checksums are read through them after
+        the run (`read_range`). `close_files` releases them."""
+
+    def close_files(self) -> None:
+        """Closes every file the input opened, the named one among them (a local file's mapping):
+        nothing is read through this after."""
+        with self._lock:
+            for t in self.transports.values():
+                t.close()

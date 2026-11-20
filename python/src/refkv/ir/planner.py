@@ -122,6 +122,11 @@ class FileTransport:
     def fetch(self, spans: list[tuple[int, int]]) -> tuple[list[bytes], float]:
         return [self.get(a, b) for a, b in spans], 0.0
 
+    def close(self) -> None:
+        """Unmaps the file: a read after it is a ValueError. Closing twice does nothing more."""
+        if isinstance(self.data, mmap.mmap):
+            self.data.close()
+
 
 class ObjectTransport:
     """The object at `path` of a store the application registered for a prefix of `url`
@@ -159,6 +164,9 @@ class ObjectTransport:
             if len(data) != b - a:
                 raise OSError(f"{self.url}: {len(data)} bytes for [{a}, {b})")
         return got, time.perf_counter() - t
+
+    def close(self) -> None:
+        """Nothing to release: the store is the application's, and keeps its own connections."""
 
 
 class HttpTransport:
@@ -295,6 +303,9 @@ class HttpTransport:
         got = [self.get(*spans[0])] if len(spans) == 1 else self.get_many(spans)
         return got, time.perf_counter() - t
 
+    def close(self) -> None:
+        """Nothing to release: each request makes and closes its own connection."""
+
 
 def _send(url: str, headers: dict[str, str], check: Check | None, unchecked_proxy: bool,
           multipart: bool) -> tuple[int, Message, bytes]:
@@ -388,6 +399,11 @@ class Transport(Protocol):
 
     def fetch(self, spans: list[tuple[int, int]]) -> tuple[list[bytes] | None, float]:
         """The bytes of `spans`, and the seconds the read took."""
+        ...
+
+    def close(self) -> None:
+        """Releases what the transport holds of the source (a local file's mapping); it is not
+        read through after. Whoever opened it closes it, once nothing reads through it."""
         ...
 
 

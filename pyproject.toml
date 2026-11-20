@@ -177,6 +177,7 @@ search-path = [
     "conformance/impls/python",
     "conformance/impls/python/tests",
     "rust/refkv-phkv/bench",
+    "rust/refkv-cli/tests",
     "spec",
     "spec/tools",
 ]

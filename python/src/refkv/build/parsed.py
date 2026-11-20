@@ -1,57 +1,82 @@
 """Reading an input for an output built with `refkv.build`: `read`, and the `Parsed` it returns, with
-accessors of the IR like those of `refkv.zarrify.layouts.Base`, which keeps its own until the plugin
-layer moves onto `Parsed` (the design of d-v-b/refkv#278, "Reading" and "References and values").
+the accessors that turn the IR's elements into values (the design of d-v-b/refkv#278, "Reading" and
+"References and values"). A `Parsed` is what a plugin layout is given of each input.
 
-In this first step `read` runs the whole `zarrify` path, so that sniffing, siblings, pins, the
-reader policy and the object stores are exactly `zarrify`'s, and keeps the IR and the sources it
-opened; the built-in output it also made is `project`'s. A parse that stops before the projection
-comes with the plan."""
+`read` runs `zarrify`'s own parse, so that sniffing, siblings, pins, the reader policy and the
+object stores are exactly `zarrify`'s, and stops there: it keeps the IR and the sources it
+opened, and makes no output. The built-in output is `project`'s, made when it is asked for, with
+the reads that output alone needs (the ranges a projection copies or samples)."""
 
 from __future__ import annotations
 
 import asyncio
 import bisect
+import concurrent.futures
 import dataclasses
 import json
 import os
+import threading
+import warnings
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Self, cast, overload
+from typing import TYPE_CHECKING, Any, Self, overload
 
-from refkv import Range, ReferenceStore, Source, _core, _sync
-from refkv.ir import Ir
+import refkv.ir  # its Ir, read at call time: refkv.ir imports refkv.zarrify, which imports this module (a cycle)
+import refkv.zarrify as _zarrify  # its parse, read at call time: refkv.zarrify imports this module (a cycle)
+from refkv import Range, ReferenceStore, Source, _sync
+from refkv.errors import RefkvError
 from refkv.ir.kind import Kind
-from refkv.ir.store import StoreIrOutput
+from refkv.ir.store import StoreIrOutput, StoreParse
 from refkv.policy import Policy
 from refkv.reader import Registry, Resolver
 from refkv.uri import path_reference
-from refkv.zarrify import _zarrify_async, is_store
-from refkv.zarrify.common import Output, reading_own_files
+from refkv.zarrify.common import PROFILES, Output, reading_own_files
 from refkv.zarrify.layouts import MERGE_GAP
 from refkv.zarrify.store.urls import object_url
 
 from .values import Part, Ref, Shared, Value
 
-__all__ = ["Parsed", "read", "read_async"]
+if TYPE_CHECKING:
+    from refkv.ir import Ir
+    from refkv.zarrify import _Parse
+    from refkv.zarrify.store.beside import Scope
+
+__all__ = ["NoIrError", "Parsed", "read", "read_async"]
 
 STRUCT, VALUE, DATA, DERIVED, ALIAS, GAP, OBJECT = (Kind.STRUCT, Kind.VALUE, Kind.DATA, Kind.DERIVED, Kind.ALIAS,
                                                     Kind.GAP, Kind.OBJECT)
 MAX_BYTES = 64 << 20  # the default bound on what `Parsed.bytes` reads from sources
 
 
+class NoIrError(ValueError):
+    """An input whose run keeps no IR, so that `read` has nothing to give: a store of DICOM
+    files, which is joined from its files' outputs
+    (spec/zarrify/dicom.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#9-the-store-form>)."""
+
+
 class Parsed:
     """An input as `read` read it: its profile, its IR, its sources (each url source with its size
-    as the run found it), and the accessors that turn IR elements into values. It keeps what it
-    needs to read its sources until it is closed (a context manager)."""
+    as the run found it), and the accessors that turn IR elements into values.
 
-    def __init__(self, fmt: str, out: Output | StoreIrOutput, location: str, *, policy: Policy | None,
+    It holds the input open (a local file is mapped) until it is closed, so that the built-in
+    output can be made of it (`refkv.build.project`). Use it as a context manager, `with
+    read(...) as p:` or `async with await read_async(...) as p:`, or call `close()`: one that is
+    collected unclosed releases the input then, with a `ResourceWarning`."""
+
+    def __init__(self, parse: _Parse, location: str, *, policy: Policy | None,
                  registry: Resolver, checksums: bool, max_bytes: int, registry_given: Registry | None = None,
                  read_base: str | None = None) -> None:
-        self._fmt = fmt
-        # the run's checksum function holds its transport, a local file's mapping among them, which
-        # would keep the file mapped as long as this lives (and on Windows, unable to shrink or go):
-        # `Parsed` reads its sources itself, and `seal` checksums them
-        out.checksum = None
-        self._out = out
+        self._fmt = parse.fmt
+        # the parse keeps what the built-in output reads through (a file's transport, a local
+        # file's mapping among them) until this is closed
+        self._parse: _Parse | None = parse
+        # the built-in output, once asked for: made by the first to ask, which the others wait for
+        self._made: concurrent.futures.Future[Output | StoreIrOutput] | None = None
+        self._making = threading.Lock()
+        # the last error of a read of the input refkv made itself (a source's bytes, the built-in
+        # output's reads), kept so that `refkv.build.apply` can tell it from a plugin's own
+        self._own_error: BaseException | None = None
+        run = parse.parse
         self._location = location
         self.policy = policy
         self.registry = registry
@@ -61,24 +86,24 @@ class Parsed:
         # where the sources are read, made absolute now: a relative path is the working directory's
         # when `read` ran, not when the bytes are read
         cwd = path_reference(str(Path.cwd())) + "/"
-        base = read_base if read_base is not None else out.url
+        base = read_base if read_base is not None else run.url
         self._read_base = base if "://" in base or base.startswith("/") or _drive(base) else cwd + base
         self._file_place = location if "://" in location else path_reference(str(Path(location).absolute()))
         self.checksums = checksums
         self.max_bytes = max_bytes
         self._read = 0  # bytes `bytes` has read from sources
-        self._ir = Ir(cast("_core.Ir", out.ir))  # read_async keeps only a run with an IR
-        entries = out.entries if isinstance(out, StoreIrOutput) else out.bytes_entries
-        prop = json.loads(entries["zarr.json"])["attributes"]["refkv_zarrified"]
-        self.profile: str = prop["profile"]
-        self.version: int = prop["version"]
-        if isinstance(out, StoreIrOutput):  # every object the run listed, by key
-            self._objects = sorted(out.sizes, key=lambda k: k.encode())
-            self.sources: tuple[Source, ...] = tuple(Source(url=object_url(out.url, k), size=out.sizes[k])
+        self._ir = refkv.ir.Ir(run.ir)
+        # the profile the run decided, and the version of its convention, as an output's root
+        # declares them
+        self.profile: str = parse.fmt
+        self.version: int = PROFILES[parse.fmt][1]
+        if isinstance(run, StoreParse):  # every object the run listed, by key
+            self._objects = sorted(run.sizes, key=lambda k: k.encode())
+            self.sources: tuple[Source, ...] = tuple(Source(url=object_url(run.url, k), size=run.sizes[k])
                                                      for k in self._objects)
         else:
             self._objects = []
-            self.sources = (Source(url=out.url, size=out.size, etag=out.etag),)
+            self.sources = (Source(url=run.url, size=run.size, etag=run.etag),)
         self._index: dict[int, tuple[list[int], list[tuple[int, int, int, int | None]]]] | None = None
         self._sources_read: tuple[Source, ...] | None = None
         self.closed = False
@@ -102,15 +127,79 @@ class Parsed:
 
     def close(self) -> None:
         """Releases what reads the sources; a closed `Parsed`'s values can still be sealed without
-        checksums, since its sources' sizes and pins are known."""
+        checksums, since its sources' sizes and pins are known. Its built-in output (`project`) is
+        there if it was asked for before, and is not made after."""
         self._sources_read = None
+        parse, self._parse = self._parse, None
+        if parse is not None:
+            parse.close()
         self.closed = True
+
+    async def _output_async(self) -> Output | StoreIrOutput:
+        """The built-in output of the input, made once (`refkv.build.project`): an output only
+        built from, so not held to the payload limit with checksums, which `seal` holds what is
+        written to.
+
+        It is made by a task of its own on refkv's loop, which the first to ask starts and every
+        caller waits for, from any thread or loop: so one output is made, one caller at a time
+        uses the run, and a caller that is cancelled stops waiting without stopping the work or
+        the others. One that failed is made again when next asked for, and those waiting for it
+        get its error."""
+        return await asyncio.wrap_future(self._output())
+
+    def _output(self) -> concurrent.futures.Future[Output | StoreIrOutput]:
+        """The future of the built-in output, its making started if it was not."""
+        with self._making:
+            if self._made is not None:
+                return self._made
+            if self._parse is None:
+                raise ValueError(f"{self._location}: closed before its built-in output was asked for")
+            # a future of its own, running: a waiter's cancellation, which asyncio passes on to
+            # the future it waits for, neither cancels it nor reaches the task
+            made: concurrent.futures.Future[Output | StoreIrOutput] = concurrent.futures.Future()
+            made.set_running_or_notify_cancel()
+            self._made = made
+            task = _sync.submit(self._make(self._parse))
+
+        def settle(done: concurrent.futures.Future[Output | StoreIrOutput]) -> None:
+            error = concurrent.futures.CancelledError() if done.cancelled() else done.exception()
+            if error is None:
+                made.set_result(done.result())
+                return
+            with self._making:
+                self._made = None
+            made.set_exception(error)
+
+        task.add_done_callback(settle)
+        return made
+
+    async def _make(self, parse: _Parse) -> Output | StoreIrOutput:
+        out = await parse.output_async(written=False)
+        # the run's checksum function holds what read the input: `Parsed` reads its sources
+        # itself, and `seal` checksums them
+        out.checksum = None
+        if isinstance(out, Output):  # the pin, after the output's own reads
+            self.sources = (dataclasses.replace(self.sources[0], etag=out.etag),)
+            self._sources_read = None
+        return out
 
     def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_: object) -> None:
         self.close()
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        self.close()
+
+    def __del__(self, _warn: Callable[..., None] = warnings.warn) -> None:
+        # `closed` is unset where __init__ raised before it held anything
+        if not getattr(self, "closed", True):
+            _warn(f"unclosed refkv.build.Parsed of {self._location!r}", ResourceWarning, stacklevel=2, source=self)
+            self.close()
 
     # ---- elements
 
@@ -366,6 +455,9 @@ class Parsed:
             return list(await asyncio.gather(*(store.get_async(k) for k in mapping)))
         try:
             got = [b or b"" for b in _sync.run(each())]
+        except (OSError, RefkvError) as e:  # the read failed, or the policy refused it
+            self._own_error = e
+            raise
         except RuntimeError as e:  # called on refkv's own event loop, which this blocking read would stall
             raise RuntimeError("Parsed.bytes and seal's checksums block: call them from a thread, not from "
                                "refkv's event loop") from e
@@ -457,34 +549,56 @@ def _fetched(ranges: list[tuple[int, int, int]], gap: int = MERGE_GAP) -> int:
 
 async def read_async(location: str | os.PathLike[str], url: str | None = None, *, policy: Policy | None = None,
                      registry: Registry | None = None, checksums: bool = False,
-                     max_bytes: int = MAX_BYTES) -> Parsed:
+                     max_bytes: int = MAX_BYTES, scope: Scope | None = None) -> Parsed:
     """The input at `location` read as `zarrify` reads it (the same sniffing, siblings, pins, reader
-    policy and object stores), as a `Parsed`. Raises `Rejected` as `zarrify` does, and ValueError
+    policy and object stores), as a `Parsed`. `scope` is `zarrify`'s: what a file input may read
+    besides itself. Raises `Rejected` as `zarrify` does, and `NoIrError` (a ValueError)
     for an input whose run keeps no IR (a store of DICOM files)."""
     location = os.fspath(location)
     resolver = Resolver(registry)
-    # the built-in output is only built from here: `seal` holds what is written to the limits
-    fmt, out = await _zarrify_async(location, url, checksums=checksums, policy=policy, registry=resolver,
-                                    written=False)
-    if not isinstance(out, (Output, StoreIrOutput)) or out.ir is None:
-        raise ValueError(f"{location}: its run keeps no IR, so refkv.build cannot read it")
+    # the built-in output, if asked for, is only built from: `seal` holds what is written to the limits
+    parse = await _zarrify._parse_async(location, url, checksums=checksums, policy=policy,  # noqa: SLF001
+                                        registry=resolver, written=False, scope=scope)
+    if not isinstance(parse, _zarrify._Parse):  # noqa: SLF001
+        raise NoIrError(f"{location}: its run keeps no IR, so refkv.build cannot read it")
+    # a `file:` URL, read as its path
+    return await parsed_async(parse, _zarrify.local_path(location, policy), url, policy=policy, registry=registry,
+                              resolver=resolver, checksums=checksums, max_bytes=max_bytes, scope=scope)
+
+
+async def parsed_async(parse: _Parse, location: str, url: str | None, *, policy: Policy | None,
+                       registry: Registry | None, resolver: Resolver, checksums: bool,
+                       max_bytes: int = MAX_BYTES, scope: Scope | None = None) -> Parsed:
+    """The `Parsed` of a parse `refkv.zarrify` made of the input at `location` (named `url`),
+    which it closes with it: for `read`, and for `zarrify` with a plugin layout, which parses
+    with its own options. `scope` is the scope the input was parsed with."""
+    run = parse.parse
     read_base = None
-    if isinstance(out, StoreIrOutput) and url is not None and is_store(location):
-        # a store's objects lie under it, where `read` opened them; the output names them under `url`
-        read_base = location if "://" in location else path_reference(os.path.abspath(location))  # noqa: PTH100, ASYNC240 (no I/O: the path made absolute)
-        read_base = read_base if read_base.endswith("/") else read_base + "/"
-    elif isinstance(out, StoreIrOutput) and url is not None:
-        # a file read as a store, its objects found beside it: read again as `read` opened them
-        _, local = await _zarrify_async(location, None, policy=policy, registry=resolver)
-        if not isinstance(local, StoreIrOutput) or sorted(local.sizes.items()) != sorted(out.sizes.items()):
-            raise ValueError(f"{location}: its objects, read at {location} and named under {url}, differ")
-        read_base = local.url
-    return Parsed(fmt, out, location, policy=policy, registry=resolver, checksums=checksums, max_bytes=max_bytes,
-                  registry_given=registry, read_base=read_base)
+    try:
+        if isinstance(run, StoreParse) and url is not None and _zarrify.is_store(location):
+            # a store's objects lie under it, where `read` opened them; the output names them under `url`
+            read_base = location if "://" in location else path_reference(os.path.abspath(location))  # noqa: PTH100, ASYNC240 (no I/O: the path made absolute)
+            read_base = read_base if read_base.endswith("/") else read_base + "/"
+        elif isinstance(run, StoreParse) and url is not None:
+            # a file read as a store, its objects found beside it: read again as `read` opened them
+            local = await _zarrify._parse_async(location, None, policy=policy, registry=resolver,  # noqa: SLF001
+                                                fmt=parse.fmt, scope=scope)
+            there = local.parse if isinstance(local, _zarrify._Parse) else None  # noqa: SLF001
+            if isinstance(local, _zarrify._Parse):  # noqa: SLF001
+                local.close()  # read for where its objects lie, and their sizes
+            if not isinstance(there, StoreParse) or sorted(there.sizes.items()) != sorted(run.sizes.items()):
+                raise ValueError(f"{location}: its objects, read at {location} and named under {url}, differ")  # noqa: TRY301
+            read_base = there.url
+        return Parsed(parse, location, policy=policy, registry=resolver, checksums=checksums, max_bytes=max_bytes,
+                      registry_given=registry, read_base=read_base)
+    except BaseException:
+        parse.close()
+        raise
 
 
 def read(location: str | os.PathLike[str], url: str | None = None, *, policy: Policy | None = None,
-         registry: Registry | None = None, checksums: bool = False, max_bytes: int = MAX_BYTES) -> Parsed:
+         registry: Registry | None = None, checksums: bool = False, max_bytes: int = MAX_BYTES,
+         scope: Scope | None = None) -> Parsed:
     """`read_async`, the caller's thread waiting for it."""
     return _sync.run(read_async(location, url, policy=policy, registry=registry, checksums=checksums,
-                                max_bytes=max_bytes))
+                                max_bytes=max_bytes, scope=scope))

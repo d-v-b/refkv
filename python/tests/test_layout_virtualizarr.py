@@ -1,12 +1,13 @@
 """The layout `refkv.virtualizarr` (python/src/refkv/zarrify/layouts/virtualizarr.py) against
-VirtualiZarr's own parsers: over HDF5, netCDF-4, FITS and zipped Zarr v3 files, every document is
+VirtualiZarr's own parsers: over HDF5, netCDF-4, netCDF3, FITS, ENVI and zipped Zarr v3 files, every document is
 the one VirtualiZarr's `ManifestStore` serves but for the differences the module's docstring keeps,
-every chunk reference is refkv's default layout's, and every array reads as VirtualiZarr's does;
+every chunk reference is one of refkv's own output, and every array reads as VirtualiZarr's does;
 a tile-compressed FITS image reads as astropy reads it; and each way its options or an input are
 refused."""
 
 import bz2
 import gzip
+import importlib.util
 import json
 import math
 import os
@@ -20,6 +21,8 @@ from unittest import mock
 
 import h5py
 import imagecodecs.numcodecs
+import netCDF4
+import numcodecs
 import numpy as np
 import pytest
 import virtualizarr.parsers
@@ -34,9 +37,9 @@ from zarr.core.metadata import ArrayV3Metadata
 from zarr.core.sync import sync
 
 import refkv.zarr
-from refkv.pb import Range
+from refkv.build import Projected, Ref, Value, Written, project, read, seal
 from refkv.zarrify import zarrify
-from refkv.zarrify.layouts import Layout, LayoutRejected, LayoutUsageError, base, chunk_coords, encode_entries
+from refkv.zarrify.layouts import Layout, LayoutRejected, LayoutUsageError, chunk_coords, encode_entries
 from refkv.zarrify.layouts.hierarchy import check
 from refkv.zarrify.layouts.virtualizarr import VirtualiZarr
 
@@ -141,8 +144,138 @@ def zipped_zarr(path: Path) -> Path:
     return path
 
 
-GENERATED = {"attributes.h5": attributes_h5, "blank.fits": blank_fits, "store.zarr.zip": zipped_zarr}
-PARSERS = {"hdf5": "HDFParser", "fits": "FITSParser", "zarr3": "ZippedZarrParser"}
+def attributes_nc(path: Path) -> Path:
+    """A netCDF3 file with float attributes binary32 does not hold exactly, a NaN of a payload, a
+    negative zero, and variables whose `_FillValue` NetCDF3Parser encodes or makes their fill
+    value."""
+    with netCDF4.Dataset(path, "w", format="NETCDF3_CLASSIC") as f:
+        f.createDimension("n", 3)
+        f.setncattr("tenth", np.float32(0.1))
+        f.setncattr("payload", np.array([0x7FC00001], "u4").view("f4")[0])
+        f.setncattr("negzero", np.float64(-0.0))
+        f.setncattr("mixed", np.array([1.0, np.nan, -np.inf]))
+        d = f.createVariable("d", "f8", ("n",), fill_value=0.1)
+        d[:] = [1.0, 2.0, 3.0]
+        d.setncattr("valid_max", np.float32(0.1))
+        s = f.createVariable("s", "f4", ("n",), fill_value=np.float32(0.1))
+        s[:] = [1.0, 2.0, 3.0]
+        s.setncattr("missing", np.float32(np.nan))
+        i = f.createVariable("i", "i2", ("n",), fill_value=np.int16(-5))
+        i[:] = [1, 2, 3]
+        f.createVariable("plain", "i4", ("n",))[:] = [4, 5, 6]
+    return path
+
+
+def envi_file(path: Path) -> Path:
+    """An ENVI raster of int16, band interleaved by line, its header holding every field
+    ENVIParser carries through as an attribute, a field it does not, and `data ignore value`."""
+    passthrough = {"description": "{a test\n raster}", "sensor type": "Unknown", "acquisition time": "2020-01-01",
+                   "wavelength": "{\n 450.0, 500.0,\n 550.0}", "wavelength units": "Nanometers", "fwhm": "{1, 2, 3}",
+                   "bbl": "{1, 1, 0}", "band names": "{red, green, , blue}", "class names": "{a, b}",
+                   "class lookup": "{0, 0, 0}", "classes": "2", "security tag": "none",
+                   "map info": "{UTM, 1.0, 1.0, 500000.0, 4100000.0, 3.0, 3.0, 13, North}",
+                   "projection info": "{3, 6378137.0}", "coordinate system string": '{PROJCS["x"]}',
+                   "x start": "1", "y start": "1", "default bands": "{1, 2, 3}", "default stretch": "2% linear",
+                   "z plot titles": "{a, b}", "z plot range": "{0, 1}", "sun azimuth": "120.5",
+                   "sun elevation": "45.0"}
+    lines = ["ENVI", "samples = 4", "lines = 2", "bands = 3", "header offset = 0", "file type = ENVI Standard",
+             "data type = 2", "interleave = bil", "byte order = 0", "data ignore value = -1",
+             "unknown field = kept out", *(f"{k} = {v}" for k, v in passthrough.items())]
+    path.write_text("\n".join(lines) + "\n")
+    path.with_suffix(".img").write_bytes(np.arange(24, dtype="<i2").tobytes())
+    return path
+
+
+def envi_float(path: Path, data_type: int, dtype: str, ignore: str) -> Path:
+    """A one-band ENVI raster of `dtype` (ENVI `data type` `data_type`), its `data ignore value`
+    `ignore`."""
+    path.write_text("\n".join(["ENVI", "samples = 2", "lines = 2", "bands = 1", "file type = ENVI Standard",
+                               f"data type = {data_type}", "interleave = bsq", "byte order = 0",
+                               f"data ignore value = {ignore}"]) + "\n")
+    path.with_suffix(".img").write_bytes(np.arange(4).astype(dtype).tobytes())
+    return path
+
+
+def _netcdf3_writer():
+    """refkv's netCDF3 fixture writer (fixtures/generators/netcdf3/write_fixtures.py), which writes
+    what netCDF4-python refuses to: a `_FillValue` of another type than its variable's."""
+    spec = importlib.util.spec_from_file_location("netcdf3_writer", FIXTURES / "generators/netcdf3/write_fixtures.py")
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # its dataclasses look their module up
+    spec.loader.exec_module(module)
+    return module
+
+
+def fills_nc(path: Path) -> Path:
+    """A netCDF3 file of `_FillValue`s NetCDF3Parser fails on or refkv does not present: an
+    `NC_INT` 100000 on an `NC_SHORT` variable, NaN on another, two values, and one on text."""
+    w = _netcdf3_writer()
+    path.write_bytes(w.File(1, [("n", 3)], [], [
+        w.Var("wide", ["n"], w.SHORT, [1, 2, 3], [("_FillValue", w.INT, 100000)]),
+        w.Var("nan", ["n"], w.SHORT, [1, 2, 3], [("_FillValue", w.DOUBLE, float("nan"))]),
+        w.Var("two", ["n"], w.INT, [1, 2, 3], [("_FillValue", w.INT, [1, 2])]),
+        w.Var("text", ["n"], w.CHAR, np.array([b"a", b"b", b"c"], "S1"), [("_FillValue", w.CHAR, "x")]),
+    ]).bytes())
+    return path
+
+
+def latin_hdr(path: Path) -> Path:
+    """An ENVI raster whose header holds text that is not UTF-8, braced and not."""
+    path.write_bytes(b"ENVI\nsamples = 2\nlines = 2\nbands = 1\nfile type = ENVI Standard\ndata type = 1\n"
+                     b"interleave = bsq\ndescription = caf\xe9\nband names = {\xb5m}\n")
+    path.with_suffix(".img").write_bytes(bytes(range(4)))
+    return path
+
+
+def zarr_v2(path: Path) -> Path:
+    """A Zarr v2 directory: xarray's `_ARRAY_DIMENSIONS`, a null fill value, Fortran order, the `/`
+    separator, zstd, zlib and no compressor, a nested group, an array without dimension names, and
+    arrays of `|S<n>` (one a scalar, one of two dimensions in Fortran order) and `|V<n>`, one
+    compressed with Blosc."""
+    g = zarr.open_group(path, mode="w", zarr_format=2, attributes={"title": "v2", "list": [1, 2]})
+    g.create_array("temp", shape=(4, 6), chunks=(2, 3), dtype="f4", fill_value=-1.0,
+                   compressors=numcodecs.Zstd(level=3),
+                   attributes={"_ARRAY_DIMENSIONS": ["y", "x"], "units": "K"})[:] = np.arange(24).reshape(4, 6)
+    g.create_array("nofill", shape=(5,), chunks=(2,), dtype="<i4", fill_value=None, order="F",
+                   compressors={"id": "zlib", "level": 2},
+                   chunk_key_encoding={"name": "v2", "separator": "/"})[:] = np.arange(5)
+    g.create_array("fortran", shape=(3, 4), chunks=(3, 2), dtype=">i2", order="F", compressors=None,
+                   attributes={"_ARRAY_DIMENSIONS": ["a", "b"], "valid": [0, 9]})[:] = np.arange(12).reshape(3, 4)
+    g.create_group("sub", attributes={"note": "nested"}).create_array(
+        "deep", shape=(2,), chunks=(2,), dtype="u1", attributes={"_ARRAY_DIMENSIONS": ["n"]})[:] = [1, 2]
+    # bytes, which refkv's own output holds as uint8 with a trailing axis
+    g.create_array("ids", shape=(3,), chunks=(2,), dtype="|S3", fill_value=b"aaa",
+                   attributes={"_ARRAY_DIMENSIONS": ["f"]})[:] = np.array([b"ab", b"cde", b"f"])
+    g.create_array("crs", shape=(), dtype="|S1", attributes={"_ARRAY_DIMENSIONS": []})[...] = b"x"
+    g.create_array("raw", shape=(2,), chunks=(2,), dtype="|V4",
+                   compressors=numcodecs.Blosc(cname="lz4", clevel=5, shuffle=1),
+                   attributes={"_ARRAY_DIMENSIONS": ["r"]})[:] = np.frombuffer(b"abcdefgh", "V4")
+    # bytes in Fortran order: the transpose refkv's own output starts with takes the byte axis too
+    g.create_array("names", shape=(2, 3), chunks=(2, 2), dtype="|S2", order="F", compressors=None,
+                   attributes={"_ARRAY_DIMENSIONS": ["p", "q"]})[:] = np.array(
+                       [[b"a", b"bc", b"d"], [b"ef", b"g", b"hi"]])
+    return path
+
+
+def zarr_v2_unpresented(path: Path) -> Path:
+    """A Zarr v2 directory with an array of a filter refkv does not present (delta)."""
+    g = zarr.open_group(path, mode="w", zarr_format=2)
+    delta = cast("Any", [numcodecs.Delta(dtype="<i4")])  # a numcodecs codec, which zarr's types do not name
+    g.create_array("delta", shape=(5,), chunks=(5,), dtype="<i4", filters=delta)[:] = 1
+    return path
+
+
+GENERATED = {"attributes.h5": attributes_h5, "blank.fits": blank_fits, "store.zarr.zip": zipped_zarr,
+             "attributes.nc": attributes_nc, "fields.hdr": envi_file,
+             "float32.hdr": lambda p: envi_float(p, 4, "<f4", "0.1"),
+             "complex64.hdr": lambda p: envi_float(p, 6, "<c8", "-9999"),
+             "uint16.hdr": lambda p: envi_float(p, 12, "<u2", "65535"),
+             "not_a_number.hdr": lambda p: envi_float(p, 2, "<i2", "n/a"), "fills.nc": fills_nc,
+             "latin.hdr": latin_hdr, "v2.zarr": zarr_v2, "unpresented_v2.zarr": zarr_v2_unpresented}
+PARSERS = {"hdf5": "HDFParser", "fits": "FITSParser", "zarr3": "ZippedZarrParser", "netcdf3": "NetCDF3Parser",
+           "envi": "ENVIParser", "zarr2": "ZarrParser"}
 
 # each input, and its arrays whose chunk grid (and so chunk references) VirtualiZarr's differs from
 # refkv's: a dataset or HDU refkv splits into chunks within its payload limit
@@ -171,6 +304,38 @@ CASES: list[tuple[str, frozenset[str]]] = [
     ("fits/fits_chunk_rows.fits", frozenset({"PRIMARY"})),
     ("blank.fits", frozenset()),
     ("store.zarr.zip", frozenset()),
+    *((f"netcdf3/{n}.nc", frozenset()) for n in ["netcdf3_classic", "netcdf3_64bit_offset", "netcdf3_64bit_data",
+                                                 "netcdf3_empty", "netcdf3_nothing", "netcdf3_streaming"]),
+    ("netcdf3/netcdf3_chunked.nc", frozenset({"big"})),
+    ("attributes.nc", frozenset()),
+    *((f"envi/{p.name}", frozenset()) for p in sorted((FIXTURES / "envi").glob("envi_*"))
+      if p.suffix.lower() == ".hdr" and "reject" not in p.name and p.name != "envi_gzip_header_offset.hdr"),
+    ("fields.hdr", frozenset()),
+    ("float32.hdr", frozenset()),
+    ("complex64.hdr", frozenset()),
+    ("uint16.hdr", frozenset()),
+    ("v2.zarr", frozenset()),
+]
+# inputs where VirtualiZarr's presentation is a defect the layout does not take on
+DEFECTS = [
+    pytest.param("netcdf3/netcdf3_unpresented.nc", frozenset(), id="netcdf3/netcdf3_unpresented.nc",
+                 marks=pytest.mark.xfail(strict=True, raises=UnicodeDecodeError,
+                                         reason="NetCDF3Parser fails on a name that is not UTF-8")),
+    pytest.param("envi/envi_gzip_header_offset.hdr", frozenset(), id="envi/envi_gzip_header_offset.hdr",
+                 marks=pytest.mark.xfail(strict=True, raises=AssertionError,
+                                         reason="ENVIParser starts a gzip file's data at its header offset in the "
+                                         "compressed bytes; GDAL, and refkv, skip the offset in the inflated stream")),
+    pytest.param("not_a_number.hdr", frozenset(), id="not_a_number.hdr", marks=pytest.mark.xfail(
+        strict=True, raises=ValueError, reason="ENVIParser fails on a data ignore value numpy does not cast to the "
+                                               "data type")),
+    pytest.param("latin.hdr", frozenset(), id="latin.hdr", marks=pytest.mark.xfail(
+        strict=True, raises=UnicodeDecodeError, reason="ENVIParser fails on a header that is not UTF-8")),
+    pytest.param("unpresented_v2.zarr", frozenset(), id="unpresented_v2.zarr", marks=pytest.mark.xfail(
+        strict=True, raises=AssertionError, reason="refkv does not present an array of a filter it does not "
+                                                   "support, which ZarrParser does")),
+    pytest.param("fills.nc", frozenset(), id="fills.nc", marks=pytest.mark.xfail(
+        strict=True, raises=OverflowError, reason="NetCDF3Parser fails on a _FillValue its variable's type does "
+                                                  "not hold")),
 ]
 
 
@@ -221,10 +386,16 @@ def _chunks(out, doc: Json, path: str) -> dict[tuple[int, ...], Any]:
             if k.startswith(f"{path}/") and not k.endswith("/zarr.json")}
 
 
-def _base_chunks(b) -> list[list[str]]:
-    """Each base array's chunk values (refkv's default layout's references), sorted, the mirror's
-    left out."""
-    return [sorted(map(repr, b.array(p)[1].values())) for p in b.nodes() if b.node_type(p) == "array"]
+def _own_chunks(pr: Projected) -> list[list[str]]:
+    """The chunk values of each array of refkv's own output, sorted, the mirror's left out."""
+    return [sorted(map(repr, pr.array_entries(p)[1].values())) for p in pr.nodes() if pr.node_type(p) == "array"]
+
+
+def _range(value: object) -> tuple[int, int] | None:
+    """(offset, length) of a value that is one range of a source, or None for another."""
+    if isinstance(value, Value) and len(value.parts) == 1 and isinstance(part := value.parts[0], Ref):
+        return part.offset, part.length
+    return None
 
 
 def _text(value: object) -> object:
@@ -238,10 +409,16 @@ def _text(value: object) -> object:
     return value
 
 
+def _identity_transpose(codec: Json) -> bool:
+    order = (codec.get("configuration") or {}).get("order")
+    return codec.get("name") == "transpose" and isinstance(order, list) and order == list(range(len(order)))
+
+
 def _kept(doc: Json, profile: str, names: list[str] | None = None) -> Json:
-    """A document with the differences the layout keeps made alike: the zlib level, a zipped
-    store's chunk key encoding, an empty storage_transformers, and, given the base's dimension
-    `names`, those of the axes VirtualiZarr names `phony_dim_<axis>`, which netCDF-4 names."""
+    """A document with the differences the layout keeps made alike: the zlib or gzip level, a Zarr
+    store's chunk key encoding, a transpose that keeps the order (ZarrParser's of a 1-D Fortran-order
+    array), an empty storage_transformers, and, given the dimension `names` of refkv's own output,
+    those of the axes VirtualiZarr names `phony_dim_<axis>`, which netCDF-4 names."""
     doc = dict(doc)
     if doc.get("storage_transformers") == []:
         del doc["storage_transformers"]
@@ -249,50 +426,63 @@ def _kept(doc: Json, profile: str, names: list[str] | None = None) -> Json:
         doc["dimension_names"] = [names[i] if PHONY.fullmatch(str(n)) else n
                                   for i, n in enumerate(doc["dimension_names"])]
     if "codecs" in doc:
-        doc["codecs"] = [{**c, "configuration": {}} if c.get("name") == "numcodecs.zlib" else c for c in doc["codecs"]]
-    if profile == "zarr3":
+        doc["codecs"] = [{**c, "configuration": {}} if c.get("name") in ("numcodecs.zlib", "gzip") else c
+                         for c in doc["codecs"] if not _identity_transpose(c)]
+    if profile in ("zarr3", "zarr2"):
         doc.pop("chunk_key_encoding", None)
     return doc
 
 
+# attributes whose value the layout keeps of refkv's, by input and node: (refkv's, VirtualiZarr's)
+KEPT: dict[tuple[str, str], dict[str, tuple[object, object]]] = {
+    ("fits/fits_header_cards.fits", "PRIMARY"): {"NOVALUE": (None, "None")},  # a card with no value
+    # text that is not UTF-8, which NetCDF3Parser decodes with replacement characters
+    ("netcdf3/netcdf3_classic.nc", ""): {"latin": ({"latin1": "caf\u00e9"}, "caf\ufffd")},
+}
+
+
 @pytest.mark.parametrize("nonfinite", ["token", "text"])
-@pytest.mark.parametrize(("name", "regridded"), CASES, ids=[c for c, _ in CASES])
+@pytest.mark.parametrize(("name", "regridded"), [*(pytest.param(*c, id=c[0]) for c in CASES), *DEFECTS])
 def test_the_layout_presents_a_file_as_virtualizarr_s_parser_does(tmp_path, name, regridded, nonfinite):
     """Every document is VirtualiZarr's but for what the layout keeps of refkv's (above, and a
     variable-length string's or a regridded array's chunk grid, and a value-less FITS card's
-    `null`), every chunk reference is refkv's default layout's, and every array reads as
+    `null`), every chunk reference is one of refkv's own output, and every array reads as
     VirtualiZarr's does; `check` finds nothing but the non-finite tokens zarr-python writes."""
     path = _input(name, tmp_path)
-    b = base(path)
-    plugin = VirtualiZarr()
-    out = plugin.write(b, plugin.options({"nonfinite": nonfinite}))
-    problems = check(b, out)
-    assert [p for p in problems if p.code not in ALLOWED] == []
-    assert nonfinite == "token" or not [p for p in problems if p.code == "json"]
+    with read(path) as parsed:
+        pr = project(parsed)
+        plugin = VirtualiZarr()
+        out = plugin.write([parsed], plugin.options({"nonfinite": nonfinite}))
+        problems = check(out, [parsed])
+        assert [p for p in problems if p.code not in ALLOWED] == []
+        assert nonfinite == "token" or not [p for p in problems if p.code == "json"]
 
-    theirs, references, manifest_store = virtualizarr_s(PARSERS[b.profile], path)
-    ours = {k: json.loads(v) for k, v in out.items() if k.rpartition("/")[2] == "zarr.json" and isinstance(v, bytes)}
-    defaults = _base_chunks(b)
-    assert sorted(ours) == sorted(theirs)
-    for key, doc in ours.items():
-        node = key.removesuffix("zarr.json").rstrip("/")
-        names = b.document(key).get("dimension_names") if b.profile == "hdf5" and key in b else None
-        mine, expected = _kept(doc, b.profile), _kept(theirs[key], b.profile, names)
-        if nonfinite == "text":
-            expected = cast("Json", _text(expected))
-        if doc.get("data_type") == "string" or node in regridded:
-            del mine["chunk_grid"], expected["chunk_grid"]
-        if name == "fits/fits_header_cards.fits" and node == "PRIMARY":
-            assert (mine["attributes"].pop("NOVALUE"), expected["attributes"].pop("NOVALUE")) == (None, "None")
-        assert json.dumps(mine, sort_keys=True) == json.dumps(expected, sort_keys=True), key
-        if doc["node_type"] != "array":
-            continue
+        profile = parsed.profile
+        # ENVIParser is given the data file, and finds the header beside it
+        given = str(Path(path).with_name(pr.source_metadata("")["data_file"])) if profile == "envi" else path
+        theirs, references, manifest_store = virtualizarr_s(PARSERS[profile], given)
+        ours = {k: json.loads(v) for k, v in out.items()
+                if k.rpartition("/")[2] == "zarr.json" and isinstance(v, bytes)}
+        defaults = _own_chunks(pr)
+        assert sorted(ours) == sorted(theirs)
+        for key, doc in ours.items():
+            node = key.removesuffix("zarr.json").rstrip("/")
+            names = pr.document(key).get("dimension_names") if profile == "hdf5" and key in pr else None
+            mine, expected = _kept(doc, profile), _kept(theirs[key], profile, names)
+            if nonfinite == "text":
+                expected = cast("Json", _text(expected))
+            if doc.get("data_type") == "string" or node in regridded:
+                del mine["chunk_grid"], expected["chunk_grid"]
+            for attribute, values in KEPT.get((name, node), {}).items():
+                assert (mine["attributes"].pop(attribute), expected["attributes"].pop(attribute)) == values
+            assert json.dumps(mine, sort_keys=True) == json.dumps(expected, sort_keys=True), key
+            if doc["node_type"] != "array":
+                continue
 
-        chunks = _chunks(out, doc, node)
-        assert sorted(map(repr, chunks.values())) in defaults, key
-        if doc.get("data_type") != "string" and node not in regridded:
-            assert {c: (v.offset, v.length) for c, v in chunks.items() if isinstance(v, Range)} == \
-                references[node], key
+            chunks = _chunks(out, doc, node)
+            assert sorted(map(repr, chunks.values())) in defaults, key
+            if doc.get("data_type") != "string" and node not in regridded:
+                assert {c: r for c, v in chunks.items() if (r := _range(v)) is not None} == references[node], key
 
     store = zarrify(path, layout=Layout(NAME, {"nonfinite": nonfinite}))
     mine_arrays = _arrays(zarr.open_group(refkv.zarr.store(store), mode="r"))
@@ -345,7 +535,7 @@ def test_a_tile_compressed_fits_image_reads_as_astropy_reads_it(tmp_path, name):
 @pytest.mark.parametrize("compression", ["gz", "bz2"])
 def test_a_fits_file_compressed_whole_reads_as_the_file_does(tmp_path, name, compression):
     """FITSParser does not read a gzip or bzip2 file; the layout presents it as the file itself,
-    each array behind the base's decompressing codecs, with the file's values."""
+    each array behind the decompressing codecs of refkv's own output, with the file's values."""
     plain = FIXTURES / "fits" / name
     packed = tmp_path / f"{name}.{compression}"
     opener = gzip.open if compression == "gz" else bz2.open
@@ -361,35 +551,110 @@ def test_a_fits_file_compressed_whole_reads_as_the_file_does(tmp_path, name, com
 
 def test_a_binary_table_is_refkv_s_group_under_its_name():
     """FITSParser refuses a binary table; the layout keeps refkv's group for it, under the HDU's
-    name, so that the root reads as FITSParser's with the table skipped."""
+    name and with its placements, so that the root reads as FITSParser's with the table skipped."""
     path = str(FIXTURES / "fits/fits_bintable.fits")
-    b = base(path)
-    out = VirtualiZarr().write(b, {"nonfinite": "token"})
-    table = {k for k in out if k.startswith("TAB/")}
-    assert table == {f"TAB/{k[2:]}" for k in b.entries("1/", declarations=False, mirror=False)}
-    skipped = virtualizarr.parsers.FITSParser(skip_variables=["TAB"])(
-        Path(path).resolve().as_uri(), ObjectStoreRegistry({"file:///": LocalStore()}))
-    root = out["zarr.json"]
-    assert isinstance(root, bytes)
-    assert json.loads(root)["attributes"] == skipped._group.metadata.attributes
-    assert check(b, out) == []
+    with read(path) as parsed:
+        out = VirtualiZarr().write([parsed], {"nonfinite": "token"})
+        kept = project(parsed).entries("1/", declarations=False, mirror=False)
+        assert isinstance(out, Written)
+        assert {k: v for k, v in out.items() if k.startswith("TAB/")} == {f"TAB/{k[2:]}": v for k, v in kept.items()}
+        assert {k: v for k, v in out.at_open.items() if k.startswith("TAB/")} == \
+            {f"TAB/{k[2:]}": v for k, v in kept.at_open.items()}
+        skipped = virtualizarr.parsers.FITSParser(skip_variables=["TAB"])(
+            Path(path).resolve().as_uri(), ObjectStoreRegistry({"file:///": LocalStore()}))
+        root = out["zarr.json"]
+        assert isinstance(root, bytes)
+        assert json.loads(root)["attributes"] == skipped._group.metadata.attributes
+        assert check(out, [parsed]) == []
 
 
 OUTPUT = """
 import sys
-from refkv.zarrify.layouts import base, encode_entries
+from refkv.build import read, seal
+from refkv.zarrify.layouts import encode_entries
 from refkv.zarrify.layouts.virtualizarr import VirtualiZarr
-sys.stdout.buffer.write(encode_entries(VirtualiZarr().write(base(sys.argv[1]), {"nonfinite": "token"})))
+with read(sys.argv[1]) as parsed:
+    store = seal(VirtualiZarr().write([parsed], {"nonfinite": "token"}), [parsed])
+sys.stdout.buffer.write(encode_entries(store.mapping) + "|".join(sorted(store.read_at_open)).encode())
 """
 
 
-@pytest.mark.parametrize("name", ["hdf5/hdf5_netcdf4.h5", "fits/fits_mef_sci_err_dq.fits"])
+@pytest.mark.parametrize("name", ["hdf5/hdf5_netcdf4.h5", "fits/fits_mef_sci_err_dq.fits", "netcdf3/netcdf3_classic.nc",
+                                  "envi/envi_bil_int16_big.hdr"])
 def test_the_layout_is_deterministic(name):
-    """Another process, with another hash seed, writes the same output."""
+    """Another process, with another hash seed, writes the same output: the same entries, sealed,
+    and the same keys read at open."""
     path = str(FIXTURES / name)
     env = {**os.environ, "PYTHONHASHSEED": "12345"}
     run = subprocess.run([sys.executable, "-c", OUTPUT, path], env=env, capture_output=True, check=True)
-    assert run.stdout == encode_entries(VirtualiZarr().write(base(path), {"nonfinite": "token"}))
+    with read(path) as parsed:
+        store = seal(VirtualiZarr().write([parsed], {"nonfinite": "token"}), [parsed])
+    assert run.stdout == encode_entries(store.mapping) + "|".join(sorted(store.read_at_open)).encode()
+
+
+@pytest.mark.parametrize("name", [p.values[0] for p in DEFECTS])
+def test_where_virtualizarr_fails_the_layout_reads_as_refkv_s_default_layout(tmp_path, name):
+    """On each input where VirtualiZarr's parser fails or reads wrong, `check` finds only what the
+    module's docstring names, and every array reads as refkv's default layout's, in the file's
+    axis order for ENVI."""
+    path = _input(str(name), tmp_path)
+    with read(path) as parsed:
+        out = VirtualiZarr().write([parsed], {"nonfinite": "token"})
+        assert [p for p in check(out, [parsed]) if p.code not in ALLOWED] == []
+        profile = parsed.profile
+        codecs = project(parsed).document("0/zarr.json")["codecs"] if profile == "envi" else []
+    mine = _arrays(zarr.open_group(refkv.zarr.store(zarrify(path, layout=Layout(NAME))), mode="r"))
+    default = _arrays(zarr.open_group(refkv.zarr.store(zarrify(path)), mode="r"))
+    if profile == "envi":
+        logical = np.asarray(default["0"][...])
+        order = codecs[0]["configuration"]["order"] if codecs[0]["name"] == "transpose" else range(logical.ndim)
+        [(_, array)] = mine.items()
+        assert np.transpose(logical, list(order)).tobytes() == np.asarray(array[...]).tobytes()
+        return
+    assert sorted(mine) == sorted(p for p in default if not p.startswith("refkv_source"))
+    for path_, array in mine.items():
+        assert np.asarray(array[...]).tobytes() == np.asarray(default[path_][...]).tobytes(), path_
+
+
+def test_a_zarr_v2_root_array_is_its_chunks_alone():
+    """A Zarr v2 store whose root is an array, which ZarrParser does not open as a group: the
+    array's own chunks, not the mirror's keys beside them, and it reads as refkv's default
+    layout's."""
+    path = str(FIXTURES / "zarr2/zarr2_root_array_objects")
+    with read(path) as parsed:
+        out = VirtualiZarr().write([parsed], {"nonfinite": "token"})
+        assert not [k for k in out if k.startswith("refkv_source/")]
+        assert [p for p in check(out, [parsed]) if p.code not in ALLOWED] == []
+    mine = zarr.open_array(refkv.zarr.store(zarrify(path, layout=Layout(NAME))), mode="r")
+    default = zarr.open_array(refkv.zarr.store(zarrify(path)), mode="r")
+    assert np.asarray(mine[...]).tobytes() == np.asarray(default[...]).tobytes()
+
+
+def test_a_fill_value_virtualizarr_fails_on_is_refkv_s(tmp_path):
+    """A `_FillValue` NetCDF3Parser fails on, or refkv does not present, leaves the variable the
+    fill value of refkv's own output."""
+    with read(str(fills_nc(tmp_path / "fills.nc"))) as parsed:
+        pr = project(parsed)
+        out = VirtualiZarr().write([parsed], {"nonfinite": "token"})
+        for name in ["wide", "nan", "two", "text"]:
+            assert json.loads(cast("bytes", out[f"{name}/zarr.json"]))["fill_value"] == \
+                pr.document(f"{name}/zarr.json")["fill_value"], name
+
+
+def test_an_envi_header_field_not_utf8_is_refkv_s_text(tmp_path):
+    """A header field that is not UTF-8, on which ENVIParser fails, is refkv's `{"latin1": T}`."""
+    with read(str(latin_hdr(tmp_path / "latin.hdr"))) as parsed:
+        doc = json.loads(cast("bytes", VirtualiZarr().write([parsed], {"nonfinite": "token"})["latin/zarr.json"]))
+    assert doc["attributes"] == {"description": {"latin1": "caf\u00e9"}, "band_names": {"latin1": "{\u00b5m}"}}
+
+
+def test_a_data_ignore_value_not_of_the_data_type_is_its_text(tmp_path):
+    """Where ENVIParser fails, the layout writes the field's text as `data_ignore_value`, which
+    xarray does not decode, rather than a `_FillValue` it would."""
+    with read(str(GENERATED["not_a_number.hdr"](tmp_path / "not_a_number.hdr"))) as parsed:
+        out = VirtualiZarr().write([parsed], {"nonfinite": "token"})
+        doc = json.loads(cast("bytes", out["not_a_number/zarr.json"]))
+    assert doc["attributes"] == {"data_ignore_value": "n/a"}
 
 
 # ---- refusals

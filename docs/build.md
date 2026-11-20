@@ -13,7 +13,15 @@ give them.
 ## Reading an input
 
 `refkv.build.read(location)` reads a file or a store as `zarrify` does, with the same sniffing,
-files beside it, pins, reader policy and object stores, and returns a `Parsed`:
+files beside it, pins, reader policy and object stores, and returns a `Parsed`. It parses and
+stops: it makes no output, and reads nothing that only an output needs.
+
+A `Parsed` holds the input open until it is closed: a local file, and any file read beside it, stays
+mapped, so that the built-in output can still be made of it (`project`, below). Use it as a context
+manager, `with read(...) as p:` or `async with await read_async(...) as p:`, or call `p.close()`.
+One that is collected unclosed releases the input then, with a `ResourceWarning`. A closed `Parsed`
+keeps its IR, its sources' sizes and pins, and the values made of it, so it can still be sealed
+without checksums.
 
 ```python
 from refkv.build import read
@@ -90,12 +98,25 @@ raise. A value that needs more than a reader allows fails that `get`, and only t
 A failure is a `SealError`, whose `code` (one of `CODES`) says which rule. The numbering and the
 checks of keys, ranges and payloads are the core's (`refkv._core.seal`), the same function
 every output of a core run passes through, from Python, the CLI or the browser (every output of
-`zarrify` but a plugin's and the DICOM store form's); `seal` adds what
+`zarrify` but the DICOM store form's); `seal` adds what
 only Python knows: the caller's objects, the inputs, the policy's URL rules, the placements and
-the archive.
+the archive. A layout plugin's output is sealed the same way
+([docs/layout-plugins.md](layout-plugins.md)): `refkv.build.apply(plan(layout), [p])` is what
+`zarrify(..., layout=layout)` does with the input once it is parsed.
 
 `refkv.build.project(p)` is the output `zarrify` writes for the input, as values:
-`seal(project(p).written, [p])` reads what `zarrify` writes.
+`seal(project(p).written, [p])` reads what `zarrify` writes. `read` did not make it: the first
+`project(p)` does, from the parse `p` keeps, and reads then what the built-in output alone needs
+(an edge chunk it copies, a chunk its `omero` windows sample). So `p` must still be open the
+first time; the output is kept, and a later `project(p)` builds on it, after `p` is closed too.
+`project` blocks, and `project_async` is the same on a caller's event loop.
+
+What `project` returns (a `Projected`) is refkv's own output to build on: `written`, every entry
+with its placement; `keys()`, `nodes()`, `document(key)`, `attributes(path)` (without refkv's
+declarations) and `source_metadata(path)`; `array(path)`, an array as an `Array`, and
+`array_entries(path)`, its document and chunk entries; `entries(prefix)`, the entries below a
+prefix as a `Written`; and `elements(path)`, the IR elements each chunk of an array reads. It is
+one projection of the input, and nothing else in `refkv.build` needs it.
 
 ## A TIFF made of several
 

@@ -10,6 +10,7 @@ notebook.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import threading
 from collections.abc import Coroutine
 from typing import Any
@@ -26,6 +27,12 @@ def _the_loop() -> asyncio.AbstractEventLoop:
             threading.Thread(target=loop.run_forever, name="refkv-loop", daemon=True).start()
             _loop = loop
         return _loop
+
+
+def submit[T](coro: Coroutine[Any, Any, T]) -> concurrent.futures.Future[T]:
+    """`coro` started on refkv's loop, as a task of its own that no caller's cancellation stops:
+    the future of its result. Cancelling the future cancels the task."""
+    return asyncio.run_coroutine_threadsafe(coro, _the_loop())
 
 
 def run[T](coro: Coroutine[Any, Any, T]) -> T:

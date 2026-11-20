@@ -91,6 +91,17 @@ example-oisst:
 virtualizarr-parity *args: ir-build
     uv run pytest -q conformance/virtualizarr {{args}}
 
+# Check that zarrify makes of every input of the fixture corpus the output the committed manifest
+# records (conformance/outputs/digest.py: a digest of each output's entries, source table,
+# placement and summary, with and without checksums, or the error that refuses the input)
+outputs-check *args: ir-build
+    uv run python conformance/outputs/digest.py {{args}}
+
+# Rewrite the manifest of outputs, after a change that is meant to alter them: commit it with the
+# change, so that its diff names the inputs whose outputs changed
+outputs-update: ir-build
+    uv run python conformance/outputs/digest.py --update
+
 # Check that every section reference ("§n") is a link to a heading that exists, and test the check;
 # that what derives from the profile registry (spec/zarrify/profiles/) is current; and that each
 # format document's changelog is in spec/zarrify.md's form, and, with a base (`just sections

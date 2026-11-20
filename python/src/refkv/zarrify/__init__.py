@@ -64,17 +64,18 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
+import functools
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 
 # the package, not its names: refkv.ir imports refkv.zarrify.common, so it is still loading when
 # refkv.ir is imported first
 from refkv import _sync, ir
 from refkv._core import Failed
-from refkv._narrow import string
 from refkv.ir.planner import Transport, open_transport, url_scheme
-from refkv.ir.store import StoreIrOutput, run_store_async
+from refkv.ir.store import StoreIrOutput, StoreParse, parse_store_async
 from refkv.policy import Policy, crc32c
 from refkv.reader import Registry, Resolver
 from refkv.refstore import ReferenceStore
@@ -88,7 +89,6 @@ from refkv.zarrify.layouts import (
     LayoutRejected,
     LayoutUsageError,
     Planned,
-    apply,
     described,
     plan,
 )
@@ -109,6 +109,14 @@ from refkv.zarrify.store import Store as Listed
 from refkv.zarrify.store.beside import Scope, VsiFiles, scope_keys
 from refkv.zarrify.store.stores import DirStore
 
+# a plugin layout is given the input parsed (refkv.build.read's Parsed) and its output is sealed
+# (refkv.build.seal): modules of refkv.build, which reads its inputs with this module's parse, so
+# each side names the other's module and reads its names at call time (a cycle). They come after
+# this package's own modules, which refkv.build imports names from.
+# isort: split
+import refkv.build.parsed as _build_parsed
+import refkv.build.plugin as _build_plugin
+
 NOT_SUPPORTED = "not a file of any supported format"
 
 __all__ = ["Dataset", "Failed", "Image", "Layout", "ListingFailed", "Rejected", "Source", "Store", "StoreLimit",
@@ -124,13 +132,55 @@ def _no_store_layouts(layouts: Iterable[Image | Dataset] | None, fmt: str) -> No
         raise NotImplementedError(f"{fmt}: a store profile writes no dataset layout yet")
 
 
+@dataclasses.dataclass(frozen=True)
+class _Parse:
+    """An input parsed, with no output made of it: its profile (`fmt`), the core's parse of it
+    (a file's or a store's, which holds its IR), and its built-in output when asked for
+    (`output_async`), as often as asked. Reading the input and deciding its profile are done; what
+    the built-in output alone reads is read when one is asked for."""
+
+    fmt: str
+    parse: ir.FileParse | StoreParse
+    _output: Callable[[bool], Awaitable[Output | StoreIrOutput]]
+    _close: Callable[[], None]
+
+    async def output_async(self, written: bool = True) -> Output | StoreIrOutput:
+        """The built-in output, its IR and (when the call asked for checksums) its checksum
+        function set. `written`: the output is written as it is; false for one only built from,
+        which is not held to the payload limit with checksums."""
+        return await self._output(written)
+
+    def close(self) -> None:
+        """Releases what the input was read through (a local file's mapping, and those of the
+        files beside it). An output made before stays; its checksum function, which reads
+        through the same, does not work after, and no other output is made."""
+        self._close()
+
+
 async def _zarrify_store_async(location: str, url: str | None = None, *, max_objects: int | None = None,
                                checksums: bool = False, workers: int = WORKERS, policy: Policy | None = None,
                                fmt: str | None = None,
                                layouts: Iterable[Image | Dataset] | None = None,
                                registry: Resolver | None = None, written: bool = True,
                                ) -> tuple[str, StoreIrOutput | SeriesOutput]:
-    """(format, output) for the store at `location` (§1.4
+    """`_parse_store_async`, and the built-in output of what it parsed."""
+    parsed = await _parse_store_async(location, url, max_objects=max_objects, checksums=checksums, workers=workers,
+                                      policy=policy, fmt=fmt, layouts=layouts, registry=registry, written=written)
+    if isinstance(parsed, SeriesOutput):
+        return "dicom", parsed
+    out = await parsed.output_async(written)
+    if isinstance(out, Output):
+        raise TypeError("internal: a store run gave a file's output")
+    return parsed.fmt, out
+
+
+async def _parse_store_async(location: str, url: str | None = None, *, max_objects: int | None = None,
+                             checksums: bool = False, workers: int = WORKERS, policy: Policy | None = None,
+                             fmt: str | None = None,
+                             layouts: Iterable[Image | Dataset] | None = None,
+                             registry: Resolver | None = None, written: bool = True,
+                             ) -> _Parse | SeriesOutput:
+    """The store at `location` parsed (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), its documents
     read by up to `workers` requests at a time; with `checksums`, the output's ranges
     carry the CRC-32C of their bytes (spec/refkv.md §4.2
@@ -139,7 +189,9 @@ async def _zarrify_store_async(location: str, url: str | None = None, *, max_obj
     prefix of `registry` with the store registered for it. The store
     profile is `fmt`, when given, else the one its root keys select (§1.7
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#17-named-inputs-and-layouts>);
-    `layouts` the layouts it writes (`refkv.zarrify.sources.layout_names`)."""
+    `layouts` the layouts it writes (`refkv.zarrify.sources.layout_names`). A store of DICOM
+    files, which is joined from its files' outputs and keeps no IR, is its output already
+    (a `SeriesOutput`, made for `written`)."""
     location = local_path(location, policy)
     if fmt is not None:
         _no_store_layouts(layouts, fmt)  # before the store is listed
@@ -160,30 +212,40 @@ async def _zarrify_store_async(location: str, url: str | None = None, *, max_obj
     store, fmt = await asyncio.to_thread(listed)
     if fmt == "dicom":
         try:
-            return fmt, await _zarrify_dicom_store(store, location, url, checksums=checksums, policy=policy,
-                                                   workers=workers, registry=registry, written=written)
+            return await _zarrify_dicom_store(store, location, url, checksums=checksums, policy=policy,
+                                              workers=workers, registry=registry, written=written)
         finally:
             store.close()
     try:
         if named is None:
             _no_store_layouts(layouts, fmt)  # a named profile's were checked before the store was listed
         # the core's store formats: N5, a SAFE directory, and Zarr v2, which the core decides is
-        # OME-Zarr 0.4's or not (its summary's `format`)
-        out, store_ir, _ = await run_store_async(store, {"ome-zarr": "zarr2"}.get(fmt, fmt), checksums=checksums,
-                                                 written=written)
-        out.ir = store_ir  # for refkv.build, which reads a store's IR as a file's
+        # OME-Zarr 0.4's or not (the run's profile)
+        parsed = await parse_store_async(store, {"ome-zarr": "zarr2"}.get(fmt, fmt))
         if fmt in ("zarr2", "ome-zarr"):
-            found = string(out.summary["format"], "summary.format")
-            if named == "ome-zarr" and found != "ome-zarr":
+            if named == "ome-zarr" and parsed.profile != "ome-zarr":
                 raise Rejected("not an OME-Zarr 0.4 store: the Zarr v2 store format found no OME-NGFF 0.4 "
                                "image, plate or bioformats2raw layout at its root")
-            fmt = found
+            fmt = parsed.profile
     finally:
         store.close()
-    if checksums:
-        keys = {object_url(store.url, k): k for k in store.objects}
-        out.checksum = lambda u, offset, length: crc32c(store.read_range(keys[u], offset, length))
-    return fmt, out
+    return _Parse(fmt, parsed, _store_output(parsed, store, checksums), store.close)
+
+
+def _store_output(parsed: StoreParse, store: Listed,
+                  checksums: bool) -> Callable[[bool], Awaitable[StoreIrOutput]]:
+    """A store parse's built-in output, as `_Parse` gives it: its IR set (for refkv.build, which
+    reads a store's IR as a file's), and, with `checksums`, its checksum function, which reads
+    `store`'s objects."""
+    async def output(written: bool) -> StoreIrOutput:
+        out = await asyncio.to_thread(parsed.output, True, checksums, written)
+        out.ir = parsed.ir
+        if checksums:
+            keys = {object_url(store.url, k): k for k in store.objects}
+            out.checksum = lambda u, offset, length: crc32c(store.read_range(keys[u], offset, length))
+        return out
+
+    return output
 
 
 async def _zarrify_dicom_store(store: Listed, location: str, url: str | None, *, checksums: bool,
@@ -221,12 +283,11 @@ def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | 
     return fmt, out
 
 
-async def _zarrify_beside_async(fmt: str, location: str, url: str | None, transport: Transport, *,
-                                checksums: bool = False, policy: Policy | None = None,
-                                connections: int | None = None,
-                                scope: list[str] | None = None, registry: Resolver | None = None,
-                                written: bool = True) -> tuple[str, StoreIrOutput]:
-    """(format, output) for the input at `location` of a profile of `BESIDE`, a file (opened as
+async def _parse_beside_async(fmt: str, location: str, url: str | None, transport: Transport, *,
+                              checksums: bool = False, policy: Policy | None = None,
+                              connections: int | None = None,
+                              scope: list[str] | None = None, registry: Resolver | None = None) -> _Parse:
+    """The parse of the input at `location` of a profile of `BESIDE`, a file (opened as
     `transport`) read with the files beside it: a VSI slide's `.vsi` file, whose tile files lie
     beside it (spec/zarrify/vsi.md §9.2
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>), or a NRRD
@@ -242,14 +303,10 @@ async def _zarrify_beside_async(fmt: str, location: str, url: str | None, transp
     store = VsiFiles(location, url, policy=policy, workers=connections, transport=transport, title=title, noun=noun,
                      case=fmt in CASE, registry=registry)
     try:
-        out, ir_, _ = await run_store_async(store, fmt, checksums=checksums, written=written, scope=scope)
+        parsed = await parse_store_async(store, fmt, scope=scope)
     finally:
         store.close()
-    out.ir = ir_
-    if checksums:
-        keys = {object_url(store.url, k): k for k in store.objects}
-        out.checksum = lambda u, offset, length: crc32c(store.read_range(keys[u], offset, length))
-    return fmt, out
+    return _Parse(fmt, parsed, _store_output(parsed, store, checksums), store.close_files)
 
 
 def local_path(location: str, policy: Policy | None = None) -> str:
@@ -286,7 +343,21 @@ async def _zarrify_async(location: str, url: str | None = None, *, checksums: bo
                          layouts: Iterable[Image | Dataset] | None = None, scope: Scope | None = None,
                          registry: Resolver | None = None,
                          written: bool = True) -> tuple[str, Output | StoreIrOutput | SeriesOutput]:
-    """(format, output) for the file at `location`, by its first bytes, or for
+    """`_parse_async`, and the built-in output of what it parsed: (format, output)."""
+    parsed = await _parse_async(location, url, checksums=checksums, policy=policy, connections=connections,
+                                byte_cost=byte_cost, workers=workers, fmt=fmt, layouts=layouts, scope=scope,
+                                registry=registry, written=written)
+    if isinstance(parsed, SeriesOutput):
+        return "dicom", parsed
+    return parsed.fmt, await parsed.output_async(written)
+
+
+async def _parse_async(location: str, url: str | None = None, *, checksums: bool = False,
+                       policy: Policy | None = None, connections: int | None = None,
+                       byte_cost: float | None = None, workers: int = WORKERS, fmt: str | None = None,
+                       layouts: Iterable[Image | Dataset] | None = None, scope: Scope | None = None,
+                       registry: Resolver | None = None, written: bool = True) -> _Parse | SeriesOutput:
+    """The parse (`_Parse`) of the file at `location`, by its first bytes, or of
     the store at `location` (a URL ending in `/`, or a directory); for the file at `location`
     by the file profile `fmt`, when given, its first bytes untested (§1.7
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#17-named-inputs-and-layouts>).
@@ -304,15 +375,19 @@ async def _zarrify_async(location: str, url: str | None = None, *, checksums: bo
     planner charges a byte fetched beyond those asked (default 0.1 s per MB).
     A store's documents are read by up to `workers` requests at a time. `layouts`: the
     layouts the output holds (`refkv.zarrify.sources.layout_names`). `written`: the output is written
-    as it is; false for one only built from (`refkv.build.read`, a plugin's base), which is not
+    as it is; false for one only built from (`refkv.build.project`), which is not
     held to the payload limit with checksums (`Failed`), as the output built from it is. `scope`:
     what a file input may read besides itself (`scope_keys`); a store input, whose objects are its
-    listing's, takes none."""
+    listing's, takes none.
+
+    The options that are an output's (`checksums`, `layouts`) are kept for the parse's
+    `output_async`, which takes `written`; a store of DICOM files, which keeps no IR, is its
+    output already (a `SeriesOutput`, made for `written`)."""
     if fmt is None and is_store(location):
         if scope is not None:
             raise ValueError("a store input reads the objects its listing gives: scope is for a file input")
-        return await _zarrify_store_async(location, url, checksums=checksums, workers=workers, policy=policy,
-                                          layouts=layouts, registry=registry, written=written)
+        return await _parse_store_async(location, url, checksums=checksums, workers=workers, policy=policy,
+                                        layouts=layouts, registry=registry, written=written)
     within = None if scope is None else scope_keys(location, scope)
     location = local_path(location, policy)  # a `file:` URL, read as its path (its scope keys are the same)
     # a Hub tree's web page (§1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
@@ -327,18 +402,22 @@ async def _zarrify_async(location: str, url: str | None = None, *, checksums: bo
             raise Rejected(NOT_SUPPORTED)
         names = layout_names(layouts, fmt)
     if fmt in BESIDE and fmt not in ON_DEMAND:
-        return await _zarrify_beside_async(fmt, location, url, transport, checksums=checksums, policy=policy,
-                                           connections=connections, scope=within, registry=registry, written=written)
+        return await _parse_beside_async(fmt, location, url, transport, checksums=checksums, policy=policy,
+                                         connections=connections, scope=within, registry=registry)
     try:
-        found, out, _ = await ir.zarrify_async(location, url, transport=transport, connections=connections,
-                                               byte_cost=byte_cost, fmt=fmt, layouts=names, checksums=checksums,
-                                               written=written)
+        parsed = await ir.parse_async(location, url, transport=transport, connections=connections,
+                                      byte_cost=byte_cost, fmt=fmt)
     except ir.NamesSiblingsError as e:
-        return await _zarrify_beside_async(e.args[0], location, url, transport, checksums=checksums, policy=policy,
-                                           connections=connections, scope=within, registry=registry, written=written)
-    if checksums:
-        out.checksum = lambda _u, offset, length: crc32c(transport.get(offset, offset + length))
-    return found, out
+        return await _parse_beside_async(e.args[0], location, url, transport, checksums=checksums, policy=policy,
+                                         connections=connections, scope=within, registry=registry)
+
+    async def output(written: bool) -> Output:
+        out = await parsed.output_async(layouts=names, checksums=checksums, written=written)
+        if checksums:
+            out.checksum = lambda _u, offset, length: crc32c(transport.get(offset, offset + length))
+        return out
+
+    return _Parse(parsed.fmt, parsed, output, parsed.close)
 
 
 def _zarrify(location: str, url: str | None = None, *, checksums: bool = False,
@@ -356,17 +435,39 @@ def _zarrify(location: str, url: str | None = None, *, checksums: bool = False,
     return fmt, out
 
 
-def _with_layout(out: Output | StoreIrOutput | SeriesOutput, fmt: str, policy: Policy | None,
-                 planned: Planned | None, registry: Resolver | None = None) -> ReferenceStore:
-    """The output as a `refkv.ReferenceStore`, or, with a plugin layout `planned`, the plugin's
-    output built from it (`refkv.zarrify.layouts.apply`): on a thread, which the plugin's `write`
-    runs on."""
-    if planned is None:
+async def _built_in(parse: _Parse | SeriesOutput, policy: Policy | None, registry: Resolver) -> ReferenceStore:
+    """The built-in output of a parsed input, as a `refkv.ReferenceStore`: its projection, then
+    the store, on a thread of its own."""
+    if isinstance(parse, SeriesOutput):
+        fmt, out = "dicom", parse
+    else:
+        fmt, out = parse.fmt, await parse.output_async()
+
+    def store() -> ReferenceStore:
         return out.to_store(policy=policy, registry=registry, info={"format": fmt, **out.summary})
-    if isinstance(out, SeriesOutput):  # the DICOM store form's, a series of files' outputs with no base
-        raise LayoutRejected(f"{planned.name}: a store of DICOM files has no base for a plugin layout: "
+
+    return await _on_own_thread(store)
+
+
+async def _laid_out(planned: Planned, parse: _Parse | SeriesOutput, location: str, url: str | None, *,
+                    policy: Policy | None, registry: Registry | None, resolver: Resolver, checksums: bool,
+                    scope: Scope | None = None) -> ReferenceStore:
+    """The output the plugin layout `planned` writes of a parsed input (spec/layout.md
+    <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): the input as `refkv.build.read`
+    gives it, the plugin's `write` on a thread of its own, and its output sealed
+    (`refkv.build.plugin.apply`). No output of refkv's own is built, unless the plugin asks for
+    it. The input is closed when the plugin's output is made."""
+    if isinstance(parse, SeriesOutput):  # the DICOM store form's, a series of files' outputs with no IR
+        raise LayoutRejected(f"{planned.name}: a store of DICOM files has no IR for a plugin layout: "
                              "name one of its files")
-    return apply(out, fmt, policy, planned, registry)
+    # a `file:` URL, read as its path
+    parsed = await _build_parsed.parsed_async(parse, local_path(location, policy), url, policy=policy,
+                                              registry=registry, resolver=resolver, checksums=checksums, scope=scope)
+    try:
+        info = {"format": parsed.profile, "elements": len(parsed.ir)}
+        return await _on_own_thread(functools.partial(_build_plugin.apply, planned, [parsed], info=info))
+    finally:
+        parsed.close()
 
 
 async def _on_own_thread[T](f: Callable[..., T], *args: object) -> T:
@@ -486,8 +587,9 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
     - `layout`: a layout a plugin writes, `Layout("acme-ome.ome06")` or `Layout(plugin)`
       (`refkv.zarrify.layouts`; spec/layout.md
       <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>), for a file or store input
-      of a profile the plugin's `formats` name: the output is then the plugin's, built from
-      the output with every built-in layout, and `layouts` is None.
+      of a profile the plugin's `formats` name: the output is then the plugin's, written from
+      the input as parsed (a `refkv.build.Parsed`) and sealed (`refkv.build.seal`); refkv's own
+      output is built only where the plugin asks for it. `layouts` is None.
 
     `location` may instead be a source or store class's instance, such as
     `TiffSource(url)` or `Zarr2Store(url)` (`refkv.zarrify.sources`), which names the profile,
@@ -529,22 +631,28 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
         source = location
         resolver = Resolver(source.registry)
         if isinstance(source, Store):
-            fmt, out = await _zarrify_store_async(source.store_url, source.url, max_objects=source.max_objects,
-                                                  checksums=source.checksums, workers=source.workers,
-                                                  policy=source.policy, fmt=source.profile, layouts=layouts,
-                                                  registry=resolver, written=planned is None)
+            where, scoped, parsing = source.store_url, None, _parse_store_async(
+                source.store_url, source.url, max_objects=source.max_objects, checksums=source.checksums,
+                workers=source.workers, policy=source.policy, fmt=source.profile, layouts=layouts,
+                registry=resolver, written=planned is None)
         else:
-            fmt, out = await _zarrify_async(source.location, source.url, checksums=source.checksums,
-                                            policy=source.policy, connections=source.connections,
-                                            byte_cost=source.byte_cost, fmt=source.profile, layouts=layouts,
-                                            scope=source.scope, registry=resolver, written=planned is None)
-        return await _on_own_thread(_with_layout, out, fmt, source.policy, planned, resolver)
+            where, scoped, parsing = source.location, source.scope, _parse_async(
+                source.location, source.url, checksums=source.checksums, policy=source.policy,
+                connections=source.connections, byte_cost=source.byte_cost, fmt=source.profile, layouts=layouts,
+                scope=source.scope, registry=resolver, written=planned is None)
+        if planned is not None:
+            return await _laid_out(planned, await parsing, where, source.url, policy=source.policy,
+                                   registry=source.registry, resolver=resolver, checksums=bool(source.checksums),
+                                   scope=scoped)
+        return await _built_in(await parsing, source.policy, resolver)
     resolver = Resolver(registry)
-    fmt, out = await _zarrify_async(location, url, checksums=bool(checksums), policy=policy,
-                                    connections=connections, byte_cost=byte_cost,
-                                    workers=WORKERS if workers is None else workers, layouts=layouts,
-                                    scope=scope, registry=resolver, written=planned is None)
-    return await _on_own_thread(_with_layout, out, fmt, policy, planned, resolver)
+    parsing = _parse_async(location, url, checksums=bool(checksums), policy=policy, connections=connections,
+                           byte_cost=byte_cost, workers=WORKERS if workers is None else workers, layouts=layouts,
+                           scope=scope, registry=resolver, written=planned is None)
+    if planned is not None:
+        return await _laid_out(planned, await parsing, location, url, policy=policy, registry=registry,
+                               resolver=resolver, checksums=bool(checksums), scope=scope)
+    return await _built_in(await parsing, policy, resolver)
 
 
 def zarrify(location: str | Source | Store, url: str | None = None, *, checksums: bool | None = None,

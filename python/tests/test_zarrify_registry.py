@@ -11,6 +11,7 @@ from obstore.store import LocalStore, MemoryStore
 
 import refkv
 from refkv.errors import ResolutionError
+from refkv.pb import _STRONG_ETAG
 from refkv.zarrify import Hdf5Source, NrrdSource, StoreLimit, TiffSource, Zarr2Store, zarrify, zarrify_store
 
 FIXTURES = Path(__file__).parents[2] / "fixtures"
@@ -47,7 +48,8 @@ def test_an_input_under_a_registered_prefix_is_read_with_its_store(bucket, rel, 
     and the result is what a local run gives: the same keys, metadata and chunk bytes, read
     through the registry the result keeps. (The local run is named by https URLs, which a local
     directory's must be, so its root document names those.) A file read alone is source 0, which
-    pins the ETag the store gives."""
+    pins the ETag the store gives, where it is a strong entity tag: obstore's MemoryStore gives one
+    from 0.11.1, and an unquoted counter before it, which pins nothing."""
     url = f"{BUCKET}/{rel}"
     registry = {BUCKET: bucket} if form == "mapping" else ObjectStoreRegistry({BUCKET: bucket})
     store = rel.endswith("/")
@@ -65,7 +67,8 @@ def test_an_input_under_a_registered_prefix_is_read_with_its_store(bucket, rel, 
     assert all(u.startswith(f"{BUCKET}/{rel.split('/')[0]}/") for u in urls)
     if rel in PLAIN:
         assert got.sources[0].url == url
-        assert got.sources[0].etag == bucket.head(rel)["e_tag"]
+        etag = bucket.head(rel)["e_tag"]
+        assert got.sources[0].etag == (etag if etag is not None and _STRONG_ETAG.match(etag) else None)
 
 
 def test_a_url_of_a_scheme_with_no_registered_store_is_refused(bucket):

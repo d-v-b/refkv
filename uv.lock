@@ -3685,13 +3685,13 @@ requires-dist = [
     { name = "imagecodecs-zarr", marker = "extra == 'images'", specifier = ">=2026.8.16" },
     { name = "ml-dtypes", marker = "extra == 'zarr'", specifier = ">=0.6.0" },
     { name = "numpy", specifier = ">=2.1.0" },
-    { name = "obstore", marker = "extra == 'obstore'", specifier = ">=0.11.1" },
+    { name = "obstore", marker = "extra == 'obstore'", specifier = ">=0.8.0" },
     { name = "refkv", extras = ["zarr"], marker = "extra == 'images'", editable = "python" },
     { name = "refkv", extras = ["zarr"], marker = "extra == 'media'", editable = "python" },
     { name = "refkv", extras = ["zarr"], marker = "extra == 'precomputed'", editable = "python" },
     { name = "refkv", extras = ["zarr", "obstore"], marker = "extra == 'virtualizarr'", editable = "python" },
-    { name = "virtualizarr", marker = "extra == 'virtualizarr'", specifier = ">=2.7.3" },
-    { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3.4.0" },
+    { name = "virtualizarr", marker = "extra == 'virtualizarr'", specifier = ">=2.8.0" },
+    { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3.3.0" },
     { name = "zarr-metadata", marker = "extra == 'layouts'", specifier = ">=0.6.0" },
 ]
 provides-extras = ["images", "layouts", "media", "obstore", "precomputed", "virtualizarr", "zarr"]
