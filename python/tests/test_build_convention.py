@@ -3,6 +3,7 @@
 with them writes refkv's own output; here each is checked on its own, and each of its errors."""
 
 import gzip
+import json
 import math
 import zlib
 from pathlib import Path
@@ -148,11 +149,17 @@ def _placed(written):
             for k, v in written.items() if isinstance(v, bytes)}
 
 
-@pytest.mark.parametrize("name", ["npy/npz_compressed.npz", "tiff/strips_uint8.tif", "hdf5/hdf5_attributes.h5",
-                                  "fits/fits_bintable.fits", "n5/n5_hierarchy"])
-def test_the_mirror_is_the_one_refkv_s_own_output_holds(name):
+@pytest.mark.parametrize(("name", "recorded"), [
+    ("npy/npz_compressed.npz", None), ("tiff/strips_uint8.tif", None), ("hdf5/hdf5_attributes.h5", None),
+    ("fits/fits_bintable.fits", None), ("n5/n5_hierarchy", None),
+    # what a listing ignored, which the convention records beside the mirror: an archive's, a store's
+    ("zarr3/zarr3_deflated_documents.zip", "ignored"), ("safe/safe_l2a_pb0207", "empty_dirs"),
+    ("safe/safe_l2a_pb0207.SAFE.zip", "empty_dirs"),
+])
+def test_the_mirror_is_the_one_refkv_s_own_output_holds(name, recorded):
     """The same entries under `refkv_source`, placed as refkv places them: all of them for a file,
-    and for a store all but its objects (`refkv_source/objects`), which its projection adds."""
+    and for a store all but its objects (`refkv_source/objects`), which its projection adds. What
+    a listing ignored is in the mirror's source metadata, as refkv's own output records it."""
     with read(str(FIXTURES / name)) as p:
         own = project(p).entries("refkv_source/")
         mine = mirror(p)
@@ -161,14 +168,29 @@ def test_the_mirror_is_the_one_refkv_s_own_output_holds(name):
         assert dict(mine) == {k: v for k, v in own.items() if k not in objects}
         assert _placed(mine) == {k: v for k, v in _placed(own).items() if k not in objects}
         assert any(not at_open for at_open, _ in _placed(mine).values())
+        assert all(isinstance(v, bytes) for v in mine.values())
+        node = mine["refkv_source/zarr.json"]
+        assert isinstance(node, bytes)
+        metadata = json.loads(node)["attributes"]["refkv_zarrified"][p.profile]
+        assert {"ignored", "empty_dirs"} & set(metadata) == ({recorded} if recorded else set())
 
 
-def test_a_mirror_past_its_budget_is_rejected(monkeypatch):
-    def over(_ir, _profile):
-        raise _core.Rejected("budget: the mirror would have more than 4194305 rows")
+def test_a_mirror_past_its_budget_is_rejected():
+    class OverBudget:
+        def mirror(self):
+            raise _core.Rejected("budget: the mirror would have more than 4194305 rows")
 
-    monkeypatch.setattr(_core, "mirror", over)
-    with read(NPY) as p, pytest.raises(Rejected, match="the mirror would have more than"):
+    with read(NPY) as p:
+        assert p._parse is not None
+        p._parse.parse._run = OverBudget()  # type: ignore[assignment]
+        with pytest.raises(Rejected, match="the mirror would have more than"):
+            mirror(p)
+
+
+def test_the_mirror_of_a_closed_input_is_refused():
+    with read(NPY) as p:
+        pass
+    with pytest.raises(ValueError, match="the input is closed"):
         mirror(p)
 
 

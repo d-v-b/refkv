@@ -234,6 +234,15 @@ class FileParse:
         count: one of them answered with no ETag, or a weak one, leaves no pin."""
         return self._transport.etag() if self._pinned else None
 
+    def mirror(self) -> _core.Out[_core.FilePart]:
+        """The IR mirror alone, as the built-in output holds it under `refkv_source`, with what
+        the profile records beside it (the entries a Zarr v3 or SAFE zip's listing ignored): the
+        core's output (`refkv.ir.output.RustOutput`), the url empty. It reads nothing."""
+        try:
+            return self._run.mirror()
+        except _core.Rejected as e:
+            raise Rejected(str(e)) from None
+
     async def output_async(self, mirror: bool = True, layouts: list[str] | None = None, checksums: bool = False,
                            written: bool = True) -> Output:
         """The built-in output: the IR projected and, with `mirror`, mirrored under refkv_source

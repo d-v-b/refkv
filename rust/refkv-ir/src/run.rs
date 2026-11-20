@@ -479,17 +479,33 @@ pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_j
         m.insert("elements".into(), ir.len().into());
     }
     if mirror {
-        let folded = crate::mirror::mirror(ir, &mut out, format.name())?;
+        let folded = mirrored(format, ir, facts, &mut out)?;
         if let Some(m) = out.summary.as_object_mut() {
             m.insert("folded".into(), folded.json());
         }
-        format.profile().mirrored(&mut out, facts)?;
     }
     crate::seal::out(&mut out, Some(ir.size), &Default::default(), checksums && written)?;
     Ok(out)
 }
 
+/// Writes to `out` the mirror of a file's IR under `refkv_source`, and what its profile records
+/// beside it from the parser's facts (the entries a Zarr v3 or SAFE zip's listing ignored): what
+/// `output` writes there, and what the table folded.
+pub fn mirrored(format: Format, ir: &Ir, facts: &serde_json::Value, out: &mut crate::out::Out) -> Result<crate::mirror::Folded, String> {
+    let folded = crate::mirror::mirror(ir, out, format.name())?;
+    format.profile().mirrored(out, facts)?;
+    Ok(folded)
+}
+
 impl Run {
+    /// The mirror of a run that is done (`mirrored`), alone in an output of no url.
+    pub fn mirror(&self) -> Result<crate::out::Out, String> {
+        let (ir, facts) = self.parsed()?;
+        let mut out = crate::out::Out::new("");
+        mirrored(self.format, ir, facts, &mut out)?;
+        Ok(out)
+    }
+
     /// Finishes, projects and mirrors: the output (`output`), for a host that records the
     /// ranges' checksums when `checksums`.
     pub fn into_output(self, url: &str, mirror: bool, checksums: bool) -> Result<crate::out::Out, crate::seal::Refusal> {

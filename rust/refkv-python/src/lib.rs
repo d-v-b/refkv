@@ -769,6 +769,13 @@ impl PyRun {
         let (ir, _) = self.get()?.parsed().map_err(PyValueError::new_err)?;
         Ok(PyIr::of(Arc::clone(ir)))
     }
+    /// The mirror of a run that is done, with what its profile records beside it
+    /// (`Run::mirror`), in `out_py`'s form, the url empty; or Rejected.
+    fn mirror<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let r = &*self.get()?;
+        let o = py.detach(|| r.mirror()).map_err(Rejected::new_err)?;
+        out_py(py, &o)
+    }
     /// `output`, of a run that is kept (`Run::project`): the output alone, in `out_py`'s form.
     #[pyo3(signature = (url, mirror=true, layouts=None, checksums=false, written=true))]
     fn project<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, layouts: Option<Vec<String>>, checksums: bool,
@@ -879,6 +886,16 @@ impl PyStoreRun {
         let ir = Arc::new(ir);
         self.parsed = Some((format, Arc::clone(&ir), facts, stats));
         Ok(PyIr::of(ir))
+    }
+    /// The mirror of a run `parse` finished, with the keys and directories its listing ignored
+    /// (`store::mirrored`), in `out_py`'s form, the url empty; or Rejected.
+    fn mirror<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let (format, ir, facts, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        let o = py.detach(|| {
+            let mut o = refkv_ir::out::Out::new("");
+            refkv_ir::store::mirrored(*format, ir, facts, &mut o).map(|_| o)
+        }).map_err(Rejected::new_err)?;
+        out_py(py, &o)
     }
     /// `output`, of a run `parse` finished: the output alone, in `out_py`'s form.
     #[pyo3(signature = (url, mirror=true, checksums=false))]

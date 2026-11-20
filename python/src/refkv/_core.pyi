@@ -260,6 +260,9 @@ class Run:
         profile whose parser returns none yet."""
     def ir(self) -> Ir:
         """The IR of a run that is done, shared with the run, which is kept."""
+    def mirror(self) -> Out[FilePart]:
+        """The mirror of a run that is done, with what its profile records beside it, the url
+        empty; or Rejected."""
     def project(self, url: str, mirror: bool = True, layouts: list[str] | None = None,
                 checksums: bool = False, written: bool = True) -> Out[FilePart]:
         """`output`, of a run that is kept: the output alone."""
@@ -303,6 +306,9 @@ class StoreRun:
     def parse(self) -> Ir:
         """Finishes without an output: the IR, which the run keeps with its facts and counts, so
         that `project(...)` gives the built-in output of it, as often as the host likes."""
+    def mirror(self) -> Out[StorePart]:
+        """The mirror of a run `parse` finished, with the keys and directories its listing
+        ignored, the url empty; or Rejected."""
     def project(self, url: str, mirror: bool = True, checksums: bool = False) -> Out[StorePart]:
         """`output`, of a run `parse` finished: the output alone."""
 

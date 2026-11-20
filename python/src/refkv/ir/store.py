@@ -317,6 +317,15 @@ class StoreParse:
         # the objects' sizes, from the IR: the listing's, and a VSI input's files probed into it
         self.sizes: dict[str, int] = {k: n for k, _, n in self.ir.object_bases()}
 
+    def mirror(self) -> _core.Out[_core.StorePart]:
+        """The IR mirror alone, as the built-in output holds it under `refkv_source` but for the
+        store's objects, which its projection writes: the table, the view, and the keys and
+        directories the listing ignored. The core's output, the url empty. It reads nothing."""
+        try:
+            return self._run.mirror()
+        except _core.Rejected as e:
+            raise Rejected(str(e), format=self.profile) from None
+
     def output(self, mirror: bool = True, checksums: bool = False, written: bool = True) -> StoreIrOutput:
         """The built-in output: the format's projection and, with `mirror`, the mirror, sealed as
         `run_store_async` says. It blocks, on a listing of millions of objects for long: call it
