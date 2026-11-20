@@ -505,3 +505,38 @@ members:
 | `kind` | `"npy"` or `"npz"` |
 | `arrays` | each presented array's `{"path", "dataType", "shape", "order", "chunkShape", "chunks"}`, `order` `"C"` or `"F"`, in the archive's central directory order |
 | `unpresented` | the members not presented, a count by reason (`{}` for a `.npy` file) |
+
+### 8.6 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. A NumPy
+parser returns, beside the IR, a **description** of the file: what it found of the source, for a
+projection to read with the IR's stored arrays
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)). It holds none of an output's data
+types, codecs or chunks. It is a JSON object with two members:
+
+| member | value |
+|---|---|
+| `own` | the root's source metadata ([§5.1](#51-the-root)) |
+| `arrays` | the arrays the profile presents, in the output's order: a `.npy` file's one, or a `.npz` archive's presented members in its central directory's order |
+
+and an entry of `arrays` has these:
+
+| member | value |
+|---|---|
+| `path` | the array's path ([§4](#4-the-hierarchy)) |
+| `header` | its NPY header's text, decoded as its version says ([§2](#2-the-npy-format)): the array's declaration |
+| `stored` | the id of the IR element that keys its stored array, its `header` element; null for a deflated member, which the IR does not describe yet |
+| `deflate` | a deflated member's only: `start` and `length`, its stream's range in the file; `crc` and `size`, the central directory's CRC-32 and uncompressed size; `skip` and `data`, the offset and length of its data in what the stream inflates to |
+
+The profile's projection reads an array's shape and its order from its stored array, its data
+from the chunk map (one unit, its `data` element), and its data type, byte order and fill value
+from `header`'s `descr` ([§3](#3-data-types)). A deflated member's shape and order are its
+header's. A stored array may have no grid, and so no unit, for an array the profile presents all
+the same: one of a type NumPy's own layout gives no size, `a<n>`, which [§3](#3-data-types) reads
+as `S<n>`. The projection then reads the declaring structure for the rest
+([spec/stored-array.md §2.3](../stored-array.md#23-the-grid)): its data is the `data` element
+beside its header.
+
+The parser still decides which members are presented and at which path
+([§8.3](#83-the-archive)), and gives the `data` element a form that names its data type
+([§5.3](#53-elements)): both are in the IR and the source metadata as before.

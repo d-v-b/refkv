@@ -137,6 +137,12 @@ class Ir:
         """The arrays the source stores (spec/stored-array.md §2.5
         <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#25-the-json-form>): one JSON
         document, the chain table, the descriptions and the `undescribed` mark."""
+    def units(self, array: int) -> list[tuple[list[int], int | None, int | None, tuple[int, int] | None,
+                                              list[tuple[str | None, int, int]] | None, int | None, int | None]]:
+        """The chunk map's rows of the stored array at position `array`, each (coords, element,
+        member, range, ranges, chain, skips), as spec/stored-array.md §4.1
+        <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#41-the-arrow-schema> gives
+        the columns: `member` is the position of the run's member the element is in."""
     def chunk_map(self) -> ChunkMap:
         """The chunk map (spec/stored-array.md §4
         <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#4-the-chunk-map>): an object
@@ -249,6 +255,9 @@ class Run:
         as often as it likes."""
     def begin_projection(self) -> None:
         """Asks for the built-in projection's reads, of a run that left them out and is done."""
+    def description(self) -> str | None:
+        """The profile's description of the source (JSON), of a run that is done; None for a
+        profile whose parser returns none yet."""
     def ir(self) -> Ir:
         """The IR of a run that is done, shared with the run, which is kept."""
     def project(self, url: str, mirror: bool = True, layouts: list[str] | None = None,
@@ -364,6 +373,17 @@ def project(format: str, ir: Ir, facts: str, url: str) -> Out[FilePart]:  # noqa
     """The image projection of an IR (`format` a name of `Format::from_name`; facts as JSON) as
     Python objects (`out_py`), or Rejected. Raises ValueError for an unknown format, or facts
     that are not JSON."""
+def grid_chunks(offset: int, shape: list[int], item: int,
+                limit: int) -> tuple[list[int], list[tuple[list[int], int, int, int, bool]]] | None:
+    """The C-order array of `shape`, of `item`-byte elements contiguous at `offset`, cut as
+    spec/conventions.md §7 cuts contiguous values into chunks of at most `limit` bytes: its chunk
+    shape, and each chunk's coordinates, its range (offset, length), the zero bytes that pad it,
+    and whether the range is to be copied; None when an element is larger than `limit` or the
+    sizes overflow."""
+def gzip_frame(crc32: int, size: int) -> tuple[bytes, bytes]:
+    """What frames a raw deflate stream as a gzip member, as the built-in projections write one:
+    the 10-byte header, and the trailer, the stream's CRC-32 and the size of what it inflates to,
+    modulo 2^32."""
 def mirror(ir: Ir, profile: str) -> tuple[Out[FilePart], str]:
     """The mirror of an IR under `profile`'s convention (a name of spec/zarrify/profiles/): its
     entries and references under `refkv_source` (`out_py`'s form, the url empty), and what the
