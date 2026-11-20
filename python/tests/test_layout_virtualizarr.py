@@ -232,7 +232,8 @@ def latin_hdr(path: Path) -> Path:
 def zarr_v2(path: Path) -> Path:
     """A Zarr v2 directory: xarray's `_ARRAY_DIMENSIONS`, a null fill value, Fortran order, the `/`
     separator, zstd, zlib and no compressor, a nested group, an array without dimension names, and
-    arrays of `|S<n>` (one a scalar) and `|V<n>`."""
+    arrays of `|S<n>` (one a scalar, one of two dimensions in Fortran order) and `|V<n>`, one
+    compressed with Blosc."""
     g = zarr.open_group(path, mode="w", zarr_format=2, attributes={"title": "v2", "list": [1, 2]})
     g.create_array("temp", shape=(4, 6), chunks=(2, 3), dtype="f4", fill_value=-1.0,
                    compressors=numcodecs.Zstd(level=3),
@@ -249,7 +250,12 @@ def zarr_v2(path: Path) -> Path:
                    attributes={"_ARRAY_DIMENSIONS": ["f"]})[:] = np.array([b"ab", b"cde", b"f"])
     g.create_array("crs", shape=(), dtype="|S1", attributes={"_ARRAY_DIMENSIONS": []})[...] = b"x"
     g.create_array("raw", shape=(2,), chunks=(2,), dtype="|V4",
+                   compressors=numcodecs.Blosc(cname="lz4", clevel=5, shuffle=1),
                    attributes={"_ARRAY_DIMENSIONS": ["r"]})[:] = np.frombuffer(b"abcdefgh", "V4")
+    # bytes in Fortran order: the transpose refkv's own output starts with takes the byte axis too
+    g.create_array("names", shape=(2, 3), chunks=(2, 2), dtype="|S2", order="F", compressors=None,
+                   attributes={"_ARRAY_DIMENSIONS": ["p", "q"]})[:] = np.array(
+                       [[b"a", b"bc", b"d"], [b"ef", b"g", b"hi"]])
     return path
 
 

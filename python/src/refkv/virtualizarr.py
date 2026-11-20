@@ -128,8 +128,8 @@ class RefkvParser:
 
     def _zarrify(self, url: str, registry: ObjectStoreRegistry[Any], scope: str | None = None) -> ReferenceReader:
         """`url` zarrified: read once, then written by the parser's layout where it reads the
-        input's profile, and as refkv's own output of the same reading where it does not.
-        `scope` is `zarrify`'s."""
+        input's profile and takes the input, and as refkv's own output of the same reading where
+        it does not. `scope` is `zarrify`'s."""
         if self.layout is None:
             return zarrify(url, policy=self.policy, registry=registry, scope=scope)
         planned = plan(self.layout)
@@ -140,7 +140,10 @@ class RefkvParser:
         with parsed:
             info = {"format": parsed.profile, "elements": len(parsed.ir)}
             if planned.reads(parsed.profile, parsed.version):
-                return apply(planned, [parsed], info=info)
+                try:
+                    return apply(planned, [parsed], info=info)
+                except LayoutRejected:  # an input the layout reads the profile of, and refuses
+                    pass
             return seal(project(parsed).written, [parsed], info=info)
 
 

@@ -3,6 +3,7 @@
 conformance/virtualizarr compares RefkvParser with VirtualiZarr's own parsers."""
 
 import json
+from pathlib import Path
 
 import h5py
 import numcodecs
@@ -21,9 +22,10 @@ import refkv.zarrify
 from refkv import Concat, Policy, Range, ReferenceStore, Source
 from refkv.errors import ResolutionError
 from refkv.virtualizarr import RefkvParser, manifest_store
-from refkv.zarrify import Rejected
-from refkv.zarrify.layouts import Layout
+from refkv.zarrify import Rejected, zarrify
+from refkv.zarrify.layouts import Layout, LayoutRejected
 
+FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 GROUP = b'{"zarr_format": 3, "node_type": "group", "attributes": {"title": "kinds"}}'
 
 
@@ -259,6 +261,42 @@ def test_refkv_parser_reads_an_input_once(tmp_path, registry, monkeypatch):
         np.testing.assert_array_equal(read(result, array).reshape(4, 4), data)
     own = RefkvParser(layout=None)((tmp_path / "a.tif").as_uri(), registry)
     assert set(result._group.arrays) == set(own._group.arrays)
+
+
+def test_refkv_parser_gives_refkv_s_own_output_of_an_input_its_layout_refuses(tmp_path, registry, monkeypatch):
+    """An input whose profile the parser's layout reads, and which the layout refuses (a FITS
+    image with BSCALE = 0, which refkv's own output records and does not apply), is written as
+    refkv's own output of the same parse."""
+    cards = ["SIMPLE  =                    T", "BITPIX  =                   16", "NAXIS   =                    1",
+             "NAXIS1  =                    2", "BSCALE  =                  0.0", "END"]
+    header = "".join(c.ljust(80) for c in cards).ljust(2880).encode()
+    path = tmp_path / "zero.fits"
+    path.write_bytes(header + np.array([1, 2], ">i2").tobytes().ljust(2880, b"\0"))
+    with pytest.raises(LayoutRejected, match="BSCALE = 0"):
+        zarrify(str(path), layout=Layout("refkv.virtualizarr"))
+    parses: list[str] = []
+    parse = refkv.zarrify._parse_async
+
+    async def counted(location, *args, **kwargs):
+        parses.append(str(location))
+        return await parse(location, *args, **kwargs)
+
+    monkeypatch.setattr(refkv.zarrify, "_parse_async", counted)
+    result = RefkvParser()(path.as_uri(), registry)
+    assert len(parses) == 1
+    own = RefkvParser(layout=None)(path.as_uri(), registry)
+    assert set(result._group.arrays) == set(own._group.arrays) != set()
+    for name in own._group.arrays:
+        np.testing.assert_array_equal(read(result, name), read(own, name), strict=True)
+
+
+def test_refkv_parser_gives_refkv_s_own_output_of_a_store_of_dicom_files(registry):
+    """A store of DICOM files keeps no IR, so no layout is given it: the parser, with its layout,
+    writes what it writes without one."""
+    series = min(p for p in (FIXTURES / "dicom_series").iterdir() if p.is_dir())
+    result = RefkvParser()(f"{series.as_uri()}/", registry)
+    own = RefkvParser(layout=None)(f"{series.as_uri()}/", registry)
+    assert set(result._group.groups) == set(own._group.groups) != set()
 
 
 def test_unsupported_input_without_header_raises(tmp_path, registry):

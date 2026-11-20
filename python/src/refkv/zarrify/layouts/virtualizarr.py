@@ -811,6 +811,12 @@ def _zarr2(pr: Projected, token: bool) -> Written:
                                              _zarr2_bytes_fill(source.get("fill_value"), dtype["kind"], length))
             doc["codecs"] = [{**c, "configuration": {**c["configuration"], "typesize": length}}
                              if c.get("name") == "blosc" and "configuration" in c else c for c in doc["codecs"]]
+            # an array in Fortran order starts with a transpose, which took the byte axis, last, with it
+            first = doc["codecs"][0] if doc["codecs"] else {}
+            order = first.get("configuration", {}).get("order") if first.get("name") == "transpose" else None
+            if isinstance(order, list) and order and order[-1] == len(doc["shape"]):
+                doc["codecs"] = [{**first, "configuration": {**first["configuration"], "order": order[:-1]}},
+                                 *doc["codecs"][1:]]
         names = attributes.get("_ARRAY_DIMENSIONS")
         # names a Zarr v3 array takes (ZarrParser fails on others, which stay an attribute)
         if isinstance(names, list) and len(names) == len(doc["shape"]) and \
