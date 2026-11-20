@@ -241,19 +241,30 @@ impl Array {
         Ok((Some(data), reached.map(|r| Reached { data: Some(data), ..r })))
     }
 
-    /// The facts the projection reads of it, presented at `path`, its data element `data`; a
-    /// deflated member's `deflate`, its stream's range, CRC-32 and size and the bytes before its
-    /// data.
-    fn facts(&self, path: &str, data: Option<u32>, deflated: Option<&zip::Entry>) -> J {
-        let (h, t) = (self.header.as_ref().unwrap(), self.dtype.as_ref().unwrap());
-        let (offset, length) = self.data.unwrap();
-        let mut f = json!({
-            "path": path, "data": data, "offset": offset, "length": length,
-            "data_type": t.zarr, "item": t.item, "little": t.little, "trailing": t.trailing, "fill": t.fill,
-            "fortran_order": h.fortran_order, "shape": h.shape,
-        });
+    /// Its header's text: versions 1 and 2 are ISO 8859-1, every byte a character; version 3
+    /// is UTF-8.
+    fn text(&self) -> Option<String> {
+        let raw = self.raw.as_deref()?;
+        if self.version.0 == 3 {
+            std::str::from_utf8(raw).ok().map(str::to_string)
+        } else {
+            Some(raw.iter().map(|&b| b as char).collect())
+        }
+    }
+
+    /// What the description says of it as an array the profile presents at `path`
+    /// (spec/zarrify/npy.md §4.3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#43-the-arrays>): its header's
+    /// text, which declares its type, order and shape, and `stored`, the key of its stored
+    /// array's description (its `header` element), which gives its shape and its data. A deflated
+    /// member has no description yet: its `deflate` is its stream's range, CRC-32 and size, and
+    /// the range of its data in what the stream inflates to.
+    fn entry(&self, path: &str, stored: Option<u32>, deflated: Option<&zip::Entry>) -> J {
+        let mut f = json!({"path": path, "header": self.text(), "stored": stored});
         if let Some(e) = deflated {
-            f["deflate"] = json!({"start": e.ds, "length": e.cs, "crc": e.crc, "size": e.us, "skip": offset});
+            let (offset, length) = self.data.unwrap();
+            f["stored"] = J::Null;
+            f["deflate"] = json!({"start": e.ds, "length": e.cs, "crc": e.crc, "size": e.us, "skip": offset, "data": length});
         }
         f
     }
@@ -536,16 +547,15 @@ impl Npy {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#53-elements>) and the facts.
     fn done(&mut self) -> Result<Step, String> {
         self.phase = Phase::Done;
+        // the arrays the profile presents, each with the key of its description
+        // (spec/stored-array.md §2.1
+        // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>), its `header`
+        // element
         let mut arrays = Vec::new();
-        // the element keying each array's description (spec/stored-array.md §2.1
-        // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>): a `.npy`
-        // file's one, or each member's of `own.members`, null for one with none
-        let mut declared_by: Vec<Option<u32>> = Vec::new();
         let own = if let Some(a) = self.array.take() {
-            let (data, reached) = a.emit(&mut self.ir, 0)?;
-            declared_by.push(reached.as_ref().map(|r| r.header));
+            let (_, reached) = a.emit(&mut self.ir, 0)?;
+            arrays.push(a.entry("array", reached.as_ref().map(|r| r.header), None));
             self.reached.extend(reached);
-            arrays.push(a.facts("array", data, None));
             json!({"kind": "npy", "array": a.header_json()})
         } else {
             let raw = zip::Records { tail: &self.tail, cd: &self.cd, record: self.record.as_deref(), locator: self.locator.as_deref() };
@@ -556,14 +566,12 @@ impl Npy {
                 let name = self.fed.get(e.lho + 30, e.local_nn).map(<[u8]>::to_vec);
                 let s = zip::emit_local(&mut self.ir, i as u64, e, name.as_deref())?;
                 let read = m.array.as_ref().filter(|a| a.raw.is_some() && e.method == 0);
-                let mut data = None;
                 let mut key = None;
                 if e.cs > 0 {
                     match read {
                         Some(a) => {
                             let d = self.ir.struct_(s, "data", NO_INDEX, 0, Some((e.ds, e.cs)))?;
-                            let reached;
-                            (data, reached) = a.emit(&mut self.ir, d)?;
+                            let (_, reached) = a.emit(&mut self.ir, d)?;
                             key = reached.as_ref().map(|r| r.header);
                             self.reached.extend(reached);
                         }
@@ -584,7 +592,7 @@ impl Npy {
                 match (&m.path, m.reason) {
                     (Some(p), None) => {
                         j.insert("path".into(), json!(p));
-                        arrays.push(m.array.as_ref().unwrap().facts(p, data, (e.method == 8).then_some(e)));
+                        arrays.push(m.array.as_ref().unwrap().entry(p, key, (e.method == 8).then_some(e)));
                     }
                     (_, r) => {
                         let r = r.unwrap_or("header");
@@ -597,12 +605,14 @@ impl Npy {
                     j.insert("header".into(), h);
                 }
                 members.push(J::Object(j));
-                declared_by.push(key);
             }
             self.rules.check("arrays", rules::env([("count", num(arrays.len() as f64)), ("reasons", text(&reasons.join(", ")))]))?;
             json!({"kind": "npz", "members": members})
         };
-        let mut facts = json!({"own": own, "arrays": arrays, "declared_by": declared_by, "copy_threshold": crate::out::copy_threshold()});
+        // the description: the source metadata (`own`), and the arrays presented. It holds none
+        // of the output's decisions but those: a data type, a chunk and a codec are the plan's
+        // (project/npy.rs), from the header's text and the stored arrays
+        let mut facts = json!({"own": own, "arrays": arrays});
         self.asked.put(&mut facts);
         self.facts = facts;
         Ok(Step::Done)

@@ -21,15 +21,25 @@ fn every_accepted_fixture_rebuilds_and_presents_its_arrays() {
     assert!(seen > 30);
 }
 
+/// The header a description's entry of `arrays` gives as text, parsed, and the presented data
+/// type of its `descr`.
+fn declared(a: &serde_json::Value) -> (refkv_ir::npy::header::Header, refkv_ir::npy::header::Dtype) {
+    let rules = refkv_ir::rules::of("npy");
+    let h = refkv_ir::npy::header::parse(a["header"].as_str().unwrap(), 64).unwrap();
+    let t = refkv_ir::npy::header::dtype(rules, &h.descr).unwrap();
+    (h, t)
+}
+
 /// Every accepted fixture's stored arrays (spec/stored-array.md
-/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md>) agree with the facts its
-/// projection reads: each presented array of a `.npy` file or stored `.npz` member is described,
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md>) agree with what each array's
+/// header declares, which the parser's description gives as text: each presented array of a
+/// `.npy` file or stored `.npz` member is described,
 /// keyed and declared by its header, in storage order (a Fortran-order array's axes reversed), its
 /// elements of the descr's size, one unit, its data element, stored as is, with no fill value; a
 /// stored member whose array is not presented but whose header was read is described with no grid;
 /// a deflated member's array is not described.
 #[test]
-fn every_accepted_fixtures_arrays_are_described_as_its_facts_give_them() {
+fn every_accepted_fixtures_arrays_are_described_as_their_headers_declare_them() {
     use refkv_ir::array::{AxisUnits, Edge, Place};
     let dir = common::fixtures().join("npy");
     let mut names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
@@ -37,45 +47,52 @@ fn every_accepted_fixtures_arrays_are_described_as_its_facts_give_them() {
     let (mut described, mut ungridded) = (0, 0);
     for path in names.iter().filter(|p| !p.file_name().unwrap().to_str().unwrap().contains("reject")) {
         let at = path.display().to_string();
-        let (ir, facts) = refkv_ir::parse_bytes::<Npy>(&std::fs::read(path).unwrap()).unwrap();
+        let (ir, description) = refkv_ir::parse_bytes::<Npy>(&std::fs::read(path).unwrap()).unwrap();
         let s = &ir.stored;
         let n = |v: &serde_json::Value| v.as_u64().unwrap();
-        let facts_arrays = facts["arrays"].as_array().unwrap();
-        let stored: Vec<_> = facts_arrays.iter().filter(|a| a.get("deflate").is_none()).collect();
+        let presented = description["arrays"].as_array().unwrap();
+        let stored: Vec<_> = presented.iter().filter(|a| a.get("deflate").is_none()).collect();
         let gridded: Vec<(usize, _)> = s.arrays.iter().enumerate().filter(|(_, d)| d.grid.is_some()).collect();
         assert_eq!(gridded.len(), stored.len(), "{at}");
         assert_eq!(s.chains, if stored.is_empty() { vec![] } else { vec![vec![]] }, "{at}");
         for ((k, d), a) in gridded.into_iter().zip(&stored) {
-            let shape: Vec<u64> = a["shape"].as_array().unwrap().iter().map(n).collect();
-            let reversed = a["fortran_order"].as_bool().unwrap() && shape.len() >= 2;
+            let (h, t) = declared(a);
+            let shape = h.shape.clone();
+            let reversed = h.fortran_order && shape.len() >= 2;
             let want: Vec<u64> = if reversed { shape.iter().rev().copied().collect() } else { shape.clone() };
+            assert_eq!(a["stored"].as_u64(), Some(d.element as u64), "{at}: the description keys the array's");
             assert_eq!(d.shape.as_ref(), Some(&want), "{at}");
             assert_eq!(d.axes, reversed.then(|| (0..shape.len() as u32).rev().collect()), "{at}");
-            assert_eq!(d.item_bits, Some(n(&a["item"]) * 8), "{at}");
+            assert_eq!(d.item_bits, Some(t.item * 8), "{at}");
             assert_eq!(d.index, None, "{at}");
             assert_eq!(d.declarations, vec![Place::Element { element: d.element, member: None, range: None }], "{at}");
             assert_eq!(ir.names.get(ir.name[d.element as usize]), "header", "{at}");
             let h = d.element as usize;
-            assert_eq!(ir.start[h] + ir.len[h], n(&a["offset"]), "{at}: the header ends where the data starts");
             let g = d.grid.as_ref().unwrap();
             assert_eq!(g.edge, Edge::Short, "{at}");
             let axes: Vec<AxisUnits> = want.iter().map(|&x| if x == 0 { AxisUnits::List(vec![]) } else { AxisUnits::Each(x) }).collect();
             assert_eq!(g.axes, axes, "{at}");
             assert_eq!((d.chains.clone(), d.grid.as_ref().map(|g| g.sparse.is_none()), d.pad_from, d.unit_parameters.len()), (vec![0], Some(true), None, 0), "{at}");
             let rows: Vec<usize> = (0..s.map.len()).filter(|&r| s.map.array[r] == k as u32).collect();
-            if n(&a["length"]) == 0 {
+            let length = shape.iter().product::<u64>() * t.item;
+            if length == 0 {
                 assert!(rows.is_empty(), "{at}");
             } else {
                 assert_eq!(rows.len(), 1, "{at}");
                 let r = rows[0];
-                assert_eq!(s.map.element[r], Some(n(&a["data"]) as u32), "{at}");
+                // its unit is the `data` element beside its header, which starts where the header ends
+                let e = s.map.element[r].unwrap() as usize;
+                assert_eq!((ir.names.get(ir.name[e]), ir.parent[e]), ("data", ir.parent[h]), "{at}");
+                assert_eq!((ir.start[e], ir.len[e]), (ir.start[h] + ir.len[h], length), "{at}");
                 assert_eq!(s.map.coords_of(r), vec![0; want.len()], "{at}");
                 assert_eq!((s.map.member[r], s.map.ranges_of(r), s.map.chain[r], s.map.skips[r]), (None, None, None, None), "{at}");
             }
             described += 1;
         }
+        // a deflated member's array has no description to key
+        assert!(presented.iter().filter(|a| a.get("deflate").is_some()).all(|a| a["stored"].is_null()), "{at}");
         // the stored members whose header was read and whose array is not presented
-        let members = facts["own"].get("members").and_then(|m| m.as_array()).cloned().unwrap_or_default();
+        let members = description["own"].get("members").and_then(|m| m.as_array()).cloned().unwrap_or_default();
         let unpresented: Vec<_> = members.iter().filter(|m| m.get("reason").is_some() && m.get("header").is_some() && n(&m["method"]) == 0).collect();
         let none: Vec<_> = s.arrays.iter().filter(|d| d.grid.is_none()).collect();
         assert_eq!(none.len(), unpresented.len(), "{at}");
@@ -90,45 +107,43 @@ fn every_accepted_fixtures_arrays_are_described_as_its_facts_give_them() {
     assert!(described > 30 && ungridded > 0, "{described} described, {ungridded} with no grid");
 }
 
-/// Each array's description is found from the facts by its key (spec/stored-array.md §2.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>): `declared_by` gives
-/// the element keying a `.npy` file's array, or each member's of `own.members` in order, presented
-/// or not, null for one with no description (a deflated member's), and a presented array's entry
-/// of `arrays` is the member of `own.members` with its `path`.
+/// Each array's description is found by its key, its `header` element (spec/stored-array.md §2.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>): a `.npy` file's is
+/// `header`, and a `.npz` archive's member's `entries/<i>/data/header`, i its position among the
+/// source metadata's `members`, for every member whose header was read and that is stored,
+/// presented or not; the parser's description gives a presented array's key as its `stored`,
+/// null for one with no description (a deflated member's).
 #[test]
-fn every_fixtures_descriptions_are_found_from_its_facts() {
+fn every_fixtures_descriptions_are_found_by_their_header_elements() {
     let dir = common::fixtures().join("npy");
     let mut names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
     names.sort();
     let mut found = 0;
     for path in names.iter().filter(|p| !p.file_name().unwrap().to_str().unwrap().contains("reject")) {
         let at = path.display().to_string();
-        let (ir, facts) = refkv_ir::parse_bytes::<Npy>(&std::fs::read(path).unwrap()).unwrap();
-        let keys: Vec<Option<u32>> = facts["declared_by"].as_array().unwrap().iter().map(|k| k.as_u64().map(|k| k as u32)).collect();
-        let by_element: std::collections::HashMap<u32, &refkv_ir::array::StoredArray> = ir.stored.arrays.iter().map(|d| (d.element, d)).collect();
-        // each key names a description of no index, and every description has a key
-        for k in keys.iter().flatten() {
-            assert!(by_element.get(k).is_some_and(|d| d.index.is_none()), "{at}: {k}");
-        }
-        assert_eq!(keys.iter().flatten().count(), ir.stored.arrays.len(), "{at}");
+        let (ir, description) = refkv_ir::parse_bytes::<Npy>(&std::fs::read(path).unwrap()).unwrap();
+        let by_path: std::collections::HashMap<String, &refkv_ir::array::StoredArray> =
+            ir.stored.arrays.iter().map(|d| (ir.path(d.element), d)).collect();
+        assert!(by_path.values().all(|d| d.index.is_none()), "{at}");
+        assert_eq!(by_path.len(), ir.stored.arrays.len(), "{at}: one description a header");
         found += ir.stored.arrays.len();
-        let Some(members) = facts["own"].get("members").and_then(|m| m.as_array()) else {
-            assert_eq!(keys.len(), 1, "{at}");
-            assert_eq!(ir.path(keys[0].unwrap()), "header", "{at}");
+        let presented = description["arrays"].as_array().unwrap();
+        let Some(members) = description["own"].get("members").and_then(|m| m.as_array()) else {
+            assert_eq!(by_path.keys().collect::<Vec<_>>(), vec!["header"], "{at}");
+            assert_eq!(presented[0]["stored"].as_u64(), Some(by_path["header"].element as u64), "{at}");
             continue;
         };
-        assert_eq!(keys.len(), members.len(), "{at}");
-        for a in facts["arrays"].as_array().unwrap() {
-            let i = members.iter().position(|m| m.get("path") == Some(&a["path"])).unwrap();
-            assert_eq!(keys[i].is_some(), a.get("deflate").is_none(), "{at}: member {i}");
-        }
-        for (i, (m, k)) in members.iter().zip(&keys).enumerate() {
-            let described = m.get("header").is_some() && m["method"].as_u64() == Some(0);
-            assert_eq!(k.is_some(), described, "{at}: member {i}");
-            if let Some(k) = k {
-                assert_eq!(ir.path(*k), format!("entries/{i}/data/header"), "{at}");
+        let mut described = 0;
+        for (i, m) in members.iter().enumerate() {
+            let key = by_path.get(&format!("entries/{i}/data/header"));
+            assert_eq!(key.is_some(), m.get("header").is_some() && m["method"].as_u64() == Some(0), "{at}: member {i}");
+            described += key.is_some() as usize;
+            if let Some(a) = presented.iter().find(|a| m.get("path") == Some(&a["path"])) {
+                assert_eq!(a["stored"].as_u64(), key.map(|d| d.element as u64), "{at}: member {i}");
+                assert_eq!(key.is_some(), a.get("deflate").is_none(), "{at}: member {i}");
             }
         }
+        assert_eq!(described, by_path.len(), "{at}");
     }
     assert!(found > 40, "{found}");
 }
@@ -147,19 +162,21 @@ fn npy_of(descr: &str, shape: &str) -> Vec<u8> {
     out
 }
 
-/// An array of no elements whose element's bits pass 2^64 parses and is presented as before the
-/// stored arrays (its facts' array, of no data), and is described with no grid: the general
+/// An array of no elements whose element's bits pass 2^64 parses and is presented (the
+/// description's one array, of no data), and is described with no grid: the general
 /// fallback, not a rejection.
 #[test]
 fn an_array_whose_element_bits_pass_2_to_the_64_is_described_with_no_grid() {
     for (descr, item) in [("|V3000000000000000000", 3_000_000_000_000_000_000u64), ("<U1000000000000000000", 4_000_000_000_000_000_000)] {
         let data = npy_of(descr, "(0,)");
-        let (ir, facts) = refkv_ir::parse_bytes::<Npy>(&data).unwrap_or_else(|e| panic!("{descr}: {e}"));
+        let (ir, description) = refkv_ir::parse_bytes::<Npy>(&data).unwrap_or_else(|e| panic!("{descr}: {e}"));
         assert_eq!(common::rebuilt(&ir, &data), data, "{descr}");
-        let arrays = facts["arrays"].as_array().unwrap();
+        let arrays = description["arrays"].as_array().unwrap();
         assert_eq!(arrays.len(), 1, "{descr}");
-        assert_eq!((arrays[0]["path"].as_str(), arrays[0]["item"].as_u64(), arrays[0]["length"].as_u64()), (Some("array"), Some(item), Some(0)), "{descr}");
+        let (h, t) = declared(&arrays[0]);
+        assert_eq!((arrays[0]["path"].as_str(), t.item, h.shape.clone()), (Some("array"), item, vec![0]), "{descr}");
         let s = &ir.stored;
+        assert_eq!(arrays[0]["stored"].as_u64(), Some(s.arrays[0].element as u64), "{descr}");
         assert_eq!(s.arrays.len(), 1, "{descr}");
         assert_eq!((s.arrays[0].shape.clone(), s.arrays[0].item_bits, s.arrays[0].grid.is_none(), s.arrays[0].chains.len()), (Some(vec![0]), None, true, 0), "{descr}");
         assert!(s.chains.is_empty() && s.map.is_empty(), "{descr}");
