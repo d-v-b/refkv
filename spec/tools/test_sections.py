@@ -3,6 +3,8 @@ rewrite, and the check (one test of what it accepts, one per problem it reports)
 
 from __future__ import annotations
 
+import argparse
+import subprocess
 import sys
 from pathlib import Path
 
@@ -322,3 +324,17 @@ def test_check_missing_document_by_url(repo):
     assert write(repo, {"js/src/y.ts": f"// §9 <{URL}spec/gone.md#9-nothing>\n"}) == [
         f"js/src/y.ts:1: broken link {URL}spec/gone.md#9-nothing (no file spec/gone.md)"
     ]
+
+
+def test_check_reads_a_file_that_is_not_added_yet(repo):
+    """With no paths given, the check reads what git tracks and what it would: a new file with a
+    bare reference fails it before the commit that adds the file, and an ignored one does not."""
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    (repo / ".gitignore").write_text("ignored.py\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    no_paths = argparse.Namespace(paths=[])
+    assert sections.check(no_paths) == 0
+    (repo / "ignored.py").write_text("# a bare reference: conventions §3\n", encoding="utf-8")
+    assert sections.check(no_paths) == 0
+    (repo / "new.py").write_text("# a bare reference: conventions §3\n", encoding="utf-8")
+    assert sections.check(no_paths) == 1

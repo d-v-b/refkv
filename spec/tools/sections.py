@@ -1104,7 +1104,10 @@ def check_files(paths: list[str]) -> list[str]:
 def check(args: argparse.Namespace) -> int:
     paths = args.paths
     if not paths:
-        out = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True)
+        # every file git tracks, and every one it would (new, not ignored): a file written and not
+        # yet added is checked before the commit that adds it, not by CI after it
+        listed = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
+        out = subprocess.run(listed, cwd=ROOT, capture_output=True, text=True, check=True)
         paths = [
             p
             for p in out.stdout.splitlines()
@@ -1127,7 +1130,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Section references: a check, and the conversion to links.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("check", help="fail on bare references and on links to missing headings")
-    c.add_argument("paths", nargs="*", help="the files (default: every tracked text file)")
+    c.add_argument("paths", nargs="*", help="the files (default: every text file git tracks or would)")
     m = sub.add_parser("migrate", help="rewrite bare references as links")
     m.add_argument("paths", nargs="*", help="the files (default: every file with a §)")
     m.add_argument("--write", action="store_true", help="rewrite the files (else report only)")
