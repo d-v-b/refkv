@@ -175,14 +175,17 @@ jobs:
             rust/refkv-python
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - run: uv sync --all-groups --locked --python 3.12
-      - run: >-
-          uv pip install --resolution lowest-direct
-          "./python[zarr,images,media,precomputed,layouts,obstore,virtualizarr]"
-      # the floor took: a newer numpy left in place would pass without testing it
-      - run: >-
-          uv run python -c 'import importlib.metadata as m, re;
-          floor = re.search(r"numpy>=([\d.]+)", " ".join(m.requires("refkv"))).group(1);
-          assert m.version("numpy") == floor, (m.version("numpy"), floor)'
+      # --upgrade-package for each of refkv's requirements (python/tools/floors.py): without it,
+      # uv keeps the version `uv sync` installed wherever it satisfies the requirement; a plain
+      # --upgrade would move every other package past the lock too
+      - run: |
+          upgrades=()
+          while read -r name; do upgrades+=(--upgrade-package "$name"); done \
+            < <(uv run python python/tools/floors.py names)
+          uv pip install --resolution lowest-direct "${upgrades[@]}" \
+            "./python[zarr,images,media,precomputed,layouts,obstore,virtualizarr]"
+      # every floor took: a newer version left in place would pass without testing it
+      - run: uv run python python/tools/floors.py check
       - run: npm ci
         working-directory: js
       - run: just js::wasm
