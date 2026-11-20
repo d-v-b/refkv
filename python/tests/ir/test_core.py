@@ -8,7 +8,10 @@ from ir_helpers import FIXTURES
 
 from refkv import _core
 from refkv._narrow import at
+from refkv.ir import drive, new_run
 from refkv.ir import zarrify as via_ir
+from refkv.ir.output import from_rust
+from refkv.ir.planner import open_transport
 from refkv.zarrify.common import Rejected
 
 
@@ -144,3 +147,39 @@ def test_the_fill_batch_is_empty_on_every_probe(probes):
         seen += 1
         assert at(out.summary, "planner", "fill") == {"ranges": 0, "requests": 0, "bytes": 0}, path.name
     assert seen > 0
+
+
+def test_a_run_that_defers_its_projection_reads_for_an_output_only_once_asked():
+    """A run told to leave the built-in projection's reads out is done with its IR whole, and has
+    read nothing for an output; asked for them, it reads them and projects what a run that read
+    them itself outputs, as often as asked and with other options."""
+    path = str(FIXTURES / "tiff" / "edge_aperio_position.tif")  # its omero windows sample a chunk
+    transport = open_transport(path, None)
+    whole = new_run("tiff", transport)
+    drive(whole, transport)
+
+    run = new_run("tiff", transport)
+    run.defer_projection()
+    drive(run, transport)
+    asked = json.loads(run.stats())["ranges"]
+    ir = run.ir()
+    assert len(ir) > 0
+    with pytest.raises(_core.Rejected, match="has not read what its projection copies"):
+        run.project("u")
+
+    run.begin_projection()
+    drive(run, transport)
+    assert json.loads(run.stats())["ranges"] == json.loads(whole.stats())["ranges"] > asked
+
+    def parts(out):
+        summary = {k: v for k, v in out.summary.items() if k != "planner"}  # the planner's model is timed
+        return out.bytes_entries, out.refs, out.data, out.lazy, summary
+
+    expected, expected_ir = whole.output("u")
+    first = from_rust(run.project("u"))
+    assert parts(first) == parts(from_rust(expected))
+    assert parts(from_rust(run.project("u"))) == parts(first)
+    assert run.ir().digest() == ir.digest() == expected_ir.digest()
+    bare = from_rust(run.project("u", False))
+    assert bare.bytes_entries == {k: v for k, v in first.bytes_entries.items() if not k.startswith("refkv_source/")}
+

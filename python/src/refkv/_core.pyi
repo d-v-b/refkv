@@ -242,6 +242,18 @@ class Run:
         sharded array's ranges are not joined across inner chunks (spec/zarrify.md §2.1
         <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>)."""
     def finish(self) -> tuple[Ir, str, str]: ...
+    def defer_projection(self) -> None:
+        """Leaves the built-in projection's reads out of the run, before its first poll:
+        `poll()` gives None once the IR is whole, `ir()` gives it, and a host that wants the
+        built-in output calls `begin_projection()`, polls again until None, then `project(...)`,
+        as often as it likes."""
+    def begin_projection(self) -> None:
+        """Asks for the built-in projection's reads, of a run that left them out and is done."""
+    def ir(self) -> Ir:
+        """The IR of a run that is done, shared with the run, which is kept."""
+    def project(self, url: str, mirror: bool = True, layouts: list[str] | None = None,
+                checksums: bool = False, written: bool = True) -> Out[FilePart]:
+        """`output`, of a run that is kept: the output alone."""
 
 class StoreRun:
     """A store run (src/store.rs): `StoreRun(format, listing, concurrency)` over the listing
@@ -279,6 +291,11 @@ class StoreRun:
         """The profile the run's store is decided to be so far (`StoreRun::profile`)."""
     def output(self, url: str, mirror: bool = True, checksums: bool = False) -> tuple[Out[StorePart], Ir]: ...
     def finish(self) -> tuple[Ir, str, str]: ...
+    def parse(self) -> Ir:
+        """Finishes without an output: the IR, which the run keeps with its facts and counts, so
+        that `project(...)` gives the built-in output of it, as often as the host likes."""
+    def project(self, url: str, mirror: bool = True, checksums: bool = False) -> Out[StorePart]:
+        """`output`, of a run `parse` finished: the output alone."""
 
 def rebuild_store(get: Get) -> list[tuple[str, int, bytes | None]]:
     """The rebuild of a store's mirror (conventions §8.9

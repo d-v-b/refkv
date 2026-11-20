@@ -17,7 +17,7 @@ the routines that build on them come later.
 from refkv.zarrify.layouts import MAX_PAYLOAD
 
 from .parsed import MAX_BYTES, Parsed, read, read_async
-from .project import Projected, project
+from .project import Projected, project, project_async
 from .seal import CODES, SealError, seal
 from .values import (
     MAX_SOURCES,
@@ -40,4 +40,4 @@ from .values import (
 
 __all__ = ["CODES", "MAX_BYTES", "MAX_PAYLOAD", "MAX_SOURCES", "Array", "Copy", "Data", "Literal", "Parsed", "Part",
            "Projected", "Ref", "SealError", "Shared", "Value", "Written", "Zeros", "concat", "cut", "fits",
-           "payload_size", "project", "read", "read_async", "seal", "value"]
+           "payload_size", "project", "project_async", "read", "read_async", "seal", "value"]

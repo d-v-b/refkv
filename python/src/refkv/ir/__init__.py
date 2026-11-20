@@ -176,6 +176,79 @@ class NamesSiblingsError(Exception):
     caller starts over with a store run of the format, `args[0]`."""
 
 
+class FileParse:
+    """A file parsed, and its run kept: its format, its IR, and its built-in output when asked for
+    (`output_async`), as often as asked. The parse read what the IR holds and nothing for an
+    output; the output's own reads (the ranges a projection copies or samples) are made the first
+    time one is asked for, through the transport the file was opened with."""
+
+    def __init__(self, run: _core.Run, transport: Transport, fmt: str, url: str, etag: str | None,
+                 connections: int | None) -> None:
+        self._run = run
+        self._transport = transport
+        self._connections = connections
+        self.fmt = fmt
+        self.ir: _core.Ir = run.ir()
+        self.url = url
+        self.size = transport.size
+        self.etag = etag
+
+    async def output_async(self, mirror: bool = True, layouts: list[str] | None = None, checksums: bool = False,
+                           written: bool = True) -> Output:
+        """The built-in output: the IR projected and, with `mirror`, mirrored under refkv_source
+        by the Rust core, pinning source 0's size, and its ETag when every response gave the same
+        strong one. `layouts`, `checksums` and `written` are `zarrify_async`'s."""
+        try:
+            self._run.begin_projection()
+        except _core.Rejected as e:
+            raise Rejected(str(e)) from None
+        await drive_async(self._run, self._transport, self._connections)
+
+        def output() -> Output:
+            try:
+                return from_rust(self._run.project(self.url, mirror, layouts, bool(checksums), written))
+            except _core.Rejected as e:
+                raise Rejected(str(e)) from None
+
+        # the projection, and its output's conversion, on a thread: both grow with the chunks
+        out = await asyncio.to_thread(output)
+        out.ir = self.ir
+        out.size = self.size
+        out.etag = self.etag
+        return out
+
+    def close(self) -> None:
+        """Closes the transport the file was read through (`Transport.close`): no output is made
+        after, unless one was and it read all it needs."""
+        self._transport.close()
+
+
+async def parse_async(location: str, url: str | None = None, policy: Policy | None = None,
+                      transport: Transport | None = None, connections: int | None = None,
+                      byte_cost: float | None = None, fmt: str | None = None) -> FileParse:
+    """The source read through the read planner and parsed by the Rust parser of its format
+    (`fmt`, else the one its first bytes give; a TIFF variant's file, rejected unless the TIFF
+    parser finds that variant), with no output made of it: a `FileParse`. Raises
+    `NamesSiblingsError` for a file that names siblings. `connections` and `byte_cost` are
+    `zarrify_async`'s."""
+    transport = transport or await asyncio.to_thread(open_transport, location, policy)
+    if fmt is None:
+        fmt = await sniffed(transport)
+        if fmt is None:
+            raise Rejected("not a file of any supported format")
+    named = fmt
+    run = new_run("tiff" if fmt in TIFF_VARIANTS else fmt, transport, connections, byte_cost)
+    run.defer_projection()
+    await drive_async(run, transport, connections)
+    fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"
+    if run.beside:
+        raise NamesSiblingsError(fmt)
+    if named in TIFF_VARIANTS and fmt != named:  # before the projection reads more
+        raise Rejected(f"not {TIFF_VARIANTS[named]}: the TIFF parser read it as {fmt}")
+    return FileParse(run, transport, fmt, url or (location if transport.remote else path_reference(location)),
+                     transport.etag() if url in (None, location) else None, connections)
+
+
 async def zarrify_async(location: str, url: str | None = None, mirror: bool = True, policy: Policy | None = None,
                         transport: Transport | None = None, connections: int | None = None,
                         byte_cost: float | None = None, fmt: str | None = None,
@@ -184,7 +257,8 @@ async def zarrify_async(location: str, url: str | None = None, mirror: bool = Tr
     """(format, output, IR): the source read through the read planner, parsed by the
     Rust parser of its format (`fmt`, else the one its first bytes give; a TIFF variant's
     file, rejected unless the TIFF parser finds that variant), projected and
-    mirrored under refkv_source by the Rust core. The output pins source 0's size, and its
+    mirrored under refkv_source by the Rust core (`parse_async`, then `FileParse.output_async`).
+    The output pins source 0's size, and its
     ETag when every response gave the same strong one. `connections`: requests at a time to
     a remote source (default 8); `byte_cost`: seconds of wall time the planner charges a
     byte fetched (default 0.1 s per MB); `layouts`: the layouts the projection writes beside
@@ -193,34 +267,9 @@ async def zarrify_async(location: str, url: str | None = None, mirror: bool = Tr
     (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>),
     and, when `written` (the output is written as it is, not only built from), a payload over the
     limit only with them is `refkv._core.Failed`."""
-    transport = transport or await asyncio.to_thread(open_transport, location, policy)
-    if fmt is None:
-        fmt = await sniffed(transport)
-        if fmt is None:
-            raise Rejected("not a file of any supported format")
-    named = fmt
-    run = new_run("tiff" if fmt in TIFF_VARIANTS else fmt, transport, connections, byte_cost)
-    await drive_async(run, transport, connections)
-    fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"
-    if run.beside:
-        raise NamesSiblingsError(fmt)
-    if named in TIFF_VARIANTS and fmt != named:  # before the projection reads more
-        raise Rejected(f"not {TIFF_VARIANTS[named]}: the TIFF parser read it as {fmt}")
-
-    def output() -> tuple[Output, _core.Ir]:
-        try:
-            t, ir = run.output(url or (location if transport.remote else path_reference(location)),
-                               mirror, layouts, bool(checksums), written)
-        except _core.Rejected as e:
-            raise Rejected(str(e)) from None
-        return from_rust(t), ir
-
-    # the projection, and its output's conversion, on a thread: both grow with the chunks
-    out, ir = await asyncio.to_thread(output)
-    out.ir = ir
-    out.size = transport.size
-    out.etag = transport.etag() if url in (None, location) else None
-    return fmt, out, ir
+    parsed = await parse_async(location, url, policy, transport, connections, byte_cost, fmt)
+    out = await parsed.output_async(mirror, layouts, checksums, written)
+    return parsed.fmt, out, parsed.ir
 
 
 def zarrify(location: str, url: str | None = None, mirror: bool = True, policy: Policy | None = None,

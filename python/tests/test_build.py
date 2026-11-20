@@ -2,6 +2,7 @@
 and `Parsed`, values, `Array` and `Written`, `seal` and `project`."""
 
 import dataclasses
+import gc
 import importlib
 import io
 import json
@@ -34,6 +35,7 @@ from refkv.build import (
     payload_size,
     project,
     read,
+    read_async,
     seal,
     value,
 )
@@ -94,6 +96,79 @@ def test_seal_of_the_built_in_output_reads_what_zarrify_writes(name, checksums):
         assert store.sources == built.sources
         assert store.mapping == built.mapping
         assert sorted(store.read_at_open) == sorted(built.read_at_open)
+
+
+@pytest.mark.parametrize("name", [
+    "npy/npy_c_float64.npy",
+    "tiff/edge_aperio_position.tif",  # its built-in output reads a chunk, for its omero windows
+    "nrrd/nrrd_detached_raw.nhdr",  # a file read with the one beside it
+    "zarr2/zarr2_codecs/",  # a store, whose run decides its profile
+])
+def test_read_makes_no_output_and_project_makes_it_when_asked(name):
+    """`read` parses and stops: the input's profile and its convention's version are the run's,
+    not read from an output; `project` makes the built-in output when asked, once, and gives it
+    again after the input is closed."""
+    path = str(FIXTURES / name) + ("/" if name.endswith("/") else "")
+    url = f"https://example.invalid/{name}" if name.endswith("/") else None
+    with read(path, url) as p:
+        first = project(p)
+        declared = json.loads(cast("bytes", first.written["zarr.json"]))["attributes"]["refkv_zarrified"]
+        assert (p.profile, p.version) == (declared["profile"], declared["version"])
+        assert dict(project(p).written) == dict(first.written)
+    assert dict(project(p).written) == dict(first.written)
+    assert seal(first.written, [p]).mapping == zarrify(path, url).mapping
+
+
+def test_project_refuses_an_input_closed_before_its_output_was_asked_for():
+    p = read(FIXTURES / "npy" / "npy_c_float64.npy")
+    p.close()
+    with pytest.raises(ValueError, match="closed before its built-in output was asked for"):
+        project(p)
+
+
+def test_a_parsed_input_holds_its_file_until_it_is_closed(tmp_path):
+    """`read` keeps the input open, for `project`: a local file is mapped until the `Parsed` is
+    closed, by `with`, by `async with` or by `close()` (twice is once), and one collected
+    unclosed warns and releases it."""
+    path = tmp_path / "x.npy"
+    np.save(path, np.arange(64, dtype=np.uint8))
+
+    def mapping(parsed):
+        return cast("Any", parsed._parse).parse._transport.data  # the file's mapping, which the run read through
+
+    with read(path) as p:
+        held = mapping(p)
+        assert not held.closed
+        assert p.bytes((0, 128, 2)) == b"\x00\x01"
+    assert (p.closed, held.closed) == (True, True)
+    p.close()
+
+    async def with_async():
+        async with await read_async(path) as q:
+            inside = mapping(q)
+            assert not inside.closed
+        return q, inside
+
+    q, held = _sync.run(with_async())
+    assert (q.closed, held.closed) == (True, True)
+
+    left = [read(path)]
+    held = mapping(left[0])
+
+    def forget():
+        left.clear()
+        gc.collect()
+
+    with pytest.warns(ResourceWarning, match="unclosed refkv.build.Parsed"):
+        forget()
+    assert held.closed
+
+    # a file read with the one beside it: both are released
+    with read(FIXTURES / "nrrd" / "nrrd_detached_raw.nhdr") as beside:
+        files = cast("Any", beside._parse)._close.__self__.transports  # the files the run opened, by key
+        assert len(files) == 2
+        assert not any(t.data.closed for t in files.values())
+    assert all(t.data.closed for t in files.values())
 
 
 # ---- the TIFF stack, built from the IR: one TIFF file of every page of several (test case 2)
@@ -377,10 +452,10 @@ def test_seal_refuses_inputs_read_with_and_without_checksums(tmp_path):
 
 def test_seal_refuses_one_file_read_with_two_sizes(tmp_path):
     path = _npy(tmp_path)
-    p = read(path)
+    with read(path) as p:  # closed, it still knows the size it read
+        pass
     _npy(tmp_path, n=8192)  # the file changes between two reads of it
-    q = read(path)
-    with pytest.raises(SealError) as e:
+    with read(path) as q, pytest.raises(SealError) as e:
         seal(Written({"v": concat(Ref(p, 0, 0, 4), Ref(q, 0, 0, 4))}), [p, q])
     assert e.value.code == "inputs"
 
