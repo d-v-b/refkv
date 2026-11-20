@@ -669,6 +669,7 @@ output. The readers so far:
 | DICOM, NIfTI | pydicom, nibabel |
 | IMS, HDF5 | h5py |
 | HDF4 | pyhdf (the HDF4 library) |
+| netCDF3 | netCDF-C, through netCDF4-python, and scipy |
 | MRC | mrcfile |
 | VSI | Bio-Formats (needs a JVM) |
 | FITS | astropy |

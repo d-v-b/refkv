@@ -1,14 +1,15 @@
 """The layout `refkv.virtualizarr` (spec/layout.md
 <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): a file presented as VirtualiZarr's own
-parsers present it, so that code written against `HDFParser`, `FITSParser` or `ZippedZarrParser`
-finds the arrays, dimension names and attributes it expects. Its chunk references, chunk grids and
-codecs are those of refkv's own output, and it writes none of refkv's declarations and no
-`refkv_source` mirror. It writes its documents with `dump`, so it runs without the `layouts` extra.
+parsers present it, so that code written against `HDFParser`, `FITSParser`, `ZippedZarrParser`,
+`NetCDF3Parser` or `ENVIParser` finds the arrays, dimension names and attributes it expects. Its
+chunk references, chunk grids and codecs are those of refkv's own output, and it writes none of
+refkv's declarations and no `refkv_source` mirror. It writes its documents with `dump`, so it runs
+without the `layouts` extra.
 
     python -m refkv.zarrify data.nc out.vzip --layout refkv.virtualizarr
 
 The reference is VirtualiZarr 2.8.0 (`virtualizarr/parsers/hdf/hdf.py`, `parsers/fits.py`,
-`parsers/zarr/`), read profile by profile:
+`parsers/zarr/`, `parsers/netcdf3.py`, `parsers/envi.py`), read profile by profile:
 
 - **HDF5 and netCDF-4** (`HDFParser`): every group and dataset of the base at its path, with the
   base's `dimension_names` (its dimension scales, else the names netCDF-4 gives an axis without
@@ -32,6 +33,16 @@ The reference is VirtualiZarr 2.8.0 (`virtualizarr/parsers/hdf/hdf.py`, `parsers
   VirtualiZarr's `virtualizarr.fits_ascii_table` codec, which a reader registers by importing
   `virtualizarr`. A primary HDU with no data gives the root its attributes; another is left out.
 - **Zipped Zarr v3** (`ZippedZarrParser`): the store's hierarchy as the base has it.
+- **netCDF3** (`NetCDF3Parser`): the base's variables and dimension names, the attributes the base
+  presents with a float attribute's values as numbers, and a variable's fill value its
+  `_FillValue` in its data type, else zarr-python's default, 0.
+- **ENVI** (`ENVIParser`): one array, named by the data file's name without its extension, in the
+  file's own axis order (refkv's transpose codec's order) with no transpose, its axes `band`, `y`
+  and `x` in that order, its chunks the base's at the keys of that order, and fill value 0. Its
+  attributes are the header fields `ENVIParser` carries through (`description`, `wavelength`,
+  `map info`, ...), each named with `_` for its spaces, a braced value a list of its items as
+  text, and `data ignore value` as its `_FillValue`, encoded as `FillValueCoder` encodes it (a
+  complex number as two Base64 binary64s). The root has no attributes.
 
 Where VirtualiZarr's presentation is a defect rather than a contract, this layout keeps refkv's:
 
@@ -57,13 +68,32 @@ Where VirtualiZarr's presentation is a defect rather than a contract, this layou
 - a FITS binary table, which `FITSParser` refuses, is refkv's group for the HDU, under the HDU's
   name, as is any other HDU it cannot present;
 - a zipped Zarr store's own chunk key encoding, where `ZippedZarrParser`'s `ManifestStore`
-  presents a `.` separator.
+  presents a `.` separator;
+- netCDF3 text that is not UTF-8 is refkv's `{"latin1": T}` (spec/conventions.md §6
+  <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>), where
+  `NetCDF3Parser` writes replacement characters, and fails on such a name;
+- the netCDF3 variables refkv does not present (spec/zarrify/netcdf3.md §2
+  <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#2-the-hierarchy>), and a
+  variable's `_FillValue` it does not present (§5
+  <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#5-attributes>), which
+  `NetCDF3Parser` fails to encode or encodes as no reader decodes it, the variable's fill value
+  then refkv's;
+- an ENVI gzip file's header offset is skipped in the inflated stream (refkv's `refkv.skip`
+  codec), as GDAL skips it, where `ENVIParser` starts the data at that offset in the compressed
+  bytes; the `gzip` level is refkv's 1, not `ENVIParser`'s 5;
+- an ENVI `data ignore value` that numpy does not cast to the data type, on which `ENVIParser`
+  fails, is the attribute `data_ignore_value`, its text;
+- an ENVI header field that is not UTF-8, on which `ENVIParser` fails, is refkv's `{"latin1": T}`,
+  braced or not;
+- a netCDF3 variable's integer `_FillValue` that its data type does not hold, on which
+  `NetCDF3Parser` fails, leaves the variable refkv's fill value.
 
 `check` finds no problem on its output but `json` at a document that holds a `NaN` or `Infinity`
 token (only where a source attribute is not finite and `nonfinite` is `"token"`: zarr-python
 writes those tokens, and VirtualiZarr's metadata is written by zarr-python), and `copy` at a
 fixed-length string dataset or an ASCII table, whose chunks are the base's at the keys of a grid
-without the base's trailing axis of bytes.
+without the base's trailing axis of bytes, and at a netCDF3 variable whose fill value is
+`NetCDF3Parser`'s rather than the base's.
 """
 
 import base64
@@ -74,7 +104,7 @@ from collections.abc import Mapping
 from typing import Any, ClassVar
 
 from refkv.zarrify import Rejected
-from refkv.zarrify.coding import hdf5_attributes
+from refkv.zarrify.coding import hdf5_attributes, hdf5_value
 from refkv.zarrify.layouts import Base, Entries, EntryValue, chunk_coords, chunk_key, dump
 
 # ---- HDF5 and netCDF-4
@@ -530,12 +560,190 @@ def _fits(base: Base) -> Entries:
     return out
 
 
+# ---- netCDF3
+
+NC_FLOAT_SIZES = {"NC_FLOAT": 4, "NC_DOUBLE": 8}
+
+
+def _zarr_float(value: float) -> object:
+    """A float as a Zarr v3 fill value: a number, or `"NaN"`, `"Infinity"`, `"-Infinity"`."""
+    if math.isnan(value):
+        return "NaN"
+    if math.isinf(value):
+        return "Infinity" if value > 0 else "-Infinity"
+    return value
+
+
+def _float32(value: float) -> float:
+    """`value` rounded to the nearest binary32, as numpy casts it."""
+    try:
+        return float(struct.unpack("<f", struct.pack("<f", value))[0])
+    except OverflowError:  # beyond binary32's range: an infinity, as numpy casts it
+        return math.copysign(math.inf, value)
+
+
+def _netcdf3_attributes(base: Base, path: str, token: bool) -> dict[str, Any]:
+    """The netCDF3 attributes of the node at `path` as `NetCDF3Parser` presents them: a float
+    attribute's float values (netcdf3.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#5-attributes> writes them as
+    hdf5.md's float values) as numbers, NaN and the infinities as `_nonfinite` writes them."""
+    metadata = base.source_metadata(path) or {}
+    types = metadata.get("attributes", {}) if isinstance(metadata, dict) else {}
+    out: dict[str, Any] = {}
+    for name, given in base.attributes(path).items():
+        size = NC_FLOAT_SIZES.get(str((types.get(name) or {}).get("type")))
+        floats = size is not None and not (name == "_FillValue" and path)  # a variable's: FillValueCoder's form
+        out[name] = _nonfinite(hdf5_value(given, {"class": "float", "size": size}) if floats else given, token)
+    return out
+
+
+def _int_range(data_type: str) -> tuple[int, int]:
+    """The least and greatest values of the integer data type `data_type` (`int16`, `uint8`, ...)."""
+    bits = int(data_type.lstrip("uint"))
+    return (0, 2**bits - 1) if data_type.startswith("u") else (-(2 ** (bits - 1)), 2 ** (bits - 1) - 1)
+
+
+def _netcdf3_fill(doc: Mapping[str, Any], attributes: Mapping[str, Any], unpresented: Mapping[str, Any]) -> object:
+    """The fill value `NetCDF3Parser` gives a variable: its `_FillValue`, in the variable's data
+    type, else zarr-python's default (0); refkv's where netcdf3.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#5-attributes> does not
+    present the `_FillValue` (one `NetCDF3Parser` fails to encode, or one on an `NC_CHAR` variable)
+    or the variable's data type does not hold it."""
+    data_type = doc.get("data_type")
+    if not isinstance(data_type, str) or "_FillValue" in unpresented:
+        return doc.get("fill_value")
+    fill = attributes.get("_FillValue")
+    if data_type.startswith("float"):
+        if isinstance(fill, str):  # the Base64 of its binary64 (FillValueCoder's)
+            value = float(struct.unpack("<d", base64.standard_b64decode(fill))[0])
+            return _zarr_float(_float32(value) if data_type == "float32" else value)
+        return 0.0
+    if not isinstance(fill, int) or isinstance(fill, bool):
+        return 0
+    # an integer of another type the variable's does not hold, on which NetCDF3Parser fails: refkv's
+    return fill if _int_range(data_type)[0] <= fill <= _int_range(data_type)[1] else doc.get("fill_value")
+
+
+def _netcdf3(base: Base, token: bool) -> Entries:
+    out: Entries = {}
+    for path in base.nodes():
+        prefix = f"{path}/" if path else ""
+        attributes = _netcdf3_attributes(base, path, token)
+        if base.node_type(path) == "group":
+            out[f"{prefix}zarr.json"] = dump({"zarr_format": 3, "node_type": "group", "attributes": attributes},
+                                             allow_nan=token)
+            continue
+        doc, chunks = base.array(path)
+        metadata = base.source_metadata(path) or {}
+        unpresented = metadata.get("unpresented_attributes", {}) if isinstance(metadata, dict) else {}
+        doc = {**doc, "attributes": attributes, "fill_value": _netcdf3_fill(doc, attributes, unpresented)}
+        out[f"{prefix}zarr.json"] = dump(doc, allow_nan=token)
+        out.update({f"{prefix}{k}": v for k, v in chunks.items()})
+    return out
+
+
+# ---- ENVI
+
+# the header fields ENVIParser carries through as attributes (virtualizarr/parsers/envi.py,
+# PASSTHROUGH_ATTR_KEYS), each named with `_` for its spaces
+ENVI_PASSTHROUGH = ("description", "sensor type", "acquisition time", "wavelength", "wavelength units", "fwhm", "bbl",
+                    "band names", "class names", "class lookup", "classes", "security tag", "map info",
+                    "projection info", "coordinate system string", "x start", "y start", "default bands",
+                    "default stretch", "z plot titles", "z plot range", "sun azimuth", "sun elevation")
+# refkv's axis names (envi.md §4.1
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#41-the-array>), as ENVIParser names them
+ENVI_AXES = {"c": "band", "y": "y", "x": "x"}
+
+
+def _envi_value(raw: object) -> object:
+    """A header field's value as ENVIParser gives it: a braced value a list of its comma-separated
+    items, stripped, empty ones left out; any other the text. Text that is not UTF-8, refkv's
+    `{"latin1": T}`, on which ENVIParser fails, stays that."""
+    if not isinstance(raw, str):
+        return raw
+    text = raw.strip()
+    if not text.startswith("{"):
+        return raw
+    if text.endswith("}"):
+        text = text[1:-1]
+    items = (item.strip() for item in text.replace("\n", " ").split(","))
+    return [item for item in items if item]
+
+
+def _envi_fill(raw: object, data_type: str) -> object:
+    """The `_FillValue` ENVIParser gives `data ignore value` `raw` on an array of `data_type`, as
+    xarray's `FillValueCoder` encodes it (a float as the Base64 of its binary64, a complex number as
+    two), or None for a value numpy does not cast to it (where ENVIParser fails)."""
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    try:
+        if data_type.startswith("complex"):
+            value = complex(text)
+            parts = [value.real, value.imag]
+            if data_type == "complex64":
+                parts = [_float32(p) for p in parts]
+            return [base64.standard_b64encode(struct.pack("<d", p)).decode() for p in parts]
+        if data_type.startswith("float"):
+            value = float(text)
+            if data_type == "float32":
+                value = _float32(value)
+            return base64.standard_b64encode(struct.pack("<d", value)).decode()
+        number = int(text)
+    except ValueError:
+        return None
+    low, high = _int_range(data_type)
+    return number if low <= number <= high else None
+
+
+def _envi(base: Base) -> Entries:
+    metadata = base.source_metadata("") or {}
+    fields: Mapping[str, object] = metadata.get("fields", {})
+    data_file = str(metadata.get("data_file", ""))
+    stem = data_file.rsplit(".", 1)[0] if "." in data_file.lstrip(".") else data_file
+    name = stem if stem and _node_name(stem) else "data"  # ENVIParser's Path(data).stem, else data
+    doc, chunks = base.array("0")
+    codecs = list(doc["codecs"])
+    rank = len(doc["shape"])
+    # the file's axis order, outermost first: refkv's transpose codec's order (envi.md §4.1
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#41-the-array>), which
+    # ENVIParser presents as the array's own
+    order = codecs.pop(0)["configuration"]["order"] if codecs[0]["name"] == "transpose" else list(range(rank))
+    chunk_shape = doc["chunk_grid"]["configuration"]["chunk_shape"]
+    attributes: dict[str, Any] = {key.replace(" ", "_"): _envi_value(fields[key])
+                                  for key in ENVI_PASSTHROUGH if key in fields}
+    if "data ignore value" in fields:
+        fill = _envi_fill(fields["data ignore value"], doc["data_type"])
+        if fill is None:  # ENVIParser fails; the text, under a name xarray does not decode
+            attributes["data_ignore_value"] = fields["data ignore value"]
+        else:
+            attributes["_FillValue"] = fill
+    data_type = doc["data_type"]
+    default: object = 0.0 if data_type.startswith("float") else [0.0, 0.0] if data_type.startswith("complex") else 0
+    presented = {
+        **doc,
+        "shape": [doc["shape"][i] for i in order],
+        "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [chunk_shape[i] for i in order]}},
+        "fill_value": default,
+        "codecs": codecs,
+        "dimension_names": [ENVI_AXES.get(doc["dimension_names"][i], doc["dimension_names"][i]) for i in order],
+        "attributes": attributes,
+    }
+    out: Entries = {"zarr.json": dump({"zarr_format": 3, "node_type": "group", "attributes": {}}),
+                    f"{name}/zarr.json": dump(presented)}
+    for key, value in chunks.items():
+        coords = chunk_coords(key, doc)
+        out[f"{name}/{chunk_key([coords[i] for i in order], presented)}"] = value
+    return out
+
+
 # ---- the layout
 
 class VirtualiZarr:
     name = "refkv.virtualizarr"
     formats: ClassVar[Mapping[str, frozenset[int]]] = {
-        "hdf5": frozenset({0}), "fits": frozenset({0}), "zarr3": frozenset({0})}
+        "hdf5": frozenset({0}), "fits": frozenset({0}), "zarr3": frozenset({0}), "netcdf3": frozenset({0}),
+        "envi": frozenset({0})}
 
     def options(self, given: Mapping[str, object]) -> dict[str, object]:
         """`{"nonfinite": "token"}` by default: whether a NaN or infinite attribute is a bare JSON
@@ -555,5 +763,9 @@ class VirtualiZarr:
             return _hdf5(base, options["nonfinite"] == "token")
         if base.profile == "fits":
             return _fits(base)
+        if base.profile == "netcdf3":
+            return _netcdf3(base, options["nonfinite"] == "token")
+        if base.profile == "envi":
+            return _envi(base)
         out: dict[str, EntryValue] = base.entries(declarations=False, mirror=False, datasets=False)
         return out

@@ -28,6 +28,7 @@ its JSON Schema `zarrify/<format>/schema.json`. Its changes are in [zarrify/chan
 | N5 | [n5](zarrify/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
 | Nikon ND2 | [nd2](zarrify/nd2.md) | `59612f14-e314-4207-ba00-8f422ba71490` |
 | Hamamatsu NDPI | [ndpi](zarrify/ndpi.md) | `6cac71ef-dbb2-4acd-b60c-00389aa4238a` |
+| netCDF classic (CDF-1), 64-bit offset (CDF-2) and 64-bit data (CDF-5) | [netcdf3](zarrify/netcdf3.md) | `b708fd91-025a-4c2e-91e2-543503ea163a` |
 | NIfTI-1 and NIfTI-2 | [nifti](zarrify/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
 | NumPy NPY and NPZ (NEP 1) | [npy](zarrify/npy.md) | `62b1d1ba-8eb3-465c-a333-75e096fce519` |
 | NRRD (Teem) | [nrrd](zarrify/nrrd.md) | `23e0c600-8da6-40f1-81e7-ab246e948e88` |

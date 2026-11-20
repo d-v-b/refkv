@@ -147,10 +147,12 @@ def test_every_output_declares_its_profile_where_the_convention_says():
                 # them (spec/zarrify/hdf5.md §2.1
                 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#21-declaration-and-attributes>),
                 # and so are an HDF4 node's, netCDF's attributes (spec/zarrify/hdf4.md §7
-                # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#7-attributes>), and a
+                # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#7-attributes>), a
+                # netCDF3 node's (spec/zarrify/netcdf3.md §5
+                # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#5-attributes>), and a
                 # Zarr v3 node's (spec/zarrify/zarr3.md §4
                 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#4-source-metadata>)
-                if fmt in ("hdf4", "hdf5", "zarr3") and not key.startswith("refkv_source/"):
+                if fmt in ("hdf4", "hdf5", "netcdf3", "zarr3") and not key.startswith("refkv_source/"):
                     geo |= set(attrs) - {"zarr_conventions", CONVENTION_KEY}
                 assert set(attrs) - geo <= {"ome", "zarr_conventions", CONVENTION_KEY}, (impl, path.name, key)
                 for name in {n for p, n in GEOZARR.items() for m in geo if m.startswith(p)}:
