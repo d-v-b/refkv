@@ -187,8 +187,8 @@ It prints the first chunk's manifest entry, a byte range of the file, then
 `RefkvParser` takes `group=` and `skip_variables=`, as VirtualiZarr's parsers do, `policy=`, the
 `refkv.Policy` refkv reads the file and its chunks under, and `layout=`, the
 [layout plugin](layout-plugins.md) to zarrify with. Its default is the `refkv.virtualizarr`
-layout, which presents an HDF5, netCDF-4, FITS or zipped Zarr v3 file as VirtualiZarr's own
-parsers present it: the same array names, dimension names and attributes, without refkv's
+layout, which presents an HDF5, netCDF-4, netCDF3, FITS, ENVI, Zarr v2 or zipped Zarr v3 file
+as VirtualiZarr's own parsers present it: the same array names, dimension names and attributes, without refkv's
 declarations. A file of another format, which that layout does not read, is zarrified with
 refkv's default layout, and `layout=None` asks for refkv's default layout for every file. The
 parser leaves out refkv's `refkv_source` group, which describes the file, not its data. Given an

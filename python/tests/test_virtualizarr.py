@@ -213,8 +213,8 @@ def test_refkv_parser(tmp_path, registry):
     with open_virtual_dataset(path.as_uri(), registry=registry, parser=RefkvParser()) as vds:
         assert set(vds.variables) == {"a"}
 
-    # an ENVI raster by its data file, as VirtualiZarr names it: a format the default layout does
-    # not read, so refkv's default layout, from the header beside it
+    # an ENVI raster by its data file, as VirtualiZarr names it: zarrified from the header beside
+    # it, and presented by the refkv.virtualizarr layout under the data file's name
     raster = np.arange(12, dtype="<i2").reshape(1, 3, 4)
     (tmp_path / "e.img").write_bytes(raster.tobytes())
     (tmp_path / "e.hdr").write_text(ENVI_HEADER)

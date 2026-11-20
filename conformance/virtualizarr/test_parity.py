@@ -47,7 +47,6 @@ from refkv.virtualizarr import RefkvParser
 ROOT = Path(__file__).resolve().parents[2]
 
 
-
 @dataclass(frozen=True)
 class Gap:
     """A gap of https://github.com/d-v-b/refkv/issues/271, by the heading of its item (or, for
