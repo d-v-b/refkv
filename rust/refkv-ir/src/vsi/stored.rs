@@ -87,14 +87,14 @@ fn chain_of_tiles(e: &ets::Ets) -> Chain {
 /// the ETS header `header`, where the tiles are uncompressed (their elements are then the pixel
 /// type's samples, as the background's are) and every sample of the background is the same (an
 /// element is one sample). Any other background is one the IR does not express: the header is
-/// among the declarations.
-fn fill_of_tiles(e: &ets::Ets, header: u32) -> Fill {
+/// among the declarations, and the fill None.
+fn fill_of_tiles(e: &ets::Ets, header: u32) -> Option<Fill> {
     let n = e.bytes as usize;
     let same = (1..e.channels.max(1) as usize).all(|i| e.background[i * n..(i + 1) * n] == e.background[..n]);
     if e.compression != ets::RAW || !same {
-        return Fill::Undefined;
+        return None;
     }
-    Fill::Given(Param::Source(Place::Element { element: header, member: None, range: Some((BACKGROUND, e.bytes)) }))
+    Some(Fill::Given(Param::Source(Place::Element { element: header, member: None, range: Some((BACKGROUND, e.bytes)) })))
 }
 
 impl Vsi {
@@ -138,7 +138,6 @@ impl Vsi {
                 pad_from: None,
                 grid: None,
                 chains: Vec::new(),
-                fill: fill.clone(),
                 unit_parameters: Vec::new(),
             };
             if let Some((h, w)) = size {
@@ -157,8 +156,9 @@ impl Vsi {
                 }
                 a.shape = Some(shape);
                 a.axes = Some(axes);
-                // a tile at the right or bottom edge is a whole tile
-                a.grid = Some(Grid { axes: units, edge: Edge::Full });
+                // a tile at the right or bottom edge is a whole tile; the directory may leave a
+                // tile out, which is then the background
+                a.grid = Some(Grid::sparse(units, Edge::Full, fill.clone()));
                 a.chains = vec![out.chain(chain.clone())];
             }
             arrays.push((out.arrays.len() as u32, size.map(|(h, w)| (h.div_ceil(th), w.div_ceil(tw)))));

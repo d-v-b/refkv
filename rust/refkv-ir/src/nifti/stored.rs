@@ -5,7 +5,7 @@
 //! stream, where no element holds it: its array is keyed by the stream, its unit, which a chain of
 //! `skip` and `gzip` decodes to the voxels.
 
-use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Param, Place, Row, StoredArray};
+use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Grid, Param, Place, Row, StoredArray};
 use crate::ir::Res;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -49,12 +49,11 @@ pub(crate) fn described(v: &Voxels) -> Res<(Vec<StoredArray>, Vec<Chain>, ChunkM
         declarations: v.header.iter().map(|&element| Place::Element { element, member: None, range: None }).collect(),
         axes: (n >= 2).then(|| (0..n as u32).rev().collect()),
         // one unit of the whole array: every dimension is at least 1
-        grid: Some(Grid { axes: shape.iter().map(|&s| AxisUnits::Each(s)).collect(), edge: Edge::Short }),
+        grid: Some(Grid { axes: shape.iter().map(|&s| AxisUnits::Each(s)).collect(), edge: Edge::Short, sparse: None }),
         shape: Some(shape),
         item_bits: Some(v.bits),
         pad_from: None,
         chains: vec![0],
-        fill: Fill::Undefined,
         unit_parameters: Vec::new(),
     };
     Ok((vec![array], vec![chain], map))
@@ -81,7 +80,7 @@ mod tests {
             let a = &arrays[0];
             assert_eq!((a.shape.as_ref(), a.axes.as_ref(), a.item_bits), (Some(&shape), axes.as_ref(), Some(16)), "{dims:?}");
             let each: Vec<AxisUnits> = shape.iter().map(|&s| AxisUnits::Each(s)).collect();
-            assert_eq!(a.grid, Some(Grid { axes: each, edge: Edge::Short }), "{dims:?}");
+            assert_eq!(a.grid, Some(Grid { axes: each, edge: Edge::Short, sparse: None }), "{dims:?}");
             assert_eq!((a.element, a.declarations.len(), &a.chains, chains.len()), (1, 1, &vec![0], 1), "{dims:?}");
             assert!(chains[0].is_empty(), "{dims:?}");
             assert_eq!((map.len(), map.element[0], map.coords_of(0).len()), (1, Some(3), dims.len()), "{dims:?}");

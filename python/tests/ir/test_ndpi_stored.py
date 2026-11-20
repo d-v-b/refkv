@@ -232,7 +232,7 @@ def check_image(d: Described, k: int, tif: tifffile.TiffFile, offset: int, data:
     tif.filehandle.seek(offset)
     page = tifffile.TiffPage(tif, 0)
     said = []
-    if a.fill != "undefined" or a.axes is not None or a.index is not None or a.unit_parameters:
+    if a.fill is not None or a.axes is not None or a.index is not None or a.unit_parameters:
         said.append("a fill value, axes, an index or unit parameters")
     declared = [data[:2]] + [b for t in DECLARING if (b := tag_bytes(page, t, data)) is not None]
     if [d.place(p) for p in a.declarations] != declared or not all(isinstance(p, ElementPlace) for p in a.declarations):

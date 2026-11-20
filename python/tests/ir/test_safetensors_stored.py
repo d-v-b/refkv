@@ -166,10 +166,10 @@ def check_tensor(d: Described, k: int, t: Tensor, key: str | None, seen: Counter
         said.append(f"shape {a.shape}, the library's {t.shape}")
     if a.item_bits != bits:
         said.append(f"item_bits {a.item_bits}, the library's {bits}")
-    if (a.axes, a.pad_from, a.fill, a.unit_parameters) != (None, None, "undefined", ()):
+    if (a.axes, a.pad_from, a.fill, a.unit_parameters) != (None, None, None, ()):
         said.append(f"axes {a.axes}, pad_from {a.pad_from}, fill {a.fill}, unit parameters {a.unit_parameters}")
     # one unit of the whole tensor, an axis of length 0 listing none
-    if a.grid != Grid(tuple(Each(n) if n else Listed(()) for n in t.shape), "short"):
+    if a.grid != Grid(tuple(Each(n) if n else Listed(()) for n in t.shape), "short", None):
         said.append(f"grid {a.grid} of shape {t.shape}")
     chain = (Codec("lsb_first", {"bits": Value(bits)}),) if bits < 8 else ()
     if tuple(d.stored.chains[c] for c in a.chains) != (chain,):
@@ -407,12 +407,12 @@ def test_a_tensor_of_more_axes_than_the_limit_has_room_for_falls_back_alone(tmp_
     stored, rows = parsed(path)
     assert stored.undescribed is False
     first, second = stored.arrays
-    assert (first.shape, first.item_bits, first.grid) == (u.shape, 8, Grid((Each(2),), "short"))
+    assert (first.shape, first.item_bits, first.grid) == (u.shape, 8, Grid((Each(2),), "short", None))
     assert (second.shape, second.item_bits, second.grid, second.chains) == (t.shape, 4, None, ())
     (place,) = second.declarations
     assert isinstance(place, ElementPlace)
     assert place.range == (t.declared[0] - 8, t.declared[1])
-    assert (second.path, second.index, second.fill) == ("header", 1, "undefined")
+    assert (second.path, second.index, second.fill) == ("header", 1, None)
     assert stored.chains == ((),)
     assert [r["array"] for r in rows] == [0]
 

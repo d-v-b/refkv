@@ -6,7 +6,7 @@
 
 use super::walk::{Recorded, Visit};
 use super::{le, parse_dataspace, parse_datatype, parse_filters, ravel, ExternalSlot, Filter, Header, Layout, Msg, H5};
-use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Param, Place, Row, StoredArray};
+use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Param, Place, Row, Sparse, StoredArray};
 use crate::beside::{written_key, Written};
 use crate::ir::{Ir, Res};
 use serde_json::{json, Value as J};
@@ -113,24 +113,25 @@ fn old_fill(d: &[u8]) -> Option<Said> {
 }
 
 /// The dataset's fill value, of an element of `size` bytes, in the three states HDF5 tells apart
-/// (H5P's `fill_value_defined`), with the places that join the description's declarations: those
-/// of fill value messages whose value the description cannot give (a shared message, several, one
-/// that does not read, or a value that is not of the element's size), which then is `undefined`.
-/// A header with no fill value message of either kind defines none (`H5D__open_oid`).
-fn fill_of(rec: &Recorded, base: u64, h: &Header, size: Option<u64>) -> (Fill, Vec<Place>) {
+/// (H5P's `fill_value_defined`: None for undefined), with the places that join the description's
+/// declarations: those of fill value messages whose value the description cannot give (a shared
+/// message, several, one that does not read, or a value that is not of the element's size), which
+/// then is None. A header with no fill value message of either kind defines none
+/// (`H5D__open_oid`).
+fn fill_of(rec: &Recorded, base: u64, h: &Header, size: Option<u64>) -> (Option<Fill>, Vec<Place>) {
     let new = all(h, super::FILL_VALUE);
     let (found, said): (Vec<(usize, &Msg)>, fn(&[u8]) -> Option<Said>) = if new.is_empty() { (all(h, OLD_FILL_VALUE), old_fill) } else { (new, new_fill) };
     let places = |found: &[(usize, &Msg)]| found.iter().map(|&(k, m)| msg_place(rec, base, h, k, m, None)).collect();
     let (k, m) = match found[..] {
-        [] => return (Fill::Undefined, Vec::new()),
+        [] => return (None, Vec::new()),
         [(k, m)] if m.flags & 2 == 0 => (k, m),
-        _ => return (Fill::Undefined, places(&found)),
+        _ => return (None, places(&found)),
     };
     match said(&m.data) {
-        Some(Said::Undefined) => (Fill::Undefined, Vec::new()),
-        Some(Said::Default) => (Fill::FormatDefault, Vec::new()),
-        Some(Said::Given(at, n)) if size == Some(n) => (Fill::Given(Param::Source(msg_place(rec, base, h, k, m, Some((at, n))))), Vec::new()),
-        _ => (Fill::Undefined, places(&found)),
+        Some(Said::Undefined) => (None, Vec::new()),
+        Some(Said::Default) => (Some(Fill::FormatDefault), Vec::new()),
+        Some(Said::Given(at, n)) if size == Some(n) => (Some(Fill::Given(Param::Source(msg_place(rec, base, h, k, m, Some((at, n)))))), Vec::new()),
+        _ => (None, places(&found)),
     }
 }
 
@@ -187,9 +188,9 @@ const SCALEOFFSET: u64 = 6;
 const BZIP2: u64 = 307;
 
 /// A grid of one unit holding the whole array: each axis `Each` of its length, an empty `List`
-/// for an axis of length 0.
-fn whole(dims: &[u64]) -> Grid {
-    Grid { axes: dims.iter().map(|&n| if n == 0 { AxisUnits::List(Vec::new()) } else { AxisUnits::Each(n) }).collect(), edge: Edge::Short }
+/// for an axis of length 0; sparse, of `fill`, where `sparse`.
+fn whole(dims: &[u64], sparse: Option<Option<Fill>>) -> Grid {
+    Grid { axes: dims.iter().map(|&n| if n == 0 { AxisUnits::List(Vec::new()) } else { AxisUnits::Each(n) }).collect(), edge: Edge::Short, sparse: sparse.map(|fill| Sparse { fill }) }
 }
 
 /// The ranges, in order, of the external files that hold a dataset of `total` bytes, by the
@@ -276,7 +277,6 @@ pub fn describe(ir: &mut Ir, h5: &mut H5, em: &Emitted, visited: &HashMap<u64, V
             pad_from: None,
             grid: None,
             chains: Vec::new(),
-            fill,
             unit_parameters: Vec::new(),
         };
         let Some(ds) = ds.filter(|_| size.is_some()) else {
@@ -305,7 +305,8 @@ pub fn describe(ir: &mut Ir, h5: &mut H5, em: &Emitted, visited: &HashMap<u64, V
                         })
                         .collect();
                     let every = if chain.len() >= 64 { u64::MAX } else { (1u64 << chain.len()) - 1 };
-                    grid = Some(Grid { axes: ds.chunk.iter().map(|&c| AxisUnits::Each(c)).collect(), edge: Edge::Full });
+                    // the chunk index may leave a chunk out, which then holds the fill
+                    grid = Some(Grid::sparse(ds.chunk.iter().map(|&c| AxisUnits::Each(c)).collect(), Edge::Full, fill.clone()));
                     for (coords, addr, n, mask) in &ch.list {
                         let mut row = Row { array: k, coords: coords.clone(), ..Row::default() };
                         if let Some(&e) = em.rec.chunk.get(&(at, ravel(coords, &ds.grid))) {
@@ -325,7 +326,7 @@ pub fn describe(ir: &mut Ir, h5: &mut H5, em: &Emitted, visited: &HashMap<u64, V
             }
             Layout::Contiguous if h.has(super::EXTERNAL_FILES) => {
                 if let Some(ranges) = found.zip(slots.get(&at)).and_then(|(f, sl)| external_ranges(sl, total, f)) {
-                    grid = Some(whole(&ds.dims));
+                    grid = Some(whole(&ds.dims, None));
                     if holds && !ranges.is_empty() {
                         let ranges = ranges.into_iter().map(|(key, o, n)| (Some(key), o, n)).collect();
                         rows.push(unit(Row { ranges: Some(ranges), ..Row::default() }));
@@ -333,12 +334,12 @@ pub fn describe(ir: &mut Ir, h5: &mut H5, em: &Emitted, visited: &HashMap<u64, V
                 }
             }
             Layout::Contiguous => match ds.contiguous {
-                // no address: the source holds no unit
-                (None, _) => grid = Some(whole(&ds.dims)),
+                // no address: the source holds no unit, and its elements are the fill
+                (None, _) => grid = Some(whole(&ds.dims, Some(fill.clone()))),
                 (Some(addr), n) => {
                     let within = addr.checked_add(base).and_then(|o| o.checked_add(n)).is_some_and(|end| end <= file_size);
                     if within && n as u128 == total {
-                        grid = Some(whole(&ds.dims));
+                        grid = Some(whole(&ds.dims, Some(fill.clone())));
                         if holds && n > 0 {
                             rows.push(unit(match em.data_of.get(&at) {
                                 Some(&e) => Row { element: Some(e), ..Row::default() },
@@ -350,7 +351,7 @@ pub fn describe(ir: &mut Ir, h5: &mut H5, em: &Emitted, visited: &HashMap<u64, V
             },
             Layout::Compact if ds.compact.1.len() as u128 != total => {}
             Layout::Compact => {
-                grid = Some(whole(&ds.dims));
+                grid = Some(whole(&ds.dims, None));
                 let n = ds.compact.1.len() as u64;
                 if let (true, Some((lk, lm))) = (holds && n > 0, one(&h, super::LAYOUT)) {
                     rows.push(unit(match msg_place(em.rec, base, &h, lk, lm, Some((ds.compact.0 - lm.at, n))) {
@@ -501,31 +502,31 @@ mod tests {
     fn a_fill_value_is_one_of_three_states() {
         let rec = Recorded::default();
         let of = |msgs: &[(u16, u8, &[u8])]| fill_of(&rec, 1000, &header(msgs), Some(2));
-        assert_eq!(of(&[]), (Fill::Undefined, vec![]));
-        assert_eq!(of(&[(0x03, 0, &[0; 8])]), (Fill::Undefined, vec![]));
-        assert_eq!(of(&[(super::super::FILL_VALUE, 0, &[3, 0x1a])]), (Fill::Undefined, vec![]));
-        assert_eq!(of(&[(super::super::FILL_VALUE, 0, &[3, 0x0a])]), (Fill::FormatDefault, vec![]));
-        assert_eq!(of(&[(OLD_FILL_VALUE, 0, &[0, 0, 0, 0])]), (Fill::Undefined, vec![]));
-        assert_eq!(of(&[(OLD_FILL_VALUE, 0, &[2, 0, 0, 0, 7, 7])]), (Fill::Given(Param::Source(extent(1120, 2))), vec![]));
+        assert_eq!(of(&[]), (None, vec![]));
+        assert_eq!(of(&[(0x03, 0, &[0; 8])]), (None, vec![]));
+        assert_eq!(of(&[(super::super::FILL_VALUE, 0, &[3, 0x1a])]), (None, vec![]));
+        assert_eq!(of(&[(super::super::FILL_VALUE, 0, &[3, 0x0a])]), (Some(Fill::FormatDefault), vec![]));
+        assert_eq!(of(&[(OLD_FILL_VALUE, 0, &[0, 0, 0, 0])]), (None, vec![]));
+        assert_eq!(of(&[(OLD_FILL_VALUE, 0, &[2, 0, 0, 0, 7, 7])]), (Some(Fill::Given(Param::Source(extent(1120, 2)))), vec![]));
         // the new message is the one read where a header has both
         let both: &[(u16, u8, &[u8])] = &[(OLD_FILL_VALUE, 0, &[2, 0, 0, 0, 7, 7]), (super::super::FILL_VALUE, 0, GIVEN)];
-        assert_eq!(of(both), (Fill::Given(Param::Source(extent(1172, 2))), vec![]));
+        assert_eq!(of(both), (Some(Fill::Given(Param::Source(extent(1172, 2)))), vec![]));
         let mut rec = Recorded::default();
         rec.msg.insert((100, 1), 9);
         let place = Place::Element { element: 9, member: None, range: Some((6, 2)) };
-        assert_eq!(fill_of(&rec, 1000, &header(both), Some(2)), (Fill::Given(Param::Source(place)), vec![]));
+        assert_eq!(fill_of(&rec, 1000, &header(both), Some(2)), (Some(Fill::Given(Param::Source(place))), vec![]));
     }
 
     #[test]
     fn a_shared_fill_message_is_a_declaration() {
         let h = header(&[(super::super::FILL_VALUE, 2, &[0; 10])]);
-        assert_eq!(fill_of(&Recorded::default(), 0, &h, Some(2)), (Fill::Undefined, vec![extent(116, 10)]));
+        assert_eq!(fill_of(&Recorded::default(), 0, &h, Some(2)), (None, vec![extent(116, 10)]));
     }
 
     #[test]
     fn several_fill_messages_are_declarations() {
         let h = header(&[(super::super::FILL_VALUE, 0, GIVEN), (super::super::FILL_VALUE, 0, &[3, 0x0a])]);
-        assert_eq!(fill_of(&Recorded::default(), 0, &h, Some(2)), (Fill::Undefined, vec![extent(116, 8), extent(166, 2)]));
+        assert_eq!(fill_of(&Recorded::default(), 0, &h, Some(2)), (None, vec![extent(116, 8), extent(166, 2)]));
     }
 
     #[test]
@@ -534,13 +535,13 @@ mod tests {
         let mut rec = Recorded::default();
         rec.msg.insert((100, 0), 4);
         let place = Place::Element { element: 4, member: None, range: None };
-        assert_eq!(fill_of(&rec, 0, &h, Some(2)), (Fill::Undefined, vec![place]));
+        assert_eq!(fill_of(&rec, 0, &h, Some(2)), (None, vec![place]));
     }
 
     #[test]
     fn a_fill_value_not_of_the_elements_size_is_a_declaration() {
         let h = header(&[(super::super::FILL_VALUE, 0, GIVEN)]);
-        assert_eq!(fill_of(&Recorded::default(), 0, &h, Some(4)), (Fill::Undefined, vec![extent(116, 8)]));
-        assert_eq!(fill_of(&Recorded::default(), 0, &h, None), (Fill::Undefined, vec![extent(116, 8)]));
+        assert_eq!(fill_of(&Recorded::default(), 0, &h, Some(4)), (None, vec![extent(116, 8)]));
+        assert_eq!(fill_of(&Recorded::default(), 0, &h, None), (None, vec![extent(116, 8)]));
     }
 }

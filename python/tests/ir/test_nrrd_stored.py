@@ -229,7 +229,7 @@ def check(path: Path, inp: Described, wrote: bytes | None, seen: Counter) -> lis
         said.append(f"axes {a.axes} of {len(sizes)} axes")
     if a.item_bits != 8 * item:
         said.append(f"item_bits {a.item_bits}, pynrrd's elements of {item} bytes")
-    if a.pad_from is not None or a.fill != "undefined" or a.unit_parameters:
+    if a.pad_from is not None or a.fill is not None or a.unit_parameters:
         said.append("a padding, a fill value or unit parameters")
 
     # one unit of the whole array

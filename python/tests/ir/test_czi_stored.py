@@ -374,7 +374,7 @@ def check_subblock(d: Described, k: int, key: str | None, c: czifile.CziFile, en
     count = struct.unpack_from("<i", data, at + 76)[0]
     copy = data[at + 48:at + 80 + 20 * count]
     said = []
-    if (a.fill, a.axes, a.index, a.unit_parameters, a.pad_from) != ("undefined", None, None, (), None):
+    if (a.fill, a.axes, a.index, a.unit_parameters, a.pad_from) != (None, None, None, (), None):
         said.append("a fill value, axes, an index, unit parameters or padding")
     want = [held(d, a.element, "entry", key, at + 48, 32)[0]]
     if count:

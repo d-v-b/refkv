@@ -2,7 +2,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): its samples,
 //! keyed by the STREAMINFO block, a frame a unit, in a `flac` chain whose `setup` is that block.
 
-use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Param, Place, Row, StoredArray};
+use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Grid, Param, Place, Row, StoredArray};
 use crate::ir::Res;
 use std::collections::BTreeMap;
 
@@ -29,9 +29,9 @@ pub(crate) fn described(info: u32, channels: u64, bits: u64, frames: &[(u32, u64
         // each sample in whole bytes, as STREAMINFO's MD5 takes it (RFC 9639 §8.2)
         item_bits: Some(bits.div_ceil(8) * 8),
         pad_from: None,
-        grid: Some(Grid { axes: vec![AxisUnits::Each(block), AxisUnits::Each(channels)], edge: Edge::Short }),
+        // every frame is stored: FLAC has no fill value
+        grid: Some(Grid::dense(vec![AxisUnits::Each(block), AxisUnits::Each(channels)], Edge::Short)),
         chains: vec![0],
-        fill: Fill::Undefined,
         unit_parameters: Vec::new(),
     };
     Ok((vec![array], vec![chain], map))
@@ -49,7 +49,7 @@ mod tests {
             let (arrays, chains, map) = described(3, 2, bits, &[(10, 1024), (11, 1024), (12, 100)]).unwrap();
             let a = &arrays[0];
             assert_eq!((a.element, a.shape.as_ref(), a.item_bits), (3, Some(&vec![2148, 2]), Some(item)), "{bits}");
-            assert_eq!(a.grid, Some(Grid { axes: vec![AxisUnits::Each(1024), AxisUnits::Each(2)], edge: Edge::Short }));
+            assert_eq!(a.grid, Some(Grid::dense(vec![AxisUnits::Each(1024), AxisUnits::Each(2)], Edge::Short)));
             assert_eq!(a.declarations, vec![Place::Element { element: 3, member: None, range: None }]);
             assert_eq!(chains[0][0].name, "flac");
             assert_eq!(chains[0][0].parameters["setup"], Param::Source(Place::Element { element: 3, member: None, range: None }));

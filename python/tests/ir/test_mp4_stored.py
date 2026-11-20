@@ -243,7 +243,7 @@ def check_track(d: Described, ks: list[int], stream: Stream, packets: list[av.Pa
     said = []
     if [a.index for a in arrays] != list(range(len(arrays))):
         said.append(f"indexes {[a.index for a in arrays]}")
-    if any(a.fill != "undefined" or a.axes is not None or a.pad_from is not None for a in arrays):
+    if any(a.fill is not None or a.axes is not None or a.pad_from is not None for a in arrays):
         said.append("a fill value, axes or a padding")
     names = [[c.name for chain in a.chains for c in d.stored.chains[chain]] for a in arrays]
     if names == [[]]:

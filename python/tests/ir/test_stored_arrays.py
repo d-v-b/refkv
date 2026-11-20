@@ -8,6 +8,7 @@ import ast
 import json
 import struct
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 
 import jsonschema
@@ -27,6 +28,7 @@ from refkv.ir.stored import (
     Grid,
     Listed,
     Source,
+    Sparse,
     Stored,
     StoredArray,
     UnitParameter,
@@ -126,7 +128,7 @@ def test_npy_arrays_are_described_as_numpy_reads_them(path):
         assert d.declarations == (ElementPlace(d.element, None, None),), d.path
         start, length = ir.extent(d.element)
         assert start + length == offset, d.path
-        assert d.fill == "undefined"
+        assert d.grid is None or d.grid.sparse is None, d.path
 
 
 @pytest.mark.filterwarnings(PYTHON2)
@@ -177,18 +179,32 @@ def document(**changes: object) -> dict:
         "element": 3, "path": "a/b", "index": 0,
         "declarations": [{"element": 1, "member": 2, "range": [0, 4]}, {"object": None, "offset": 8, "length": 2}],
         "shape": [25, 12], "axes": [1, 0], "item_bits": 12, "pad_from": 1,
-        "grid": {"axes": [{"list": [5, [10, 2]]}, {"each": 8}], "edge": "full"},
-        "chains": [0], "fill": {"given": {"value": "AAA="}},
+        "grid": {
+            "axes": [{"list": [5, [10, 2]]}, {"each": 8}], "edge": "full",
+            "sparse": {"fill": {"given": {"value": "AAA="}}},
+        },
+        "chains": [0],
         "unit_parameters": [{"chain": 0, "codec": 0, "name": "scale"}],
     }
     plain = {
         "element": 4, "path": None, "index": None, "declarations": [{"object": "x.bin", "offset": 0, "length": 1}],
         "shape": None, "axes": None, "item_bits": None, "pad_from": None, "grid": None, "chains": [],
-        "fill": "format_default", "unit_parameters": [],
+        "unit_parameters": [],
     }
+    # a dense grid, and sparse ones of the format's default and of no fill
+    sparse = (None, {"fill": "format_default"}, {"fill": None})
+    grids = [{"axes": [{"each": 2}], "edge": "short", "sparse": s} for s in sparse]
+    gridded = [plain | {"element": 5 + k, "shape": [2], "item_bits": 8, "grid": g, "chains": [0]}
+               for k, g in enumerate(grids)]
     source = {"source": {"element": 9, "member": None, "range": None}}
     chain = [{"name": "source", "parameters": {"id": {"value": 7}, "parameters": source}}]
-    return {"chains": [chain], "arrays": [array | changes, plain], "undescribed": False}
+    return {"chains": [chain], "arrays": [array | changes, plain, *gridded], "undescribed": False}
+
+
+def filled(fill: object) -> dict:
+    """The document, its first description's grid of the fill `fill`."""
+    grid = {"axes": [{"list": [5, [10, 2]]}, {"each": 8}], "edge": "full", "sparse": {"fill": fill}}
+    return document(grid=grid)
 
 
 def refused(error: type[Exception], match: str, doc: dict) -> None:
@@ -198,20 +214,25 @@ def refused(error: type[Exception], match: str, doc: dict) -> None:
 
 
 def test_reads_every_form_of_the_document():
-    assert read(json.dumps(document())) == Stored(
+    plain = StoredArray(
+        element=4, path=None, index=None, declarations=(ExtentPlace("x.bin", 0, 1),), shape=None, axes=None,
+        item_bits=None, pad_from=None, grid=None, chains=(), unit_parameters=(),
+    )
+    got = read(json.dumps(document()))
+    assert [a.fill for a in got.arrays] == [Given(Value("AAA=")), None, None, "format_default", None]
+    assert got == Stored(
         chains=((Codec("source", {"id": Value(7), "parameters": Source(ElementPlace(9, None, None))}),),),
         arrays=(
             StoredArray(
                 element=3, path="a/b", index=0,
                 declarations=(ElementPlace(1, 2, (0, 4)), ExtentPlace(None, 8, 2)),
                 shape=(25, 12), axes=(1, 0), item_bits=12, pad_from=1,
-                grid=Grid((Listed((5, (10, 2))), Each(8)), "full"), chains=(0,), fill=Given(Value("AAA=")),
+                grid=Grid((Listed((5, (10, 2))), Each(8)), "full", Sparse(Given(Value("AAA=")))), chains=(0,),
                 unit_parameters=(UnitParameter(0, 0, "scale"),),
             ),
-            StoredArray(
-                element=4, path=None, index=None, declarations=(ExtentPlace("x.bin", 0, 1),), shape=None, axes=None,
-                item_bits=None, pad_from=None, grid=None, chains=(), fill="format_default", unit_parameters=(),
-            ),
+            plain,
+            *(replace(plain, element=5 + k, shape=(2,), item_bits=8, grid=Grid((Each(2),), "short", s), chains=(0,))
+              for k, s in enumerate((None, Sparse("format_default"), Sparse(None)))),
         ),
         undescribed=False,
     )
@@ -230,8 +251,8 @@ def test_refuses_a_value_of_another_type():
 
 def test_refuses_a_missing_member():
     doc = document()
-    del doc["arrays"][0]["fill"]
-    refused(ValueError, r"arrays\[0\]: missing fill", doc)
+    del doc["arrays"][0]["grid"]["sparse"]
+    refused(ValueError, r"arrays\[0\]\.grid: missing sparse", doc)
 
 
 def test_refuses_an_unknown_member_of_a_description():
@@ -263,17 +284,17 @@ def test_refuses_item_bits_of_0():
 
 
 def test_refuses_units_0_long():
-    grid = {"axes": [{"list": [5, [10, 2]]}, {"each": 0}], "edge": "full"}
+    grid = {"axes": [{"list": [5, [10, 2]]}, {"each": 0}], "edge": "full", "sparse": None}
     refused(ValueError, r"axes\[1\]\.each: 0 is below 1", document(grid=grid))
 
 
 def test_refuses_a_listed_unit_0_long():
-    grid = {"axes": [{"list": [0, [10, 2]]}, {"each": 8}], "edge": "full"}
+    grid = {"axes": [{"list": [0, [10, 2]]}, {"each": 8}], "edge": "full", "sparse": None}
     refused(ValueError, r"list\[0\]: 0 is below 1", document(grid=grid))
 
 
 def test_refuses_a_run_of_one_unit():
-    grid = {"axes": [{"list": [5, [10, 1]]}, {"each": 8}], "edge": "full"}
+    grid = {"axes": [{"list": [5, [10, 1]]}, {"each": 8}], "edge": "full", "sparse": None}
     refused(ValueError, r"list\[1\]\[1\]: 1 is below 2", document(grid=grid))
 
 
@@ -292,31 +313,38 @@ def test_refuses_a_place_of_both_element_and_object():
 
 
 def test_refuses_a_parameter_of_neither_value_nor_source():
-    refused(ValueError, "exactly one of value and source", document(fill={"given": {"bytes": "AAA="}}))
+    refused(ValueError, "exactly one of value and source", filled({"given": {"bytes": "AAA="}}))
 
 
 def test_refuses_a_parameter_of_both_value_and_source():
     given = {"value": "AAA=", "source": {"element": 1, "member": None, "range": None}}
-    refused(ValueError, "exactly one of value and source", document(fill={"given": given}))
+    refused(ValueError, "exactly one of value and source", filled({"given": given}))
 
 
 @pytest.mark.parametrize("value", ["A?A=", "==", "AAAA==", "AAA"])
 def test_refuses_a_fill_value_that_is_not_base64(value):
-    refused(ValueError, r"fill\.given\.value: not base64", document(fill={"given": {"value": value}}))
+    refused(ValueError, r"sparse\.fill\.given\.value: not base64", filled({"given": {"value": value}}))
 
 
 def test_refuses_an_axis_of_neither_each_nor_list():
-    grid = {"axes": [{"every": 5}, {"each": 8}], "edge": "full"}
+    grid = {"axes": [{"every": 5}, {"each": 8}], "edge": "full", "sparse": None}
     refused(ValueError, "exactly one of each and list", document(grid=grid))
 
 
 def test_refuses_an_edge_of_neither_full_nor_short():
-    grid = {"axes": [{"each": 5}, {"each": 8}], "edge": "padded"}
+    grid = {"axes": [{"each": 5}, {"each": 8}], "edge": "padded", "sparse": None}
     refused(ValueError, "neither 'full' nor 'short'", document(grid=grid))
 
 
 def test_refuses_a_fill_of_no_form():
-    refused(ValueError, "'zero' is not a fill", document(fill="zero"))
+    refused(ValueError, "'zero' is not a fill", filled("zero"))
+    refused(ValueError, "'undefined' is not a fill", filled("undefined"))
+
+
+def test_refuses_a_fill_outside_a_sparse_grid():
+    doc = document()
+    doc["arrays"][0]["fill"] = "format_default"
+    refused(ValueError, r"arrays\[0\]: unknown fill", doc)
 
 
 def test_refuses_a_range_that_is_not_a_pair():

@@ -99,6 +99,10 @@ def check(path: Path) -> tuple[list[str], Counter]:
             seen["datasets with no grid"] += 1
             continue
         shape = tuple(want.shape)
+        # the grid is sparse, whole or chunked: a dataset may hold no data, and a chunk table need
+        # not list every chunk
+        if a.grid.sparse is None:
+            said.append(f"{at}: a dense grid")
         # the fill value
         if isinstance(a.fill, Given) and isinstance(a.fill.param, Source):
             fill = np.frombuffer(d.place(a.fill.param.place), dtype)[0]

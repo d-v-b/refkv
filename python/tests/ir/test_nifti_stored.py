@@ -96,14 +96,14 @@ def check(d: Described, path: Path, r: Read, seen: Counter) -> list[str]:
     length: int = type(r.header).sizeof_hdr
     n = len(dims)
     said = []
-    if a.index is not None or a.fill != "undefined" or a.pad_from is not None or a.unit_parameters:
+    if a.index is not None or a.fill is not None or a.pad_from is not None or a.unit_parameters:
         said.append("an index, a fill value, a padding or unit parameters")
     # the header lists the dimensions the fastest-varying first, and nibabel gives them in its order
     if a.shape != dims[::-1] or a.axes != (tuple(range(n))[::-1] if n >= 2 else None):
         said.append(f"shape {a.shape} along {a.axes}, nibabel {dims}")
     if a.item_bits != dtype.itemsize * 8:
         said.append(f"item_bits {a.item_bits}, nibabel's voxels {dtype}")
-    if a.grid != Grid(tuple(Each(s) for s in dims[::-1]), "short"):
+    if a.grid != Grid(tuple(Each(s) for s in dims[::-1]), "short", None):
         said.append(f"grid {a.grid}, not one unit of {dims[::-1]}")
     chain = [c for k in a.chains for c in d.stored.chains[k]]
     codecs = [(c.name, dict(c.parameters)) for c in chain]

@@ -9,7 +9,7 @@
 //! not nest (the samples share bytes, or lie in an order no order of the axes gives) and the array
 //! has no grid.
 
-use crate::array::{AxisUnits, Chain, ChunkMap, Edge, Fill, Grid, Place, Row, StoredArray};
+use crate::array::{AxisUnits, Chain, ChunkMap, Edge, Grid, Place, Row, StoredArray};
 use crate::ir::{Ir, Res, DATA, NO_INDEX};
 use std::collections::HashMap;
 
@@ -163,7 +163,7 @@ pub(super) fn described(ir: &Ir, key: u32, images: &[Reached], limit: u64) -> Re
                     }
                 }
                 let each = |i: usize| AxisUnits::Each(if i < outer { 1 } else { shape[i] });
-                grid = Some(Grid { axes: (0..rank).map(each).collect(), edge: Edge::Short });
+                grid = Some(Grid { axes: (0..rank).map(each).collect(), edge: Edge::Short, sparse: None });
             }
         }
         arrays.push(StoredArray {
@@ -176,7 +176,6 @@ pub(super) fn described(ir: &Ir, key: u32, images: &[Reached], limit: u64) -> Re
             pad_from: None,
             chains: if grid.is_some() { vec![0] } else { Vec::new() },
             grid,
-            fill: Fill::Undefined,
             unit_parameters: Vec::new(),
         });
     }

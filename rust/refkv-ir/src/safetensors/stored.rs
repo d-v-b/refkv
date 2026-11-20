@@ -5,7 +5,7 @@
 //! bits an element) in a `lsb_first` chain. A shard the store form does not describe in place has
 //! no elements of its own: its tensors are keyed by its object, their places ranges of it.
 
-use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Param, Place, Row, StoredArray};
+use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Grid, Param, Place, Row, StoredArray};
 use crate::ir::Res;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -187,13 +187,13 @@ pub(super) fn described(files: &[Tensors]) -> Res<(Vec<StoredArray>, Vec<Chain>,
                 grid: Some(Grid {
                     axes: t.shape.iter().map(|&n| if n == 0 { AxisUnits::List(Vec::new()) } else { AxisUnits::Each(n) }).collect(),
                     edge: Edge::Short,
+                    sparse: None,
                 }),
                 shape: Some(t.shape.clone()),
                 axes: None,
                 item_bits: Some(t.bits),
                 pad_from: None,
                 chains: vec![chain],
-                fill: Fill::Undefined,
                 unit_parameters: Vec::new(),
             });
         }
@@ -272,7 +272,7 @@ mod tests {
             (9, Some(0), vec![5], Some(8), vec![0]),
         ]);
         for a in &arrays {
-            assert_eq!((&a.axes, a.pad_from, &a.fill, a.unit_parameters.len()), (&None, None, &Fill::Undefined, 0));
+            assert_eq!((&a.axes, a.pad_from, a.unit_parameters.len()), (&None, None, 0));
             let at = if a.element == 9 { 18 } else { 10 };
             assert_eq!(a.declarations, vec![Place::Element { element: a.element, member: None, range: Some((at, 5)) }]);
         }

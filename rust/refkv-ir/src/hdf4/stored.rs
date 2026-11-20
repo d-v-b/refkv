@@ -96,17 +96,16 @@ pub(super) fn described(descs: &[Desc], dds: &[Dd], el: &[Option<u32>]) -> Res<(
         let Some(key) = d.vg.and_then(|v| el[v]).filter(|&k| keys.insert(k)) else { continue };
         let array = arrays.len() as u32;
         let mut declarations: Vec<Place> = d.declarations.iter().filter_map(|&k| el[k]).map(|element| Place::Element { element, member: None, range: None }).collect();
+        // the fill of the grid, which is sparse whole or chunked: a dataset may hold no data, and
+        // a chunk table need not list every chunk
         let fill = match d.fill {
-            DescFill::Undefined => Fill::Undefined,
+            DescFill::Undefined => None,
             DescFill::Declared(vh) => {
                 declarations.extend(el[vh].map(|element| Place::Element { element, member: None, range: None }));
-                Fill::Undefined
+                None
             }
-            DescFill::FormatDefault => Fill::FormatDefault,
-            DescFill::At { dd, offset, len } => match el[dd] {
-                Some(element) => Fill::Given(Param::Source(Place::Element { element, member: None, range: Some((offset, len)) })),
-                None => Fill::Undefined,
-            },
+            DescFill::FormatDefault => Some(Fill::FormatDefault),
+            DescFill::At { dd, offset, len } => el[dd].map(|element| Fill::Given(Param::Source(Place::Element { element, member: None, range: Some((offset, len)) }))),
         };
         declarations.dedup();
         let mut a = StoredArray {
@@ -119,18 +118,17 @@ pub(super) fn described(descs: &[Desc], dds: &[Dd], el: &[Option<u32>]) -> Res<(
             pad_from: None,
             grid: None,
             chains: Vec::new(),
-            fill,
             unit_parameters: Vec::new(),
         };
         // the units and their rows, or none where one of them has no place
         let units: Option<(Grid, Vec<(Vec<u64>, &Logical, Method)>)> = match (&d.layout, &d.shape) {
             (Some(Layout::Whole(u)), Some(shape)) => {
                 let axes = shape.iter().map(|&n| if n == 0 { AxisUnits::List(Vec::new()) } else { AxisUnits::Each(n) }).collect();
-                Some((Grid { axes, edge: Edge::Short }, u.iter().map(|(l, m)| (vec![0; shape.len()], l, *m)).collect()))
+                Some((Grid::sparse(axes, Edge::Short, fill.clone()), u.iter().map(|(l, m)| (vec![0; shape.len()], l, *m)).collect()))
             }
             (Some(Layout::Chunked { chunk, rows }), Some(_)) => {
                 let axes = chunk.iter().map(|&n| AxisUnits::Each(n)).collect();
-                Some((Grid { axes, edge: Edge::Full }, rows.iter().map(|(at, l, m)| (at.clone(), l, *m)).collect()))
+                Some((Grid::sparse(axes, Edge::Full, fill.clone()), rows.iter().map(|(at, l, m)| (at.clone(), l, *m)).collect()))
             }
             _ => None,
         };
@@ -199,14 +197,14 @@ mod tests {
             ] }, vec![3, 4]),
         ], &dds(), &el()).unwrap();
         assert_eq!(arrays.iter().map(|a| a.element).collect::<Vec<_>>(), vec![2, 8, 9, 10]);
-        assert_eq!(arrays[0].grid, Some(Grid { axes: vec![AxisUnits::Each(4), AxisUnits::Each(4)], edge: Edge::Short }));
+        assert_eq!(arrays[0].grid, Some(Grid::sparse(vec![AxisUnits::Each(4), AxisUnits::Each(4)], Edge::Short, Some(Fill::FormatDefault))));
         assert_eq!((map.element[0], map.range[0]), (Some(5), None));
         assert_eq!((map.element[1], map.range[1]), (Some(5), Some((0, 48))));
         assert_eq!(map.element[2], None);
-        assert_eq!(arrays[3].grid, Some(Grid { axes: vec![AxisUnits::Each(2), AxisUnits::Each(4)], edge: Edge::Full }));
+        assert_eq!(arrays[3].grid, Some(Grid::sparse(vec![AxisUnits::Each(2), AxisUnits::Each(4)], Edge::Full, Some(Fill::FormatDefault))));
         assert_eq!(arrays[3].chains.iter().map(|&c| chains[c as usize].len()).collect::<Vec<_>>(), vec![0, 1]);
         assert_eq!((map.chain[3], map.chain[4]), (Some(1), None));
-        assert_eq!((arrays[0].item_bits, arrays[0].fill.clone()), (Some(32), Fill::FormatDefault));
+        assert_eq!((arrays[0].item_bits, arrays[0].fill()), (Some(32), Some(&Fill::FormatDefault)));
     }
 
     /// A dataset's Vgroup listed twice is one array.
