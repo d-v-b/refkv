@@ -8,6 +8,7 @@ import h5py
 import numcodecs
 import numpy as np
 import pytest
+import tifffile
 import xarray as xr
 import zarr
 from obspec_utils.registry import ObjectStoreRegistry
@@ -16,6 +17,7 @@ from virtualizarr import open_virtual_dataset
 from virtualizarr.parsers import HDFParser
 
 import refkv
+import refkv.zarrify
 from refkv import Concat, Policy, Range, ReferenceStore, Source
 from refkv.errors import ResolutionError
 from refkv.virtualizarr import RefkvParser, manifest_store
@@ -231,6 +233,32 @@ def test_refkv_parser(tmp_path, registry):
 
 ENVI_HEADER = ("ENVI\nsamples = 4\nlines = 3\nbands = 1\nheader offset = 0\nfile type = ENVI Standard\n"
                "data type = 2\ninterleave = bsq\nbyte order = 0\n")
+
+
+def test_refkv_parser_reads_an_input_once(tmp_path, registry, monkeypatch):
+    """With a layout, the parser parses an input once, whether the layout reads its profile
+    (HDF5) or not (TIFF, written as refkv's own output of the same parse), and gives the
+    arrays refkv's own output has for the one its layout does not read."""
+    data = np.arange(16, dtype="<u2").reshape(4, 4)
+    with h5py.File(tmp_path / "a.h5", "w") as f:
+        f.create_dataset("a", data=data)
+    tifffile.imwrite(tmp_path / "a.tif", data, photometric="minisblack")
+    parses: list[str] = []
+    parse = refkv.zarrify._parse_async
+
+    async def counted(location, *args, **kwargs):
+        parses.append(str(location))
+        return await parse(location, *args, **kwargs)
+
+    monkeypatch.setattr(refkv.zarrify, "_parse_async", counted)
+    for name in ("a.h5", "a.tif"):
+        parses.clear()
+        result = RefkvParser()((tmp_path / name).as_uri(), registry)
+        assert len(parses) == 1, name
+        [array] = result._group.arrays
+        np.testing.assert_array_equal(read(result, array).reshape(4, 4), data)
+    own = RefkvParser(layout=None)((tmp_path / "a.tif").as_uri(), registry)
+    assert set(result._group.arrays) == set(own._group.arrays)
 
 
 def test_unsupported_input_without_header_raises(tmp_path, registry):
