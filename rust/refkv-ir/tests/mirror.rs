@@ -414,7 +414,7 @@ fn an_ir_whose_derived_element_has_no_descendants_is_invalid() {
 // | column runs: encoding 3 is of the name index only | `rejects_encoding_3_of_a_field_other_than_the_name_index` |
 // | limits: the expanded table has at most 2^22 + floor(Z / 4) rows | `rejects_stored_rows_past_the_budget`, `rejects_a_column_run_past_the_budget` |
 // | limits: columns' lengths differ | `rejects_columns_of_different_lengths` |
-// | limits: a column refers to values past `column_values` | `rejects_a_column_past_its_values` |
+// | limits: a column refers to values past `column_values` | `rejects_a_column_past_its_values`, `rejects_pieces_past_their_values` |
 // | limits: a column refers to entries past its array | `rejects_a_column_past_its_array` |
 // | limits: a column run's member 0 is not `size` rows of sibling subtrees | `rejects_a_column_run_that_is_not_a_subtree` |
 // | limits: an up of 0 for a row other than the root, or larger than the row's id | `rejects_a_bad_parent` |
@@ -530,6 +530,17 @@ fn rejects_pieces_past_the_members() {
     t.columns = vec![[0, 0, 2, 4, 0, 2]];
     t.column_values = vec![0, 10, 2, 20, 10, 2];
     assert_eq!(err(&t), "column run 0: pieces that are not its members");
+}
+
+/// Encoding 4's pieces, three values each, past `column_values`: too few values for the pieces it
+/// names, and a negative count of pieces.
+#[test]
+fn rejects_pieces_past_their_values() {
+    for (column, values) in [([0, 0, 2, 4, 0, 2], vec![0, 10, 3]), ([0, 0, 2, 4, 0, -1], vec![0, 10, 3]), ([0, 0, 2, 4, -1, 1], vec![0, 10, 3])] {
+        let mut t = three();
+        (t.columns, t.column_values) = (vec![column], values);
+        assert_eq!(err(&t), "a column past its values", "{column:?}");
+    }
 }
 
 #[test]
