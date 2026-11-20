@@ -36,14 +36,19 @@ from refkv.zarrify.layouts.hierarchy import group
 
 FIXTURES = sorted(p for p in (Path(__file__).resolve().parents[2] / "fixtures" / "npy").iterdir()
                   if p.suffix in (".npy", ".npz"))
-CHUNK_BYTES = 1 << 20  # the most bytes of a chunk (spec/zarrify/npy.md §8.4)
-GZIP_LEVEL = 6  # the level the profile names for a deflated member's stream (§8.4)
+# the most bytes of a chunk, and the level the profile names for a deflated member's stream
+# (spec/zarrify/npy.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#84-chunks>)
+CHUNK_BYTES = 1 << 20
+GZIP_LEVEL = 6
 
 
-def data_of(parsed: Parsed, position: dict[int, int], header: int) -> tuple[list[int], bool, Ref]:
-    """A stored member's array as the IR describes it: its shape in storage order, whether that is
-    its header's reversed, and the range that holds its data, its stored array's one unit. An
-    array whose description has no grid (a `descr` NumPy gives no size, which the profile
+def data_of(parsed: Parsed, position: dict[int, int], header: int) -> tuple[list[int], bool, Ref | None, int, int]:
+    """An array as the IR describes it: its shape in storage order, whether that is its header's
+    reversed, and its data, its stored array's one unit: the range of the file that holds it, or,
+    for a deflated member, None, its data lying in what the member's stream inflates to; then the
+    data's offset there and its length.
+
+    An array whose description has no grid (a `descr` NumPy gives no size, which the profile
     presents all the same) has its data in the `data` element beside its header, and an array of
     no elements has none, at its header's end."""
     k = position[header]
@@ -53,13 +58,13 @@ def data_of(parsed: Parsed, position: dict[int, int], header: int) -> tuple[list
     beside = parsed.ir.at(f"{parsed.ir.path(header).rpartition('/')[0]}/data".lstrip("/"))
     if units:
         assert units[0].element is not None
-        span = parsed.span(units[0].element)
+        start, length = parsed.ir.extent(units[0].element)
     elif beside is not None:
-        span = parsed.span(beside)
+        start, length = parsed.ir.extent(beside)
     else:
-        start, length = parsed.ir.extent(header)
-        span = Ref(parsed, 0, start + length, 0)
-    return list(stored.shape), stored.axes is not None, span
+        start, length = sum(parsed.ir.extent(header)), 0
+    span = Ref(parsed, 0, start, length) if parsed.ir.space(header) == 0 else None
+    return list(stored.shape), stored.axes is not None, span, start, length
 
 
 def projected(parsed: Parsed) -> Written:
@@ -71,15 +76,9 @@ def projected(parsed: Parsed) -> Written:
     for entry in description["arrays"]:
         declared = npy_array_type(entry["header"])
         rank = len(declared["shape"])
-        # fixed-length bytes are uint8 along a trailing axis (§3)
+        # fixed-length bytes are uint8 along a trailing axis
         inner = [declared["trailing"]] if declared["trailing"] is not None else []
-        deflate = entry.get("deflate")
-        span: Ref | None = None  # a stored member's data; a deflated member's lies in its stream
-        if deflate is None:
-            stored, reverse, span = data_of(parsed, position, entry["stored"])
-        else:
-            reverse = declared["fortran_order"] and rank >= 2
-            stored = declared["shape"][::-1] if reverse else declared["shape"]
+        stored, reverse, span, start, length = data_of(parsed, position, entry["stored"])
 
         def ordered(coords: tuple[int, ...], rank: int = rank, reverse: bool = reverse) -> tuple[int, ...]:
             """Storage order's coordinates in the array's: the header's axes reversed, a trailing axis last."""
@@ -93,18 +92,20 @@ def projected(parsed: Parsed) -> Written:
         codecs.append({"name": "bytes", "configuration": {"endian": endian}} if endian else {"name": "bytes"})
         chunks: dict[tuple[int, ...], Any]
         if span is not None:
-            # cut as conventions §7 cuts contiguous values, in storage order (§8.4)
+            # cut as the conventions cut contiguous values (`grid`), in storage order
             cut_shape, cut = grid(span, [*stored, *inner], 1 if inner else declared["item_size"], limit=CHUNK_BYTES)
             chunk_shape = list(ordered(tuple(cut_shape)))
             chunks = {ordered(coords): filled(v) for coords, v in cut.items()}
         else:
-            # one chunk, the member's deflate stream as a gzip member, its header skipped (§8.4)
+            # one chunk, the member's deflate stream as a gzip member, its header skipped:
+            # the stream is the derived element whose space the header is in
+            stream = parsed.encoded(parsed.ir.space(entry["stored"]))
+            member = entry["deflate"]
             chunk_shape = [max(n, 1) for n in shape]
             chunks = {}
-            if deflate["data"]:
-                stream = Ref(parsed, 0, deflate["start"], deflate["length"])
-                chunks[(0,) * len(shape)] = gzip_member(stream, crc32=deflate["crc"], size=deflate["size"])
-            codecs += gzip_codecs(deflate["skip"], GZIP_LEVEL)
+            if length:
+                chunks[(0,) * len(shape)] = gzip_member(stream, crc32=member["crc"], size=member["size"])
+            codecs += gzip_codecs(start, GZIP_LEVEL)
         array = Array(shape, declared["data_type"], chunk_shape, codecs, chunks, declared["fill_value"],
                       [*(f"dim_{k}" for k in range(rank)), *(["byte"] if inner else [])])
         out |= array.entries(to=entry["path"])

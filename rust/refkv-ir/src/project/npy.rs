@@ -45,7 +45,16 @@ struct Presented<'a> {
     reversed: bool,
     data: (u64, u64),
     form: u32,
-    deflate: Option<&'a J>,
+    deflate: Option<Deflated>,
+}
+
+/// A deflated member's stream: its range of the file, the extent of the derived element whose
+/// space holds the member's header and data; and its CRC-32 and the size of what it inflates to,
+/// as the central directory gives them.
+struct Deflated {
+    stream: (u64, u64),
+    crc: u32,
+    size: u64,
 }
 
 /// The IR's stored arrays as the projection looks them up, built once a call: the position of
@@ -67,9 +76,10 @@ impl Described {
     }
 }
 
-/// The array the description's entry `a` presents. A stored member's shape and order are those
-/// of its stored array, which `a` keys, and its data is that array's one unit; a deflated member,
-/// which has no description yet, gives its header's.
+/// The array the description's entry `a` presents. Its shape and order are those of its stored
+/// array, which `a` keys, and its data is that array's one unit: a range of the file, or, for a
+/// deflated member, of what its stream inflates to, the space of the derived element its header
+/// and data are in.
 ///
 /// A description may have no grid, and so no unit, for an array the profile presents all the
 /// same: one whose `descr` NumPy's own layout gives no size (`a<n>`, which the profile reads as
@@ -83,12 +93,6 @@ fn presented<'a>(ir: &Ir, described: &Described, a: &'a J) -> Result<Presented<'
     let text = a["header"].as_str().ok_or("internal: a presented array without its header's text")?;
     let header = header::parse(text, rules.limit("max_rank") as usize)?;
     let dtype = header::dtype(rules, &header.descr)?;
-    let d = &a["deflate"];
-    if d.is_object() {
-        let reversed = header.fortran_order && header.shape.len() >= 2;
-        let stored = if reversed { header.shape.iter().rev().copied().collect() } else { header.shape.clone() };
-        return Ok(Presented { path, header, dtype, stored, reversed, data: (n(&d["skip"]), n(&d["data"])), form: 0, deflate: Some(d) });
-    }
     let key = a["stored"].as_u64().ok_or("internal: a presented array without its description's key")? as u32;
     let &k = described.position.get(&key).ok_or("internal: a presented array without a description")?;
     let array = &ir.stored.arrays[k];
@@ -114,7 +118,20 @@ fn presented<'a>(ir: &Ir, described: &Described, a: &'a J) -> Result<Presented<'
     if length != Some(data.1 as u128) {
         return Err(format!("internal: the array at {path} holds {} bytes, not what its header declares", data.1));
     }
-    Ok(Presented { path, header, dtype, stored, reversed: array.axes.is_some(), data, form, deflate: None })
+    // a deflated member: its header is in the space of the derived element that is its stream
+    let space = ir.space[key as usize];
+    let deflate = match (space, &a["deflate"]) {
+        (0, _) => None,
+        (d, J::Object(_)) => Some(Deflated {
+            stream: (ir.start[d as usize], ir.len[d as usize]),
+            crc: n(&a["deflate"]["crc"]) as u32,
+            size: n(&a["deflate"]["size"]),
+        }),
+        _ => return Err(format!("internal: the array at {path} is in a derived space, and its description names no stream")),
+    };
+    // a deflated member's data is its stream's, not a recipe of the file's bytes
+    let form = if deflate.is_some() { 0 } else { form };
+    Ok(Presented { path, header, dtype, stored, reversed: array.axes.is_some(), data, form, deflate })
 }
 
 /// An array's shape, chunk shape and chunks (their coordinates in the array's axis order), and
@@ -142,16 +159,16 @@ fn cut(a: &Presented, threshold: usize) -> Result<Cut, String> {
         }
         None => a.dtype.item,
     };
-    if let Some(d) = a.deflate {
+    if let Some(d) = &a.deflate {
         // one chunk, the whole array: the deflate stream as a gzip member, the header and data
         // it inflates to (spec/zarrify/npy.md §8.4
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#84-chunks>)
         let chunk_shape = shape.iter().map(|&s| s.max(1)).collect();
         let mut chunks = Vec::new();
         if a.data.1 > 0 {
-            let mut trailer = (n(&d["crc"]) as u32).to_le_bytes().to_vec();
-            trailer.extend_from_slice(&(n(&d["size"]) as u32).to_le_bytes());
-            let parts = vec![Part::Lit(GZIP_HEADER.to_vec()), Part::Src(n(&d["start"]), n(&d["length"])), Part::Lit(trailer)];
+            let mut trailer = d.crc.to_le_bytes().to_vec();
+            trailer.extend_from_slice(&(d.size as u32).to_le_bytes());
+            let parts = vec![Part::Lit(GZIP_HEADER.to_vec()), Part::Src(d.stream.0, d.stream.1), Part::Lit(trailer)];
             chunks.push((vec![0; shape.len()], Chunk::Ranges(parts)));
         }
         return Ok(Cut { shape, chunk_shape, chunks, reversed, trailing: trailing.is_some() });
@@ -195,8 +212,9 @@ fn array_doc(a: &Presented, c: &Cut) -> J {
         Some(l) => json!({"name": "bytes", "configuration": {"endian": if l { "little" } else { "big" }}}),
         None => json!({"name": "bytes"}),
     });
-    if let Some(d) = a.deflate {
-        codecs.push(json!({"name": "refkv.skip", "configuration": {"length": d["skip"]}}));
+    if a.deflate.is_some() {
+        // the data's offset in what the stream inflates to
+        codecs.push(json!({"name": "refkv.skip", "configuration": {"length": a.data.0}}));
         codecs.push(json!({"name": "gzip", "configuration": {"level": GZIP_LEVEL}}));
     }
     let mut dims: Vec<String> = (0..r).map(|k| format!("dim_{k}")).collect();
@@ -236,10 +254,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<O
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#84-chunks>)
         let prefix = if c.shape.is_empty() { format!("{path}/c") } else { format!("{path}/c/") };
         // a deflated member's chunk is its stream, which its derived element is
-        let element = match a.deflate {
-            Some(d) => (n(&d["start"]), n(&d["length"])),
-            None => a.data,
-        };
+        let element = a.deflate.as_ref().map_or(a.data, |d| d.stream);
         contiguous::emit(&mut refs, c.chunks, (element.0, element.1, a.form), copied, &[&prefix], |k| k, &mut zeros)?;
     }
     let mut out = refs.out;

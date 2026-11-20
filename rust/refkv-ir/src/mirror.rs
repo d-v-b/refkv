@@ -663,8 +663,9 @@ pub fn mirror(ir: &Ir, out: &mut Out, profile: &str) -> Result<Folded, String> {
     for i in 0..y.len() as u32 {
         let d = y.space[i as usize];
         if d != 0 && shown(&y, profile, i) {
+            let form: J = y.form(d).and_then(|f| serde_json::from_str(f).ok()).unwrap_or(J::Null);
             let t = y.form(d).and_then(crate::transform::Transform::of_form);
-            if !t.is_some_and(|t| t.may_hold_shown()) {
+            if !t.is_some_and(|t| t.may_hold_shown(&form)) {
                 return Err(format!("internal: a value the view shows in a derived space of form {:?}", y.form(d)));
             }
         }
@@ -1704,13 +1705,28 @@ pub fn canonical_problem(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn F
 /// The bytes of a derived element's space, from the source (conventions §8.5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>, §8.8
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>): its
-/// form's transform (`transform.rs`) applied to its extent.
-fn derived_bytes(y: &Ir, d: u32, read: &mut dyn FnMut(u32) -> Result<Vec<u8>, String>) -> Result<Vec<u8>, String> {
+/// form's transform (`transform.rs`) applied to its extent, of which `read(e, n)` gives the
+/// first `n` bytes. A `deflate` element with a `prefix` is read only as far as its prefix needs.
+fn derived_bytes(y: &Ir, d: u32, read: &mut dyn FnMut(u32, u64) -> Result<Vec<u8>, String>) -> Result<Vec<u8>, String> {
     let form = y.form(d).unwrap_or("");
     let t = crate::transform::Transform::of_form(form).ok_or(format!("a derived element of an unknown transform: {form}"))?;
-    let raw = read(d)?;
     let form: J = serde_json::from_str(form).unwrap_or(J::Null);
-    t.rederive(&raw, &form).unwrap_or_else(|| Err(format!("a value the view shows in a space of transform {}, which a validator cannot derive", t.name())))
+    let cannot = || format!("a value the view shows in a space of transform {}, which a validator cannot derive", t.name());
+    let length = y.len[d as usize];
+    let mut have = 0;
+    loop {
+        let Some(n) = t.window(&form, have, length) else {
+            // nothing to read: an element of no bytes
+            return t.rederive(&[], &form).unwrap_or_else(|| Err(cannot()));
+        };
+        let raw = read(d, n)?;
+        have = n;
+        match t.rederive(&raw, &form) {
+            None => return Err(cannot()),
+            Some(Err(_)) if t.window(&form, have, length).is_some() => {}
+            Some(r) => return r,
+        }
+    }
 }
 
 /// Reads the ranges (offset, length) through `read`, merged when at most 64 KiB apart:
@@ -1760,7 +1776,7 @@ pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(
     let src = y.sources();
     let held: HashMap<u32, Vec<u8>> = src.objects.iter().filter_map(|&o| y.value_bytes(o).map(|b| (o, b.to_vec()))).collect();
     let (starts, lens) = if y.store { (y.start.clone(), y.len.clone()) } else { (Vec::new(), Vec::new()) };
-    let mut from_held = |e: u32| -> Result<Vec<u8>, String> {
+    let from_held = |e: u32| -> Result<Vec<u8>, String> {
         let eu = e as usize;
         let b = held.get(&src.of[eu]).ok_or("a value in an object the mirror does not hold")?;
         Ok(b.get(starts[eu] as usize..(starts[eu] + lens[eu]) as usize).ok_or("a value past its object")?.to_vec())
@@ -1801,9 +1817,12 @@ pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(
     let mut derived: HashMap<u32, Vec<u8>> = HashMap::new();
     for d in spaces {
         let b = if y.store {
-            derived_bytes(&y, d, &mut from_held)?
+            derived_bytes(&y, d, &mut |e, n| from_held(e).map(|mut b| {
+                b.truncate(n as usize);
+                b
+            }))?
         } else {
-            derived_bytes(&y, d, &mut |e| read(y.start[e as usize], y.len[e as usize]))?
+            derived_bytes(&y, d, &mut |e, n| read(y.start[e as usize], n.min(y.len[e as usize])))?
         };
         derived.insert(d, b);
     }
