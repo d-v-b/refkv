@@ -36,9 +36,11 @@ from refkv.zarrify.layouts.hierarchy import group
 
 FIXTURES = sorted(p for p in (Path(__file__).resolve().parents[2] / "fixtures" / "npy").iterdir()
                   if p.suffix in (".npy", ".npz"))
-# the most bytes of a chunk, and the level the profile names for a deflated member's stream
+# the most bytes of a chunk
 # (spec/zarrify/npy.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#84-chunks>)
 CHUNK_BYTES = 1 << 20
+# the level the convention names for a deflated member's stream
+# (spec/zarrify/npy.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#43-the-arrays>)
 GZIP_LEVEL = 6
 
 
