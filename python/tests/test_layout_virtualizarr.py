@@ -593,20 +593,37 @@ def test_a_fits_file_is_presented_with_no_output_of_refkv_s(monkeypatch, name):
     """The layout is a peer of refkv's own FITS projection (the plan of d-v-b/refkv#278): it
     presents images, an ASCII table, a binary table's group, a tile-compressed image, an image cut
     into chunks and a header past refkv's own budget from the parser's description, the IR and the
-    FITS convention's routines, and writes what it wrote when it was built on refkv's output."""
-    path = FIXTURES / name
-    with read(str(path)) as parsed:
-        before = seal(VirtualiZarr().write([parsed], {"nonfinite": "token"}), [parsed]).mapping
-        built = project(parsed)  # refkv's own output, made before the patch, for the comparison
-        assert built.profile == "fits"
-
+    FITS convention's routines, with refkv's own output made to raise. That what it writes is
+    VirtualiZarr's, and its arrays refkv's own, the parity test above and test_build_formats.py
+    show."""
     def refuse(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("refkv's own output was asked for")
 
-    with read(str(path)) as parsed:
+    with read(str(FIXTURES / name)) as parsed:
         monkeypatch.setattr(Parsed, "_output_async", refuse)
         monkeypatch.setattr(Parsed, "_output", refuse)
-        assert seal(VirtualiZarr().write([parsed], {"nonfinite": "token"}), [parsed]).mapping == before
+        out = VirtualiZarr().write([parsed], {"nonfinite": "token"})
+        assert "zarr.json" in out
+        seal(out, [parsed])
+
+
+def test_a_fits_file_of_many_hdus_asks_for_its_description_once(monkeypatch):
+    """Each HDU's arrays and cards are read from one shared description: the description is not
+    copied for each HDU, so the layout's work grows with the HDUs, not with their square."""
+    copies = 0
+    description = Parsed.description
+
+    def counted(self: Parsed) -> object:
+        nonlocal copies
+        copies += 1
+        return description.fget(self)  # type: ignore[union-attr]
+
+    monkeypatch.setattr(Parsed, "description", property(counted))
+    with read(str(FIXTURES / "fits/fits_many_hdus.fits")) as parsed:
+        VirtualiZarr().write([parsed], {"nonfinite": "token"})
+        hdus = len(description.fget(parsed)["hdus"])  # type: ignore[union-attr,index]
+    assert hdus > 10
+    assert copies == 1
 
 
 OUTPUT = """

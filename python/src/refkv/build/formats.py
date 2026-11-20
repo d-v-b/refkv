@@ -28,11 +28,13 @@ def _part(parsed: Parsed, piece: _core.FitsPiece) -> Part:
     return Literal(piece[1])
 
 
-def _fits_description(parsed: Parsed) -> str:
-    description = parsed.description
-    if parsed.profile != "fits" or description is None:
+def _fits(parsed: Parsed) -> _core.Fits:
+    """The FITS file `parsed` read, its IR and description shared with its run: one for the file,
+    whatever HDUs are asked for."""
+    fits = parsed._fits  # noqa: SLF001
+    if fits is None:
         raise ValueError(f"a FITS routine reads a FITS file, not a {parsed.profile} input")
-    return json.dumps(description)
+    return fits
 
 
 def fits_cards(parsed: Parsed, index: int) -> list[list[Any]]:
@@ -42,7 +44,7 @@ def fits_cards(parsed: Parsed, index: int) -> list[list[Any]]:
     as a float or `{"text": T}` where it has no finite value, a complex as `[re, im]`, no value
     as None; whatever their size (refkv's own source metadata leaves them out past its budget).
     ValueError for an input that is not a FITS file, or no HDU `index`."""
-    return list(json.loads(_core.fits_cards(parsed.ir._core, _fits_description(parsed), index)))  # noqa: SLF001
+    return list(json.loads(_fits(parsed).cards(index)))
 
 
 def fits_arrays(parsed: Parsed, index: int) -> dict[str, Array]:
@@ -59,7 +61,7 @@ def fits_arrays(parsed: Parsed, index: int) -> dict[str, Array]:
     writes as bytes (`refkv.build.filled`). It reads nothing, and asks for no output of refkv's.
     ValueError for an input that is not a FITS file, or no HDU `index`."""
     out: dict[str, Array] = {}
-    for path, text, chunks in _core.fits_arrays(parsed.ir._core, _fits_description(parsed), index):  # noqa: SLF001
+    for path, text, chunks in _fits(parsed).arrays(index):
         doc: dict[str, Any] = json.loads(text)
         grid = doc["chunk_grid"]["configuration"]
         out[path] = Array(

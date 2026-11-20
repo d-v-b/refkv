@@ -427,9 +427,26 @@ fn tiled_array(ir: &Ir, h: &J, heaps: &HashMap<(u32, u64), u32>) -> Result<Tiled
 /// `[keyword, value, comment]`, whatever their JSON's size (the source metadata leaves them out
 /// past its budget).
 pub fn hdu_cards(ir: &Ir, description: &J, index: u64) -> Result<J, String> {
-    let h = description["hdus"].as_array().into_iter().flatten().find(|h| h["index"] == index)
-        .ok_or_else(|| format!("no HDU {index}"))?;
-    Ok(cards_json(&cards_of(ir, h)?))
+    Ok(cards_json(&cards_of(ir, hdu(description, index)?)?))
+}
+
+/// HDU `index` of the description, which lists the HDUs in the file's order, each at its index.
+fn hdu(description: &J, index: u64) -> Result<&J, String> {
+    let h = usize::try_from(index).ok().and_then(|i| description["hdus"].get(i)).ok_or_else(|| format!("no HDU {index}"))?;
+    if h["index"] != index {
+        return Err(format!("internal: the description's HDU {index} is not at its index"));
+    }
+    Ok(h)
+}
+
+/// The elements of a FITS file's tile-compressed images' heaps, by their HDU's node and chunk
+/// (`hdu_arrays`): built once for a file, for every HDU of it.
+pub struct Heaps(HashMap<(u32, u64), u32>);
+
+impl Heaps {
+    pub fn of(ir: &Ir) -> Heaps {
+        Heaps(heap_chunks(ir))
+    }
 }
 
 /// A part of a chunk of an HDU's array (`hdu_arrays`): bytes of the file, literal bytes, zeros
@@ -455,14 +472,12 @@ pub struct HduArray {
 /// The arrays of HDU `index` of a FITS file, from its IR and the parser's description, as the
 /// projection writes them but for their declarations (the routine of
 /// design/proposals/profile-plugins.md "The routines" for FITS): an image's, a table's rows and
-/// heap, a tile-compressed image's. None for an HDU of no data.
-pub fn hdu_arrays(ir: &Ir, description: &J, index: u64) -> Result<Vec<HduArray>, String> {
-    let h = description["hdus"].as_array().into_iter().flatten().find(|h| h["index"] == index)
-        .ok_or_else(|| format!("no HDU {index}"))?;
+/// heap, a tile-compressed image's. None for an HDU of no data. `heaps` is the file's (`Heaps::of`).
+pub fn hdu_arrays(ir: &Ir, description: &J, index: u64, heaps: &Heaps) -> Result<Vec<HduArray>, String> {
+    let h = hdu(description, index)?;
     let under = |path: &str| path.strip_prefix(&index.to_string()).unwrap_or(path).trim_start_matches('/').to_string();
     if !h["compression"].is_null() {
-        let heaps = heap_chunks(ir);
-        let Tiled { path, doc, chunks } = tiled_array(ir, h, &heaps)?;
+        let Tiled { path, doc, chunks } = tiled_array(ir, h, &heaps.0)?;
         let mut refs = Refs::new(ir, Out::new(""));
         let mut out = Vec::with_capacity(chunks.len());
         for (coords, e, prefix) in chunks {

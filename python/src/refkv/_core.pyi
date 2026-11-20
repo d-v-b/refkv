@@ -260,6 +260,9 @@ class Run:
         profile whose parser returns none yet."""
     def ir(self) -> Ir:
         """The IR of a run that is done, shared with the run, which is kept."""
+    def fits(self) -> Fits:
+        """The FITS file a run that is done parsed, its IR and description shared with the run;
+        ValueError for a run of another format."""
     def mirror(self) -> Mirror:
         """What makes the mirror of a run that is done: its IR and facts, shared with the run,
         which is kept and may be used while the mirror is made."""
@@ -400,17 +403,21 @@ def grid_chunks(offset: int, shape: list[int], item: int,
 type FitsPiece = (tuple[Literal["src"], int, int] | tuple[Literal["lit"], bytes] | tuple[Literal["zeros"], int]
                  | tuple[Literal["copy"], int, int])
 
-def fits_arrays(ir: Ir, description: str, index: int) -> list[tuple[str, str, list[tuple[list[int], list[FitsPiece]]]]]:
-    """The arrays of HDU `index` of a FITS file as its convention writes them, but for their
-    declarations, from its IR and the parser's description (JSON): each `(path, document JSON,
-    chunks)`, `path` under the HDU's node (`""`, `rows`, `heap`), each chunk `(coords, parts)`:
-    `("src", offset, length)` of the file, `("lit", bytes)`, `("zeros", length)` of an edge
-    chunk's padding, or `("copy", offset, length)` of the file, to be copied. ValueError for no
-    HDU `index`, or a description that is not JSON."""
-def fits_cards(ir: Ir, description: str, index: int) -> str:
-    """The cards of HDU `index` of a FITS file as its convention writes them, from its IR and the
-    parser's description (JSON): JSON, each `[keyword, value, comment]`. ValueError for no HDU
-    `index`, or a description that is not JSON."""
+@final
+class Fits:
+    """A FITS file a run parsed (`Run.fits()`): its IR and its description, shared with the run and
+    never changed, and its heaps' elements, found once."""
+
+    def arrays(self, index: int) -> list[tuple[str, str, list[tuple[list[int], list[FitsPiece]]]]]:
+        """The arrays of HDU `index` as the FITS convention writes them, but for their
+        declarations: each `(path, document JSON, chunks)`, `path` under the HDU's node (`""`,
+        `rows`, `heap`), each chunk `(coords, parts)`: `("src", offset, length)` of the file,
+        `("lit", bytes)`, `("zeros", length)` of an edge chunk's padding, or `("copy", offset,
+        length)` of the file, to be copied. ValueError for no HDU `index`."""
+    def cards(self, index: int) -> str:
+        """The cards of HDU `index` as the FITS convention writes them: JSON, each `[keyword,
+        value, comment]`. ValueError for no HDU `index`."""
+
 def gzip_frame(crc32: int, size: int) -> tuple[bytes, bytes]:
     """What frames a raw deflate stream as a gzip member, as the built-in projections write one:
     the 10-byte header, and the trailer, the stream's CRC-32 and the size of what it inflates to,

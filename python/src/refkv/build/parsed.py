@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, Self, overload
 
 import refkv.ir  # its Ir, read at call time: refkv.ir imports refkv.zarrify, which imports this module (a cycle)
 import refkv.zarrify as _zarrify  # its parse, read at call time: refkv.zarrify imports this module (a cycle)
-from refkv import Range, ReferenceStore, Source, _sync
+from refkv import Range, ReferenceStore, Source, _core, _sync
 from refkv.errors import RefkvError
 from refkv.ir.kind import Kind
 from refkv.ir.store import StoreIrOutput, StoreParse
@@ -96,6 +96,7 @@ class Parsed:
         self._read = 0  # bytes `bytes` has read from sources
         self._ir = refkv.ir.Ir(run.ir)
         self._mirrored = run.mirrored  # what makes the IR mirror, kept past `close`
+        self._fits: _core.Fits | None = getattr(run, "fits", None)  # a FITS file's IR and description
         self._description: dict[str, Any] | None = None if isinstance(run, StoreParse) else run.description
         # the profile the run decided, and the version of its convention, as an output's root
         # declares them
