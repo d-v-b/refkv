@@ -467,11 +467,18 @@ impl Xlef {
         let mut lofs: HashMap<usize, (usize, u32, J)> = HashMap::new();
         let mut blocks = 0u64;
         let count = self.parsed.len();
-        for (index, by, mut file, facts) in std::mem::take(&mut self.parsed) {
+        for (index, by, mut file, mut facts) in std::mem::take(&mut self.parsed) {
             file.sort_values();
             let e = self.elems[index];
             ir.describe_in_place(e)?;
-            ir.graft(&file, e)?;
+            let at = ir.graft(&file, e)?;
+            // `declared_by`: the key of each image's description, the LOF's XML, by its id in the
+            // store (spec/stored-array.md §2.1
+            // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>)
+            for im in facts["images"].as_array_mut().into_iter().flatten() {
+                let key = im["declared_by"][0].as_u64().and_then(|k| at.get(k as usize));
+                im["declared_by"][0] = json!(key.ok_or("internal: a LOF's image names no element of its XML")?);
+            }
             blocks += facts["blocks"].as_u64().unwrap_or(0);
             lofs.insert(by, (index, e, facts));
         }

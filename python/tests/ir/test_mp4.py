@@ -136,9 +136,13 @@ def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
         elif kind == "video":
             assert tm["frames"] == len(frames)
             assert tm["width"] == frames[0].width
-            assert tm["chroma"] == ("4:2:2" if "422" in frames[0].format.name else "4:2:0")
-            assert tm["bit_depth"] == {"10le": 10, "12le": 12}.get(frames[0].format.name[-4:], 8)
-            for k, p in enumerate("yuv"):
+            fmt = frames[0].format.name
+            gray = fmt.startswith("gray")
+            assert tm["chroma"] == ("4:0:0" if gray else "4:2:2" if "422" in fmt else "4:2:0")
+            assert tm["bit_depth"] == {"10le": 10, "12le": 12}.get(fmt[-4:], 8)
+            # a 4:0:0 picture has its Y plane alone
+            assert set(g.array_keys()) == ({"y", "time"} if gray else {"y", "u", "v", "time"})
+            for k, p in enumerate("y" if gray else "yuv"):
                 want = np.stack([plane(f, k) for f in frames])
                 got = ndarray(g.get_array(p)[...])
                 assert got.dtype == (np.uint8 if tm["bit_depth"] == 8 else np.uint16), p
@@ -505,3 +509,19 @@ def test_reads_a_fragmented_file_s_tracks(tmp_path):
     for p in ("y", "u", "v", "time"):
         assert np.array_equal(ndarray(hybrid.get_array(f"tracks/1/{p}")[...]),
                               ndarray(plain.get_array(f"tracks/1/{p}")[...])), p
+
+
+def test_a_chroma_plane_of_a_monochrome_stream_is_an_error(tmp_path):
+    """A 4:0:0 picture has a Y plane alone (conventions §10
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#10-coded-streams>): a codec that
+    asks for its U plane is an error, not a plane of zeros."""
+    path = FIXTURES / "mp4" / "mp4_hevc_gray12.mp4"
+    out, root = zarrified(path, tmp_path)
+    units, positions = chunk_units(out, "tracks/1/y/c/0/0/0", path.read_bytes())
+    meta = root.get_array("tracks/1/y").metadata
+    assert isinstance(meta, ArrayV3Metadata)
+    first = meta.codecs[0]
+    assert isinstance(first, StreamCodec)
+    codec = StreamCodec(format="hevc", setup=first.setup, plane="u")
+    with pytest.raises(ValueError, match=r"^refkv\.stream: a 4:0:0 HEVC picture has no u plane$"):
+        list(stream._hevc_frames(codec, units, positions))

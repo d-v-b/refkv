@@ -42,7 +42,6 @@ import tempfile
 import threading
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import override
 
@@ -50,7 +49,7 @@ ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "fixtures"
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 
-from proxy import Upstream, make_handler  # noqa: E402
+from proxy import Server, Upstream, make_handler  # noqa: E402
 
 from refkv._narrow import sequence, string  # noqa: E402
 from refkv.zarrify.profiles import REGISTRY  # noqa: E402
@@ -109,7 +108,7 @@ def server(cache: Path):
                     headers = {**headers, "ETag": f'"{etag}"'}
             super()._send(status, headers, body)
 
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    srv = Server(("127.0.0.1", 0), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv, f"http://127.0.0.1:{srv.server_address[1]}/"
 

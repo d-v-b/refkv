@@ -87,8 +87,10 @@ def test_seal_of_the_built_in_output_reads_what_zarrify_writes(name, checksums):
     path = str(FIXTURES / name) + ("/" if name.endswith("/") else "")
     url = f"https://example.invalid/{name}" if name.endswith("/") else None  # a local store needs one
     with read(path, url, checksums=checksums) as p:
-        store = seal(project(p).written, [p])
+        pr = project(p)
+        store = seal(pr.written, [p])
         built = zarrify(path, url, checksums=checksums)
+        assert pr.base.checksums is checksums
         assert store.sources == built.sources
         assert store.mapping == built.mapping
         assert sorted(store.read_at_open) == sorted(built.read_at_open)
@@ -170,8 +172,8 @@ def stack(inputs):
 def test_a_stack_of_tiffs_built_from_the_ir(tmp_path, byteorder):
     """One TIFF of the pages of several, every tag but the pointers copied from the IR's bytes:
     its pages read back equal to the files', in both byte orders, across strips, tiles, zlib with
-    a predictor, RGB, floats, and an OME-TIFF of several pages. A file of pages without OME-XML
-    is not among them: until TIFF's plan lands, `read` still raises the image layout's rejection
+    a predictor, RGB, floats, and an OME-TIFF of several pages. A file of pages with neither OME-XML nor an
+    ImageJ description is not among them: until TIFF's plan lands, `read` still raises the image layout's rejection
     of it (the design of d-v-b/refkv#278, "What a caller writes")."""
     rng = np.random.default_rng(0)
     plane = rng.integers(0, 4000, (64, 96), dtype=np.uint16)
@@ -193,7 +195,7 @@ def test_a_stack_of_tiffs_built_from_the_ir(tmp_path, byteorder):
     for p in parsed:
         p.close()  # without checksums, sealing and saving read nothing more of an input
     store.save_vzip(tmp_path / "stack.vzip")
-    data = refkv.open(str(tmp_path / "stack.vzip")).get("stack.tif")
+    data = refkv.open(str(tmp_path / "stack.vzip"), policy=store.policy).get("stack.tif")
     expected = []
     for path in paths:
         with tifffile.TiffFile(path) as tf:

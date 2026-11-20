@@ -21,6 +21,18 @@ fn fixtures() -> PathBuf {
 /// Runs the VSI store format on the `.vsi` at `path`, probing for its tile files beside it:
 /// (the output, the IR, the files read by key), or the rejection.
 fn run(path: &Path) -> Result<(Out, Ir, BTreeMap<String, Vec<u8>>), String> {
+    let (ir, facts, stats, mut files) = parsed(path)?;
+    let out = refkv_ir::store::store_output(StoreFormat::Vsi, &ir, &facts, stats, "https://example.org/slides/", true, false)?;
+    // the files of the input: those the run made objects (a second tile file name found beside
+    // the first is neither read nor an object)
+    let objects: std::collections::HashSet<String> = ir.sources().objects.iter().map(|&o| ir.key(o)).collect();
+    files.retain(|k, _| objects.contains(k));
+    Ok((out, ir, files))
+}
+
+/// The run of `run`, before its projection: (the IR, the facts, the run's counts, the files
+/// read by key).
+fn parsed(path: &Path) -> Result<(Ir, serde_json::Value, serde_json::Value, BTreeMap<String, Vec<u8>>), String> {
     let dir = path.parent().unwrap();
     let key = path.file_name().unwrap().to_str().unwrap().to_string();
     let size = std::fs::metadata(path).unwrap().len();
@@ -49,12 +61,7 @@ fn run(path: &Path) -> Result<(Out, Ir, BTreeMap<String, Vec<u8>>), String> {
         }
     }
     let (ir, facts, stats) = run.finish()?;
-    let out = refkv_ir::store::store_output(StoreFormat::Vsi, &ir, &facts, stats, "https://example.org/slides/", true, false)?;
-    // the files of the input: those the run made objects (a second tile file name found beside
-    // the first is neither read nor an object)
-    let objects: std::collections::HashSet<String> = ir.sources().objects.iter().map(|&o| ir.key(o)).collect();
-    files.retain(|k, _| objects.contains(k));
-    Ok((out, ir, files))
+    Ok((ir, facts, stats, files))
 }
 
 fn entry(out: &Out) -> impl Fn(&str) -> Option<Vec<u8>> + '_ {
@@ -386,6 +393,82 @@ fn a_slide_that_leaves_nothing_out_records_nothing() {
     let root: serde_json::Value = serde_json::from_slice(&entry(&out)("zarr.json").unwrap()).unwrap();
     assert!(root["attributes"]["refkv_zarrified"]["vsi"].get("not_presented").is_none());
     assert_eq!(out.summary["notPresented"], 0);
+}
+
+/// Each image of an accepted fixture's facts names its arrays' descriptions by their key
+/// (spec/stored-array.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): a pyramid, by
+/// its tile file's `ets` element, whose descriptions are its levels, indexed from 0, each tile
+/// the facts list a row of its level's, the tile's element; an IFD image, by its IFD's struct,
+/// whose description has no index and a row for each strip the facts list. The facts'
+/// `declared_by` gives the key of each described IFD of the chain by its index, the IFDs the
+/// facts name by index among them: an image's, a stack's thumbnail, an image left out.
+#[test]
+fn every_accepted_fixtures_facts_name_their_descriptions() {
+    let (mut pyramids, mut levels, mut ifd_images, mut thumbnails, mut left_out, mut unkeyed) = (0, 0, 0, 0, 0, 0);
+    for e in std::fs::read_dir(fixtures()).unwrap() {
+        let path = e.unwrap().path();
+        let name = path.file_name().unwrap().to_str().unwrap().to_string();
+        if !name.ends_with(".vsi") || name.starts_with("vsi_reject") {
+            continue;
+        }
+        let (ir, facts, _, _) = parsed(&path).unwrap_or_else(|m| panic!("{name}: {m}"));
+        let s = &ir.stored;
+        assert!(s.undescribed_keys.is_empty(), "{name}");
+        let described = |key: u32| -> Vec<usize> { (0..s.arrays.len()).filter(|&k| s.arrays[k].element == key).collect() };
+        let rows = |k: usize| -> Vec<u32> { (0..s.map.len()).filter(|&r| s.map.array[r] == k as u32).map(|r| s.map.element[r].unwrap()).collect() };
+        let by_index: Vec<Option<u32>> = facts["declared_by"].as_array().unwrap().iter().map(|v| v.as_u64().map(|x| x as u32)).collect();
+        assert_eq!(by_index.len() as u64, facts["vsi"]["ifds"].as_u64().unwrap(), "{name}");
+        // an IFD's key: its struct, whose one description has no index
+        let ifd = |index: &serde_json::Value, at: &str| -> Option<usize> {
+            let key = by_index[index.as_u64().unwrap() as usize]?;
+            assert!(ir.path(key).rsplit('/').nth(1).is_some_and(|n| n == "ifds"), "{at}: {}", ir.path(key));
+            let [k] = described(key)[..] else { panic!("{at}: not one description") };
+            assert_eq!(s.arrays[k].index, None, "{at}");
+            Some(k)
+        };
+        for (i, im) in facts["images"].as_array().unwrap().iter().enumerate() {
+            let at = format!("{name} image {i}");
+            let key = im["declared_by"].as_u64().unwrap_or_else(|| panic!("{at}: no declared_by")) as u32;
+            if let Some(ets) = im.get("ets") {
+                assert_eq!(ir.path(key), format!("{}/ets", ets["key"].as_str().unwrap()), "{at}");
+                let found = described(key);
+                let indexes: Vec<Option<u64>> = found.iter().map(|&k| s.arrays[k].index).collect();
+                assert_eq!(indexes, (0..ets["levels"].as_array().unwrap().len() as u64).map(Some).collect::<Vec<_>>(), "{at}");
+                // each tile the facts list is a row of its level's description
+                let held: Vec<Vec<u32>> = found.iter().map(|&k| rows(k)).collect();
+                for t in ets["tiles"].as_array().unwrap() {
+                    let (element, level) = (t[0].as_u64().unwrap() as u32, t[3].as_u64().unwrap() as usize);
+                    assert!(s.arrays[found[level]].grid.is_some() && held[level].contains(&element), "{at}: tile {t}");
+                }
+                pyramids += 1;
+                levels += found.len();
+            } else {
+                let k = ifd(&im["ifd"]["index"], &at).unwrap_or_else(|| panic!("{at}: no description"));
+                assert_eq!(s.arrays[k].element, key, "{at}");
+                assert!(s.arrays[k].grid.is_some(), "{at}");
+                let strips: Vec<u32> = im["ifd"]["strips"].as_array().unwrap().iter().map(|t| t[0].as_u64().unwrap() as u32).collect();
+                assert_eq!(rows(k), strips, "{at}");
+                ifd_images += 1;
+            }
+            // a stack's thumbnail, which no image presents
+            if let Some(index) = im.get("coarse_ifd").filter(|v| !v.is_null()) {
+                assert!(ifd(index, &at).is_some(), "{at}: no description of the thumbnail");
+                thumbnails += 1;
+            }
+        }
+        // an image left out is described where its IFD has elements
+        for (i, im) in facts["not_presented"].as_array().unwrap().iter().enumerate() {
+            let index = im["ifd"].as_u64().unwrap() as usize;
+            match by_index.get(index).copied().flatten() {
+                Some(_) => assert!(ifd(&im["ifd"], &format!("{name} left out {i}")).is_some()),
+                None => unkeyed += 1,
+            }
+            left_out += 1;
+        }
+    }
+    // the images left out with no key: an IFD the chain lacks, and one outside the tree
+    assert_eq!((pyramids, levels, ifd_images, thumbnails, left_out, unkeyed), (35, 58, 12, 35, 15, 2));
 }
 
 macro_rules! reject {

@@ -323,16 +323,8 @@
                     "$ref": "#/$defs/text"
                   },
                   "lead_in": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "^[1-9][0-9]{15,19}$"
-                      }
-                    ]
+                    "type": "integer",
+                    "minimum": 0
                   },
                   "cd": {
                     "type": "boolean"
@@ -343,16 +335,8 @@
                       "type": "object",
                       "properties": {
                         "offset": {
-                          "anyOf": [
-                            {
-                              "type": "integer",
-                              "minimum": 0
-                            },
-                            {
-                              "type": "string",
-                              "pattern": "^[1-9][0-9]{15,19}$"
-                            }
-                          ]
+                          "type": "integer",
+                          "minimum": 0
                         },
                         "number": {
                           "type": "integer",
@@ -373,16 +357,8 @@
                             "type": "object",
                             "properties": {
                               "offset": {
-                                "anyOf": [
-                                  {
-                                    "type": "integer",
-                                    "minimum": 0
-                                  },
-                                  {
-                                    "type": "string",
-                                    "pattern": "^[1-9][0-9]{15,19}$"
-                                  }
-                                ]
+                                "type": "integer",
+                                "minimum": 0
                               },
                               "number": {
                                 "type": "integer",
@@ -766,7 +742,6 @@
                 "group",
                 "element",
                 "derived",
-                "int",
                 "float",
                 "bytes",
                 "utf16"

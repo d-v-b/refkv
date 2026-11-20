@@ -35,8 +35,11 @@ classifiers = [
 # own HTTP client), holds a ReferenceStore and zarrifies image files and stores,
 # without Zarr (numpy: refkv.shards), through the Rust core this package builds and
 # ships as the module refkv._core (below); the extras add the rest (src/refkv/_extras.py).
+# The floors here and in the extras are tested: CI's min-versions job installs each at its
+# floor (uv's lowest-direct resolution) and runs the tests. numpy 2.1.0 is VirtualiZarr's
+# floor, its first release with wheels for Python 3.13; refkv's own use of numpy needs no newer.
 dependencies = [
-    "numpy>=2.5.3",
+    "numpy>=2.1.0",
 ]
 
 [project.urls]
@@ -87,6 +90,7 @@ float6_e3m2fn = "refkv.zarr.dtypes:Float6E3M2FN"
 "refkv.example.tiff-pages" = "refkv.zarrify.layouts.examples.tiff_pages:TiffPages"
 "refkv.example.hdf5-rechunk" = "refkv.zarrify.layouts.examples.hdf5_rechunk:Hdf5Rechunk"
 "refkv.example.xarray-v2" = "refkv.zarrify.layouts.examples.xarray_v2:XarrayV2"
+"refkv.virtualizarr" = "refkv.zarrify.layouts.virtualizarr:VirtualiZarr"
 
 [project.optional-dependencies]
 # refkv.zarr: a reference store as a read-only zarr store, for zarr and xarray, and the codecs

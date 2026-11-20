@@ -60,18 +60,16 @@ def lv_norm(v):
     return v
 
 
-TAGS = ("utf16", "int", "float")
-
 
 def ours_norm(v):
     """Our JSON (spec/zarrify/nd2.md §5.1
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>) as the nd2
     package reads it: pairs
     as an object (first position, last value), or as a list when their names are empty;
-    an int tag as its integer and a float tag as lv_norm writes the value (-0 as -0.0)."""
-    if isinstance(v, dict) and len(v) == 1 and next(iter(v)) in ("int", "float"):
-        (tag, x), = v.items()
-        return int(x) if tag == "int" else -0.0 if x == "-0" else x
+    a float tag as lv_norm writes the value (-0 as -0.0). An integer is one already, exact."""
+    if isinstance(v, dict) and len(v) == 1 and next(iter(v)) == "float":
+        x = v["float"]
+        return -0.0 if x == "-0" else x
     if isinstance(v, list) and v and all(isinstance(x, list) and len(x) == 2 and isinstance(x[0], str) for x in v):
         if all(n == "" for n, _ in v):
             return [ours_norm(x) for _, x in v]

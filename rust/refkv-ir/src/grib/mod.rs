@@ -19,6 +19,7 @@ pub mod codec;
 pub mod meta;
 pub mod names;
 pub mod sections;
+mod stored;
 
 use crate::fed::{Fed, Overlap};
 use crate::ir::{GAP, Ir, NO_INDEX, Res, key_name};
@@ -64,7 +65,7 @@ fn index_offsets(b: &[u8]) -> Option<Vec<u64>> {
     let mut out = Vec::new();
     for line in t.lines().map(str::trim).filter(|l| !l.is_empty()) {
         let o = if line.starts_with('{') {
-            serde_json::from_str::<J>(line).ok()?.get("_offset")?.as_u64()?
+            crate::json::parse_binary64(line)?.get("_offset")?.as_u64()?
         } else {
             // `n`, or `n.k` for the k-th field of a message of several
             let mut f = line.split(':');
@@ -180,6 +181,12 @@ struct Field {
     parts: Vec<(u64, u64)>,
     /// the message holds this field alone
     single: bool,
+    /// the key of the description of its values (spec/stored-array.md §7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): its
+    /// message's element, and its index among the arrays the message declares
+    declared_by: (u32, u64),
+    /// the index, among them, of the bitmap that says which points its values are
+    mask: Option<u64>,
 }
 
 /// The fields of message `m` (its index `i`), each with the reason it is not presented, if any
@@ -227,7 +234,7 @@ fn fields_of(rules: &Rules, i: usize, m: &Message) -> Res<Vec<Field>> {
         }
         let s6 = if bitmap == 254 { last_bitmap.or(f.s6) } else { f.s6 };
         let parts = [f.s1, f.s2, f.s3, f.s4, f.s5, s6, f.s7].into_iter().flatten().map(|x| (m.start + x.offset, x.length)).collect();
-        out.push(Field { message: i, discipline: m.discipline, index: k, ident, grid, product, packing, bitmap, reason, parts, single });
+        out.push(Field { message: i, discipline: m.discipline, index: k, ident, grid, product, packing, bitmap, reason, parts, single, declared_by: (0, 0), mask: None });
     }
     Ok(out)
 }
@@ -278,6 +285,15 @@ impl Grib {
         self.keys[0].1
     }
 
+    /// Sets the index aside, where the file disagrees with it (spec/zarrify/grib.md §8.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#82-finding-the-messages>): the
+    /// run walks the file from here, and the messages read at the offsets it listed from `from` on
+    /// are read again if the walk reaches them.
+    fn set_aside(&mut self, from: u64) {
+        self.listed = None;
+        self.messages.retain(|&s, _| s < from);
+    }
+
     /// Advances over the messages read in order from `pos`, and the padding between them: the
     /// reads that the next ones need, or none when the file is read to its end.
     fn advance_messages(&mut self) -> Res<Vec<(u64, u64)>> {
@@ -287,25 +303,39 @@ impl Grib {
                 return Ok(Vec::new());
             }
             if let Some(m) = self.messages.get(&self.pos) {
-                self.pos += m.length;
+                let (start, end) = (self.pos, self.pos.saturating_add(m.length));
+                // an offset the index lists inside this message is one where the file and the index
+                // disagree, whether or not it was read yet (the first listed past its start, the
+                // offsets being sorted)
+                if self.listed.as_ref().is_some_and(|l| l.get(l.partition_point(|&o| o <= start)).is_some_and(|&o| o < end)) {
+                    self.set_aside(start + 1);
+                }
+                self.pos = end;
                 continue;
             }
             // the offsets still to read: those an index lists, or the next one
             let starts: Vec<u64> = match &self.listed {
                 Some(l) if l.contains(&self.pos) => l.iter().copied().filter(|&s| s >= self.pos && !self.messages.contains_key(&s)).collect(),
                 _ => {
-                    // walking: the messages read at offsets the index listed past here are read
-                    // again if the walk reaches them
-                    if self.listed.take().is_some() {
-                        let pos = self.pos;
-                        self.messages.retain(|&s, _| s < pos);
+                    if self.listed.is_some() {
+                        self.set_aside(self.pos);
                     }
                     vec![self.pos]
                 }
             };
             let mut need = Vec::new();
             for s in starts {
-                match scan(self.rules, &self.fed, s, size)? {
+                let scanned = match scan(self.rules, &self.fed, s, size) {
+                    // a listed offset past here that is not a message the profile reads: the walk
+                    // says whether the run reaches it, and rejects the input only if it does
+                    Err(_) if s != self.pos => {
+                        self.set_aside(self.pos);
+                        need.clear();
+                        break;
+                    }
+                    r => r?,
+                };
+                match scanned {
                     Scan::Need(r) => need.extend(r.into_iter().map(|(o, n)| {
                         // a head from 4 bytes before, for the previous message's end
                         if o == s && s >= 4 { (s - 4, n + 4) } else { (o, n) }
@@ -325,11 +355,17 @@ impl Grib {
                         let gap = at.unwrap_or(size - s);
                         self.rules.check("padding", rules::env([("at", num(s as f64)), ("length", num(gap as f64)), ("found", flag(at.is_some() || window == size - s))]))?;
                         self.gaps.push((s, gap));
+                        self.set_aside(s);
                         self.pos = s + gap;
-                        self.listed = None;
+                        need.clear();
+                        break;
                     }
                     // an offset the index lists that is not a message's: the index is set aside
-                    Scan::NotGrib => self.listed = None,
+                    Scan::NotGrib => {
+                        self.set_aside(self.pos);
+                        need.clear();
+                        break;
+                    }
                 }
             }
             if !need.is_empty() {
@@ -345,37 +381,68 @@ impl Grib {
         let file = self.elems[0];
         ir.describe_in_place(file)?;
         let mut fields = Vec::new();
+        let mut reached: Vec<stored::Reached> = Vec::new();
         let mut claimed: Vec<(u64, u64)> = self.gaps.clone();
         for (i, m) in self.messages.values().enumerate() {
             let s = ir.struct_(file, "messages/", i as u64, 0, Some((m.start, m.length)))?;
             ir.value(s, "indicator", NO_INDEX, "{magic:ascii[4],reserved:bytes[2],discipline:u1,edition:u1,length:>u8}", 0,
                      (m.start, INDICATOR), Some(&m.head))?;
-            let found = fields_of(self.rules, i, m)?;
-            let mut field = 0u64;
+            let mut found = fields_of(self.rules, i, m)?;
+            let mut field = 0usize;
+            // what the message's arrays are described from (`stored.rs`): the elements of the
+            // sections 3, 5 and 6 in effect, the arrays the message has declared so far, and the
+            // last bitmap among them, with its element where the section holds one
+            let (mut s3, mut s5, mut s6) = (None, None, None);
+            let mut arrays = 0u64;
+            let mut bitmap: Option<(u64, Option<u32>)> = None;
             for (j, (x, b)) in m.sections.iter().zip(&m.bytes).enumerate() {
                 let at = (m.start + x.offset, x.length);
                 match x.number {
                     7 => {
-                        let f = &found[field as usize];
+                        let f = &mut found[field];
                         let form = json!({"geometry": {"points": f.grid.points, "values": f.packing.values},
                                           "codec": {"packing": f.packing.template, "field": field}, "recipe": [["src", 0, null]]});
-                        ir.data(s, "sections/", j as u64, 0, at, &form.to_string())?;
+                        let s7 = ir.data(s, "sections/", j as u64, 0, at, &form.to_string())?;
+                        let (Some(s3), Some((s5, packing)), Some(s6)) = (s3, s5.take(), s6.take()) else {
+                            return Err("internal: a GRIB field without its sections 3, 5 and 6".into());
+                        };
+                        // its own bitmap, or under 254 the last before it
+                        let mask = bitmap.filter(|_| matches!(f.bitmap, 0 | 254));
+                        f.declared_by = (s, arrays);
+                        f.mask = mask.map(|m| m.0);
+                        reached.push(stored::Reached::Field(stored::Field {
+                            message: s, index: arrays, s3, s5, s6, s7, mask: mask.and_then(|m| m.1), indicator: f.bitmap,
+                            rows: stored::rows(&f.grid), points: f.grid.points, packing, data: x.length,
+                        }));
+                        arrays += 1;
                         field += 1;
                     }
-                    6 if x.length > 6 => {
-                        let t = ir.struct_(s, "sections/", j as u64, 0, Some(at))?;
-                        ir.value(t, "header", NO_INDEX, "{length:>u4,number:u1,indicator:u1}", 0, (at.0, 6), Some(b))?;
-                        let form = json!({"geometry": {"bits": (x.length - 6) * 8}, "codec": {"bitmap": "msb first"}, "recipe": [["src", 0, null]]});
-                        ir.data(t, "bitmap", NO_INDEX, 0, (at.0 + 6, x.length - 6), &form.to_string())?;
-                    }
                     6 => {
-                        ir.value(s, "sections/", j as u64, "{length:>u4,number:u1,indicator:u1}", 0, at, Some(b))?;
-                    }
-                    _ if x.length == 5 => {
-                        ir.value(s, "sections/", j as u64, "{length:>u4,number:u1}", 0, at, Some(b))?;
+                        let (header, bits) = if x.length > 6 {
+                            let t = ir.struct_(s, "sections/", j as u64, 0, Some(at))?;
+                            let header = ir.value(t, "header", NO_INDEX, "{length:>u4,number:u1,indicator:u1}", 0, (at.0, 6), Some(b))?;
+                            let form = json!({"geometry": {"bits": (x.length - 6) * 8}, "codec": {"bitmap": "msb first"}, "recipe": [["src", 0, null]]});
+                            (header, Some((ir.data(t, "bitmap", NO_INDEX, 0, (at.0 + 6, x.length - 6), &form.to_string())?, x.length - 6)))
+                        } else {
+                            (ir.value(s, "sections/", j as u64, "{length:>u4,number:u1,indicator:u1}", 0, at, Some(b))?, None)
+                        };
+                        s6 = Some(header);
+                        // a bitmap (indicator 0) is an array of its own, before its field's
+                        if found[field].bitmap == 0 {
+                            let Some(s3) = s3 else { return Err("internal: a GRIB bitmap without its section 3".into()) };
+                            reached.push(stored::Reached::Bitmap(stored::Bitmap { message: s, index: arrays, s3, header, bits, points: found[field].grid.points }));
+                            bitmap = Some((arrays, bits.map(|b| b.0)));
+                            arrays += 1;
+                        }
                     }
                     _ => {
-                        ir.value(s, "sections/", j as u64, &format!("{{length:>u4,number:u1,body:bytes[{}]}}", x.length - 5), 0, at, Some(b))?;
+                        let typ = if x.length == 5 { "{length:>u4,number:u1}".to_string() } else { format!("{{length:>u4,number:u1,body:bytes[{}]}}", x.length - 5) };
+                        let e = ir.value(s, "sections/", j as u64, &typ, 0, at, Some(b))?;
+                        match x.number {
+                            3 => s3 = Some(e),
+                            5 => s5 = Some((e, b.clone())),
+                            _ => {}
+                        }
                     }
                 }
             }
@@ -405,6 +472,9 @@ impl Grib {
         self.rules.check("fields", rules::env([("count", num(presented as f64)), ("fields", num(fields.len() as f64)), ("reasons", text(&reasons.join(", ")))]))?;
         ir.sort_values();
         crate::check::finish(&mut ir)?;
+        // the bitmaps and the fields, described from the finished IR (`stored.rs`)
+        let (arrays, chains, map) = stored::described(&reached)?;
+        ir.describe(arrays, chains, map)?;
         self.ir = Some(ir);
         let messages: Vec<J> = self.messages.values().map(|m| json!([m.start, m.length])).collect();
         // each grid once: a reduced grid's list of rows may be long, and so may the list of fields
@@ -452,6 +522,12 @@ fn field_json(f: &Field) -> J {
     m.insert("bitmap".into(), json!(f.bitmap));
     m.insert("single".into(), json!(f.single));
     m.insert("parts".into(), json!(f.parts));
+    // the key of the description of its values (`declared_by`, the element of its message, and
+    // `array`, its index among the arrays the message declares), and the index of the bitmap
+    // that places them, if any
+    m.insert("declared_by".into(), json!(f.declared_by.0));
+    m.insert("array".into(), json!(f.declared_by.1));
+    m.insert("mask".into(), json!(f.mask));
     if let Some(r) = f.reason {
         m.insert("reason".into(), json!(r));
     }
@@ -541,9 +617,11 @@ impl StoreParser for Grib {
                     }
                     let size = self.size();
                     let mut need: Vec<(u64, u64)> = need.into_iter().map(|(o, n)| (o, n.min(size - o))).collect();
-                    // walking, a window rather than a head: the messages after it may be in it
+                    // walking, a window rather than a head: the messages after it may be in it. A
+                    // window is at least the read it stands for, which may be longer (a section
+                    // past 64 KiB), or the read never ends
                     if self.listed.is_none() {
-                        need = need.into_iter().map(|(o, n)| if n >= HEAD { (o, WALK.min(size - o)) } else { (o, n) }).collect();
+                        need = need.into_iter().map(|(o, n)| if n >= HEAD { (o, n.max(WALK).min(size - o)) } else { (o, n) }).collect();
                     }
                     self.asked.extend(need.into_iter().map(|(o, n)| (0, o, n)));
                 }
@@ -562,6 +640,13 @@ impl StoreParser for Grib {
         } else if let Some(x) = self.indexes.iter_mut().find(|x| x.0 == object) {
             x.1 = Some(data.to_vec());
         }
+    }
+
+    /// Every key it probes is an index file, which a GRIB file may be without
+    /// (spec/zarrify/grib.md §8.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#82-finding-the-messages>).
+    fn optional(&self, _key: &str) -> bool {
+        true
     }
 
     fn found(&mut self, key: &str, index: usize, size: Option<u64>) -> Res<Option<u32>> {
@@ -631,5 +716,10 @@ mod tests {
         assert_eq!(index_offsets(b"{\"_offset\": 10, \"_length\": 5}\n{\"_offset\": 0, \"_length\": 10}\n"), Some(vec![0, 10]));
         assert_eq!(index_offsets(b"1:0:d=x\n2.1:50:d=x\n2.2:50:d=x\n3:90:d=x\n"), Some(vec![0, 50, 90]));
         assert_eq!(index_offsets(b"not an index"), None);
+        // a line with a number not finite in binary64, or serde_json's number token: no index
+        assert_eq!(index_offsets(b"{\"_offset\": 0, \"x\": 1e400}\n"), None);
+        assert_eq!(index_offsets(b"{\"_offset\": 0, \"x\": {\"$serde_json::private::Number\": \"1\"}}\n"), None);
+        // an exponent of -0 is a number
+        assert_eq!(index_offsets(b"{\"_offset\": 7, \"x\": 1e-0}\n"), Some(vec![7]));
     }
 }

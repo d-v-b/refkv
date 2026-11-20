@@ -38,7 +38,6 @@ from ir_mirror import mirror_problems  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
 
-MAX_SAFE = (1 << 53) - 1
 # a nameless column is valid FITS, which astropy cannot open (python/tests/ir/test_fits.py reads it)
 NOT_READ_BY_ASTROPY = {"fits_bintable_unnamed.fits"}
 COMMENTARY = ("COMMENT", "HISTORY", "")
@@ -54,7 +53,7 @@ def card_value(v):
     if isinstance(v, bool):
         return v
     if isinstance(v, int):
-        return v if abs(v) <= MAX_SAFE else str(v)
+        return v
     if isinstance(v, complex):
         return [v.real, v.imag]
     return v

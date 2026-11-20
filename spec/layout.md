@@ -24,10 +24,13 @@ provided by the distribution whose normalized name ([PEP
 `refkv` are refkv's, for its examples. A plugin given as an object is checked against the pattern
 alone. A name is for choosing a plugin and is not written in the output.
 
-A plugin has **formats**: `"*"`, every file profile at every version of its convention, or a map
-from file profile names (exactly: `ndpi` is not `tiff`) to the versions of that profile's
-convention it reads. Names a refkv's registry has no file profile of are ignored, and at least
-one of the names must be one it has. A call whose base is of a profile or version the plugin
+A plugin has **formats**: `"*"`, every file and store profile at every version of its
+convention, or a map from profile names, file or store profiles (exactly: `ndpi` is not `tiff`,
+nor `ome-zarr` `zarr2`), to the versions of that profile's convention it reads. Names a refkv's
+registry has no file or store profile of are ignored, and at least one of the names must be one
+it has. A store input's base is its store profile's output, its IR a store IR
+([conventions §8.9](conventions.md#89-stores)); the DICOM store form
+([zarrify/dicom.md §9](zarrify/dicom.md#9-the-store-form)) has no base. A call whose base is of a profile or version the plugin
 does not read is a rejection of the layout request ([§6](#6-errors)).
 
 A plugin has **options**: the call gives a JSON object (`{}` when it gives none); the plugin puts
@@ -175,7 +178,8 @@ parameters the section rejects.
 
 A layout request that is wrong whatever the input (a name no plugin has, a plugin that fails to
 load or whose attributes break [§1](#1-plugins), options the plugin refuses, a plugin layout beside built-in
-layouts, a store input) is a **usage error**. A base the plugin does not read, or a refusal the
+layouts) is a **usage error**. A base the plugin does not read, an input with no base (the DICOM
+store form), or a refusal the
 plugin's `write` raises for its input, is a **rejection** of the layout request: the input is one
 the profile accepts, but the call writes no output. Anything else a plugin raises, and an output
 that breaks [§3](#3-the-output) or [§4](#4-writing-the-output), is a **failure**. None writes an output.

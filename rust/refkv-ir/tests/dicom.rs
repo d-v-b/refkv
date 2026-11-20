@@ -86,3 +86,48 @@ fn rejects_a_dicom_range_asked_for_and_not_fed() {
     assert!(p.step().is_ok());
     assert!(err(p.step()).ends_with("was asked for and not fed"));
 }
+
+/// Each accepted fixture's facts name its descriptions by their keys (spec/stored-array.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): `declared_by`
+/// the top-level Pixel Data's element, `palette.declared_by` the lookup tables' elements, and
+/// `nested` each element that keys the Pixel Data of its items, indexed from 0. The keys are all
+/// the IR describes, and the Pixel Data with a grid has a row for each unit the facts count.
+#[test]
+fn every_accepted_fixtures_facts_name_its_descriptions() {
+    let (mut files, mut cut, mut tables, mut items) = (0, 0, 0, 0);
+    for e in std::fs::read_dir(fixtures().join("dicom")).unwrap() {
+        let p = e.unwrap().path();
+        let name = p.file_name().unwrap().to_str().unwrap().to_string();
+        if name.contains("reject") || !name.ends_with(".dcm") {
+            continue;
+        }
+        let (ir, facts) = refkv_ir::parse_bytes::<Dicom>(&std::fs::read(&p).unwrap()).unwrap();
+        let s = &ir.stored;
+        let key = facts["declared_by"].as_u64().unwrap() as u32;
+        assert_eq!(ir.path(key), "dataset/7FE00010", "{name}");
+        assert_eq!(facts["pixel"].as_u64(), Some(key as u64), "{name}");
+        let mut named: Vec<(u32, Option<u64>)> = vec![(key, None)];
+        for (c, table) in facts["palette"]["declared_by"].as_array().into_iter().flatten().enumerate() {
+            let table = table.as_u64().unwrap() as u32;
+            assert_eq!(ir.path(table), format!("dataset/0028120{}", c + 1), "{name}");
+            named.push((table, None));
+            tables += 1;
+        }
+        for n in facts["nested"].as_array().unwrap() {
+            let (sequence, count) = (n["declared_by"].as_u64().unwrap() as u32, n["count"].as_u64().unwrap());
+            assert!(ir.path(sequence).starts_with("dataset/") && count >= 1, "{name}");
+            named.extend((0..count).map(|i| (sequence, Some(i))));
+            items += count;
+        }
+        let described: Vec<(u32, Option<u64>)> = s.arrays.iter().map(|a| (a.element, a.index)).collect();
+        named.sort();
+        assert_eq!(named, described, "{name}");
+        let k = s.arrays.iter().position(|a| a.element == key).unwrap();
+        let rows = (0..s.map.len()).filter(|&r| s.map.array[r] == k as u32).count() as u64;
+        let units = if s.arrays[k].grid.is_some() { facts["stored"].as_u64().unwrap() } else { 0 };
+        assert_eq!(rows, units, "{name}");
+        cut += u64::from(units > 0);
+        files += 1;
+    }
+    assert!(files >= 77 && cut >= 76 && tables >= 12 && items >= 2, "{files} files, {cut} with a grid, {tables} tables, {items} items");
+}

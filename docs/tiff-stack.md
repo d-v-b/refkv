@@ -23,7 +23,8 @@ own file. No pixel is copied.
   before its file's.
 - **Relative URLs.** `save_vzip(..., relative_to=prefix)` writes each source URL
   under `prefix` relative to the sidecar (`z000.tif`), so the directory can move
-  or be copied with its sidecar. Without it, the URLs are absolute local paths.
+  or be copied with its sidecar; whoever opens it names the new directory in
+  `prefixes`. Without it, the URLs are absolute local paths.
   The prefix is the directory as `zarrify` names a local file,
   `refkv.uri.path_reference` (a percent-encoded path, or a `file:` URL on
   Windows), with a `/`.
@@ -59,7 +60,7 @@ the directory and the sidecar can move together.
 
 Run with `uv run docs/examples/tiff_stack.py [DIR]`. Without DIR, it first writes a
 synthetic stack of 24 tiled TIFFs to ./tiff_stack/. It saves DIR/stack.vzip, reopens it
-with zarr, and checks every plane against tifffile.
+with zarr, allowing it to read the files of DIR, and checks every plane against tifffile.
 """
 
 import asyncio
@@ -170,7 +171,8 @@ def main(directory: Path) -> None:
     stacked = stack(asyncio.run(zarrify_all(paths)), [p.name for p in paths])
     print(stacked.save_vzip(sidecar, relative_to=path_reference(str(directory)) + "/"))
 
-    image = zarr.open_group(refkv.zarr.open(str(sidecar)), mode="r").get_array("0")
+    policy = refkv.Policy(prefixes=(directory.as_uri() + "/",))
+    image = zarr.open_group(refkv.zarr.open(str(sidecar), policy=policy), mode="r").get_array("0")
     print(f"{sidecar}: {image.shape} {image.dtype}, chunks {image.chunks}")
     for z, path in enumerate(paths):
         assert np.array_equal(image[z], tifffile.imread(path)), path

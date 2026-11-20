@@ -489,7 +489,7 @@ members in this order:
 |---|---|---|---|
 | `index` | integer | required | the HDU's number |
 | `cards` | [`FitsCards`](#type-fitscards) | required | the HDU's header's cards ([§5.3](#53-cards)) |
-| `bscale` | number, [`Integer`](../conventions.md#type-integer) or null | optional | for an image: `BSCALE`, the card's number (an integer card past 2^53 − 1 the string of its digits), or `null` when absent or not a number |
+| `bscale` | number, [`Integer`](../conventions.md#type-integer) or null | optional | for an image: `BSCALE`, the card's number (an integer card's exact, whatever its magnitude), or `null` when absent or not a number |
 | `bzero` | number, [`Integer`](../conventions.md#type-integer) or null | optional | for an image: `BZERO`, likewise |
 | `blank` | number, [`Integer`](../conventions.md#type-integer) or null | optional | for an image: `BLANK`, likewise |
 | `bunit` | string or null | optional | for an image: `BUNIT`, the card's string, or `null` |
@@ -533,7 +533,7 @@ A value field's JSON value:
 |---|---|
 | a string in single quotes | a JSON string, with doubled quotes undoubled and trailing spaces trimmed |
 | `T` or `F` | `true` or `false` |
-| an integer (an optional sign and digits) | exactly: a JSON number up to 2^53 − 1 in magnitude, and a string of its digits past that |
+| an integer (an optional sign and digits) | a JSON integer, exact whatever its magnitude ([`Integer`](../conventions.md#type-integer)) |
 | a real | its binary64 value (a `D` exponent read as `E`); `{"text": t}` when that value is not finite (it overflows binary64) |
 | a complex `(r, i)` | `[r, i]` |
 | nothing | `null` |

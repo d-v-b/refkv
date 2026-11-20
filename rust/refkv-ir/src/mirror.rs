@@ -32,7 +32,7 @@
 
 use crate::fed::{Word, uint};
 use crate::ir::*;
-use crate::out::{declare, json_size, metadata_array, metadata_group, Chunk, Out, CONVENTION_KEY, SOURCE_NODE};
+use crate::out::{declare, int_json, json_size, metadata_array, metadata_group, Chunk, Out, CONVENTION_KEY, SOURCE_NODE};
 use crate::types::{self, Ty, Val};
 use serde_json::{json, Map, Value as J};
 use std::collections::{HashMap, HashSet};
@@ -98,7 +98,7 @@ pub fn store_row_limit(size: u64, objects: u64) -> u64 {
 /// The most bytes of a store IR's distinct names (the description holds them).
 pub const NAME_BYTES: u64 = 1 << 24;
 
-fn limit_of(ir: &Ir) -> u64 {
+pub(crate) fn limit_of(ir: &Ir) -> u64 {
     if ir.store { store_row_limit(ir.size, ir.objects) } else { row_limit(ir.size) }
 }
 
@@ -122,24 +122,40 @@ fn shared_refs(form: &str) -> Vec<(usize, usize, usize)> {
 
 /// The canonical IR of `ir` (conventions §8.8
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>), or why it has
-/// none (the root and the
-/// names of §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>,
-/// `check::names`, do not hold): every run expanded; the elements in
-/// canonical order, numbered by it (a parent before its children, siblings by first
+/// none (the rules of runs, `check::runs`, or the root and the names, `check::names`, of §8.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements> do not hold, the names
+/// of the gaps as renamed): every run expanded and every gap named `gaps/<offset>`; the
+/// elements in canonical order, numbered by it (a parent before its children, siblings by first
 /// byte, name, name index); the descendants of a derived element left out when they
 /// would bring the derived rows kept past 2^20 (derived elements in canonical order,
 /// those inside a kept derived space counted with it); names and types the ones used,
 /// sorted by their UTF-8 bytes; shared sources numbered by first use (rows in order,
 /// a form's parts in order) and the forms, so renumbered, sorted.
 pub fn canonical(ir: &Ir) -> Result<Ir, String> {
+    // the stored arrays are shared, not copied, by the clone, and left out before the runs are
+    // unfolded: the mirror does not write them (spec/stored-array.md §6
+    // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>)
     let mut x = ir.clone();
+    x.stored = Default::default();
     x.budget = None;
     if x.runs.iter().any(|r| (r.0 as usize) >= x.len() || x.nidx[r.0 as usize] == NO_INDEX) {
         return Err("a run whose root has no name index".into());
     }
+    // the rules of runs (§8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>):
+    // a run that breaks them has no members to expand
+    crate::check::runs(&x)?;
     let roots: Vec<u32> = x.runs.iter().map(|r| r.0).collect();
     for r in roots {
         x.unfold(r)?;
+    }
+    // every gap is `gaps/<offset>`, however the producer named it (step 1 of §8.8
+    // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>)
+    let gaps = x.names.id("gaps/");
+    for i in 0..x.len() {
+        if x.kind[i] == GAP {
+            x.name[i] = gaps;
+            x.nidx[i] = x.start[i];
+        }
     }
     // the root and the names (§8.1
     // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>): a table that
@@ -354,11 +370,33 @@ fn tiff_layout(y: &Ir, r: usize, f: i64) -> Option<(u32, usize, bool)> {
     Some((v, z, big))
 }
 
+/// A column's arithmetic pieces (conventions §8.8
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>, encoding 4):
+/// from the first value on, each piece as long as it can be, as (first value, step, count).
+pub fn pieces(v: &[i64]) -> Vec<(i64, i64, usize)> {
+    let mut out = Vec::new();
+    let mut a = 0;
+    while a < v.len() {
+        let Some(&next) = v.get(a + 1) else {
+            out.push((v[a], 0, 1));
+            break;
+        };
+        let d = next.wrapping_sub(v[a]);
+        let mut b = a + 1;
+        while b + 1 < v.len() && v[b + 1].wrapping_sub(v[b]) == d {
+            b += 1;
+        }
+        out.push((v[a], d, b - a + 1));
+        a = b + 1;
+    }
+    out
+}
+
 /// The stored table of a canonical IR (conventions §8.8
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>): its column
 /// runs found outermost first, left to right, each at the period that folds the most siblings
 /// (the smaller on a tie); each column at the first encoding that holds it (none
-/// when constant, 3, 0, 2, 1). `array(row)` gives the bytes of a value an encoding-2
+/// when constant, 3, 0, 2, 4, 1). `array(row)` gives the bytes of a value an encoding-2
 /// column would read (the IR's, or the source's at its extent).
 pub fn table(y: &Ir, profile: &str, array: &dyn Fn(u32) -> Option<Vec<u8>>) -> (Table, Folded) {
     let n = y.len();
@@ -463,6 +501,13 @@ pub fn table(y: &Ir, profile: &str, array: &dyn Fn(u32) -> Option<Vec<u8>>) -> (
                         }
                     }
                 }
+                let ps = pieces(&v);
+                if 3 * ps.len() < v.len() {
+                    t.columns.push(col(4, t.column_values.len() as i64, ps.len() as i64));
+                    t.column_values.extend(ps.iter().flat_map(|&(x, d, c)| [x, d, c as i64]));
+                    folded.arithmetic += 1;
+                    continue;
+                }
                 t.columns.push(col(1, t.column_values.len() as i64, 0));
                 let mut prev = 0i64;
                 for x in v {
@@ -519,7 +564,7 @@ pub fn table(y: &Ir, profile: &str, array: &dyn Fn(u32) -> Option<Vec<u8>>) -> (
 
 /// The rows a table expands to: its stored rows and members 1.. of its column runs.
 pub fn expanded_rows(t: &Table) -> u64 {
-    t.kind.len() as u64 + t.cruns.iter().map(|c| (c[1].max(1) as u64 - 1).saturating_mul(c[2].max(0) as u64)).sum::<u64>()
+    t.cruns.iter().map(|c| (c[1].max(1) as u64 - 1).saturating_mul(c[2].max(0) as u64)).fold(t.kind.len() as u64, u64::saturating_add)
 }
 
 /// Stores table `t` under `refkv_source` (conventions §8.2
@@ -598,11 +643,8 @@ pub fn mirror(ir: &Ir, out: &mut Out, profile: &str) -> Result<Folded, String> {
     let limit = limit_of(ir);
     let over = || format!("budget: the mirror would have more than {limit} rows");
     // at least the rows outside derived spaces, every run expanded: rejected before expanding
-    let extra: u64 = ir.runs.iter()
-        .map(|&(r, c, _)| c.saturating_sub(1).saturating_mul((ir.subtree_end(r) - r) as u64))
-        .fold(0u64, |a, b| a.saturating_add(b));
     let outside = ir.space.iter().filter(|&&d| d == 0).count() as u64;
-    if outside.saturating_add(extra) > limit {
+    if outside.saturating_add(ir.run_rows()) > limit {
         return Err(over());
     }
     let mut y = canonical(ir)?;
@@ -722,7 +764,7 @@ fn copied_as(out: &mut Out, path: &str, data_type: &str, item: u64, shape: &[u64
 
 // ---- the view
 
-const DOC: usize = 1 << 16; // the most bytes of a view document
+const DOC: usize = 1 << 16; // the bytes the children's members of a view document may spend
 const SMALL: usize = 1 << 12; // the most bytes of a value's JSON
 const MAX_GROUPS: usize = 1 << 12;
 const INLINE: usize = 1 << 14; // a struct whose view is larger is a group of its own
@@ -731,7 +773,6 @@ const TOTAL: usize = 1 << 24; // bytes of all view documents
 /// The most bytes of a value the view shows (conventions §8.7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>).
 pub const VIEW_VALUE: u64 = 1 << 10;
-const MAX_SAFE: i128 = (1 << 53) - 1;
 
 pub fn escape_key(k: &str) -> String {
     if k.starts_with('$') { format!("${k}") } else { k.to_string() }
@@ -773,13 +814,7 @@ pub fn base64(b: &[u8]) -> String {
 /// A decoded value as JSON, in the `$vz` vocabulary.
 pub fn tag_json(v: &Val) -> J {
     match v {
-        Val::Int(i) => {
-            if i.abs() <= MAX_SAFE {
-                json!(*i as i64)
-            } else {
-                json!({"$vz": "int", "v": i.to_string()})
-            }
-        }
+        Val::Int(i) => int_json(*i),
         Val::Float(f) => {
             if f.is_finite() {
                 json!(f)
@@ -1062,7 +1097,12 @@ pub struct Table {
 
 /// The IR a stored table describes, its column runs expanded (at most the record
 /// budget of rows). `read(offset, length)` gives source 0's bytes,
-/// for the columns read from arrays in the source.
+/// for the columns read from arrays in the source. A table that conventions §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table> and §8.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#83-column-runs> call invalid by
+/// its rows and tables alone is an error here, as is one whose runs break the rules of runs
+/// (`check::runs`); the rules of the elements it stands for (coverage, the root, the names) are the
+/// checker's (`check::check`).
 pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>) -> Result<Ir, String> {
     let m = t.kind.len();
     if [t.up.len(), t.name.len(), t.nidx.len(), t.ty.len(), t.space.len(), t.start.len(), t.length.len()].iter().any(|&x| x != m) {
@@ -1075,6 +1115,10 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
         return Err(format!("budget: the mirror's names total more than {NAME_BYTES} bytes"));
     }
     let limit = match t.objects { Some(o) => store_row_limit(t.size, o), None => row_limit(t.size) };
+    // the stored rows are rows of the expanded table, whether or not a column run adds to them
+    if m as u64 > limit {
+        return Err(format!("budget: more than {limit} rows"));
+    }
     // expanded ids: member 0 of a column run is stored; members 1.. follow it
     let mut extra: HashMap<u64, (u64, u64, usize)> = HashMap::new(); // template root -> (count, size, crun)
     let mut total = m as u64;
@@ -1094,12 +1138,11 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
     let n = total as usize;
     let mut ir = Ir { size: t.size, store: t.objects.is_some(), objects: t.objects.unwrap_or(0), budget: None, loaded: true, ..Default::default() };
     let max_kind = if ir.store { OBJECT } else { GAP };
-    for s in &t.names {
-        ir.names.id(s);
-    }
-    for s in &t.types {
-        ir.types.id(s);
-    }
+    // the names and the types the rows name by their place in the description: one that is
+    // there twice is one name (or type) of the IR, so the rows' numbers are not the IR's
+    let name_at: Vec<u32> = t.names.iter().map(|s| ir.names.id(s)).collect();
+    let type_at: Vec<u32> = t.types.iter().map(|s| ir.types.id(s)).collect();
+    let listed = |at: &[u32], x: i64| usize::try_from(x).ok().and_then(|x| at.get(x).copied());
     for s in &t.form_text {
         ir.forms.list.push(s.clone()); // forms may repeat: kept by position
     }
@@ -1111,8 +1154,6 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
     ir.space = vec![0; n];
     ir.start = vec![0; n];
     ir.len = vec![0; n];
-    let names = t.names.len() as i64;
-    let tys = t.types.len() as i64;
     // phase 1: the stored rows at their expanded ids
     let mut id = 0usize;
     let mut stored_at = Vec::with_capacity(m);
@@ -1141,12 +1182,16 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
             return Err(format!("row {id}: parent {}", id as i64 - up as i64));
         }
         ir.parent[id] = if id == 0 { NONE } else { (id - up) as u32 };
-        if !(0..names.max(1)).contains(&(t.name[k] as i64)) || !(0..tys.max(1)).contains(&(t.ty[k] as i64)) {
+        let (Some(name), Some(ty)) = (listed(&name_at, t.name[k] as i64), listed(&type_at, t.ty[k] as i64)) else {
             return Err(format!("row {id}: name or type out of range"));
-        }
-        ir.name[id] = t.name[k] as u32;
+        };
+        ir.name[id] = name;
         ir.nidx[id] = t.nidx[k];
-        ir.ty[id] = t.ty[k] as u32;
+        ir.ty[id] = ty;
+        // a space is 0 or an element's id: the rows of members 1.. take member 0's
+        if t.space[k] as usize >= n {
+            return Err(format!("row {id}: space {}", t.space[k]));
+        }
         ir.space[id] = t.space[k];
         let l = t.length[k];
         let object = t.kind[k] == OBJECT;
@@ -1166,27 +1211,34 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
     while let Some((_, count, size, _)) = pending.pop() {
         id += ((count - 1) * size) as usize;
     }
+    // the alias, form, run and column run rows name stored rows (§8.2
+    // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>), by their
+    // expanded ids: `stored_at`, which is in order
+    let stored = |x: i64| usize::try_from(x).ok().filter(|i| stored_at.binary_search(i).is_ok());
+    for (q, c) in t.cruns.iter().enumerate() {
+        if stored(c[0]).is_none() {
+            return Err(format!("column run {q} at row {}", c[0]));
+        }
+    }
     if id != n {
         return Err(format!("the table describes {id} rows, its column runs {n}"));
     }
     for r in &t.runs {
-        if r[0] < 0 || r[0] as usize >= n || r[1] < 1 || r[2] < 0 {
-            return Err(format!("bad run {r:?}"));
-        }
-        ir.runs.push((r[0] as u32, r[1] as u64, r[2] as u64));
+        let root = stored(r[0]).filter(|_| r[1] >= 1 && r[2] >= 0).ok_or_else(|| format!("bad run {r:?}"))?;
+        ir.runs.push((root as u32, r[1] as u64, r[2] as u64));
     }
     ir.runs.sort();
     if ir.runs.windows(2).any(|w| w[0].0 == w[1].0) {
         return Err("two runs at one row".into());
     }
     for a in &t.targets {
-        ir.targets.push((a[0] as u32, if a[1] < 0 { NONE } else { a[1] as u32 }));
+        // the target is a row, stored or not, or -1 for none
+        let alias = stored(a[0]).filter(|_| (-1..n as i64).contains(&a[1])).ok_or_else(|| format!("bad alias {a:?}"))?;
+        ir.targets.push((alias as u32, if a[1] < 0 { NONE } else { a[1] as u32 }));
     }
     for f in &t.forms {
-        if f[0] < 0 || f[0] as usize >= n || f[1] < 0 || f[1] as usize >= t.form_text.len() {
-            return Err(format!("bad form {f:?}"));
-        }
-        ir.form_of.push((f[0] as u32, f[1] as u32));
+        let e = stored(f[0]).filter(|_| (0..t.form_text.len() as i64).contains(&f[1])).ok_or_else(|| format!("bad form {f:?}"))?;
+        ir.form_of.push((e as u32, f[1] as u32));
     }
     // phase 2: members 1.. of each column run
     let mut by_run: Vec<Vec<[i64; 6]>> = vec![Vec::new(); t.cruns.len()];
@@ -1247,6 +1299,23 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
                     let mut acc = 0i64;
                     vals.iter().map(|d| { acc = acc.wrapping_add(*d); acc }).collect()
                 }
+                4 => {
+                    let a = usize::try_from(x).map_err(|_| "a column past its values")?;
+                    let k = usize::try_from(y).ok().and_then(|k| k.checked_mul(3)).ok_or("a column past its values")?;
+                    let vals = a.checked_add(k).and_then(|end| t.column_values.get(a..end)).ok_or("a column past its values")?;
+                    let mut v = Vec::with_capacity(count as usize);
+                    for p in vals.chunks(3) {
+                        let c = p[2];
+                        if c < 1 || c as u64 > count - v.len() as u64 {
+                            return Err(format!("column run {q}: pieces that are not its members"));
+                        }
+                        v.extend((0..c).map(|j| p[0].wrapping_add(j.wrapping_mul(p[1]))));
+                    }
+                    if v.len() as u64 != count {
+                        return Err(format!("column run {q}: pieces that are not its members"));
+                    }
+                    v
+                }
                 2 if ir.store => return Err("a column read from an array, in a store IR".into()),
                 2 => {
                     if !arrays.contains_key(&x) {
@@ -1300,19 +1369,16 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
                 let x = v[j];
                 match *f {
                     F_NIDX => ir.nidx[dst] = x as u64,
-                    F_TYPE => {
-                        if x < 0 || x >= tys {
-                            return Err("a type column out of range".into());
-                        }
-                        ir.ty[dst] = x as u32
-                    }
+                    F_TYPE => ir.ty[dst] = listed(&type_at, x).ok_or("a type column out of range")?,
                     F_START => ir.start[dst] = x as u64,
                     F_LEN => ir.len[dst] = x as u64,
-                    F_FORM if x >= t.form_text.len() as i64 => return Err("a form column out of range".into()),
+                    // a form, or -1 for none; a target likewise, a row or -1
+                    F_FORM if !(-1..t.form_text.len() as i64).contains(&x) => return Err("a form column out of range".into()),
                     F_FORM => match forms.iter_mut().find(|e| e.0 == dst) {
                         Some(e) => e.1 = x,
                         None => forms.push((dst, x)),
                     },
+                    F_TARGET if !(-1..n as i64).contains(&x) => return Err("a target column out of range".into()),
                     F_TARGET => match targets.iter_mut().find(|e| e.0 == dst) {
                         Some(e) => e.1 = x,
                         None => targets.push((dst, x)),
@@ -1340,6 +1406,8 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
             new_targets.extend(targets.into_iter().filter(|t| t.1 >= 0).map(|(e, t)| (e as u32, t as u32)));
         }
     }
+    // every row's parent is an earlier row by now
+    crate::check::runs(&ir)?;
     ir.shared = t.shared.clone();
     ir.form_of.extend(new_forms);
     ir.targets.extend(new_targets);
@@ -1373,17 +1441,26 @@ pub fn table_from_out(out: &Out) -> Result<Table, String> {
     table_from(&|k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone()))
 }
 
-/// The stored table of a mirror, its entries given by `get(key)` (an archive's).
+/// The stored table of a mirror, its entries given by `get(key)` (an archive's). The description
+/// is checked here, since only this function reads it: its `version` is [`VERSION`], and its
+/// `rows` and `elements` are the table's (conventions §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>); and so are the
+/// columns the [`Table`] holds narrower than the 64 bits they are stored in, and the arrays'
+/// shapes (`rows` is `[8, m]`, `tables` is `[k, 7]`, the others have one dimension).
 pub fn table_from(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Table, String> {
     let doc = |p: &str| -> Result<J, String> {
         let key = if p.is_empty() { format!("{SOURCE_NODE}/zarr.json") } else { format!("{SOURCE_NODE}/{p}/zarr.json") };
         let b = get(&key).ok_or(format!("no {key}"))?;
         serde_json::from_slice(&b).map_err(|e| e.to_string())
     };
-    let array = |p: &str| -> Result<Vec<u8>, String> {
+    let nums = |v: &J| -> Vec<u64> { v.as_array().map(|a| a.iter().map(|x| x.as_u64().unwrap_or(0)).collect()).unwrap_or_default() };
+    // the values of the array `ir/<p>` whose shape `fits`, or `what` its shape is not
+    let array = |p: &str, what: &str, fits: &dyn Fn(&[u64]) -> bool| -> Result<Vec<u8>, String> {
         let meta = doc(p)?;
-        let nums = |v: &J| -> Vec<u64> { v.as_array().map(|a| a.iter().map(|x| x.as_u64().unwrap_or(0)).collect()).unwrap_or_default() };
         let shape = nums(&meta["shape"]);
+        if !fits(&shape) {
+            return Err(format!("{p}: shape {shape:?}, not {what}"));
+        }
         let cs = nums(&meta["chunk_grid"]["configuration"]["chunk_shape"]);
         let item: u64 = if meta["data_type"] == "uint8" { 1 } else { 8 };
         let codecs = meta["codecs"].as_array().cloned().unwrap_or_default();
@@ -1430,12 +1507,24 @@ pub fn table_from(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Table, String
     let node = doc("")?;
     let attrs = node["attributes"]["refkv_zarrified"].as_object().and_then(|m| m.values().next())
         .map(|v| &v["ir"]).ok_or("refkv_source declares no mirror")?;
+    // a table of another version is not read as this one (§8.2
+    // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>)
+    match &attrs["version"] {
+        J::Null => return Err("no version".into()),
+        v if v.as_u64() == Some(VERSION) => {}
+        v => return Err(format!("version {v}, not {VERSION}")),
+    }
     let strs = |k: &str| -> Result<Vec<String>, String> {
         attrs[k].as_array().ok_or(format!("no {k}"))?.iter()
             .map(|x| x.as_str().map(|s| s.to_string()).ok_or(format!("a non-string in {k}"))).collect()
     };
-    let rows = ints(array("ir/rows")?);
+    let count = |k: &str| attrs[k].as_u64().ok_or(format!("no {k}"));
+    let list = |p: &str| array(p, "[n]", &|s| s.len() == 1);
+    let rows = ints(array("ir/rows", "[8, m]", &|s| s.len() == 2 && s[0] == 8)?);
     let m = rows.len() / 8;
+    if count("rows")? != m as u64 {
+        return Err(format!("the description has {} rows, ir/rows {m}", count("rows")?));
+    }
     let col = |c: usize| &rows[c * m..(c + 1) * m];
     let mut t = Table {
         size: attrs["size"].as_u64().ok_or("no size")?,
@@ -1455,27 +1544,33 @@ pub fn table_from(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Table, String
     if col(0).iter().any(|&x| !(0..=255).contains(&x)) || col(1).iter().any(|&x| !(0..=u32::MAX as i64).contains(&x)) {
         return Err("a row's kind or parent out of range".into());
     }
+    // the columns as they are stored, 64 bits wide: one cut to 32 bits is another number
+    for (c, what, len) in [(2, "name", t.names.len() as i64), (4, "type", t.types.len() as i64), (5, "space", 1 << 32)] {
+        if col(c).iter().any(|x| !(0..len).contains(x)) {
+            return Err(format!("a row's {what} out of range"));
+        }
+    }
     t.objects = match &attrs["objects"] {
         J::Null => None,
         o => Some(o.as_u64().ok_or("objects: not a count")?),
     };
     if get(&format!("{SOURCE_NODE}/ir/held/zarr.json")).is_some() {
-        let offsets = ints(array("ir/held/offsets")?);
-        let data = if offsets.last().is_some_and(|&x| x > 0) { array("ir/held/data")? } else { Vec::new() };
+        let offsets = ints(list("ir/held/offsets")?);
+        let data = if offsets.last().is_some_and(|&x| x > 0) { list("ir/held/data")? } else { Vec::new() };
         for w in offsets.windows(2) {
             let (a, b) = (usize::try_from(w[0]).map_err(|_| "a bad held offset")?, usize::try_from(w[1]).map_err(|_| "a bad held offset")?);
             t.held.push(data.get(a..b).ok_or("a held object past its data")?.to_vec());
         }
     }
     if get(&format!("{SOURCE_NODE}/ir/shared/zarr.json")).is_some() {
-        let offsets = ints(array("ir/shared/offsets")?);
-        let data = if offsets.last().is_some_and(|&x| x > 0) { array("ir/shared/data")? } else { Vec::new() };
+        let offsets = ints(list("ir/shared/offsets")?);
+        let data = if offsets.last().is_some_and(|&x| x > 0) { list("ir/shared/data")? } else { Vec::new() };
         for w in offsets.windows(2) {
             let (a, b) = (usize::try_from(w[0]).map_err(|_| "a bad shared offset")?, usize::try_from(w[1]).map_err(|_| "a bad shared offset")?);
             t.shared.push(data.get(a..b).ok_or("a shared source past its data")?.to_vec());
         }
     }
-    for r in ints(array("ir/tables")?).chunks(7) {
+    for r in ints(array("ir/tables", "[k, 7]", &|s| s.len() == 2 && s[1] == 7)?).chunks_exact(7) {
         match r[0] {
             T_RUN => t.runs.push([r[1], r[2], r[3]]),
             T_TARGET => t.targets.push([r[1], r[2]]),
@@ -1485,6 +1580,9 @@ pub fn table_from(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Table, String
             T_VALUES => t.column_values.extend_from_slice(&r[1..]),
             x => return Err(format!("a table row of kind {x}")),
         }
+    }
+    if count("elements")? != expanded_rows(&t) {
+        return Err(format!("the description has {} elements, the table expands to {}", count("elements")?, expanded_rows(&t)));
     }
     Ok(t)
 }
@@ -1592,8 +1690,7 @@ pub fn canonical_problem(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn F
     for (k, v) in &out.entries {
         let stored = get(k);
         let same = match (k.ends_with("zarr.json"), &stored) {
-            (true, Some(s)) => serde_json::from_slice::<J>(s).ok().map(|d| table_part(k, d))
-                == serde_json::from_slice::<J>(v).ok(),
+            (true, Some(s)) => json_doc(s).map(|d| table_part(k, d)) == json_doc(v),
             (false, Some(s)) => s == v,
             _ => false,
         };
@@ -1757,7 +1854,7 @@ pub fn view_problem(keys: &[String], get: &dyn Fn(&str) -> Option<Vec<u8>>,
     for k in &names {
         let group = k.trim_end_matches("/zarr.json").trim_start_matches(&format!("{SOURCE_NODE}/"));
         let Some(stored) = get(k) else { return Some(format!("view: group {group} is missing")) };
-        let (a, b): (J, J) = (serde_json::from_slice(&stored).unwrap_or(J::Null), serde_json::from_slice(rebuilt[k]).unwrap_or(J::Null));
+        let (a, b) = (json_doc(&stored).unwrap_or(J::Null), json_doc(rebuilt[k]).unwrap_or(J::Null));
         if a == b {
             continue;
         }
@@ -1773,6 +1870,13 @@ pub fn view_problem(keys: &[String], get: &dyn Fn(&str) -> Option<Vec<u8>>,
         return Some(format!("view: group {} is not in the rebuilt view", k.trim_end_matches("/zarr.json").trim_start_matches(&format!("{SOURCE_NODE}/"))));
     }
     None
+}
+
+/// A document the validator compares, its numbers by value (an integer every digit, any other its
+/// binary64 value), as serde_json compares them without arbitrary_precision; None when it is not
+/// JSON, or holds a number not finite in binary64.
+fn json_doc(b: &[u8]) -> Option<J> {
+    serde_json::from_slice(b).ok().and_then(crate::json::binary64)
 }
 
 /// The first member (by its path of keys) where `a` (stored) and `b` (rebuilt) differ.

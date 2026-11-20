@@ -56,9 +56,11 @@ def planes(n: int) -> np.ndarray:
     return np.stack([part_plane(k) for k in range(n)])
 
 
-def read(out, tmp_path: Path) -> zarr.Group:
+def read(out, tmp_path: Path, directory: Path = CZI) -> zarr.Group:
+    """The saved `out`, which reads the files of `directory`."""
     out.write(str(tmp_path / "a.vzip"))
-    return zarr.open_group(refkv.zarr.open(str(tmp_path / "a.vzip")), mode="r", zarr_format=3)
+    policy = Policy(prefixes=(directory.as_uri() + "/",))
+    return zarr.open_group(refkv.zarr.open(str(tmp_path / "a.vzip"), policy=policy), mode="r", zarr_format=3)
 
 
 @pytest.mark.parametrize(("name", "parts", "want"), [
@@ -138,7 +140,7 @@ def test_a_part_its_master_covers_is_not_walked_a_read_a_segment(tmp_path):
     _, out = zarrify(str(tmp_path / "many.czi"))
     assert isinstance(out, StoreIrOutput)
     assert integer(at(out.summary, "reads", "batches")) < 40
-    assert np.array_equal(ndarray(read(out, tmp_path).get_array("0/0")[...]), planes(200))
+    assert np.array_equal(ndarray(read(out, tmp_path, tmp_path).get_array("0/0")[...]), planes(200))
 
 
 def test_over_http_the_parts_are_probed_beside_the_input(server, tmp_path):

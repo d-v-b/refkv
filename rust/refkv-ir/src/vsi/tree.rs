@@ -246,11 +246,6 @@ fn utf16_json(d: &[u8]) -> J {
     J::String(String::from_utf16_lossy(&units[..n]))
 }
 
-fn int_json(v: i128) -> J {
-    const MAX: i128 = (1 << 53) - 1;
-    if (-MAX..=MAX).contains(&v) { json!(v as i64) } else { J::String(v.to_string()) }
-}
-
 /// A value field's data as JSON (§6.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#61-the-root>): numbers by the
 /// field type (an array when the data holds several), text decoded from UTF-16LE, a boolean,
@@ -282,8 +277,8 @@ pub fn value_json(rules: &Rules, real: u32, d: &[u8]) -> J {
             "i2" => json!(i16::le_at(c, 0)),
             "u4" => json!(u32::le_at(c, 0)),
             "i4" => json!(i32::le_at(c, 0)),
-            "u8" => int_json(u64::le_at(c, 0) as i128),
-            "i8" => int_json(i64::le_at(c, 0) as i128),
+            "u8" => json!(u64::le_at(c, 0)),
+            "i8" => json!(i64::le_at(c, 0)),
             "f4" => float_json(f32::le_at(c, 0) as f64),
             _ => float_json(f64::le_at(c, 0)),
         }

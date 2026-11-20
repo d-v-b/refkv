@@ -25,6 +25,9 @@ use crate::transform::Transform;
 use serde_json::{json, Value as J};
 use std::io::{Cursor, Read};
 
+#[path = "fits/stored.rs"]
+mod stored;
+
 /// A FITS block, and a card.
 pub const BLOCK: u64 = 2880;
 pub const CARD: usize = 80;
@@ -87,6 +90,8 @@ pub enum Value {
     Logical(bool),
     /// an integer, exactly (an optional sign and digits, within i128)
     Int(i128),
+    /// an integer past i128: its digits, without a `+` or leading zeros, `-` when negative
+    BigInt(String),
     /// a real: its binary64 value (a `D` exponent read as `E`) and its text
     Real(f64, String),
     /// a string: quotes undoubled, trailing spaces trimmed, `CONTINUE` cards joined
@@ -105,12 +110,16 @@ pub struct Card {
     pub comment: Option<String>,
 }
 
-fn integer(v: &str) -> Option<i128> {
+/// An integer value field (an optional sign and digits): within i128, or past it, its digits.
+fn integer(v: &str) -> Option<Value> {
     let digits = v.strip_prefix(['+', '-']).unwrap_or(v);
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    v.parse().ok()
+    Some(match v.parse() {
+        Ok(n) => Value::Int(n),
+        Err(_) => Value::BigInt(format!("{}{}", if v.starts_with('-') { "-" } else { "" }, digits.trim_start_matches('0'))),
+    })
 }
 
 fn real(v: &str) -> Option<f64> {
@@ -183,7 +192,7 @@ pub fn parse_value(field: &str) -> (Value, Option<String>) {
         }
         v => {
             if let Some(n) = integer(v) {
-                Value::Int(n)
+                n
             } else if let Some(x) = real(v) {
                 Value::Real(x, v.to_string())
             } else {
@@ -275,7 +284,7 @@ pub fn value_text(v: &Value) -> String {
         Value::None => String::new(),
         Value::Logical(b) => if *b { "T" } else { "F" }.to_string(),
         Value::Int(n) => n.to_string(),
-        Value::Real(_, t) | Value::Str(t) | Value::Unparsed(t) => t.clone(),
+        Value::Real(_, t) | Value::Str(t) | Value::Unparsed(t) | Value::BigInt(t) => t.clone(),
         Value::Complex(r, i) => format!("({r}, {i})"),
     }
 }
@@ -950,6 +959,8 @@ impl Fits {
             "cards": records - 1, "data_offset": data_offset, "data_bytes": total, "pad": pad,
             "bitpix": bitpix as i64, "data_type": data_type, "naxis": axes, "pcount": pcount as i64, "gcount": gcount as i64,
             "name": name, "version": version, "table": table, "compression": J::Null, "elements": elements,
+            // the key of its arrays' descriptions (`stored.rs`): its header, where it holds data
+            "declared_by": if empty { J::Null } else { json!(header) },
         }));
         if let Some(c) = comp {
             self.pending = Some(Pending {
@@ -1207,7 +1218,9 @@ impl Fits {
         Ok(())
     }
 
+    /// The finished IR, with its HDUs' arrays described (`stored.rs`), and the facts.
     pub fn finish(mut self) -> Result<(Ir, J), String> {
+        let described = if self.phase == Phase::Done { Some(stored::described(&self.ir, &self.hdus)?) } else { None };
         let mut facts = json!({"hdus": self.hdus, "copy_threshold": crate::out::copy_threshold()});
         if let Some(d) = &self.decoded {
             // the checker fills the source's gaps: this one, special records, is in the space
@@ -1216,7 +1229,11 @@ impl Fits {
             }
             facts["stream"] = json!({"method": method(d.transform), "length": d.length, "size": self.size});
         }
-        sans::finish(self.phase == Phase::Done, self.ir, facts)
+        let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, facts)?;
+        if let Some((arrays, chains, map)) = described {
+            ir.describe(arrays, chains, map)?;
+        }
+        Ok((ir, facts))
     }
 }
 
@@ -1255,6 +1272,10 @@ mod tests {
         assert_eq!(c, Card { keyword: "SIMPLE".into(), value: Value::Logical(true), comment: Some("conforms to FITS".into()) });
         assert_eq!(parse_card(&rec("BITPIX  =                  -32")).value, Value::Int(-32));
         assert_eq!(parse_card(&rec("BIGINT  =      123456789012345678901 / big")).value, Value::Int(123456789012345678901));
+        // past i128, 40 digits: its digits, normalized
+        let digits = "1234567890123456789012345678901234567890";
+        assert_eq!(parse_card(&rec(&format!("HUGE    = -00{digits}"))).value, Value::BigInt(format!("-{digits}")));
+        assert_eq!(parse_card(&rec(&format!("HUGE    = +{digits}"))).value, Value::BigInt(digits.into()));
         assert_eq!(parse_card(&rec("DEXPON  =        1.5000000000D+03 / a real")).value, Value::Real(1500.0, "1.5000000000D+03".into()));
         assert_eq!(parse_card(&rec("CRVAL1  =   229.537988811 / deg")).value, Value::Real(229.537988811, "229.537988811".into()));
         assert_eq!(parse_card(&rec("CPLX    =           (1.5, 2.5) / c")).value, Value::Complex(1.5, 2.5));

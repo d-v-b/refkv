@@ -20,6 +20,7 @@
 //! `derived` element `d`, in `d`'s derived bytes (space `d`).
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 pub const STRUCT: u8 = 0;
 pub const VALUE: u8 = 1;
@@ -217,22 +218,75 @@ pub struct Budget {
     pub spent_elements: u64,
     pub spent_read: u64,
     pub spent_reads: u64,
+    /// the entries of stored arrays' descriptions, and of the chunk map (each row, coordinate,
+    /// `ranges` item and set unit-parameter value; a row's `range` is none), apart from the IR's
+    /// room (`array::Stored::weights`; spec/stored-array.md §6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>)
+    pub descriptions: u64,
+    pub rows: u64,
+    pub spent_descriptions: u64,
+    pub spent_rows: u64,
 }
 
 impl Budget {
     pub fn new(size: u64) -> Self {
         Budget {
-            // physical rows: one per 4 bytes of the source, at most, past 2^22
-            records: (1 << 22) + size / 4,
+            // physical rows: one per 4 bytes of the source, at most, past 2^22 (the rows the
+            // mirror's table may expand to)
+            records: crate::mirror::row_limit(size),
             // rows with every run expanded: the elements a source describes
-            elements: (1 << 30) + size,
-            read: (1 << 24) + 2 * size,
+            elements: (1u64 << 30).saturating_add(size),
+            read: (1u64 << 24).saturating_add(size.saturating_mul(2)),
             reads: (1 << 20) + size / 64,
             spent_records: 0,
             spent_elements: 0,
             spent_read: 0,
             spent_reads: 0,
+            // descriptions: one per 4 bytes of the source, at most, past 2^22, as records; chunk
+            // map entries: four per byte, so that, where no two units share bytes, an element's
+            // unit of rank 3 or less, or a range's of rank 2 or less, fits (spec/stored-array.md §6
+            // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>)
+            descriptions: crate::mirror::row_limit(size),
+            rows: (1u64 << 22).saturating_add(size.saturating_mul(4)),
+            spent_descriptions: 0,
+            spent_rows: 0,
         }
+    }
+
+    /// The limits of a store IR of `objects` objects of `size` bytes in all, each of the totals
+    /// and not a sum over the objects, so that the sizes that sum to `size` do not change them.
+    /// The records' is the limit of the table's rows (conventions §8.9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), `2^22 +
+    /// floor(size / 4) + 4 × objects`, and the descriptions' the same (spec/stored-array.md §6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>); the elements'
+    /// is `2^30 + floor(size / 4) + 4 × objects`; the chunk map's a file's of `size` bytes and 4
+    /// for each object; the bytes read a file's; and the reads a file's and one for each object.
+    pub fn store(size: u64, objects: u64) -> Self {
+        let file = Budget::new(size);
+        let each = objects.saturating_mul(4);
+        let rows = crate::mirror::store_row_limit(size, objects);
+        Budget {
+            records: rows,
+            elements: (1u64 << 30).saturating_add(size / 4).saturating_add(each),
+            reads: file.reads.saturating_add(objects),
+            descriptions: rows,
+            rows: file.rows.saturating_add(each),
+            ..file
+        }
+    }
+
+    /// `d` entries of descriptions and `r` of the chunk map more, or the limit they would pass
+    /// (and none spent).
+    fn describe(&mut self, d: u64, r: u64) -> Res<()> {
+        let (sd, sr) = (self.spent_descriptions.saturating_add(d), self.spent_rows.saturating_add(r));
+        if sd > self.descriptions {
+            return Err(format!("budget: more than {} entries of stored arrays", self.descriptions));
+        }
+        if sr > self.rows {
+            return Err(format!("budget: more than {} chunk map entries", self.rows));
+        }
+        (self.spent_descriptions, self.spent_rows) = (sd, sr);
+        Ok(())
     }
 }
 
@@ -276,6 +330,10 @@ pub struct Ir {
     /// the objects of a store IR
     pub objects: u64,
     pub budget: Option<Budget>,
+    /// the arrays the source stores, the codec chains they share and the chunk map
+    /// ([`crate::array`]): built when the IR is finished ([`Ir::describe`]), kept current by
+    /// [`Ir::graft`] and [`Ir::unfold`]; shared, so that a clone of the IR does not copy them
+    pub stored: Arc<crate::array::Stored>,
     /// children, built by finish(): CSR over parents
     pub kid_index: Vec<u32>,
     pub kids: Vec<u32>,
@@ -334,7 +392,7 @@ impl Ir {
         let mut ir = Ir {
             size: 0,
             store: true,
-            budget: Some(Budget::new(0)),
+            budget: Some(Budget::store(0, 0)),
             ..Default::default()
         };
         ir.types.id("");
@@ -343,23 +401,33 @@ impl Ir {
     }
 
     /// An object of `size` bytes under `parent` (the root or a directory) of a store IR: its
-    /// extent is `(0, size)` of its own source. The budgets grow with it: 4 rows, and one
-    /// per 4 of its bytes.
+    /// extent is `(0, size)` of its own source. The limits grow with it, each by what the limit
+    /// of the store's totals ([`Budget::store`]) grows by: the records, elements, stored-array
+    /// descriptions, chunk map, bytes read and reads.
     pub fn object(&mut self, parent: u32, name: &str, nidx: u64, size: u64) -> Res<u32> {
         if !self.store {
             return Err("an object in a file IR".into());
         }
+        let was = Budget::store(self.size, self.objects);
         self.objects += 1;
         if self.objects > MAX_OBJECTS {
             return Err(format!("budget: more than {MAX_OBJECTS} objects"));
         }
         self.size = self.size.checked_add(size).ok_or("the store's objects total more than 2^64 bytes")?;
         if let Some(b) = self.budget.as_mut() {
-            let more = 4 + size / 4;
-            b.records += more;
-            b.elements += more;
-            b.read += 2 * size;
-            b.reads += 1 + size / 64;
+            // by the difference, not to the new limit: a limit that was set apart from the totals
+            // (a profile's own allowance, a test's) keeps what was added to it or taken from it
+            let now = Budget::store(self.size, self.objects);
+            for (limit, was, now) in [
+                (&mut b.records, was.records, now.records),
+                (&mut b.elements, was.elements, now.elements),
+                (&mut b.read, was.read, now.read),
+                (&mut b.reads, was.reads, now.reads),
+                (&mut b.descriptions, was.descriptions, now.descriptions),
+                (&mut b.rows, was.rows, now.rows),
+            ] {
+                *limit = limit.saturating_add(now.saturating_sub(was));
+            }
         }
         self.add(OBJECT, parent, name, nidx, "", 0, Some((0, size)))
     }
@@ -633,7 +701,69 @@ impl Ir {
         for b in &self.shared {
             eat(b);
         }
+        self.stored.digest(&mut eat);
         h
+    }
+
+    /// The arrays the source stores, with the chain table and the chunk map (rows in any order:
+    /// they are sorted here), described once from the finished IR (spec/stored-array.md §6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>): counted
+    /// against the budget, and checked ([`crate::array::check`]); the IR keeps none it refuses.
+    pub fn describe(&mut self, arrays: Vec<crate::array::StoredArray>, chains: Vec<crate::array::Chain>, map: crate::array::ChunkMap) -> Res<()> {
+        if !self.finished {
+            return Err("internal: arrays described before the IR is finished".into());
+        }
+        if !self.stored.is_empty() {
+            return Err("internal: the IR's arrays described twice".into());
+        }
+        let mut stored = crate::array::Stored { arrays, chains, map, ..Default::default() };
+        // the arrays in (element, index) order, so that which fall back follows from the source
+        // alone; then the map's limit, which never rejects: an array whose rows would pass it
+        // falls back
+        stored.sort_arrays();
+        let room = self.budget.as_ref().map_or(u64::MAX, |b| b.rows.saturating_sub(b.spent_rows));
+        stored.fit_map(room);
+        stored.drop_unnamed_chains();
+        stored.add_columns(crate::array::CODECS, 0);
+        // then the descriptions' limit, which falls back the same way: where even every array's
+        // fallen-back description passes it, the source keeps none and is marked (a store parser's
+        // own describe marks each object whose arrays it described)
+        let room = self.budget.as_ref().map_or(u64::MAX, |b| b.descriptions.saturating_sub(b.spent_descriptions));
+        let objects: Vec<String> = if self.store {
+            // a store parser's own arrays lie in its objects, which are what its mark lists
+            let of = self.sources().of;
+            let none = |e: u32| of.get(e as usize).is_none_or(|&o| o == NONE);
+            if let Some(a) = stored.arrays.iter().find(|a| none(a.element)) {
+                let at = if (a.element as usize) < self.len() { format!(" ({:?})", self.path(a.element)) } else { String::new() };
+                return Err(format!("internal: a store's own stored array of element {}{at} lies in no object", a.element));
+            }
+            let mut o: Vec<u32> = stored.arrays.iter().map(|a| of[a.element as usize]).collect();
+            o.sort_unstable();
+            o.dedup();
+            o.into_iter().map(|o| self.key(o)).collect()
+        } else {
+            Vec::new()
+        };
+        if !stored.fit_descriptions(room) {
+            if self.store {
+                stored.undescribed_keys = objects;
+            } else {
+                stored.undescribed = true;
+            }
+        }
+        let (d, r) = stored.weights();
+        if let Some(b) = self.budget.as_mut() {
+            b.describe(d, r)?;
+        }
+        stored.map.sort();
+        self.stored = Arc::new(stored);
+        crate::array::check(self).inspect_err(|_| {
+            self.stored = Default::default();
+            if let Some(b) = self.budget.as_mut() {
+                b.spent_descriptions -= d;
+                b.spent_rows -= r;
+            }
+        })
     }
 
     /// The bytes of held objects of a store IR (conventions §8.9
@@ -718,19 +848,90 @@ impl Ir {
         if from.space.iter().any(|&s| s != 0) {
             return Err("internal: a graft of an IR with derived spaces".into());
         }
+        let base = self.len() as u32;
+        let at = |i: u32| if i == 0 { under } else { base + i - 1 };
+        // the stored arrays planned, and every budget checked, before anything is added: a graft
+        // that fails leaves the store as it was. The file's arrays are fitted to the store's chunk
+        // map limit as it stands, which every object the store has listed grew (Ir::object); a
+        // graft does not grow it
+        let key = self.key(under);
+        let room = self.budget.as_ref().map_or(u64::MAX, |b| b.rows.saturating_sub(b.spent_rows));
+        let descriptions = self.budget.as_ref().map_or(u64::MAX, |b| b.descriptions.saturating_sub(b.spent_descriptions));
+        let plan = if from.stored.is_empty() {
+            None
+        } else {
+            Arc::make_mut(&mut self.stored).index_chains();
+            Some(self.stored.plan_graft(&from.stored, &at, &key, room, descriptions)?)
+        };
         let added = from.len().saturating_sub(1) as u64;
         if let Some(b) = self.budget.as_mut() {
-            b.spent_records += added;
-            b.spent_elements += added;
-            if b.spent_records > b.records {
+            if b.spent_records.saturating_add(added) > b.records {
                 return Err(format!("budget: more than {} IR records", b.records));
             }
-            if b.spent_elements > b.elements {
+            if b.spent_elements.saturating_add(added) > b.elements {
                 return Err(format!("budget: more than {} IR elements", b.elements));
             }
+            if let Some(p) = &plan {
+                b.describe(p.weights.0, p.weights.1)?;
+            }
+            b.spent_records += added;
+            b.spent_elements += added;
+        }
+        let map = self.copy_elements(from, &at, 0);
+        if let Some(plan) = plan {
+            let s = Arc::make_mut(&mut self.stored);
+            let first = s.arrays.len();
+            s.graft(plan, &from.stored, &at, &key);
+            s.add_columns(crate::array::CODECS, first);
+        }
+        Ok(map)
+    }
+
+    /// The file IR `from` joined to this file IR, which is not finished, under its struct `under`,
+    /// the struct taking the place of its root: as a file held in a range of this one's bytes is
+    /// described in place, `from`'s byte 0 being this one's byte `shift` (an H5J channel's MP4 file,
+    /// spec/zarrify/h5j.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md>). `from`
+    /// may be finished; its stored arrays are not joined (the caller joins them with the ids this
+    /// gives, [`crate::array::join_grafted`]). The ids `from`'s elements have here, by their ids there.
+    pub fn graft_file(&mut self, from: &Ir, under: u32, shift: u64) -> Res<Vec<u32>> {
+        if self.store || from.store || self.finished {
+            return Err("internal: a file graft takes a file IR into an unfinished file IR".into());
+        }
+        if from.space.iter().any(|&s| s != 0) {
+            return Err("internal: a graft of an IR with derived spaces".into());
+        }
+        if (under as usize) >= self.len() || self.kind[under as usize] != STRUCT {
+            return Err("internal: a file graft goes under a struct".into());
+        }
+        if shift.checked_add(from.size).is_none_or(|e| e > self.size) {
+            return Err("internal: a grafted file lies outside the file".into());
+        }
+        let added = from.len().saturating_sub(1) as u64;
+        if let Some(b) = self.budget.as_mut() {
+            if b.spent_records.saturating_add(added) > b.records {
+                return Err(format!("budget: more than {} IR records", b.records));
+            }
+            if b.spent_elements.saturating_add(added) > b.elements {
+                return Err(format!("budget: more than {} IR elements", b.elements));
+            }
+            b.spent_records += added;
+            b.spent_elements += added;
         }
         let base = self.len() as u32;
         let at = |i: u32| if i == 0 { under } else { base + i - 1 };
+        let map = self.copy_elements(from, &at, shift);
+        // the tables are kept sorted by element, as `find` reads them
+        self.values.sort_by_key(|v| v.0);
+        self.form_of.sort_by_key(|f| f.0);
+        self.targets.sort_by_key(|t| t.0);
+        self.was.sort_by_key(|w| w.0);
+        self.runs.sort_by_key(|r| r.0);
+        Ok(map)
+    }
+
+    /// `from`'s elements but its root appended, each element `i` at `at(i)`, their extents moved
+    /// `shift` bytes on, with their values, forms, targets and runs: the ids by `from`'s.
+    fn copy_elements(&mut self, from: &Ir, at: &dyn Fn(u32) -> u32, shift: u64) -> Vec<u32> {
         let map: Vec<u32> = (0..from.len() as u32).map(at).collect();
         let shared: Vec<u32> = from.shared.iter().map(|b| self.share(b)).collect();
         for i in 1..from.len() {
@@ -742,7 +943,8 @@ impl Ir {
             self.nidx.push(from.nidx[i]);
             self.ty.push(ty);
             self.space.push(0);
-            self.start.push(from.start[i]);
+            // an element of no extent (a struct of none) stays at 0
+            self.start.push(if from.len[i] == 0 && from.start[i] == 0 { 0 } else { from.start[i] + shift });
             self.len.push(from.len[i]);
         }
         for &(i, o, n) in &from.values {
@@ -757,7 +959,7 @@ impl Ir {
         self.targets.extend(from.targets.iter().map(|&(i, t)| (at(i), at(t))));
         self.was.extend(from.was.iter().map(|&(i, k)| (at(i), k)));
         self.runs.extend(from.runs.iter().map(|&(r, c, s)| (at(r), c, s)));
-        Ok(map)
+        map
     }
 
     /// A second name for element `target` (an earlier one): it claims nothing.
@@ -854,6 +1056,15 @@ impl Ir {
 
     pub fn was_kind(&self, i: u32) -> Option<u8> {
         find(&self.was, i)
+    }
+
+    /// The rows the runs add when they are expanded: each run's members past member 0, each as
+    /// many rows as the run's subtree.
+    pub fn run_rows(&self) -> u64 {
+        self.runs
+            .iter()
+            .map(|&(r, c, _)| c.saturating_sub(1).saturating_mul((self.subtree_end(r) - r) as u64))
+            .fold(0u64, |a, b| a.saturating_add(b))
     }
 
     /// The end (exclusive) of the subtree rooted at `r`, whose ids are contiguous.
@@ -1089,6 +1300,7 @@ impl Ir {
             + self.names.bytes()
             + self.types.bytes()
             + self.forms.bytes()
+            + self.stored.memory()
     }
 
     /// Makes run `r` plain again: member 0 stays where it is and members 1.. are
@@ -1102,8 +1314,13 @@ impl Ir {
         self.runs.remove(k);
         let was_finished = self.finished;
         self.finished = false;
+        // member j's copy is appended at `first + (j - 1) * size`, which `unfolded` takes the ids from
+        let (first, size) = (self.len() as u32, end - r);
         for j in 1..count {
             let base = self.len() as u32;
+            if base as u64 != first as u64 + (j - 1) * size as u64 {
+                return Err(format!("internal: member {j} of run {r} unfolds at element {base}, not {}", first as u64 + (j - 1) * size as u64));
+            }
             for i in r..end {
                 let iu = i as usize;
                 let parent = if i == r {
@@ -1135,6 +1352,9 @@ impl Ir {
             }
         }
         self.finished = was_finished;
+        if !self.stored.is_empty() {
+            Arc::make_mut(&mut self.stored).unfolded(r, end, first, count);
+        }
         Ok(())
     }
 }

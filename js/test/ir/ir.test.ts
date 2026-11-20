@@ -17,7 +17,7 @@ import { REGISTRY } from "../../src/zarrify/profiles.ts";
 import { zarrifyIr } from "../../src/zarrify/ir/run.ts";
 import { bytesSource, OPEN, openHttpSource } from "../../src/zarrify/ir/source.ts";
 import { IMS_REVISION, REVISION as FROZEN_REVISION } from "../../../conformance/zarrify/reference/ts/revision.ts";
-import { hierarchy } from "./compare.ts";
+import { exactIntegers, hierarchy } from "./compare.ts";
 import { REVISED } from "../revised.ts";
 
 const FIXTURES = new URL("../../../fixtures/", import.meta.url);
@@ -114,9 +114,9 @@ test("the Rust core gives the frozen zarrifiers' hierarchy, and rejects the same
       if (ref.status !== got.status) problems.push(`${path}: the reference ${ref.status === "rejected" ? "rejects" : "accepts"} it, the core does not`);
       continue;
     }
-    const [a, b] = [hierarchy(ref.value, path.startsWith("ims/") ? IMS_REVISION : FROZEN_REVISION), hierarchy(got.value)];
+    const [a, b] = [hierarchy(ref.value, path.startsWith("ims/") ? IMS_REVISION : FROZEN_REVISION), hierarchy(got.value, undefined, true)];
     for (const key of new Set([...a.keys(), ...b.keys()])) {
-      if (!isDeepStrictEqual(a.get(key), b.get(key))) problems.push(`${path}: ${key} differs`);
+      if (!isDeepStrictEqual(exactIntegers(a.get(key), b.get(key)), b.get(key))) problems.push(`${path}: ${key} differs`);
     }
     assert.deepEqual(got.value.sources[0], { url, size: BigInt(bytes.length) });
   }

@@ -320,15 +320,10 @@ impl Grid {
                before: &Part, after: &Part, rules: &Rules) -> Res<Grid> {
         let q = w.div_ceil(h.restart * h.mw);
         let r = hgt.div_ceil(h.mh);
-        let matches = q.checked_mul(r).is_some_and(|n| n == starts.len() as u64)
-            && starts.last().is_some_and(|&l| l < length)
-            && starts.windows(2).all(|p| p[1] > p[0]);
-        let mut ends: Vec<u64> = Vec::new();
-        let mut nonempty = true;
-        if matches {
-            ends = starts[1..].iter().map(|&s| s - 2).chain([length - 2]).collect();
-            nonempty = starts.iter().zip(&ends).all(|(s, e)| e > s);
-        }
+        let ends = interval_ends(length, q, r, &starts);
+        let matches = ends.is_some();
+        let ends = ends.unwrap_or_default();
+        let nonempty = starts.iter().zip(&ends).all(|(s, e)| e > s);
         rules.check("intervals", &mut rules::env([("matches", flag(matches)), ("nonempty", flag(nonempty))]))?;
         let a = q.min((CHUNK / (h.restart * h.mw)).max(1));
         let chunks = |width: u64, height: u64, payload: usize| {
@@ -412,6 +407,21 @@ impl Grid {
             },
         }
     }
+}
+
+/// The ends of the intervals of a strip of `length` bytes that McuStarts `starts` locates, `q` a
+/// row and `r` rows (spec/zarrify/ndpi.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>): interval `i` is
+/// `[starts[i], ends[i])` of the strip, without the 2-byte restart marker or EOI after it. None
+/// where the starts are not `q × r` increasing offsets within the strip.
+pub fn interval_ends(length: u64, q: u64, r: u64, starts: &[u64]) -> Option<Vec<u64>> {
+    let matches = q.checked_mul(r).is_some_and(|n| n == starts.len() as u64)
+        && starts.last().is_some_and(|&l| l < length)
+        && starts.windows(2).all(|p| p[1] > p[0]);
+    if !matches {
+        return None;
+    }
+    starts[1..].iter().map(|&s| s.checked_sub(2)).chain([length.checked_sub(2)]).collect()
 }
 
 /// A shared byte string as a data source, numbered by first use: its range, the whole source.
@@ -912,6 +922,33 @@ mod tests {
         assert_eq!(combine(vec![5, 6], None), vec![5, 6]);
         assert_eq!(combine(vec![5, 6], Some(&[0, 1])), vec![5, 6 + (1 << 32)]);
         assert_eq!(combine(vec![5, u64::MAX - 1], Some(&[1 << 32, 1])), vec![u64::MAX, u64::MAX]);
+    }
+
+    #[test]
+    fn an_interval_ends_two_bytes_before_the_next_starts() {
+        assert_eq!(interval_ends(60, 2, 1, &[40, 50]), Some(vec![48, 58]));
+        assert_eq!(interval_ends(60, 1, 2, &[2, 4]), Some(vec![2, 58]));
+    }
+
+    #[test]
+    fn starts_of_another_count_have_no_ends() {
+        assert_eq!(interval_ends(60, 3, 1, &[40, 50]), None);
+        assert_eq!(interval_ends(60, u64::MAX, 2, &[40, 50]), None);
+    }
+
+    #[test]
+    fn starts_that_do_not_increase_have_no_ends() {
+        assert_eq!(interval_ends(60, 2, 1, &[40, 40]), None);
+    }
+
+    #[test]
+    fn a_start_past_the_strip_has_no_ends() {
+        assert_eq!(interval_ends(50, 2, 1, &[40, 50]), None);
+    }
+
+    #[test]
+    fn a_start_with_no_room_for_a_marker_before_it_has_no_ends() {
+        assert_eq!(interval_ends(60, 2, 1, &[0, 1]), None);
     }
 
     #[test]

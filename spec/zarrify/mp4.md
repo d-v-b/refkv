@@ -199,7 +199,8 @@ An H.264, HEVC, AV1 or VP9 track of `N` samples, `W × H` pixels (its sample ent
 box, [§8.2](#82-tracks)), holds
 its pictures in **presentation order**: picture `p` is
 the sample with the `p`-th smallest presentation time. Its arrays are `y`, `u` and `v`, the
-planes of the pictures, and `time`, the pictures' presentation times.
+planes of the pictures (`y` alone of a 4:0:0 HEVC track, whose pictures have no chroma), and
+`time`, the pictures' presentation times.
 
 **Chunks.** A chunk holds at most
 `F = min(256, max(1, floor(2^25 / (W × H × B))))` pictures, `B` the bytes of a sample (1 for
@@ -378,7 +379,7 @@ are the same up to `frames` and at the end, `chunk_frames`.
 | `frames` | integer | required | its sample count `N` |
 | `width` | integer | required | `W` ([§4.1](#41-video-tracks)) |
 | `height` | integer | required | `H` |
-| `chroma` | string | required | the chroma planes' subsampling: `"4:2:0"` or `"4:2:2"` |
+| `chroma` | string | required | the chroma planes' subsampling: `"4:2:0"` or `"4:2:2"`, or `"4:0:0"` for pictures of no chroma planes |
 | `bit_depth` | integer | required | `D`: 8, 10 or 12 |
 | `profile` | integer | required | the SPS's `profile_idc` (H.264) or `general_profile_idc` (HEVC: 1 Main, 2 Main 10, 4 range extensions), the `av1C` box's `seq_profile` or the `vpcC` box's `profile` |
 | `level` | integer | required | the SPS's `level_idc` (H.264) or `general_level_idc` (HEVC: 30 times the level), the `av1C` box's `seq_level_idx_0` or the `vpcC` box's `level` |
@@ -447,7 +448,7 @@ the IR's root, whose path is `""`
 | `<box>/rest` | value | `bytes[k]` | bytes of a box that are none of its fields, table or boxes |
 | `samples` | struct | | the samples of the file's tracks |
 | `samples/<T>` | struct | | track `T`'s samples |
-| `samples/<T>/<j>` | data | | sample `j` of track `T`, `(offset, size)`, or, for a PCM track of one sample size, the samples of its table's chunk `j` together, and of a `trun` box with no table of its track fragments; its form's geometry is `{"width", "height", "planes": 3, "data_type", "chroma"}` for a video track, `{"width", "height", "channels", "data_type"}` for a Motion JPEG track, its data type the planes' (`"uint8"` or `"uint16"`), `{"samples", "channels", "data_type": "float32"}` for an audio track and `{"channels", "data_type"}` for a PCM one (null for a track the profile does not zarrify), its codec `{"name": E, "format": F}` (`F` null for such a track), its recipe `[["src", 0, null]]` |
+| `samples/<T>/<j>` | data | | sample `j` of track `T`, `(offset, size)`, or, for a PCM track of one sample size, the samples of its table's chunk `j` together, and of a `trun` box with no table of its track fragments; its form's geometry is `{"width", "height", "planes", "data_type", "chroma"}` for a video track, `planes` 1 for 4:0:0 and 3 otherwise, `{"width", "height", "channels", "data_type"}` for a Motion JPEG track, its data type the planes' (`"uint8"` or `"uint16"`), `{"samples", "channels", "data_type": "float32"}` for an audio track and `{"channels", "data_type"}` for a PCM one (null for a track the profile does not zarrify), its codec `{"name": E, "format": F}` (`F` null for such a track), its recipe `[["src", 0, null]]` |
 | `gaps/<offset>` | gap | | bytes no other element claims: the media data in no sample, and fewer than 8 bytes after the last box |
 
 A box is named by its type: printable ASCII as it is but for `/`, `~`, `%`
@@ -593,7 +594,7 @@ that fails.
 - **A track:** the profile zarrifies at least one track ([§8.2](#82-tracks)).
   Without one, the input is rejected with each track's reason: `no track can
   be zarrified: track 1 (hvc1): HEVC with chroma format 3 and bit depth 8 is
-  not supported: only 4:2:0 or 4:2:2 of 8, 10 or 12 bits is`.
+  not supported: only 4:0:0, 4:2:0 or 4:2:2 of 8, 10 or 12 bits is`.
 
 A box that is not well formed but within a box the profile does not parse
 is not checked: its payload is opaque.
@@ -621,8 +622,8 @@ and the track is kept in the mirror but has no group:
   `hvcC` box is absent, does not hold a VPS, an SPS and a PPS, gives NAL unit
   lengths of 3 bytes (`lengthSizeMinusOne` 2, which ISO/IEC 14496-15 does not
   allow), or its first SPS cannot be read to its bit depths (ITU-T H.265
-  §7.3.2.2), or the SPS is not 4:2:0 or 4:2:2 of 8, 10 or 12 bits (`chroma_format_idc` 1 or 2 and
-  both bit depths 8, both 10 or both 12: Main, Main 10 and range extensions); or its width or
+  §7.3.2.2), or the SPS is not 4:0:0, 4:2:0 or 4:2:2 of 8, 10 or 12 bits (`chroma_format_idc` 0, 1 or 2 and
+  both bit depths 8, both 10 or both 12, or for 0 the luma bit depth alone: Main, Main 10 and range extensions); or its width or
   height is 0; or its first sample is not a sync
   sample; or its sync samples do not increase, or one is past its last
   sample; or two samples share a presentation time; or two sync samples

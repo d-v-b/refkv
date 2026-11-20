@@ -402,11 +402,58 @@ fn who(ir: &Ir, i: u32) -> String {
     )
 }
 
+/// `N` of the limits of conventions §8.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#83-column-runs> (a store IR's, of
+/// §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): the parser's
+/// record budget, or that of a table read back.
 fn expansion_limit(ir: &Ir) -> u64 {
-    ir.budget
-        .as_ref()
-        .map(|b| b.records)
-        .unwrap_or((1 << 22) + ir.size / 4)
+    ir.budget.as_ref().map(|b| b.records).unwrap_or_else(|| crate::mirror::limit_of(ir))
+}
+
+/// The rules of runs (conventions §8.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>), and the rows they
+/// expand to (the limits of §8.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#83-column-runs>). Parents precede
+/// their children.
+pub fn runs(ir: &Ir) -> Res<()> {
+    if ir.runs.is_empty() {
+        return Ok(());
+    }
+    let n = ir.len();
+    if ir.runs.len() > 1 {
+        let mut within = vec![NONE; n]; // the run whose root is above each row
+        for i in 1..n {
+            let p = ir.parent[i];
+            let Some(&above) = within.get(p as usize) else { continue };
+            let outer = if ir.run(p).is_some() { p } else { above };
+            if outer != NONE && ir.run(i as u32).is_some() {
+                return Err(format!("the run at row {i} is inside the run at row {outer}"));
+            }
+            within[i] = outer;
+        }
+    }
+    let rr = ir.run_roots();
+    for i in 0..n {
+        let r = rr[i];
+        if r == NONE {
+            continue;
+        }
+        let what = match ir.kind[i] {
+            DERIVED => "a derived element",
+            ALIAS => "an alias",
+            _ if ir.space[i] != 0 => "an element in a derived space",
+            _ => continue,
+        };
+        return Err(format!("the run at row {r} holds {what} (row {i})"));
+    }
+    // a table's rows; of a parser's IR, those outside derived spaces, as `mirror::mirror` counts
+    // them before canonical form leaves derived descendants out
+    let limit = expansion_limit(ir);
+    let rows = if ir.loaded { n as u64 } else { ir.space.iter().filter(|&&d| d == 0).count() as u64 };
+    if rows.saturating_add(ir.run_rows()) > limit {
+        return Err(format!("budget: more than {limit} rows"));
+    }
+    Ok(())
 }
 
 /// Injectivity, then coverage: claims of claimed bytes become aliases of their
@@ -509,8 +556,12 @@ pub fn finish(ir: &mut Ir) -> Res<()> {
         }
         break;
     }
-    ir.finished = true;
     ir.build_children();
+    // the stored arrays (spec/stored-array.md §5
+    // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#5-checks>): a store's, after
+    // its grafts and unfolds; a file IR's are built after its finish, and checked then
+    crate::array::check(ir)?;
+    ir.finished = true;
     Ok(())
 }
 
@@ -573,6 +624,8 @@ pub fn names(ir: &Ir) -> Res<()> {
     if ir.run(0).is_some() {
         return Err("the root (element 0) is a run".into());
     }
+    // a guard for a caller that has not checked `runs` (which bounds the members, among the rows
+    // they expand to), not a rejection of its own: `check` and `canonical` never reach it
     let limit = expansion_limit(ir);
     let mut extra = 0u64;
     // (parent, full name, element, member)
@@ -662,6 +715,7 @@ pub fn check(ir: &Ir) -> Res<()> {
             }
         }
     }
+    runs(ir)?;
     names(ir)?;
     store_shape(ir)?;
     let (v, src) = sweep(ir)?;

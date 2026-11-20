@@ -12,6 +12,10 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#84-gzipped-files>) takes other
 //! rounds: the start of the stream, inflated as far as the header, and its trailer. Its IR is one
 //! `data` element, the whole file; the header is in the facts, as the file's bytes do not show it.
+//!
+//! The parser describes the file's array as the file stores it (spec/stored-array.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>; `mrc/stored.rs`),
+//! keyed by the element its facts name `declared_by`.
 
 use crate::fed::Fed;
 use crate::gz;
@@ -21,6 +25,9 @@ use crate::record::{Field, Header};
 use crate::rules::{self, Rules, num, text};
 use crate::sans;
 use serde_json::{Value as J, json};
+
+#[path = "mrc/stored.rs"]
+mod stored;
 
 /// The header's length.
 pub const HEADER: u64 = 1024;
@@ -93,11 +100,13 @@ pub struct Mrc {
     /// a gzipped file's reads
     gzip: Option<gz::Reader>,
     facts: J,
+    /// what the array's description is built from, at finish (`stored.rs`)
+    reached: Option<stored::Reached>,
 }
 
 impl Mrc {
     pub fn new(size: u64) -> Self {
-        Mrc { size, phase: Phase::Start, fed: Fed::default(), ir: Ir::new(size), rules: rules::of("mrc"), gzip: None, facts: J::Null }
+        Mrc { size, phase: Phase::Start, fed: Fed::default(), ir: Ir::new(size), rules: rules::of("mrc"), gzip: None, facts: J::Null, reached: None }
     }
 
     pub fn feed(&mut self, offset: u64, data: Vec<u8>) {
@@ -197,6 +206,16 @@ impl Mrc {
             ]),
         )?;
         let endian = if h.little { "little" } else { "big" };
+        // what the array's description is built from, once its key and its data are elements
+        let reached = |element: u32, data: u32, gzip: Option<u64>| stored::Reached {
+            element,
+            data,
+            dims: dims.map(|d| d as u64),
+            mode: code,
+            item_bits: bits.unwrap_or(bytes * 8),
+            packed: bits.is_some(),
+            gzip,
+        };
         let geometry = match bits {
             Some(k) => json!({"data_type": dtype, "samples": 1, "bits": k}),
             None => json!({"data_type": dtype, "samples": 1}),
@@ -218,8 +237,10 @@ impl Mrc {
                               "codec": {"encoding": "gzip", "endian": endian, "skip": offset},
                               "recipe": [["src", 0, null]]});
             let data = self.ir.data(0, "data", NO_INDEX, 0, (0, self.size), &form.to_string())?;
-            self.facts = json!({"data": data, "data_type": dtype, "gzip": {"skip": offset, "head": gz::head(h.raw)},
-                                "copy_threshold": crate::out::copy_threshold()});
+            // `declared_by`: the key of the array's description, the stream
+            self.reached = Some(reached(data, data, Some(offset)));
+            self.facts = json!({"data": data, "declared_by": data, "data_type": dtype,
+                                "gzip": {"skip": offset, "head": gz::head(h.raw)}, "copy_threshold": crate::out::copy_threshold()});
             return Ok(());
         }
         let header = self.ir.value(0, "header", NO_INDEX, &h.record_type(), 0, (0, HEADER), Some(h.raw))?;
@@ -228,13 +249,21 @@ impl Mrc {
         }
         let form = json!({"geometry": geometry, "codec": {"endian": endian}, "recipe": [["src", 0, null]]});
         let data = self.ir.data(0, "data", NO_INDEX, 0, (offset, total as u64), &form.to_string())?;
-        // the payload past which the projection copies an edge chunk, read once per run
-        self.facts = json!({"header": header, "data": data, "data_type": dtype, "copy_threshold": crate::out::copy_threshold()});
+        // `declared_by`: the key of the array's description, the header; `copy_threshold`: the
+        // payload past which the projection copies an edge chunk, read once per run
+        self.reached = Some(reached(header, data, None));
+        self.facts = json!({"header": header, "data": data, "declared_by": header, "data_type": dtype, "copy_threshold": crate::out::copy_threshold()});
         Ok(())
     }
 
+    /// The finished IR, with the file's array described (`stored.rs`), and the facts.
     pub fn finish(self) -> Result<(Ir, J), String> {
-        sans::finish(self.phase == Phase::Done, self.ir, self.facts)
+        let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
+        if let Some(reached) = &self.reached {
+            let (arrays, chains, map) = stored::described(reached)?;
+            ir.describe(arrays, chains, map)?;
+        }
+        Ok((ir, facts))
     }
 }
 

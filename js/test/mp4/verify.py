@@ -101,7 +101,11 @@ def problems_of(path: Path, out: Path) -> list[str]:
             continue
         kind, frames, pts = decoded(path, integer(track["id"]) - 1)
         if kind == "video":
-            for k, name in enumerate("yuv"):
+            # a 4:0:0 picture has its Y plane alone, and its track the array y alone
+            gray = frames[0].format.name.startswith("gray")
+            if gray and set(g.array_keys()) != {"y", "time"}:
+                problems.append(f"track {track['id']}'s arrays are {sorted(g.array_keys())}, not y and time")
+            for k, name in enumerate("y" if gray else "yuv"):
                 want = np.stack([plane(f, k) for f in frames])
                 got = ndarray(g.get_array(name)[...])
                 if got.dtype != want.dtype or got.shape != want.shape or not np.array_equal(got, want):

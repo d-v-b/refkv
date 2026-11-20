@@ -20,6 +20,7 @@
 
 pub mod file;
 pub mod store;
+pub mod stored;
 pub mod types;
 pub mod walk;
 
@@ -333,9 +334,20 @@ pub fn parse_dataspace(d: &[u8]) -> R<Dataspace> {
     Ok(Dataspace { dims: if kind == 2 { None } else { Some(dims) }, maxdims })
 }
 
-/// The filters of a filter pipeline message, in pipeline order: each identifier and its client
-/// data values.
-pub fn parse_filters(d: Option<&[u8]>) -> R<Vec<(u64, Vec<u32>)>> {
+/// A filter of a filter pipeline message.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Filter {
+    pub id: u64,
+    /// its name, where the message gives one
+    pub name: Option<String>,
+    /// its client data values
+    pub client: Vec<u32>,
+    /// the client data's offset in the message's data
+    pub client_at: u64,
+}
+
+/// The filters of a filter pipeline message, in pipeline order.
+pub fn parse_filters(d: Option<&[u8]>) -> R<Vec<Filter>> {
     let Some(d) = d else { return Ok(Vec::new()) };
     let (version, count) = (le(d, 0, 1)?, le(d, 1, 1)?);
     if version != 1 && version != 2 {
@@ -355,6 +367,7 @@ pub fn parse_filters(d: Option<&[u8]>) -> R<Vec<(u64, Vec<u32>)>> {
         }
         let values = le(d, p as usize + 2, 2)?;
         p += 4;
+        let name_at = p;
         p += if version == 1 { pad8(name_length) } else { name_length };
         let cd = p;
         p += 4 * values + if version == 1 && values % 2 == 1 { 4 } else { 0 };
@@ -365,7 +378,10 @@ pub fn parse_filters(d: Option<&[u8]>) -> R<Vec<(u64, Vec<u32>)>> {
         for k in 0..values {
             client.push(le(d, (cd + 4 * k) as usize, 4)? as u32);
         }
-        ids.push((fid, client));
+        // a name is null-terminated ASCII, padded in version 1
+        let name = &d[name_at as usize..(name_at + name_length) as usize];
+        let name = name.split(|&b| b == 0).next().filter(|n| !n.is_empty()).and_then(|n| std::str::from_utf8(n).ok());
+        ids.push(Filter { id: fid, name: name.map(str::to_string), client, client_at: cd });
     }
     Ok(ids)
 }
@@ -1679,7 +1695,7 @@ impl H5 {
         };
         let datatype = parse_datatype(&type_message)?;
         let fill_message = h.message(FILL_VALUE, false)?.map(|d| d.to_vec());
-        let (filters, client_data): (Vec<u64>, Vec<Vec<u32>>) = parse_filters(h.message(FILTERS, false)?)?.into_iter().unzip();
+        let (filters, client_data): (Vec<u64>, Vec<Vec<u32>>) = parse_filters(h.message(FILTERS, false)?)?.into_iter().map(|f| (f.id, f.client)).unzip();
         let layout = h.message(LAYOUT, true)?.unwrap().to_vec();
         let layout_at = h.messages().find(|m| m.ty == LAYOUT).map(|m| m.at).unwrap_or(0);
         let mut fill = match &fill_message {

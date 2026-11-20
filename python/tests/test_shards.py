@@ -23,7 +23,7 @@ def test_virtual_shards_roundtrip(netcdf_files, tmp_path):
         # temp: one shard per file (4 time steps x the full 2x2 spatial chunk grid)
         write_vzip_sharded(vds, out, {"temp": (4, 2, 2), "mask": (4, 3, 4)},
                            inline_index=inline, page_size=page_size, index_location=loc)
-        zs = refkv.zarr.open(out)
+        zs = refkv.zarr.open(out, policy=refkv.Policy(prefixes=(tmp_path.as_uri() + "/",)))
         ds = xr.open_zarr(zs, consolidated=True, zarr_format=3)
         xr.testing.assert_identical(ds.load(), expected.load())
         s = zs.reader

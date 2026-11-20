@@ -18,25 +18,15 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 const MAX_ROOT_JSON: usize = 1 << 14;
 /// The most JSON of the root's chunks.
 const MAX_ROOT_TOTAL: usize = 1 << 16;
-/// The largest integer JSON holds exactly.
-const MAX_SAFE: i128 = (1 << 53) - 1;
 /// The names of the tags (spec/zarrify/nd2.md §5.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>).
-const TAGS: [&str; 3] = ["utf16", "int", "float"];
+const TAGS: [&str; 2] = ["utf16", "float"];
 
-use crate::out::{js_string_size, json_size};
+use crate::out::{int_json, int_text, js_string_size, json_size};
 
 // ---- values as JSON (spec/zarrify/nd2.md §5.1
 // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>)
 
-/// An integer as JSON: itself, or a tag when JSON cannot hold it exactly.
-fn int_json(v: i128) -> J {
-    if v.abs() <= MAX_SAFE {
-        json!(v as i64)
-    } else {
-        json!({"int": v.to_string()})
-    }
-}
 
 /// A binary64 as JSON: itself, or a tag for NaN, the infinities and -0.
 fn float_json(v: f64) -> J {
@@ -61,8 +51,8 @@ fn is_index(s: &str) -> bool {
 }
 
 /// Named values as an object, or as [name, value] pairs when a name repeats, a name
-/// is an array index, or the object would read as a tag (one member named utf16,
-/// int or float).
+/// is an array index, or the object would read as a tag (one member named utf16 or
+/// float).
 fn pairs_or_object(records: Vec<(String, J)>) -> J {
     let distinct: HashSet<&str> = records.iter().map(|r| r.0.as_str()).collect();
     if distinct.len() < records.len()
@@ -93,29 +83,37 @@ fn exact_text(units: &[u8]) -> J {
     }
 }
 
+/// The range of an XML variant's integer runtype: `lx_int<N>`'s and `lx_uint<N>`'s, of N bits.
+fn int_range(runtype: &str) -> Option<(i128, i128)> {
+    let (signed, bits) = match runtype.strip_prefix("lx_uint") {
+        Some(b) => (false, b),
+        None => (true, runtype.strip_prefix("lx_int")?),
+    };
+    let bits: u32 = match bits {
+        "8" => 8,
+        "16" => 16,
+        "32" => 32,
+        "64" => 64,
+        _ => return None,
+    };
+    Some(if signed { (-(1i128 << (bits - 1)), (1i128 << (bits - 1)) - 1) } else { (0, (1i128 << bits) - 1) })
+}
+
 /// An XML variant value by its runtype (spec/zarrify/nd2.md §5.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>).
 fn scalar(runtype: Option<&str>, value: &str) -> J {
-    const INTS: [&str; 8] = ["lx_int8", "lx_int16", "lx_int32", "lx_int64", "lx_uint8", "lx_uint16", "lx_uint32", "lx_uint64"];
-    let unsigned = value.strip_prefix(['+', '-']).unwrap_or(value);
+    if let Some((lo, hi)) = runtype.and_then(int_range) {
+        // an integer of its runtype's width; any other value is text
+        let digits = value.strip_prefix(['+', '-']).unwrap_or(value);
+        let int = !digits.is_empty() && digits.bytes().all(|c| c.is_ascii_digit());
+        return int.then(|| int_text(value, lo, hi)).flatten().unwrap_or_else(|| json!(value));
+    }
     match runtype {
-        Some(rt) if INTS.contains(&rt) && !unsigned.is_empty() && unsigned.bytes().all(|c| c.is_ascii_digit()) => {
-            let sign = if value.starts_with('-') { "-" } else { "" };
-            let digits = unsigned.trim_start_matches('0');
-            let digits = if digits.is_empty() { "0" } else { digits };
-            if digits.len() <= 20 {
-                let v: i128 = digits.parse().unwrap();
-                int_json(if sign == "-" { -v } else { v })
-            } else {
-                json!({"int": format!("{sign}{digits}")})
-            }
-        }
         Some("double" | "float") if is_decimal(value) => float_json(value.parse().unwrap_or(f64::NAN)),
         Some("bool") if value == "true" || value == "false" => json!(value == "true"),
         _ => json!(value),
     }
 }
-
 
 /// The IR's values decoded by their types (each type parsed once).
 struct Values<'a> {
@@ -466,4 +464,30 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     out.summary = json!({"sizes": sizes, "dataType": data_type, "compressed": a["compressed"], "paddedRows": wb != row,
                          "rowBlock": h, "positions": positions, "frames": frames, "missing": missing, "channels": labels});
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::out::to_text;
+
+    /// An XML variant's integer of its runtype's width, exact (spec/zarrify/nd2.md §5.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>).
+    #[test]
+    fn an_xml_integer_within_its_width_is_exact() {
+        for (rt, v, want) in [("lx_int8", "-128", "-128"), ("lx_uint8", "+0255", "255"), ("lx_int32", "-0", "0"),
+                              ("lx_int64", "-9223372036854775808", "-9223372036854775808"),
+                              ("lx_uint64", "18446744073709551615", "18446744073709551615")] {
+            assert_eq!(to_text(&scalar(Some(rt), v)), want, "{rt} {v}");
+        }
+    }
+
+    /// An XML variant's integer outside its runtype's width is no value of it: its text.
+    #[test]
+    fn an_xml_integer_past_its_width_is_its_text() {
+        for (rt, v) in [("lx_int8", "128"), ("lx_uint8", "-1"), ("lx_uint16", "65536"), ("lx_int64", "9223372036854775808"),
+                        ("lx_uint64", "18446744073709551616"), ("lx_int64", "-777777777777777777777777777777")] {
+            assert_eq!(scalar(Some(rt), v), json!(v), "{rt} {v}");
+        }
+    }
 }

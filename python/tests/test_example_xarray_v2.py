@@ -113,7 +113,7 @@ def test_files_as_zarr_v2_for_xarray(tmp_path, name, options, codes, netcdf4, le
     zarrified = zarrify(path, layout=Layout(XarrayV2(), options))
     assert zarrified.read_at_open == set(written.read_at_open or ())
     zarrified.save_vzip(tmp_path / "out.vzip")
-    store = refkv.zarr.open(tmp_path / "out.vzip")
+    store = refkv.zarr.open(tmp_path / "out.vzip", policy=zarrified.policy)
     for g in groups_of(entries):  # each group opens in xarray, as the file does in h5netcdf
         got = xr.open_zarr(store, consolidated=True, group=g).load()
         if netcdf4:

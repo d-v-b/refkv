@@ -1,7 +1,7 @@
 //! vzip archives, refkv's ZIP binding (spec/bindings/vzip.md): the protobuf messages of
-//! spec/proto/refkv.proto ([`pb`]), URI references ([`uri`]), and the archive writer
-//! ([`Writer`]), which writes the archive python/src/refkv/vzip/archive.py's `VZipWriter`
-//! writes, byte for byte.
+//! spec/proto/refkv.proto and spec/proto/vzip.proto ([`pb`]), URI references ([`uri`]), and the
+//! archive writer ([`Writer`]), which writes the archive python/src/refkv/vzip/archive.py's
+//! `VZipWriter` writes, byte for byte.
 
 pub mod pb;
 pub mod sources;

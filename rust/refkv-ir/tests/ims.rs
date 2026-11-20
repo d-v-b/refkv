@@ -111,3 +111,76 @@ fn the_walk_stops_inside_heaps_b_trees_and_global_heaps() {
     }
     assert!(!paths.iter().any(|p| p.starts_with("global_heaps/1")), "a later collection is described");
 }
+
+/// Each row of the stored arrays as the bytes of the file it names: its array (by position: the
+/// descriptions are in the order of the objects, which the room does not change) and coordinates,
+/// its (offset, length) parts, and whether it names them as ranges of the source.
+fn row_extents(ir: &refkv_ir::ir::Ir) -> Vec<((u32, Vec<u64>), Vec<(u64, u64)>, bool)> {
+    let m = &ir.stored.map;
+    (0..m.len())
+        .map(|r| {
+            let unit = (m.array[r], m.coords_of(r).to_vec());
+            match m.ranges_of(r) {
+                Some(parts) => {
+                    assert!(parts.clone().all(|p| m.range_object[p].is_none()));
+                    (unit, parts.map(|p| (m.range_offset[p], m.range_length[p])).collect(), true)
+                }
+                None => {
+                    let e = m.element[r].unwrap() as usize;
+                    let (o, n) = m.range[r].unwrap_or((0, ir.len[e]));
+                    (unit, vec![(ir.start[e] + o, n)], false)
+                }
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn past_the_walks_room_a_row_names_the_same_bytes_as_a_range_of_the_source() {
+    let mut as_ranges = 0;
+    for name in ["ims_latest_many_channels", "ims_latest_dense_links", "ims_latest_indexes", "ims_latest_review2", "ims_earliest_review2"] {
+        let data = std::fs::read(fixtures().join(format!("ims/{name}.ims"))).unwrap();
+        let (all, _) = ims_with_room(&data, None);
+        let mut whole: Vec<_> = row_extents(&all).into_iter().map(|(c, parts, _)| (c, parts)).collect();
+        whole.sort();
+        for room in [0, all.len() as u64 / 4, all.len() as u64 / 2] {
+            let (ir, _) = ims_with_room(&data, Some(room));
+            refkv_ir::array::check(&ir).unwrap();
+            let rows = row_extents(&ir);
+            as_ranges += rows.iter().filter(|r| r.2).count();
+            let mut short: Vec<_> = rows.into_iter().map(|(c, parts, _)| (c, parts)).collect();
+            short.sort();
+            assert!(short == whole, "{name} room {room}: {} rows, {} with room for all", short.len(), whole.len());
+        }
+    }
+    assert!(as_ranges > 100, "{as_ranges} rows of ranges");
+}
+
+/// Every image dataset of an accepted fixture's facts names its description by the description's
+/// key, the struct of the dataset's object, and the description's rows are the dataset's chunks.
+#[test]
+fn every_accepted_fixtures_images_name_their_descriptions() {
+    let mut images = 0;
+    for e in std::fs::read_dir(fixtures().join("ims")).unwrap() {
+        let p = e.unwrap().path();
+        let name = p.file_name().unwrap().to_str().unwrap().to_string();
+        if name.contains("reject") || !name.ends_with(".ims") {
+            continue;
+        }
+        let (ir, facts) = ims_with_room(&std::fs::read(&p).unwrap(), None);
+        let s = &ir.stored;
+        let mut keys = std::collections::HashSet::new();
+        for im in facts["images"].as_array().unwrap() {
+            let key = im[5].as_u64().unwrap_or_else(|| panic!("{name}: an image with no key")) as u32;
+            assert!(keys.insert(key), "{name}: two images name one description");
+            let described: Vec<usize> = (0..s.arrays.len()).filter(|&k| s.arrays[k].element == key).collect();
+            let [k] = described[..] else { panic!("{name}: {} descriptions of an image", described.len()) };
+            assert!(s.arrays[k].grid.is_some(), "{name}");
+            let rows = (0..s.map.len()).filter(|&r| s.map.array[r] == k as u32).count();
+            let chunks = im[3].as_u64().map_or(0, |el| ir.members(el as u32).len());
+            assert_eq!(rows, chunks, "{name}");
+            images += 1;
+        }
+    }
+    assert!(images >= 10, "{images} images");
+}

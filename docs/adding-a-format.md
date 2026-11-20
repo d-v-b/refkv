@@ -31,6 +31,15 @@ restating them. For agents, the project skill
 [.claude/skills/add-format](../.claude/skills/add-format/SKILL.md) gives the
 procedure and points into this guide.
 
+A profile works in two stages. A parser reads the input into an **IR**, which
+describes the source as found, and a projection builds the hierarchy from it.
+[conventions §8](../spec/conventions.md#8-the-ir-mirror) has the IR's rules.
+[spec/stored-array.md](../spec/stored-array.md) says how the IR describes each
+array the source stores, and
+[design/ARCHITECTURE.md §3](../design/ARCHITECTURE.md#3-proposal-an-intermediate-representation)
+says why the IR exists. [build.md](build.md) covers `refkv.build`, which builds
+other outputs from the same IR.
+
 ## 1. Check that the format fits
 
 A profile references the file's bytes; it never copies or decodes the data.
@@ -254,6 +263,25 @@ and [§5](../spec/conventions.md#5-units).
   written as JSON numbers, FITS `TNULLn` dropped, and duplicate MP4 track IDs
   overwriting each other.
 
+**Stored arrays.** See [spec/stored-array.md](../spec/stored-array.md).
+- Decide which structures of the format are its stored arrays: the ones the
+  source itself declares as arrays. A CZI file's are its subblocks. Its scenes
+  and pyramid levels are not, since the profile assembles those
+  ([stored-array §7](../spec/stored-array.md#7-the-formats)).
+- For each, find its declarations: the bytes that say what its elements are.
+- A description holds the source, not the output: no data types, byte order
+  names, output chunking, shards, padding, or bytes the source doesn't hold
+  ([stored-array §1](../spec/stored-array.md#1-stored-arrays)). Those are the
+  projection's decisions.
+- Where a description can't interpret something, fall back to something more general:
+  bytes, or where the source holds them
+  ([§2.2](../spec/stored-array.md#22-places-and-parameters)); the codec `source`,
+  with the source's own id and parameters
+  ([§3.2](../spec/stored-array.md#32-the-list)); or a description with no grid
+  ([§2.3](../spec/stored-array.md#23-the-grid)).
+- Describe every array the parser reaches, whether or not the profile presents
+  it. An output built with `refkv.build` may present one the profile leaves out.
+
 **A dataset layout (`<p>-dataset`), or not.** See
 [conventions §9](../spec/conventions.md#9-dataset-layouts).
 
@@ -332,6 +360,13 @@ Write the schema module, `spec/source_metadata/<p>.py`, alongside the
 document. `uv run python spec/generate_schemas.py` writes
 `spec/zarrify/<p>/schema.json` from it.
 
+Add the format's paragraph to
+[stored-array §7](../spec/stored-array.md#7-the-formats). It names the
+structures that are the format's stored arrays, how each is keyed and what its
+declarations are, and says what of the format is described and what is not
+yet. The parser of a format with no paragraph there describes nothing. MRC's
+paragraph is a short model.
+
 ## 5. Implement it
 
 ### 5.1 The registry
@@ -369,6 +404,11 @@ registry. Add:
     `parser`, `project`, and optionally `reads`, `mirrored`, `whole`);
   - a sans-IO parser with `new(size)`, `step`, `feed` and `finish`;
 - `src/project/<m>.rs`, the projection to the Zarr layout;
+- `src/<m>/stored.rs`, which builds the stored-array descriptions, their codec
+  chains and the chunk map from what the parser reached. The parser's `finish`
+  passes them to `Ir::describe` once its IR is finished
+  ([stored-array §6](../spec/stored-array.md#6-in-the-ir)). `src/mrc/stored.rs`
+  is a small model;
 - `schema/<p>.json`, the source model;
 - `tests/<m>.rs`, which includes the reject tests that `build.rs` generates
   from the reject table ([§6](#6-fixtures-tests-and-verification)).
@@ -601,6 +641,11 @@ valid inputs, comparing every value, and one test per error case.
 
 - **Test the projected chunk bytes, not only the parser's facts.** The NDPI
   fix that read in-line values said this would have caught its first finding.
+- **Compare the stored-array descriptions with the reference reader**, in
+  `python/tests/ir/test_<p>_stored.py`, with the helpers of
+  `python/tests/ir/described.py`: each description's shape, element size, grid
+  and chain, and its rows' bytes, decoded through the chain, against the
+  reader's values. `test_mrc_stored.py` is a model.
 - **Check that a new test fails on the old code.** Several fixes say so: "run
   against the unfixed parser, both tests fail."
 - **A profile with a frozen reference that changes a fixture's layout or verdict** adds the fixture's name to
@@ -623,6 +668,7 @@ output. The readers so far:
 | ND2 | nd2 |
 | DICOM, NIfTI | pydicom, nibabel |
 | IMS, HDF5 | h5py |
+| HDF4 | pyhdf (the HDF4 library) |
 | MRC | mrcfile |
 | VSI | Bio-Formats (needs a JVM) |
 | FITS | astropy |
@@ -777,6 +823,11 @@ Stale builds gave agents false results more than once:
   `just js::wasm` and `npm ci` in `js/` before trusting a failure.
 - Leave `CARGO_TARGET_DIR` unset; don't set it to an empty string.
 
+A PR that lands a step of a proposal in
+[design/proposals/](../design/proposals/) updates that proposal's
+`Status (YYYY-MM-DD):` line and its date: `just sections` checks that every
+proposal has the line, and can't tell whether it is still true.
+
 Open the PR against `main`, not stacked on another PR: PRs merged into a
 branch that was then squash-merged never reached `main`
 ([#20](https://github.com/d-v-b/refkv/pull/20),
@@ -800,3 +851,6 @@ PR and the merge order in the description.
    Neuroglancer fork, and the demo's host needs CORS.
 9. **Silent metadata loss**: colors, large integers, null markers, duplicate
    IDs. Compare every metadata value with the reader, not only the pixels.
+10. **Output decisions in a stored-array description.** Data types, output
+    chunking, shards and padding are the projection's. A description holds what
+    the source holds ([stored-array §1](../spec/stored-array.md#1-stored-arrays)).

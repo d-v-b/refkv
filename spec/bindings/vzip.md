@@ -1,6 +1,6 @@
 # vzip: the ZIP binding of refkv
 
-Format version: 0 (**provisional**) · Specification revision: 11.3
+Format version: 0 (**provisional**) · Specification revision: 11.8
 
 This document is Part 2 of the refkv specification: the **ZIP binding**, which
 keeps a store in a single ZIP file, a **vzip archive**. [Part 1](../refkv.md),
@@ -363,7 +363,15 @@ directory. An archive has a page index if and only if its comment has the
 `CdIndex`. An archive with a 22-byte comment MUST NOT have an entry named
 `__vz__/index`.
 
+`CdIndex` is the ZIP binding's own message, in a package of its own; the
+messages every store uses are in Part 1
+([Appendix A](../refkv.md#appendix-a-complete-schema)). This is
+[spec/proto/vzip.proto](../proto/vzip.proto):
+
 ```proto
+syntax = "proto3";
+package refkv.vzip.v0;
+
 message CdIndex {
   message Page {
     string first_key = 1;

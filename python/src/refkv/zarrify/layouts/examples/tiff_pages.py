@@ -72,17 +72,23 @@ def _level(base: Base, i: int, to: str) -> Entries:
         raise Unfit("it has no ImageWidth and ImageLength: it is not an image")
     spp = _one(tags, 277, 1) or 1
     interleaved = spp > 1 and _one(tags, 284, 1) == 1
-    tiled = 322 in tags and 324 in tags
+    # an IFD with a tile's size is tiled, and its tiles are listed in the strips' tables where it
+    # has neither table of its own, as libtiff and tifffile read it (spec/zarrify/tiff.md §2
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#2-the-source>)
+    tiled = 322 in tags and 323 in tags
     if tiled:
-        name, tables, (offsets, counts) = "tiles", "TileOffsets and TileByteCounts", (tags.get(324), tags.get(325))
-        rows, cols = _one(tags, 323), _one(tags, 322)
+        name, rows, cols = "tiles", _one(tags, 323), _one(tags, 322)
     else:
-        name, tables, (offsets, counts) = "strips", "StripOffsets and StripByteCounts", (tags.get(273), tags.get(279))
-        rows, cols = min(_one(tags, 278, 2**32 - 1) or 0, length), width
+        name, rows, cols = "strips", min(_one(tags, 278, 2**32 - 1) or 0, length), width
+    if tiled and (324 in tags or 325 in tags):
+        held_as, tables, listed = "tiles", "TileOffsets and TileByteCounts", (324, 325)
+    else:
+        held_as, tables, listed = "strips", "StripOffsets and StripByteCounts", (273, 279)
+    offsets, counts = tags.get(listed[0]), tags.get(listed[1])
     if not rows or not cols:
         raise Unfit(f"its {name} have no size")
-    table = ir.child(i, name)
-    if not ({324, 325} if tiled else {273, 279}) <= tags.keys():
+    table = ir.child(i, held_as)  # the IR names the element by its tables' tags
+    if not set(listed) <= tags.keys():
         raise Unfit(f"it has no {tables}")
     if not isinstance(offsets, list) or not isinstance(counts, list) or table is None:
         raise Unfit(f"the IR does not hold its {tables}")

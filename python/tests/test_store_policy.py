@@ -188,13 +188,13 @@ def test_refuses_a_request_through_a_proxy(server, names, env):
 
 @pytest.mark.usefixtures("env")
 def test_refuses_a_redirect_to_a_file_url_whatever_the_policy(server, names):
-    """allow_files_from_remote_archives does not apply to stores: a store is read over http(s) only."""
+    """Allowing `file` does not apply to a store's own reads, which are over http(s) only."""
     port, state = server
     names["public.test"] = "127.0.0.1"
     state["redirect"] = "file:///etc/"
     with pytest.raises(ResolutionError, match="redirect to a non-http URL"):
         zarrify_store(f"http://public.test:{port}/b/s/", workers=1,
-                         policy=ServerIsPublic(allow_files_from_remote_archives=True))
+                         policy=ServerIsPublic(schemes=frozenset({"file"})))
 
 
 @pytest.mark.usefixtures("env")

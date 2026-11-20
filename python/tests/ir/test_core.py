@@ -88,9 +88,11 @@ def test_a_full_name_that_continues_a_siblings_with_a_slash_is_a_violation():
 
 
 def test_the_mirror_of_an_ir_whose_names_break_the_rules_is_rejected():
-    """The producer writes no invalid table: Rejected, as any rejection."""
+    """The producer writes no invalid table: Rejected, as any rejection. (Two values: a gap would
+    be named by its offset, conventions §8.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>, whatever its name.)"""
     with pytest.raises(_core.Rejected, match=r'have one path, "a"$'):
-        _core.mirror(table(name=["", "a", "a"], nidx=[None, None, None]), "tiff")
+        _core.mirror(table(kind=[0, 1, 1], name=["", "a", "a"], nidx=[None, None, None]), "tiff")
 
 
 def test_an_archive_whose_root_is_named_is_a_violation():
@@ -109,6 +111,24 @@ def test_an_archive_whose_root_is_named_is_a_violation():
         loaded.check()
     problem = _core.canonical_problem(entries.get, lambda o, n: data[o:o + n])
     assert problem == 'invalid: the root (element 0) is named "!", not ""'
+
+
+def test_an_archive_whose_mirror_is_of_another_version_is_a_violation():
+    """A reader rejects a mirror's table of another version (conventions §8.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>), as Violation: the
+    bindings read an archive's table with the core's reader, so with its checks."""
+    path = FIXTURES / "tiff" / "edge_duplicate_tags.tif"
+    data = path.read_bytes()
+    _, out, _ = via_ir(str(path), "https://data.test/a.tif")
+    doc = json.loads(out.bytes_entries["refkv_source/zarr.json"])
+    ir = doc["attributes"]["refkv_zarrified"]["tiff"]["ir"]
+    assert ir["version"] == 2
+    ir["version"] = 3
+    entries = dict(out.bytes_entries, **{"refkv_source/zarr.json": json.dumps(doc).encode()})
+    with pytest.raises(_core.Violation, match=r"^version 3, not 2$"):
+        _core.Ir.from_archive(entries.get, lambda o, n: data[o:o + n])
+    problem = _core.canonical_problem(entries.get, lambda o, n: data[o:o + n])
+    assert problem == "invalid: version 3, not 2"
 
 
 def test_the_fill_batch_is_empty_on_every_probe(probes):

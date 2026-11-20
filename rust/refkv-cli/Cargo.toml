@@ -21,7 +21,7 @@ refkv-vzip = { path = "../refkv-vzip" }
 refkv-phkv = { path = "../refkv-phkv" }
 crc32c = "0.6"
 memmap2 = "0.9"
-serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip", "arbitrary_precision"] }
 # HTTP/1.1 with rustls; no gzip (every request asks for the identity encoding), and no proxy
 # from the environment (the reader policy refuses a request a proxy would make)
 ureq = { version = "3.4", default-features = false, features = ["rustls"] }

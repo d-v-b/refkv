@@ -1,14 +1,12 @@
 """The FITS convention's source metadata (spec/zarrify/fits.md), for
 spec/generate_schemas.py."""
 
-from source_metadata import BIG_INTEGER
-
 # The FITS convention's cards (spec/zarrify/fits.md §5.3
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>): [keyword, value,
 # comment] triples in header order, duplicates kept; null past the 65536-byte budget of a node's document.
 FITS_CARDS = {
     "description": "The header's cards, [keyword, value, comment] each, in order: a string, a logical, an integer "
-                   "(exact; as a string of digits past 2^53 - 1), a real (its binary64 value), a complex as [re, im], "
+                   "(exact, whatever its magnitude), a real (its binary64 value), a complex as [re, im], "
                    'null for no value, or {"text": t} for a value the standard does not define; a commentary '
                    "card's text is its comment. Null when the cards would take more than 65536 bytes of JSON",
     "anyOf": [
@@ -27,7 +25,7 @@ FITS_CARDS = {
     ],
 }
 
-FITS_NUMBER = {"anyOf": [{"type": ["number", "null"]}, BIG_INTEGER]}
+FITS_NUMBER = {"type": ["number", "null"]}
 # TNULLn: a string in an ASCII table, an integer in a binary one
 FITS_STRING_OR_NUMBER = {"type": ["string", "number", "null"]}
 

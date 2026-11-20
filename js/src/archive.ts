@@ -90,13 +90,10 @@ export type RangeFetcher = (
  * optional; `DEFAULT_POLICY` gives the defaults.
  *
  * - `schemes`: schemes allowed besides those rule 1 allows by default
- *   (`http` and `https` for every archive, `file` for a local one), such as
- *   `s3`. It may not name `file`: see `allowFilesFromRemoteArchives`.
+ *   (`http` and `https`), such as `s3`. It may not name `file`: this reader
+ *   reads only http(s) sources, so it refuses every `file:` source.
  * - `prefixes`: if given, a URL is allowed if and only if it matches one of
  *   them (rule 2), whatever its scheme. Rule 3 still applies.
- * - `allowFilesFromRemoteArchives`: UNSAFE. Lets an archive opened from a
- *   URL name `file:` sources. (This reader reads only http(s) sources, so a
- *   `file:` source it allows still fails as an unsupported scheme.)
  * - `allowPrivateHosts`: UNSAFE. Lets the archive reach loopback, private,
  *   link-local and other special hosts (rule 3), which every archive, local
  *   or remote, is otherwise refused. In a browser this reader sees host
@@ -131,7 +128,6 @@ export type RangeFetcher = (
 export interface Policy {
   schemes?: string[];
   prefixes?: string[];
-  allowFilesFromRemoteArchives?: boolean;
   allowPrivateHosts?: boolean;
   allowUncheckedProxy?: boolean;
   maxSources?: number;
@@ -146,7 +142,6 @@ export interface Policy {
 
 export const DEFAULT_POLICY: Required<Omit<Policy, "prefixes">> & Pick<Policy, "prefixes"> = {
   schemes: [],
-  allowFilesFromRemoteArchives: false,
   allowPrivateHosts: false,
   allowUncheckedProxy: false,
   maxSources: 1 << 22,
@@ -299,8 +294,7 @@ function hostClass(url: string): AddressClass | undefined {
 export function validatePolicy(policy: Policy): void {
   if ((policy.schemes ?? []).some((s) => s.toLowerCase() === "file")) {
     throw new TypeError(
-      "Policy.schemes may not name 'file': a local archive reads files already, and a remote " +
-        "one needs the unsafe allowFilesFromRemoteArchives: true",
+      "Policy.schemes may not name 'file': this reader reads only http(s) sources",
     );
   }
   for (const name of ["maxSources", "maxReads", "maxGetBytes", "maxCoalesceGap", "maxFormatEntry"] as const) {
@@ -319,18 +313,15 @@ export function validatePolicy(policy: Policy): void {
  * Throws a resolution error unless `policy` allows `url` for an archive at `base` (§6.7
  * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>).
  */
-export function checkPolicy(policy: Policy, base: string, url: string): void {
+export function checkPolicy(policy: Policy, _base: string, url: string): void {
   validatePolicy(policy);
-  const local = schemeOf(base) === "file";
   const scheme = schemeOf(url);
   if (policy.prefixes !== undefined) {
     if (!policy.prefixes.some((p) => matchesPrefix(url, p))) {
       throw new RefkvError("resolution", `${url}: not under an allowed URL prefix (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)`);
     }
   } else if (scheme === "file") {
-    if (!local && !policy.allowFilesFromRemoteArchives) {
-      throw new RefkvError("resolution", `${url}: an archive opened from a URL may not read local files (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)`);
-    }
+    throw new RefkvError("resolution", `${url}: this reader reads no local file (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)`);
   } else if (scheme !== "http" && !(policy.schemes ?? []).some((s) => schemeOf(`${s}:`) === scheme)) {
     throw new RefkvError("resolution", `${url}: the scheme '${scheme}' is not allowed (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)`);
   }

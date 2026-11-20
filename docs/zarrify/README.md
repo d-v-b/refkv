@@ -24,6 +24,8 @@ who each one is for, what you get, and how to run it.
 | FITS | FITS images and tables (`.fits`, `.fz`) | [fits](fits/README.md) | [fits.md §9](../../spec/zarrify/fits.md#9-fits-profile) |
 | FLAC | FLAC audio files, as a sharded array of samples (`.flac`) | [flac](flac/README.md) | [flac.md §8](../../spec/zarrify/flac.md#8-flac-profile) |
 | GRIB | GRIB2 files of gridded weather and climate fields (`.grib2`), as labeled arrays with CF coordinates | [grib](grib/README.md) | [grib.md §8](../../spec/zarrify/grib.md#8-grib-profile) |
+| H5J | Janelia's H5J confocal stacks (`.h5j`), as FlyLight and the Janelia Workstation publish them | [h5j](h5j/README.md) | [h5j.md §8](../../spec/zarrify/h5j.md#8-h5j-profile) |
+| HDF4 | HDF4 and HDF-EOS2 files (`.hdf`) of NASA's EOS-era archives, such as MODIS, SeaWiFS and AIRS products, as labeled arrays | [hdf4](hdf4/README.md) | [hdf4.md §9](../../spec/zarrify/hdf4.md#9-hdf4-profile) |
 | HDF5 | HDF5 files (`.h5`, `.hdf5`), and NWB files (`.nwb`), which pynwb's `NWBZarrIO` opens | [hdf5](hdf5/README.md) | [hdf5.md §8](../../spec/zarrify/hdf5.md#8-hdf5-profile) |
 | IMS | Imaris `.ims` files | [ims](ims/README.md) | [ims.md §7](../../spec/zarrify/ims.md#7-ims-profile) |
 | LIF | Leica LIF, LOF and LIFEXT files, and LAS X projects (`.lif`, `.lof`, `.lifext`, `.xlef`, `.xlcf`, `.xlif`, `.xllf`) | [lif](lif/README.md) | [lif.md §7](../../spec/zarrify/lif.md#7-lif-profile) |
@@ -121,7 +123,9 @@ host (below); it then writes no archive. The format is chosen by the file's firs
 store by the objects at its root. Options:
 
 - `--url <url>`: the URL to record as the source, for a local file or
-  directory that will be served from that URL (a local directory needs it;
+  directory that will be served from that URL (a local directory needs it,
+  since `zarrify` in Python names one by its `file:` URL otherwise, which an
+  archive's readers refuse by default;
   for a VSI slide, the `.vsi` file's URL, whose directory the tile files are
   named under, and for a NRRD input the header file's);
 - `--checksums`: also record the CRC-32C of every referenced range
@@ -129,6 +133,8 @@ store by the objects at its root. Options:
   archive references (off by default);
 - `--allow-private-hosts`: let a file or store at an http(s) URL be read
   from a loopback, private or link-local host (below; unsafe);
+- `--scope PATH`: what a file input may read besides itself, repeated for
+  several paths (below; default: the input's directory);
 - `--connections N` and `--byte-cost SECONDS_PER_MB`: for a file input,
   how many requests the read planner runs at a time (default 8), and how
   much wall time it charges for a megabyte read beyond those asked (default
@@ -153,6 +159,22 @@ to such a host opens only with `refkv.zarr.open(path,
 policy=Policy(allow_private_hosts=True))` (`from refkv.policy import
 Policy`). A local file or directory needs neither.
 
+**Untrusted files.** Some files name other files beside them, which
+zarrifying reads too: an HDF5 file's external storage and external links, a
+detached NRRD header's data file, the other files of an OME-TIFF, CZI, LIF or
+NIfTI set, a VSI slide's tile files. Those names stay below the input's
+directory ([spec](../../spec/zarrify.md#19-sources-beside-the-input)), but a
+server that saves uploads into a shared directory and zarrifies them would let
+one upload read another: an HDF5 file with `external=[("other-user/session.txt",
+0, 40)]` puts that file's bytes in its archive. To say what a file may read, give its scope:
+`--scope PATH`, repeated for several, or `scope=` in Python (a path or a list of them), and
+`scope` in the browser's `zarrifySource` and `zarrifyToArchive` (URLs). Each entry is the
+input's directory, the default, or a file or directory below it, written as the input is.
+`--scope <the input>` reads the input alone. An input that needs a file outside its scope is
+rejected before that file is opened, naming it:
+`out of scope: the input names the file "other-user/session.txt"`. A GRIB file's index files are
+optional, so a GRIB file is read without one that is out of scope instead. A store input, read from its listing, takes no scope.
+
 Read the archive in Python with `refkv.zarr` and zarr-python
 (`pip install 'refkv[zarr]'`, or `refkv[images]` for imagecodecs-zarr's codecs). zarr-python
 finds every codec an archive names, which
@@ -167,13 +189,17 @@ strip is short) also needs
 `zarr.config.set({"array.rectilinear_chunks": True})`. Importing `refkv.zarr` sets
 it, and so does loading one of refkv's codecs, but zarr checks an array's chunk
 grid before it loads its codecs: set it yourself before opening such an array.
-`refkv.zarr` opens the archive itself:
+`refkv.zarr` opens the archive itself. An archive of a local file reads that file,
+which you allow by name, since a store cannot allow itself to read your files
+([spec §6.7](../../spec/refkv.md#67-reader-policy)):
 
 ```python
 import zarr
+import refkv
 import refkv.zarr
 
-g = zarr.open_group(refkv.zarr.open("out.vzip"), mode="r")
+policy = refkv.Policy(prefixes=("file:///data/",))
+g = zarr.open_group(refkv.zarr.open("out.vzip", policy=policy), mode="r")
 ```
 
 **From Python.** The command is a thin wrapper over
@@ -196,7 +222,7 @@ store.save_vzip("CMU-1-Small-Region.vzip")
 `zarrify` takes the input's local path or URL, and the command's options as
 keyword arguments: `url` (the URL the archive names the source by),
 `checksums`, `policy`, `connections`, `byte_cost` (in seconds per byte, not
-per MB) and `workers`. It raises `refkv.zarrify.Rejected` when no profile
+per MB), `workers` and `scope`. It raises `refkv.zarrify.Rejected` when no profile
 accepts the input, `refkv.errors.ResolutionError` when the reader policy
 refuses the input or a source (such as a URL on a private host), and `OSError`
 when the input cannot be read (`FileNotFoundError` for a missing local file,
@@ -216,8 +242,8 @@ per profile in the registry. `<Name>Source` is for a file (`TiffSource`,
 `Mp4Source`, `NdpiSource`, ...). `<Name>Store` is for a store (`Zarr2Store`,
 `OmeZarrStore`, `N5Store`, `PrecomputedStore`, `SafetensorsStore`). SAFE has both, `SafeSource` for a `.SAFE.zip` file
 and `SafeStore` for a `.SAFE` directory. The input's read options belong to the
-class (`url`, `checksums`, `policy`, and `connections` and `byte_cost` for a
-file, or `workers` and `max_objects` for a store), so `zarrify` raises
+class (`url`, `checksums`, `policy`, and `connections`, `byte_cost` and
+`scope` for a file, or `workers` and `max_objects` for a store), so `zarrify` raises
 `TypeError` when one is also passed beside it:
 
 ```python
@@ -400,6 +426,19 @@ each format's metadata is:
   reason. Each dataset's array keeps its address, datatype, layout, chunk index,
   filters and fill value bytes
   ([hdf5 §7](../../spec/zarrify/hdf5.md#7-source-metadata)).
+- **H5J:** the IR mirror on `refkv_source`: the HDF5 file's, with each channel's MP4
+  file in place of its dataset's data, its boxes and tables down to each sample. The
+  root keeps the file's attributes and `/Channels`'s, and each channel with its path or
+  the reason it is not presented; each channel's image keeps its dataset's attributes,
+  where its MP4 file is, and its track's codec, profile, level, size and sync samples
+  ([h5j §5](../../spec/zarrify/h5j.md#5-source-metadata)).
+- **HDF4:** the IR mirror on `refkv_source`: the descriptor blocks and every element
+  they describe, the headers held and the data referenced. The root keeps the library
+  version that wrote the file; each group its Vgroup's ref and class, each attribute's
+  type and count, the members the walk reached again, and those it does not present,
+  with the reason. Each dataset's array keeps its refs, number type, storage, chunk
+  shape and compression, and each table its ref, class, fields and record count
+  ([hdf4 §8](../../spec/zarrify/hdf4.md#8-source-metadata)).
 - **MP4:** the IR mirror on `refkv_source`, from the file's boxes down. The root
   keeps the `ftyp` brands, the movie's timescale and duration, and a row per track
   (its ID, handler and codec, with its path or the reason it is not presented). Each

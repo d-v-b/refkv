@@ -39,8 +39,8 @@ NoCodec = _core.NoCodec
 
 # the tags `tiff_data_type` and `tiff_codecs` read: BitsPerSample, Compression,
 # PhotometricInterpretation, FillOrder, SamplesPerPixel, PlanarConfiguration, Predictor,
-# SampleFormat, YCbCrSubSampling, and EER's ImageLength, TileWidth and bits
-_CODING_TAGS = (257, 258, 259, 262, 266, 277, 284, 317, 322, 339, 530, 65007, 65008, 65009)
+# SampleFormat, YCbCrSubSampling, and EER's ImageLength, TileWidth, TileLength and bits
+_CODING_TAGS = (257, 258, 259, 262, 266, 277, 284, 317, 322, 323, 339, 530, 65007, 65008, 65009)
 # the text that spec/zarrify/hdf5.md §6
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes> gives a float JSON has no number for
 _NONFINITE = {"NaN": math.nan, "Infinity": math.inf, "-Infinity": -math.inf}
@@ -157,9 +157,9 @@ def hdf5_value(value: object, datatype: Mapping[str, Any] | None) -> object:
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>), its encodings
     undone by its described datatype (§7.2
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#72-datasets>): a float value
-    (`"NaN"`, `"Infinity"`, a NaN's or −0's bits in hex) as a Python float, an integer past 2^53
-    written as its digits as an int, a string that is not UTF-8 (`{"latin1": T}`) as `T`, its
-    bytes read as Latin-1, a compound's members each by theirs. ValueError for a value its
+    (`"NaN"`, `"Infinity"`, a NaN's or −0's bits in hex) as a Python float, a string that is not
+    UTF-8 (`{"latin1": T}`) as `T`, its bytes read as Latin-1, a compound's members each by
+    theirs; an integer is one already, exact whatever its magnitude. ValueError for a value its
     datatype does not take."""
     if not datatype:
         return value
@@ -173,8 +173,6 @@ def hdf5_value(value: object, datatype: Mapping[str, Any] | None) -> object:
         if value.startswith("0x") and len(value) == 2 + 2 * size and size in (2, 4, 8):
             return struct.unpack(">" + {2: "e", 4: "f", 8: "d"}[size], int(value, 16).to_bytes(size, "big"))[0]
         raise ValueError(f"{value!r} is not a float value of hdf5.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>")
-    if kind in ("integer", "bitfield", "enum") and isinstance(value, str):
-        return int(value)
     if kind in ("string", "vlen_string") and isinstance(value, dict) and set(value) == {"latin1"}:
         # text that is not UTF-8, each byte its Latin-1 character (spec/conventions.md §6
         # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)
@@ -190,8 +188,8 @@ def hdf5_attributes(base: Base, path: str) -> dict[str, Any]:
     spec/zarrify/hdf5.md §6
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>'s encodings
     undone, by the node's source metadata, §7
-    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#7-source-metadata>): floats and
-    big integers as numbers, and a netCDF `_FillValue` of a float dataset, which hdf5.md §6
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#7-source-metadata>): floats as
+    numbers, and a netCDF `_FillValue` of a float dataset, which hdf5.md §6
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes> writes as the Base64 of
     its binary64, as that float. An attribute of one element that the base wrote as its value, on a dataset with
     `dimension_names`, stays that value: the source metadata does not say which it was. The values

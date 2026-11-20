@@ -1,0 +1,26 @@
+{
+  "source_model": "hdf4",
+  "version": 1,
+  "about": "The source model of an HDF4 file (spec/zarrify/hdf4.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#83-the-ir-mirror>): the elements a parser emits, and the bounds of what it reads (§9.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#93-checks>). The checks are the reader's (`hdf4/mod.rs`), in the profile's order; projections read a valid IR and check nothing.",
+  "limits": {
+    "max_blocks": 65536,
+    "max_descriptors": 1048576,
+    "header_bytes": 1048576,
+    "attribute_bytes": 16777216,
+    "max_chunks": 1048576,
+    "chunk_table_bytes": 67108864,
+    "max_fields": 4096,
+    "max_linked_blocks": 1048576,
+    "max_depth": 64,
+    "max_rounds": 4096
+  },
+  "tables": {},
+  "elements": {
+    "about": "The IR of an HDF4 file: its magic number, its descriptor blocks in the order of their chain, and every element a descriptor describes with a length of at least 1. Bytes no element claims are gaps.",
+    "magic": {"kind": "value", "type": "bytes[4]", "extent": "(0, 4): 0e 03 13 01"},
+    "descriptors/<k>": {"kind": "value", "type": "{count:>i2,next:>u4,descriptors:{tag:>u2,ref:>u2,offset:>u4,length:>u4}[count]}", "about": "the k-th descriptor block of the chain, from 0, NULL slots included"},
+    "elements/<tag>/<ref>": {"kind": "value or data", "about": "the element of tag and ref (a special element's tag with 0x4000 added): a value of type bytes[n] ({version:u1,type:u1,width:u1,class:u1} for a number type) when the profile reads it (headers, number types, dimension records, Vgroups, Vdata headers, special headers, link tables, the records of attributes and chunk tables, and the blocks that hold them), else data whose form is {recipe: [[src, 0, null]]}"},
+    "gaps/<offset>": {"kind": "gap"}
+  },
+  "roles": {}
+}

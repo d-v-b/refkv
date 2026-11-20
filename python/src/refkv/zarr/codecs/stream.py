@@ -244,12 +244,14 @@ PIXEL_FORMATS = {
     **dict.fromkeys(("yuv420p", "yuvj420p", "yuv422p", "yuvj422p"), np.dtype(np.uint8)),
     **dict.fromkeys(("yuv420p10le", "yuv422p10le", "yuv420p12le", "yuv422p12le"), np.dtype("<u2")),
 }
+# the 4:0:0 ones, whose pictures have a Y plane alone
+GRAY_FORMATS = {"gray": np.dtype(np.uint8), "gray10le": np.dtype("<u2"), "gray12le": np.dtype("<u2")}
 
 
 def _video_frames(name: str, title: str) -> Decoder:
     """The decoder of a video format: (frame index, {plane: [1, height, width]}) per picture
-    PyAV's decoder `name` outputs, the Y, U and V planes of the picture, uint8 for 8 bits and
-    uint16 for more."""
+    PyAV's decoder `name` outputs, the Y, U and V planes of the picture (the Y plane alone of a
+    4:0:0 one), uint8 for 8 bits and uint16 for more."""
 
     def decode(codec: StreamCodec, units: list[bytes], positions: list[int]) -> Iterator[tuple[int | None, Planes]]:
         for k, frame in _av_frames(codec, units, positions, name):
@@ -257,12 +259,15 @@ def _video_frames(name: str, title: str) -> Decoder:
                 yield k, {}
                 continue
             f = cast("VideoFrame", frame)  # a video decoder's
-            dtype = PIXEL_FORMATS.get(f.format.name)
+            fmt = f.format.name
+            dtype = PIXEL_FORMATS.get(fmt, GRAY_FORMATS.get(fmt))
             if dtype is None:
-                raise ValueError(f"refkv.stream: an {title} frame decodes to {f.format.name}, "
-                                 "not 4:2:0 or 4:2:2 of 8, 10 or 12 bits")
+                raise ValueError(f"refkv.stream: an {title} frame decodes to {fmt}, "
+                                 "not 4:0:0, 4:2:0 or 4:2:2 of 8, 10 or 12 bits")
+            if fmt in GRAY_FORMATS and codec.plane not in (None, "y"):
+                raise ValueError(f"refkv.stream: a 4:0:0 {title} picture has no {codec.plane} plane")
             planes: Planes = {}
-            for plane, i in PLANES.items():
+            for plane, i in PLANES.items() if fmt not in GRAY_FORMATS else [("y", 0)]:
                 p = f.planes[i]
                 a = np.frombuffer(p, dtype=dtype).reshape(p.height, p.line_size // dtype.itemsize)[None, :, :p.width]
                 planes[plane] = a.astype(dtype.newbyteorder("="), copy=False)

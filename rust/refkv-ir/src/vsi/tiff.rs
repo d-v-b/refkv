@@ -9,7 +9,7 @@ use crate::fed::Word;
 use crate::ir::{GAP, Ir, NO_INDEX, Res};
 use crate::out::Part;
 use crate::rules::{self, Rules, num};
-use crate::tiff::{jpeg_frame, tile_forms, type_size};
+use crate::tiff::{jpeg_frame, tile_forms, type_size, Unit};
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -224,9 +224,24 @@ pub fn image(rules: &Rules, b: &[u8], ifd: &Ifd, what: &str) -> Res<Image> {
     Ok(Image { index: ifd.index, width, height, samples, bits, compression, photometric, strips, prefix: jpeg_prefix(ifd, b, samples, photometric) })
 }
 
+/// What `emit_region` made of an IFD of the chain, which the description of its image reads
+/// (`stored.rs`).
+pub struct Emitted {
+    /// the IFD's struct
+    pub el: u32,
+    /// the `value` element of each field that has one, by tag (of the first field of a tag)
+    pub values: HashMap<u16, u32>,
+    /// the entries of the strips' table, where the IFD has both of its fields (273 and 279) as
+    /// unsigned values the file holds; None within where the two differ in length
+    pub(crate) strips: Option<Option<Vec<Unit>>>,
+    /// the entries of the tiles' table (324 and 325), likewise
+    pub(crate) tiles: Option<Option<Vec<Unit>>>,
+}
+
 /// Emits the IFDs whose bytes lie in the region `[start, end)` under `parent`, and gaps for
-/// what the region has left: (the elements of each IFD's strips, by chain index).
-pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, parent: u32, strips_of: &mut HashMap<usize, Vec<u32>>) -> Res<()> {
+/// what the region has left: (the elements of each IFD's strips, by chain index), and, by chain
+/// index, what the IFD's description reads (`made`).
+pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, parent: u32, strips_of: &mut HashMap<usize, Vec<u32>>, made: &mut HashMap<usize, Emitted>) -> Res<()> {
     let mut claimed: Vec<(u64, u64)> = Vec::new();
     for ifd in ifds.iter().filter(|f| start <= f.offset && f.end <= end) {
         let s = if ifd.exif {
@@ -238,6 +253,7 @@ pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, pa
         ir.value(s, "entry_count", NO_INDEX, "<u2", 0, (o, 2), Some(&b[o as usize..o as usize + 2]))?;
         claimed.push((o, 2));
         let mut dups: HashMap<u16, u32> = HashMap::new();
+        let mut read = Emitted { el: s, values: HashMap::new(), strips: None, tiles: None };
         for (i, e) in ifd.entries.iter().enumerate() {
             let ea = o + 2 + 12 * i as u64;
             let raw = &b[ea as usize..ea as usize + 12];
@@ -256,7 +272,10 @@ pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, pa
                     ir.value(t, "entry", NO_INDEX, "{tag:<u2,type:<u2,count:<u4}", 0, (ea, 8), Some(&raw[..8]))?;
                     let vt = value_type(e.typ, e.count);
                     if nb > 0 {
-                        ir.value(t, "value", NO_INDEX, &vt, 0, (ea + 8, nb), Some(&raw[8..8 + nb as usize]))?;
+                        let v = ir.value(t, "value", NO_INDEX, &vt, 0, (ea + 8, nb), Some(&raw[8..8 + nb as usize]))?;
+                        if dup == 0 {
+                            read.values.insert(e.tag, v);
+                        }
                     }
                     if nb < 4 {
                         ir.value(t, "padding", NO_INDEX, &format!("bytes[{}]", 4 - nb), 0, (ea + 8 + nb, 4 - nb), Some(&raw[8 + nb as usize..12]))?;
@@ -266,7 +285,10 @@ pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, pa
                     ir.value(t, "entry", NO_INDEX, "{tag:<u2,type:<u2,count:<u4,offset:<u4}", 0, (ea, 12), Some(raw))?;
                     if nb > 0 && e.off.checked_add(nb).is_some_and(|x| x <= b.len() as u64) {
                         let vt = value_type(e.typ, e.count);
-                        ir.value(t, "value", NO_INDEX, &vt, 0, (e.off, nb), Some(&b[e.off as usize..(e.off + nb) as usize]))?;
+                        let v = ir.value(t, "value", NO_INDEX, &vt, 0, (e.off, nb), Some(&b[e.off as usize..(e.off + nb) as usize]))?;
+                        if dup == 0 {
+                            read.values.insert(e.tag, v);
+                        }
                         if start <= e.off && e.off + nb <= end {
                             claimed.push((e.off, nb));
                         }
@@ -284,7 +306,12 @@ pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, pa
             let photometric = ifd.int(b, 262).unwrap_or(if samples == 3 { 2 } else { 1 });
             let prefix = jpeg_prefix(ifd, b, samples, photometric);
             for (name, ot, ct) in [("strips/", 273u16, 279u16), ("tiles/", 324, 325)] {
+                // a table: both of its fields, as unsigned values the file holds
+                if ifd.ints(b, ot).is_some() && ifd.ints(b, ct).is_some() {
+                    *(if ot == 273 { &mut read.strips } else { &mut read.tiles }) = Some(None);
+                }
                 let Some(segs) = segments(ifd, b, ot, ct) else { continue };
+                let mut units = Vec::with_capacity(segs.len());
                 let rows = if ot == 273 { ifd.int(b, 278).or(ifd.int(b, 257)) } else { ifd.int(b, 323) };
                 let cols = if ot == 273 { ifd.int(b, 256) } else { ifd.int(b, 322) };
                 let base = json!({
@@ -296,6 +323,7 @@ pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, pa
                 let mut els = Vec::with_capacity(segs.len());
                 for (k, &(so, sn)) in segs.iter().enumerate() {
                     if sn == 0 || so.checked_add(sn).is_none_or(|x| x > b.len() as u64) {
+                        units.push(if sn > 0 { Unit::Outside } else if so == 0 { Unit::Absent } else { Unit::Unsized });
                         continue;
                     }
                     let form = match &framed {
@@ -304,14 +332,17 @@ pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, pa
                     };
                     let d = ir.data(s, name, k as u64, 0, (so, sn), form)?;
                     els.push(d);
+                    units.push(Unit::Held(d, framed.is_some() && sn > 2));
                     if start <= so && so + sn <= end {
                         claimed.push((so, sn));
                     }
                 }
+                *(if ot == 273 { &mut read.strips } else { &mut read.tiles }) = Some(Some(units));
                 if ot == 273 || !els.is_empty() {
                     strips_of.entry(ifd.index).or_default().extend(els);
                 }
             }
+            made.entry(ifd.index).or_insert(read);
         }
     }
     claimed.sort_unstable();

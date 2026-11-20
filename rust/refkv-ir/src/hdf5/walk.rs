@@ -114,6 +114,23 @@ pub struct Emit<'a> {
     pub room: u64,
     /// the image's datasets, whose chunks are described whatever the room
     pub must: HashSet<u64>,
+    /// the elements emitted that the stored arrays' descriptions name (`super::stored`)
+    pub rec: Recorded,
+    /// the IRs that take the place of contiguous datasets' data, by the dataset header's address:
+    /// a file the dataset holds, read as a file of its own (an H5J channel's MP4 file)
+    pub inner: HashMap<u64, &'a Ir>,
+    /// the ids each of them was grafted at, by the dataset header's address ([`Ir::graft_file`])
+    pub grafted: HashMap<u64, Vec<u32>>,
+}
+
+/// The elements the emission made that a stored array's description names: each message's `data`
+/// by (header address, message position), each chunk by (dataset header, grid index), and an
+/// implicit index's one `data` element with the address of its first chunk.
+#[derive(Default)]
+pub struct Recorded {
+    pub msg: HashMap<(u64, usize), u32>,
+    pub chunk: HashMap<(u64, u128), u32>,
+    pub implicit: HashMap<u64, (u32, u64)>,
 }
 
 pub type Res<T> = Result<T, String>;
@@ -211,7 +228,9 @@ impl Emit<'_> {
                 hdf5::ATTRIBUTE if m.flags & 2 == 0 => self.attribute(s, "data", NO_INDEX, m.at, &m.data)?,
                 hdf5::LINK if m.flags & 2 == 0 => self.link(s, "data", NO_INDEX, m.at, &m.data)?,
                 _ => {
-                    self.bytes(s, "data", NO_INDEX, m.at, n)?;
+                    if let Some(id) = self.bytes(s, "data", NO_INDEX, m.at, n)? {
+                        self.rec.msg.insert((h.at, k), id);
+                    }
                 }
             }
         }
@@ -495,7 +514,8 @@ impl Emit<'_> {
                     let end = ch.list.iter().map(|c| c.1 + c.2).max().unwrap();
                     if self.h.src.within(first, end - first) {
                         let form = json!({"geometry": {"chunk": ds.chunk, "size": ds.datatype.size, "grid": max_grid}, "codec": {"filters": ds.filters}, "recipe": [["src", 0, null]]});
-                        self.ir.data(o, "data", NO_INDEX, 0, (first + self.h.src.base, end - first), &form.to_string())?;
+                        let id = self.ir.data(o, "data", NO_INDEX, 0, (first + self.h.src.base, end - first), &form.to_string())?;
+                        self.rec.implicit.insert(at, (id, first));
                     }
                 } else if !ch.list.is_empty() && (image || !self.full()) {
                     let s = self.ir.struct_(o, "chunks", NO_INDEX, 0, None)?;
@@ -516,13 +536,20 @@ impl Emit<'_> {
                             f["codec"]["mask"] = json!(mask);
                             f.to_string()
                         };
-                        self.ir.data(s, "", idx as u64, 0, (*a + self.h.src.base, *n), &form)?;
+                        let id = self.ir.data(s, "", idx as u64, 0, (*a + self.h.src.base, *n), &form)?;
+                        self.rec.chunk.insert((at, idx), id);
                     }
                 }
             }
             if ds.layout == hdf5::Layout::Contiguous {
                 if let (Some(a), n) = ds.contiguous {
-                    if n > 0 && self.h.src.within(a, n) {
+                    if let (Some(inner), true) = (self.inner.get(&at), n > 0 && self.h.src.within(a, n)) {
+                        // a file of its own: its IR in place of the data, of the same extent
+                        let id = self.ir.struct_(o, "data", NO_INDEX, 0, Some((a + self.h.src.base, n)))?;
+                        let map = self.ir.graft_file(inner, id, a + self.h.src.base)?;
+                        self.grafted.insert(at, map);
+                        self.data_of.insert(at, id);
+                    } else if n > 0 && self.h.src.within(a, n) {
                         let form = json!({"geometry": {"shape": ds.dims, "size": ds.datatype.size}, "codec": {"filters": ds.filters}, "recipe": [["src", 0, null]]});
                         let id = self.ir.data(o, "data", NO_INDEX, 0, (a + self.h.src.base, n), &form.to_string())?;
                         self.data_of.insert(at, id);

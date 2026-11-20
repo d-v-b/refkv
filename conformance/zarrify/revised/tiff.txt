@@ -8,6 +8,9 @@
 # the frozen reference rejects or reads as one plane. Short last compressed strips, Predictor 3,
 # packed samples, PackBits, CCITT Group 4, EER, LERC, WebP, JPEG XL and LZMA, which the profile
 # reads since the freeze.
+# ImageJ hyperstacks, one IFD a plane or in one IFD (spec/zarrify/tiff.md §4.1
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>), which the frozen reference
+# rejects as a stack of pages or reads as one plane.
 bilevel.tif
 bilevel_deflate.tif
 bilevel_g4.tif
@@ -24,6 +27,8 @@ edge_reject_ccitt_fill_order.tif
 edge_reject_eer_bits_differ.tif
 edge_reject_eer_short.tif
 edge_reject_eer_uint8.tif
+edge_reject_imagej_rgb_channels.tif
+edge_reject_imagej_short.tif
 edge_reject_jpegxl_int16.tif
 edge_reject_lerc_uint64.tif
 edge_reject_mm_foreign_MMStack_Pos0.ome.tif
@@ -47,6 +52,11 @@ edge_strips_apart.tif
 eer_v0_frame.tif
 eer_v1_frames.tif
 eer_v2_frames.tif
+imagej_contiguous_rgb.tif
+imagej_contiguous_tzcyx_uint16_be.tif
+imagej_contiguous_zyx.tif
+imagej_pages_tzcyx_uint16.tif
+imagej_pages_zyx.tif
 jpegxl_float32.tif
 jpegxl_rgb_uint8.tif
 jpegxl_uint16.tif

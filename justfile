@@ -39,9 +39,10 @@ ir-wasm:
 ir-test *args: ir-rust-test ir-build
     uv run pytest -q python/tests/ir {{args}}
 
-# Test the IR core's Rust crate, and build its Python bindings' crate (rust/refkv-python) alone
+# Test the IR core's Rust crate (with its features zarrs and arrow, which only tests and the
+# Python bindings enable), and build its Python bindings' crate (rust/refkv-python) alone
 ir-rust-test:
-    cargo test --release --features zarrs --manifest-path rust/refkv-ir/Cargo.toml
+    cargo test --release --features zarrs,arrow --manifest-path rust/refkv-ir/Cargo.toml
     just python::cargo-test
 
 # Test the vzip archive writer (rust/refkv-vzip), the phkv store's reader and writers
@@ -85,14 +86,22 @@ base-install-check python="" mode="":
 example-oisst:
     cd "$(mktemp -d)" && uv run --project "{{justfile_directory()}}" python "{{justfile_directory()}}/docs/examples/oisst.py"
 
+# Compare refkv's VirtualiZarr parser (refkv.virtualizarr) with VirtualiZarr's own parsers on generated
+# fixtures (conformance/virtualizarr/test_parity.py); each open gap of issue #271 is a strict xfail
+virtualizarr-parity *args: ir-build
+    uv run pytest -q conformance/virtualizarr {{args}}
+
 # Check that every section reference ("§n") is a link to a heading that exists, and test the check;
 # that what derives from the profile registry (spec/zarrify/profiles/) is current; and that each
 # format document's changelog is in spec/zarrify.md's form, and, with a base (`just sections
-# origin/main`), records every change to the document since it (spec/tools/changelog.py)
+# origin/main`), records every change to the document since it (spec/tools/changelog.py); and that
+# every proposal in design/proposals/ has a dated status line (spec/tools/proposals.py)
 sections base="":
     uv run pytest -q spec/tools
     uv run python spec/tools/sections.py check
     uv run python spec/tools/profiles.py check
+    uv run python spec/tools/proposals.py check
+    uv run python spec/tools/stored_formats.py check
     uv run python spec/tools/changelog.py check {{ if base != "" { "--base " + base } else { "" } }}
 
 # Lint every Python file of the repository with ruff (pyproject.toml's [tool.ruff]: every rule, less
@@ -123,6 +132,29 @@ profiles:
 conformance out="conformance/results/latest": impls::build
     uv run python conformance/vzip/run.py --out {{out}} \
         --impl rust=conformance/impls/rust/vzip --impl typescript=conformance/impls/typescript/vzip --impl python=conformance/impls/python/vzip
+
+# Run the spec/bindings/phkv.md conformance suite (conformance/phkv/HARNESS.md): the reference
+# implementation (the Rust core, through Python) and the JavaScript one, which reads only HTTP
+# sources, with the reference writing its own sections stored, then DEFLATE-compressed; then both with
+# Zstandard sections, which the JavaScript one cannot read (a listed gap), the reference's default.
+# Known gaps are in conformance/phkv/known_gaps.json and known_gaps_zstd.json.
+# (On Windows, add --no-files to each run: the oracle's file: URLs are POSIX's.)
+conformance-phkv out="conformance/results/phkv":
+    uv run python conformance/phkv/run.py --out {{out}}/stored --known-gaps conformance/phkv/known_gaps.json \
+        --ref "uv run python -m refkv.phkv.cli --allow-private-hosts --section-codec none" \
+        --impl ref="uv run python -m refkv.phkv.cli --allow-private-hosts --section-codec none" \
+        --impl js="node --no-warnings conformance/phkv/impls/js/cli.ts --allow-private-hosts" \
+        --no-file-sources js
+    uv run python conformance/phkv/run.py --out {{out}}/deflate --known-gaps conformance/phkv/known_gaps.json \
+        --ref "uv run python -m refkv.phkv.cli --allow-private-hosts --section-codec deflate" \
+        --impl ref="uv run python -m refkv.phkv.cli --allow-private-hosts --section-codec deflate" \
+        --impl js="node --no-warnings conformance/phkv/impls/js/cli.ts --allow-private-hosts" \
+        --no-file-sources js
+    uv run python conformance/phkv/run.py --out {{out}}/zstd --known-gaps conformance/phkv/known_gaps_zstd.json \
+        --ref "uv run python -m refkv.phkv.cli --allow-private-hosts" \
+        --impl ref="uv run python -m refkv.phkv.cli --allow-private-hosts" \
+        --impl js="node --no-warnings conformance/phkv/impls/js/cli.ts --allow-private-hosts" \
+        --no-file-sources js
 
 # Regenerate the synthetic files and stores in fixtures/<format>: every generator
 # fixtures/generators/<format>/write_*.py but those with a line `# fixtures: on demand`, which need

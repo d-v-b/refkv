@@ -11,9 +11,11 @@
 import { decodeGrib } from "../js/src/embed.ts";
 import { decodeJpeg2000 } from "./map/jpeg2k_decoder.ts";
 import { decodeJpegXr } from "./jpegxr_decoder.ts";
+import { decodeHevcPlane } from "./hevc_decoder.ts";
 
 const JPEG2K_WASM = new URL("jpeg2000_decoder.wasm", location.href);
 const JPEGXR_WASM = new URL("jpegxr.wasm", location.href);
+const HEVC_WASM = new URL("libde265.wasm", location.href);
 
 const TYPES: Record<string, [number, (v: DataView, i: number, le: boolean) => number]> = {
   uint8: [1, (v, i) => v.getUint8(i)], int8: [1, (v, i) => v.getInt8(i)],
@@ -56,8 +58,9 @@ export function usableWindow(w: Window | undefined, dataType: string): boolean {
 
 /**
  * The decoded samples of a chunk, as bytes and their byte order, for the
- * codecs this page decodes: `bytes`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`
- * and `refkv.grib` (with refkv's Rust core, which the service worker also
+ * codecs this page decodes: `bytes`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`,
+ * `refkv.stream` of HEVC (the pictures the chunk outputs, as the fork's
+ * libde265 gives them) and `refkv.grib` (with refkv's Rust core, which the service worker also
  * runs), after any `transpose` (the order of the samples does not matter for
  * their percentiles), with `gzip` or `numcodecs.zlib` after them. Undefined
  * for any other chain.
@@ -81,6 +84,12 @@ async function decodeChunk(meta: any, encoded: Uint8Array): Promise<[Uint8Array,
     case "imagecodecs_jpegxr": {
       const d = await decodeJpegXr(JPEGXR_WASM, bytes);
       return d.bytesPerSample === size ? [d.data, true] : undefined;
+    }
+    case "refkv.stream": {
+      const { format, setup, plane } = first.configuration ?? {};
+      if (format !== "hevc" || (size !== 1 && size !== 2)) return undefined;
+      const setupBytes = Uint8Array.from(atob(setup), (c) => c.charCodeAt(0));
+      return [await decodeHevcPlane(HEVC_WASM, setupBytes, bytes, ["y", "u", "v"].indexOf(plane ?? "y")), true];
     }
     case "refkv.grib": {
       const values = await decodeGrib(bytes, first.configuration, meta.chunk_grid.configuration.chunk_shape, meta.data_type);
@@ -118,17 +127,36 @@ function percentiles(bytes: Uint8Array, le: boolean, dataType: string, fill: unk
 }
 
 /**
+ * The index of the chunk that holds index `at` along axis `i` of a regular or rectilinear
+ * chunk grid (`chunks` its largest chunk along each axis).
+ */
+function chunkIndex(grid: any, chunks: number[], i: number, at: number): number {
+  const lengths = grid.name === "rectilinear" ? grid.configuration.chunk_shapes[i] : chunks[i];
+  if (typeof lengths === "number") return Math.floor(at / lengths);
+  let k = 0;
+  let from = 0;
+  for (const run of lengths as (number | [number, number])[]) {
+    const [length, count] = Array.isArray(run) ? run : [run, 1];
+    if (at < from + length * count) return k + Math.floor((at - from) / length);
+    from += length * count;
+    k += count;
+  }
+  return k - 1;
+}
+
+/**
  * Contrast ranges sampled from `level` (an array at `url`, of axes `axes`,
- * chunked by `chunks`): one per channel in `channels` (indices along the `c`
- * axis, which must be chunked one channel at a time), or with no channels a
- * single one. Each is undefined where the chunk is missing or not decodable
- * here. The chunk is that of the index `start` when given.
+ * chunked by `chunks`, at most, on a regular or rectilinear grid): one per channel in
+ * `channels` (indices along the `c` axis, which must be chunked one channel at a time), or
+ * with no channels a single one. Each is undefined where the chunk is missing or not
+ * decodable here. The chunk is that of the index `start` when given.
  */
 export async function sampleRanges(
   url: string, meta: any, axes: { name: string }[], chunks: number[], channels?: number[], start?: number[],
 ): Promise<([number, number] | undefined)[]> {
   // (a shard is many chunks, which `decodeChunk` does not decode: no need to fetch it to find that out)
-  if (!TYPES[meta.data_type] || meta.chunk_grid.name !== "regular" || meta.codecs[0]?.name === "sharding_indexed") {
+  const grid = meta.chunk_grid;
+  if (!TYPES[meta.data_type] || !["regular", "rectilinear"].includes(grid.name) || meta.codecs[0]?.name === "sharding_indexed") {
     return channels?.map(() => undefined) ?? [undefined];
   }
   const c = axes.findIndex((a) => a.name === "c");
@@ -136,7 +164,7 @@ export async function sampleRanges(
   // The chunk the view opens on: at `start`, else the first time point and the
   // middle elsewhere.
   const index = meta.shape.map((n: number, i: number) =>
-    Math.floor((start?.[i] ?? (axes[i]?.name === "t" ? 0 : Math.floor(n / 2))) / chunks[i]));
+    chunkIndex(grid, chunks, i, start?.[i] ?? (axes[i]?.name === "t" ? 0 : Math.floor(n / 2))));
   const enc = meta.chunk_key_encoding ?? { name: "default" };
   const sep = enc.configuration?.separator ?? (enc.name === "v2" ? "." : "/");
   const one = async (k?: number) => {

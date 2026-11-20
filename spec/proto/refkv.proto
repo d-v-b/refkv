@@ -1,4 +1,6 @@
-// Generated from spec/refkv.md, Appendix A (format version 0). Edit the spec, not this file.
+// The messages of every refkv store, whatever its binding: spec/refkv.md, Appendix A
+// (format version 0). spec/tools/test_proto.py checks that this file and that appendix match;
+// edit both. Messages that one binding alone uses are in that binding's file (vzip.proto).
 syntax = "proto3";
 package refkv.v0;
 
@@ -29,21 +31,4 @@ message Source {
 message SourceTable {
   repeated Source sources = 1;
   optional uint32 revision = 2;
-}
-
-message CdIndex {
-  message Page {
-    string first_key = 1;
-    uint64 offset    = 2;
-    uint64 length    = 3;
-  }
-  message Pinned {
-    string key         = 1;
-    uint64 data_offset = 2;
-    uint64 size        = 3;
-    uint64 csize       = 4;
-    uint32 method      = 5;
-  }
-  repeated Page   pages  = 1;
-  repeated Pinned pinned = 2;
 }

@@ -15,6 +15,8 @@ its JSON Schema `zarrify/<format>/schema.json`. Its changes are in [zarrify/chan
 | FITS | [fits](zarrify/fits.md) | `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` |
 | FLAC (Free Lossless Audio Codec) | [flac](zarrify/flac.md) | `e9108d07-b24b-432f-a8ce-09d80c8073b4` |
 | WMO FM 92 GRIB edition 2 (WMO-No. 306, Manual on Codes, Volume I.2) | [grib](zarrify/grib.md) | `c9bbe039-8dfa-49f9-a655-756f822a42d6` |
+| Janelia H5J | [h5j](zarrify/h5j.md) | `5bd31fac-d92d-452b-bcb6-15ca89c0f931` |
+| HDF4 (the HDF Group's Hierarchical Data Format 4) | [hdf4](zarrify/hdf4.md) | `af66c29e-fc1a-44a4-bb71-1055ad5fdb0a` |
 | HDF5, NWB | [hdf5](zarrify/hdf5.md) | `6c006834-424b-451b-b786-f8c502ec32af` |
 | Imaris IMS | [ims](zarrify/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
 | Leica LIF | [lif](zarrify/lif.md) | `b099ab1f-f9d4-4276-9006-9ff1193a34b2` |
@@ -598,7 +600,7 @@ fields and how each becomes a member of `S`. Unless it says otherwise:
 
   | kind of value | type | JSON |
   |---|---|---|
-  | an integer | <a id="type-integer"></a>`Integer` | a number when its magnitude is at most 2^53 − 1, and otherwise the string of its decimal digits (with a leading `-` if negative) |
+  | an integer | <a id="type-integer"></a>`Integer` | a JSON integer (an optional `-` and decimal digits, without a fraction or an exponent) of its exact value, whatever its magnitude |
   | a floating-point number | <a id="type-float"></a>`Float` | a number, the source's value converted to binary64 exactly (a binary32 value included); NaN, +∞ and −∞ are the strings `"NaN"`, `"Infinity"` and `"-Infinity"`, as Zarr fill values are. −0 may be written as `0` or `-0.0`; the two are equal |
   | a text field | <a id="type-text"></a>`Text` | a **text value**: a string, or the object `{"latin1": T}` (below) |
   | a name taken from the source (an attribute's or a chunk's name) | <a id="type-name"></a>`Name` | a string, read as a text value is but without the tag: UTF-8 if valid, else ISO 8859-1 |
@@ -614,8 +616,25 @@ fields and how each becomes a member of `S`. Unless it says otherwise:
 - **Names from the source.** When two names of one object read alike, the first, in the order the convention
   gives, is kept and the others are left out (their values are not read).
 
-Producers compare these as JSON values: numbers by their binary64 values,
-strings by their characters ([spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)).
+Producers compare these as JSON values: numbers by their values (an integer
+exactly, every digit), strings by their characters
+([spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)).
+
+An `Integer` past 2^53 − 1 in magnitude has more digits than a binary64
+value holds, so a consumer that needs its exact value parses integers as
+big integers. In JavaScript, `JSON.parse` with a reviver that turns into a
+`BigInt` only a number whose source text (`context.source`) matches
+`^-?(0|[1-9][0-9]*)$` and that lies outside −(2^53 − 1) to 2^53 − 1 (any
+other number, one with a fraction or an exponent among them, stays a
+binary64); an engine whose `JSON.parse` gives a reviver no source text needs
+a lossless JSON parser instead. Python's `json` module reads every integer
+exactly. A convention that reads an integer from decimal text reads it within
+the range its format declares for the value (as DICOM declares an `IS`
+value's, and ND2 an XML variant's by its runtype), or, where the format
+declares none, within a range the convention sets and says: an integer
+outside that range is no value of the format, and the convention reads it as
+it reads text that is not a number. An integer of the source's binary fields
+is within its field's width.
 
 These rules apply to values the convention translates from the source's
 bytes. Members copied from a JSON document of the source (a store's
@@ -732,10 +751,11 @@ source 0, with no knowledge of the format; the format's convention says what
 the elements are (its **source model**). Sections 8.1 to 8.7 are all a reader
 needs to read the table, check it, and rebuild the source; 8.8 is how a
 producer writes it, one way only, so that the mirror of a source is the same
-whoever writes it. A store (an N5, Zarr v2 or OME-Zarr store, a SAFE
-directory, a safetensors store) is many objects, and so is a file that its
-profile reads as a store (VSI, NRRD and GRIB,
-[spec/zarrify.md §1.8](zarrify.md#18-files-read-as-stores)): its IR has many
+whoever writes it. A store (an N5, Zarr v2, Zarr v3, OME-Zarr or Precomputed
+store, a SAFE directory, a safetensors store) is many objects, and so is a file
+that its profile reads as a store (VSI, NRRD and GRIB always, and others when
+the file names more files; the table of
+[spec/zarrify.md §1.8](zarrify.md#18-files-read-as-stores) lists them): its IR has many
 sources, one per object, and [§8.9](#89-stores) says how 8.1 to 8.8 apply to
 it. Any other file's IR is the special case of one source, source 0, which 8.1
 to 8.8 describe as they stand.
@@ -807,8 +827,20 @@ The IR a parser builds leaves nothing out.
 A **run** is an element whose subtree stands for `count` copies of itself
 (its **members**): member `j` has every extent of the subtree shifted by
 `j × stride` and the run's root's name index increased by `j`. A run's
-leaves are its members' leaves. Runs do not nest. A parser may fold its IR
+leaves are its members' leaves. The leaves of one member lie within `stride`
+bytes, from the first one's start to the last one's end, so that no two
+members' leaves overlap. Runs do not nest. A run holds no derived element,
+no alias and no element in a derived space: its members copy member 0's
+elements into space 0, and copy no alias's target. A parser may fold its IR
 into runs; the canonical table (8.8) expands them, and a reader accepts them.
+
+Canonical form ([§8.8](#88-canonical-form), step 1) names every gap `gaps/`, with the gap's offset as
+its name index (`gaps/<offset>`; in a store's IR, the offset in the gap's
+object; in a derived space, the offset in its derived bytes), whatever name the
+producer gave it. A producer may name the gaps it folds into a run otherwise:
+refkv's names a gap that repeats inside each member of a run `gaps/<offset>/`,
+`<offset>` the first one's, with the name indexes 0, 1, … for the members it
+repeats in, and canonical form renames each by its own offset.
 
 ### 8.2 The table
 
@@ -841,6 +873,9 @@ The store conventions say when they have the last two members, and their content
 | `names` | array of string | required | the interned names, whose indexes the rows and tables use; `names[0]` is `""`, the root's name (8.1) |
 | `types` | array of string | required | the interned types (8.6), likewise; `types[0]` is `""` |
 | `forms` | array of string | required | the interned forms (8.5), likewise, each a JSON text |
+
+A reader rejects a table whose `version` is not `2`, whose `rows` is not the number of rows the
+array `rows` stores, or whose `elements` is not the number of rows they expand to (8.3).
 
 <a id="table-mirror"></a>**The mirror's entries**, under `refkv_source` ([§11.5](#115-layout-tables)):
 
@@ -887,7 +922,8 @@ none; edge chunks padded with zeros; no attributes):
   - `1`, an alias: (alias, target), `-1`: no target;
   - `2`, a form: (element, form), into `forms`;
   - `3`, a **column run**: (first row, count, size), 8.3;
-  - `4`, a column: (column run, row offset, field, encoding, x, y), 8.3;
+  - `4`, a column: (column run, row offset, field, encoding, x, y), 8.3, its
+    column run named by its position, from 0, among the rows of code 3;
   - `5`, six values of `column_values`: the rows of code 5, in order,
     concatenated, are the list `column_values` (padded with zeros to a
     multiple of six).
@@ -938,7 +974,11 @@ member 0's, except:
     its bytes are those of source 0 at its extent, and the column is entries
     `y` to `y + count − 1` (so a TIFF's tiles take their offsets and byte
     counts from its TileOffsets and TileByteCounts, which the source holds);
-  - `3` (name index only): the row's start.
+  - `3` (name index only): the row's start;
+  - `4`: the column as `y` arithmetic **pieces**, each three values of
+    `column_values` from `x` on, `(v, d, c)`: the next `c` members' values
+    are `v`, `v + d`, …, `v + (c − 1) × d` (wrapping); each `c` is at least
+    1, and the pieces' `c` sum to `count`.
 - **start, without a column**: a row with a length, in a member whose
   first row has a length, is shifted as its member's first row is (its start
   plus member `j`'s first-row start minus member 0's); any other row keeps
@@ -947,17 +987,25 @@ member 0's, except:
 Forms and alias targets without a column are member 0's. A reader expands
 the column runs that have no column of encoding 2 first, then the others.
 
-**Limits.** The expanded table has at most `2^22 + floor(Z / 4)` rows; a
-table that would have more is invalid. A producer **rejects** a source whose
+**Limits.** The expanded table, with every run (code 0) expanded as well,
+has at most `2^22 + floor(Z / 4)` rows; a table that would have more is
+invalid (`budget: more than N rows`, N that limit in decimal). A producer **rejects** a source whose
 canonical mirror (8.8: runs expanded, derived spaces left out) would have more
 than `N = 2^22 + floor(Z / 4)` rows, with the message
 `budget: the mirror would have more than N rows` (N in decimal), and may do so
 before expanding when the elements outside derived spaces, every run expanded,
-are already more than `N`. (A source can describe more than one element per
+are already more than `N`. While it parses, refkv's producer also rejects a
+source whose IR holds more than `N` elements as the parser stores them (a run
+counted once, the derived spaces and the gaps it adds included), with the
+message `budget: more than N IR records`, and one whose elements, every run
+expanded, are more than `M = 2^30 + Z`, with that message or
+`budget: more than M IR elements` (M in decimal). These are that producer's budgets, and
+this section does not list every one. (A source can describe more than one element per
 four bytes, as a TIFF of many small IFDs does, so `floor(Z / 4)` alone does not
 admit every source; the limit bounds what a reader must expand.) So is one whose columns' lengths
 differ, whose column refers to values past `column_values` or entries past
-its array, whose column run's member 0 is not `size` rows of sibling
+its array, whose column of encoding 4 has a piece of no member or pieces that are not
+its column run's members, whose column run's member 0 is not `size` rows of sibling
 subtrees (every row's parent is the first row's parent or an earlier row of
 the member), whose up is 0 for a row other than the root or larger than the
 row's id, or whose kinds, names, types or forms are out of range. So is one
@@ -965,8 +1013,14 @@ whose expanded rows break the rules of the root or of the names (8.1): a
 root that is not a struct named `""` with no name index in space 0 with the
 extent `(0, Z)`; an element other than the root with an empty full name; or
 siblings whose full names are equal, or one of which is another's followed
-by `/` and more. A reader rejects such a table (8.4) and a validator flags it
-as invalid.
+by `/` and more. So is one whose runs (code 0) break the rules of runs
+([§8.1](#81-elements)): for the first expanded row `i` in a run's subtree that
+is a derived element, an alias or in a derived space, `r` its run's root, the
+message is `the run at row r holds a derived element (row i)`,
+`the run at row r holds an alias (row i)` or, for an element of another kind,
+`the run at row r holds an element in a derived space (row i)` (`r` and `i`
+in decimal). A reader rejects such a table (8.4) and a validator flags it as
+invalid.
 
 ### 8.4 Reading the source back
 
@@ -1079,8 +1133,9 @@ members `$vz`, `$form` and `$partial` below are never a child's):
   (8.1; `""` for the root);
 - data, gaps and aliases of data or gaps are not shown.
 
-Values JSON cannot hold are tagged: `{"$vz": "int", "v": digits}` past
-2^53 − 1, `{"$vz": "float", "v": "NaN" | "Infinity" | "-Infinity"}`,
+An integer is a JSON integer, exact whatever its magnitude, as an
+[`Integer`](#type-integer) is. Values JSON cannot hold are tagged:
+`{"$vz": "float", "v": "NaN" | "Infinity" | "-Infinity"}`,
 `{"$vz": "bytes", "b64": ...}` and `{"$vz": "utf16", "b64": ...}`.
 
 <a id="type-viewdocument"></a>**`ViewDocument`**, a struct's or a derived element's
@@ -1102,13 +1157,14 @@ document, the source metadata of its group:
 | `{"$vz": "group", "path": p}` | a struct or a derived element whose document is the group `refkv_source/p` |
 | `{"$vz": "element", "id": i}` | the spill form: row `i` of the expanded table |
 | `{"$vz": "alias", "path": p}` | an alias whose target is neither data nor a gap |
-| `{"$vz": "int", "v": digits}` | an integer past 2^53 − 1 |
 | `{"$vz": "float", "v": "NaN" \| "Infinity" \| "-Infinity"}` | a float JSON cannot hold |
 | `{"$vz": "bytes", "b64": B}` | bytes |
 | `{"$vz": "utf16", "b64": B}` | UTF-16 that is not text |
 
-**Budgets.** A document holds at most 65536 bytes, and at most 2^20
-elements are visited in all. Each document starts with 65536 bytes left;
+**Budgets.** The members of a document's children spend at most 65536 bytes,
+and at most 2^20 elements are visited in all; the members `$vz`, `$form` and
+`$partial` spend none, and the last child's member may be larger than what is
+left, so a document may hold more than 65536 bytes. Each document starts with 65536 bytes left;
 for each child in order: the child is visited (counted); if fewer than 1024
 bytes are left, or more than 2^20 children have been visited, the document
 gets `"$partial": true` and stops. Otherwise the child's member is computed
@@ -1133,7 +1189,11 @@ compares mirrors entry for entry. In order:
 1. **Runs.** Every run (8.1) is expanded into its members: member `j`'s root
    has the run root's name index plus `j`, and each element of member `j`
    the extent of member 0's shifted by `j × stride` (the same length), and
-   its type, value and form. The table has no row of code 0.
+   its type, value and form. The table has no row of code 0. Then every gap
+   is named `gaps/`, with its start as its name index ([§8.1](#81-elements)),
+   and the root and the names of [§8.1](#81-elements) must hold of the
+   elements so named: an IR whose renamed gaps break them has no canonical
+   form, and a producer rejects it with the message of the rule broken.
 2. **Order.** The elements are numbered depth first from the root (id 0), a
    parent before its children, each subtree contiguous. An element's **first
    byte** is its start when it has a length, else the least first byte of its
@@ -1151,8 +1211,10 @@ compares mirrors entry for entry. In order:
    (`tiles/0`, `tiles/1`, …) its indexes, wherever its members lie. No two
    siblings tie: siblings of one name differ in name index, since their full
    names differ (8.1), so this order is total and depends on the IR alone.
-   Where two leaves claim one byte, the one first in this order keeps it and
-   the other becomes an alias (8.1, injectivity).
+   Where leaves claim one byte, they are taken in order of their start, and
+   in this order among those that start at one byte: a leaf that overlaps
+   the last one kept becomes an alias of it and claims nothing, and any
+   other is kept (8.1, injectivity).
 3. **Derived spaces.** The derived elements are taken in order, skipping
    those inside another derived element. Each keeps its descendants when
    they, with the descendants kept so far, number at most 2^20; otherwise its
@@ -1201,6 +1263,16 @@ compares mirrors entry for entry. In order:
    - `2`, when one of the profile's **named array rules** (below) gives,
      for this column, a value row `x` and an index `y`, and entries `y` to
      `y + count − 1` of the array `x` holds are `v_0` to `v_{count−1}`;
+   - `4`, when its pieces are fewer than a third of the members (3 × `y` <
+     `count`): `x` is the length of `column_values` so far, and the pieces
+     are taken from member 0 on, each as long as it can be: a piece starts at
+     member `a` with `v = v_a`; with no member after it, it is `(v_a, 0, 1)`;
+     else `d = v_{a+1} − v_a` (wrapping), and it holds every member from `a`
+     on while each value is the one before it plus `d`. Its `(v, d, c)` are
+     appended to `column_values`, and `y` is the number of pieces (a column
+     of a source's units in runs of one stride, such as an audio track's
+     samples, chunk by chunk, costs three values a run instead of one a
+     member);
    - `1`: `x` is the length of `column_values` so far, `y = 0`, and
      `v_0, v_1 − v_0, …, v_{count−1} − v_{count−2}` (wrapping) are appended
      to it.
@@ -1319,8 +1391,8 @@ hold no `/`: 8.1's rules for names hold. The rule makes the chunk keys of one
 array siblings of one name with consecutive indexes (`0`, `1`, … in a nested
 directory, `3.0`, `3.1`, … after a `.`), which canonical form folds (below).
 
-**Held, referenced and empty objects.** An object that has children is
-**held**: the leaves among its descendants partition `[0, s)` of its bytes, as
+**Held, referenced and empty objects.** An object that has children and a
+length is **held**: the leaves among its descendants partition `[0, s)` of its bytes, as
 the leaves of a file IR partition its source (8.1's coverage and injectivity,
 for each object), and the table holds its bytes (`ir/held`, below), so the
 mirror alone rebuilds it. A store's documents (an N5 `attributes.json`, a Zarr
@@ -1341,7 +1413,7 @@ bytes: they are its own source's, which a reader reads at the object's URL
 ([spec/zarrify.md §1.4](zarrify.md#14-store-inputs)), as it reads a file
 IR's source 0 ([§8.4](#84-reading-the-source-back)). A producer reads every value
 the view shows in such an object (its parser holds them). A held object is
-then an object with children that is not described in place.
+then an object with children and a length that is not described in place.
 
 The invariants of 8.1 then become, for a store IR: the elements outside every object
 are the root and the directories above; each object's leaves (a referenced
@@ -1373,7 +1445,11 @@ A producer rejects a store past one of these with the message
 `budget: more than 16777216 objects`,
 `budget: the mirror would have more than N rows` (N in decimal) or
 `budget: the mirror's names would total more than 16777216 bytes`, and a reader
-rejects such a table. A reader also rejects a table whose held objects (objects with
+rejects such a table. While it parses, refkv's producer allows a store `N`
+elements as the parser stores them, and `M = 2^30 + floor(Z / 4) + 4 × o` with
+every run expanded, and rejects a store past either with the messages of
+[§8.3](#83-column-runs)'s limits, `budget: more than N IR records` and
+`budget: more than M IR elements` (in decimal). A reader also rejects a table whose held objects (objects with
 children and a length, not described in place) are not as many as `ir/held`'s
 byte strings, or one of
 whose byte strings is not as long as its object.
@@ -1413,8 +1489,10 @@ Within an object, 8.8's order holds, its first bytes being those of that
 object's source. The rest of 8.8 is unchanged. In particular, column runs fold
 sibling subtrees of one shape: the chunk objects of one array, siblings of one
 name with consecutive indexes, fold into a column run of one stored row whose
-columns are the name index (encoding 0) and the length (encoding 1, the chunks'
-sizes, or 0 when they are all one size). Nested chunk keys (`i/j/k`) fold whole
+columns are the name index (encoding 0) and, when the chunks' sizes differ,
+the length (encoding 0 when each size differs from the one before by the
+same amount, 4 when the sizes fall in few such runs, else 1; chunks all of one
+size have no length column). Nested chunk keys (`i/j/k`) fold whole
 directories at once, one column run for a full grid; flat keys (`i.j.k`) fold one
 column run per name (`i.j.`). The held objects' byte strings are in id order.
 
@@ -1542,7 +1620,7 @@ array-to-bytes codec `refkv.stream` decodes such a chunk.
 |---|---|---|---|
 | `format` | string | required | the coding of the frames: `"mp3"` (MPEG-1, 2 or 2.5 Layer III frames), `"aac"` (raw AAC frames, without ADTS headers), `"flac"` (FLAC frames, [RFC 9639 §9](https://www.rfc-editor.org/rfc/rfc9639#section-9)), `"h264"` (H.264 access units as an MP4 file holds them: each NAL unit preceded by its length, in the length's size the setup gives), `"hevc"` (HEVC access units, the same way), `"av1"` (AV1 temporal units as an MP4 file holds them: OBUs with their sizes) or `"vp9"` (VP9 frames or superframes) |
 | `setup` | string | optional | when the format has one: the decoder's configuration, base64 ([RFC 4648 §4](https://www.rfc-editor.org/rfc/rfc4648#section-4)): for `"aac"` the AudioSpecificConfig (ISO/IEC 14496-3 §1.6.2.1), HE-AAC's and HE-AAC v2's with it, for `"flac"` `fLaC` and the stream's STREAMINFO block, header included (42 bytes: the form ffmpeg's decoder and WebCodecs' `description` take), for `"h264"` the AVCDecoderConfigurationRecord (an MP4 file's avcC box, ISO/IEC 14496-15 §5.3.3.1), which holds the parameter sets, for `"hevc"` the HEVCDecoderConfigurationRecord (an MP4 file's hvcC box, ISO/IEC 14496-15 §8.3.3.1), which holds the VPS, SPS and PPS and the NAL unit lengths' size (the form WebCodecs' `description` takes for both) |
-| `plane` | string | optional | for `"h264"`, `"hevc"`, `"av1"` and `"vp9"` only: the plane of a decoded picture the array holds, `"y"`, `"u"` or `"v"` |
+| `plane` | string | optional | for `"h264"`, `"hevc"`, `"av1"` and `"vp9"` only: the plane of a decoded picture the array holds, `"y"`, `"u"` or `"v"` (`"y"` of a 4:0:0 picture, which has no other) |
 
 There are no other members.
 
@@ -1573,13 +1651,14 @@ from `position[k]`, `[s, channels]`; for video, the one row `position[k]`,
 its output dropped: it is the chunk's lead-in. Every row no frame fills is
 the fill value: the rows past the array's end in its last chunk, and the
 rows of a frame the decoder gives no output for. An output that does not
-fit its rows, or whose shape is not the array's, is an error. The outputs
+fit its rows, or whose shape is not the array's, is an error, and so is a `plane` of `"u"` or `"v"`
+of a stream whose pictures are 4:0:0, which have no such plane. The outputs
 are the decoder's own samples, with no conversion: `float32` for MP3 and
 AAC, the stream's integer samples for FLAC (of the bits per sample the
 setup gives, in the array's signed integer type: a decoder that gives them
 in the high bits of a wider integer is shifted back), and the planes of a
 4:2:0 or 4:2:2 picture for H.264, HEVC, AV1 and VP9 (`u` and `v` half the size of `y` along each
-axis, or along `x` alone for 4:2:2, rounded up), `uint8` for 8 bits a sample and `uint16` for 10 or
+axis, or along `x` alone for 4:2:2, rounded up), or the `y` plane alone of a 4:0:0 HEVC picture, `uint8` for 8 bits a sample and `uint16` for 10 or
 12, the sample's value (from 0 to 2^bits − 1, not scaled to the type's range).
 
 The outputs are placed by the frame each comes from, whatever order the

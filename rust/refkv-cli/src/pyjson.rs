@@ -64,6 +64,9 @@ fn write(v: &Value, out: &mut String) {
         Value::Number(n) => match (n.as_i64(), n.as_u64(), n.as_f64()) {
             (Some(i), _, _) => out.push_str(&i.to_string()),
             (_, Some(u), _) => out.push_str(&u.to_string()),
+            // an integer past 64 bits (serde_json's arbitrary_precision keeps its digits), which
+            // Python writes with every digit
+            _ if !n.to_string().contains(['.', 'e', 'E']) => out.push_str(&n.to_string()),
             (_, _, Some(f)) => out.push_str(&float_repr(f)),
             _ => out.push_str(&n.to_string()),
         },
@@ -127,10 +130,10 @@ mod tests {
 
     #[test]
     fn documents() {
-        let v: Value = serde_json::from_str(r#"{"format": "tiff", "a": [1, -2, 18446744073709551615, 0.5, true, null], "é\n": {}, "e": []}"#).unwrap();
+        let v: Value = serde_json::from_str(r#"{"format": "tiff", "a": [1, -2, 18446744073709551615, 18446744073709551616, 0.5, true, null], "é\n": {}, "e": []}"#).unwrap();
         // `U` stands for a backslash and a `u`: the escapes of the characters outside ASCII
         let u = |s: &str| s.replace('U', "\\u");
-        assert_eq!(dumps(&v), u(r#"{"format": "tiff", "a": [1, -2, 18446744073709551615, 0.5, true, null], "U00e9\n": {}, "e": []}"#));
+        assert_eq!(dumps(&v), u(r#"{"format": "tiff", "a": [1, -2, 18446744073709551615, 18446744073709551616, 0.5, true, null], "U00e9\n": {}, "e": []}"#));
         assert_eq!(dumps(&Value::String("\u{1f600}\u{7f}\"\\".into())), u(r#""Ud83dUde00U007f\"\\""#));
     }
 }

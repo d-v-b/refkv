@@ -15,6 +15,7 @@ test("pythonScript names the input, its extra and the release, and zarrifies or 
       ['"refkv[images]>=0.2.0rc1"', '"""Zarrify s and open'], []],
     ["https://example.org/x.mp3", false, "mp3", undefined, ['dependencies = ["refkv[media]"]'], ["refkv[media]>="]],
     ["https://example.org/v.mov", false, "mp4", "0.2.0", ['"refkv[media]>=0.2.0"'], []],
+    ["https://example.org/stack.h5j", false, "h5j", "0.2.0", ['"refkv[media]>=0.2.0"'], ["refkv[images]"]],
     ["https://example.org/data/img.zarr/", false, "ome-zarr", "0.2.0", ['reference.save_vzip("img.vzip")'], []],
     ["https://example.org/out.vzip", true, "czi", "0.2.0",
       ['store = refkv.zarr.open("https://example.org/out.vzip")', '"""Open the vzip archive out.vzip'],

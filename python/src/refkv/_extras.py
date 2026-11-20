@@ -23,7 +23,7 @@ zarrifies image files and stores, without Zarr. The extras add:
   refkv reads local files and `http(s)` URLs, archives and sources, itself.
   `OBSTORE_HINT` is what refkv's errors say where such a store is needed;
 - `virtualizarr`: VirtualiZarr, for `ReferenceStore.from_virtualizarr`,
-  `refkv.convert` and `refkv.shards`, with the `zarr` extra, since they build
+  `refkv.convert`, `refkv.shards` and `refkv.virtualizarr`, with the `zarr` extra, since they build
   Zarr metadata, and the `obstore` extra, whose stores VirtualiZarr's
   registries hold. refkv does not import xarray: it calls the methods of the
   datasets VirtualiZarr builds.

@@ -25,7 +25,7 @@ from refkv.policy import Policy
 from refkv.reader import Registry, Resolver
 from refkv.uri import path_reference
 from refkv.zarrify import _zarrify_async, is_store
-from refkv.zarrify.common import Output
+from refkv.zarrify.common import Output, reading_own_files
 from refkv.zarrify.layouts import MERGE_GAP
 from refkv.zarrify.store.urls import object_url
 
@@ -47,6 +47,10 @@ class Parsed:
                  registry: Resolver, checksums: bool, max_bytes: int, registry_given: Registry | None = None,
                  read_base: str | None = None) -> None:
         self._fmt = fmt
+        # the run's checksum function holds its transport, a local file's mapping among them, which
+        # would keep the file mapped as long as this lives (and on Windows, unable to shrink or go):
+        # `Parsed` reads its sources itself, and `seal` checksums them
+        out.checksum = None
         self._out = out
         self._location = location
         self.policy = policy
@@ -352,7 +356,7 @@ class Parsed:
         # the input's own bytes, read one run a get: a reader's limits on a `get` (rule 5) are not
         # build's, and `bytes` bounds what it reads by `max_bytes`; `seal`'s checksums read the
         # ranges its values name, however many
-        rules = self.policy or Policy()
+        rules = reading_own_files(self.policy, self._readable())  # its own files, as zarrify's store reads them
         longest = max((b - a for _, a, b in runs), default=0)
         policy = dataclasses.replace(rules, max_get_bytes=max(rules.max_get_bytes, longest),
                                      max_reads=max(rules.max_reads, 1))

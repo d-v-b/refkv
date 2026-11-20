@@ -47,9 +47,11 @@ def stack(n: int) -> np.ndarray:
     return np.stack([plane(k) for k in range(n)])
 
 
-def read(out, tmp_path: Path) -> zarr.Group:
+def read(out, tmp_path: Path, directory: Path = TIFF) -> zarr.Group:
+    """The saved `out`, which reads the files of `directory`."""
     out.write(str(tmp_path / "a.vzip"))
-    return zarr.open_group(refkv.zarr.open(str(tmp_path / "a.vzip")), mode="r", zarr_format=3)
+    policy = Policy(prefixes=(directory.as_uri() + "/",))
+    return zarr.open_group(refkv.zarr.open(str(tmp_path / "a.vzip"), policy=policy), mode="r", zarr_format=3)
 
 
 @pytest.mark.parametrize(("name", "files", "want"), [
@@ -121,7 +123,7 @@ def test_a_stack_of_many_planes_is_not_an_ifd_a_request(tmp_path, monkeypatch):
     _, out = zarrify(str(tmp_path / name))
     assert isinstance(out, StoreIrOutput)
     assert integer(at(out.summary, "reads", "batches")) < 40
-    assert np.array_equal(ndarray(read(out, tmp_path).get_array("0")[...]), np.stack(planes))
+    assert np.array_equal(ndarray(read(out, tmp_path, tmp_path).get_array("0")[...]), np.stack(planes))
 
 
 def test_a_url_of_the_directory_names_the_siblings_there():

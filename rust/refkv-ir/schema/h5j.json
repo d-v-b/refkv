@@ -1,0 +1,28 @@
+{
+  "source_model": "h5j",
+  "version": 1,
+  "about": "The source model of a Janelia H5J file (spec/zarrify/h5j.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md>): an HDF5 file, read by the HDF5 parser under the HDF5 source model (schema/hdf5.json), whose channels are MP4 files, each read by the MP4 parser under the MP4 source model (schema/mp4.json). This model holds the checks of the H5J layout itself; a parser checks it while it parses, and projections read a valid IR and check nothing.",
+  "limits": {
+    "max_channels": 1024
+  },
+  "tables": {},
+  "elements": {
+    "about": "The IR of the HDF5 file (schema/hdf5.json), but that the contiguous data of each channel the profile presents, the dataset Channels/Channel_<n>, is a struct `data` of the same extent instead of a data element: the elements of its MP4 file's IR (schema/mp4.json) but its root, their extents moved by the dataset's address."
+  },
+  "roles": {
+    "channels": {
+      "about": "the channels of /Channels (spec/zarrify/h5j.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#83-checks>)",
+      "given": {"channels": "the links Channel_<n> of /Channels"},
+      "constraints": [
+        {"require": "channels <= max_channels", "message": "budget: more than {max_channels} channels"}
+      ]
+    },
+    "presented": {
+      "about": "the channels the profile presents (spec/zarrify/h5j.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#83-checks>)",
+      "given": {"presented": "the channels presented", "reasons": "each other channel's name and reason, joined by \"; \""},
+      "constraints": [
+        {"require": "presented >= 1", "message": "no channel can be zarrified: {reasons}"}
+      ]
+    }
+  }
+}

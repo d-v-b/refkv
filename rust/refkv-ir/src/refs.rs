@@ -10,11 +10,15 @@ use crate::out::{payload_size, Out, Part, MAX_PAYLOAD};
 use serde_json::Value as J;
 use std::collections::HashSet;
 
-/// A part of a form's recipe, relative to its element's first byte.
+/// A part of a form's recipe, relative to its element's first byte (conventions §8.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>).
+#[derive(Debug, PartialEq)]
 enum Step {
-    /// bytes from an offset: to the element's end (None), or of a length
+    /// `["src", o, n]`: bytes from an offset: to the element's end (None), or of a length
     Src(u64, Option<u64>),
-    /// a shared data source of the IR
+    /// `["rows", o, s, n, c]`: c runs of n bytes, the first at o, each s bytes after the one before
+    Rows { o: u64, s: u64, n: u64, c: u64 },
+    /// `["shared", k]`: a shared data source of the IR
     Shared(usize),
 }
 
@@ -24,8 +28,8 @@ enum Step {
 pub struct Refs<'a> {
     pub ir: &'a Ir,
     pub out: Out,
-    /// each form's recipe (None for a form without one)
-    recipes: Vec<Option<Vec<Step>>>,
+    /// each form's recipe (None for a form without one), or why it does not follow the recipe grammar
+    recipes: Vec<Result<Option<Vec<Step>>, String>>,
     seen: HashSet<Vec<(u64, u64)>>,
     limits: [u64; 2],
     spent: [u64; 2],
@@ -39,17 +43,33 @@ pub struct Refs<'a> {
 
 const WHAT: [&str; 2] = ["refs", "repeats"];
 
-fn recipe(form: &str) -> Option<Vec<Step>> {
-    let v: J = serde_json::from_str(form).ok()?;
-    v.get("recipe")?
-        .as_array()?
-        .iter()
-        .map(|p| match p[0].as_str()? {
-            "src" => Some(Step::Src(p[1].as_u64()?, p[2].as_u64())),
-            "shared" => Some(Step::Shared(p[1].as_u64()? as usize)),
-            _ => None,
+/// A form's recipe, read by the grammar of conventions §8.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>: None for a
+/// form with no recipe (or a null one), and an error for a recipe that is not a list of parts each
+/// with exactly the fields its kind has: `["src", o, n]` (`n` an integer or null), `["shared", k]`
+/// and `["rows", o, s, n, c]`, every number a non-negative integer.
+fn recipe(form: &str) -> Result<Option<Vec<Step>>, String> {
+    let Ok(v) = serde_json::from_str::<J>(form) else { return Ok(None) };
+    let parts = match v.get("recipe") {
+        None | Some(J::Null) => return Ok(None),
+        Some(J::Array(parts)) => parts,
+        Some(r) => return Err(format!("its recipe {r} is not a list of parts")),
+    };
+    let step = |p: &J| -> Option<Step> {
+        let p = p.as_array()?;
+        let at = |k: usize| p[k].as_u64();
+        Some(match (p.first()?.as_str()?, p.len()) {
+            ("src", 3) => Step::Src(at(1)?, if p[2].is_null() { None } else { Some(at(2)?) }),
+            ("shared", 2) => Step::Shared(usize::try_from(at(1)?).ok()?),
+            ("rows", 5) => Step::Rows { o: at(1)?, s: at(2)?, n: at(3)?, c: at(4)? },
+            _ => return None,
         })
-        .collect()
+    };
+    parts
+        .iter()
+        .map(|p| step(p).ok_or_else(|| format!("its recipe has a part {p} that the recipe grammar does not have")))
+        .collect::<Result<_, _>>()
+        .map(Some)
 }
 
 impl<'a> Refs<'a> {
@@ -102,22 +122,49 @@ impl<'a> Refs<'a> {
         Ok(())
     }
 
-    /// An element's recipe (relative to its first byte) as output parts.
+    /// An element's recipe (relative to its first byte) as output parts. A `src` part to the
+    /// element's end must start in it; a `rows` part whose runs meet is one range, and one whose
+    /// runs do not may have no more runs than a reference payload has bytes.
     pub fn parts(&mut self, start: u64, length: u64, form: u32) -> Result<Vec<Part>, String> {
-        let steps = self
-            .recipes
-            .get(form as usize)
-            .and_then(|r| r.as_ref())
-            .ok_or_else(|| format!("internal: form {form} has no recipe"))?;
+        let steps = match self.recipes.get(form as usize) {
+            Some(Ok(Some(steps))) => steps,
+            Some(Err(e)) => return Err(format!("form {form}: {e}")),
+            _ => return Err(format!("internal: form {form} has no recipe")),
+        };
+        let past = || format!("form {form}: a recipe part past 2^64 bytes");
+        let at = |o: u64| start.checked_add(o).ok_or_else(past);
         let mut out = Vec::with_capacity(steps.len());
         for s in steps {
-            out.push(match *s {
-                Step::Src(o, n) => Part::Src(start + o, n.unwrap_or(length.wrapping_sub(o))),
+            match *s {
+                Step::Src(o, n) => {
+                    let n = match n {
+                        Some(n) => n,
+                        None => length.checked_sub(o).ok_or_else(|| {
+                            format!("form {form}: a src part to the element's end from {o}, past its {length} bytes")
+                        })?,
+                    };
+                    out.push(Part::Src(at(o)?, n));
+                }
+                Step::Rows { o, s, n, c } if c <= 1 || s == n => {
+                    if c > 0 {
+                        out.push(Part::Src(at(o)?, n.checked_mul(c).ok_or_else(past)?));
+                    }
+                }
+                Step::Rows { o, s, n, c } => {
+                    if c > MAX_PAYLOAD as u64 {
+                        return Err(format!("form {form}: a rows part of {c} runs, more than a reference payload holds"));
+                    }
+                    let first = at(o)?;
+                    for k in 0..c {
+                        let off = k.checked_mul(s).and_then(|d| first.checked_add(d)).ok_or_else(past)?;
+                        out.push(Part::Src(off, n));
+                    }
+                }
                 Step::Shared(k) => {
                     let b = self.ir.shared.get(k).ok_or("internal: no shared source")?;
-                    self.out.shared(b)
+                    out.push(self.out.shared(b));
                 }
-            });
+            }
         }
         Ok(out)
     }
@@ -265,12 +312,112 @@ mod tests {
         assert_eq!(refs.joined("k".into(), &strips, None), Err("k: a reference payload of more than 65519 bytes".into()));
     }
 
+    /// The parts of the element at [start, start + length) by the recipe `recipe` (a JSON list),
+    /// with the shared source 0 "tail".
+    fn recipe_parts(recipe: &str, start: u64, length: u64) -> Result<Vec<Part>, String> {
+        let mut ir = Ir::new(1 << 20);
+        ir.forms.id(&format!(r#"{{"recipe":{recipe}}}"#));
+        ir.shared.push(b"tail".to_vec());
+        Refs::new(&ir, Out::new("u")).parts(start, length, 0)
+    }
+
     #[test]
-    fn rejects_a_form_whose_recipe_has_a_part_it_cannot_follow() {
+    fn recipes_follow_the_grammar() {
+        let cases: [(&str, Vec<Part>); 9] = [
+            (r#"[["src",4,null]]"#, vec![Part::Src(14, 16)]),
+            (r#"[["src",20,null]]"#, vec![Part::Src(30, 0)]),
+            (r#"[["src",2,5],["shared",0]]"#, vec![Part::Src(12, 5), Part::Data(1, 0, 4)]),
+            // ND2's padded rows: runs apart, each its own range
+            (r#"[["rows",0,8,6,3]]"#, vec![Part::Src(10, 6), Part::Src(18, 6), Part::Src(26, 6)]),
+            // runs that meet, and a single run, are one range
+            (r#"[["rows",2,4,4,3]]"#, vec![Part::Src(12, 12)]),
+            (r#"[["rows",2,100,5,1]]"#, vec![Part::Src(12, 5)]),
+            (r#"[["rows",2,100,5,0]]"#, vec![]),
+            (r#"[["rows",0,8,6,2],["src",0,1]]"#, vec![Part::Src(10, 6), Part::Src(18, 6), Part::Src(10, 1)]),
+            (r#"[]"#, vec![]),
+        ];
+        for (recipe, want) in cases {
+            assert_eq!(recipe_parts(recipe, 10, 20), Ok(want), "{recipe}");
+        }
+        // a form with no recipe, or a null one, has none
+        for form in [r#"{"codec":["bytes"]}"#, r#"{"recipe":null}"#] {
+            assert_eq!(recipe(form), Ok(None), "{form}");
+        }
+    }
+
+    #[test]
+    fn rejects_a_src_part_whose_length_is_not_an_integer() {
+        for n in [r#""x""#, "-1", "1.5", "[]"] {
+            let recipe = format!(r#"[["src",0,{n}]]"#);
+            assert_eq!(recipe_parts(&recipe, 10, 20),
+                       Err(format!(r#"form 0: its recipe has a part ["src",0,{n}] that the recipe grammar does not have"#)), "{n}");
+        }
+    }
+
+    #[test]
+    fn rejects_a_part_with_fields_past_its_kind() {
+        for p in [r#"["src",0,4,1]"#, r#"["shared",0,0]"#, r#"["rows",0,8,6,3,0]"#] {
+            assert_eq!(recipe_parts(&format!("[{p}]"), 10, 20),
+                       Err(format!("form 0: its recipe has a part {p} that the recipe grammar does not have")), "{p}");
+        }
+    }
+
+    #[test]
+    fn rejects_a_part_missing_fields_of_its_kind() {
+        for p in [r#"["src",0]"#, r#"["shared"]"#, r#"["rows",0,8,6]"#] {
+            assert_eq!(recipe_parts(&format!("[{p}]"), 10, 20),
+                       Err(format!("form 0: its recipe has a part {p} that the recipe grammar does not have")), "{p}");
+        }
+    }
+
+    #[test]
+    fn rejects_a_rows_part_whose_fields_are_not_integers() {
+        for p in [r#"["rows",-1,8,6,3]"#, r#"["rows",0,null,6,3]"#, r#"["rows",0,8,"6",3]"#, r#"["rows",0,8,6,3.5]"#] {
+            assert_eq!(recipe_parts(&format!("[{p}]"), 10, 20),
+                       Err(format!("form 0: its recipe has a part {p} that the recipe grammar does not have")), "{p}");
+        }
+    }
+
+    #[test]
+    fn rejects_a_part_of_no_kind_of_the_grammar() {
+        for p in [r#"["pad",4]"#, r#"[]"#, r#""src""#, r#"[0,4,null]"#] {
+            assert_eq!(recipe_parts(&format!("[{p}]"), 10, 20),
+                       Err(format!("form 0: its recipe has a part {p} that the recipe grammar does not have")), "{p}");
+        }
+    }
+
+    #[test]
+    fn rejects_a_recipe_that_is_not_a_list() {
+        assert_eq!(recipe_parts(r#"{"src":[0,4]}"#, 10, 20),
+                   Err(r#"form 0: its recipe {"src":[0,4]} is not a list of parts"#.into()));
+    }
+
+    #[test]
+    fn rejects_a_src_part_to_the_end_from_past_the_element() {
+        assert_eq!(recipe_parts(r#"[["src",21,null]]"#, 10, 20),
+                   Err("form 0: a src part to the element's end from 21, past its 20 bytes".into()));
+    }
+
+    #[test]
+    fn rejects_a_rows_part_of_more_runs_than_a_payload_holds() {
+        assert_eq!(recipe_parts(r#"[["rows",0,8,6,65520]]"#, 10, 20),
+                   Err("form 0: a rows part of 65520 runs, more than a reference payload holds".into()));
+    }
+
+    #[test]
+    fn rejects_a_part_past_2_to_the_64_bytes() {
+        for recipe in [r#"[["src",18446744073709551615,1]]"#, r#"[["rows",0,4,4,4611686018427387905]]"#,
+                       r#"[["rows",0,18446744073709551615,1,2]]"#] {
+            assert_eq!(recipe_parts(recipe, 10, 20), Err("form 0: a recipe part past 2^64 bytes".into()), "{recipe}");
+        }
+    }
+
+    #[test]
+    fn rejects_a_form_with_no_recipe() {
         let mut ir = Ir::new(100);
-        ir.forms.id(r#"{"recipe":[["rows",0,40,39,4]]}"#);
+        ir.forms.id(r#"{"codec":["bytes"]}"#);
         let mut refs = Refs::new(&ir, Out::new("u"));
-        assert_eq!(refs.parts(0, 160, 0).err().unwrap(), "internal: form 0 has no recipe");
+        assert_eq!(refs.parts(0, 160, 0), Err("internal: form 0 has no recipe".into()));
     }
 
     #[test]

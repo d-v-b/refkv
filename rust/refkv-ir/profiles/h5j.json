@@ -1,0 +1,17 @@
+{
+  "name": "h5j",
+  "title": "H5J",
+  "uuid": "5bd31fac-d92d-452b-bcb6-15ca89c0f931",
+  "version": 0,
+  "kind": "file",
+  "store_run": null,
+  "sniff": null,
+  "chosen_by": "hdf5",
+  "suffixes": [
+    ".h5j"
+  ],
+  "reference": null,
+  "source": "Janelia H5J",
+  "inputs": "Janelia H5J files (HDF5 whose channels are MP4 files of monochrome HEVC): a confocal stack an image a channel",
+  "for": "Janelia's H5J confocal stacks (`.h5j`), as FlyLight and the Janelia Workstation publish them"
+}

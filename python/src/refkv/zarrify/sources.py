@@ -32,6 +32,7 @@ from refkv.policy import Policy
 from refkv.reader import Registry
 from refkv.zarrify.profiles import REGISTRY
 from refkv.zarrify.store import WORKERS
+from refkv.zarrify.store.beside import Scope
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,9 @@ class Source:
     - `connections`: requests at a time to a remote file (default 8).
     - `byte_cost`: the seconds of wall time the read planner charges a byte fetched beyond
       those asked (default 0.1 s per MB).
+    - `scope`: what the file may read besides itself, a path or several (default: its directory;
+      `zarrify` says more, spec/zarrify.md §1.9
+      <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>).
     - `registry`: the application's object stores by URL prefix, which read the file under
       theirs (`zarrify_async`'s `registry`)."""
 
@@ -69,6 +73,7 @@ class Source:
     policy: Policy | None = field(default=None, compare=False)
     connections: int | None = None
     byte_cost: float | None = None
+    scope: Scope | None = field(default=None, compare=False)
     registry: Registry | None = field(default=None, compare=False)
 
 
@@ -78,8 +83,9 @@ class Store:
     profile reads it, and rejects it with its own message if it is not its format.
 
     - `location`: a URL (http(s), or under a prefix of `registry`), a trailing `/` added if it
-      has none, or a local directory.
-    - `url`: the store URL the archive names its objects by (needed for a local directory).
+      has none, or a local directory, by its path or `file:` URL.
+    - `url`: the store URL the archive names its objects by (for a local directory, its own
+      `file:` URL by default).
     - `checksums`: each range carries the CRC-32C of its bytes, which reads them.
     - `policy`: the reader policy the store is listed and read under (default `Policy()`).
     - `workers`: how many of the store's documents are read at a time.

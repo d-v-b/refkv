@@ -84,6 +84,7 @@ CASES = {
     "flac_id3v2": ({"tags": ["id3v2"]}, {"id3v2": [{"version": [4, 0], "flags": 0, "size": 55, "footer": False}]}),
     "flac_id3v1": ({"tags": ["id3v1"]}, {"id3v1": {"title": "A tone", "artist": "refkv", "album": "Fixtures",
                                                    "year": "2026", "comment": "FLAC", "track": 3, "genre": 12}}),
+    "flac_unknown_total": ({"frames": 8, "samples": 8000}, {}),
     "flac_many_frames": ({"frames": 1050, "blockSize": 16}, {}),
     "flac_single_frame": ({"frames": 1, "samples": 220, "blockSize": 220}, {}),
     "flac_bitwise_8": ({"bitsPerSample": 8}, {}),
@@ -127,8 +128,10 @@ def test_zarrifies_the_synthetic_files(tmp_path, shard_frames):
         assert got.dtype == {8: np.int8, 16: np.int16}.get(-(-bits // 8) * 8, np.int32), name
         assert arr.chunks == (block, channels), name
         assert arr.shards == (per * block, channels), name
-        assert md5(got, bits) == at(meta, "streaminfo", "md5"), name
-        if bits in SOUNDFILE_BITS:
+        # STREAMINFO's MD5 and total of zeros are unknown (RFC 9639 §8.2): libsndfile refuses such a file
+        known = at(meta, "streaminfo", "md5") != "0" * 32
+        assert md5(got, bits) == at(meta, "streaminfo", "md5") or not known, name
+        if bits in SOUNDFILE_BITS and known:
             want, _ = soundfile.read(path, dtype="int32", always_2d=True)
             assert np.array_equal(got, np.right_shift(want, 32 - bits)), name
         data = path.read_bytes()
@@ -185,7 +188,9 @@ def test_a_read_of_a_few_samples_reads_their_frames(tmp_path):
     start, length = np.frombuffer(cols["start"], "<u8"), np.frombuffer(cols["len"], "<u8")
     frames = sorted(zip(start[kind == 2].tolist(), length[kind == 2].tolist(), strict=True))
     stats = refkv.Stats()
-    root = zarr.open_group(refkv.zarr.open(str(tmp_path / "a.vzip"), stats=stats), mode="r", zarr_format=3)
+    policy = refkv.Policy(prefixes=(path.parent.as_uri() + "/",))
+    zs = refkv.zarr.open(str(tmp_path / "a.vzip"), stats=stats, policy=policy)
+    root = zarr.open_group(zs, mode="r", zarr_format=3)
     arr = root.get_array("samples")
     stats.reset()
     ndarray(arr[16 * 500 + 3:16 * 500 + 10])

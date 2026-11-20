@@ -8,6 +8,7 @@ the independent reader."""
 import json
 import logging
 import re
+import struct
 from typing import cast
 
 import imagecodecs
@@ -202,6 +203,33 @@ def test_windows_of_rgb_samples_are_the_type_range():
     _, out, _ = via_ir(str(FIXTURES / "qptiff" / "qptiff_bf_rgb_uncompressed.qptiff"), "u", mirror=False)
     full = {"min": 0, "max": 255, "start": 0, "end": 255}
     assert [c["window"] for c in docs(out)["zarr.json"]["attributes"]["ome"]["omero"]["channels"]] == [full] * 3
+
+
+def test_tiles_listed_in_the_strips_tables_are_the_same_levels(tmp_path):
+    """§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>:
+    an IFD with TileWidth and TileLength is tiled, and its tiles are those of StripOffsets and
+    StripByteCounts where it has neither TileOffsets nor TileByteCounts, as in the TIFF convention:
+    the fluorescence scan whose every tiled IFD has its tables renamed to the strips' has the
+    documents and the references of the scan, and tifffile reads the same pixels of it."""
+    name = "qptiff_fl_uint8_lzw.qptiff"
+    b = bytearray((FIXTURES / "qptiff" / name).read_bytes())
+    renamed = 0
+    with tifffile.TiffFile(FIXTURES / "qptiff" / name) as tf:
+        for page in tf.pages:
+            assert isinstance(page, tifffile.TiffPage)
+            if page.is_tiled:
+                for tiles, strips in ((324, 273), (325, 279)):
+                    struct.pack_into(f"{tf.byteorder}H", b, page.tags[tiles].offset, strips)
+                renamed += 1
+    assert renamed == 6  # the three channels' IFDs of the two tiled levels
+    (tmp_path / name).write_bytes(b)
+    for want, got in zip(tifffile_levels(FIXTURES / "qptiff" / name), tifffile_levels(tmp_path / name), strict=True):
+        assert np.array_equal(want, got)
+    (_, want, _), (_, got, _) = (via_ir(str(p / name), "https://data.test/scan.qptiff", mirror=False)
+                                 for p in (FIXTURES / "qptiff", tmp_path))
+    assert docs(got) == docs(want)
+    assert got.refs == want.refs
+    assert len(got.refs) > 6
 
 
 def broken(tmp_path, name: str, key: str):

@@ -24,7 +24,8 @@ the same stack as one Zarr array, see [tiff-stack.md](tiff-stack.md).
   stacks pages into one array, such as `tifffile.imread(..., key=slice(None))`,
   still needs them to agree.
 - **Relative URLs.** As in [tiff-stack.md](tiff-stack.md), the source URLs
-  are written relative to the sidecar, so the directory can move with it.
+  are written relative to the sidecar, so the directory can move with it;
+  whoever opens it names the new directory in `prefixes`.
 
 What the new file cannot hold is refused with a ValueError: a BigTIFF file,
 files of different byte orders, a page without strips or tiles, an old-style
@@ -68,7 +69,8 @@ is Zarr. Each page keeps its own compression, tiling and tags.
 
 Run with `uv run docs/examples/tiff_concat.py [DIR]`. Without DIR, it first writes a
 synthetic stack of 24 TIFFs to ./tiff_concat/, in four codings. It saves DIR/stack.vzip,
-reads `stack.tif` back with refkv and checks every page against tifffile.
+reads `stack.tif` back with refkv, allowing it to read the files of DIR, and checks
+every page against tifffile.
 """
 
 import io
@@ -210,7 +212,8 @@ def main(directory: Path) -> None:
     sidecar = directory / "stack.vzip"
     print(concat(paths).save_vzip(sidecar, relative_to=path_reference(str(directory)) + "/"))
 
-    data = refkv.open(str(sidecar)).get("stack.tif")
+    policy = refkv.Policy(prefixes=(directory.as_uri() + "/",))
+    data = refkv.open(str(sidecar), policy=policy).get("stack.tif")
     assert data is not None
     with tifffile.TiffFile(io.BytesIO(data)) as tf:
         print(f"stack.tif: {len(data):,} bytes, {len(tf.pages)} pages")

@@ -34,6 +34,14 @@ def test_pages_quote_their_examples_verbatim():
     assert found.get("examples/oisst.py") == "virtual-datasets.md"
     assert found.get("examples/tiff_stack.py") == "tiff-stack.md"
     assert found.get("examples/tiff_concat.py") == "tiff-concat.md"
+    assert found.get("examples/refkv_parser.py") == "virtual-datasets.md"
+
+
+def test_refkv_parser_example_runs(tmp_path, monkeypatch, capsys):
+    """examples/refkv_parser.py opens its netCDF file through RefkvParser and finds its values."""
+    monkeypatch.chdir(tmp_path)
+    runpy.run_path(str(DOCS / "examples" / "refkv_parser.py"), run_name="__main__")
+    assert "the virtual dataset's values equal the file's" in capsys.readouterr().out
 
 
 def test_tiff_stack_example_runs(tmp_path, monkeypatch, capsys):
@@ -47,7 +55,9 @@ def test_tiff_stack_example_runs(tmp_path, monkeypatch, capsys):
     runpy.run_path(str(DOCS / "examples" / "tiff_stack.py"), run_name="__main__")
     assert "all 24 planes match their files" in capsys.readouterr().out
     (tmp_path / "tiff_stack").rename(tmp_path / "moved")
-    image = zarr.open_group(refkv.zarr.open(str(tmp_path / "moved" / "stack.vzip")), mode="r").get_array("0")
+    policy = refkv.Policy(prefixes=((tmp_path / "moved").as_uri() + "/",))
+    zs = refkv.zarr.open(str(tmp_path / "moved" / "stack.vzip"), policy=policy)
+    image = zarr.open_group(zs, mode="r").get_array("0")
     assert image.shape == (24, 256, 256)
     assert np.asarray(image[23]).any()
 
@@ -72,7 +82,8 @@ def test_tiff_concat_example_runs(tmp_path, monkeypatch, capsys):
     runpy.run_path(str(DOCS / "examples" / "tiff_concat.py"), run_name="__main__")
     assert "all 24 pages match their files" in capsys.readouterr().out
     (tmp_path / "tiff_concat").rename(tmp_path / "moved")
-    data = refkv.open(str(tmp_path / "moved" / "stack.vzip")).get("stack.tif")
+    policy = refkv.Policy(prefixes=((tmp_path / "moved").as_uri() + "/",))
+    data = refkv.open(str(tmp_path / "moved" / "stack.vzip"), policy=policy).get("stack.tif")
     assert data is not None
     assert tifffile.imread(io.BytesIO(data), key=23).any()
 
@@ -112,7 +123,8 @@ def test_tiff_concat_keeps_every_page(tmp_path, byteorder):
         tifffile.imwrite(paths[-1], plane + z, byteorder=byteorder, append=True)
 
     example["concat"](paths).save_vzip(tmp_path / "stack.vzip")
-    data = refkv.open(str(tmp_path / "stack.vzip")).get("stack.tif")
+    policy = refkv.Policy(prefixes=(tmp_path.as_uri() + "/",))
+    data = refkv.open(str(tmp_path / "stack.vzip"), policy=policy).get("stack.tif")
     assert data is not None
     with tifffile.TiffFile(io.BytesIO(data)) as tf:
         assert tf.byteorder == byteorder

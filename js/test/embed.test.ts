@@ -10,6 +10,7 @@ import { test } from "node:test";
 import { Archive } from "../src/archive.ts";
 import { decodeFitsTiles, decodeGrib, type FileInput, zarrifyToArchive } from "../src/embed.ts";
 import { ImageError } from "../src/zarrify/common.ts";
+import { StoreError } from "../src/zarrify/store.ts";
 import { zarrifySource } from "../src/zarrify/index.ts";
 import { bytesSource } from "../src/zarrify/ir/source.ts";
 import { writeVzip } from "../src/writer.ts";
@@ -63,6 +64,38 @@ test("zarrifies a file the host reads, with or without its size pins", async () 
     assert.ok(unpinned.sources.every((s) => s.size === undefined && s.etag === undefined), path);
     assert.deepEqual(unpinned.keys(), archive.keys(), path);
   }
+});
+
+test("rejects a file that names a sibling out of its scope, opening none", async () => {
+  for (const [path, key] of [
+    ["hdf5/hdf5_external.h5", "hdf5_external_a.bin"],
+    ["nrrd/nrrd_detached_raw.nhdr", "nrrd_detached_raw.raw"],
+    ["nifti/nifti_pair_nibabel.hdr", "nifti_pair_nibabel.img"],
+    ["tiff/ome_set_a.ome.tif", "ome_set_b.ome.tif"],
+    ["vsi/vsi_raw_gray_pyramid.vsi", "_vsi_raw_gray_pyramid_/stack10002/frame_t.ets"],
+  ] as const) {
+    const opened: string[] = [];
+    const file = { ...input(path), open: async (k: string) => void opened.push(k) };
+    await assert.rejects(
+      zarrifyToArchive(file, { scope: [file.url] }),
+      (e: Error) => e instanceof StoreError && e.message === `out of scope: the input names the file "${key}"`,
+      path,
+    );
+    assert.deepEqual(opened, [], path);
+  }
+});
+
+test("reads a sibling in its scope", async () => {
+  const path = "nrrd/nrrd_detached_raw.nhdr";
+  const scoped = await zarrifyToArchive(input(path), { scope: [`https://data.test/nrrd/nrrd_detached_raw.raw`] });
+  assert.deepEqual(scoped.archive, (await zarrifyToArchive(input(path))).archive);
+});
+
+test("rejects a scope outside the input's directory", async () => {
+  await assert.rejects(
+    zarrifyToArchive(input("nrrd/nrrd_detached_raw.nhdr"), { scope: ["https://data.test/other/"] }),
+    (e: Error) => e instanceof RangeError && e.message.startsWith('scope "https://data.test/other/" is not'),
+  );
 });
 
 test("rejects a file of no supported format", async () => {

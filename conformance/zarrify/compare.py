@@ -45,7 +45,12 @@ revision, and without the members of its source metadata that the mirror holds i
 (NIfTI's extensions and raw bytes; `at_revision`), and the shipped code's without the members
 of its root image added since (TIFF's and NDPI's `omero`; `without_added`) and with NIfTI's
 zero padding, a range of its zero data source since the freeze, as the literal ranges the
-reference writes (`literal_padding`). Each mirror is also checked on its own
+reference writes (`literal_padding`); and the reference's integers past 2^53 − 1, which it writes
+as the strings of their digits (ND2's as the tag `{"int": digits}`, and a record named `int` alone
+as pairs), are read as the exact integers the shipped code writes, and in a DICOM `IS` value or an
+ND2 XML variant an integer the shipped code writes as text, outside its format's range, as that
+text (`with_exact_integers`). Each
+mirror is also checked on its own
 (`mirror_problem`): it reads, it rebuilds a source of source 0's size (a store's: its listing,
 the sizes its sources pin, and every held object byte for byte, read from the store), it is
 canonical, and its view is the one its table and the source give.
@@ -93,6 +98,7 @@ sys.path.insert(0, str(HERE / "reference"))
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 sys.path.insert(0, str(ROOT / "conformance" / "impls" / "python"))
 from corpus_hash import entries as corpus_entries  # noqa: E402
+from exact_integers import exact_integers  # noqa: E402
 from proxy import HUB, Proxy  # noqa: E402
 from refkv_reference import legacy  # noqa: E402
 
@@ -526,8 +532,11 @@ def check(item: tuple, impls: dict, out_dir: Path, proxy: Proxy | None = None) -
             # against the frozen reference, outside the mirror and without what it does not write;
             # without it (no-ref), py and web entry for entry
             a, b = mapping(ref[1]), mapping(value)  # both ok: views
-            diffs = differences(without_source(at_revision(a)), without_source(literal_padding(without_added(b)))) \
-                if mirror and ref_name == "ref" and n != ref_name else differences(a, b)
+            if mirror and ref_name == "ref" and n != ref_name:
+                ours = without_source(literal_padding(without_added(b)))
+                diffs = differences(with_exact_integers(without_source(at_revision(a)), ours), ours)
+            else:
+                diffs = differences(a, b)
             verdicts[n] = ("DIVERGES", diffs) if diffs else ("equivalent", [])
     # one core, two hosts: py and web give the same archive contents, the mirror included
     if mirror and all(results.get(n, ("",))[0] == "ok" for n in ("py", "web")) and \
@@ -603,6 +612,25 @@ def literal_padding(output: Mapping[str, Any]) -> Mapping[str, Any]:
 
     return {**output, "entries": {k: (kind, [literal(r) for r in v]) if kind == "ranges" else (kind, v)
                                   for k, (kind, v) in output["entries"].items()}}
+
+
+def with_exact_integers(ref: Mapping[str, Any], ours: Mapping[str, Any]) -> dict:
+    """The frozen reference's output `ref` with each JSON document's integers past 2^53 - 1 read
+    as the exact integers the shipped code's `ours` writes there: its digit strings in members that
+    hold numbers (a DICOM attribute of an integer VR, an IMS attribute of an integer datatype,
+    NIfTI's header, NDPI's `ExposureTime`, a SAFE node's source metadata), and ND2's tag; and, in a
+    DICOM `IS` value, an ND2 XML variant or a SAFE node's source metadata, an integer `ours` writes
+    as its text, outside its format's range, as that text (exact_integers.py), for comparing the
+    two."""
+    entries = {}
+    # a SAFE node's source metadata, its element values (spec/zarrify/safe.md §6.1
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#61-values>), is numeric and ranged
+    safe = profile(ours) == "safe"
+    for k, (kind, v) in ref["entries"].items():
+        other = ours["entries"].get(k)
+        same_kind = kind == "json" and other is not None and other[0] == "json"
+        entries[k] = (kind, exact_integers(v, other[1], safe=safe)) if same_kind else (kind, v)
+    return {**ref, "entries": entries}
 
 
 def without_source(output: Mapping[str, Any]) -> dict:

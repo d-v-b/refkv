@@ -16,7 +16,7 @@ def netcdf_files(tmp_path):
 
 # The modules whose tests start a JVM (bioio-bioformats'), which run last: on x86-64 Linux, h5py's
 # writes crash a process in which a JVM runs, so no test that writes HDF5 runs after one starts.
-JVM = ("ir/test_vsi.py", "reference/test_virtualize_ome_zarr.py")
+JVM = ("ir/test_vsi.py", "ir/test_vsi_stored.py", "reference/test_virtualize_ome_zarr.py")
 
 
 def pytest_collection_modifyitems(items):

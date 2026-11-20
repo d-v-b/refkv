@@ -16,7 +16,7 @@ from refkv.policy import MAX_SOURCES, Policy, crc32c
 from refkv.reader import Registry, Resolver
 from refkv.uri import file_uri, resolve
 from refkv.vzip.names import INDEX_KEY, SOURCES_KEY
-from refkv.zarrify.common import PAGE_SIZE
+from refkv.zarrify.common import PAGE_SIZE, reading_own_files
 from refkv.zarrify.layouts import (
     DOCUMENTS,
     MAX_OPEN,
@@ -110,7 +110,7 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
     sources = [Source(url=table.urls[i][0], size=table.urls[i][1], etag=table.urls[i][2]) if kind == "url"
                else Source(data=table.data[i] if kind == "data" else bytes(i)) for kind, i in got]
     resolver = registry if registry is not None else _first(inputs, "registry_given")
-    _check_policy(sources, rules, resolver)
+    used = rules = _check_policy(sources, used, resolver)
     for k in [*entries.at_open, *entries.stored]:
         if not isinstance(entries.get(k), bytes):
             raise SealError("open", k, "a placement names a key that is not a bytes entry of the output")
@@ -167,8 +167,9 @@ def _core_seal(*request: Any) -> tuple[list[tuple[str, int]], list[tuple[str, li
         raise SealError(code, key, message) from None
 
 
-def _check_policy(sources: Sequence[Source], rules: Policy, registry: object) -> None:
-    """That the store's reader policy allows every url source (spec/refkv.md §6.7
+def _check_policy(sources: Sequence[Source], policy: Policy | None, registry: object) -> Policy:
+    """The store's reader policy: `policy`, which also reads the files of its inputs as the store
+    zarrify builds does (`reading_own_files`), once it allows every url source (spec/refkv.md §6.7
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rules 1 to 3), as
     `save_vzip` checks them: an absolute URL as it is, a local path's as a `file:` URL."""
     try:
@@ -176,14 +177,15 @@ def _check_policy(sources: Sequence[Source], rules: Policy, registry: object) ->
     except (TypeError, ValueError, AttributeError) as e:
         raise SealError("inputs", None, f"a registry is a mapping of URL prefixes to object stores: {e}") from e
     base = file_uri(str(Path.cwd())) + "/"
-    for s in sources:
-        if s.url is None:
-            continue
-        try:
-            url = resolve(base, s.url)
-            rules.check(base, url, registered=resolver.registered(url) is not None)
-        except (ResolutionError, ValueError) as e:
-            raise SealError("inputs", None, f"the store's reader policy refuses a source: {e}") from e
+    try:
+        rules = reading_own_files(policy, sources)
+        for s in sources:
+            if s.url is not None:
+                url = resolve(base, s.url)
+                rules.check(url, registered=resolver.registered(url) is not None)
+    except (ResolutionError, ValueError) as e:
+        raise SealError("inputs", None, f"the store's reader policy refuses a source: {e}") from e
+    return rules
 
 
 def _first(inputs: Sequence[Parsed], name: str) -> Any:  # noqa: ANN401 (a Parsed's attribute, by name)

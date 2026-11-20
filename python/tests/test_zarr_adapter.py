@@ -23,7 +23,8 @@ def test_zarr_reads_what_the_store_reads(tmp_path):
     requests = {None: None, RangeByteRequest(1, 3): RangeRequest(1, 3),
                 OffsetByteRequest(2): OffsetRequest(2), SuffixByteRequest(2): SuffixRequest(2)}
     stores = {name: refkv.zarr.store(s) for name, s in _stores(tmp_path).items()}
-    stores["refkv.zarr.open"] = refkv.zarr.open(tmp_path / "None.vzip")
+    policy = refkv.Policy(prefixes=(tmp_path.as_uri() + "/",))
+    stores["refkv.zarr.open"] = refkv.zarr.open(tmp_path / "None.vzip", policy=policy)
 
     async def read(zs):
         got = {}

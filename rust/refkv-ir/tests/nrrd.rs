@@ -25,7 +25,12 @@ fn fixtures() -> PathBuf {
 
 /// Runs the NRRD store format on the header file `key` of `files` (by key), probing for a data
 /// file among them: (the output, the IR, the files the run made objects), or the rejection.
-fn run_files(key: &str, mut files: BTreeMap<String, Vec<u8>>) -> Result<Ran, String> {
+fn run_files(key: &str, files: BTreeMap<String, Vec<u8>>) -> Result<Ran, String> {
+    run_with_facts(key, files).map(|r| r.0)
+}
+
+/// As `run_files`, with the facts the parser gave its projection.
+fn run_with_facts(key: &str, mut files: BTreeMap<String, Vec<u8>>) -> Result<(Ran, J), String> {
     let mut run = StoreRun::new(StoreFormat::Nrrd, vec![(key.to_string(), files[key].len() as u64)], 4)?;
     while let Some(reqs) = run.poll()? {
         if reqs.is_empty() {
@@ -43,11 +48,16 @@ fn run_files(key: &str, mut files: BTreeMap<String, Vec<u8>>) -> Result<Ran, Str
     let out = refkv_ir::store::store_output(StoreFormat::Nrrd, &ir, &facts, stats, "https://example.org/nrrd/", true, false)?;
     let objects: std::collections::HashSet<String> = ir.sources().objects.iter().map(|&o| ir.key(o)).collect();
     files.retain(|k, _| objects.contains(k));
-    Ok((out, ir, files))
+    Ok(((out, ir, files), facts))
 }
 
 /// Runs the fixture at `path`, its directory's files beside it.
 fn run(path: &Path) -> Result<Ran, String> {
+    run_files(path.file_name().unwrap().to_str().unwrap(), beside(path))
+}
+
+/// The files of the directory of the fixture at `path`, by key.
+fn beside(path: &Path) -> BTreeMap<String, Vec<u8>> {
     let dir = path.parent().unwrap();
     let mut files = BTreeMap::new();
     let mut stack = vec![dir.to_path_buf()];
@@ -62,7 +72,7 @@ fn run(path: &Path) -> Result<Ran, String> {
             }
         }
     }
-    run_files(path.file_name().unwrap().to_str().unwrap(), files)
+    files
 }
 
 fn entry(out: &Out) -> impl Fn(&str) -> Option<Vec<u8>> + '_ {
@@ -363,6 +373,50 @@ macro_rules! reject {
 
 // one test per case of conformance/zarrify/rejects/nrrd.json (build.rs)
 include!(concat!(env!("OUT_DIR"), "/rejects_nrrd.rs"));
+
+/// Each accepted fixture's facts name its array's description by the description's key, the
+/// header file's object (spec/stored-array.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): the IR's one
+/// description, with no index, whose one row is the `data` element of the data's file, the bytes
+/// the facts place the data at, in the chain of the encoding and the byte skip the facts give.
+#[test]
+fn every_accepted_fixtures_facts_name_their_description() {
+    let (mut inputs, mut detached, mut skips) = (0, 0, 0);
+    for e in std::fs::read_dir(fixtures()).unwrap() {
+        let path = e.unwrap().path();
+        let name = path.file_name().unwrap().to_str().unwrap().to_string();
+        if !(name.ends_with(".nrrd") || name.ends_with(".nhdr")) || name.contains("reject") {
+            continue;
+        }
+        let ((_, ir, _), facts) = run_with_facts(&name, beside(&path)).unwrap_or_else(|m| panic!("{name}: {m}"));
+        let (s, a) = (&ir.stored, &facts["array"]);
+        let key = a["declared_by"].as_u64().unwrap_or_else(|| panic!("{name}: no declared_by")) as u32;
+        assert_eq!(ir.kind[key as usize], OBJECT, "{name}");
+        assert_eq!((ir.key(key).as_str(), facts["header_key"].as_str()), (name.as_str(), Some(name.as_str())));
+        let [described] = &s.arrays[..] else { panic!("{name}: {} descriptions", s.arrays.len()) };
+        assert_eq!((described.element, described.index), (key, None), "{name}");
+        assert!(described.grid.is_some() && !s.undescribed && s.undescribed_keys.is_empty(), "{name}");
+        // the one unit: the data element of the data's file, where the facts place the data
+        assert_eq!((s.map.len(), s.map.range[0], s.map.has_ranges[0]), (1, None, false), "{name}");
+        let unit = s.map.element[0].unwrap();
+        let data_key = facts["data_key"].as_str().unwrap();
+        assert_eq!(ir.path(unit).rsplit('/').next(), Some("data"), "{name}: {}", ir.path(unit));
+        assert_eq!(ir.key(ir.sources().of[unit as usize]), data_key, "{name}");
+        assert_eq!((Some(ir.start[unit as usize]), Some(ir.len[unit as usize])), (a["start"].as_u64(), a["length"].as_u64()), "{name}");
+        // the chain: the encoding's, after a skip where the stream holds one
+        let chain: Vec<&str> = s.chains[described.chains[0] as usize].iter().map(|c| c.name.as_str()).collect();
+        let want: &[&str] = match (a["encoding"].as_str().unwrap(), a["byte_skip"].as_i64().unwrap()) {
+            ("gzip", skip) if skip > 0 => &["skip", "gzip"],
+            ("gzip", _) => &["gzip"],
+            _ => &[],
+        };
+        assert_eq!(chain, want, "{name}");
+        inputs += 1;
+        detached += usize::from(data_key != name);
+        skips += usize::from(chain.len() == 2);
+    }
+    assert_eq!((inputs, detached, skips), (41, 3, 1));
+}
 
 /// Every `nrrd_reject_*` fixture has a test above.
 #[test]

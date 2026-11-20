@@ -26,7 +26,7 @@ def test_roundtrip_single_and_combined(netcdf_files, tmp_path, monkeypatch):
     ):
         out = tmp_path / f"{page_size}{name}"
         write_vzip(vds, out, page_size=page_size)
-        store = refkv.zarr.open(out)
+        store = refkv.zarr.open(out, policy=refkv.Policy(prefixes=(tmp_path.as_uri() + "/",)))
         if consolidated:
             # the root zarr.json lists every array, so opening never lists the archive
             for method in ("list_dir", "list_prefix", "list"):

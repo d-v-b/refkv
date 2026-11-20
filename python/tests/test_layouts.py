@@ -186,7 +186,7 @@ def test_copy_transposes_an_array_to_the_same_values(source, array_path, order):
     b = base(str(FIXTURES / source))
     store = zarrify(str(FIXTURES / source))
     entries = copy(b, array_path, order=order)
-    copied = refkv.ReferenceStore(entries, store._sources)
+    copied = refkv.ReferenceStore(entries, store._sources, policy=store.policy)
     assert np.array_equal(read(copied), np.transpose(read(store, array_path), order))
     assert doc_of(entries["zarr.json"])["attributes"] == {}
     out = {"zarr.json": group(), **copy(b, array_path, order=order, to="x")}
@@ -511,9 +511,16 @@ def test_a_layout_that_is_not_a_layout_is_a_usage_error():
         zarrify(TIFF, layout=[Layout(Plugin(images))])  # type: ignore[arg-type]
 
 
-def test_a_layout_on_a_store_input_is_a_usage_error(tmp_path):
-    with pytest.raises(LayoutUsageError, match="store input"):
-        zarrify(str(tmp_path), "https://example.org/x/", layout=Layout(Plugin(images)))
+def test_a_store_input_the_plugin_does_not_read_is_rejected():
+    with pytest.raises(LayoutRejected, match="does not read the zarr2"):
+        zarrify(str(FIXTURES / "zarr2" / "zarr2_hierarchy"), layout=Layout(Plugin(images, formats={"zarr3": {0}})))
+
+
+def test_a_store_of_dicom_files_takes_no_plugin_layout():
+    """The DICOM store form joins its files' outputs, and has no base (spec/layout.md §6
+    <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#6-errors>)."""
+    with pytest.raises(LayoutRejected, match="DICOM files has no base"):
+        zarrify(str(FIXTURES / "dicom_series" / "multi_frame"), layout=Layout(Plugin(images)))
 
 
 def test_a_base_the_plugin_does_not_read_is_rejected():

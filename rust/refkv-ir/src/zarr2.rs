@@ -275,7 +275,7 @@ fn data_type(z: &Jv) -> Result<Dtype, String> {
 }
 
 /// The bytes of a base64 string (RFC 4648 §4, with padding).
-fn base64(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn base64(s: &str) -> Option<Vec<u8>> {
     let digits = s.trim_end_matches('=');
     if s.len() % 4 != 0 || s.len() - digits.len() > 2 {
         return None;

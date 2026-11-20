@@ -38,7 +38,7 @@ import asyncio
 import contextlib
 import json
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Literal
@@ -298,7 +298,8 @@ def from_rust(t: tuple[str, list[tuple[str, bytes]], list[tuple[str, list[StoreP
 
 
 async def run_store_async(store: Store, fmt: str = "zarr2", mirror: bool = True, checksums: bool = False,
-                          written: bool = True) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
+                          written: bool = True, *,
+                          scope: Sequence[str] | None = None) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
     """(output, IR, run counts) of the listed `store`, parsed by the core's store format `fmt`:
     the keys its listing ignores given to the run (the recorded ignored keys, which the
     projection records, and the empty `d/` keys, a SAFE directory's directories), its objects
@@ -308,7 +309,9 @@ async def run_store_async(store: Store, fmt: str = "zarr2", mirror: bool = True,
     output's checks, the profile the run decided (`ome-zarr` once the 0.4 test passed). The output
     is sealed for ranges that carry checksums when `checksums` and `written` (the output is written
     as it is, not only built from: `refkv._core.Failed` for a payload over the limit only with
-    them). The calls that block (the core's, on a listing of millions of objects) run on a thread."""
+    them). `scope`,
+    when given, is the input's scope (`StoreRun.scope`): `store` is asked to probe no key outside
+    it. The calls that block (the core's, on a listing of millions of objects) run on a thread."""
 
     def start() -> _core.StoreRun:
         if store._prefetch is not None:  # noqa: SLF001 (the store's reads)
@@ -318,6 +321,8 @@ async def run_store_async(store: Store, fmt: str = "zarr2", mirror: bool = True,
         try:
             run = _core.StoreRun(fmt, listing(store), max(1, store.workers))
             run.ignore(list(getattr(store, "ignored", [])), list(getattr(store, "folders", [])))
+            if scope is not None:
+                run.scope(list(scope))
         except _core.Rejected as e:
             raise Rejected(str(e), format=fmt) from None
         return run

@@ -81,7 +81,7 @@ def registered(location: str, registry: Resolver | None, policy: Policy | None) 
         if scheme not in ("http", "https", "file"):
             (registry or Resolver()).resolve(location)  # raises: no store for the scheme
         return None
-    (policy or Policy()).check(location, location, registered=True)
+    (policy or Policy()).check(location, registered=True)
     return cast("Objects", found[0]), found[1]
 
 
@@ -173,7 +173,7 @@ class HttpTransport:
         self.retries = 0
         self.etags = EtagLog()
         _check_http_url(url)
-        self.policy.check(url, url)
+        self.policy.check(url)
         # the request that opens the source: its size, its first bytes, and a time for the cost model
         t = time.perf_counter()
         status, msg, body = self._retry(lambda: self._get({"Range": f"bytes=0-{OPEN - 1}"}))
@@ -213,7 +213,7 @@ class HttpTransport:
             if urlparse(new).scheme.lower() not in ("http", "https"):
                 raise ResolutionError(f"redirect to a non-http URL: {new}")
             _check_http_url(new)
-            self.policy.check(self.url, new)
+            self.policy.check(new)
             if hop == 5:
                 raise ResolutionError(f"{self.url}: more than 5 redirects")
             url = new

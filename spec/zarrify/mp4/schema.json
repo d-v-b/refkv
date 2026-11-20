@@ -168,16 +168,8 @@
               "minimum": 0
             },
             "duration": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                {
-                  "type": "string",
-                  "pattern": "^[1-9][0-9]{15,19}$"
-                }
-              ]
+              "type": "integer",
+              "minimum": 0
             },
             "tracks": {
               "type": "array",
@@ -249,16 +241,8 @@
               "description": "The media timescale: time units a second"
             },
             "duration": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                {
-                  "type": "string",
-                  "pattern": "^[1-9][0-9]{15,19}$"
-                }
-              ],
+              "type": "integer",
+              "minimum": 0,
               "description": "The media duration, in the timescale"
             },
             "edits": {
@@ -268,27 +252,11 @@
                 "type": "object",
                 "properties": {
                   "duration": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "^[1-9][0-9]{15,19}$"
-                      }
-                    ]
+                    "type": "integer",
+                    "minimum": 0
                   },
                   "media_time": {
-                    "anyOf": [
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "^-?[1-9][0-9]{15,18}$"
-                      }
-                    ]
+                    "type": "integer"
                   },
                   "rate": {
                     "type": "number"
@@ -330,10 +298,11 @@
             },
             "chroma": {
               "enum": [
+                "4:0:0",
                 "4:2:0",
                 "4:2:2"
               ],
-              "description": "The chroma planes' subsampling"
+              "description": "The chroma planes' subsampling (4:0:0: none)"
             },
             "bit_depth": {
               "enum": [
@@ -400,16 +369,8 @@
               "description": "The media timescale: time units a second"
             },
             "duration": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                {
-                  "type": "string",
-                  "pattern": "^[1-9][0-9]{15,19}$"
-                }
-              ],
+              "type": "integer",
+              "minimum": 0,
               "description": "The media duration, in the timescale"
             },
             "edits": {
@@ -419,27 +380,11 @@
                 "type": "object",
                 "properties": {
                   "duration": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "^[1-9][0-9]{15,19}$"
-                      }
-                    ]
+                    "type": "integer",
+                    "minimum": 0
                   },
                   "media_time": {
-                    "anyOf": [
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "^-?[1-9][0-9]{15,18}$"
-                      }
-                    ]
+                    "type": "integer"
                   },
                   "rate": {
                     "type": "number"
@@ -521,16 +466,8 @@
               "description": "The media timescale: time units a second"
             },
             "duration": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                {
-                  "type": "string",
-                  "pattern": "^[1-9][0-9]{15,19}$"
-                }
-              ],
+              "type": "integer",
+              "minimum": 0,
               "description": "The media duration, in the timescale"
             },
             "edits": {
@@ -540,27 +477,11 @@
                 "type": "object",
                 "properties": {
                   "duration": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "^[1-9][0-9]{15,19}$"
-                      }
-                    ]
+                    "type": "integer",
+                    "minimum": 0
                   },
                   "media_time": {
-                    "anyOf": [
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "^-?[1-9][0-9]{15,18}$"
-                      }
-                    ]
+                    "type": "integer"
                   },
                   "rate": {
                     "type": "number"
@@ -810,7 +731,6 @@
                 "group",
                 "element",
                 "derived",
-                "int",
                 "float",
                 "bytes",
                 "utf16"

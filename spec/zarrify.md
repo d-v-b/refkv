@@ -38,6 +38,8 @@ The table, generated from the registry, lists them:
 | [FITS](zarrify/fits.md#part-2-the-profile) | file | FITS files: images, multi-extension files, binary and ASCII tables |
 | [FLAC](zarrify/flac.md#part-2-the-profile) | file | FLAC files (`.flac`) of a fixed block size, with their metadata blocks and ID3v2 and ID3v1 tags; one sharded array of integer samples, not an image |
 | [GRIB](zarrify/grib.md#part-2-the-profile) | file | GRIB edition 2 files of gridded fields, such as NOAA's and ECMWF's forecasts, whose fields on latitude/longitude, Gaussian, rotated, Lambert conformal, polar stereographic, Mercator, reduced and unstructured grids it presents |
+| [H5J](zarrify/h5j.md#part-2-the-profile) | file | Janelia H5J files (HDF5 whose channels are MP4 files of monochrome HEVC): a confocal stack an image a channel |
+| [HDF4](zarrify/hdf4.md#part-2-the-profile) | file | HDF4 files, HDF-EOS2 ones among them: the scientific datasets of numbers and text the SD interface wrote, plain, linked, deflated or chunked, the writer's Vdata tables, their attributes, and the writer's Vgroups |
 | [HDF5](zarrify/hdf5.md#part-2-the-profile) | file | HDF5 files, NWB files first among them: every group, dataset, attribute, link and object reference the profile can present, in hdmf-zarr's Zarr v3 form |
 | [IMS](zarrify/ims.md#part-2-the-profile) | file | Imaris IMS files (HDF5) |
 | [LIF](zarrify/lif.md#part-2-the-profile) | file | Leica LIF files (LAS X and LAS AF, versions 1 and 2), its object files (LOF) and extension files (LIFEXT), and LAS X projects of XLEF, XLCF, XLIF and XLLF documents and LOFs: every image of the element tree, with interleaved or planar channels, z-stacks, time series and mosaics, uncompressed |
@@ -154,7 +156,11 @@ zarrifiers do not normalize it. If `U`'s path ends in `/`, the input is a
 rest of this section is about **file inputs**, where `U` is the URL of one
 file. (An implementation MAY also accept a local file or directory, with `U`
 the URL it will be served from: a directory is a store input, listed as
-[§1.5](#15-listing-a-store) says.)
+[§1.5](#15-listing-a-store) says. It MAY also accept a local file or directory by its `file:` URL
+([RFC 8089](https://www.rfc-editor.org/rfc/rfc8089)), which it reads as the local file or
+directory that URL names, whether or not the application registered a store for it; the output is
+then the one that local file or directory gives, a directory's under the rule of
+[§1.4](#14-store-inputs).)
 
 **Registered stores.** An implementation MAY read `U` with an **object store** the
 application provides for a prefix of `U` (as [spec/refkv.md §6.7](refkv.md#67-reader-policy)'s
@@ -244,6 +250,7 @@ profile name:
 | FITS ([fits.md §9](zarrify/fits.md#9-fits-profile)) | 110 |
 | FLAC ([flac.md §8](zarrify/flac.md#8-flac-profile)) | 95 |
 | GRIB ([grib.md §8](zarrify/grib.md#8-grib-profile)) | 65 |
+| HDF4 ([hdf4.md §9](zarrify/hdf4.md#9-hdf4-profile)) | 68 |
 | HDF5 ([hdf5.md §8](zarrify/hdf5.md#8-hdf5-profile)) | 70 |
 | LIF ([lif.md §7](zarrify/lif.md#7-lif-profile)) | 55 |
 | MP3 ([mp3.md §8](zarrify/mp3.md#8-mp3-profile)) | 100 |
@@ -355,7 +362,10 @@ whose objects are the objects under `U`.
 case), an authority without userinfo, and no query or fragment component
 (not even an empty `?` or `#`); otherwise the input is rejected. (An
 implementation that reads a local directory uses the URL the directory will
-be served from, which MUST satisfy the same rules. A store read with a
+be served from, which MUST satisfy the same rules, or the directory's own `file:` URL: one with
+no authority, or the authority `localhost`, whose path ends in `/` and names that directory, with
+no query or fragment. A `file:` store URL names no other store, so that an output cannot claim
+one directory's files as another's, nor a store on another host. A store read with a
 [registered store](#12-input) may have that store's scheme.)
 
 **The objects.** The store is listed as [§1.5](#15-listing-a-store) says. Each listed key `K`
@@ -937,6 +947,23 @@ read of what it named:
 - **References** stay within their objects: every reference's `offset + length` is at most the
   `size` its object's pin records ([§1.2](#12-input), **References stay in the file**).
 
+**Scope.** The **scope** of an input is the part of the store URL's directory a zarrifier may read
+besides the named file. The application gives it, as files and directories at or below the store
+URL, each a key, or a directory's key followed by `/` (every key below it). By default it is the
+whole directory, so every key the naming steps give is in it. An application gives a narrower one
+when the input is untrusted and its directory holds files it must not reach (a server that keeps
+every user's uploads in one directory); a scope of no key reads the named file alone. A key is in
+the scope when it is one of its keys or below one of its directories, compared as written.
+
+A zarrifier probes no key outside the scope, and lists no directory for **Case** to resolve one. The
+profile's optional sibling (one whose absence means only that the named file has none, as GRIB's
+index files) outside it is absent, without a request. Any other key outside it rejects the input
+before anything else of the batch is read: `out of scope: the input names the file "<key>"`, the key
+as the naming steps give it. So does a key **Case** finds outside the scope, naming the found key. A
+name that may dangle, such as an HDF5 external link's, is rejected too: recorded in place, it would
+say that the link names no file when it may name one. A store input has no scope, its objects being
+the ones its listing gives.
+
 **The sibling table.** A profile's document says, for its siblings:
 
 | what | it says |
@@ -1076,6 +1103,8 @@ else. The profiles, generated from the registry:
 - the FITS profile: [spec/zarrify/fits.md §9](zarrify/fits.md#9-fits-profile);
 - the FLAC profile: [spec/zarrify/flac.md §8](zarrify/flac.md#8-flac-profile);
 - the GRIB profile: [spec/zarrify/grib.md §8](zarrify/grib.md#8-grib-profile);
+- the H5J profile: [spec/zarrify/h5j.md §8](zarrify/h5j.md#8-h5j-profile);
+- the HDF4 profile: [spec/zarrify/hdf4.md §9](zarrify/hdf4.md#9-hdf4-profile);
 - the HDF5 profile: [spec/zarrify/hdf5.md §8](zarrify/hdf5.md#8-hdf5-profile);
 - the IMS profile: [spec/zarrify/ims.md §7](zarrify/ims.md#7-ims-profile);
 - the LIF profile: [spec/zarrify/lif.md §7](zarrify/lif.md#7-lif-profile);

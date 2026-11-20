@@ -14,10 +14,13 @@ shipped code keeps a store's other objects since revision 27, so that the corpus
 collision stores are rejected by every implementation. `current_names` reads
 the old names as the current ones, for compare.py and the tests that compare the frozen
 profiles with the Rust core (conformance/zarrify/HARNESS.md), and the codecs they name as the
-shipped code names them (CODEC_NAMES)."""
+shipped code names them (CODEC_NAMES). `json_number` is the frozen profiles' number, which the
+shipped code no longer has: an integer past 2^53 - 1 as the string of its digits, where the
+shipped code writes every integer exactly."""
 
 from __future__ import annotations
 
+import math
 import types
 from dataclasses import dataclass
 
@@ -31,6 +34,7 @@ from refkv.zarrify.common import Output as _Output
 from refkv.zarrify.common import root_property
 
 SOURCE_NODE = "vzip_source"
+_MAX_SAFE = 2**53 - 1
 CONVENTION_KEY = "vzip_virtualized"
 SOURCE_GROUP = SOURCE_NODE
 OBJECTS = SOURCE_NODE + "/objects/"
@@ -39,6 +43,19 @@ _PROFILE_OF_UUID = {uuid: p for p, (uuid, _, _) in PROFILES.items()}
 # The codecs the frozen profiles name that the shipped code names otherwise: a zlib stream
 # is zarr-python's `numcodecs.zlib`, and refkv's own TIFF LZW codec `refkv.tiff_lzw`.
 CODEC_NAMES = {"zlib": "numcodecs.zlib", "imagecodecs_lzw": "refkv.tiff_lzw"}
+
+
+def json_number(v: float) -> float | str:
+    """A number as source metadata, as the frozen profiles write it: a float as itself, or "NaN",
+    "Infinity" or "-Infinity"; an integer as itself up to 2^53 - 1 in magnitude, else the string
+    of its digits."""
+    if isinstance(v, float):
+        if math.isnan(v):
+            return "NaN"
+        if math.isinf(v):
+            return "Infinity" if v > 0 else "-Infinity"
+        return v
+    return v if abs(v) <= _MAX_SAFE else str(v)
 
 
 @dataclass

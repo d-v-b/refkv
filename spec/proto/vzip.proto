@@ -1,0 +1,22 @@
+// The messages of the ZIP binding alone: spec/bindings/vzip.md §12, the page index
+// (format version 0). spec/tools/test_proto.py checks that this file and that section match;
+// edit both. The messages of every store are in refkv.proto.
+syntax = "proto3";
+package refkv.vzip.v0;
+
+message CdIndex {
+  message Page {
+    string first_key = 1;
+    uint64 offset    = 2;
+    uint64 length    = 3;
+  }
+  message Pinned {
+    string key         = 1;
+    uint64 data_offset = 2;
+    uint64 size        = 3;
+    uint64 csize       = 4;
+    uint32 method      = 5;
+  }
+  repeated Page   pages  = 1;
+  repeated Pinned pinned = 2;
+}

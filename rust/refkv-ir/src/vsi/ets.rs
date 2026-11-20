@@ -29,6 +29,7 @@ impl Default for Ets {
 pub const RAW: i32 = 0;
 pub const JPEG: i32 = 2;
 pub const JPEG2000: i32 = 3;
+pub const LOSSLESS_JPEG: i32 = 5;
 
 /// The SIS header (the file's first 64 bytes).
 #[derive(Clone, Debug, Default)]
@@ -186,14 +187,15 @@ pub fn form(e: &Ets) -> String {
 }
 
 /// Emits the tile file's elements under its object `o` (described in place): the headers, the
-/// directory, each tile (`tiles/<k>`, its element returned by index) and the gaps.
-pub fn emit(ir: &mut Ir, o: u32, size: u64, head: &[u8], s: &Sis, eh: &[u8], e: &Ets, dir: &[u8], tiles: &[Tile]) -> Res<Vec<u32>> {
+/// directory, each tile (`tiles/<k>`) and the gaps. Returns the ETS header's element, `ets`, and
+/// each tile's by index.
+pub fn emit(ir: &mut Ir, o: u32, size: u64, head: &[u8], s: &Sis, eh: &[u8], e: &Ets, dir: &[u8], tiles: &[Tile]) -> Res<(u32, Vec<u32>)> {
     ir.describe_in_place(o)?;
     let mut claimed: Vec<(u64, u64)> = Vec::new();
     ir.value(o, "header", NO_INDEX, SIS_TYPE, 0, (0, SIS_HEADER), Some(&head[..SIS_HEADER as usize]))?;
     claimed.push((0, SIS_HEADER));
     let (eo, en) = (s.ets_offset as u64, s.ets_size as u64);
-    ir.value(o, "ets", NO_INDEX, ETS_TYPE, 0, (eo, ETS_HEADER), Some(&eh[..ETS_HEADER as usize]))?;
+    let header = ir.value(o, "ets", NO_INDEX, ETS_TYPE, 0, (eo, ETS_HEADER), Some(&eh[..ETS_HEADER as usize]))?;
     if en > ETS_HEADER {
         ir.value(o, "ets_extra", NO_INDEX, &format!("bytes[{}]", en - ETS_HEADER), 0, (eo + ETS_HEADER, en - ETS_HEADER), Some(&eh[ETS_HEADER as usize..en as usize]))?;
     }
@@ -222,7 +224,7 @@ pub fn emit(ir: &mut Ir, o: u32, size: u64, head: &[u8], s: &Sis, eh: &[u8], e: 
     if size > pos {
         ir.add(GAP, o, "gaps/", pos, "", 0, Some((pos, size - pos)))?;
     }
-    Ok(els)
+    Ok((header, els))
 }
 
 /// The header's source metadata (§6.1

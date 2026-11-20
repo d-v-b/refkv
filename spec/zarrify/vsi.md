@@ -610,8 +610,8 @@ translated, one of:
 | [`Base64`](../conventions.md#type-base64) | **opaque** data, at most 1024 bytes: a type the table lacks, or of a type of width `w` empty data or a length that is not a multiple of `w`; the string of its base64 encoding (`""` for empty data) |
 | [`VsiBytes`](#type-vsibytes) | data longer than 1024 bytes that would be an array or opaque |
 
-An integer past 2^53 − 1 in magnitude, and a float that is not finite, are JSON as
-[conventions §6](../conventions.md#6-source-metadata-as-json) writes them (`"NaN"`,
+An integer is a JSON integer, exact whatever its magnitude, and a float that is not finite
+is JSON as [conventions §6](../conventions.md#6-source-metadata-as-json) writes it (`"NaN"`,
 `"Infinity"`, `"-Infinity"`).
 
 <a id="type-vsibytes"></a>**`VsiBytes`**, `{"bytes": n}`:

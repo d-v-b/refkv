@@ -1,5 +1,5 @@
 """The example layout `refkv.example.bare` (refkv.zarrify.layouts.examples.bare) over a fixture or
-two of every file profile: its output is refkv's own hierarchy without refkv's declarations and
+two of every file and store profile: its output is refkv's own hierarchy without refkv's declarations and
 without the IR mirror, `check` finds nothing in it, and zarr reads every array as the base's."""
 
 import ast
@@ -18,7 +18,7 @@ import refkv
 import refkv.zarr
 from refkv.zarrify import zarrify
 from refkv.zarrify.common import PROFILES
-from refkv.zarrify.layouts import FILE_PROFILES, MIRROR, Layout, LayoutUsageError, base, encode_entries
+from refkv.zarrify.layouts import BASE_PROFILES, MIRROR, Layout, LayoutUsageError, base, encode_entries
 from refkv.zarrify.layouts.examples.bare import Bare
 from refkv.zarrify.layouts.hierarchy import check
 
@@ -28,8 +28,8 @@ NAME = "refkv.example.bare"
 ALLOWED: set[str] = set()  # the check codes the module's docstring names: none
 UUIDS = {uuid.lower() for uuid, *_ in PROFILES.values()}
 
-# a fixture or two of each file profile, the module a reader needs to decode its arrays, and
-# whether the call asks for checksums
+# a fixture or two of each file and store profile (a store a local directory, named by its file:
+# URLs), the module a reader needs to decode its arrays, and whether the call asks for checksums
 CASES = [
     ("czi/czi_gray16_tczyx.czi", None, False),
     ("czi/czi_clipped_raw.czi", None, False),  # a run-length rectilinear grid
@@ -38,6 +38,9 @@ CASES = [
     ("fits/fits_gzip_image.fits.gz", None, False),
     ("flac/flac_mono_16.flac", "av", False),
     ("grib/grib_complex.grib2", None, False),
+    ("h5j/h5j_two_channels.h5j", "av", False),
+    ("hdf4/hdf4_layouts.hdf", None, False),
+    ("hdf4/hdf4_groups.hdf", None, False),
     ("hdf5/hdf5_attributes.h5", None, False),
     ("hdf5/hdf5_compounds.h5", None, False),
     ("ims/ims_2d_no_metadata.ims", None, False),
@@ -59,6 +62,13 @@ CASES = [
     ("tiff/strips_uint8.tif", None, False),
     ("vsi/vsi_png.vsi", "imagecodecs", False),
     ("zarr3/zarr3_hierarchy.zip", None, False),  # a zipped Zarr v3 store
+    ("zarr3/zarr3_hierarchy", None, False),  # the stores, local directories
+    ("zarr2/zarr2_hierarchy", None, False),
+    ("ome-zarr/ome_zarr_image_2d", None, False),
+    ("n5/n5_cosem", None, False),
+    ("precomputed/precomputed_float32", None, False),
+    ("safe/safe_l1c", "imagecodecs", False),
+    ("safetensors/st_store_model", "ml_dtypes", False),
     ("tiff/strips_uint8.tif", None, True),
     ("mrc/mrc_chunk_rows.mrc", None, True),
 ]
@@ -91,9 +101,9 @@ def _digest(path, options):
     return hashlib.sha256(encode_entries(out)).hexdigest()
 
 
-def test_the_cases_cover_every_file_profile():
+def test_the_cases_cover_every_profile():
     profiles = {base(str(FIXTURES / f)).profile for f, _, _ in CASES}
-    assert profiles == FILE_PROFILES
+    assert profiles == BASE_PROFILES
 
 
 @pytest.mark.parametrize("options", OPTIONS, ids=["dataset", "no-dataset"])
@@ -140,9 +150,9 @@ def test_bare_is_the_base_without_refkv_s_declarations(tmp_path, fixture, needs,
 
     expected = _arrays(whole)
     archive = tmp_path / "out.vzip"
-    store.save_vzip(str(archive))
+    store.save_vzip(str(archive), policy=store.policy)  # a local store's file: sources, which Policy() refuses
     assert sorted(refkv.open(str(archive)).list()) == sorted(store.mapping)
-    saved = zarr.open_group(refkv.zarr.open(str(archive)), mode="r")
+    saved = zarr.open_group(refkv.zarr.open(str(archive), policy=store.policy), mode="r")
     for arrays in (_arrays(store), {p: a for p, a in saved.members(max_depth=None) if isinstance(a, zarr.Array)}):
         assert set(arrays) == {p for p in expected if not f"{p}/".startswith(tuple(left_out))}
         for p, a in arrays.items():
