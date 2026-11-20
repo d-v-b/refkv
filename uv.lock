@@ -3587,7 +3587,7 @@ requires-dist = [
     { name = "imagecodecs", marker = "extra == 'images'", specifier = ">=2026.8.16" },
     { name = "imagecodecs-zarr", marker = "extra == 'images'", specifier = ">=2026.8.16" },
     { name = "ml-dtypes", marker = "extra == 'zarr'", specifier = ">=0.6.0" },
-    { name = "numpy", specifier = ">=2.5.3" },
+    { name = "numpy", specifier = ">=2.1.0" },
     { name = "obstore", marker = "extra == 'obstore'", specifier = ">=0.11.1" },
     { name = "refkv", extras = ["zarr"], marker = "extra == 'images'", editable = "python" },
     { name = "refkv", extras = ["zarr"], marker = "extra == 'media'", editable = "python" },
