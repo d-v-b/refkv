@@ -142,6 +142,21 @@ def test_stored_array_refuses_elements_that_are_not_whole_bytes():
             stored_array(parsed, bits[0], "bool")
 
 
+def test_stored_array_refuses_a_unit_in_a_member_of_a_run():
+    """An ND2 file's frames fold into a run: each unit names the run's first member's element and
+    its own position among the members, which `stored_array` does not place yet."""
+    for path in sorted((FIXTURES / "nd2").glob("*.nd2")):
+        with read(path) as parsed:
+            stored = parsed.ir.stored_arrays()
+            for k, a in enumerate(stored.arrays):
+                plain = a.grid is not None and a.item_bits and a.item_bits % 8 == 0 and len(a.chains) == 1
+                if plain and not stored.chains[a.chains[0]] and any(u.member is not None for u in parsed.ir.units(k)):
+                    with pytest.raises(ValueError, match=r"member .* of a run"):
+                        stored_array(parsed, k, "uint16")
+                    return
+    pytest.fail("no ND2 fixture has an array of the empty chain whose units lie in a run's members")
+
+
 def test_stored_array_refuses_a_chain_it_has_no_codecs_for():
     with read(FIXTURES / "hdf5" / "hdf5_filters.h5") as parsed:
         stored = parsed.ir.stored_arrays()

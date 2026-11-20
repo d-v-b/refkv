@@ -53,18 +53,23 @@ def _lengths(axis: object, length: int, short: bool) -> int | list[Any]:
 
 
 def _unit(parsed: Parsed, unit: Unit) -> Value:
-    """The bytes of a unit as a value: its element's own bytes (its span, no recipe applied: the
-    array's chain decodes them), the part of them the unit is, or its ranges of the sources."""
+    """The bytes of a unit as a value (spec/stored-array.md §4.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#41-the-arrow-schema>): what its
+    element's recipe gives; with a range, that range of the element's own bytes, taken before any
+    recipe; or its ranges of the sources. ValueError for a unit in a member of a run, whose
+    element's extent is the run's first member's: this does not place the others yet."""
     if unit.ranges is not None:
         objects = parsed._objects  # noqa: SLF001 (the input's objects, by key)
         return Value(tuple(Ref(parsed, 0 if key is None else objects.index(key), offset, length)
                            for key, offset, length in unit.ranges))
     if unit.element is None:
         raise ValueError(f"the unit at {unit.coords} names neither an element nor ranges")
-    whole = Value((parsed.span(unit.element, unit.member),))
+    if unit.member is not None:
+        raise ValueError(f"the unit at {unit.coords} lies in member {unit.member} of a run of elements, "
+                         "which stored_array does not place yet")
     if unit.range is None:
-        return whole
-    return cut(whole, unit.range[0], unit.range[0] + unit.range[1])
+        return parsed.reference(unit.element)
+    return cut(Value((parsed.span(unit.element),)), unit.range[0], unit.range[0] + unit.range[1])
 
 
 def stored_array(parsed: Parsed, array: int, data_type: str | Mapping[str, Any], *, endian: str | None = None,
@@ -91,9 +96,11 @@ def stored_array(parsed: Parsed, array: int, data_type: str | Mapping[str, Any],
     `uint8` presentation of fixed-length bytes adds their length). `dimension_names`, in the
     array's order, and `attributes` are the caller's too.
 
-    ValueError for an array whose storage the IR does not model (no grid, or no extent), whose
+    ValueError for an array whose storage the IR does not model (no grid, or no extent: a
+    description a profile may still present, from the declaring structure), whose
     elements are not whole bytes, whose units are encoded with more than one chain or skip codecs
-    of it, or whose chain has no Zarr codecs yet."""
+    of it, whose chain has no Zarr codecs yet, or whose units lie in the members of a run of
+    elements (an ND2 file's frames), which this does not place yet."""
     stored = parsed.ir.stored_arrays()
     if not 0 <= array < len(stored.arrays):
         raise ValueError(f"no stored array {array}: the IR describes {len(stored.arrays)}")

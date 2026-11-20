@@ -130,13 +130,15 @@ from refkv.build import Written, read, seal, stored_array
 from refkv.zarrify.coding import npy_array_type
 
 with read("weights.npz") as p:
-    position = {a.element: k for k, a in enumerate(p.ir.stored_arrays().arrays)}
+    described = p.ir.stored_arrays().arrays
+    position = {a.element: k for k, a in enumerate(described)}
     out = Written({"zarr.json": b'{"zarr_format":3,"node_type":"group","attributes":{}}'})
     for entry in p.description["arrays"]:          # what the NumPy parser found
-        if entry["stored"] is None:                # a deflated member: not described yet
+        k = position.get(entry["stored"])          # None for a deflated member: not described yet
+        if k is None or described[k].grid is None: # no grid: the IR does not model its storage
             continue
         t = npy_array_type(entry["header"])        # the header's declaration, as the profile reads it
-        array = stored_array(p, position[entry["stored"]], t["data_type"], endian=t["endian"],
+        array = stored_array(p, k, t["data_type"], endian=t["endian"],
                              inner_shape=[t["trailing"]] if t["trailing"] else (),
                              fill_value=t["fill_value"])
         out |= array.entries(to=entry["path"])
@@ -149,8 +151,10 @@ header), and the caller gives them. Nothing here asks for refkv's own output. `p
 the profile's description of the input, where its parser returns one: NumPy's does
 ([npy.md §8.6](../spec/zarrify/npy.md#86-the-description)), and the other profiles' is None until
 their projections read the descriptions too. `stored_array` raises `ValueError` for an array it
-cannot write so: one whose storage the IR does not model, whose elements are not whole bytes, or
-whose units are encoded (`zarr_codecs` translates only the empty chain yet).
+cannot write so: one whose storage the IR does not model (a description with no grid, such as a
+NumPy `a<n>` array's, which the profile still presents from its header), whose elements are not
+whole bytes, whose units are encoded (`zarr_codecs` translates only the empty chain yet), or whose
+units lie in the members of a run of elements (an ND2 file's frames).
 
 ## A TIFF made of several
 

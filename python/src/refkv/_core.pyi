@@ -140,7 +140,9 @@ class Ir:
     def units(self, array: int) -> list[tuple[list[int], int | None, int | None, tuple[int, int] | None,
                                               list[tuple[str | None, int, int]] | None, int | None, int | None]]:
         """The chunk map's rows of the stored array at position `array`, each (coords, element,
-        member, range, ranges, chain, skips)."""
+        member, range, ranges, chain, skips), as spec/stored-array.md §4.1
+        <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#41-the-arrow-schema> gives
+        the columns: `member` is the position of the run's member the element is in."""
     def chunk_map(self) -> ChunkMap:
         """The chunk map (spec/stored-array.md §4
         <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#4-the-chunk-map>): an object

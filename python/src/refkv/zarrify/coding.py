@@ -166,8 +166,10 @@ def npy_array_type(header: str) -> dict[str, Any]:
       then `uint8`), else None;
     - `fortran_order` and `shape`: the header's.
 
-    Raises `NoCodec` for a `descr` the profile does not present (an object array's, a structure's),
-    and ValueError for text that is no NPY header."""
+    A structure of scalar fields is presented, as a `struct` data type whose `fill_value` is an
+    object. Raises `NoCodec` for a `descr` the profile does not present (an object array's, a
+    long double's, a structure with a padding field, a field of shape or a string field), and
+    ValueError for text that is no NPY header."""
     return dict(_call("npy_array_type", header=header))
 
 

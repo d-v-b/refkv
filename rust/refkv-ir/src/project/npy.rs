@@ -23,7 +23,7 @@ use crate::out::{array_json, copy_threshold, declared_group, grid_chunks, Chunk,
 use crate::refs::Refs;
 use crate::rules;
 use serde_json::{json, Map, Value as J};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// The most bytes of a chunk (spec/zarrify/npy.md §8.4
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#84-chunks>).
@@ -48,10 +48,36 @@ struct Presented<'a> {
     deflate: Option<&'a J>,
 }
 
-/// The array the description's entry `a` presents. A stored member's shape, order and data
-/// unit are those of its stored array, which `a` keys; a deflated member, which has no
-/// description yet, gives its header's.
-fn presented<'a>(ir: &Ir, a: &'a J) -> Result<Presented<'a>, String> {
+/// The IR's stored arrays as the projection looks them up, built once a call: the position of
+/// each description by the element that keys it, and each array's one unit's element.
+struct Described {
+    position: HashMap<u32, usize>,
+    unit: Vec<Option<u32>>,
+}
+
+impl Described {
+    fn of(ir: &Ir) -> Described {
+        let stored = &ir.stored;
+        let position = stored.arrays.iter().enumerate().filter(|(_, s)| s.index.is_none()).map(|(k, s)| (s.element, k)).collect();
+        let mut unit = vec![None; stored.arrays.len()];
+        for row in 0..stored.map.len() {
+            unit[stored.map.array[row] as usize] = stored.map.element[row];
+        }
+        Described { position, unit }
+    }
+}
+
+/// The array the description's entry `a` presents. A stored member's shape and order are those
+/// of its stored array, which `a` keys, and its data is that array's one unit; a deflated member,
+/// which has no description yet, gives its header's.
+///
+/// A description may have no grid, and so no unit, for an array the profile presents all the
+/// same: one whose `descr` NumPy's own layout gives no size (`a<n>`, which the profile reads as
+/// `S<n>`). The profile then reads the declaring structure for the rest (spec/stored-array.md
+/// §2.3 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#23-the-grid>): the data
+/// is the `data` element beside the header, or, for an array of no elements, nothing at the
+/// header's end.
+fn presented<'a>(ir: &Ir, described: &Described, a: &'a J) -> Result<Presented<'a>, String> {
     let rules = rules::of("npy");
     let path = a["path"].as_str().unwrap_or("array");
     let text = a["header"].as_str().ok_or("internal: a presented array without its header's text")?;
@@ -64,16 +90,24 @@ fn presented<'a>(ir: &Ir, a: &'a J) -> Result<Presented<'a>, String> {
         return Ok(Presented { path, header, dtype, stored, reversed, data: (n(&d["skip"]), n(&d["data"])), form: 0, deflate: Some(d) });
     }
     let key = a["stored"].as_u64().ok_or("internal: a presented array without its description's key")? as u32;
-    let described = &ir.stored;
-    let k = described.arrays.iter().position(|s| s.element == key && s.index.is_none()).ok_or("internal: a presented array without a description")?;
-    let array = &described.arrays[k];
+    let &k = described.position.get(&key).ok_or("internal: a presented array without a description")?;
+    let array = &ir.stored.arrays[k];
     let stored = array.shape.clone().ok_or("internal: a presented array of no extent")?;
-    // its one unit, the `data` element: an array of no elements has none
-    let unit = (0..described.map.len()).find(|&i| described.map.array[i] == k as u32).and_then(|i| described.map.element[i]);
-    let (data, form) = match unit {
-        Some(e) => ((ir.start[e as usize], ir.len[e as usize]), ir.form_id(e).unwrap_or(0)),
-        None => ((0, 0), 0),
+    // its one unit; else, where the description has no grid, the `data` element beside the header
+    // (the parser emits it straight after the header, under the same parent)
+    let beside = || {
+        let next = key as usize + 1;
+        (next < ir.len() && ir.parent[next] == ir.parent[key as usize] && ir.names.get(ir.name[next]) == "data").then_some(next as u32)
     };
+    let (data, form) = match described.unit[k].or_else(beside) {
+        Some(e) => ((ir.start[e as usize], ir.len[e as usize]), ir.form_id(e).unwrap_or(0)),
+        None => ((ir.start[key as usize] + ir.len[key as usize], 0), 0),
+    };
+    // the range the header's shape and the declared type give: a unit of another length is not this array's
+    let length = header.shape.iter().try_fold(dtype.item, |n, &s| n.checked_mul(s)).ok_or("internal: a presented array's data passes 2^64 bytes")?;
+    if data.1 != length {
+        return Err(format!("internal: the array at {path} holds {} bytes of the {length} its header declares", data.1));
+    }
     Ok(Presented { path, header, dtype, stored, reversed: array.axes.is_some(), data, form, deflate: None })
 }
 
@@ -132,9 +166,10 @@ fn cut(a: &Presented, threshold: usize) -> Result<Cut, String> {
 /// The source's ranges of the edge chunks the projection copies (§8.4
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#84-chunks>).
 pub fn reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+    let described = Described::of(ir);
     let mut out = Vec::new();
     for a in arr(&description["arrays"]) {
-        out.extend(contiguous::copy_reads(&cut(&presented(ir, a)?, copy_threshold())?.chunks));
+        out.extend(contiguous::copy_reads(&cut(&presented(ir, &described, a)?, copy_threshold())?.chunks));
     }
     Ok(out)
 }
@@ -172,7 +207,8 @@ fn array_doc(a: &Presented, c: &Cut) -> J {
 pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
     let facts = description;
     let threshold = copy_threshold();
-    let arrays = arr(&facts["arrays"]).iter().map(|a| presented(ir, a)).collect::<Result<Vec<Presented>, String>>()?;
+    let described = Described::of(ir);
+    let arrays = arr(&facts["arrays"]).iter().map(|a| presented(ir, &described, a)).collect::<Result<Vec<Presented>, String>>()?;
     let cuts = arrays.iter().map(|a| cut(a, threshold)).collect::<Result<Vec<Cut>, String>>()?;
     let mut out = Out::new(url);
     out.json("zarr.json", &declared_group(Map::new(), "npy", Some(url), Some(facts["own"].clone())));

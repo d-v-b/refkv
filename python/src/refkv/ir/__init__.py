@@ -188,11 +188,13 @@ class NamesSiblingsError(Exception):
 class Unit:
     """A unit of a stored array, a row of the chunk map (spec/stored-array.md §4.2
     <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#42-rows>): its coordinates in
-    storage order; the IR element that holds it, with the data member of that element and the
-    (offset, length) of the unit within the element's bytes, each None where it does not apply;
-    or its `ranges`, each (object key, or None for the parsed source; offset; length); the chain
-    it is encoded with, None for its array's one; and the codecs of the chain it skips, as a bit
-    mask."""
+    storage order; the IR element that holds its bytes (its recipe gives them); `member`, where
+    that element is in a run's subtree, the position of the run's member the unit is in; `range`,
+    where the unit is part of the element, its (offset, length) within the element's own bytes;
+    or, where no element holds it, its `ranges`, each (object key, or None for the parsed source;
+    offset; length); the chain it is encoded with, None for its array's first; and the codecs of
+    the chain it skips, as a bit mask. `member`, `range`, `chain` and `skips` are None where they
+    do not apply."""
 
     coords: tuple[int, ...]
     element: int | None

@@ -183,6 +183,26 @@ fn an_array_whose_element_bits_pass_2_to_the_64_is_described_with_no_grid() {
     }
 }
 
+/// An array the profile presents whose description has no grid is projected from its `data`
+/// element, not from a unit it does not have: `a<n>`, which the profile reads as `S<n>` and
+/// NumPy's own layout gives no size, so that its stored array has no grid and no row.
+#[test]
+fn an_array_whose_description_has_no_grid_is_projected_from_its_data_element() {
+    use refkv_ir::out::Part;
+    let mut data = npy_of("|a5", "(3,)");
+    let header_end = data.len() as u64;
+    data.extend_from_slice(b"abcdefghijklmno");
+    let (ir, description) = refkv_ir::parse_bytes::<Npy>(&data).unwrap();
+    assert_eq!(common::rebuilt(&ir, &data), data);
+    let s = &ir.stored;
+    assert_eq!((s.arrays.len(), s.arrays[0].grid.is_none(), s.map.len()), (1, true, 0));
+    assert_eq!(description["arrays"][0]["stored"].as_u64(), Some(s.arrays[0].element as u64));
+    assert!(refkv_ir::project::npy::reads(&ir, &description).unwrap().is_empty());
+    let out = refkv_ir::project::npy::project(&ir, &description, "u", &Default::default()).unwrap();
+    // three elements of five bytes, uint8 with a trailing axis: one chunk, the data after the header
+    assert_eq!(out.refs, vec![("array/c/0/0".to_string(), vec![Part::Src(header_end, 15)])]);
+}
+
 // one test per case of conformance/zarrify/rejects/npy.json (build.rs), each the message its check gives
 macro_rules! reject {
     ($name:ident, $input:literal, $msg:literal) => {

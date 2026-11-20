@@ -528,9 +528,14 @@ and an entry of `arrays` has these:
 | `stored` | the id of the IR element that keys its stored array, its `header` element; null for a deflated member, which the IR does not describe yet |
 | `deflate` | a deflated member's only: `start` and `length`, its stream's range in the file; `crc` and `size`, the central directory's CRC-32 and uncompressed size; `skip` and `data`, the offset and length of its data in what the stream inflates to |
 
-The profile's projection reads an array's shape, its order and its data from its stored array and
-the chunk map (one unit, its `data` element), and its data type, byte order and fill value from
-`header`'s `descr` ([§3](#3-data-types)). A deflated member's shape and order are its header's.
+The profile's projection reads an array's shape and its order from its stored array, its data
+from the chunk map (one unit, its `data` element), and its data type, byte order and fill value
+from `header`'s `descr` ([§3](#3-data-types)). A deflated member's shape and order are its
+header's. A stored array may have no grid, and so no unit, for an array the profile presents all
+the same: one of a type NumPy's own layout gives no size, `a<n>`, which [§3](#3-data-types) reads
+as `S<n>`. The projection then reads the declaring structure for the rest
+([spec/stored-array.md §2.3](../stored-array.md#23-the-grid)): its data is the `data` element
+beside its header.
 
 The parser still decides which members are presented and at which path
 ([§8.3](#83-the-archive)), and gives the `data` element a form that names its data type

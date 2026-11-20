@@ -312,10 +312,11 @@ impl PyIr {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#4-the-chunk-map>) of the
     /// stored array at position `array` among the descriptions, in the map's order, each
     /// (coords, element, member, range, ranges, chain, skips): the unit's coordinates in storage
-    /// order; the element that holds it, the data member of it and the (offset, length) of the
-    /// unit within the element's bytes, each None where it does not apply; or its ranges, each
-    /// (object key or None for the parsed source, offset, length); the chain it is encoded with,
-    /// None for its array's one; and the codecs it skips. What `chunk_map()` gives as Arrow, for
+    /// order; the element that holds its bytes; where that element is in a run's subtree, the
+    /// position of the run's member the unit is in; where the unit is part of the element, its
+    /// (offset, length) within the element's bytes; or its ranges, each (object key or None for
+    /// the parsed source, offset, length); the chain it is encoded with, None for its array's
+    /// first; and the codecs it skips. Each is None where it does not apply. What `chunk_map()` gives as Arrow, for
     /// a caller without an Arrow reader.
     #[allow(clippy::type_complexity)]
     fn units(&self, array: u32) -> Vec<(Vec<u64>, Option<u32>, Option<u64>, Option<(u64, u64)>, Option<Vec<(Option<String>, u64, u64)>>, Option<u32>, Option<u64>)> {
