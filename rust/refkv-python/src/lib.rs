@@ -308,6 +308,28 @@ impl PyIr {
     fn stored_arrays(&self) -> String {
         self.ir.stored.document(&self.ir).to_string()
     }
+    /// The rows of the chunk map (spec/stored-array.md §4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#4-the-chunk-map>) of the
+    /// stored array at position `array` among the descriptions, in the map's order, each
+    /// (coords, element, member, range, ranges, chain, skips): the unit's coordinates in storage
+    /// order; the element that holds it, the data member of it and the (offset, length) of the
+    /// unit within the element's bytes, each None where it does not apply; or its ranges, each
+    /// (object key or None for the parsed source, offset, length); the chain it is encoded with,
+    /// None for its array's one; and the codecs it skips. What `chunk_map()` gives as Arrow, for
+    /// a caller without an Arrow reader.
+    #[allow(clippy::type_complexity)]
+    fn units(&self, array: u32) -> Vec<(Vec<u64>, Option<u32>, Option<u64>, Option<(u64, u64)>, Option<Vec<(Option<String>, u64, u64)>>, Option<u32>, Option<u64>)> {
+        let map = &self.ir.stored.map;
+        (0..map.len())
+            .filter(|&k| map.array[k] == array)
+            .map(|k| {
+                let ranges = map.ranges_of(k).map(|r| {
+                    r.map(|x| (map.range_object[x].map(|o| map.objects[o as usize].clone()), map.range_offset[x], map.range_length[x])).collect()
+                });
+                (map.coords_of(k).to_vec(), map.element[k], map.member[k], map.range[k], ranges, map.chain[k], map.skips[k])
+            })
+            .collect()
+    }
     /// The chunk map (spec/stored-array.md §4
     /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#4-the-chunk-map>): an object
     /// of the Arrow PyCapsule interface, one record batch.
@@ -735,6 +757,11 @@ impl PyRun {
     /// Asks for the built-in projection's reads (`Run::begin_projection`).
     fn begin_projection(&mut self) -> PyResult<()> {
         self.get()?.begin_projection().map_err(Rejected::new_err)
+    }
+    /// The profile's description of the source (JSON), of a run that is done; None for a
+    /// profile whose parser returns none yet (`Run::description`).
+    fn description(&mut self) -> PyResult<Option<String>> {
+        Ok(self.get()?.description().map_err(PyValueError::new_err)?.map(|d| d.to_string()))
     }
     /// The IR of a run that is done, shared with the run, which is kept.
     fn ir(&mut self) -> PyResult<PyIr> {

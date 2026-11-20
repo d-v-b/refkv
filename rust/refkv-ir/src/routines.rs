@@ -68,6 +68,21 @@ pub fn call(name: &str, p: &J) -> R<J> {
             let endian = if enc.little { "little" } else { "big" };
             Ok(J::Array(vec![crate::project::dicom::chain(codec, data_type, uint(p, "samples")?, endian)]))
         }
+        "npy_array_type" => {
+            // an NPY header's text, as the profile reads it: the data type its `descr` is
+            // presented as (spec/zarrify/npy.md §3
+            // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#3-data-types>), with
+            // its header's order and shape
+            let rules = rules::of("npy");
+            let header = crate::npy::header::parse(text(p, "header")?, rules.limit("max_rank") as usize)
+                .map_or_else(|e| bad(format!("not an NPY header: {e}")), Ok)?;
+            let t = crate::npy::header::dtype(rules, &header.descr).map_err(Refused::NoCodec)?;
+            Ok(json!({
+                "data_type": t.zarr, "fill_value": t.fill, "item_size": t.item, "trailing": t.trailing,
+                "endian": t.little.map(|l| if l { "little" } else { "big" }),
+                "fortran_order": header.fortran_order, "shape": header.shape,
+            }))
+        }
         "gzip_codecs" => {
             let level = uint(p, "level")?;
             let level = u8::try_from(level).ok().filter(|l| *l <= 9).map_or_else(|| bad("level is 0 to 9"), Ok)?;

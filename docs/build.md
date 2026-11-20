@@ -118,6 +118,40 @@ declarations) and `source_metadata(path)`; `array(path)`, an array as an `Array`
 prefix as a `Written`; and `elements(path)`, the IR elements each chunk of an array reads. It is
 one projection of the input, and nothing else in `refkv.build` needs it.
 
+## Arrays as the source stores them
+
+The IR describes each array the source stores (`p.ir.stored_arrays()`), and the units it holds
+(`p.ir.units(k)`, the chunk map's rows of the array at position `k`). `stored_array` is the plainest
+projection of one: a Zarr array with the description's shape and grid, a chunk for each unit, its
+bytes referenced where they lie.
+
+```python
+from refkv.build import Written, read, seal, stored_array
+from refkv.zarrify.coding import npy_array_type
+
+with read("weights.npz") as p:
+    position = {a.element: k for k, a in enumerate(p.ir.stored_arrays().arrays)}
+    out = Written({"zarr.json": b'{"zarr_format":3,"node_type":"group","attributes":{}}'})
+    for entry in p.description["arrays"]:          # what the NumPy parser found
+        if entry["stored"] is None:                # a deflated member: not described yet
+            continue
+        t = npy_array_type(entry["header"])        # the header's declaration, as the profile reads it
+        array = stored_array(p, position[entry["stored"]], t["data_type"], endian=t["endian"],
+                             inner_shape=[t["trailing"]] if t["trailing"] else (),
+                             fill_value=t["fill_value"])
+        out |= array.entries(to=entry["path"])
+    store = seal(out, [p])
+```
+
+A description stops at the bytes of an element: the data type, its byte order and the fill value
+are what the source declares, which a profile's routine reads (`npy_array_type` for an NPY
+header), and the caller gives them. Nothing here asks for refkv's own output. `p.description` is
+the profile's description of the input, where its parser returns one: NumPy's does
+([npy.md §8.6](../spec/zarrify/npy.md#86-the-description)), and the other profiles' is None until
+their projections read the descriptions too. `stored_array` raises `ValueError` for an array it
+cannot write so: one whose storage the IR does not model, whose elements are not whole bytes, or
+whose units are encoded (`zarr_codecs` translates only the empty chain yet).
+
 ## A TIFF made of several
 
 The tests (`python/tests/test_build.py`, `stack`) build one classic TIFF of the pages of several

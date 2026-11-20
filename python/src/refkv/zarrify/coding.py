@@ -30,8 +30,8 @@ if TYPE_CHECKING:
     from refkv.build import Parsed, Projected
     from refkv.ir import Value
 
-__all__ = ["NoCodec", "czi_codecs", "dicom_codecs", "gzip_codecs", "hdf5_attributes", "hdf5_value", "tiff_byte_order",
-           "tiff_codecs", "tiff_data_type", "tiff_tags", "vsi_codecs"]
+__all__ = ["NoCodec", "czi_codecs", "dicom_codecs", "gzip_codecs", "hdf5_attributes", "hdf5_value", "npy_array_type",
+           "tiff_byte_order", "tiff_codecs", "tiff_data_type", "tiff_tags", "vsi_codecs"]
 
 # No codec undoes the coding parameters given: the format's section rejects them, naming them (a
 # ValueError; a plugin turns it into refkv.zarrify.Rejected).
@@ -150,6 +150,25 @@ def gzip_codecs(skip: int, level: int) -> list[dict[str, Any]]:
     stream when `skip` is not 0 (a NumPy file's preamble and header; spec/zarrify/npy.md §4.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#44-the-refkvskip-codec>)."""
     return list(_call("gzip_codecs", skip=skip, level=level))
+
+
+def npy_array_type(header: str) -> dict[str, Any]:
+    """What an NPY header declares of its array, as the NumPy profile reads it (spec/zarrify/npy.md
+    §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#3-data-types>), `header` the
+    header's text (a `refkv.build.Parsed`'s description gives each presented array's):
+
+    - `data_type` and `fill_value`: the Zarr v3 data type its `descr` is presented as, and that
+      type's fill value;
+    - `endian`: `"little"`, `"big"`, or None for a type of no byte order, as the `bytes` codec
+      takes it;
+    - `item_size`: the bytes of one element as stored; `trailing`: the length of the trailing
+      axis of bytes that the profile presents a `|S<n>` or `|V<n>` type with (its data type is
+      then `uint8`), else None;
+    - `fortran_order` and `shape`: the header's.
+
+    Raises `NoCodec` for a `descr` the profile does not present (an object array's, a structure's),
+    and ValueError for text that is no NPY header."""
+    return dict(_call("npy_array_type", header=header))
 
 
 def hdf5_value(value: object, datatype: Mapping[str, Any] | None) -> object:

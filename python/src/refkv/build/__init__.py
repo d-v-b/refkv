@@ -21,6 +21,7 @@ from .parsed import MAX_BYTES, NoIrError, Parsed, read, read_async
 from .plugin import apply
 from .project import Projected, project, project_async
 from .seal import CODES, SealError, seal
+from .stored import stored_array, zarr_codecs
 from .values import (
     MAX_SOURCES,
     Array,
@@ -69,5 +70,7 @@ __all__ = [
     "read",
     "read_async",
     "seal",
+    "stored_array",
     "value",
+    "zarr_codecs",
 ]

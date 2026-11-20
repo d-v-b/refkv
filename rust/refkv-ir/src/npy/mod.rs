@@ -643,6 +643,9 @@ impl crate::run::FileProfile for Profile {
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::npy::project(ir, facts, url, copied)
     }
+    fn described(&self) -> bool {
+        true
+    }
     fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
         crate::project::npy::reads(ir, facts)
     }

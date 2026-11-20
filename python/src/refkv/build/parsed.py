@@ -93,6 +93,7 @@ class Parsed:
         self.max_bytes = max_bytes
         self._read = 0  # bytes `bytes` has read from sources
         self._ir = refkv.ir.Ir(run.ir)
+        self._description: dict[str, Any] | None = None if isinstance(run, StoreParse) else run.description
         # the profile the run decided, and the version of its convention, as an output's root
         # declares them
         self.profile: str = parse.fmt
@@ -115,10 +116,15 @@ class Parsed:
         return self._ir
 
     @property
-    def description(self) -> None:
-        """The format's description: None until it is specified (the design of d-v-b/refkv#278,
-        "The description")."""
-        return None
+    def description(self) -> dict[str, Any] | None:
+        """The profile's description of the input: what its parser found of the source, as the
+        profile's document specifies it (the design of d-v-b/refkv#278, "The description"), a
+        copy the caller may change. None for a profile that has none yet: every profile but
+        NumPy's, whose `description` holds `own`, the source metadata
+        (spec/zarrify/npy.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#51-the-root>),
+        and `arrays`, each array the profile presents with its `path`, its header's text
+        (`header`) and `stored`, the IR element that keys its stored array."""
+        return None if self._description is None else json.loads(json.dumps(self._description))
 
     @property
     def plain_file(self) -> bool:

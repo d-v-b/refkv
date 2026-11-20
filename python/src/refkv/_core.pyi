@@ -137,6 +137,10 @@ class Ir:
         """The arrays the source stores (spec/stored-array.md §2.5
         <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#25-the-json-form>): one JSON
         document, the chain table, the descriptions and the `undescribed` mark."""
+    def units(self, array: int) -> list[tuple[list[int], int | None, int | None, tuple[int, int] | None,
+                                              list[tuple[str | None, int, int]] | None, int | None, int | None]]:
+        """The chunk map's rows of the stored array at position `array`, each (coords, element,
+        member, range, ranges, chain, skips)."""
     def chunk_map(self) -> ChunkMap:
         """The chunk map (spec/stored-array.md §4
         <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#4-the-chunk-map>): an object
@@ -249,6 +253,9 @@ class Run:
         as often as it likes."""
     def begin_projection(self) -> None:
         """Asks for the built-in projection's reads, of a run that left them out and is done."""
+    def description(self) -> str | None:
+        """The profile's description of the source (JSON), of a run that is done; None for a
+        profile whose parser returns none yet."""
     def ir(self) -> Ir:
         """The IR of a run that is done, shared with the run, which is kept."""
     def project(self, url: str, mirror: bool = True, layouts: list[str] | None = None,
