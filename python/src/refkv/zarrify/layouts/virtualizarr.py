@@ -1,7 +1,7 @@
 """The layout `refkv.virtualizarr` (spec/layout.md
 <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): a file presented as VirtualiZarr's own
-parsers present it, so that code written against `HDFParser`, `FITSParser`, `ZippedZarrParser`,
-`NetCDF3Parser` or `ENVIParser` finds the arrays, dimension names and attributes it expects. Its
+parsers present it, so that code written against `HDFParser`, `FITSParser`, `ZarrParser`,
+`ZippedZarrParser`, `NetCDF3Parser` or `ENVIParser` finds the arrays, dimension names and attributes it expects. Its
 chunk references, chunk grids and codecs are those of refkv's own output, and it writes none of
 refkv's declarations and no `refkv_source` mirror. It writes its documents with `dump`, so it runs
 without the `layouts` extra.
@@ -33,6 +33,9 @@ The reference is VirtualiZarr 2.8.0 (`virtualizarr/parsers/hdf/hdf.py`, `parsers
   VirtualiZarr's `virtualizarr.fits_ascii_table` codec, which a reader registers by importing
   `virtualizarr`. A primary HDU with no data gives the root its attributes; another is left out.
 - **Zipped Zarr v3** (`ZippedZarrParser`): the store's hierarchy as the base has it.
+- **Zarr v2** (`ZarrParser`): the base's nodes, each with its `.zattrs` as attributes, and an
+  array's xarray `_ARRAY_DIMENSIONS` its `dimension_names` rather than an attribute (where it names
+  each axis with a string or null; another stays an attribute, on which `ZarrParser` fails).
 - **netCDF3** (`NetCDF3Parser`): the base's variables and dimension names, the attributes the base
   presents with a float attribute's values as numbers, and a variable's fill value its
   `_FillValue` in its data type, else zarr-python's default, 0.
@@ -67,8 +70,13 @@ Where VirtualiZarr's presentation is a defect rather than a contract, this layou
   at an uncompressed image), its attributes the image header astropy reconstructs;
 - a FITS binary table, which `FITSParser` refuses, is refkv's group for the HDU, under the HDU's
   name, as is any other HDU it cannot present;
-- a zipped Zarr store's own chunk key encoding, where `ZippedZarrParser`'s `ManifestStore`
-  presents a `.` separator;
+- a zipped Zarr store's or a Zarr v2 directory's own chunk key encoding, where the
+  `ManifestStore` of `ZippedZarrParser` or `ZarrParser` presents the default encoding with a `.`
+  separator;
+- the Zarr v2 arrays refkv does not present (spec/zarrify/zarr2.md §3.4
+  <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#34-arrays-that-are-not-presented>),
+  such as one of the `delta` filter, and no `transpose` codec on a 1-D Fortran-order array, where
+  `ZarrParser` writes one that keeps the order;
 - netCDF3 text that is not UTF-8 is refkv's `{"latin1": T}` (spec/conventions.md §6
   <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>), where
   `NetCDF3Parser` writes replacement characters, and fails on such a name;
@@ -737,13 +745,43 @@ def _envi(base: Base) -> Entries:
     return out
 
 
+# ---- Zarr v2
+
+def _zarr2(base: Base, token: bool) -> Entries:
+    """Each node of the base with its `.zattrs` as attributes (refkv's source metadata, zarr2.md §4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#4-source-metadata>), an array's
+    `_ARRAY_DIMENSIONS` its `dimension_names`, as `ZarrParser` promotes it."""
+    out: Entries = {}
+    for path in base.nodes():
+        prefix = f"{path}/" if path else ""
+        metadata = base.source_metadata(path) or {}
+        given = metadata.get("attributes") if isinstance(metadata, dict) else None
+        attributes: dict[str, Any] = dict(given) if isinstance(given, dict) else {}
+        if base.node_type(path) == "group":
+            out[f"{prefix}zarr.json"] = dump({"zarr_format": 3, "node_type": "group",
+                                              "attributes": _nonfinite(attributes, token)}, allow_nan=token)
+            continue
+        doc, chunks = base.array(path)
+        doc = dict(doc)
+        names = attributes.get("_ARRAY_DIMENSIONS")
+        # names a Zarr v3 array takes (ZarrParser fails on others, which stay an attribute)
+        if isinstance(names, list) and len(names) == len(doc["shape"]) and \
+                all(n is None or isinstance(n, str) for n in names):
+            del attributes["_ARRAY_DIMENSIONS"]
+            doc["dimension_names"] = names
+        doc["attributes"] = _nonfinite(attributes, token)
+        out[f"{prefix}zarr.json"] = dump(doc, allow_nan=token)
+        out.update({f"{prefix}{k}": v for k, v in chunks.items()})
+    return out
+
+
 # ---- the layout
 
 class VirtualiZarr:
     name = "refkv.virtualizarr"
     formats: ClassVar[Mapping[str, frozenset[int]]] = {
         "hdf5": frozenset({0}), "fits": frozenset({0}), "zarr3": frozenset({0}), "netcdf3": frozenset({0}),
-        "envi": frozenset({0})}
+        "envi": frozenset({0}), "zarr2": frozenset({0})}
 
     def options(self, given: Mapping[str, object]) -> dict[str, object]:
         """`{"nonfinite": "token"}` by default: whether a NaN or infinite attribute is a bare JSON
@@ -767,5 +805,7 @@ class VirtualiZarr:
             return _netcdf3(base, options["nonfinite"] == "token")
         if base.profile == "envi":
             return _envi(base)
+        if base.profile == "zarr2":
+            return _zarr2(base, options["nonfinite"] == "token")
         out: dict[str, EntryValue] = base.entries(declarations=False, mirror=False, datasets=False)
         return out

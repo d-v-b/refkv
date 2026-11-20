@@ -43,7 +43,6 @@ from virtualizarr.parsers import (
 )
 
 from refkv.virtualizarr import RefkvParser
-from refkv.zarrify.common import Rejected
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -58,13 +57,6 @@ class Gap:
     reason: str
     raises: type[BaseException] = AssertionError
 
-
-SOURCE_METADATA = Gap("#271 'Separate source metadata from dataset attributes'")
-FITS_BYTE_ORDER = Gap("not yet in #271: the refkv.virtualizarr layout gives a FITS image's data type "
-                      "little-endian, FITSParser big-endian")
-NETCDF3 = Gap("#271 'Support the missing formats': netCDF3 is not a file of any supported format", Rejected)
-ENVI_NAMES = Gap("not yet in #271: the refkv.virtualizarr layout does not read ENVI, so refkv names the "
-                 "array '0', ENVIParser by the data file's stem")
 
 ASPECTS = ("arrays", "shape", "data type", "fill value", "dimension names", "attributes",
            "byte ranges", "values", "root attributes")
@@ -180,16 +172,7 @@ CASES = {
 }
 
 ALL = "*"
-KNOWN_GAPS: dict[tuple[str, str], Gap] = {
-    # the refkv.virtualizarr layout does not read Zarr v2, and refkv's default layout keeps a v2
-    # array's _ARRAY_DIMENSIONS among the source's attributes
-    ("Zarr v2 directory", "dimension names"): SOURCE_METADATA,
-    ("Zarr v2 directory", "attributes"): SOURCE_METADATA,
-    ("Zarr v2 directory", "root attributes"): SOURCE_METADATA,
-    ("netCDF3", ALL): NETCDF3,
-    ("ENVI", ALL): ENVI_NAMES,
-    ("FITS image", "data type"): FITS_BYTE_ORDER,
-}
+KNOWN_GAPS: dict[tuple[str, str], Gap] = {}
 """The differences #271 tracks, by (case, aspect), `*` for every aspect of a case."""
 
 

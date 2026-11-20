@@ -22,6 +22,7 @@ from unittest import mock
 import h5py
 import imagecodecs.numcodecs
 import netCDF4
+import numcodecs
 import numpy as np
 import pytest
 import virtualizarr.parsers
@@ -228,15 +229,40 @@ def latin_hdr(path: Path) -> Path:
     return path
 
 
+def zarr_v2(path: Path) -> Path:
+    """A Zarr v2 directory: xarray's `_ARRAY_DIMENSIONS`, a null fill value, Fortran order, the `/`
+    separator, zstd, zlib and no compressor, a nested group, and an array without dimension names."""
+    g = zarr.open_group(path, mode="w", zarr_format=2, attributes={"title": "v2", "list": [1, 2]})
+    g.create_array("temp", shape=(4, 6), chunks=(2, 3), dtype="f4", fill_value=-1.0,
+                   compressors=numcodecs.Zstd(level=3),
+                   attributes={"_ARRAY_DIMENSIONS": ["y", "x"], "units": "K"})[:] = np.arange(24).reshape(4, 6)
+    g.create_array("nofill", shape=(5,), chunks=(2,), dtype="<i4", fill_value=None, order="F",
+                   compressors={"id": "zlib", "level": 2},
+                   chunk_key_encoding={"name": "v2", "separator": "/"})[:] = np.arange(5)
+    g.create_array("fortran", shape=(3, 4), chunks=(3, 2), dtype=">i2", order="F", compressors=None,
+                   attributes={"_ARRAY_DIMENSIONS": ["a", "b"], "valid": [0, 9]})[:] = np.arange(12).reshape(3, 4)
+    g.create_group("sub", attributes={"note": "nested"}).create_array(
+        "deep", shape=(2,), chunks=(2,), dtype="u1", attributes={"_ARRAY_DIMENSIONS": ["n"]})[:] = [1, 2]
+    return path
+
+
+def zarr_v2_unpresented(path: Path) -> Path:
+    """A Zarr v2 directory with an array of a filter refkv does not present (delta)."""
+    g = zarr.open_group(path, mode="w", zarr_format=2)
+    delta = cast("Any", [numcodecs.Delta(dtype="<i4")])  # a numcodecs codec, which zarr's types do not name
+    g.create_array("delta", shape=(5,), chunks=(5,), dtype="<i4", filters=delta)[:] = 1
+    return path
+
+
 GENERATED = {"attributes.h5": attributes_h5, "blank.fits": blank_fits, "store.zarr.zip": zipped_zarr,
              "attributes.nc": attributes_nc, "fields.hdr": envi_file,
              "float32.hdr": lambda p: envi_float(p, 4, "<f4", "0.1"),
              "complex64.hdr": lambda p: envi_float(p, 6, "<c8", "-9999"),
              "uint16.hdr": lambda p: envi_float(p, 12, "<u2", "65535"),
              "not_a_number.hdr": lambda p: envi_float(p, 2, "<i2", "n/a"), "fills.nc": fills_nc,
-             "latin.hdr": latin_hdr}
+             "latin.hdr": latin_hdr, "v2.zarr": zarr_v2, "unpresented_v2.zarr": zarr_v2_unpresented}
 PARSERS = {"hdf5": "HDFParser", "fits": "FITSParser", "zarr3": "ZippedZarrParser", "netcdf3": "NetCDF3Parser",
-           "envi": "ENVIParser"}
+           "envi": "ENVIParser", "zarr2": "ZarrParser"}
 
 # each input, and its arrays whose chunk grid (and so chunk references) VirtualiZarr's differs from
 # refkv's: a dataset or HDU refkv splits into chunks within its payload limit
@@ -275,6 +301,7 @@ CASES: list[tuple[str, frozenset[str]]] = [
     ("float32.hdr", frozenset()),
     ("complex64.hdr", frozenset()),
     ("uint16.hdr", frozenset()),
+    ("v2.zarr", frozenset()),
 ]
 # inputs where VirtualiZarr's presentation is a defect the layout does not take on
 DEFECTS = [
@@ -290,6 +317,9 @@ DEFECTS = [
                                                "data type")),
     pytest.param("latin.hdr", frozenset(), id="latin.hdr", marks=pytest.mark.xfail(
         strict=True, raises=UnicodeDecodeError, reason="ENVIParser fails on a header that is not UTF-8")),
+    pytest.param("unpresented_v2.zarr", frozenset(), id="unpresented_v2.zarr", marks=pytest.mark.xfail(
+        strict=True, raises=AssertionError, reason="refkv does not present an array of a filter it does not "
+                                                   "support, which ZarrParser does")),
     pytest.param("fills.nc", frozenset(), id="fills.nc", marks=pytest.mark.xfail(
         strict=True, raises=OverflowError, reason="NetCDF3Parser fails on a _FillValue its variable's type does "
                                                   "not hold")),
@@ -360,9 +390,15 @@ def _text(value: object) -> object:
     return value
 
 
+def _identity_transpose(codec: Json) -> bool:
+    order = (codec.get("configuration") or {}).get("order")
+    return codec.get("name") == "transpose" and isinstance(order, list) and order == list(range(len(order)))
+
+
 def _kept(doc: Json, profile: str, names: list[str] | None = None) -> Json:
-    """A document with the differences the layout keeps made alike: the zlib or gzip level, a zipped
-    store's chunk key encoding, an empty storage_transformers, and, given the base's dimension
+    """A document with the differences the layout keeps made alike: the zlib or gzip level, a Zarr
+    store's chunk key encoding, a transpose that keeps the order (ZarrParser's of a 1-D Fortran-order
+    array), an empty storage_transformers, and, given the base's dimension
     `names`, those of the axes VirtualiZarr names `phony_dim_<axis>`, which netCDF-4 names."""
     doc = dict(doc)
     if doc.get("storage_transformers") == []:
@@ -372,8 +408,8 @@ def _kept(doc: Json, profile: str, names: list[str] | None = None) -> Json:
                                   for i, n in enumerate(doc["dimension_names"])]
     if "codecs" in doc:
         doc["codecs"] = [{**c, "configuration": {}} if c.get("name") in ("numcodecs.zlib", "gzip") else c
-                         for c in doc["codecs"]]
-    if profile == "zarr3":
+                         for c in doc["codecs"] if not _identity_transpose(c)]
+    if profile in ("zarr3", "zarr2"):
         doc.pop("chunk_key_encoding", None)
     return doc
 
