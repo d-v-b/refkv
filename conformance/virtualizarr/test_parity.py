@@ -61,7 +61,8 @@ class Gap:
 SOURCE_METADATA = Gap("#271 'Separate source metadata from dataset attributes'")
 FITS_NAMES = Gap("#271 'Decide array names for FITS': refkv names the primary HDU '0', FITSParser 'PRIMARY'")
 NETCDF3 = Gap("#271 'Support the missing formats': netCDF3 is not a file of any supported format", Rejected)
-ENVI = Gap("#271 'Support the missing formats': ENVI is not a file of any supported format", Rejected)
+ENVI = Gap("#271 'Support the missing formats': refkv names an ENVI raster by its .hdr header, VirtualiZarr "
+           "by its data file, which RefkvParser rejects", Rejected)
 
 ASPECTS = ("arrays", "shape", "data type", "fill value", "dimension names", "attributes",
            "byte ranges", "values", "root attributes")
