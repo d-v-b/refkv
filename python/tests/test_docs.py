@@ -14,6 +14,7 @@ import zarr
 
 import refkv
 import refkv.zarr
+from refkv.uri import file_uri
 from refkv.zarrify import zarrify
 
 DOCS = Path(__file__).resolve().parents[2] / "docs"
@@ -74,15 +75,16 @@ def test_tiff_stack_rejects_a_different_layout(tmp_path):
 
 def test_tiff_concat_example_runs(tmp_path, monkeypatch, capsys):
     """examples/tiff_concat.py writes its synthetic stack, saves the sidecar, and finds every
-    page equal to its file, also after the directory moves (from a path with a space)."""
-    tmp_path = tmp_path / "a b"
+    page equal to its file, also after the directory moves (from a path with a space and
+    parentheses, which pathlib and a source URL percent-encode differently)."""
+    tmp_path = tmp_path / "a (b)"
     tmp_path.mkdir()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("sys.argv", ["tiff_concat.py"])
     runpy.run_path(str(DOCS / "examples" / "tiff_concat.py"), run_name="__main__")
     assert "all 24 pages match their files" in capsys.readouterr().out
     (tmp_path / "tiff_concat").rename(tmp_path / "moved")
-    policy = refkv.Policy(prefixes=((tmp_path / "moved").as_uri() + "/",))
+    policy = refkv.Policy(prefixes=(file_uri(tmp_path / "moved") + "/",))
     data = refkv.open(str(tmp_path / "moved" / "stack.vzip"), policy=policy).get("stack.tif")
     assert data is not None
     assert tifffile.imread(io.BytesIO(data), key=23).any()
@@ -123,7 +125,7 @@ def test_tiff_concat_keeps_every_page(tmp_path, byteorder):
         tifffile.imwrite(paths[-1], plane + z, byteorder=byteorder, append=True)
 
     example["concat"](paths).save_vzip(tmp_path / "stack.vzip")
-    policy = refkv.Policy(prefixes=(tmp_path.as_uri() + "/",))
+    policy = refkv.Policy(prefixes=(file_uri(tmp_path) + "/",))
     data = refkv.open(str(tmp_path / "stack.vzip"), policy=policy).get("stack.tif")
     assert data is not None
     with tifffile.TiffFile(io.BytesIO(data)) as tf:

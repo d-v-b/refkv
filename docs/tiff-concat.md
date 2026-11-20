@@ -84,7 +84,7 @@ import tifffile
 
 import refkv
 from refkv.policy import MAX_READS
-from refkv.uri import path_reference
+from refkv.uri import file_uri, path_reference
 
 # offset tags, by the tag of their byte counts: rewritten to the new file's offsets
 OFFSETS = {273: 279, 324: 325}  # StripOffsets, TileOffsets
@@ -212,7 +212,7 @@ def main(directory: Path) -> None:
     sidecar = directory / "stack.vzip"
     print(concat(paths).save_vzip(sidecar, relative_to=path_reference(str(directory)) + "/"))
 
-    policy = refkv.Policy(prefixes=(directory.as_uri() + "/",))
+    policy = refkv.Policy(prefixes=(file_uri(directory) + "/",))
     data = refkv.open(str(sidecar), policy=policy).get("stack.tif")
     assert data is not None
     with tifffile.TiffFile(io.BytesIO(data)) as tf:
