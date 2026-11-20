@@ -36,8 +36,12 @@ from refkv.zarrify.layouts.hierarchy import group
 
 FIXTURES = sorted(p for p in (Path(__file__).resolve().parents[2] / "fixtures" / "npy").iterdir()
                   if p.suffix in (".npy", ".npz"))
-CHUNK_BYTES = 1 << 20  # the most bytes of a chunk (spec/zarrify/npy.md §8.4)
-GZIP_LEVEL = 6  # the level the profile names for a deflated member's stream (§8.4)
+# the most bytes of a chunk
+# (spec/zarrify/npy.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#84-chunks>)
+CHUNK_BYTES = 1 << 20
+# the level the convention names for a deflated member's stream
+# (spec/zarrify/npy.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#43-the-arrays>)
+GZIP_LEVEL = 6
 
 
 def data_of(parsed: Parsed, position: dict[int, int], header: int) -> tuple[list[int], bool, Ref]:
@@ -71,7 +75,7 @@ def projected(parsed: Parsed) -> Written:
     for entry in description["arrays"]:
         declared = npy_array_type(entry["header"])
         rank = len(declared["shape"])
-        # fixed-length bytes are uint8 along a trailing axis (§3)
+        # fixed-length bytes are uint8 along a trailing axis
         inner = [declared["trailing"]] if declared["trailing"] is not None else []
         deflate = entry.get("deflate")
         span: Ref | None = None  # a stored member's data; a deflated member's lies in its stream
@@ -93,12 +97,12 @@ def projected(parsed: Parsed) -> Written:
         codecs.append({"name": "bytes", "configuration": {"endian": endian}} if endian else {"name": "bytes"})
         chunks: dict[tuple[int, ...], Any]
         if span is not None:
-            # cut as conventions §7 cuts contiguous values, in storage order (§8.4)
+            # cut as the conventions cut contiguous values (`grid`), in storage order
             cut_shape, cut = grid(span, [*stored, *inner], 1 if inner else declared["item_size"], limit=CHUNK_BYTES)
             chunk_shape = list(ordered(tuple(cut_shape)))
             chunks = {ordered(coords): filled(v) for coords, v in cut.items()}
         else:
-            # one chunk, the member's deflate stream as a gzip member, its header skipped (§8.4)
+            # one chunk, the member's deflate stream as a gzip member, its header skipped
             chunk_shape = [max(n, 1) for n in shape]
             chunks = {}
             if deflate["data"]:
