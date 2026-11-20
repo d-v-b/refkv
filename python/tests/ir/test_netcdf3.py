@@ -174,6 +174,7 @@ def test_source_metadata_and_what_is_not_presented():
         {"name": "v", "index": 3, "reason": "duplicate"},
         {"name": {"latin1": "bad\xff"}, "index": 4, "reason": "name"},
         {"name": "a/b", "index": 5, "reason": "name"},
+        {"name": "zarr.json", "index": 6, "reason": "name"},
     ]
     assert np.array_equal(array(root, "v")[...], [5, 6])
     # a reserved attribute is recorded, a second of one name skipped

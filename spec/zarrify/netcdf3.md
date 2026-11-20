@@ -67,8 +67,8 @@ whose first dimension is of length 0 is a **record variable**; any other is a **
 variable**. The file is flat: the hierarchy's root is the file, its attributes the global
 attributes ([§5](#5-attributes)), and its members an array per variable, in the header's order.
 
-A variable is presented at its name, when that is a **node name**: valid UTF-8, not empty, not `.`
-or `..`, not starting with `__` (which Zarr v3 reserves), without `/`, and not `refkv_source`
+A variable is presented at its name, when that is a **node name**: valid UTF-8, not empty, not `.`,
+`..` or `zarr.json` (the key of the root's own document), not starting with `__` (which Zarr v3 reserves), without `/`, and not `refkv_source`
 (reason `reserved`); otherwise it is not presented (reason `name`). When two variables have one
 name, the first keeps it, and a later one is not presented (reason `duplicate`). netCDF-C refuses
 to write any of these, so a file that has one was written by other software. A variable not

@@ -223,7 +223,7 @@ def unpresented() -> File:
                 [("zarr_conventions", CHAR, "mine"), ("ok", INT, 1), ("ok", INT, 2)],
                 [Var("__hidden", ["d"], INT, [1, 2]), Var("refkv_source", ["d"], INT, [3, 4]),
                  Var("v", ["d"], INT, [5, 6]), Var("v", ["d"], INT, [7, 8]), Var(b"bad\xff", ["d"], INT, [9, 10]),
-                 Var("a/b", ["d"], INT, [11, 12]), Var("w", ["d"], CHAR, [b"x", b"\0"], [("_FillValue", CHAR, "x")])])
+                 Var("a/b", ["d"], INT, [11, 12]), Var("zarr.json", ["d"], INT, [13, 14]), Var("w", ["d"], CHAR, [b"x", b"\0"], [("_FillValue", CHAR, "x")])])
 
 
 def empty() -> File:

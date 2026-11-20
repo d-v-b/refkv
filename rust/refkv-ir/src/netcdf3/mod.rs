@@ -422,7 +422,7 @@ fn place(h: &Header, size: u64) -> R<Placed> {
 /// name.
 fn node_name(b: &[u8]) -> Result<String, &'static str> {
     let s = std::str::from_utf8(b).map_err(|_| "name")?;
-    if s.is_empty() || s == "." || s == ".." || s.starts_with("__") || s.contains('/') {
+    if s.is_empty() || s == "." || s == ".." || s == "zarr.json" || s.starts_with("__") || s.contains('/') {
         return Err("name");
     }
     if RESERVED.contains(&s) {
@@ -540,8 +540,13 @@ impl Netcdf3 {
         if self.found.is_some() {
             return Ok(Step::Done);
         }
+        // a file of fewer than 4 bytes holds no magic number (spec/zarrify/netcdf3.md §7.4
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#74-checks>)
+        if self.size < 4 {
+            return Err("not a netCDF3 file".into());
+        }
         let budget = self.rules.limit("header_bytes") as u64;
-        if self.read == 0 && self.size > 0 {
+        if self.read == 0 {
             self.read = self.size.min(self.rules.limit("first_read") as u64);
             return Ok(self.asked.ask(vec![(0, self.read)]));
         }
@@ -733,11 +738,20 @@ mod tests {
         );
     }
 
+    /// A file of fewer than 4 bytes, empty included, is not a netCDF3 file.
+    #[test]
+    fn short_files_are_not_netcdf3() {
+        for b in [&b""[..], b"C", b"CDF"] {
+            assert_eq!(crate::parse_bytes::<Netcdf3>(b).err(), Some("not a netCDF3 file".to_string()), "{b:?}");
+        }
+    }
+
     /// A name is a node's name when Zarr and the hierarchy allow it.
     #[test]
     fn node_names() {
         assert_eq!(node_name(b"temp"), Ok("temp".into()));
-        for (b, why) in [(&b""[..], "name"), (b".", "name"), (b"..", "name"), (b"__x", "name"), (b"a/b", "name"), (b"\xff", "name"), (b"refkv_source", "reserved")] {
+        assert_eq!(node_name(b"zarr.json.x"), Ok("zarr.json.x".into()));
+        for (b, why) in [(&b""[..], "name"), (b".", "name"), (b"..", "name"), (b"__x", "name"), (b"a/b", "name"), (b"zarr.json", "name"), (b"\xff", "name"), (b"refkv_source", "reserved")] {
             assert_eq!(node_name(b), Err(why), "{b:?}");
         }
     }
