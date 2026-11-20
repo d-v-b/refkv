@@ -722,13 +722,17 @@ def test_seal_refuses_a_zero_source_past_a_source_table(tmp_path, n):
     assert e.value.code == "archive"
 
 
-def test_seal_refuses_a_range_it_cannot_read_to_checksum(tmp_path):
-    path = _npy(tmp_path)
-    with read(path, checksums=True) as p:
-        path.write_bytes(path.read_bytes()[:64])  # the file shrinks after it was read
-        with pytest.raises(SealError) as e:
-            seal(Written({"v": Ref(p, 0, 100, 4)}), [p])
+def test_seal_refuses_a_range_it_cannot_read_to_checksum(tmp_path, monkeypatch):
+    async def unread(_self, _key):
+        raise OSError("the source went away")
+
+    # the read is made to fail, not the file cut short: an open input holds a local file mapped,
+    # and Windows refuses to shrink a mapped file
+    monkeypatch.setattr(refkv.ReferenceStore, "get_async", unread)
+    with read(_npy(tmp_path), checksums=True) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(p, 0, 100, 4)}), [p])
     assert e.value.code == "checksums"
+    assert "the source went away" in str(e.value)
 
 
 def test_a_store_named_by_a_url_is_read_where_it_was_opened(tmp_path):
