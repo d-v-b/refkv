@@ -87,6 +87,7 @@ float6_e3m2fn = "refkv.zarr.dtypes:Float6E3M2FN"
 "refkv.example.tiff-pages" = "refkv.zarrify.layouts.examples.tiff_pages:TiffPages"
 "refkv.example.hdf5-rechunk" = "refkv.zarrify.layouts.examples.hdf5_rechunk:Hdf5Rechunk"
 "refkv.example.xarray-v2" = "refkv.zarrify.layouts.examples.xarray_v2:XarrayV2"
+"refkv.virtualizarr" = "refkv.zarrify.layouts.virtualizarr:VirtualiZarr"
 
 [project.optional-dependencies]
 # refkv.zarr: a reference store as a read-only zarr store, for zarr and xarray, and the codecs
