@@ -258,7 +258,7 @@ def local_path(location: str, policy: Policy | None = None) -> str:
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>); any other `location` as
     it is. Raises `refkv.errors.ResolutionError` for a `file:` URL with a host (a UNC path) that
     `policy` (default `Policy()`) does not allow, and ValueError for one that names no local path."""
-    if url_scheme(location) != "file":
+    if location[:5].lower() != "file:":  # `file:///x`, or RFC 8089's minimal form `file:/x`
         return location
     policy = policy or Policy()
     policy.check_file_host(location)
@@ -274,7 +274,7 @@ def is_store(location: str) -> bool:
     whose path ends in `/`, or a local directory, by its path or its `file:` URL."""
     if url_scheme(location) not in (None, "file"):
         return location.split("?", 1)[0].split("#", 1)[0].endswith("/")
-    try:
+    try:  # a path, or a `file:` URL in either form
         return Path(local_path(location)).is_dir()
     except ValueError:  # not a local path (a ResolutionError among them): read as a file, which fails there
         return False

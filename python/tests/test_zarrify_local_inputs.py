@@ -1,5 +1,6 @@
 """Local inputs as VirtualiZarr passes them: a file, or a Zarr v2 or v3 directory, by its path, by
-its `file:` URL, and by its `file:` URL with a `file://` store registered (spec/zarrify.md §1.2
+its `file:` URL (`file:///x`, or RFC 8089's minimal `file:/x`), and by its `file:` URL with a
+`file://` store registered (spec/zarrify.md §1.2
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>, §1.4
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), with refkv's layout
 and with a plugin layout."""
@@ -14,7 +15,7 @@ from obstore.store import LocalStore
 
 import refkv.zarr
 from refkv.errors import ResolutionError
-from refkv.zarrify import Rejected, zarrify
+from refkv.zarrify import Rejected, Zarr3Store, zarrify
 from refkv.zarrify.layouts import Layout
 
 VALUES = np.arange(24, dtype="<i4").reshape(4, 6)
@@ -36,7 +37,7 @@ def _input(tmp_path: Path, kind: str) -> tuple[Path, str]:
 
 
 @pytest.mark.parametrize("layout", [None, "refkv.example.bare"])
-@pytest.mark.parametrize("form", ["path", "file URL", "file URL and registry"])
+@pytest.mark.parametrize("form", ["path", "file URL", "minimal file URL", "file URL and registry"])
 @pytest.mark.parametrize("kind", ["file", "zarr2", "zarr3"])
 def test_a_local_input_zarrifies_in_every_form(tmp_path, kind, form, layout):
     """Every form gives the store the path gives; a directory's chunks are references to its
@@ -44,7 +45,7 @@ def test_a_local_input_zarrifies_in_every_form(tmp_path, kind, form, layout):
     and zarr reads the input's values from it."""
     path, array = _input(tmp_path, kind)
     url = path.as_uri() + ("/" if kind != "file" else "")
-    location = str(path) if form == "path" else url
+    location = {"path": str(path), "minimal file URL": url.replace("file://", "file:", 1)}.get(form, url)
     registry = ObjectStoreRegistry({"file://": LocalStore()}) if form == "file URL and registry" else None
     plugin = None if layout is None else Layout(layout)
 
@@ -79,6 +80,11 @@ def test_a_file_url_with_a_query_names_no_local_path(tmp_path):
     np.save(tmp_path / "x.npy", VALUES)
     with pytest.raises(ValueError, match="query"):
         zarrify((tmp_path / "x.npy").as_uri() + "?v=1")
+
+
+def test_a_missing_directory_is_not_found(tmp_path):
+    with pytest.raises(FileNotFoundError, match="no such directory"):
+        zarrify(Zarr3Store(str(tmp_path / "missing")))
 
 
 def test_a_directory_named_by_another_directory_s_file_url_is_rejected(tmp_path):

@@ -68,7 +68,10 @@ def check_directory_url(url: str, path: str) -> None:
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>): it names that
     directory itself, on this machine (no host), ending in `/`, without a query or a fragment;
     or Rejected. A `file:` URL names no other store: not another directory, whose files the
-    output would then claim, nor a store read over the network."""
+    output would then claim, nor a store read over the network. FileNotFoundError when `path`
+    is no directory."""
+    if not Path(path).is_dir():
+        raise FileNotFoundError(f"{path}: no such directory")
     m = _SPLIT.match(url)
     if not is_uri_reference(url) or m is None:
         raise Rejected(f"{url!r} is not a valid URI")
