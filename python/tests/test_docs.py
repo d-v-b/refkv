@@ -29,6 +29,14 @@ def test_pages_quote_their_examples_verbatim():
             found[example.relative_to(DOCS).as_posix()] = page.name
     assert found.get("examples/oisst.py") == "virtual-datasets.md"
     assert found.get("examples/tiff_stack.py") == "tiff-stack.md"
+    assert found.get("examples/refkv_parser.py") == "virtual-datasets.md"
+
+
+def test_refkv_parser_example_runs(tmp_path, monkeypatch, capsys):
+    """examples/refkv_parser.py opens its netCDF file through RefkvParser and finds its values."""
+    monkeypatch.chdir(tmp_path)
+    runpy.run_path(str(DOCS / "examples" / "refkv_parser.py"), run_name="__main__")
+    assert "the virtual dataset's values equal the file's" in capsys.readouterr().out
 
 
 def test_tiff_stack_example_runs(tmp_path, monkeypatch, capsys):

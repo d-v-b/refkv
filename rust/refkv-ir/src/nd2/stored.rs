@@ -5,7 +5,7 @@
 //! names past them, keyed by `frames`. Built from the finished IR, whose frame elements say which
 //! frames the map holds, and from what the parser read of the attributes.
 
-use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Place, Row, StoredArray};
+use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Grid, Place, Row, StoredArray};
 use crate::fed::Word;
 use crate::ir::{Ir, Res, NO_INDEX, STRUCT};
 use std::collections::BTreeMap;
@@ -49,15 +49,16 @@ impl Frame {
         shape
     }
 
-    /// A frame's grid, after the axes `before` it: a frame a unit, or a row a unit.
-    fn grid(&self, before: &[u64]) -> Grid {
+    /// A frame's grid, after the axes `before` it: a frame a unit, or a row a unit; sparse, of no
+    /// fill value (ND2 has none), where `sparse`.
+    fn grid(&self, before: &[u64], sparse: bool) -> Grid {
         let rows = if self.padded() { 1 } else { self.height };
         let mut axes: Vec<AxisUnits> = before.iter().map(|&n| AxisUnits::Each(n)).collect();
         axes.extend([AxisUnits::Each(rows), AxisUnits::Each(self.width)]);
         if self.components > 1 {
             axes.push(AxisUnits::Each(self.components));
         }
-        Grid { axes, edge: Edge::Short }
+        if sparse { Grid::sparse(axes, Edge::Short, None) } else { Grid::dense(axes, Edge::Short) }
     }
 
     /// The first unit of a frame whose bytes start `base` bytes into an element of `len` bytes,
@@ -139,7 +140,6 @@ pub(super) fn described(ir: &Ir, frame: &Frame, count: u64, key: u32, declaratio
         pad_from: None,
         grid: None,
         chains: Vec::new(),
-        fill: Fill::Undefined,
         unit_parameters: Vec::new(),
     };
     // one chain for every frame: none, or the zlib stream a compressed frame is
@@ -161,7 +161,8 @@ pub(super) fn described(ir: &Ir, frame: &Frame, count: u64, key: u32, declaratio
     // the frames the loops count: the first axis, then a frame's
     let mut a = array(key, None, std::iter::once(count).chain(within.iter().copied()).collect());
     if fits(placed.len() as u64, 1 + within.len()) {
-        a.grid = Some(frame.grid(&[1]));
+        // a frame the chunk map does not name is a unit the source does not hold
+        a.grid = Some(frame.grid(&[1], true));
         a.chains = vec![0];
         chains.push(chain.clone());
         for &(f, px, member) in &placed {
@@ -185,7 +186,7 @@ pub(super) fn described(ir: &Ir, frame: &Frame, count: u64, key: u32, declaratio
             if chains.is_empty() {
                 chains.push(chain.clone());
             }
-            a.grid = Some(frame.grid(&[]));
+            a.grid = Some(frame.grid(&[], false));
             a.chains = vec![0];
             frame.rows(&mut map, arrays.len() as u32, &[], element, first)?;
         }

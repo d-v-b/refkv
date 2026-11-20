@@ -213,6 +213,7 @@ expect_import_error(
     "virtualizarr", lambda: refkv.ReferenceStore.from_virtualizarr(None))  # pyrefly: ignore[bad-argument-type]
 expect_import_error("virtualizarr", lambda: importlib.import_module("refkv.shards"))
 expect_import_error("virtualizarr", lambda: importlib.import_module("refkv.convert"))
+expect_import_error("virtualizarr", lambda: importlib.import_module("refkv.virtualizarr"))
 assert "xarray" not in sys.modules, "refkv imported xarray"
 if sys.version_info >= (3, 13) and sysconfig.get_config_var("Py_GIL_DISABLED"):
     assert not sys._is_gil_enabled(), "an import re-enabled the GIL"

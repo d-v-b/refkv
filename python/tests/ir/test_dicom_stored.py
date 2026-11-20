@@ -396,7 +396,7 @@ def check_described(d: Described, k: int, im: Image, top: bool, seen: Counter) -
         said.append(f"shape {a.shape}, pydicom {im.shape}")
     if a.item_bits != im.bits:
         said.append(f"item_bits {a.item_bits}, pydicom {im.bits}")
-    if a.fill != "undefined" or a.axes is not None or a.pad_from is not None or a.unit_parameters:
+    if a.fill is not None or a.axes is not None or a.pad_from is not None or a.unit_parameters:
         said.append("a fill value, axes, a padding or unit parameters")
     check_declarations(d, a, im, said)
     reason = no_grid(im, top)
@@ -495,7 +495,7 @@ def check_palette(d: Described, ks: list[int], ds: Dataset, places: list[Held], 
             said.append(f"table {c}: shape {a.shape} of {a.item_bits} bits, pydicom {entries} entries of {size} bytes")
             continue
         paths = [d.ir.path(p.element) for p in a.declarations if isinstance(p, ElementPlace)]
-        if paths != ["meta/00020010", f"dataset/{0x00281101 + c:08X}"] or a.fill != "undefined" or a.axes is not None:
+        if paths != ["meta/00020010", f"dataset/{0x00281101 + c:08X}"] or a.fill is not None or a.axes is not None:
             said.append(f"table {c}: declarations {paths}, a fill value or axes")
         rows = d.rows.get(k, [])
         if big and size == 1 and ds[0x00281201 + c].VR == "OW":

@@ -528,7 +528,7 @@ def check_bitmap(d: Described, k: int, name: str, held: Held, read: Read) -> lis
     if spans(d, a) != [held.s3, (start, 6)] or len(a.declarations) != 2:
         said.append(f"declarations at {spans(d, a)}")
     stated = (a.shape, a.axes, a.item_bits, a.pad_from, a.fill, a.unit_parameters)
-    if stated != ((points,), None, 1, None, "undefined", ()):
+    if stated != ((points,), None, 1, None, None, ()):
         said.append(f"shape {a.shape}, axes {a.axes}, {a.item_bits} bits, fill {a.fill}")
     rows = d.rows.get(k, [])
     if 8 * (length - 6) < points:
@@ -551,7 +551,14 @@ def check_bitmap(d: Described, k: int, name: str, held: Held, read: Read) -> lis
 def expected_chain(read: Read) -> tuple[str, list[str]]:
     """How a field's values are stored, by ecCodes' keys: "floats", "constant", "integers" as
     stored, "packed" with the chain's codecs, "source", or "no grid" where its section 7 does not
-    hold them."""
+    hold them: a field of values to code in no octet, whatever its packing."""
+    kind = coded_chain(read)
+    data, n = read.sections[7][1] - 5, read.keys["numberOfValues"]
+    return ("no grid", []) if kind[0] == "source" and data == 0 and n > 0 else kind
+
+
+def coded_chain(read: Read) -> tuple[str, list[str]]:
+    """`expected_chain`, but for a `source` field of values to code in no octet."""
     k = read.keys
     template, bits, n = k["dataRepresentationTemplateNumber"], k["bitsPerValue"], k["numberOfValues"]
     data = read.sections[7][1] - 5
@@ -649,7 +656,7 @@ def check_field(d: Described, k: int, path: Path, held: Held, read: Read, seen: 
     seen[f"fields of 5.{template}, {kind}"] += 1
     if kind == "no grid":
         # section 7 does not hold the values
-        if a.grid is not None or chains or rows or a.item_bits is not None or a.fill != "undefined":
+        if a.grid is not None or chains or rows or a.item_bits is not None or a.fill is not None:
             said.append(f"grid {a.grid}, chains {chains} and {len(rows)} rows, of a section 7 of {held.s7[1]} octets")
         return said
     if units_of(a) != shape or len(chains) != 1 or [c.name for c in chains[0]] != names:
@@ -669,7 +676,7 @@ def check_field(d: Described, k: int, path: Path, held: Held, read: Read, seen: 
             said.append(f"a fill value of {value}, and ecCodes reads {want[:3]}")
         seen["constant fields whose decimal scale factor is not 0"] += keys["decimalScaleFactor"] != 0
         return said
-    if a.fill != "undefined":
+    if a.fill is not None:
         said.append(f"the fill {a.fill}")
     if kind == "source":
         (codec,) = chain
@@ -951,7 +958,7 @@ def assert_source(path: Path, template: int) -> None:
     stated sample size, in a `source` chain of its template's number and octets."""
     d, a, rows, held = last_field(path)
     assert source_of(d, a) == {"format": "grib", "id": template, "parameters": (held.s5[0] + 11, held.s5[1] - 11)}
-    assert (a.item_bits, a.fill, units_of(a)) == (None, "undefined", a.shape)
+    assert (a.item_bits, a.fill, units_of(a)) == (None, None, a.shape)
     assert [d.parts(r) for r in rows] == [[(path.name, held.s7[0] + 5, held.s7[1] - 5)]]
 
 
@@ -1197,6 +1204,18 @@ def test_a_stream_of_no_octets_has_no_grid(tmp_path):
     said, seen = compare(path)
     assert said == ()
     assert seen["fields of 5.40, no grid"] == 1
+    _, a, rows, _ = last_field(path)
+    assert (a.shape, a.grid, a.chains, rows) == ((12, 16), None, (), [])
+
+
+def test_a_source_field_of_no_octets_has_no_grid(tmp_path):
+    """A field the list has no codec for (IEEE floats of precision 3), with values to code and a
+    section 7 of 5 octets, has no grid: no unit of no bytes is named."""
+    empty = edited(edited(fixture("grib_ieee32"), 5, octets(12, bytes([3]))), 7, lambda _: b"")
+    path = written(tmp_path, "empty", empty)
+    said, seen = compare(path)
+    assert said == ()
+    assert seen["fields of 5.4, no grid"] == 1
     _, a, rows, _ = last_field(path)
     assert (a.shape, a.grid, a.chains, rows) == ((12, 16), None, (), [])
 

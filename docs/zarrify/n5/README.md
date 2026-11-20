@@ -138,7 +138,8 @@ Supported:
 
 - N5 containers (specification 2.x to 4.0.0) on any S3-compatible host that
   answers `ListObjectsV2` anonymously, or in a local directory (with
-  `--url`, the store URL it will be served from).
+  `--url`, the store URL it will be served from; in Python, by its path or
+  `file:` URL alone).
 - Groups (explicit and implicit) and datasets of 1 to 32 dimensions.
 - Raw, gzip, zlib (`useZlib`), zstd and blosc blocks; the old
   `compressionType` form.

@@ -7,7 +7,7 @@
 //! with no grid.
 
 use super::{av1_config, h264_sps, hevc_sps, is_mjpeg, vp9_config, Entry, Sps, Track};
-use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Param, Place, Row, Scalar, StoredArray, UnitParameter};
+use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Grid, Param, Place, Row, Scalar, StoredArray, UnitParameter};
 use crate::ir::Res;
 use crate::text::latin1;
 use serde_json::{json, Value as J};
@@ -150,7 +150,6 @@ pub(super) fn described(media: &[Media]) -> Res<(Vec<StoredArray>, Vec<Chain>, C
                 pad_from: None,
                 grid: None,
                 chains: Vec::new(),
-                fill: Fill::Undefined,
                 unit_parameters: Vec::new(),
             });
         }
@@ -167,9 +166,8 @@ pub(super) fn described(media: &[Media]) -> Res<(Vec<StoredArray>, Vec<Chain>, C
                 axes: None,
                 item_bits: bits,
                 pad_from: None,
-                grid: Some(Grid { axes, edge: Edge::Short }),
+                grid: Some(Grid { axes, edge: Edge::Short, sparse: None }),
                 chains: vec![chain_of(chain)],
-                fill: Fill::Undefined,
                 unit_parameters,
             });
             for (j, &e) in m.samples.iter().enumerate() {

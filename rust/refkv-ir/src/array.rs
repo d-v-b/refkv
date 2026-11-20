@@ -35,7 +35,8 @@ pub struct StoredArray {
     /// the source's own order of the axes, where it differs from storage order (never the
     /// identity): `axes[i]` is storage axis i's position in the source's list
     pub axes: Option<Vec<u32>>,
-    /// the bits of one element, decoded; None only for an array with no grid and no given fill
+    /// the bits of one element, decoded; None only for an array with no grid, or whose chains all
+    /// begin with `source` and whose grid gives no fill
     pub item_bits: Option<u64>,
     /// for elements that are not whole bytes: the first axis from which the elements of a decoded
     /// unit pack unbroken, each run over this axis and those after it ending on a byte boundary;
@@ -46,7 +47,6 @@ pub struct StoredArray {
     /// the codec chains a unit may be encoded with, by position in the chain table: a unit's
     /// chain is `chains[0]` unless its row gives another position in this list
     pub chains: Vec<u32>,
-    pub fill: Fill,
     /// the parameters whose values differ from unit to unit, each a column of the chunk map
     pub unit_parameters: Vec<UnitParameter>,
 }
@@ -57,6 +57,20 @@ pub struct StoredArray {
 pub struct Grid {
     pub axes: Vec<AxisUnits>,
     pub edge: Edge,
+    /// Some where the source's layout may leave a unit out, which then holds the fill; None, a
+    /// dense grid, where it stores every unit
+    pub sparse: Option<Sparse>,
+}
+
+/// A grid whose layout may leave units out (spec/stored-array.md §2.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#24-sparse-grids-and-the-fill-value>):
+/// a unit it leaves out holds the fill, where the source gives one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Sparse {
+    /// None where the source defines no fill value, or defines one the IR cannot express, whose
+    /// place is then among the description's `declarations` (the general fallback): a profile
+    /// tells the two apart through the format's list of declaration places
+    pub fill: Option<Fill>,
 }
 
 /// The units along one axis: one length for all, the last cut by `edge` where the length does not
@@ -113,14 +127,10 @@ pub enum Place {
     Extent { object: Option<String>, offset: u64, length: u64 },
 }
 
-/// The source's fill value (spec/stored-array.md §2.4
-/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#24-the-fill-value>).
+/// The fill value of a sparse grid's source (spec/stored-array.md §2.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#24-sparse-grids-and-the-fill-value>).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Fill {
-    /// the source defines none, or defines one the IR cannot express, whose place is then among
-    /// the description's `declarations` (the general fallback): a profile tells the two apart
-    /// through the format's list of declaration places
-    Undefined,
     /// the source says its format's default
     FormatDefault,
     /// one decoded element's bytes, ceil(item_bits / 8) of them: a base64 string, or the place
@@ -687,14 +697,13 @@ impl StoredArray {
                 AxisUnits::List(r) => r.len(),
             }).sum()
         });
-        let fill = usize::from(matches!(self.fill, Fill::Given(Param::Source(_))));
+        let fill = usize::from(matches!(self.fill(), Some(Fill::Given(Param::Source(_)))));
         (1 + self.shape.as_ref().map_or(0, Vec::len) + listed + self.declarations.len() + fill + self.chains.len() + self.unit_parameters.len()) as u64
     }
 
-    /// [`StoredArray::weight`] once it has fallen back.
+    /// [`StoredArray::weight`] once it has fallen back: its grid, and so its fill, gone.
     fn fallen_back_weight(&self) -> u64 {
-        let fill = usize::from(matches!(self.fill, Fill::Given(Param::Source(_))));
-        (1 + self.shape.as_ref().map_or(0, Vec::len) + self.declarations.len() + fill) as u64
+        (1 + self.shape.as_ref().map_or(0, Vec::len) + self.declarations.len()) as u64
     }
 }
 
@@ -857,6 +866,16 @@ fn chain_json(c: &Chain) -> J {
 }
 
 impl Grid {
+    /// A dense grid: the source stores every unit.
+    pub fn dense(axes: Vec<AxisUnits>, edge: Edge) -> Grid {
+        Grid { axes, edge, sparse: None }
+    }
+
+    /// A sparse grid, whose units the source may leave out, each then holding `fill`.
+    pub fn sparse(axes: Vec<AxisUnits>, edge: Edge, fill: Option<Fill>) -> Grid {
+        Grid { axes, edge, sparse: Some(Sparse { fill }) }
+    }
+
     pub fn to_json(&self) -> J {
         let axes: Vec<J> = self
             .axes
@@ -872,15 +891,27 @@ impl Grid {
                 }
             })
             .collect();
-        json!({"axes": axes, "edge": match self.edge { Edge::Full => "full", Edge::Short => "short" }})
+        let sparse = self.sparse.as_ref().map(|s| {
+            let fill = s.fill.as_ref().map(|f| match f {
+                Fill::FormatDefault => json!("format_default"),
+                Fill::Given(p) => json!({"given": p.to_json()}),
+            });
+            json!({"fill": fill})
+        });
+        json!({"axes": axes, "edge": match self.edge { Edge::Full => "full", Edge::Short => "short" }, "sparse": sparse})
     }
 }
 
 impl StoredArray {
+    /// The fill of its grid, where the grid is sparse and the source gives one.
+    pub fn fill(&self) -> Option<&Fill> {
+        self.grid.as_ref()?.sparse.as_ref()?.fill.as_ref()
+    }
+
     /// Every place the description holds: its declarations and its fill's.
     fn places(&mut self) -> Vec<&mut Place> {
         let mut v: Vec<&mut Place> = self.declarations.iter_mut().collect();
-        if let Fill::Given(p) = &mut self.fill {
+        if let Some(Sparse { fill: Some(Fill::Given(p)) }) = self.grid.as_mut().and_then(|g| g.sparse.as_mut()) {
             v.extend(p.places());
         }
         v
@@ -899,11 +930,6 @@ impl StoredArray {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#25-the-json-form>), without
     /// the element's path.
     pub fn to_json(&self) -> J {
-        let fill = match &self.fill {
-            Fill::Undefined => json!("undefined"),
-            Fill::FormatDefault => json!("format_default"),
-            Fill::Given(p) => json!({"given": p.to_json()}),
-        };
         let ups: Vec<J> = self.unit_parameters.iter().map(|u| json!({"chain": u.chain, "codec": u.codec, "name": u.name})).collect();
         json!({
             "element": self.element,
@@ -915,7 +941,6 @@ impl StoredArray {
             "pad_from": self.pad_from,
             "grid": self.grid.as_ref().map(Grid::to_json),
             "chains": self.chains,
-            "fill": fill,
             "unit_parameters": ups,
         })
     }
@@ -1571,7 +1596,7 @@ impl StoredArray {
                 return Err(format!("its axes {axes:?} are storage order, which no axes say"));
             }
         }
-        let given = matches!(self.fill, Fill::Given(_));
+        let given = matches!(self.fill(), Some(Fill::Given(_)));
         // elements that `source` makes are of the size the source's encoding gives them, which
         // the IR need not know: every chain of the array then begins with it
         let sourced = self.chains.iter().all(|&c| chains[c as usize].first().is_some_and(|k| k.name == "source"));
@@ -1589,7 +1614,7 @@ impl StoredArray {
                 _ => {}
             }
         }
-        if let (Fill::Given(f), Some(bits)) = (&self.fill, self.item_bits) {
+        if let (Some(Fill::Given(f)), Some(bits)) = (self.fill(), self.item_bits) {
             let want = bits.div_ceil(8);
             let got = match f {
                 Param::Value(J::String(s)) => crate::zarr2::base64(s).map(|b| b.len() as u64).ok_or("its fill value is not base64")?,
@@ -1707,6 +1732,8 @@ impl ChunkMap {
             .iter()
             .map(|d| d.grid.as_ref().map_or_else(Vec::new, |g| g.axes.iter().zip(d.shape.as_deref().unwrap_or(&[])).map(|(a, &len)| units(a, len)).collect()))
             .collect();
+        // each array's rows, which, sorted and none repeated, are its units the source holds
+        let mut held = vec![0u64; arrays.len()];
         for k in 0..n {
             let a = self.array[k];
             let Some(d) = arrays.get(a as usize) else {
@@ -1732,6 +1759,7 @@ impl ChunkMap {
                     return Err(row("it is out of order".into()));
                 }
             }
+            held[a as usize] += 1;
             match (self.element[k], self.ranges_of(k)) {
                 (Some(_), Some(_)) => return Err(row("both its element and its ranges are set".into())),
                 (None, None) => return Err(row("neither its element nor its ranges is set".into())),
@@ -1798,6 +1826,16 @@ impl ChunkMap {
             for (name, col) in &self.params {
                 if col.get(k).is_some() && !expected.iter().any(|e| &e.0 == name) {
                     return Err(row(format!("its column {name:?} is set, but its array does not give it for its chain")));
+                }
+            }
+        }
+        // a dense grid's source stores every unit: a row for each
+        for (a, d) in arrays.iter().enumerate() {
+            if d.grid.as_ref().is_some_and(|g| g.sparse.is_none()) {
+                let units = grid_units[a].iter().try_fold(1u64, |p, &u| p.checked_mul(u));
+                if units != Some(held[a]) {
+                    let units = units.map_or_else(|| "more than 2^64".to_string(), |u| u.to_string());
+                    return Err(format!("internal: the array of {} has a dense grid of {units} units and {} rows", named(ctx.ir, d.element), held[a]));
                 }
             }
         }
@@ -2056,9 +2094,8 @@ mod tests {
             axes: Some(vec![1, 0]),
             item_bits: Some(12),
             pad_from: Some(1),
-            grid: Some(Grid { axes: vec![AxisUnits::List(vec![Run::One(5), Run::Repeat(10, 2)]), AxisUnits::Each(8)], edge: Edge::Full }),
+            grid: Some(Grid::sparse(vec![AxisUnits::List(vec![Run::One(5), Run::Repeat(10, 2)]), AxisUnits::Each(8)], Edge::Full, Some(Fill::Given(Param::Value(json!("AAA=")))))),
             chains: vec![0, 2],
-            fill: Fill::Given(Param::Value(json!("AAA="))),
             unit_parameters: vec![UnitParameter { chain: 0, codec: 0, name: "scale".into() }],
         };
         let scalar = StoredArray {
@@ -2069,9 +2106,8 @@ mod tests {
             axes: None,
             item_bits: Some(64),
             pad_from: None,
-            grid: Some(Grid { axes: vec![], edge: Edge::Short }),
+            grid: Some(Grid::sparse(vec![], Edge::Short, Some(Fill::Given(Param::Source(Place::Element { element: 3, member: Some(1), range: Some((0, 8)) }))))),
             chains: vec![1],
-            fill: Fill::Given(Param::Source(Place::Element { element: 3, member: Some(1), range: Some((0, 8)) })),
             unit_parameters: vec![],
         };
         let ungridded = StoredArray {
@@ -2084,7 +2120,6 @@ mod tests {
             pad_from: None,
             grid: None,
             chains: vec![],
-            fill: Fill::Undefined,
             unit_parameters: vec![],
         };
         let empty = StoredArray {
@@ -2095,9 +2130,8 @@ mod tests {
             axes: None,
             item_bits: Some(8),
             pad_from: None,
-            grid: Some(Grid { axes: vec![AxisUnits::Each(16), AxisUnits::List(vec![Run::One(3), Run::One(4)]), AxisUnits::List(vec![])], edge: Edge::Short }),
+            grid: Some(Grid::sparse(vec![AxisUnits::Each(16), AxisUnits::List(vec![Run::One(3), Run::One(4)]), AxisUnits::List(vec![])], Edge::Short, Some(Fill::FormatDefault))),
             chains: vec![1],
-            fill: Fill::FormatDefault,
             unit_parameters: vec![],
         };
         let mut map = ChunkMap::default();
@@ -2155,14 +2189,16 @@ mod tests {
         assert_eq!(units(&AxisUnits::Each(16), 0), 0);
         let doc = s.document(&ir);
         assert_eq!(doc["arrays"][0]["path"], json!("header"));
-        assert_eq!(doc["arrays"][0]["grid"], json!({"axes": [{"list": [5, [10, 2]]}, {"each": 8}], "edge": "full"}));
-        assert_eq!(doc["arrays"][1]["fill"], json!({"given": {"source": {"element": 3, "member": 1, "range": [0, 8]}}}));
+        assert_eq!(doc["arrays"][0]["grid"], json!({"axes": [{"list": [5, [10, 2]]}, {"each": 8}], "edge": "full", "sparse": {"fill": {"given": {"value": "AAA="}}}}));
+        assert_eq!(doc["arrays"][1]["grid"]["sparse"], json!({"fill": {"given": {"source": {"element": 3, "member": 1, "range": [0, 8]}}}}));
         assert_eq!(doc["chains"][0][0], json!({"name": "quantize", "parameters": {"method": {"value": 1}}}));
-        assert_eq!(doc["arrays"][2]["fill"], json!("undefined"));
-        assert_eq!(doc["arrays"][3]["fill"], json!("format_default"));
+        assert_eq!(doc["arrays"][2]["grid"], J::Null);
+        assert_eq!(doc["arrays"][3]["grid"]["sparse"], json!({"fill": "format_default"}));
+        assert!(doc["arrays"].as_array().unwrap().iter().all(|a| a.get("fill").is_none()));
         // elements `source` makes need no size
         let mut sourced = valid();
-        (sourced.arrays[3].item_bits, sourced.arrays[3].chains, sourced.arrays[3].fill) = (None, vec![2], Fill::Undefined);
+        (sourced.arrays[3].item_bits, sourced.arrays[3].chains) = (None, vec![2]);
+        sourced.arrays[3].grid.as_mut().unwrap().sparse = Some(Sparse { fill: None });
         check_with(&with(sourced), TEST_CODECS).unwrap();
     }
 
@@ -2214,7 +2250,7 @@ mod tests {
         assert_eq!((s.map.element[2], s.map.member[2]), (Some(before + 1), None));
         assert_eq!((s.map.element[0], s.map.member[0]), (Some(3), None));
         assert_eq!(s.map.range[1], Some((2, 4)));
-        assert_eq!(s.arrays[1].fill, Fill::Given(Param::Source(Place::Element { element: before, member: None, range: Some((0, 8)) })));
+        assert_eq!(s.arrays[1].fill(), Some(&Fill::Given(Param::Source(Place::Element { element: before, member: None, range: Some((0, 8)) }))));
     }
 
     #[test]
@@ -2236,7 +2272,7 @@ mod tests {
         let mut map = ChunkMap::default();
         map.push(Row { array: 1, coords: vec![], element: Some(4), ..Row::default() }).unwrap();
         map.push(Row { array: 0, coords: vec![0], element: Some(1), ..Row::default() }).unwrap();
-        let one = StoredArray { element: 1, index: None, shape: Some(vec![8]), grid: Some(Grid { axes: vec![AxisUnits::Each(8)], edge: Edge::Short }), chains: vec![0], ..valid().arrays[1].clone() };
+        let one = StoredArray { element: 1, index: None, shape: Some(vec![8]), grid: Some(Grid::dense(vec![AxisUnits::Each(8)], Edge::Short)), chains: vec![0], ..valid().arrays[1].clone() };
         let scalar = StoredArray { index: None, chains: vec![0], ..valid().arrays[1].clone() };
         ir.describe(vec![one, scalar], vec![vec![]], map).unwrap();
         assert_eq!(ir.stored.map.element, [Some(1), Some(4)]);
@@ -2258,11 +2294,12 @@ mod tests {
         assert_eq!(ir.describe(vec![a], vec![], ChunkMap::default()).unwrap_err(), "internal: the IR's arrays described twice");
     }
 
-    /// An array of 2000 listed runs keyed by `element`, of chains `chains`, with a declaration: its
-    /// fallen-back description costs 3 entries, and its full one 2000 and a chain's more.
+    /// An array of 2000 listed runs keyed by `element`, of chains `chains`, with a declaration, its
+    /// sparse grid holding no unit and no fill: its fallen-back description costs 3 entries, and
+    /// its full one 2000 and a chain's more.
     fn heavy(element: u32, chains: Vec<u32>) -> StoredArray {
         let runs: Vec<Run> = (0..2000).map(|k| Run::One(1 + k % 2)).collect();
-        StoredArray { element, index: None, shape: Some(vec![3000]), grid: Some(Grid { axes: vec![AxisUnits::List(runs)], edge: Edge::Short }), chains, fill: Fill::Undefined, ..valid().arrays[1].clone() }
+        StoredArray { element, index: None, shape: Some(vec![3000]), grid: Some(Grid::sparse(vec![AxisUnits::List(runs)], Edge::Short, None)), chains, ..valid().arrays[1].clone() }
     }
 
     /// An array of four units of a byte each, of chain `chain`, keyed by `element`, with its rows
@@ -2273,7 +2310,7 @@ mod tests {
         }
         StoredArray {
             element, index: None, declarations: vec![], shape: Some(vec![4]), axes: None, item_bits: Some(8), pad_from: None,
-            grid: Some(Grid { axes: vec![AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![chain], fill: Fill::Undefined,
+            grid: Some(Grid::dense(vec![AxisUnits::Each(1)], Edge::Short)), chains: vec![chain],
             unit_parameters: vec![],
         }
     }
@@ -2402,8 +2439,8 @@ mod tests {
         }
         let a = StoredArray {
             element: 1, index: None, declarations: vec![], shape: Some(vec![10, 10]), axes: None, item_bits: Some(8), pad_from: None,
-            grid: Some(Grid { axes: vec![AxisUnits::Each(1), AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![0],
-            fill: Fill::Undefined, unit_parameters: vec![],
+            grid: Some(Grid::dense(vec![AxisUnits::Each(1), AxisUnits::Each(1)], Edge::Short)), chains: vec![0],
+            unit_parameters: vec![],
         };
         ir.describe(vec![a], vec![vec![]], map).unwrap();
         assert_eq!(ir.budget.as_ref().unwrap().spent_rows, 400);
@@ -2415,7 +2452,7 @@ mod tests {
     fn two_arrays() -> (Vec<StoredArray>, ChunkMap) {
         let array = |element: u32| StoredArray {
             element, index: None, declarations: vec![], shape: Some(vec![4]), axes: None, item_bits: Some(8), pad_from: None,
-            grid: Some(Grid { axes: vec![AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![0], fill: Fill::Undefined,
+            grid: Some(Grid::dense(vec![AxisUnits::Each(1)], Edge::Short)), chains: vec![0],
             unit_parameters: vec![],
         };
         let mut map = ChunkMap::default();
@@ -2461,7 +2498,7 @@ mod tests {
         ir.budget.as_mut().unwrap().rows = 1000;
         let mut map = ChunkMap::default();
         map.push(Row { array: 0, coords: vec![], ranges: Some(vec![(None, 0, 1); 2000]), ..Row::default() }).unwrap();
-        let a = StoredArray { element: 1, index: None, chains: vec![0], fill: Fill::Undefined, ..valid().arrays[1].clone() };
+        let a = StoredArray { element: 1, index: None, chains: vec![0], ..valid().arrays[1].clone() };
         ir.describe(vec![a], vec![vec![]], map).unwrap();
         assert!(ir.stored.arrays[0].grid.is_none() && ir.stored.map.is_empty());
     }
@@ -2632,7 +2669,7 @@ mod tests {
         // when `scale` gives its value
         let array = |element: u32, n: u64, chain: u32, listed: bool| StoredArray {
             element, index: None, declarations: vec![], shape: Some(vec![n]), axes: None, item_bits: Some(8), pad_from: None,
-            grid: Some(Grid { axes: vec![AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![chain], fill: Fill::Undefined,
+            grid: Some(Grid::dense(vec![AxisUnits::Each(1)], Edge::Short)), chains: vec![chain],
             unit_parameters: if listed { vec![UnitParameter { chain: 0, codec: 0, name: "scale".into() }] } else { vec![] },
         };
         let rows = |map: &mut ChunkMap, a: u32, n: u64, scale: Option<Scalar>| {
@@ -2790,7 +2827,7 @@ mod tests {
         let chain = |object: Option<&str>| vec![codec("quantize", &[("method", Param::Source(Place::Extent { object: object.map(String::from), offset: 0, length: 4 }))])];
         let a = StoredArray {
             element: 1, index: None, declarations: vec![], shape: Some(vec![2]), axes: None, item_bits: Some(8), pad_from: None,
-            grid: Some(Grid { axes: vec![AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![0, 1], fill: Fill::Undefined,
+            grid: Some(Grid::dense(vec![AxisUnits::Each(1)], Edge::Short)), chains: vec![0, 1],
             unit_parameters: vec![UnitParameter { chain: 0, codec: 0, name: "scale".into() }],
         };
         let mut map = ChunkMap::default();
@@ -2819,7 +2856,7 @@ mod tests {
         // an array of no rows names the chain, which a graft would otherwise drop
         let a = StoredArray {
             element: 1, index: None, declarations: vec![], shape: Some(vec![1]), axes: None, item_bits: Some(8), pad_from: None,
-            grid: Some(Grid { axes: vec![AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![0], fill: Fill::Undefined,
+            grid: Some(Grid::sparse(vec![AxisUnits::Each(1)], Edge::Short, None)), chains: vec![0],
             unit_parameters: vec![],
         };
         let file = with(Stored { arrays: vec![a], chains: vec![chain], ..Stored::default() });
@@ -2872,7 +2909,7 @@ mod tests {
         let source = |object: Option<&str>| vec![codec("source", &[("parameters", Param::Source(Place::Extent { object: object.map(String::from), offset: 0, length: 4 }))])];
         let a = StoredArray {
             element: 1, index: None, declarations: vec![], shape: Some(vec![2]), axes: None, item_bits: Some(8), pad_from: None,
-            grid: Some(Grid { axes: vec![AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![0, 1], fill: Fill::Undefined, unit_parameters: vec![],
+            grid: Some(Grid::dense(vec![AxisUnits::Each(1)], Edge::Short)), chains: vec![0, 1], unit_parameters: vec![],
         };
         let mut map = ChunkMap::default();
         map.push(Row { array: 0, coords: vec![0], element: Some(1), ..Row::default() }).unwrap();
@@ -2893,7 +2930,7 @@ mod tests {
         let chain = |object: Option<&str>| vec![codec("quantize", &[("method", Param::Source(Place::Extent { object: object.map(String::from), offset: 0, length: 4 }))])];
         let a = StoredArray {
             element: 1, index: None, declarations: vec![], shape: Some(vec![2]), axes: None, item_bits: Some(8), pad_from: None,
-            grid: Some(Grid { axes: vec![AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![0, 1], fill: Fill::Undefined,
+            grid: Some(Grid::dense(vec![AxisUnits::Each(1)], Edge::Short)), chains: vec![0, 1],
             unit_parameters: vec![UnitParameter { chain: 0, codec: 0, name: "scale".into() }],
         };
         let mut map = ChunkMap::default();
@@ -3135,15 +3172,35 @@ mod tests {
         assert!(refusal(|s| s.arrays[3].item_bits = None).contains("it has a grid and no item_bits"));
     }
 
+    /// Array `k`'s grid made sparse, of `fill`.
+    fn set_fill(s: &mut Stored, k: usize, fill: Option<Fill>) {
+        s.arrays[k].grid.as_mut().expect("a grid").sparse = Some(Sparse { fill });
+    }
+
     #[test]
     fn refuses_a_grid_without_item_bits_where_one_chain_does_not_begin_with_source() {
-        let unsized_ = |s: &mut Stored| (s.arrays[0].item_bits, s.arrays[0].pad_from, s.arrays[0].fill) = (None, None, Fill::Undefined);
+        let unsized_ = |s: &mut Stored| {
+            (s.arrays[0].item_bits, s.arrays[0].pad_from) = (None, None);
+            set_fill(s, 0, None);
+        };
         assert!(refusal(unsized_).contains("a chain that does not begin with `source`"));
     }
 
     #[test]
+    fn refuses_a_dense_grid_short_of_a_unit() {
+        // the first array's six units, of which the map holds four
+        let dense = |s: &mut Stored| s.arrays[0].grid.as_mut().unwrap().sparse = None;
+        assert!(refusal(dense).contains("has a dense grid of 6 units and 4 rows"));
+    }
+
+    #[test]
     fn refuses_a_given_fill_without_item_bits() {
-        assert!(refusal(|s| s.arrays[2].fill = Fill::Given(Param::Value(json!("AA==")))).contains("its fill is given and it has no item_bits"));
+        // elements `source` makes, which need no size but for a fill
+        let sourced = |s: &mut Stored| {
+            (s.arrays[3].item_bits, s.arrays[3].chains) = (None, vec![2]);
+            set_fill(s, 3, Some(Fill::Given(Param::Value(json!("AA==")))));
+        };
+        assert!(refusal(sourced).contains("its fill is given and it has no item_bits"));
     }
 
     #[test]
@@ -3168,22 +3225,22 @@ mod tests {
 
     #[test]
     fn refuses_a_fill_value_that_is_not_base64() {
-        assert!(refusal(|s| s.arrays[0].fill = Fill::Given(Param::Value(json!("A?A=")))).contains("its fill value is not base64"));
+        assert!(refusal(|s| set_fill(s, 0, Some(Fill::Given(Param::Value(json!("A?A=")))))).contains("its fill value is not base64"));
     }
 
     #[test]
     fn refuses_a_fill_value_that_is_not_a_string() {
-        assert!(refusal(|s| s.arrays[0].fill = Fill::Given(Param::Value(json!(0)))).contains("its fill value is not a base64 string"));
+        assert!(refusal(|s| set_fill(s, 0, Some(Fill::Given(Param::Value(json!(0)))))).contains("its fill value is not a base64 string"));
     }
 
     #[test]
     fn refuses_a_fill_value_of_another_length() {
-        assert!(refusal(|s| s.arrays[0].fill = Fill::Given(Param::Value(json!("AAAA")))).contains("its fill value is 3 bytes, not 2"));
+        assert!(refusal(|s| set_fill(s, 0, Some(Fill::Given(Param::Value(json!("AAAA")))))).contains("its fill value is 3 bytes, not 2"));
     }
 
     #[test]
     fn refuses_a_fill_place_the_ir_has_not() {
-        assert!(refusal(|s| s.arrays[1].fill = Fill::Given(Param::Source(el(99)))).contains("its fill names element 99"));
+        assert!(refusal(|s| set_fill(s, 1, Some(Fill::Given(Param::Source(el(99)))))).contains("its fill names element 99"));
     }
 
     #[test]

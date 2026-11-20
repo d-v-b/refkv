@@ -6,7 +6,7 @@
 //! which its declarations name, and assembling the subblocks is the profile's. Built from what
 //! the parser read, on its finished IR.
 
-use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Place, Row, StoredArray};
+use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Grid, Place, Row, StoredArray};
 use crate::coding::{JpegFrame, JPEG};
 use crate::ir::Res;
 use serde_json::Value as J;
@@ -126,7 +126,6 @@ pub(super) fn described(subblocks: &[Reached]) -> Res<(Vec<StoredArray>, Vec<Cha
             pad_from: None,
             grid: None,
             chains: Vec::new(),
-            fill: Fill::Undefined,
             unit_parameters: Vec::new(),
         };
         if let (Some(shape), Some((encoding, unit))) = (shape, s.data) {
@@ -137,7 +136,7 @@ pub(super) fn described(subblocks: &[Reached]) -> Res<(Vec<StoredArray>, Vec<Cha
                 chains.push(chain);
                 (chains.len() - 1) as u32
             });
-            a.grid = Some(Grid { axes: shape.iter().map(|&n| AxisUnits::Each(n)).collect(), edge: Edge::Short });
+            a.grid = Some(Grid { axes: shape.iter().map(|&n| AxisUnits::Each(n)).collect(), edge: Edge::Short, sparse: None });
             a.chains = vec![c];
             let coords = vec![0; shape.len()];
             let row = match unit {
@@ -191,8 +190,8 @@ mod tests {
                 assert_eq!((a.element, a.index, a.axes.clone(), a.pad_from), (4, None, None, None));
                 assert_eq!(a.declarations, vec![place(6), place(7)]);
                 assert_eq!((a.shape.clone(), a.item_bits), (Some(shape.clone()), Some(pixels.bits)));
-                assert_eq!(a.grid, Some(Grid { axes: shape.iter().map(|&n| AxisUnits::Each(n)).collect(), edge: Edge::Short }));
-                assert_eq!((a.chains.clone(), a.fill.clone(), a.unit_parameters.len()), (vec![0], Fill::Undefined, 0));
+                assert_eq!(a.grid, Some(Grid { axes: shape.iter().map(|&n| AxisUnits::Each(n)).collect(), edge: Edge::Short, sparse: None }));
+                assert_eq!((a.chains.clone(), a.unit_parameters.len()), (vec![0], 0));
                 assert_eq!(chains.len(), 1);
                 assert_eq!(names(&chains[0]), want);
                 assert_eq!((map.len(), map.array[0], map.coords_of(0)), (1, 0, &vec![0; shape.len()][..]));

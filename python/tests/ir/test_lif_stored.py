@@ -222,7 +222,7 @@ def check_key(inp: Input, k: int, key: str | None, name: str, index: int) -> lis
         said.append(f"keyed by {a.path} with the index {a.index}, not by {xml} of {name} with {index}")
     if a.declarations != (ElementPlace(a.element, None, None),):
         said.append(f"declarations {a.declarations}, not the key's element")
-    if a.fill != "undefined" or a.pad_from is not None or a.unit_parameters:
+    if a.fill is not None or a.pad_from is not None or a.unit_parameters:
         said.append("a fill value, a padding or unit parameters")
     return said
 
@@ -269,7 +269,7 @@ def check(inp: Input, k: int, key: str | None, name: str, index: int, r: Read, s
         if a.grid is not None or a.chains or rows:
             said.append(f"grid {a.grid}, chains {a.chains} and {len(rows)} rows of an image with no grid")
         return said
-    grid = Grid(tuple(Each(1 if i < outer else n) for i, n in enumerate(shape)), "short")
+    grid = Grid(tuple(Each(1 if i < outer else n) for i, n in enumerate(shape)), "short", None)
     if a.grid != grid:
         return [*said, f"grid {a.grid}, not {grid}"]
     if len(a.chains) != 1 or d.stored.chains[a.chains[0]] != ():
@@ -341,7 +341,7 @@ def check_written(inp: Input, k: int, name: str, wrote: np.ndarray, fastest_firs
         said.append(f"axes {a.axes}; the writer's order gives {order}")
     if a.shape != wrote.shape or a.item_bits != 8 * wrote.dtype.itemsize:
         said.append(f"shape {a.shape} of {a.item_bits} bits; the writer's {wrote.shape} of {wrote.dtype}")
-    if a.grid != Grid(tuple(Each(n) for n in wrote.shape), "short") or len(rows) != 1:
+    if a.grid != Grid(tuple(Each(n) for n in wrote.shape), "short", None) or len(rows) != 1:
         return [*said, f"grid {a.grid} and {len(rows)} rows, not one unit"]
     if inp.held(inp.unit(rows[0])) != wrote.tobytes():
         said.append("the unit holds other bytes than the writer wrote")

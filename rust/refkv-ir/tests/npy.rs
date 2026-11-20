@@ -30,7 +30,7 @@ fn every_accepted_fixture_rebuilds_and_presents_its_arrays() {
 /// a deflated member's array is not described.
 #[test]
 fn every_accepted_fixtures_arrays_are_described_as_its_facts_give_them() {
-    use refkv_ir::array::{AxisUnits, Edge, Fill, Place};
+    use refkv_ir::array::{AxisUnits, Edge, Place};
     let dir = common::fixtures().join("npy");
     let mut names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
     names.sort();
@@ -61,7 +61,7 @@ fn every_accepted_fixtures_arrays_are_described_as_its_facts_give_them() {
             assert_eq!(g.edge, Edge::Short, "{at}");
             let axes: Vec<AxisUnits> = want.iter().map(|&x| if x == 0 { AxisUnits::List(vec![]) } else { AxisUnits::Each(x) }).collect();
             assert_eq!(g.axes, axes, "{at}");
-            assert_eq!((d.chains.clone(), d.fill.clone(), d.pad_from, d.unit_parameters.len()), (vec![0], Fill::Undefined, None, 0), "{at}");
+            assert_eq!((d.chains.clone(), d.grid.as_ref().map(|g| g.sparse.is_none()), d.pad_from, d.unit_parameters.len()), (vec![0], Some(true), None, 0), "{at}");
             let rows: Vec<usize> = (0..s.map.len()).filter(|&r| s.map.array[r] == k as u32).collect();
             if n(&a["length"]) == 0 {
                 assert!(rows.is_empty(), "{at}");

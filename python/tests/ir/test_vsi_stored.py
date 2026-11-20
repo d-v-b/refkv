@@ -397,10 +397,13 @@ def check_level(slide: Slide, v: Volume, level: int, seen: Counter) -> list[str]
         said.append("the declaration is not the ETS header, the array's key")
     if a.item_bits != 8 * f.dtype.itemsize or a.pad_from is not None or a.unit_parameters:
         said.append(f"item_bits {a.item_bits} of the pixel type {f.pixel_type}, a padding or unit parameters")
-    # the fill value: the background's first sample, where the IR can give it
+    # the grid is sparse, a tile the directory leaves out being the background; its fill value
+    # the background's first sample, where the IR can give it (a level of no grid has none)
+    if a.grid is not None and a.grid.sparse is None:
+        said.append("a dense grid of tiles")
     size, samples = f.dtype.itemsize, f.channels
     same = all(f.background[i * size:(i + 1) * size] == f.background[:size] for i in range(samples))
-    given = f.compression == RAW and same
+    given = f.compression == RAW and same and a.grid is not None
     seen["fill values given" if given else "fill values the IR does not give"] += 1
     if given:
         fill = a.fill.param if isinstance(a.fill, Given) else None
@@ -410,7 +413,7 @@ def check_level(slide: Slide, v: Volume, level: int, seen: Counter) -> list[str]
             said.append(f"the fill value {a.fill}, not the background's first sample")
         elif slide.placed(place) != f.background[:size]:
             said.append("the fill value's place does not hold the background's first sample")
-    elif a.fill != "undefined":
+    elif a.fill is not None:
         said.append(f"the fill value {a.fill} of a background the IR does not give")
     # the shape: the coordinates after the row's, the last first, the rows, the columns, the samples
     extent = v.extent(level)
@@ -594,7 +597,7 @@ def check_ifd(slide: Slide, k: int, page: tifffile.TiffPage, key: str, seen: Cou
     bits = set(every(page, 258, (1,)))
     if a.shape != shape or a.item_bits != (bits.pop() if len(bits) == 1 else None):
         said.append(f"shape {a.shape} of {a.item_bits} bits, tifffile {shape} of {every(page, 258, (1,))}")
-    if (a.fill, a.axes, a.index, a.unit_parameters, a.pad_from) != ("undefined", None, None, (), None):
+    if (a.fill, a.axes, a.index, a.unit_parameters, a.pad_from) != (None, None, None, (), None):
         said.append("a fill value, axes, an index, unit parameters or a padding")
     # the byte order is the first two bytes of the file's header element
     declared = [data[:2]] + [b for t in DECLARING if (b := tag_bytes(page, t, data)) is not None]

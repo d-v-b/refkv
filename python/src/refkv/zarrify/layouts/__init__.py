@@ -8,8 +8,9 @@ A plugin is an object registered under the entry-point group `refkv.layouts`, it
 layout's name, or given to `Layout` itself, with these attributes:
 
 - `name`: the layout's name, `<distribution>.<layout>`, the entry point's key;
-- `formats`: `"*"`, or the base profiles it reads, each with the versions of its convention it
-  reads (`{"tiff": {0}, "hdf5": {0}}`); names this refkv has no file profile of are ignored;
+- `formats`: `"*"`, or the base profiles it reads, file or store profiles, each with the versions
+  of its convention it reads (`{"tiff": {0}, "hdf5": {0}, "zarr2": {0}}`); names this refkv has no
+  profile of are ignored;
 - `options(given)`: the options in canonical form, a JSON object, or ValueError;
 - `write(base, options)`: the output's entries, keys from its root, built from `base` (a
   `Base`), as a mapping or a `Written`; it raises `refkv.zarrify.Rejected` for an input it
@@ -57,7 +58,7 @@ from refkv.zarrify.profiles import REGISTRY
 if TYPE_CHECKING:
     from refkv.ir import Ir
 
-__all__ = ["FILE_PROFILES", "MAX_PAYLOAD", "MIRROR", "Base", "Entries", "EntryValue", "Layout",
+__all__ = ["BASE_PROFILES", "MAX_PAYLOAD", "MIRROR", "Base", "Entries", "EntryValue", "Layout",
            "LayoutFailed", "LayoutRejected", "LayoutUsageError", "Plugin", "Written", "base", "base_async",
            "chunk_coords", "chunk_key", "concat", "cut", "dump", "encode_entries", "fill_value", "payload_size",
            "without_checksums"]
@@ -68,7 +69,8 @@ type Entries = dict[str, EntryValue]  # an output's entries, keys from its root,
 GROUP = "refkv.layouts"  # the entry points' group
 # the base's IR mirror's node (spec/conventions.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>)
 MIRROR = "refkv_source"
-FILE_PROFILES = frozenset(str(e["name"]) for e in REGISTRY if e["kind"] in ("file", "both"))
+# the profiles a base may be of: every file and store profile (not a dataset layout's entry)
+BASE_PROFILES = frozenset(str(e["name"]) for e in REGISTRY if e["kind"] in ("file", "store", "both"))
 REFKV_UUIDS = frozenset(str(e["uuid"]).lower() for e in REGISTRY)
 REFKV_MEMBERS = ("refkv_zarrified", "refkv_provenance")  # what refkv declares on a node
 NAME = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+")
@@ -90,7 +92,7 @@ STRUCT, VALUE, DATA, DERIVED, ALIAS, OBJECT = Kind.STRUCT, Kind.VALUE, Kind.DATA
 
 class LayoutUsageError(ValueError):
     """A plugin layout asked for wrongly: a name no plugin has, a plugin that fails to load or
-    breaks the rules of spec/layout.md, options it refuses, or a layout on a store input."""
+    breaks the rules of spec/layout.md, options it refuses, or a plugin layout beside built-in ones."""
 
 
 class LayoutRejected(Rejected):
@@ -245,10 +247,10 @@ def _instance(name: object, plugin: object) -> Plugin:
 
 
 def _formats(name: object, formats: object) -> frozenset[str] | dict[str, frozenset[int]]:
-    """A plugin's `formats` checked: every file profile (`"*"`), or the versions of each
+    """A plugin's `formats` checked: every file and store profile (`"*"`), or the versions of each
     profile it reads; or LayoutUsageError."""
     if formats == "*":
-        return FILE_PROFILES
+        return BASE_PROFILES
     why = 'formats is "*", or a mapping of profile names to iterables of convention versions (int)'
     if not isinstance(formats, Mapping):
         raise _usage(name, why)
@@ -258,9 +260,9 @@ def _formats(name: object, formats: object) -> frozenset[str] | dict[str, frozen
         raise _usage(name, why) from e
     if not all(isinstance(k, str) and all(type(v) is int and v >= 0 for v in vs) for k, vs in read.items()):
         raise _usage(name, why)
-    if not set(read) & FILE_PROFILES:  # a later refkv's names are ignored, but one must be this one's
-        raise _usage(name, f"formats names no file profile of this refkv ({', '.join(sorted(read)) or 'none'}); "
-                           f"they are {', '.join(sorted(FILE_PROFILES))}")
+    if not set(read) & BASE_PROFILES:  # a later refkv's names are ignored, but one must be this one's
+        raise _usage(name, f"formats names no profile of this refkv ({', '.join(sorted(read)) or 'none'}); "
+                           f"they are {', '.join(sorted(BASE_PROFILES))}")
     return read
 
 
@@ -1345,9 +1347,9 @@ def apply(out: Output | StoreIrOutput, fmt: str, policy: Policy | None, planned:
     base, store = base_of(out, fmt, policy, registry)
     name = planned.name
     if not planned.reads(base.profile, base.version):
-        reads = "every file profile" if isinstance(planned.formats, frozenset) else ", ".join(
+        reads = "every profile" if isinstance(planned.formats, frozenset) else ", ".join(
             f"{k} v{', v'.join(str(v) for v in sorted(vs))}" for k, vs in sorted(planned.formats.items())
-            if k in FILE_PROFILES and vs) or "no version of any"
+            if k in BASE_PROFILES and vs) or "no version of any"
         raise LayoutRejected(f"{name} does not read the {base.profile} profile's convention at version "
                              f"{base.version} (it reads {reads})")
     try:  # prepare reads what write returned, a plugin's mapping or generators among it: its code too
@@ -1378,13 +1380,11 @@ def _failure(name: str, problems: Sequence[Problem]) -> str:
 
 async def base_async(location: str | os.PathLike[str], url: str | None = None, *, checksums: bool = False,
                      policy: Policy | None = None, registry: Registry | None = None) -> Base:
-    """The `Base` a plugin is given for the file at `location`, read as `zarrify` reads it: for
-    a plugin's tests, and a notebook. Raises what `zarrify` raises for the input, and
-    LayoutUsageError for a store input. `registry` is the application's object stores by URL prefix,
-    as `zarrify` takes them."""
+    """The `Base` a plugin is given for the file or store at `location`, read as `zarrify` reads
+    it: for a plugin's tests, and a notebook. Raises what `zarrify` raises for the input, and
+    LayoutUsageError for one whose output has no IR (a store of DICOM files). `registry` is the
+    application's object stores by URL prefix, as `zarrify` takes them."""
     location = os.fspath(location)
-    if _zarrify.is_store(location):
-        raise LayoutUsageError(f"{location} is a store: a store input takes no layout")
     resolver = Resolver(registry)
     fmt, out = await _zarrify._zarrify_async(location, url, checksums=checksums, policy=policy,  # noqa: SLF001
                                              registry=resolver, written=False)

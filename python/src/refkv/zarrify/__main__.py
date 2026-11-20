@@ -2,9 +2,9 @@ import contextlib
 import json
 import sys
 import traceback
-from pathlib import Path
 
 from refkv.errors import ResolutionError
+from refkv.ir.planner import url_scheme
 from refkv.policy import Policy
 from refkv.zarrify import Failed, Rejected, is_store, zarrify
 from refkv.zarrify.layouts import Layout, LayoutFailed, LayoutUsageError
@@ -125,7 +125,9 @@ def main(argv: list[str]) -> int:
     if len(args) != 2:
         print(USAGE, file=sys.stderr)
         return 2
-    if url is None and Path(args[0]).is_dir():
+    # a local directory, by its path or file: URL: an archive naming its file: URLs, as zarrify does
+    # by default, is one whose readers refuse its sources unless they allow them
+    if url is None and url_scheme(args[0]) in (None, "file") and is_store(args[0]):
         print("a local directory needs --url, the store URL (ending in /) it is served from",
               file=sys.stderr)
         return 2

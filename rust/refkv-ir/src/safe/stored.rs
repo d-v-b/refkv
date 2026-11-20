@@ -6,7 +6,7 @@
 //! the chain's one codec.
 
 use super::jp2::Codestream;
-use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Param, Place, Row, StoredArray};
+use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Grid, Param, Place, Row, StoredArray};
 use crate::ir::Res;
 use std::collections::BTreeMap;
 
@@ -75,9 +75,8 @@ pub(super) fn described(bands: &[Reached]) -> Res<(Vec<StoredArray>, Vec<Chain>,
             // the codec makes samples of whole bytes: one for a precision of up to 8 bits, else two
             item_bits: Some(if b.precision <= 8 { 8 } else { 16 }),
             pad_from: None,
-            grid: Some(Grid { axes: lengths.into_iter().chain(samples).map(AxisUnits::Each).collect(), edge: Edge::Short }),
+            grid: Some(Grid { axes: lengths.into_iter().chain(samples).map(AxisUnits::Each).collect(), edge: Edge::Short, sparse: None }),
             chains: vec![array],
-            fill: Fill::Undefined,
             unit_parameters: Vec::new(),
         });
         let across = width.div_ceil(b.tile.1);
@@ -116,8 +115,8 @@ mod tests {
             assert_eq!((a.element, a.index), (7, None));
             assert_eq!(a.declarations, vec![Place::Element { element: 9, member: None, range: None }, Place::Element { element: 4, member: None, range: None }]);
             assert_eq!((a.shape.clone(), a.axes.clone(), a.item_bits, a.pad_from), (Some(shape), Some(axes), Some(bits), None));
-            assert_eq!(a.grid, Some(Grid { axes: each(&units), edge: Edge::Short }));
-            assert_eq!((a.chains.clone(), a.fill.clone(), a.unit_parameters.len()), (vec![0], Fill::Undefined, 0));
+            assert_eq!(a.grid, Some(Grid { axes: each(&units), edge: Edge::Short, sparse: None }));
+            assert_eq!((a.chains.clone(), a.unit_parameters.len()), (vec![0], 0));
             let header = Param::Source(Place::Element { element: 7, member: None, range: Some((0, 120)) });
             assert_eq!(chains, vec![vec![Codec { name: "jpeg2k_tile".into(), parameters: BTreeMap::from([("header".to_string(), header)]) }]]);
             assert_eq!(map.len(), coords.len());

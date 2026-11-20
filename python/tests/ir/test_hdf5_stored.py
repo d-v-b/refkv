@@ -296,10 +296,21 @@ def check_dataset(d: Described, k: int, dset: h5py.Dataset, misread: bool, seen:
     size = dset.id.get_type().get_size() if not variable(dset.dtype) else u32s(message[4:8])[0]
     if a.item_bits != size * 8 or u32s(message[4:8])[0] != size or a.pad_from is not None:
         said.append(f"item_bits {a.item_bits}, the datatype message's size {u32s(message[4:8])[0]}; h5py {size} bytes")
+    layout = plist.get_layout()
+    # a chunk index may leave a chunk out, and a contiguous dataset may have no address: their
+    # grids are sparse, and hold the fill value; a compact dataset's, and one in external files,
+    # are dense, of none
+    sparse = layout == h5py.h5d.CHUNKED or (layout == h5py.h5d.CONTIGUOUS and plist.get_external_count() == 0)
+    seen["grids sparse" if sparse else "grids dense"] += a.grid is not None
+    if a.grid is not None and (a.grid.sparse is not None) != sparse:
+        kinds = ("dense", "sparse")
+        said.append(f"a grid {kinds[a.grid.sparse is not None]} for a {kinds[sparse]} layout")
     state = {h5py.h5d.FILL_VALUE_UNDEFINED: "undefined", h5py.h5d.FILL_VALUE_DEFAULT: "format_default",
              h5py.h5d.FILL_VALUE_USER_DEFINED: "given"}[plist.fill_value_defined()]
-    seen[f"fill {state}"] += 1
-    if (a.fill if isinstance(a.fill, str) else "given") != state:
+    gives = a.grid is not None and a.grid.sparse is not None
+    seen[f"fill {state}"] += gives
+    got = "undefined" if a.fill is None else a.fill if isinstance(a.fill, str) else "given"
+    if gives and got != state:
         said.append(f"fill {a.fill}, h5py {state}")
     elif isinstance(a.fill, Given):
         p = a.fill.param
@@ -317,7 +328,6 @@ def check_dataset(d: Described, k: int, dset: h5py.Dataset, misread: bool, seen:
     # every declaration past the first is a fill value message the description does not give
     if len(a.declarations) > 1 and state == "given" and isinstance(a.fill, Given):
         said.append(f"{len(a.declarations)} declarations beside a fill value given")
-    layout = plist.get_layout()
     if null or layout == h5py.h5d.VIRTUAL:
         seen["null" if null else "virtual"] += 1
         if a.grid is not None or a.chains or rows:
@@ -410,7 +420,7 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
         seen += compared(path)[1]
     for case in ("datasets", "chunks", "chunks decoded", "chunks skipping a filter", "contiguous", "compact",
                  "external", "external, a file absent or short", "unallocated", "null", "virtual",
-                 "fill format_default",
+                 "grids sparse", "grids dense", "fill format_default",
                  "fill given", "fill values compared", "rows of an element", "rows of a range",
                  "edge chunks stored unfiltered", "chunks stored short", "chunks h5py cannot read", "codec zlib",
                  "codec shuffle", "codec h5_fletcher32", "codec source", "codec lzf", "codec blosc", "codec zstd",

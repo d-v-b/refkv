@@ -189,16 +189,13 @@ impl<'a> Rd<'a> {
     }
 }
 
-/// An attribute: its name, its type, its count, its values and where they are in the header.
+/// An attribute: its name, its type, its count and its values.
 #[derive(Clone, Debug)]
 struct Attr {
     name: Vec<u8>,
     code: u32,
     count: u64,
     raw: Vec<u8>,
-    /// the offset of its values in the header, and of its entry (its name's length)
-    at: u64,
-    entry: (u64, u64),
 }
 
 #[derive(Debug)]
@@ -236,7 +233,6 @@ fn att_list(r: &mut Rd, version: u8, what: &str) -> R<Vec<Attr>> {
     let mut out = Vec::new();
     let Some(n) = r.list(NC_ATTRIBUTE, what)? else { return Ok(out) };
     for _ in 0..n {
-        let start = r.p;
         let name = r.name()?;
         let code = r.u32()?;
         let shown = utf8_or_latin1(&name);
@@ -246,10 +242,9 @@ fn att_list(r: &mut Rd, version: u8, what: &str) -> R<Vec<Attr>> {
         }
         let count = r.size()?;
         let nbytes = count.checked_mul(t.bytes).ok_or_else(|| Fail::Bad("the header runs past the end of the file".into()))?;
-        let at = r.p;
         let raw = r.bytes(nbytes)?.to_vec();
         r.pad(nbytes)?;
-        out.push(Attr { name, code, count, raw, at, entry: (start, r.p - start) });
+        out.push(Attr { name, code, count, raw });
     }
     Ok(out)
 }
@@ -493,27 +488,25 @@ fn presented_attributes(attrs: &[Attr], var: Option<&Ty>) -> (Map<String, J>, Ma
     (presented, types, not)
 }
 
-/// The fill value of a variable of type `t` with attributes `attrs`, and how the stored-array
-/// description gives it (spec/zarrify/netcdf3.md §3
+/// The fill value of a variable of type `t` with attributes `attrs` (spec/zarrify/netcdf3.md §3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#3-variables>).
-fn fill_of(t: &Ty, code: u32, attrs: &[Attr]) -> (J, stored::FillAt) {
-    let Some(a) = attrs.iter().find(|a| a.name == b"_FillValue") else { return (t.default_fill(), stored::FillAt::Default) };
+fn fill_of(t: &Ty, code: u32, attrs: &[Attr]) -> J {
+    let Some(a) = attrs.iter().find(|a| a.name == b"_FillValue") else { return t.default_fill() };
     if a.code != code || a.count != 1 {
-        return (t.default_fill(), stored::FillAt::Other(a.entry));
+        return t.default_fill();
     }
     let v = if code == NC_CHAR {
         if a.raw.first() == Some(&0) { json!("") } else { json!(crate::mirror::base64(&a.raw)) }
     } else {
         t.value(&a.raw)
     };
-    (v, stored::FillAt::Given((a.at, t.bytes)))
+    v
 }
 
 /// What a finished parse holds: the header, where its variables are, and the facts.
 struct Found {
     header: Header,
     placed: Placed,
-    fills: Vec<stored::FillAt>,
 }
 
 pub struct Netcdf3 {
@@ -582,11 +575,9 @@ impl Netcdf3 {
         let mut unpresented = Vec::new();
         let mut reasons: BTreeMap<&str, u64> = BTreeMap::new();
         let mut names = HashSet::new();
-        let mut fills = Vec::with_capacity(h.vars.len());
         for (k, v) in h.vars.iter().enumerate() {
             let Some(t) = ty(v.code) else { continue };
-            let (fill, at) = fill_of(&t, v.code, &v.attrs);
-            fills.push(at);
+            let fill = fill_of(&t, v.code, &v.attrs);
             let name = node_name(&v.name).and_then(|n| if names.insert(n.clone()) { Ok(n) } else { Err("duplicate") });
             let name = match name {
                 Ok(n) => n,
@@ -652,14 +643,14 @@ impl Netcdf3 {
             "records": p.records, "header": h.end,
         });
         self.facts = json!({"root": {"attributes": attributes, "own": own}, "arrays": arrays, "summary": summary});
-        self.found = Some(Found { header: h, placed: p, fills });
+        self.found = Some(Found { header: h, placed: p });
     }
 
     /// The finished IR (spec/zarrify/netcdf3.md §6.3
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#63-the-ir-mirror>), with
     /// each variable described (`stored.rs`), and the facts.
     pub fn finish(self) -> Result<(Ir, J), String> {
-        let Some(Found { header: h, placed: p, fills }) = self.found else { return Err("internal: the parse is not done".into()) };
+        let Some(Found { header: h, placed: p }) = self.found else { return Err("internal: the parse is not done".into()) };
         let mut ir = Ir::new(self.size);
         let raw = self.fed.get(0, h.end).ok_or("internal: the header was not read")?;
         let header = ir.value(0, "header", NO_INDEX, &format!("bytes[{}]", h.end), 0, (0, h.end), Some(raw))?;
@@ -687,7 +678,6 @@ impl Netcdf3 {
                 } else {
                     elements[k].map(stored::Unit::Whole)
                 },
-                fill: fills.get(k).copied().unwrap_or(stored::FillAt::Default),
             }
         }).collect();
         let (arrays, chains, map) = stored::described(header, &vars)?;

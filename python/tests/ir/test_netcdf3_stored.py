@@ -6,10 +6,7 @@ description, keyed by the `header` element at its position in the header, and of
 - its first declaration is the 4 bytes of the header that hold its `nc_type`, which names the type
   netCDF-C reads;
 - its shape is netCDF-C's, its element size the type's, its grid a unit of the whole array, or of a
-  record, along the record axis;
-- its fill value is the `_FillValue` netCDF-C reads, at its place in the header, where it is one value
-  of the variable's type; netCDF's default where there is none; and undefined, with the attribute's
-  entry a declaration, for one of another type;
+  record, along the record axis, and dense, with no fill value: the file stores every unit;
 - its rows' bytes, read big-endian as elements of the declared type, are netCDF-C's values.
 
 The streaming fixture is compared with its record count written out, which netCDF-C reads
@@ -25,7 +22,7 @@ import pytest
 from described import described
 from ir_helpers import FIXTURES
 
-from refkv.ir.stored import Each, ElementPlace, Given, Source
+from refkv.ir.stored import Each
 
 NETCDF3 = FIXTURES / "netcdf3"
 FILES = sorted(p for p in NETCDF3.glob("*.nc") if "reject" not in p.name and p.stem != "netcdf3_unpresented")
@@ -71,23 +68,10 @@ def check(path: Path, tmp: Path) -> tuple[list[str], Counter]:
             whole = tuple((1 if record and i == 0 else n) for i, n in enumerate(want.shape))
             if unit != tuple(max(n, 1) for n in whole):
                 said.append(f"{at}: the unit {unit}")
-            # the fill value
-            attribute = v.getncattr("_FillValue") if "_FillValue" in v.ncattrs() else None
-            if isinstance(a.fill, Given) and isinstance(a.fill.param, Source):
-                place = a.fill.param.place
-                assert isinstance(place, ElementPlace)
-                fill = np.frombuffer(d.place(place), dtype)[0]
-                if attribute is None or fill != np.asarray(attribute).astype(dtype):
-                    said.append(f"{at}: the fill value {fill}, netCDF-C {attribute}")
-                seen["fill values at a place"] += 1
-            elif a.fill == "format_default":
-                if attribute is not None:
-                    said.append(f"{at}: the default fill value, netCDF-C {attribute}")
-                seen["default fill values"] += 1
-            else:
-                if attribute is None or len(a.declarations) != 2:
-                    said.append(f"{at}: fill {a.fill} with {len(a.declarations)} declarations")
-                seen["undefined fill values"] += 1
+            if a.grid is None or a.grid.sparse is not None or len(a.declarations) != 1:
+                said.append(f"{at}: a sparse grid, or {len(a.declarations)} declarations")
+            if "_FillValue" in v.ncattrs():
+                seen["variables with a _FillValue"] += 1
             got = np.zeros(want.shape, dtype)
             rows = d.rows.get(k, [])
             for r in rows:
@@ -112,6 +96,5 @@ def test_the_fixtures_reach_every_case(tmp_path):
     seen: Counter = Counter()
     for path in FILES:
         seen += check(path, tmp_path)[1]
-    for case in ("record variables", "fixed-size variables", "fill values at a place", "default fill values",
-                 "undefined fill values", "variables with no rows"):
+    for case in ("record variables", "fixed-size variables", "variables with a _FillValue", "variables with no rows"):
         assert seen[case], case

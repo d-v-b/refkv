@@ -21,6 +21,27 @@ python -m refkv.zarrify ophys.nwb out.vzip --layout refkv.example.ome-zarr-06 \
                                 {"name": "x", "type": "space"}]}]}'
 ```
 
+## Supported layouts
+
+Beside the examples, refkv supports one layout, which it keeps working from release to release:
+
+- **`refkv.virtualizarr`**
+  ([refkv.zarrify.layouts.virtualizarr](../python/src/refkv/zarrify/layouts/virtualizarr.py))
+  presents an HDF5, netCDF-4, FITS or zipped Zarr v3 file as VirtualiZarr's own parsers
+  (`HDFParser`, `FITSParser`, `ZippedZarrParser`) present it, so that code that selects variables
+  and reads attributes from those parsers' output reads refkv's alike. Its chunk references are
+  refkv's own layout's; it drops what `HDFParser` hides (`CLASS`, `NAME`, `REFERENCE_LIST`,
+  `_Netcdf4Dimid`, `_NCProperties`, ...), names each FITS HDU by its `EXTNAME` (`PRIMARY`, `SCI`,
+  ...) with its header cards as attributes, and writes no refkv declarations and no
+  `refkv_source` mirror. It runs without the `layouts` extra. Its option `{"nonfinite": "text"}`
+  writes a NaN or infinite attribute as text (`"NaN"`) rather than the bare token zarr-python
+  writes. The module's docstring lists where it keeps refkv's presentation because VirtualiZarr's
+  is a defect, such as `phony_dim_<axis>` names that give one dimension two sizes.
+
+```sh
+python -m refkv.zarrify data.nc out.vzip --layout refkv.virtualizarr
+```
+
 ## A plugin
 
 A plugin is an object with a `name`, the `formats` it reads, `options(given)` and
@@ -34,7 +55,7 @@ class Bare:
     """refkv's image layout, without refkv's declarations, the IR mirror or dataset layouts."""
 
     name = "acme.bare"  # <distribution>.<layout>
-    formats = "*"  # every file profile; or {"tiff": {0}, "hdf5": {0}}
+    formats = "*"  # every file and store profile; or {"tiff": {0}, "hdf5": {0}, "zarr2": {0}}
 
     def options(self, given):
         return {}  # the options in canonical form; raise ValueError to refuse them
@@ -107,8 +128,8 @@ def test_bare():
 
 | what | error | `python -m refkv.zarrify` |
 |---|---|---|
-| a name no plugin has, a plugin that fails to load, options it refuses, `layout=` beside `layouts=`, a store input | `LayoutUsageError` (a `ValueError`) | exit 2 |
-| a base the plugin does not read, a `Rejected` its `write` raises | `LayoutRejected` (a `Rejected`) | exit 3 |
+| a name no plugin has, a plugin that fails to load, options it refuses, `layout=` beside `layouts=` | `LayoutUsageError` (a `ValueError`) | exit 2 |
+| a base the plugin does not read, a store of DICOM files (which has no base), a `Rejected` its `write` raises | `LayoutRejected` (a `Rejected`) | exit 3 |
 | any other exception from `write`, or an output refkv does not write | `LayoutFailed` | exit 1, with the plugin's traceback |
 
 No output is written in any of them.

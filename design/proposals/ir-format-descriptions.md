@@ -238,7 +238,7 @@ Their spec edits, each to a sentence the plan would otherwise contradict:
   IFDs and ETS files) and IMS's own, which define theirs; MRC's for MRC datasets, a second layout
   over MRC's elements; in a store, a grafted file's format, or the store's own for the arrays it
   describes itself, not by graft. A given fill's place holds the element's bytes themselves
-  ([§2.4](../../spec/stored-array.md#24-the-fill-value)), which no format reads. `Param`'s and
+  ([§2.4](../../spec/stored-array.md#24-sparse-grids-and-the-fill-value)), which no format reads. `Param`'s and
   `CodecEntry`'s docs in `array.rs` and `Source`'s in `stored.py` change with it.
 - **[§2.5](../../spec/stored-array.md#25-the-json-form) and `stored-array.json`.** They add
   `undescribed`, which marks a source that kept no descriptions at all (an array that falls back

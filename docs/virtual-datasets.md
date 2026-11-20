@@ -13,7 +13,7 @@ pip install "refkv[virtualizarr]" xarray h5py h5netcdf fsspec aiohttp
 ```
 
 The `virtualizarr` extra installs VirtualiZarr, which
-`refkv.ReferenceStore.from_virtualizarr` needs, and with it xarray and
+`refkv.ReferenceStore.from_virtualizarr` and `refkv.virtualizarr` need, and with it xarray and
 obspec_utils; the `zarr` extra, zarr-python, with which `refkv.zarr` opens
 a store for `xr.open_zarr`; and the `obstore` extra, obstore, whose `S3Store`
 reads the bucket. refkv itself imports neither xarray nor obstore. The rest are
@@ -136,6 +136,75 @@ What each step does:
    float64 is cast to float32, which is exact
    ([troubleshooting](#troubleshooting)).
 
+## Zarrifying with refkv, for VirtualiZarr
+
+VirtualiZarr builds a virtual dataset with a parser for the file's format. refkv's
+`refkv.virtualizarr.RefkvParser` is one parser for every format refkv can zarrify
+([the list](zarrify/README.md)): it zarrifies the file, read through the registry
+VirtualiZarr gives it, and hands VirtualiZarr the result as a `ManifestStore`. The file is
+[examples/refkv_parser.py](examples/refkv_parser.py):
+
+<!-- include: examples/refkv_parser.py -->
+```python
+"""A netCDF file opened as a VirtualiZarr virtual dataset through refkv's parser.
+
+RefkvParser zarrifies the file with refkv and hands VirtualiZarr the result as a ManifestStore,
+so open_virtual_dataset takes any file refkv can zarrify. This writes a small netCDF file into
+the current directory, so it runs offline.
+"""
+
+from pathlib import Path
+
+import numpy as np
+import virtualizarr as vz
+import xarray as xr
+from obspec_utils.registry import ObjectStoreRegistry
+from obstore.store import LocalStore
+
+from refkv.virtualizarr import RefkvParser
+
+path = Path("temperature.nc").resolve()
+expected = xr.Dataset(
+    {"t": (("time", "x"), np.arange(12.0).reshape(3, 4), {"units": "K"})},
+    coords={"time": [0, 1, 2]},
+)
+expected.to_netcdf(path, engine="h5netcdf", encoding={"t": {"chunksizes": (1, 4)}})
+
+registry = ObjectStoreRegistry({"file://": LocalStore()})
+with vz.open_virtual_dataset(path.as_uri(), registry=registry, parser=RefkvParser(),
+                             loadable_variables=["time"]) as vds:
+    print(vds["t"].data.manifest.dict()["0.0"])  # the first chunk: a byte range of the file
+
+# The parser's ManifestStore is also a Zarr store, which xarray reads directly.
+ds = xr.open_zarr(RefkvParser()(path.as_uri(), registry), zarr_format=3, consolidated=False)
+np.testing.assert_array_equal(ds["t"], expected["t"])
+print("the virtual dataset's values equal the file's")
+```
+
+It prints the first chunk's manifest entry, a byte range of the file, then
+`the virtual dataset's values equal the file's`.
+
+`RefkvParser` takes `group=` and `skip_variables=`, as VirtualiZarr's parsers do, `policy=`, the
+`refkv.Policy` refkv reads the file and its chunks under, and `layout=`, the
+[layout plugin](layout-plugins.md) to zarrify with (refkv's default layout when not given). It
+leaves out refkv's `refkv_source` group, which describes the file, not its data.
+
+`refkv.virtualizarr.manifest_store(store, registry)` is the conversion on its own: the
+`ManifestStore` of any reference store, a `zarrify` result or a saved archive `refkv.open`
+opened, with the same `group=` and `skip_variables=`. A manifest entry is one byte range, so a
+chunk that is one range of a file becomes an entry, and the rest is inlined into the manifest:
+bytes values, references whose bytes are all in the store, and chunks made from several ranges
+(a netCDF variable-length string chunk, a JPEG tile with its shared tables), which are read
+during the conversion. Each file a manifest names is checked against the store's policy first,
+since VirtualiZarr reads it later without refkv. The pins and checksums a store keeps for its
+sources have no place in a manifest, and are dropped.
+
+`just virtualizarr-parity` (conformance/virtualizarr/test_parity.py) compares `RefkvParser`
+with VirtualiZarr's own parsers on generated files, for each array's shape, data type, fill
+value, dimension names, attributes, chunk byte ranges and values; the differences that remain
+are listed there, each with the item of
+[refkv#271](https://github.com/d-v-b/refkv/issues/271) that tracks it.
+
 ## Scaling up
 
 - **Every day.** `freq="D"` takes every day. A year of daily files took
@@ -210,6 +279,13 @@ ds = xr.open_zarr(refkv.zarr.open("private.vzip", registry=registry))
 from the bucket: a file, the files it names beside it, or a store (a URL
 ending in `/`), each read with the registered store. The result reads its
 sources with that registry too.
+
+A local input may be its path or its `file:` URL, as VirtualiZarr passes it,
+with or without a `file://` store in the registry: a file, or a local Zarr v2,
+Zarr v3 or N5 directory, whose chunks are then references to the directory's
+files, named by their `file:` URLs. The store `zarrify` returns reads those
+files, the input's own, below its directory, and no other local file; a store
+saved from it is read as below.
 
 ```python
 from refkv.zarrify import zarrify
