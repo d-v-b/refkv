@@ -1,0 +1,17 @@
+ENVI
+samples = 3
+lines = 2
+bands = 6
+header offset = 0
+file type = ENVI Standard
+data type = 4
+interleave = bip
+byte order = 0
+; written by the refkv fixture generator
+wavelength units = Nanometers
+wavelength = {
+ 450.0, 500.0, 550.0,
+ 600.0, 650.0, 700.0}
+map info = {UTM, 1.000, 1.000, 500000.000, 4100000.000, 3.0, 3.0, 13, North, WGS-84, units=Meters}
+data ignore value = -9999
+a line that is no field

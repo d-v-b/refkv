@@ -166,6 +166,7 @@ either way.)
 | FITS | astropy | uncompressed HDUs: data offsets; tile-compressed: astropy decompresses, the heap descriptors are not exposed | BSD-3-Clause | 24 MB native, plus pyerfa, PyYAML | partial |
 | IMS (HDF5) | h5py | yes: `chunk_iter` | BSD-3-Clause | 10.5 MB native (libhdf5) | read all 18 rejected fixtures: valid HDF5 whose Imaris layout the profile rejects, so the Imaris layer would remain refkv's |
 | NRRD | pynrrd | yes: the header's data offset or detached file | MIT | 0.1 MB, pure Python | not measured |
+| ENVI | GDAL (rasterio) | yes: the header gives the offset and the layout, but GDAL reads pixels, not ranges | MIT | 30 MB native (libgdal) | matched every accepted fixture and GDAL's own autotest rasters; reads a data file longer than its array, which the profile rejects |
 | VSI | Bio-Formats (bioio-bioformats) | no: a JVM reader that decodes tiles | GPL-2.0 (Bio-Formats) | a JVM | no |
 | MP3, FLAC, MP4 | PyAV (ffmpeg) | demuxed packets' positions, by reading the stream | BSD-3-Clause (PyAV), LGPL/GPL (ffmpeg) | 46 MB native | no |
 | SAFE, Zarr v2, OME-Zarr, N5 | (none needed) | the chunks are whole objects; the work is the listing and the convention | | | |

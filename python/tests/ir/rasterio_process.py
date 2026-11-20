@@ -1,24 +1,31 @@
-"""rasterio in a process of its own, for the SAFE tests (test_safe_stored.py): their reference
-reader of a band file's image, and the writer of the band files no fixture holds.
+"""rasterio in a process of its own, for the tests that compare with GDAL: the SAFE tests'
+(test_safe_stored.py) reference reader of a band file's image, and the writer of the band files no
+fixture holds; and the ENVI tests' (test_envi.py, test_envi_stored.py) reference reader.
 
 GDAL's libraries and imagecodecs' do not share a process: with rasterio loaded first, imagecodecs'
 LERC codec finds GDAL's LERC library and fails, in the TIFF tests that run after. So the tests run
 this script, give it a request as JSON on its standard input, and read the arrays it writes, an
 `.npz` archive, from its standard output:
 
-- `python rasterio_jp2.py read`: of each `{"path", "offset", "length", "windows"}`, a JP2 file
+- `python rasterio_process.py read`: of each `{"path", "offset", "length", "windows"}`, a JP2 file
   held in a range of a file, the image rasterio reads whole (`image_<i>`, its bands first) and in
   each window `[column, row, width, height]` (`window_<i>_<j>`), with, in `about`, a JSON list, the
   driver that read it and the shapes of the blocks GDAL reads it in;
-- `python rasterio_jp2.py write`: of each `{"rows", "columns", "tile", "samples", "bits",
+- `python rasterio_process.py write`: of each `{"rows", "columns", "tile", "samples", "bits",
   "layers", "precincts", "seed"}`, the bytes of a JP2 file (`file_<i>`) of random values, written
-  by OpenJPEG, losslessly, a tile-part a tile."""
+  by OpenJPEG, losslessly, a tile-part a tile;
+- `python rasterio_process.py envi`: of each path of an ENVI data file, the raster GDAL's ENVI
+  driver reads with the header beside it (`image_<i>`, its bands first), and, in `fields`, a JSON
+  list of the header's fields as GDAL reads them (its `ENVI` metadata domain) and its driver."""
 
 import io
 import json
 import sys
+import warnings
 
 import numpy as np
+import rasterio
+from rasterio.errors import NotGeoreferencedWarning
 from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
 from rasterio.windows import Window
@@ -59,8 +66,21 @@ def write(requests: list[dict]) -> dict[str, np.ndarray]:
     return out
 
 
+def envi(paths: list[str]) -> dict[str, np.ndarray]:
+    out: dict[str, np.ndarray] = {}
+    fields = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", NotGeoreferencedWarning)
+        for i, path in enumerate(paths):
+            with rasterio.open(path) as image:
+                out[f"image_{i}"] = image.read()
+                fields.append({"driver": image.driver, "fields": image.tags(ns="ENVI")})
+    out["fields"] = np.array(json.dumps(fields))
+    return out
+
+
 if __name__ == "__main__":
-    done = {"read": read, "write": write}[sys.argv[1]](json.load(sys.stdin))
+    done = {"read": read, "write": write, "envi": envi}[sys.argv[1]](json.load(sys.stdin))
     archive = io.BytesIO()
     np.savez(archive, allow_pickle=False, **done)
     sys.stdout.buffer.write(archive.getvalue())

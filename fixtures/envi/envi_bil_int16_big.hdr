@@ -1,0 +1,11 @@
+ENVI
+description = {a BIL test raster}
+samples = 5
+lines = 4
+bands = 3
+header offset = 0
+file type = ENVI Standard
+data type = 2
+interleave = bil
+byte order = 1
+band names = {red, green, blue}

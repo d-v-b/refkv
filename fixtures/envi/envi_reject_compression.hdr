@@ -1,0 +1,7 @@
+ENVI
+samples = 5
+lines = 4
+bands = 3
+data type = 2
+interleave = bsq
+file compression = 2

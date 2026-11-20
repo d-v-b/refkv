@@ -1,0 +1,12 @@
+# url|name|no-ref of the public ENVI inputs in the corpus (the frozen reference has no ENVI profile, so
+# each compares py with web alone): GDAL's autotest rasters (MIT), each a header beside its data file,
+# BSQ, BIL and BIP, big-endian, gzip (aea_compressed.dat, found as <name>.dat), and inputs the profile
+# rejects (an ENVI Classification file, and a data file a byte longer than its array)
+https://raw.githubusercontent.com/OSGeo/gdal/8a556e7b81aab50ec6612b47499ffbe942aa3a71/autotest/gdrivers/data/envi/envi_rgbsmall_bsq.hdr|gdal_rgbsmall_bsq|no-ref|ends-sha256=dcb059d1660ce000499c33d9086e3ba8d40ed945b8b9901e0b8e202f77c80f14
+https://raw.githubusercontent.com/OSGeo/gdal/8a556e7b81aab50ec6612b47499ffbe942aa3a71/autotest/gdrivers/data/envi/envi_rgbsmall_bil.hdr|gdal_rgbsmall_bil|no-ref|ends-sha256=33cdb2239d726fc3c4ecdff34a19eedff049335aa06d91b443b7f576b15c9d0d
+https://raw.githubusercontent.com/OSGeo/gdal/8a556e7b81aab50ec6612b47499ffbe942aa3a71/autotest/gdrivers/data/envi/envi_rgbsmall_bip.hdr|gdal_rgbsmall_bip|no-ref|ends-sha256=5e3e07d75b0233f8e95c5d466a3abb87dd2349633083d3e0a7014cb679119620
+https://raw.githubusercontent.com/OSGeo/gdal/8a556e7b81aab50ec6612b47499ffbe942aa3a71/autotest/gdrivers/data/envi/uint16_envi_bigendian.hdr|gdal_uint16_bigendian|no-ref|ends-sha256=1d70f112b85350533ecb7a95ece2e6ad232663cbe1e70a8ad725621b5a4d93c8
+https://raw.githubusercontent.com/OSGeo/gdal/8a556e7b81aab50ec6612b47499ffbe942aa3a71/autotest/gdrivers/data/envi/aea.hdr|gdal_aea|no-ref|ends-sha256=3c853f6e0e0bd6a08ddc9eae07955e03b63c0a323561b727002a2e4635a89c50
+https://raw.githubusercontent.com/OSGeo/gdal/8a556e7b81aab50ec6612b47499ffbe942aa3a71/autotest/gdrivers/data/envi/aea_compressed.hdr|gdal_aea_gzip|no-ref|ends-sha256=43400cfa6742195a1fd5daddd2af0b4daa46295b48e9f9d843037d4bad1146f8
+https://raw.githubusercontent.com/OSGeo/gdal/8a556e7b81aab50ec6612b47499ffbe942aa3a71/autotest/gdrivers/data/envi/testenviclasses.hdr|gdal_reject_classification|no-ref|ends-sha256=71d7db7620a9a404dccb09128aa83ea9bf4d227cad4a3ebb8707845a7527dbd8
+https://raw.githubusercontent.com/OSGeo/gdal/8a556e7b81aab50ec6612b47499ffbe942aa3a71/autotest/gdrivers/data/envi/rotation.hdr|gdal_reject_size|no-ref|ends-sha256=d3d25b5d474c3e14202e9dfb29701fe29c7b8f59c6dfb037f9897bf0ca50d10a

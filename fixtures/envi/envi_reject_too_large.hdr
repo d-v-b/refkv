@@ -1,0 +1,6 @@
+ENVI
+samples = 2097152
+lines = 2097152
+bands = 2097152
+data type = 5
+interleave = bsq

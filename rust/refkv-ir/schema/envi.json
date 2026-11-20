@@ -1,0 +1,106 @@
+{
+  "source_model": "envi",
+  "version": 1,
+  "about": "The source model of an ENVI raster (spec/zarrify/envi.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#53-elements>): the header file, held, and the data file beside it, described in place; the table of ENVI's data types; and the roles the header, its fields, the data file and the data play, with the constraints an input must meet to have the ENVI convention's layout (spec/zarrify/envi.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#8-envi-profile>). The parser checks them in this order; the projection reads a valid IR and its facts and checks nothing.",
+  "limits": {
+    "max_safe": 9007199254740991,
+    "max_header": 16777216
+  },
+  "tables": {
+    "types": {
+      "about": "the data type field's codes: the Zarr data type and its bytes (codes 7, 8, 10 and 11, and any above 15, are no flat array's)",
+      "1": {"dtype": "uint8", "bytes": 1},
+      "2": {"dtype": "int16", "bytes": 2},
+      "3": {"dtype": "int32", "bytes": 4},
+      "4": {"dtype": "float32", "bytes": 4},
+      "5": {"dtype": "float64", "bytes": 8},
+      "6": {"dtype": "complex64", "bytes": 8},
+      "9": {"dtype": "complex128", "bytes": 16},
+      "12": {"dtype": "uint16", "bytes": 2},
+      "13": {"dtype": "uint32", "bytes": 4},
+      "14": {"dtype": "int64", "bytes": 8},
+      "15": {"dtype": "uint64", "bytes": 8}
+    },
+    "interleaves": {
+      "about": "the interleave field's values, lower case: the data's axes, outermost first",
+      "bsq": ["band", "line", "sample"],
+      "bil": ["line", "band", "sample"],
+      "bip": ["line", "sample", "band"]
+    },
+    "extensions": {
+      "about": "the extensions of the data file's names the profile probes for after the header's own name less .hdr, in this order",
+      "names": [".img", ".dat", ".raw", ".bin", ".bsq", ".bil", ".bip"]
+    }
+  },
+  "elements": {
+    "about": "The store IR of an ENVI input: the header file's object, held, and the data file's object, described in place. o is the header offset; B the array's bytes; Z the data file's size.",
+    "lines/<i>": {"kind": "value", "type": "ascii[k]", "extent": "line i of the header file, its line end included: the magic first"},
+    "data": {"kind": "data", "form": "{geometry: {data_type, shape}, codec: {interleave, endian, compression, skip}, recipe: [[src, 0, null]]}", "extent": "(o, B) of the data file, or (0, Z) for a gzip file"},
+    "gaps/<offset>": {"kind": "gap", "about": "the header offset's bytes of a raw data file"}
+  },
+  "roles": {
+    "header_size": {
+      "given": {"size": "the header file's size", "within": "whether it is at most max_header"},
+      "constraints": [
+        {"require": "within", "message": "the ENVI header file is {size} bytes, more than 16777216"}
+      ]
+    },
+    "magic": {
+      "given": {"ok": "the first line is ENVI, in any case, with spaces and tabs around it"},
+      "constraints": [
+        {"require": "ok", "message": "not an ENVI header: its first line is not ENVI"}
+      ]
+    },
+    "file_type": {
+      "given": {"shown": "the file type field's value", "ok": "whether it is ENVI Standard, in any case"},
+      "constraints": [
+        {"require": "ok", "message": "the ENVI file type \"{shown}\" is not supported: only an ENVI Standard file is a flat binary array"}
+      ]
+    },
+    "framed": {
+      "given": {"field": "major frame offsets or minor frame offsets", "present": "whether the header has it"},
+      "constraints": [
+        {"require": "!present", "message": "the header has a {field} field: the data is in frames, which the profile does not read"}
+      ]
+    },
+    "required": {
+      "given": {"field": "a field the header must have", "present": "whether it has it"},
+      "constraints": [
+        {"require": "present", "message": "the header has no {field} field"}
+      ]
+    },
+    "value": {
+      "given": {"field": "the field", "shown": "its value", "problem": "what is wrong with it, or absent"},
+      "constraints": [
+        {"require": "!present(problem)", "message": "the {field} field \"{shown}\" {problem}"}
+      ]
+    },
+    "header_name": {
+      "given": {"key": "the header file's key", "ok": "whether it ends in .hdr, in any case, after at least one other character"},
+      "constraints": [
+        {"require": "ok", "message": "the ENVI header \"{key}\" is not named <name>.hdr, so its data file cannot be found"}
+      ]
+    },
+    "data_object": {
+      "given": {"key": "the header file's key", "found": "whether a data file exists", "tried": "the keys probed, quoted, separated by commas"},
+      "constraints": [
+        {"require": "found", "message": "no data file beside the ENVI header \"{key}\": none of {tried} exists"}
+      ]
+    },
+    "data": {
+      "given": {"total": "B, exactly", "total_shown": "B in decimal", "offset": "the header offset", "size": "the data file's size", "key": "the data file's key", "gzip": "whether the data file is gzip"},
+      "constraints": [
+        {"require": "total <= max_safe", "message": "the array's {total_shown} bytes are more than 2^53 - 1"},
+        {"require": "gzip || offset <= size", "message": "the header offset {offset} is past the end of the {size}-byte data file \"{key}\""},
+        {"require": "gzip || offset + total == size", "message": "the {size}-byte data file \"{key}\" does not hold the header offset {offset} and the array's {total_shown} bytes, and nothing else"},
+        {"require": "!gzip || size >= 18", "message": "the {size}-byte data file \"{key}\" is shorter than a gzip member"}
+      ]
+    },
+    "gzip": {
+      "given": {"ok": "the data file starts 1F 8B 08", "key": "the data file's key"},
+      "constraints": [
+        {"require": "ok", "message": "the data file \"{key}\" does not start with a gzip header, and the header's file compression is 1"}
+      ]
+    }
+  }
+}
