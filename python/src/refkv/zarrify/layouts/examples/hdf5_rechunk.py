@@ -11,11 +11,12 @@ into N-D chunks of a shape the options give (spec/layout.md
 The HDF5 profile presents a contiguous dataset in slabs of at most 1 MiB, cut along one axis
 (spec/zarrify/hdf5.md §3.2
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#32-chunks>), which suits a
-reader of whole rows and not one of small N-D regions. This layout finds the dataset's data
-element from the base's chunks (`base.elements`), reads it whole (`base.reference`), and makes
-each tile a `concat` of `cut`s of it, one a run of bytes the tile holds contiguously, in C order.
-The base array's data type, codecs (`bytes` alone: contiguous storage has no filters), fill value
-and dimension names are kept.
+reader of whole rows and not one of small N-D regions. This layout asks for refkv's own output of
+the file (`refkv.build.project`), finds the dataset's data element from that output's chunks
+(`Projected.elements`), reads it whole (`Parsed.reference`), and makes each tile a `concat` of
+`cut`s of it, one a run of bytes the tile holds contiguously, in C order. The data type, codecs
+(`bytes` alone: contiguous storage has no filters), fill value and dimension names of the array in
+refkv's own output are kept.
 
 Options:
 
@@ -23,25 +24,27 @@ Options:
   length an axis, `null` for the axis's whole length. A dataset named here that cannot be
   re-tiled is `Rejected`, naming why.
 - `default`: the chunk shape of every other contiguous dataset of its rank, or `null` (the
-  default): none. A dataset it cannot re-tile is left as the base has it.
+  default): none. A dataset it cannot re-tile is left as refkv's own output has it.
 - `edge`: how a short last chunk on an axis is written: `pad` (the default), a `regular` grid
-  whose edge chunks are padded with ranges of zero bytes (`base.zeros`); or `rectilinear`, a
+  whose edge chunks are padded with ranges of zero bytes (`refkv.build.Zeros`); or `rectilinear`, a
   `rectilinear` grid along the axes whose length the chunk does not divide, which reads no
   padding.
 
 An axis's chunk length is at most the axis's length. A dataset cannot be re-tiled when it is not
 contiguous (chunked or compact), its codecs are more than `bytes` (a variable-length string),
 its bytes are not one data element of the IR (external storage), or a tile would break a rule
-every reference keeps (`base.fits`: a payload of at most 65519 bytes). How many reads a tile
-takes is its reader's limit (spec/refkv.md §6.7
-<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5). A chunk shape
-equal to the base's copies the array.
+every reference keeps (`refkv.build.fits`: a payload of at most 65519 bytes, measured at the most
+it may be once refkv numbers the sources). How many reads a tile takes is its reader's limit
+(spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
+rule 5). A chunk shape equal to that of refkv's own output copies the array.
 
-Everything else is the base's: each group's document (its attributes without refkv's
+Everything else is refkv's own output's: each group's document (its attributes without refkv's
 declarations), each other array a `copy` with its attributes, and the IR mirror,
-`refkv_source/`, entry for entry. So `check` finds nothing: no `copy` (a re-tiled array's
-references are not the base's), no `size` (each tile reads exactly its chunk's bytes, padding
-included), no `refkv` (refkv's declarations are only the mirror's, whose subtree is the base's).
+`refkv_source/`, entry for entry, each of its documents placed as refkv places it (the entries are
+returned as a `Written`, which carries the placements). So `check` finds nothing: no `copy` (a
+re-tiled array's references are not those of refkv's own output), no `size` (each tile reads
+exactly its chunk's bytes, padding included), no `refkv` (refkv's declarations are only the
+mirror's, whose subtree is that of refkv's own output).
 """
 
 from __future__ import annotations
@@ -51,13 +54,12 @@ import math
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Any, ClassVar
 
-from refkv import Concat, Range
+from refkv.build import Parsed, Projected, Ref, Value, Written, Zeros, concat, cut, fits, project
 from refkv.zarrify import Rejected
-from refkv.zarrify.layouts import MIRROR, Base, EntryValue, concat, cut
+from refkv.zarrify.layouts import MIRROR
 from refkv.zarrify.layouts.hierarchy import array, copy, group
 
-Value = Range | Concat
-Out = dict[str, EntryValue]  # entries being built
+Out = dict[str, bytes | Value]  # an array's entries, keys from the output's root
 EDGES = ("pad", "rectilinear")
 OPTIONS = frozenset(["chunks", "default", "edge"])
 
@@ -97,39 +99,45 @@ class Hdf5Rechunk:
         return {"chunks": dict(sorted(named.items())),
                 "default": None if default is None else _shape(default, "default"), "edge": edge}
 
-    def write(self, base: Base, options: Mapping[str, Any]) -> Out:
+    def write(self, inputs: Sequence[Parsed], options: Mapping[str, Any]) -> Written:
+        """The hierarchy of refkv's own output of the input, each array the options name or
+        `default` covers re-tiled, with the IR mirror as refkv wrote and placed it."""
+        [parsed] = inputs
+        pr = project(parsed)
         named: dict[str, list[int | None]] = options["chunks"]
         for path in named:
             try:
-                base.array(path)
+                pr.array_entries(path)
             except KeyError as e:
-                raise Rejected(f"chunks names {path!r}, which is no array of the base") from e
-        out: Out = base.entries(f"{MIRROR}/")
-        for path in base.nodes():
+                raise Rejected(f"chunks names {path!r}, which is no array of refkv's own output") from e
+        out = Written()
+        out |= pr.entries(f"{MIRROR}/")  # a Written, so that the mirror's documents keep their placement
+        for path in pr.nodes():
             key = f"{path}/zarr.json" if path else "zarr.json"
-            if base.document(key)["node_type"] == "group":
-                out[key] = group(base.attributes(path))
+            if pr.document(key)["node_type"] == "group":
+                out[key] = group(pr.attributes(path))
                 continue
             want = named.get(path, options["default"])
-            entries = None if want is None else _retile(base, path, want, options["edge"])
+            entries = None if want is None else _retile(parsed, pr, path, want, options["edge"])
             if isinstance(entries, str):
                 if path in named:
                     raise Rejected(f"{path!r} cannot be re-tiled: {entries}")
                 entries = None
-            out |= copy(base, path, attributes=base.attributes(path), to=path) if entries is None else entries
+            out |= copy(pr, path, attributes=pr.attributes(path), to=path) if entries is None else entries
         return out
 
 
-def _retile(base: Base, path: str, want: Sequence[int | None], edge: str) -> Out | str | None:
-    """The array at `path` re-tiled into chunks of `want`, keys from the output's root; None when
-    that is the base's chunk shape (copy it); or why it cannot be re-tiled."""
-    doc, chunks = base.array(path)
+def _retile(parsed: Parsed, pr: Projected, path: str, want: Sequence[int | None], edge: str) -> Out | str | None:
+    """The array at `path` of `pr`, refkv's own output of `parsed`, re-tiled into chunks of `want`,
+    keys from the output's root; None when that is its chunk shape already (copy it); or why it
+    cannot be re-tiled."""
+    doc, chunks = pr.array_entries(path)
     shape: list[int] = doc["shape"]
     if len(want) != len(shape):
         return f"a chunk shape of {len(want)} axes for an array of {len(shape)}"
     if [c.get("name") for c in doc["codecs"]] != ["bytes"]:
         return f"its codecs are {[c.get('name') for c in doc['codecs']]}, not bytes alone"
-    meta = base.source_metadata(path)
+    meta = pr.source_metadata(path)
     storage = meta.get("layout") if isinstance(meta, dict) else None
     if storage != "contiguous":
         return f"its storage is {storage}, not contiguous"
@@ -137,7 +145,7 @@ def _retile(base: Base, path: str, want: Sequence[int | None], edge: str) -> Out
     grid = doc["chunk_grid"]
     if grid["name"] == "regular" and grid["configuration"]["chunk_shape"] == tile:
         return None
-    whole = _data(base, path, chunks)
+    whole = _data(parsed, pr, path, chunks)
     if isinstance(whole, str):
         return whole
     counts = [-(-n // c) for n, c in zip(shape, tile, strict=True)]
@@ -147,8 +155,8 @@ def _retile(base: Base, path: str, want: Sequence[int | None], edge: str) -> Out
         if rest or not item:
             return f"its data element's {whole.size} bytes are not its {math.prod(shape)} elements'"
         for coords in itertools.product(*(range(k) for k in counts)):
-            value = _tile(base, whole, item, shape, tile, coords, pad=edge == "pad")
-            why = base.fits(value)
+            value = _tile(whole, item, shape, tile, coords, pad=edge == "pad")
+            why = fits(value)
             if why is not None:
                 return f"chunk {list(coords)}: {why}"
             tiles[coords] = value
@@ -156,25 +164,25 @@ def _retile(base: Base, path: str, want: Sequence[int | None], edge: str) -> Out
         c if edge == "pad" or n % c == 0 else [c] * (k - 1) + [n - c * (k - 1)]
         for n, c, k in zip(shape, tile, counts, strict=True)]
     return array(shape, doc["data_type"], lengths, doc["codecs"], tiles, fill_value=doc["fill_value"],
-                 dimension_names=doc.get("dimension_names"), attributes=base.attributes(path), to=path)
+                 dimension_names=doc.get("dimension_names"), attributes=pr.attributes(path), to=path)
 
 
-def _data(base: Base, path: str, chunks: Mapping[str, EntryValue]) -> Value | str | None:
-    """The reference that reads the array's whole data element, found from its base chunks (None
-    when it has none), or why there is not one: every part of a chunk reads that one element, or
-    is the base's padding."""
+def _data(parsed: Parsed, pr: Projected, path: str, chunks: Mapping[str, bytes | Value]) -> Value | str | None:
+    """The value that reads the array's whole data element, found from its chunks in refkv's own
+    output (None when it has none), or why there is not one: every part of a chunk reads that one
+    element, or is padding of refkv's own."""
     if not chunks:
         return None
     found: set[tuple[int, int | None]] = set()
-    for key, items in base.elements(path).items():
+    for key, items in pr.elements(path).items():
         for item in items:
-            if isinstance(item, Range):
+            if isinstance(item, Ref):
                 return f"chunk {key} reads bytes of a source no data element holds"
             if item is not None:
                 found.add((item[0], item[1]))
     if len(found) != 1:
         return f"its chunks read {len(found)} data elements of the IR, not one"
-    return base.reference(*found.pop())
+    return parsed.reference(*found.pop())
 
 
 def _runs(shape: Sequence[int], ext: Sequence[int], lo: Sequence[int], hi: Sequence[int],
@@ -200,23 +208,23 @@ def _runs(shape: Sequence[int], ext: Sequence[int], lo: Sequence[int], hi: Seque
     return walk(0, 0)
 
 
-def _tile(base: Base, whole: Value, item: int, shape: Sequence[int], tile: Sequence[int], coords: Sequence[int],
+def _tile(whole: Value, item: int, shape: Sequence[int], tile: Sequence[int], coords: Sequence[int],
           *, pad: bool) -> Value:
     """The value of the chunk at `coords`: a `cut` of `whole` for each run of the data element,
     and zero bytes for each run of padding (runs of it in a row as one), joined."""
     lo = [c * t for c, t in zip(coords, tile, strict=True)]
     hi = [min(a + t, n) for a, t, n in zip(lo, tile, shape, strict=True)]
     ext = list(tile) if pad else [b - a for a, b in zip(lo, hi, strict=True)]
-    parts: list[Value] = []
+    parts: list[Value | Zeros] = []
     zeros = 0
     for at, n in _runs(shape, ext, lo, hi, item):
         if at is None:
             zeros += n
             continue
         if zeros:
-            parts.append(base.zeros(zeros))
+            parts.append(Zeros(zeros))
             zeros = 0
         parts.append(cut(whole, at, at + n))
     if zeros:
-        parts.append(base.zeros(zeros))
+        parts.append(Zeros(zeros))
     return concat(*parts, merge=True)

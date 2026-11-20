@@ -1,7 +1,7 @@
 """The layout `refkv.virtualizarr` (python/src/refkv/zarrify/layouts/virtualizarr.py) against
 VirtualiZarr's own parsers: over HDF5, netCDF-4, FITS and zipped Zarr v3 files, every document is
 the one VirtualiZarr's `ManifestStore` serves but for the differences the module's docstring keeps,
-every chunk reference is refkv's default layout's, and every array reads as VirtualiZarr's does;
+every chunk reference is one of refkv's own output, and every array reads as VirtualiZarr's does;
 a tile-compressed FITS image reads as astropy reads it; and each way its options or an input are
 refused."""
 
@@ -34,9 +34,9 @@ from zarr.core.metadata import ArrayV3Metadata
 from zarr.core.sync import sync
 
 import refkv.zarr
-from refkv.pb import Range
+from refkv.build import Projected, Ref, Value, Written, project, read, seal
 from refkv.zarrify import zarrify
-from refkv.zarrify.layouts import Layout, LayoutRejected, LayoutUsageError, base, chunk_coords, encode_entries
+from refkv.zarrify.layouts import Layout, LayoutRejected, LayoutUsageError, chunk_coords, encode_entries
 from refkv.zarrify.layouts.hierarchy import check
 from refkv.zarrify.layouts.virtualizarr import VirtualiZarr
 
@@ -221,10 +221,16 @@ def _chunks(out, doc: Json, path: str) -> dict[tuple[int, ...], Any]:
             if k.startswith(f"{path}/") and not k.endswith("/zarr.json")}
 
 
-def _base_chunks(b) -> list[list[str]]:
-    """Each base array's chunk values (refkv's default layout's references), sorted, the mirror's
-    left out."""
-    return [sorted(map(repr, b.array(p)[1].values())) for p in b.nodes() if b.node_type(p) == "array"]
+def _own_chunks(pr: Projected) -> list[list[str]]:
+    """The chunk values of each array of refkv's own output, sorted, the mirror's left out."""
+    return [sorted(map(repr, pr.array_entries(p)[1].values())) for p in pr.nodes() if pr.node_type(p) == "array"]
+
+
+def _range(value: object) -> tuple[int, int] | None:
+    """(offset, length) of a value that is one range of a source, or None for another."""
+    if isinstance(value, Value) and len(value.parts) == 1 and isinstance(part := value.parts[0], Ref):
+        return part.offset, part.length
+    return None
 
 
 def _text(value: object) -> object:
@@ -240,8 +246,9 @@ def _text(value: object) -> object:
 
 def _kept(doc: Json, profile: str, names: list[str] | None = None) -> Json:
     """A document with the differences the layout keeps made alike: the zlib level, a zipped
-    store's chunk key encoding, an empty storage_transformers, and, given the base's dimension
-    `names`, those of the axes VirtualiZarr names `phony_dim_<axis>`, which netCDF-4 names."""
+    store's chunk key encoding, an empty storage_transformers, and, given the dimension `names`
+    of refkv's own output, those of the axes VirtualiZarr names `phony_dim_<axis>`, which netCDF-4
+    names."""
     doc = dict(doc)
     if doc.get("storage_transformers") == []:
         del doc["storage_transformers"]
@@ -260,39 +267,41 @@ def _kept(doc: Json, profile: str, names: list[str] | None = None) -> Json:
 def test_the_layout_presents_a_file_as_virtualizarr_s_parser_does(tmp_path, name, regridded, nonfinite):
     """Every document is VirtualiZarr's but for what the layout keeps of refkv's (above, and a
     variable-length string's or a regridded array's chunk grid, and a value-less FITS card's
-    `null`), every chunk reference is refkv's default layout's, and every array reads as
+    `null`), every chunk reference is one of refkv's own output, and every array reads as
     VirtualiZarr's does; `check` finds nothing but the non-finite tokens zarr-python writes."""
     path = _input(name, tmp_path)
-    b = base(path)
-    plugin = VirtualiZarr()
-    out = plugin.write(b, plugin.options({"nonfinite": nonfinite}))
-    problems = check(b, out)
-    assert [p for p in problems if p.code not in ALLOWED] == []
-    assert nonfinite == "token" or not [p for p in problems if p.code == "json"]
+    with read(path) as parsed:
+        pr = project(parsed)
+        plugin = VirtualiZarr()
+        out = plugin.write([parsed], plugin.options({"nonfinite": nonfinite}))
+        problems = check(out, [parsed])
+        assert [p for p in problems if p.code not in ALLOWED] == []
+        assert nonfinite == "token" or not [p for p in problems if p.code == "json"]
 
-    theirs, references, manifest_store = virtualizarr_s(PARSERS[b.profile], path)
-    ours = {k: json.loads(v) for k, v in out.items() if k.rpartition("/")[2] == "zarr.json" and isinstance(v, bytes)}
-    defaults = _base_chunks(b)
-    assert sorted(ours) == sorted(theirs)
-    for key, doc in ours.items():
-        node = key.removesuffix("zarr.json").rstrip("/")
-        names = b.document(key).get("dimension_names") if b.profile == "hdf5" and key in b else None
-        mine, expected = _kept(doc, b.profile), _kept(theirs[key], b.profile, names)
-        if nonfinite == "text":
-            expected = cast("Json", _text(expected))
-        if doc.get("data_type") == "string" or node in regridded:
-            del mine["chunk_grid"], expected["chunk_grid"]
-        if name == "fits/fits_header_cards.fits" and node == "PRIMARY":
-            assert (mine["attributes"].pop("NOVALUE"), expected["attributes"].pop("NOVALUE")) == (None, "None")
-        assert json.dumps(mine, sort_keys=True) == json.dumps(expected, sort_keys=True), key
-        if doc["node_type"] != "array":
-            continue
+        profile = parsed.profile
+        theirs, references, manifest_store = virtualizarr_s(PARSERS[profile], path)
+        ours = {k: json.loads(v) for k, v in out.items()
+                if k.rpartition("/")[2] == "zarr.json" and isinstance(v, bytes)}
+        defaults = _own_chunks(pr)
+        assert sorted(ours) == sorted(theirs)
+        for key, doc in ours.items():
+            node = key.removesuffix("zarr.json").rstrip("/")
+            names = pr.document(key).get("dimension_names") if profile == "hdf5" and key in pr else None
+            mine, expected = _kept(doc, profile), _kept(theirs[key], profile, names)
+            if nonfinite == "text":
+                expected = cast("Json", _text(expected))
+            if doc.get("data_type") == "string" or node in regridded:
+                del mine["chunk_grid"], expected["chunk_grid"]
+            if name == "fits/fits_header_cards.fits" and node == "PRIMARY":
+                assert (mine["attributes"].pop("NOVALUE"), expected["attributes"].pop("NOVALUE")) == (None, "None")
+            assert json.dumps(mine, sort_keys=True) == json.dumps(expected, sort_keys=True), key
+            if doc["node_type"] != "array":
+                continue
 
-        chunks = _chunks(out, doc, node)
-        assert sorted(map(repr, chunks.values())) in defaults, key
-        if doc.get("data_type") != "string" and node not in regridded:
-            assert {c: (v.offset, v.length) for c, v in chunks.items() if isinstance(v, Range)} == \
-                references[node], key
+            chunks = _chunks(out, doc, node)
+            assert sorted(map(repr, chunks.values())) in defaults, key
+            if doc.get("data_type") != "string" and node not in regridded:
+                assert {c: r for c, v in chunks.items() if (r := _range(v)) is not None} == references[node], key
 
     store = zarrify(path, layout=Layout(NAME, {"nonfinite": nonfinite}))
     mine_arrays = _arrays(zarr.open_group(refkv.zarr.store(store), mode="r"))
@@ -345,7 +354,7 @@ def test_a_tile_compressed_fits_image_reads_as_astropy_reads_it(tmp_path, name):
 @pytest.mark.parametrize("compression", ["gz", "bz2"])
 def test_a_fits_file_compressed_whole_reads_as_the_file_does(tmp_path, name, compression):
     """FITSParser does not read a gzip or bzip2 file; the layout presents it as the file itself,
-    each array behind the base's decompressing codecs, with the file's values."""
+    each array behind the decompressing codecs of refkv's own output, with the file's values."""
     plain = FIXTURES / "fits" / name
     packed = tmp_path / f"{name}.{compression}"
     opener = gzip.open if compression == "gz" else bz2.open
@@ -361,35 +370,44 @@ def test_a_fits_file_compressed_whole_reads_as_the_file_does(tmp_path, name, com
 
 def test_a_binary_table_is_refkv_s_group_under_its_name():
     """FITSParser refuses a binary table; the layout keeps refkv's group for it, under the HDU's
-    name, so that the root reads as FITSParser's with the table skipped."""
+    name and with its placements, so that the root reads as FITSParser's with the table skipped."""
     path = str(FIXTURES / "fits/fits_bintable.fits")
-    b = base(path)
-    out = VirtualiZarr().write(b, {"nonfinite": "token"})
-    table = {k for k in out if k.startswith("TAB/")}
-    assert table == {f"TAB/{k[2:]}" for k in b.entries("1/", declarations=False, mirror=False)}
-    skipped = virtualizarr.parsers.FITSParser(skip_variables=["TAB"])(
-        Path(path).resolve().as_uri(), ObjectStoreRegistry({"file:///": LocalStore()}))
-    root = out["zarr.json"]
-    assert isinstance(root, bytes)
-    assert json.loads(root)["attributes"] == skipped._group.metadata.attributes
-    assert check(b, out) == []
+    with read(path) as parsed:
+        out = VirtualiZarr().write([parsed], {"nonfinite": "token"})
+        kept = project(parsed).entries("1/", declarations=False, mirror=False)
+        assert isinstance(out, Written)
+        assert {k: v for k, v in out.items() if k.startswith("TAB/")} == {f"TAB/{k[2:]}": v for k, v in kept.items()}
+        assert {k: v for k, v in out.at_open.items() if k.startswith("TAB/")} == \
+            {f"TAB/{k[2:]}": v for k, v in kept.at_open.items()}
+        skipped = virtualizarr.parsers.FITSParser(skip_variables=["TAB"])(
+            Path(path).resolve().as_uri(), ObjectStoreRegistry({"file:///": LocalStore()}))
+        root = out["zarr.json"]
+        assert isinstance(root, bytes)
+        assert json.loads(root)["attributes"] == skipped._group.metadata.attributes
+        assert check(out, [parsed]) == []
 
 
 OUTPUT = """
 import sys
-from refkv.zarrify.layouts import base, encode_entries
+from refkv.build import read, seal
+from refkv.zarrify.layouts import encode_entries
 from refkv.zarrify.layouts.virtualizarr import VirtualiZarr
-sys.stdout.buffer.write(encode_entries(VirtualiZarr().write(base(sys.argv[1]), {"nonfinite": "token"})))
+with read(sys.argv[1]) as parsed:
+    store = seal(VirtualiZarr().write([parsed], {"nonfinite": "token"}), [parsed])
+sys.stdout.buffer.write(encode_entries(store.mapping) + "|".join(sorted(store.read_at_open)).encode())
 """
 
 
 @pytest.mark.parametrize("name", ["hdf5/hdf5_netcdf4.h5", "fits/fits_mef_sci_err_dq.fits"])
 def test_the_layout_is_deterministic(name):
-    """Another process, with another hash seed, writes the same output."""
+    """Another process, with another hash seed, writes the same output: the same entries, sealed,
+    and the same keys read at open."""
     path = str(FIXTURES / name)
     env = {**os.environ, "PYTHONHASHSEED": "12345"}
     run = subprocess.run([sys.executable, "-c", OUTPUT, path], env=env, capture_output=True, check=True)
-    assert run.stdout == encode_entries(VirtualiZarr().write(base(path), {"nonfinite": "token"}))
+    with read(path) as parsed:
+        store = seal(VirtualiZarr().write([parsed], {"nonfinite": "token"}), [parsed])
+    assert run.stdout == encode_entries(store.mapping) + "|".join(sorted(store.read_at_open)).encode()
 
 
 # ---- refusals

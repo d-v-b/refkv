@@ -1,27 +1,28 @@
 """The example layout `refkv.example.xarray-v2` (spec/layout.md
 <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): an HDF5 or NetCDF-4 file as a Zarr v2
-hierarchy that `xarray.open_zarr(store, consolidated=True)` opens. Each group is a `.zgroup`, each
-array a `.zarray` around the base's chunk references at v2's chunk keys (`0.1`), each node's
-attributes a `.zattrs`, and the root's `.zmetadata` consolidates them all; a vzip reader is given
-only `.zmetadata` and the root's documents at open. It writes its documents with `dump`, and reads
-the base's chunk keys with `chunk_coords`, so it runs without the `layouts` extra.
+hierarchy that `xarray.open_zarr(store, consolidated=True)` opens. It is built on refkv's own
+output of the file (`refkv.build.project`): each group is a `.zgroup`, each array a `.zarray`
+around that output's chunk references at v2's chunk keys (`0.1`), each node's attributes a
+`.zattrs`, and the root's `.zmetadata` consolidates them all; a vzip reader is given only
+`.zmetadata` and the root's documents at open. It writes its documents with `dump`, and reads the
+chunk keys of refkv's own output with `chunk_coords`, so it runs without the `layouts` extra.
 
     python -m refkv.zarrify data.nc out.vzip --layout refkv.example.xarray-v2
 
-What xarray needs of Zarr v2, made from the base:
+What xarray needs of Zarr v2, made from refkv's own output:
 
-- `_ARRAY_DIMENSIONS`, every array's: the base's `dimension_names` (NetCDF-4's dimension scales,
+- `_ARRAY_DIMENSIONS`, every array's: that output's `dimension_names` (NetCDF-4's dimension scales,
   hdf5.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>), and for an
   axis without one a `phony_dim_<n>`, one per size and use in a group, numbered across the file.
   NetCDF-4's `_nc4_non_coord_<name>` is presented as `<name>`, as netCDF-4 reads it.
-- dtype, `compressor` and `filters`: this module's own translation of the base array's Zarr v3
-  data type and codecs (`bytes` -> the byte order; `numcodecs.<id>`, `zstd`, `gzip`, `blosc` and
-  `imagecodecs_<id>` -> numcodecs ids, the last one the `compressor`; `vlen-utf8` -> `|O`). A
-  fixed-length string, uint8 with a trailing axis of its bytes in the base, is `|S<n>`; a flat
-  `struct` a structured dtype. An array with no v2 form (`refkv.h5_bitshuffle`, a nested `struct`,
-  a fill value v2 cannot hold) is `Rejected`, or left out with the option
-  `{"unsupported": "skip"}`. A reader of `imagecodecs_<id>` registers imagecodecs' numcodecs first
-  (`imagecodecs.numcodecs.register_codecs()`).
+- dtype, `compressor` and `filters`: this module's own translation of the Zarr v3 data type and
+  codecs of the array in refkv's own output (`bytes` -> the byte order; `numcodecs.<id>`, `zstd`,
+  `gzip`, `blosc` and `imagecodecs_<id>` -> numcodecs ids, the last one the `compressor`;
+  `vlen-utf8` -> `|O`). A fixed-length string, uint8 with a trailing axis of its bytes in refkv's
+  own output, is `|S<n>`; a flat `struct` a structured dtype. An array with no v2 form
+  (`refkv.h5_bitshuffle`, a nested `struct`, a fill value v2 cannot hold) is `Rejected`, or left
+  out with the option `{"unsupported": "skip"}`. A reader of `imagecodecs_<id>` registers
+  imagecodecs' numcodecs first (`imagecodecs.numcodecs.register_codecs()`).
 - `fill_value`, which xarray reads as a v2 array's `_FillValue`: the dataset's netCDF `_FillValue`
   attribute, decoded, when it has one; else `null`, so xarray masks nothing, as it does reading the
   file, unless chunks are missing and the dataset's fill value is not zero, when it is that fill
@@ -42,12 +43,15 @@ What xarray needs of Zarr v2, made from the base:
 
 import math
 import struct
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
+from refkv.build import Parsed, Projected, Value, Written, project
 from refkv.zarrify import Rejected
 from refkv.zarrify.coding import hdf5_attributes, hdf5_value
-from refkv.zarrify.layouts import Base, EntryValue, Written, chunk_coords, dump
+from refkv.zarrify.layouts import chunk_coords, dump
+
+type Entry = bytes | Value  # an entry's value: bytes, or a value of the input's sources
 
 NON_COORD = "_nc4_non_coord_"  # netCDF-4's prefix of a variable named as a dimension it lacks
 # netCDF-4's bookkeeping attributes, which h5netcdf and netCDF4-python hide
@@ -59,10 +63,11 @@ DTYPES = {"bool": "b1", "int8": "i1", "int16": "i2", "int32": "i4", "int64": "i8
 FLOATS = {"float16": 2, "float32": 4, "float64": 8}
 ENDIAN = {"little": "<", "big": ">", None: "<"}
 BLOSC_SHUFFLE = {"noshuffle": 0, "shuffle": 1, "bitshuffle": 2}
+AT_OPEN = frozenset([".zmetadata", ".zgroup", ".zattrs"])  # the documents a vzip reader is given at open
 
 
 class NoV2(ValueError):  # noqa: N818 (said as "no v2 form")
-    """A base array with no Zarr v2 form: the message says why."""
+    """An array of refkv's own output with no Zarr v2 form: the message says why."""
 
 
 # ---- data types and codecs
@@ -103,7 +108,8 @@ def v2_codec(codec: Mapping[str, Any]) -> dict[str, Any]:
 
 def v2_coding(doc: Mapping[str, Any]) -> tuple[str, bool, list[dict[str, Any]]]:
     """The byte order of a Zarr v3 array's codecs, whether they make an object array, and their
-    numcodecs chain (an object codec first). An HDF5 base starts with no `transpose`."""
+    numcodecs chain (an object codec first). refkv's own output of an HDF5 file starts with no
+    `transpose`."""
     head, *rest = doc["codecs"]
     if head["name"] == "bytes":
         return ENDIAN[head.get("configuration", {}).get("endian")], False, [v2_codec(c) for c in rest]
@@ -115,7 +121,8 @@ def v2_coding(doc: Mapping[str, Any]) -> tuple[str, bool, list[dict[str, Any]]]:
 # ---- values
 
 def finite_or_text(value: object, original: object) -> object:
-    """`value`, but where it holds a NaN or infinity, `original` (the base's text for it) instead."""
+    """`value`, but where it holds a NaN or infinity, `original` (the text of refkv's own output for
+    it) instead."""
     if isinstance(value, float) and not math.isfinite(value):
         return original
     if isinstance(value, list):
@@ -155,7 +162,7 @@ class XarrayV2:
     def options(self, given: Mapping[str, object]) -> dict[str, object]:
         """`{"unsupported": "reject", "nonfinite": "token"}` by default: whether an array with no
         Zarr v2 form rejects the input or is left out (`"skip"`), and whether a non-finite float
-        attribute is a bare JSON token or the base's text for it (`"text"`)."""
+        attribute is a bare JSON token or the text of refkv's own output for it (`"text"`)."""
         unknown = sorted(set(given) - {"unsupported", "nonfinite"})
         if unknown:
             raise ValueError(f"unknown options {unknown}: {self.name} takes unsupported and nonfinite")
@@ -166,27 +173,30 @@ class XarrayV2:
             raise ValueError(f'nonfinite is "token" or "text", not {out["nonfinite"]!r}')
         return out
 
-    def write(self, base: Base, options: Mapping[str, object]) -> Written:
-        """The file's groups and arrays as Zarr v2, consolidated at the root."""
-        paths = base.nodes(datasets=False)  # the file's own nodes: no IR mirror, no dataset layouts
+    def write(self, inputs: Sequence[Parsed], options: Mapping[str, object]) -> Written:
+        """The file's groups and arrays as Zarr v2, consolidated at the root: the nodes of refkv's
+        own output of the input, each in its v2 form."""
+        [parsed] = inputs
+        pr = project(parsed)
+        paths = pr.nodes(datasets=False)  # the file's own nodes: no IR mirror, no dataset layouts
         present = set(paths)
         docs: dict[str, dict[str, Any]] = {}  # v2 document key -> document
-        chunks: dict[str, EntryValue] = {}
+        chunks: dict[str, Entry] = {}
         arrays: dict[str, tuple[str, list[str | None], list[int]]] = {}  # out path -> (group, names, shape)
         for path in paths:
-            doc = base.document(f"{path}/zarr.json" if path else "zarr.json")
+            doc = pr.document(f"{path}/zarr.json" if path else "zarr.json")
             parent, _, leaf = path.rpartition("/")
             if leaf.startswith(NON_COORD) and leaf != NON_COORD and \
                     "/".join(filter(None, [parent, leaf.removeprefix(NON_COORD)])) not in present:
                 leaf = leaf.removeprefix(NON_COORD)
             out = "/".join(filter(None, [parent, leaf]))
             prefix = f"{out}/" if out else ""
-            attrs = self.attributes(base, path, options)
+            attrs = self.attributes(pr, path, options)
             if doc["node_type"] == "group":
                 docs[f"{prefix}.zgroup"] = {"zarr_format": 2}
             else:
                 try:
-                    zarray, names, held, attrs = self.array(base, path, doc, attrs)
+                    zarray, names, held, attrs = self.array(pr, path, doc, attrs)
                 except NoV2 as e:
                     if options["unsupported"] == "skip":
                         continue
@@ -199,17 +209,17 @@ class XarrayV2:
         for out, names in self.dimensions(arrays).items():
             docs[f"{out}/.zattrs" if out else ".zattrs"]["_ARRAY_DIMENSIONS"] = names
         docs = dict(sorted(docs.items()))
-        entries: dict[str, EntryValue] = {k: dump(d, allow_nan=True) for k, d in docs.items()}
-        entries[".zmetadata"] = dump({"metadata": docs, "zarr_consolidated_format": 1}, allow_nan=True)
-        entries.update(chunks)
-        return Written(entries, read_at_open=[k for k in (".zmetadata", ".zgroup", ".zattrs") if k in entries])
+        documents = {k: dump(d, allow_nan=True) for k, d in docs.items()}
+        documents[".zmetadata"] = dump({"metadata": docs, "zarr_consolidated_format": 1}, allow_nan=True)
+        # every document is placed: the root's and `.zmetadata` are read at open, the others later
+        return Written({**documents, **chunks}, at_open={k: k in AT_OPEN for k in documents})
 
-    def attributes(self, base: Base, path: str, options: Mapping[str, object]) -> dict[str, Any]:
+    def attributes(self, pr: Projected, path: str, options: Mapping[str, object]) -> dict[str, Any]:
         """A node's attributes as the source holds them (`hdf5_attributes`), without netCDF-4's
         bookkeeping, an array of one value as that value."""
-        written = base.attributes(path)  # the base's text for a NaN or infinity, for the option "text"
+        written = pr.attributes(path)  # refkv's own text for a NaN or infinity, for the option "text"
         out = {}
-        for name, value in hdf5_attributes(base, path).items():
+        for name, value in hdf5_attributes(pr, path).items():
             if name in HIDDEN:
                 continue
             one = isinstance(value, list) and len(value) == 1  # as netCDF-4 reads it
@@ -218,20 +228,21 @@ class XarrayV2:
             out[name] = plain if keep else finite_or_text(plain, text)
         return out
 
-    def array(self, base: Base, path: str, doc: Mapping[str, Any], attrs: dict[str, Any]
-              ) -> tuple[dict[str, Any], list[str | None], dict[str, EntryValue], dict[str, Any]]:
-        """A base array's `.zarray`, dimension names (None for an axis it names no dimension of),
-        chunks at v2 keys, and attributes, its netCDF `_FillValue` moved to `fill_value`."""
+    def array(self, pr: Projected, path: str, doc: Mapping[str, Any], attrs: dict[str, Any]
+              ) -> tuple[dict[str, Any], list[str | None], dict[str, Entry], dict[str, Any]]:
+        """The `.zarray` of an array of refkv's own output, its dimension names (None for an axis it
+        names no dimension of), chunks at v2 keys, and attributes, its netCDF `_FillValue` moved to
+        `fill_value`."""
         if doc["chunk_grid"]["name"] != "regular":
             raise NoV2(f"a {doc['chunk_grid']['name']} chunk grid, which Zarr v2 cannot say")
         endian, is_object, chain = v2_coding(doc)
         shape = list(doc["shape"])
         chunk_shape = list(doc["chunk_grid"]["configuration"]["chunk_shape"])
         names: list[str | None] = list(doc.get("dimension_names") or [None] * len(shape))
-        datatype = (base.source_metadata(path) or {}).get("datatype", {})
+        datatype = (pr.source_metadata(path) or {}).get("datatype", {})
         fixed = datatype.get("class") == "string" and doc["data_type"] == "uint8" and shape[-1:] == [datatype["size"]]
         if fixed:  # a fixed-length string: its trailing axis of bytes is the dtype's
-            if chunk_shape[-1] != shape[-1]:  # the base cut a string's bytes across chunks
+            if chunk_shape[-1] != shape[-1]:  # refkv's own output cut a string's bytes across chunks
                 raise NoV2(f"a string of {shape[-1]} bytes cut into chunks of {chunk_shape[-1]}, which a Zarr v2 "
                            "string type cannot hold")
             dtype: object = f"|S{shape.pop()}"
@@ -241,13 +252,13 @@ class XarrayV2:
             dtype = "|O"
         else:
             dtype = v2_dtype(doc["data_type"], endian)
-        base_doc, held = base.array(path)
+        own_doc, held = pr.array_entries(path)
         expected = math.prod(-(-s // c) for s, c in zip(doc["shape"], doc["chunk_grid"]["configuration"]["chunk_shape"],
                                                         strict=True))
         data_type = doc["data_type"] if isinstance(doc["data_type"], str) else None
         number = data_type in DTYPES and not fixed
         mine: Any = hdf5_value(doc["fill_value"], {"class": "float", "size": FLOATS[data_type]}) \
-            if data_type in FLOATS else doc["fill_value"]  # a float fill value as the base writes it
+            if data_type in FLOATS else doc["fill_value"]  # a float fill value as refkv's own output writes it
         nc_fill = attrs.get("_FillValue")
         fill: object = None
         if number and isinstance(nc_fill, (int, float)) and not isinstance(nc_fill, bool):
@@ -266,9 +277,9 @@ class XarrayV2:
         zarray: dict[str, Any] = {"zarr_format": 2, "shape": shape, "chunks": chunk_shape, "dtype": dtype,
                                   "compressor": compressor, "fill_value": fill, "order": "C",
                                   "filters": filters or None, "dimension_separator": "."}
-        v2_chunks: dict[str, EntryValue] = {}
+        v2_chunks: dict[str, Entry] = {}
         for key, value in held.items():
-            coords = chunk_coords(key, base_doc)
+            coords = chunk_coords(key, own_doc)
             if fixed:
                 coords.pop()
             v2_chunks[".".join(map(str, coords)) or "0"] = value

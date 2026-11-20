@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, BinaryIO, cast
+from typing import TYPE_CHECKING, Any, BinaryIO, cast
 
 from refkv import Concat, Range, ReferenceStore, Source, _core
 from refkv.errors import ResolutionError
@@ -26,8 +26,11 @@ from refkv.zarrify.layouts import (
     _deflate_bound,
 )
 
-from .parsed import Parsed
+from . import parsed as _parsed  # the module, its Parsed read at call time: refkv.zarrify imports this one (a cycle)
 from .values import Copy, Data, Literal, Part, Ref, Shared, Value, Written, Zeros, value
+
+if TYPE_CHECKING:
+    from .parsed import Parsed
 
 __all__ = ["CODES", "SealError", "seal"]
 
@@ -78,7 +81,7 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
     try:
         entries = written if isinstance(written, Written) else Written(written)
     except (TypeError, ValueError, AttributeError) as e:
-        raise SealError("value", None, f"an entry is bytes or a value: {e}") from e
+        raise SealError("value", _no_value(written), f"an entry is bytes or a value: {e}") from e
     for k in entries:
         if type(k) is not str:
             raise SealError("key", repr(k), f"keys are str, not {type(k).__name__}")
@@ -158,6 +161,21 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
     return store_of([(k, _checksummed(k, values[k].parts, r)) for k, r in ranges])[0]
 
 
+def _no_value(written: Mapping[str, Any]) -> str | None:
+    """The key of the first entry of `written` that is neither bytes nor a value, when it has one
+    to name: an output that cannot be read as entries at all has none."""
+    try:
+        for k, v in written.items():
+            if not isinstance(v, (bytes, bytearray, memoryview)):
+                try:
+                    value(v)
+                except (TypeError, ValueError, AttributeError):
+                    return k if isinstance(k, str) else repr(k)
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return None
+
+
 def _core_seal(*request: Any) -> tuple[list[tuple[str, int]], list[tuple[str, list[tuple[int, int, int] | bytes]]]]:  # noqa: ANN401
     """The core's seal of `request` (`refkv._core.seal`'s arguments), its refusal a SealError."""
     try:
@@ -196,7 +214,7 @@ def _check_inputs(inputs: Sequence[Parsed], policy: object, registry: object) ->
     """That the inputs go together, as `refkv.compose` treats its operands: one reader policy and
     one registry (unless seal is given them), all read with checksums or none."""
     for p in inputs:
-        if not isinstance(p, Parsed):
+        if not isinstance(p, _parsed.Parsed):
             raise SealError("inputs", None, f"inputs are what refkv.build.read returns, not {type(p).__name__}")
     if len({id(p) for p in inputs}) != len(inputs):
         raise SealError("inputs", None, "an input is given twice")

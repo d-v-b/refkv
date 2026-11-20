@@ -1,6 +1,11 @@
 """The example layout `refkv.example.tiff-pages`: every main-chain IFD of a TIFF as an image of
-its own, its SubIFDs as further levels, built from the IR without `copy` (spec/layout.md
+its own, its SubIFDs as further levels, built from the IR alone (spec/layout.md
 <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>).
+
+It is the first plugin that is a true peer of refkv's own layout: it reads the parsed input's IR
+(its IFDs' tags, their tiles' and strips' members and the values that read them) and nothing of
+refkv's own output, so it never calls `refkv.build.project`, and refkv's own output is not built
+when it runs.
 
 The output is plain Zarr v3: a root group, a group `<n>` for main-chain IFD `n` (`ifds/<n>`), and
 in it an array `0` of the IFD itself and an array `<j + 1>` of each of its SubIFDs
@@ -22,22 +27,24 @@ shape does not decode) is `Rejected`, naming it, unless the option
 `skip` is true: then it is left out, and the root's attribute `skipped` maps its IR path to why.
 Options: `{"skip": false}`.
 
-`check` finds `copy` on its output, and nothing else: where the base stacks an IFD with others
-(a plane of an OME-TIFF, an EER frame), this layout's array of it holds only the base's
-references, built by hand around them with a shape that is no `copy` of the base's array.
+`check` finds `copy` on its output, and nothing else: where refkv's own output stacks an IFD with
+others (a plane of an OME-TIFF, an EER frame), this layout's array of it holds only references
+that output holds too (the IR's, of the same tiles or strips), built by hand around them with a
+shape that is no `copy` of that output's array.
 """
 
 from __future__ import annotations
 
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
+from refkv.build import Parsed, cut
+from refkv.build import Value as Reference
 from refkv.ir import Kind, Value
 from refkv.zarrify import Rejected
 from refkv.zarrify.coding import NoCodec, tiff_byte_order, tiff_codecs, tiff_data_type, tiff_tags
-from refkv.zarrify.layouts import Base, Entries, EntryValue, cut
 from refkv.zarrify.layouts.hierarchy import array, group
 
 PAGE = re.compile(r"ifds/(\d+)")  # a main-chain IFD's name in its parent
@@ -58,13 +65,13 @@ def _one(tags: Mapping[int, Value | None], tag: int, default: int | None = None)
     return first if isinstance(first, int) else default
 
 
-def _level(base: Base, i: int, to: str) -> Entries:
-    """The entries of the array of the IFD that is IR element `i`, at the path `to`."""
-    ir = base.ir
+def _level(parsed: Parsed, i: int, to: str) -> dict[str, bytes | Reference]:
+    """The entries of the array of the IFD that is element `i` of `parsed`'s IR, at the path `to`."""
+    ir = parsed.ir
     if ir.kind(i) == Kind.ALIAS:  # an IFD read twice: its tags are its target's
         i = ir.target(i)
     try:
-        tags = tiff_tags(base, i)
+        tags = tiff_tags(parsed, i)
     except KeyError as e:
         raise Unfit("it has no tags") from e
     width, length = _one(tags, 256), _one(tags, 257)
@@ -103,22 +110,22 @@ def _level(base: Base, i: int, to: str) -> Entries:
     row_length = cols * (spp if interleaved else 1)
     try:
         data_type = tiff_data_type(tags)
-        codecs = tiff_codecs(tags, little_endian=tiff_byte_order(base, i), x_axis=1 if spp == 1 or interleaved else 2,
+        codecs = tiff_codecs(tags, little_endian=tiff_byte_order(parsed, i), x_axis=1 if spp == 1 or interleaved else 2,
                              row_length=row_length, chunk_shape=[rows, cols])
     except NoCodec as e:
         raise Unfit(str(e)) from e
     row_bytes = math.ceil(row_length * (_one(tags, 258, 1) or 1) / 8)
-    members = base.members(table)  # (number, start, length); an alias's are its target's
+    members = parsed.members(table)  # (number, start, length); an alias's are its target's
     held = {k for k, _, _ in members}
     for k, n in enumerate(counts):
         if n and k not in held:
             raise Unfit(f"{name[:-1]} {k} does not lie within the file")
-    chunks: dict[tuple[int, ...], EntryValue] = {}
+    chunks: dict[tuple[int, ...], bytes | Reference] = {}
     for member, (k, _, _) in enumerate(members):
         plane, j = divmod(k, across * down)
         row, col = divmod(j, across)
         try:
-            value = base.reference(table, member)
+            value = parsed.reference(table, member)
         except ValueError as e:  # bytes no range of a source reads
             raise Unfit(str(e)) from e
         if compression == 1:  # exactly its rows: what `bytes` decodes, on either grid
@@ -154,11 +161,13 @@ class TiffPages:
             raise ValueError(f"skip is true or false, not {skip!r}")  # noqa: TRY004 (options() refuses with ValueError)
         return {"skip": skip}
 
-    def write(self, base: Base, options: Mapping[str, Any]) -> Entries:
-        ir = base.ir
+    def write(self, inputs: Sequence[Parsed], options: Mapping[str, Any]) -> dict[str, bytes | Reference]:
+        """The entries of every page's arrays and their groups, from the input's IR alone."""
+        [parsed] = inputs
+        ir = parsed.ir
         # the files: the IR's root, or each file (object) of a store the IR describes
         files = [(f, f"{ir.path(f)}/") for f in range(len(ir)) if ir.kind(f) == Kind.OBJECT] or [(0, "")]
-        out: dict[str, EntryValue] = {}
+        out: dict[str, bytes | Reference] = {}
         skipped: dict[str, str] = {}
         for root, prefix in files:
             pages = sorted((int(m[1]), c) for c in ir.children(root) if (m := PAGE.fullmatch(ir.name(c))))
@@ -166,7 +175,7 @@ class TiffPages:
                 subifds = sorted((int(m[1]) + 1, c) for c in ir.children(page) if (m := SUBIFD.fullmatch(ir.name(c))))
                 for k, i in [(0, page), *subifds]:
                     try:
-                        out |= _level(base, i, f"{prefix}{n}/{k}")
+                        out |= _level(parsed, i, f"{prefix}{n}/{k}")
                     except Unfit as e:
                         if not options["skip"]:
                             raise Rejected(f"{ir.path(i)}: {e} (the option skip leaves it out)") from e

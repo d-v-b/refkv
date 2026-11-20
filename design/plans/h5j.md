@@ -83,7 +83,7 @@ the microscope's data; the comparison is with the decoded stream, not the origin
    one-dimensional `uint8` array of the MP4 file's bytes. Nothing in its IR describes the MP4: to
    the HDF5 parser those bytes are a dataset's data.
 2. **A layout plugin can't add it.** A plugin builds from the base and the IR, with structure only
-   ([layout.md §2](../../spec/layout.md#2-the-base)): it can't read the source's bytes, and the
+   ([layout.md §2](../../spec/layout.md#2-the-inputs)): it can't read the source's bytes, and the
    HDF5 IR holds no sample table, so it can't find the pictures.
 3. **The MP4 profile already reads the channel's bytes,** but rejects the track: it presents HEVC of
    4:2:0 and 4:2:2 only.

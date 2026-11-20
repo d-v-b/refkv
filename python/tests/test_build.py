@@ -96,7 +96,7 @@ def test_seal_of_the_built_in_output_reads_what_zarrify_writes(name, checksums):
         pr = project(p)
         store = seal(pr.written, [p])
         built = zarrify(path, url, checksums=checksums)
-        assert pr.base.checksums is checksums
+        assert pr.checksums is checksums
         assert store.sources == built.sources
         assert store.mapping == built.mapping
         assert sorted(store.read_at_open) == sorted(built.read_at_open)
@@ -136,7 +136,7 @@ def test_project_asked_for_together_makes_one_output():
 
     with read(path) as q:
         from_a_loop = asyncio.run(together(q))
-        assert all(x.base.keys() == from_threads[0].base.keys() for x in from_a_loop)
+        assert all(x.keys() == from_threads[0].keys() for x in from_a_loop)
         assert seal(from_a_loop[0].written, [q]).mapping == zarrify(str(path)).mapping
 
 

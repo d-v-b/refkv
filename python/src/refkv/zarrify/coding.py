@@ -9,7 +9,7 @@ A codec chain starts after any `transpose`, which is the array's, and so the plu
 
     from refkv.zarrify.coding import tiff_codecs, tiff_data_type, tiff_tags
 
-    tags = tiff_tags(base, base.ir.at("ifds/1"))
+    tags = tiff_tags(parsed, parsed.ir.at("ifds/1"))
     data_type = tiff_data_type(tags)
     codecs = tiff_codecs(tags, little_endian=True, x_axis=1, row_length=width)
 """
@@ -27,8 +27,8 @@ from refkv import _core
 from refkv.ir.kind import Kind
 
 if TYPE_CHECKING:
+    from refkv.build import Parsed, Projected
     from refkv.ir import Value
-    from refkv.zarrify.layouts import Base
 
 __all__ = ["NoCodec", "czi_codecs", "dicom_codecs", "gzip_codecs", "hdf5_attributes", "hdf5_value", "tiff_byte_order",
            "tiff_codecs", "tiff_data_type", "tiff_tags", "vsi_codecs"]
@@ -60,14 +60,14 @@ def _tags_json(tags: Mapping[int, Value | None]) -> dict[str, object]:
     return out
 
 
-def tiff_tags(base: Base, i: int) -> dict[int, Value | None]:
+def tiff_tags(parsed: Parsed, i: int) -> dict[int, Value | None]:
     """The tags of the IFD that is IR element `i` (`ifds/<n>`, `ifds/<n>/subifds/<j>`, an Exif
     IFD) by number, each the IR's value as it is (a count-1 tag a one-item list; a rational a
     pair), `None` for one the IR keeps no value of (text of more than 1024 bytes, a value
     outside the file): only a tag's first entry, which the TIFF profile reads (spec/zarrify/tiff.md
     §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#51-elements>). Raises
     KeyError for an element that is no IFD."""
-    ir = base.ir
+    ir = parsed.ir
     if not 0 <= i < len(ir):
         raise KeyError(f"no element {i} in the IR")
     while ir.kind(i) == Kind.ALIAS and ir.target(i) >= 0:  # an IFD read twice: its tags are its target's
@@ -91,10 +91,10 @@ def tiff_data_type(tags: Mapping[int, Value | None]) -> str:
     return str(_call("tiff_data_type", tags=_tags_json(tags)))
 
 
-def tiff_byte_order(base: Base, i: int) -> bool:
+def tiff_byte_order(parsed: Parsed, i: int) -> bool:
     """Whether the TIFF file that holds IR element `i` (an IFD, say) is little-endian (`II`): its
     header's byte order, the file's own for a file of a set read as a store."""
-    ir = base.ir
+    ir = parsed.ir
     at = i
     while at > 0 and ir.kind(at) != Kind.OBJECT:
         at = ir.parent(at)
@@ -183,7 +183,7 @@ def hdf5_value(value: object, datatype: Mapping[str, Any] | None) -> object:
     return value
 
 
-def hdf5_attributes(base: Base, path: str) -> dict[str, Any]:
+def hdf5_attributes(base: Projected, path: str) -> dict[str, Any]:
     """The HDF5 attributes of the node at `path`, as the source holds them (`base.attributes` with
     spec/zarrify/hdf5.md §6
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>'s encodings

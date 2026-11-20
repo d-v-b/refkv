@@ -1,20 +1,23 @@
 """Layouts defined outside refkv (spec/layout.md
 <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): a Python package writes the whole
-hierarchy of a zarrify call's output itself, built from what a built-in profile read, its output
-(the base) and its IR, and refkv writes exactly what it returns, once it has checked that every
-reference reads bytes of a source refkv opened and that the archive can hold it.
+hierarchy of a zarrify call's output itself, from the input as refkv parsed it, and refkv writes
+exactly what it returns, once it has checked that every reference reads bytes of a source refkv
+opened and that the archive can hold it. A plugin layout is a projection of the input's IR, as
+refkv's own output is: it is given no output of refkv's, and builds on one only where it asks
+for it (`refkv.build.project`).
 
 A plugin is an object registered under the entry-point group `refkv.layouts`, its key the
 layout's name, or given to `Layout` itself, with these attributes:
 
 - `name`: the layout's name, `<distribution>.<layout>`, the entry point's key;
-- `formats`: `"*"`, or the base profiles it reads, file or store profiles, each with the versions
+- `formats`: `"*"`, or the profiles it reads, file or store profiles, each with the versions
   of its convention it reads (`{"tiff": {0}, "hdf5": {0}, "zarr2": {0}}`); names this refkv has no
   profile of are ignored;
 - `options(given)`: the options in canonical form, a JSON object, or ValueError;
-- `write(base, options)`: the output's entries, keys from its root, built from `base` (a
-  `Base`), as a mapping or a `Written`; it raises `refkv.zarrify.Rejected` for an input it
-  cannot present.
+- `write(inputs, options)`: the output's entries, keys from its root, built from `inputs`, the
+  parsed inputs of the call (each a `refkv.build.Parsed`; a `zarrify` call gives one), as a
+  mapping of keys to bytes or values or a `refkv.build.Written`; it raises
+  `refkv.zarrify.Rejected` for an input it cannot present.
 
     from refkv.zarrify import zarrify
     from refkv.zarrify.layouts import Layout
@@ -22,9 +25,12 @@ layout's name, or given to `Layout` itself, with these attributes:
     store = zarrify("image.ome.tif", layout=Layout("acme-ome.ome06"))
     store.mapping["zarr.json"]  # the plugin's root
 
-The checks guard against a plugin's mistakes, not against a hostile plugin, which is code
-running in the caller's process. `refkv.zarrify.layouts.hierarchy` (the `layouts` extra) builds
-and checks Zarr documents; `refkv.zarrify.coding` turns coding parameters into codecs.
+`refkv.build` holds what a plugin builds with: the values that name the bytes they read,
+`project` for refkv's own output of an input, and `seal`, the check refkv applies to what a
+plugin returns (`refkv.build.apply`). The check guards against a plugin's mistakes, not against a
+hostile plugin, which is code running in the caller's process. `refkv.zarrify.layouts.hierarchy`
+(the `layouts` extra) builds and checks Zarr documents; `refkv.zarrify.coding` turns coding
+parameters into codecs.
 """
 
 from __future__ import annotations
@@ -35,33 +41,32 @@ import importlib.metadata
 import io
 import json
 import math
-import os
 import re
 import struct
 import types
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, BinaryIO, Protocol, cast, override
+from typing import TYPE_CHECKING, Any, Protocol, override
 
 import refkv.ir  # its Ir, read at call time: refkv.ir imports this module's package
-import refkv.zarrify as _zarrify  # the zarrify call `base` makes: read at call time (a cycle)
 from refkv.ir.kind import Kind
 from refkv.ir.store import StoreIrOutput
 from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy
-from refkv.reader import Registry, Resolver
+from refkv.reader import Registry
 from refkv.refstore import ReferenceStore
-from refkv.vzip.names import INDEX_KEY, RESERVED_PREFIX, SOURCES_KEY
-from refkv.zarrify.common import MAX_PAYLOAD, PAGE_SIZE, PROFILES, Output, Rejected
+from refkv.vzip.names import RESERVED_PREFIX
+from refkv.zarrify.common import MAX_PAYLOAD, PROFILES, Output, Rejected
 from refkv.zarrify.profiles import REGISTRY
 
 if TYPE_CHECKING:
+    from refkv.build import Parsed, Value, Written
     from refkv.ir import Ir
 
-__all__ = ["BASE_PROFILES", "MAX_PAYLOAD", "MIRROR", "Base", "Entries", "EntryValue", "Layout",
-           "LayoutFailed", "LayoutRejected", "LayoutUsageError", "Plugin", "Written", "base", "base_async",
+__all__ = ["BASE_PROFILES", "MAX_PAYLOAD", "MIRROR", "Entries", "EntryValue", "Layout",
+           "LayoutFailed", "LayoutRejected", "LayoutUsageError", "Plugin", "Problem",
            "chunk_coords", "chunk_key", "concat", "cut", "dump", "encode_entries", "fill_value", "payload_size",
-           "without_checksums"]
+           "plan", "without_checksums"]
 
 type EntryValue = bytes | Range | Concat  # a value of an output's entry
 type Entries = dict[str, EntryValue]  # an output's entries, keys from its root, as a plugin builds them
@@ -122,19 +127,7 @@ class Plugin(Protocol):
 
     def options(self, given: Mapping[str, Any]) -> Mapping[str, Any]: ...
 
-    def write(self, base: Base, options: Mapping[str, Any]) -> Mapping[str, bytes | Range | Concat] | Written: ...
-
-
-@dataclass(frozen=True)
-class Written:
-    """What `write` may return in place of its entries: `entries`, keys from the output's root;
-    `read_at_open`, the keys of bytes entries a vzip reader is given when it opens the archive
-    (None: refkv's default, spec/layout.md); `stored`, the keys of bytes entries kept
-    uncompressed. A phkv store ignores both."""
-
-    entries: Mapping[str, EntryValue]
-    read_at_open: Iterable[str] | None = None
-    stored: Iterable[str] = ()
+    def write(self, inputs: Sequence[Parsed], options: Mapping[str, Any]) -> Mapping[str, bytes | Value] | Written: ...
 
 
 def _text(e: BaseException) -> str:
@@ -399,12 +392,13 @@ def _prefix(path: str) -> str:
     return f"{path}/" if path else ""
 
 
-class Base:
-    """The built-in profile's output as a plugin sees it (spec/layout.md
-    <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): every layout the format has, its
+class _Base:
+    """A built-in profile's output of an input, held for `refkv.build.Projected`, which is how a
+    caller or a plugin reaches it (`refkv.build.project`); internal, and no part of what a plugin
+    is given. It holds every layout the format has, the output's
     root as refkv writes it, no checksums, and the IR it was projected from, with the bridges
     between them. Each accessor returns new objects; one that is given a key, path or element the
-    base does not have raises KeyError naming it.
+    output does not have raises KeyError naming it.
 
     - `profile`, `version`, `uuid`: the profile that read the input (a TIFF the parser found to
       be NDPI is `ndpi`), and its convention's version and UUID; `checksums`, whether the call
@@ -871,8 +865,8 @@ class Base:
         least that long, else of source `len(base.sources)`, the zero data source refkv adds
         after the table's sources when the output references it, as long as the most bytes the
         output reads of it (spec/layout.md §4
-        <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#4-writing-the-output>), for
-        padding a chunk at an array's edge. A range of that source is the same whatever `Base`
+        <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#4-sealing-the-output>), for
+        padding a chunk at an array's edge. A range of that source is the same whatever `_Base`
         made it."""
         if type(n) is not int or n < 0:
             raise ValueError(f"{n!r} zero bytes: a natural number of them")
@@ -883,7 +877,7 @@ class Base:
 
     def fits(self, value: object) -> str | None:
         """Why refkv would not write `value` in this base's output (spec/layout.md §4
-        <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#4-writing-the-output>), or None:
+        <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#4-sealing-the-output>), or None:
         a reference value whose ranges lie outside the base's sources, or whose payload could pass
         65519 bytes once checksummed. How many reads a value takes is its reader's limit (spec/refkv.md
         §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5)."""
@@ -1001,7 +995,7 @@ def payload_size(value: Range | Concat, *, checksums: bool = False) -> int:
     """A value's payload in bytes, as refkv measures it against the limit of 65519 (spec/zarrify.md
     §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): with `checksums`,
     the most they can add, a 6-byte `crc32c` field a source range (an upper bound: a range of a
-    data source gets none, which `Base.fits` knows)."""
+    data source gets none, which `_Base.fits` knows)."""
     extra = CRC_FIELD * sum(1 for r in _parts(value) if r.data is None and r.crc32c is None) if checksums else 0
     bare = value if isinstance(value, Range) or len(value.parts) != 1 else value.parts[0]
     return len(bare.encode()) + extra
@@ -1040,12 +1034,12 @@ def _float(value: object, size: int) -> float:
     raise ValueError(f"{value!r} is not a fill value of a {8 * size}-bit float")
 
 
-def _url(r: Range, base: Base) -> bool:
+def _url(r: Range, base: _Base) -> bool:
     """Whether `r` is a range of a url source of `base`'s table."""
     return r.data is None and r.source < len(base.sources) and base.sources[r.source].url is not None
 
 
-def _payload(value: Range | Concat, base: Base, checksums: bool) -> int:
+def _payload(value: Range | Concat, base: _Base, checksums: bool) -> int:
     """A value's payload, with the most checksums can add to its ranges of url sources."""
     extra = CRC_FIELD * sum(1 for r in _parts(value) if _url(r, base) and r.crc32c is None) if checksums else 0
     bare = value if isinstance(value, Range) or len(value.parts) != 1 else value.parts[0]
@@ -1053,7 +1047,7 @@ def _payload(value: Range | Concat, base: Base, checksums: bool) -> int:
 
 
 def without_checksums(value: Range | Concat) -> Range | Concat:
-    """`value` with no checksum on any range: as `Base` gives values, and as outputs are
+    """`value` with no checksum on any range: as `_Base` gives values, and as outputs are
     compared (spec/zarrify.md §1.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence>)."""
     return _without_checksum(value)
 
@@ -1068,17 +1062,6 @@ class Problem:
     key: str | None
     code: str
     message: str
-
-
-@dataclass
-class Prepared:
-    """A plugin's output as refkv writes it: its values, with references swapped for the base's
-    or stripped of checksums, and which bytes entries are read at open and which compressed."""
-
-    values: dict[str, bytes | Range | Concat]
-    read_at_open: set[str]
-    compressed: set[str]
-    fresh: set[str]  # the keys of references that are not the base's, which get checksums
 
 
 def _key_problem(key: object) -> str | None:
@@ -1101,7 +1084,7 @@ def _int(v: object) -> bool:
     return type(v) is int and v >= 0
 
 
-def _range_problem(r: object, base: Base) -> str | None:
+def _range_problem(r: object, base: _Base) -> str | None:
     """Why a part of a plugin's reference is not one refkv writes (spec/layout.md), or None."""
     if type(r) is not Range:
         return f"a part is a Range, not {type(r).__name__}"
@@ -1119,7 +1102,7 @@ def _range_problem(r: object, base: Base) -> str | None:
     end = r.offset + r.length
     if end > MAX_OFFSET:
         return "a range ends past 2^64 - 1"
-    if r.source == len(base.sources):  # the zero source refkv adds (`Base.zeros`), as long as the output reads
+    if r.source == len(base.sources):  # the zero source refkv adds (`_Base.zeros`), as long as the output reads
         if end > MAX_OPEN:
             return f"bytes {r.offset} to {end} of the zero source, past the {MAX_OPEN} of a source table"
         return None
@@ -1127,7 +1110,7 @@ def _range_problem(r: object, base: Base) -> str | None:
         return f"source {r.source} is not in the base's table ({len(base.sources)} sources)"
     s = base.sources[r.source]
     if s.url is not None:
-        size = base._sizes[r.source]  # noqa: SLF001 (the module's own Base)
+        size = base._sizes[r.source]  # noqa: SLF001 (the module's own _Base)
         if size is None:
             return f"source {r.source}'s size is not known, so a range of it cannot be checked"
         if end > size:
@@ -1140,7 +1123,7 @@ def _range_problem(r: object, base: Base) -> str | None:
     return f"source {r.source} is a key source, which a plugin's output does not reference"
 
 
-def _value_problem(v: object, base: Base) -> str | None:
+def _value_problem(v: object, base: _Base) -> str | None:
     """Why a value is neither bytes nor a reference value refkv writes for `base`, or None."""
     if type(v) in (bytes, bytearray, memoryview):
         return None
@@ -1153,94 +1136,6 @@ def _value_problem(v: object, base: Base) -> str | None:
     if why is None and sum(r.size for r in parts) > MAX_OFFSET:
         why = "its ranges total more than 2^64 - 1 bytes"
     return why
-
-
-def _unpacked(written: object) -> tuple[Mapping[Any, Any], object, object] | str:
-    """(entries, read_at_open, stored) of what `write` returned, or why it is neither a mapping
-    nor a Written."""
-    if isinstance(written, Written):
-        if not isinstance(written.entries, Mapping):
-            return f"Written's entries are a mapping, not {type(written.entries).__name__}"
-        return written.entries, written.read_at_open, written.stored
-    if isinstance(written, Mapping):
-        return written, None, ()
-    return f"write() returned {type(written).__name__}, not a mapping of keys to entries or a Written"
-
-
-def _key_set(name: str, keys: object) -> set[str] | str:
-    if isinstance(keys, (str, bytes)) or not isinstance(keys, Iterable):
-        return f"{name} is an iterable of keys, not {type(keys).__name__}"
-    out = set()
-    for k in keys:
-        if type(k) is not str:
-            return f"{name} holds keys (str), not {type(k).__name__}"
-        out.add(k)
-    return out
-
-
-def prepare(base: Base, written: object) -> tuple[Prepared, list[Problem]]:
-    """A plugin's output as refkv writes it, and the problems that keep `zarrify` from writing it
-    (codes `key`, `reference` and `open`; spec/layout.md)."""
-    problems: list[Problem] = []
-    unpacked = _unpacked(written)
-    if isinstance(unpacked, str):
-        return Prepared({}, set(), set(), set()), [Problem(None, "reference", unpacked)]
-    entries, read_at_open, stored = unpacked
-    values: dict[str, bytes | Range | Concat] = {}
-    fresh: set[str] = set()
-    for k, v in list(entries.items()):
-        why = _key_problem(k)
-        if why:
-            problems.append(Problem(k if isinstance(k, str) else repr(k), "key", why))
-            continue
-        if type(v) in (bytes, bytearray, memoryview):
-            values[k] = bytes(v)
-            continue
-        why = _value_problem(v, base)
-        if why:
-            problems.append(Problem(k, "reference", why))
-            continue
-        known = base.base_value(v)
-        if known is not None:
-            values[k] = known
-            continue
-        bare = tuple(dataclasses.replace(r, crc32c=None) for r in _parts(v))
-        value: Range | Concat = bare[0] if len(bare) == 1 else Concat(bare)
-        values[k] = value
-        fresh.add(k)
-        if payload_size(value) > MAX_PAYLOAD and not base.checksums:
-            problems.append(Problem(k, "reference", f"a payload of {payload_size(value)} bytes, more than "
-                                                    f"{MAX_PAYLOAD}"))
-    sets: dict[str, set[str]] = {}
-    for name, keys in (("read_at_open", read_at_open), ("stored", stored)):
-        if keys is None:
-            continue
-        got = _key_set(name, keys)
-        if isinstance(got, str):
-            problems.append(Problem(None, "open", got))
-            continue
-        problems.extend(Problem(k, "open", f"{name} names {k!r}, which is not a bytes entry of the output")
-                        for k in sorted(got) if not isinstance(values.get(k), bytes))
-        sets[name] = got & {k for k, v in values.items() if isinstance(v, bytes)}
-    if "read_at_open" in sets:
-        at_open = sets["read_at_open"]
-    else:
-        at_open = set()
-        for k, v in values.items():
-            if not isinstance(v, bytes):
-                continue
-            if base._values.get(k) == v:  # noqa: SLF001 (the module's own Base): the base's placement
-                if k in base._read_at_open:  # noqa: SLF001
-                    at_open.add(k)
-            elif k.rpartition("/")[2] in DOCUMENTS:
-                at_open.add(k)
-    kept = sets.get("stored", set())
-    compressed = {k for k, v in values.items() if isinstance(v, bytes) and k not in at_open and k not in kept
-                  and _deflate_bound(len(v)) < STORED}
-    opened = sum(len(values[k]) for k in at_open)  # type: ignore[arg-type]
-    if opened > MAX_OPEN:
-        problems.append(Problem(None, "open", f"{opened} bytes read at open, more than {MAX_OPEN}"))
-    return Prepared(values, at_open, compressed, fresh), problems
 
 
 def _deflate_bound(n: int) -> int:
@@ -1260,71 +1155,9 @@ class _Counting(io.RawIOBase):
         return len(b)
 
 
-def store_of(base: Base, prepared: Prepared, *, policy: Policy | None, info: Mapping[str, object],
-             registry: Registry | None = None,
-             checksum: Callable[[str, int, int], int] | None = None) -> tuple[ReferenceStore, list[Problem]]:
-    """The output as a `refkv.ReferenceStore`, references first and then bytes entries, each by
-    key, the plugin's own ranges checksummed with `checksum(url, offset, length)` when given; and
-    the problems of the archive it makes (code `reference`, a payload past the limit with its
-    checksums; `archive`, what the writer refuses or a reader would)."""
-    problems: list[Problem] = []
-    sources = list(base.sources)
-    added = len(sources)  # the index of the zero data source `Base.zeros` names
-    zeros = max((r.offset + r.length for v in prepared.values.values() if not isinstance(v, bytes)
-                 for r in _parts(v) if r.data is None and r.source == added), default=None)
-    zero_at = added
-    if zeros is not None:  # as long as the output reads, or the base's own when that is long enough
-        own = base.zero_source
-        if own is not None and own[1] >= zeros:
-            zero_at = own[0]
-        else:
-            sources.append(Source(data=bytes(zeros)))
-
-    def checked(r: Range) -> Range:
-        if checksum is None or r.data is not None:
-            return r
-        url = sources[r.source].url
-        return r if url is None else dataclasses.replace(r, crc32c=checksum(url, r.offset, r.length))
-
-    mapping: dict[str, bytes | Range | Concat] = {}
-    for k in sorted(k for k, v in prepared.values.items() if not isinstance(v, bytes)):
-        v = prepared.values[k]
-        if k in prepared.fresh:
-            done = tuple(checked(dataclasses.replace(r, source=zero_at) if r.data is None and r.source == added
-                                 else r) for r in _parts(v))  # type: ignore[arg-type]
-            v = done[0] if len(done) == 1 else Concat(done)
-            if payload_size(v) > MAX_PAYLOAD:
-                problems.append(Problem(k, "reference", f"a payload of {payload_size(v)} bytes with its checksums, "
-                                                        f"more than {MAX_PAYLOAD}"))
-        mapping[k] = v
-    for k in sorted(k for k, v in prepared.values.items() if isinstance(v, bytes)):
-        mapping[k] = prepared.values[k]
-    store = ReferenceStore(mapping, sources, read_at_open=sorted(prepared.read_at_open),
-                           compressed=sorted(prepared.compressed), page_size=PAGE_SIZE, policy=policy,
-                           registry=registry, info=info)
-    if not problems:
-        try:
-            # the structure only: compression makes it no larger
-            sink = cast("BinaryIO", _Counting())
-            _, _, sizes = store._write_vzip(sink, sources, mirror_refs=True, page_size=PAGE_SIZE,  # noqa: SLF001
-                                            compress=False)
-        except ValueError as e:
-            problems.append(Problem(None, "archive", f"the archive cannot be written: {e}"))
-        else:
-            problems.extend(Problem(None, "archive", f"its {key} would be {sizes[key]} bytes, more than the "
-                                                     f"{MAX_OPEN} a reader reads by default")
-                            for key in (SOURCES_KEY, INDEX_KEY) if sizes.get(key, 0) > MAX_OPEN)
-            # a phkv store's page index can hold every key, each with its page's three varints
-            keys = sum(len(k.encode()) + PAGE_ENTRY for k in mapping)
-            if keys > MAX_OPEN:
-                problems.append(Problem(None, "archive", f"its keys and their page entries total {keys} bytes, "
-                                                         f"more than the {MAX_OPEN} a phkv reader reads at open"))
-    return store, problems
-
-
-def base_of(out: Output | StoreIrOutput, fmt: str, policy: Policy | None,
-            registry: Registry | None = None, *, checksums: bool | None = None) -> tuple[Base, ReferenceStore]:
-    """The `Base` of a file input's output, and the output as a store (reading its sources under
+def _base_of(out: Output | StoreIrOutput, fmt: str, policy: Policy | None,
+            registry: Registry | None = None, *, checksums: bool | None = None) -> tuple[_Base, ReferenceStore]:
+    """The `_Base` of a file input's output, and the output as a store (reading its sources under
     `policy`, with the object stores of `registry`). `checksums`: whether the call asks for them
     (default: whether the output checksums its ranges)."""
     store = out.to_store(policy=policy, registry=registry, info={"format": fmt, **out.summary})
@@ -1337,64 +1170,4 @@ def base_of(out: Output | StoreIrOutput, fmt: str, policy: Policy | None,
         objects: list[str] = []
         sizes = [out.size] + [None] * (len(store._sources) - 1)  # noqa: SLF001
     checksums = out.checksum is not None if checksums is None else checksums
-    return Base(store, refkv.ir.Ir(out.ir), checksums=checksums, objects=objects, sizes=sizes), store
-
-
-def apply(out: Output | StoreIrOutput, fmt: str, policy: Policy | None, planned: Planned,
-          registry: Registry | None = None) -> ReferenceStore:
-    """The output of a call that names a plugin layout (spec/layout.md): the plugin's `write`
-    run on its base, checked and written. Raises LayoutRejected or LayoutFailed."""
-    base, store = base_of(out, fmt, policy, registry)
-    name = planned.name
-    if not planned.reads(base.profile, base.version):
-        reads = "every profile" if isinstance(planned.formats, frozenset) else ", ".join(
-            f"{k} v{', v'.join(str(v) for v in sorted(vs))}" for k, vs in sorted(planned.formats.items())
-            if k in BASE_PROFILES and vs) or "no version of any"
-        raise LayoutRejected(f"{name} does not read the {base.profile} profile's convention at version "
-                             f"{base.version} (it reads {reads})")
-    try:  # prepare reads what write returned, a plugin's mapping or generators among it: its code too
-        written = planned.plugin.write(base, planned.fresh_options())
-        prepared, problems = prepare(base, written)
-    except Rejected as e:
-        raise LayoutRejected(f"{name}: {_text(e)}") from e
-    except BaseException as e:  # any of a plugin's, made a failure
-        raise LayoutFailed(f"{name}: {described(e)}") from e
-    if problems:
-        raise LayoutFailed(_failure(name, problems))
-    info = {**store.info, "layouts": [name]}
-    # the base store's policy, which reads the input's own files as well as `policy` allows
-    result, problems = store_of(base, prepared, policy=store.policy, info=info, checksum=out.checksum,
-                                registry=registry)
-    if problems:
-        raise LayoutFailed(_failure(name, problems))
-    return result
-
-
-def _failure(name: str, problems: Sequence[Problem]) -> str:
-    p = problems[0]
-    more = f" (and {len(problems) - 1} more)" if len(problems) > 1 else ""
-    return f"{name}: {p.key + ': ' if p.key else ''}{p.message}{more}"
-
-
-# ---- a base for tests and notebooks
-
-async def base_async(location: str | os.PathLike[str], url: str | None = None, *, checksums: bool = False,
-                     policy: Policy | None = None, registry: Registry | None = None) -> Base:
-    """The `Base` a plugin is given for the file or store at `location`, read as `zarrify` reads
-    it: for a plugin's tests, and a notebook. Raises what `zarrify` raises for the input, and
-    LayoutUsageError for one whose output has no IR (a store of DICOM files). `registry` is the
-    application's object stores by URL prefix, as `zarrify` takes them."""
-    location = os.fspath(location)
-    resolver = Resolver(registry)
-    fmt, out = await _zarrify._zarrify_async(location, url, checksums=checksums, policy=policy,  # noqa: SLF001
-                                             registry=resolver, written=False)
-    if not isinstance(out, (Output, StoreIrOutput)) or out.ir is None:
-        raise LayoutUsageError(f"{location}: its output has no IR, so it takes no layout")
-    return base_of(out, fmt, policy, resolver)[0]
-
-
-def base(location: str | os.PathLike[str], url: str | None = None, *, checksums: bool = False,
-         policy: Policy | None = None, registry: Registry | None = None) -> Base:
-    """`base_async`, the caller's thread waiting for it."""
-    return _zarrify._sync.run(base_async(location, url, checksums=checksums, policy=policy,  # noqa: SLF001
-                                         registry=registry))
+    return _Base(store, refkv.ir.Ir(out.ir), checksums=checksums, objects=objects, sizes=sizes), store

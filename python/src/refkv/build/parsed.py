@@ -1,6 +1,6 @@
 """Reading an input for an output built with `refkv.build`: `read`, and the `Parsed` it returns, with
-accessors of the IR like those of `refkv.zarrify.layouts.Base`, which keeps its own until the plugin
-layer moves onto `Parsed` (the design of d-v-b/refkv#278, "Reading" and "References and values").
+the accessors that turn the IR's elements into values (the design of d-v-b/refkv#278, "Reading" and
+"References and values"). A `Parsed` is what a plugin layout is given of each input.
 
 `read` runs `zarrify`'s own parse, so that sniffing, siblings, pins, the reader policy and the
 object stores are exactly `zarrify`'s, and stops there: it keeps the IR and the sources it
@@ -19,21 +19,26 @@ import threading
 import warnings
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Self, overload
+from typing import TYPE_CHECKING, Any, Self, overload
 
+import refkv.ir  # its Ir, read at call time: refkv.ir imports refkv.zarrify, which imports this module (a cycle)
+import refkv.zarrify as _zarrify  # its parse, read at call time: refkv.zarrify imports this module (a cycle)
 from refkv import Range, ReferenceStore, Source, _sync
-from refkv.ir import Ir
 from refkv.ir.kind import Kind
 from refkv.ir.store import StoreIrOutput, StoreParse
 from refkv.policy import Policy
 from refkv.reader import Registry, Resolver
 from refkv.uri import path_reference
-from refkv.zarrify import _Parse, _parse_async, is_store
 from refkv.zarrify.common import PROFILES, Output, reading_own_files
 from refkv.zarrify.layouts import MERGE_GAP
 from refkv.zarrify.store.urls import object_url
 
 from .values import Part, Ref, Shared, Value
+
+if TYPE_CHECKING:
+    from refkv.ir import Ir
+    from refkv.zarrify import _Parse
+    from refkv.zarrify.store.beside import Scope
 
 __all__ = ["Parsed", "read", "read_async"]
 
@@ -77,7 +82,7 @@ class Parsed:
         self.checksums = checksums
         self.max_bytes = max_bytes
         self._read = 0  # bytes `bytes` has read from sources
-        self._ir = Ir(run.ir)
+        self._ir = refkv.ir.Ir(run.ir)
         # the profile the run decided, and the version of its convention, as an output's root
         # declares them
         self.profile: str = parse.fmt
@@ -538,27 +543,42 @@ async def read_async(location: str | os.PathLike[str], url: str | None = None, *
     location = os.fspath(location)
     resolver = Resolver(registry)
     # the built-in output, if asked for, is only built from: `seal` holds what is written to the limits
-    parse = await _parse_async(location, url, checksums=checksums, policy=policy, registry=resolver, written=False)
-    if not isinstance(parse, _Parse):
+    parse = await _zarrify._parse_async(location, url, checksums=checksums, policy=policy,  # noqa: SLF001
+                                        registry=resolver, written=False)
+    if not isinstance(parse, _zarrify._Parse):  # noqa: SLF001
         raise ValueError(f"{location}: its run keeps no IR, so refkv.build cannot read it")  # noqa: TRY004 (an input refkv.build does not read, not a wrong argument type)
+    return await parsed_async(parse, location, url, policy=policy, registry=registry, resolver=resolver,
+                              checksums=checksums, max_bytes=max_bytes)
+
+
+async def parsed_async(parse: _Parse, location: str, url: str | None, *, policy: Policy | None,
+                       registry: Registry | None, resolver: Resolver, checksums: bool,
+                       max_bytes: int = MAX_BYTES, scope: Scope | None = None) -> Parsed:
+    """The `Parsed` of a parse `refkv.zarrify` made of the input at `location` (named `url`),
+    which it closes with it: for `read`, and for `zarrify` with a plugin layout, which parses
+    with its own options. `scope` is the scope the input was parsed with."""
     run = parse.parse
     read_base = None
-    if isinstance(run, StoreParse) and url is not None and is_store(location):
-        # a store's objects lie under it, where `read` opened them; the output names them under `url`
-        read_base = location if "://" in location else path_reference(os.path.abspath(location))  # noqa: PTH100, ASYNC240 (no I/O: the path made absolute)
-        read_base = read_base if read_base.endswith("/") else read_base + "/"
-    elif isinstance(run, StoreParse) and url is not None:
-        # a file read as a store, its objects found beside it: read again as `read` opened them
-        local = await _parse_async(location, None, policy=policy, registry=resolver)
-        there = local.parse if isinstance(local, _Parse) else None
-        if isinstance(local, _Parse):
-            local.close()  # read for where its objects lie, and their sizes
-        if not isinstance(there, StoreParse) or sorted(there.sizes.items()) != sorted(run.sizes.items()):
-            parse.close()
-            raise ValueError(f"{location}: its objects, read at {location} and named under {url}, differ")
-        read_base = there.url
-    return Parsed(parse, location, policy=policy, registry=resolver, checksums=checksums, max_bytes=max_bytes,
-                  registry_given=registry, read_base=read_base)
+    try:
+        if isinstance(run, StoreParse) and url is not None and _zarrify.is_store(location):
+            # a store's objects lie under it, where `read` opened them; the output names them under `url`
+            read_base = location if "://" in location else path_reference(os.path.abspath(location))  # noqa: PTH100, ASYNC240 (no I/O: the path made absolute)
+            read_base = read_base if read_base.endswith("/") else read_base + "/"
+        elif isinstance(run, StoreParse) and url is not None:
+            # a file read as a store, its objects found beside it: read again as `read` opened them
+            local = await _zarrify._parse_async(location, None, policy=policy, registry=resolver,  # noqa: SLF001
+                                                fmt=parse.fmt, scope=scope)
+            there = local.parse if isinstance(local, _zarrify._Parse) else None  # noqa: SLF001
+            if isinstance(local, _zarrify._Parse):  # noqa: SLF001
+                local.close()  # read for where its objects lie, and their sizes
+            if not isinstance(there, StoreParse) or sorted(there.sizes.items()) != sorted(run.sizes.items()):
+                raise ValueError(f"{location}: its objects, read at {location} and named under {url}, differ")  # noqa: TRY301
+            read_base = there.url
+        return Parsed(parse, location, policy=policy, registry=resolver, checksums=checksums, max_bytes=max_bytes,
+                      registry_given=registry, read_base=read_base)
+    except BaseException:
+        parse.close()
+        raise
 
 
 def read(location: str | os.PathLike[str], url: str | None = None, *, policy: Policy | None = None,

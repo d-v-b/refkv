@@ -5,19 +5,21 @@ hierarchy for every file and store profile, with none of refkv's declarations an
 (spec/conventions.md §9
 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>), keeping the
 image layout alone; a dataset group it keeps no longer says it is one, as its own declaration
-said. Its documents are the base's, written with `dump`, so it runs without the `layouts` extra.
+said. Its documents are those of refkv's own output (`refkv.build.project`), written with `dump`,
+so it runs without the `layouts` extra. It is the one shipped plugin that is refkv's output by
+design: the others ask for it only where the IR's descriptions do not yet give them what they need.
 
     python -m refkv.zarrify image.ome.tif out.vzip --layout refkv.example.bare
 
-Every array is the base's array, document and chunks, with the node's attributes as
-`Base.attributes` gives them, so `check` finds no problem of any code on its output: the
+Every array is an array of refkv's output, document and chunks, with the node's attributes as
+`Projected.attributes` gives them, so `check` finds no problem of any code on its output: the
 references are where `copy` puts them (no `copy`), no node keeps refkv's members (no `refkv`),
-and every node's parent is a group the base wrote (no `parent`, no `orphan`).
+and every node's parent is a group refkv wrote (no `parent`, no `orphan`).
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
-from refkv.zarrify.layouts import Base, Entries
+from refkv.build import Parsed, Written, project
 
 
 class Bare:
@@ -34,6 +36,8 @@ class Bare:
             raise ValueError(f"dataset is true or false, not {dataset!r}")
         return {"dataset": dataset}
 
-    def write(self, base: Base, options: Mapping[str, object]) -> Entries:
-        """The base's entries without refkv's declarations, but those of the left-out nodes."""
-        return base.entries(declarations=False, mirror=False, datasets=bool(options["dataset"]))
+    def write(self, inputs: Sequence[Parsed], options: Mapping[str, object]) -> Written:
+        """The entries of refkv's own output of the input, without refkv's declarations, but
+        those of the left-out nodes."""
+        [parsed] = inputs
+        return project(parsed).entries(declarations=False, mirror=False, datasets=bool(options["dataset"]))
