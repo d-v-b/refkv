@@ -18,6 +18,7 @@ routines that build on them come later.
 from refkv.zarrify.layouts import MAX_PAYLOAD
 
 from .convention import declaration, filled, grid, gzip_member, mirror
+from .formats import fits_arrays, fits_cards
 from .parsed import MAX_BYTES, NoIrError, Parsed, read, read_async
 from .plugin import apply
 from .project import Projected, project, project_async
@@ -67,6 +68,8 @@ __all__ = [
     "declaration",
     "filled",
     "fits",
+    "fits_arrays",
+    "fits_cards",
     "grid",
     "gzip_member",
     "mirror",

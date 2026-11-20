@@ -172,6 +172,7 @@ call, so that a caller's output can keep any piece of refkv's convention without
 | `filled(value)` | a value with a `Copy` as its bytes, read through the input; any other value as it is |
 | `gzip_member(stream, crc32=, size=)` | a raw deflate stream (a ZIP member's) framed as the gzip member the `gzip` codec reads, the stream referenced where it lies |
 | `mirror(parsed)` | the IR mirror's entries under `refkv_source` ([conventions §8](../spec/conventions.md#8-the-ir-mirror)), with their placement: the table, the view, and the keys a store's or an archive's listing ignored, which the convention records there. A store's objects under `refkv_source/objects` are its projection's to write |
+| `fits_arrays(parsed, index)`, `fits_cards(parsed, index)` | a FITS HDU's arrays as the FITS convention writes them (an image, a table's `rows` and `heap`, a tile-compressed image), but for refkv's declarations, and its header's cards as that convention writes them in JSON; the `refkv.virtualizarr` layout presents FITS files with them |
 | `declaration(parsed, path, own=, attributes=)` | a node's attributes with refkv's convention declared ([conventions §2](../spec/conventions.md#2-attributes)): at the root, the profile, its version and the source |
 
 ```python

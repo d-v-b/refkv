@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 from unittest import mock
@@ -37,7 +38,7 @@ from zarr.core.metadata import ArrayV3Metadata
 from zarr.core.sync import sync
 
 import refkv.zarr
-from refkv.build import Projected, Ref, Value, Written, project, read, seal
+from refkv.build import Parsed, Projected, Ref, Value, Written, project, read, seal
 from refkv.zarrify import zarrify
 from refkv.zarrify.layouts import Layout, LayoutRejected, LayoutUsageError, chunk_coords, encode_entries
 from refkv.zarrify.layouts.hierarchy import check
@@ -555,23 +556,57 @@ def test_a_fits_file_compressed_whole_reads_as_the_file_does(tmp_path, name, com
         assert np.asarray(found[path][...]).tobytes() == np.asarray(array[...]).tobytes(), path
 
 
+def _as_equivalent(entries: Mapping[str, object]) -> dict[str, object]:
+    """Entries as spec/zarrify.md §1.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence> compares
+    them: a `zarr.json` by its JSON value."""
+    return {k: json.loads(v) if k.endswith("zarr.json") and isinstance(v, bytes) else v for k, v in entries.items()}
+
+
 def test_a_binary_table_is_refkv_s_group_under_its_name():
     """FITSParser refuses a binary table; the layout keeps refkv's group for it, under the HDU's
-    name and with its placements, so that the root reads as FITSParser's with the table skipped."""
+    name and placed as refkv places it, so that the root reads as FITSParser's with the table
+    skipped."""
     path = str(FIXTURES / "fits/fits_bintable.fits")
     with read(path) as parsed:
         out = VirtualiZarr().write([parsed], {"nonfinite": "token"})
         kept = project(parsed).entries("1/", declarations=False, mirror=False)
         assert isinstance(out, Written)
-        assert {k: v for k, v in out.items() if k.startswith("TAB/")} == {f"TAB/{k[2:]}": v for k, v in kept.items()}
-        assert {k: v for k, v in out.at_open.items() if k.startswith("TAB/")} == \
-            {f"TAB/{k[2:]}": v for k, v in kept.at_open.items()}
+        assert _as_equivalent({k: v for k, v in out.items() if k.startswith("TAB/")}) == \
+            _as_equivalent({f"TAB/{k[2:]}": v for k, v in kept.items()})
+        store, theirs = seal(out, [parsed]), seal(kept, [parsed])
+        assert {k for k in store.read_at_open if k.startswith("TAB/")} == {f"TAB/{k[2:]}" for k in theirs.read_at_open}
         skipped = virtualizarr.parsers.FITSParser(skip_variables=["TAB"])(
             Path(path).resolve().as_uri(), ObjectStoreRegistry({"file:///": LocalStore()}))
         root = out["zarr.json"]
         assert isinstance(root, bytes)
         assert json.loads(root)["attributes"] == skipped._group.metadata.attributes
         assert check(out, [parsed]) == []
+
+
+FITS_KINDS = ["fits/fits_mef_sci_err_dq.fits", "fits/fits_asciitable.fits", "fits/fits_bintable.fits",
+              "fits/fits_comp_rice_int16.fits", "fits/fits_chunk_rows.fits", "fits/fits_header_huge.fits"]
+
+
+@pytest.mark.parametrize("name", FITS_KINDS)
+def test_a_fits_file_is_presented_with_no_output_of_refkv_s(monkeypatch, name):
+    """The layout is a peer of refkv's own FITS projection (the plan of d-v-b/refkv#278): it
+    presents images, an ASCII table, a binary table's group, a tile-compressed image, an image cut
+    into chunks and a header past refkv's own budget from the parser's description, the IR and the
+    FITS convention's routines, and writes what it wrote when it was built on refkv's output."""
+    path = FIXTURES / name
+    with read(str(path)) as parsed:
+        before = seal(VirtualiZarr().write([parsed], {"nonfinite": "token"}), [parsed]).mapping
+        built = project(parsed)  # refkv's own output, made before the patch, for the comparison
+        assert built.profile == "fits"
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("refkv's own output was asked for")
+
+    with read(str(path)) as parsed:
+        monkeypatch.setattr(Parsed, "_output_async", refuse)
+        monkeypatch.setattr(Parsed, "_output", refuse)
+        assert seal(VirtualiZarr().write([parsed], {"nonfinite": "token"}), [parsed]).mapping == before
 
 
 OUTPUT = """

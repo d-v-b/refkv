@@ -1190,6 +1190,48 @@ fn grid_chunks(py: Python<'_>, offset: u64, shape: Vec<u64>, item: u64, limit: u
     })
 }
 
+/// A part of a chunk of `fits_arrays`: `("src", offset, length)` of the file, `("lit", bytes)`,
+/// `("zeros", length)` of an edge chunk's padding, or `("copy", offset, length)` of the file, to
+/// be copied.
+fn piece_py<'py>(py: Python<'py>, piece: &refkv_ir::project::fits::Piece) -> PyResult<Bound<'py, PyAny>> {
+    use refkv_ir::project::fits::Piece;
+    Ok(match piece {
+        Piece::Src(o, n) => ("src", *o, *n).into_pyobject(py)?.into_any(),
+        Piece::Lit(b) => ("lit", PyBytes::new(py, b)).into_pyobject(py)?.into_any(),
+        Piece::Zeros(n) => ("zeros", *n).into_pyobject(py)?.into_any(),
+        Piece::Copy(o, n) => ("copy", *o, *n).into_pyobject(py)?.into_any(),
+    })
+}
+
+/// The arrays of HDU `index` of a FITS file as its convention writes them, but for their
+/// declarations (`project::fits::hdu_arrays`), from its IR and the parser's description (JSON):
+/// each `(path, document JSON, chunks)`, `path` under the HDU's node (`""`, `rows`, `heap`), each
+/// chunk `(coords, parts)` in `piece_py`'s form. ValueError for no HDU `index`, or a description
+/// that is not JSON.
+#[pyfunction]
+#[allow(clippy::type_complexity)]
+fn fits_arrays<'py>(py: Python<'py>, ir: &PyIr, description: &str, index: u64)
+                    -> PyResult<Vec<(String, String, Vec<(Vec<u64>, Vec<Bound<'py, PyAny>>)>)>> {
+    let description: serde_json::Value = serde_json::from_str(description).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let arrays = py.detach(|| refkv_ir::project::fits::hdu_arrays(&ir.ir, &description, index)).map_err(PyValueError::new_err)?;
+    arrays.into_iter().map(|a| {
+        let chunks = a.chunks.iter().map(|(coords, pieces)| {
+            Ok((coords.clone(), pieces.iter().map(|p| piece_py(py, p)).collect::<PyResult<Vec<_>>>()?))
+        }).collect::<PyResult<Vec<_>>>()?;
+        Ok((a.path, a.doc.to_string(), chunks))
+    }).collect()
+}
+
+/// The cards of HDU `index` of a FITS file as its convention writes them (`project::fits::hdu_cards`),
+/// from its IR and the parser's description (JSON): JSON, each `[keyword, value, comment]`.
+/// ValueError for no HDU `index`, or a description that is not JSON.
+#[pyfunction]
+fn fits_cards(py: Python<'_>, ir: &PyIr, description: &str, index: u64) -> PyResult<String> {
+    let description: serde_json::Value = serde_json::from_str(description).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let cards = py.detach(|| refkv_ir::project::fits::hdu_cards(&ir.ir, &description, index)).map_err(PyValueError::new_err)?;
+    Ok(refkv_ir::out::to_text(&cards))
+}
+
 /// What frames a raw deflate stream as a gzip member, as the built-in projections write one: the
 /// 10-byte header (`out::GZIP_HEADER`), and the trailer, the stream's CRC-32 and the size of what
 /// it inflates to, modulo 2^32.
@@ -1261,6 +1303,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMirror>()?;
     m.add_function(wrap_pyfunction!(grid_chunks, m)?)?;
     m.add_function(wrap_pyfunction!(gzip_frame, m)?)?;
+    m.add_function(wrap_pyfunction!(fits_arrays, m)?)?;
+    m.add_function(wrap_pyfunction!(fits_cards, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;
     m.add_function(wrap_pyfunction!(view_problem, m)?)?;
     m.add_function(wrap_pyfunction!(synthetic, m)?)?;
