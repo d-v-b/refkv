@@ -13,7 +13,15 @@ give them.
 ## Reading an input
 
 `refkv.build.read(location)` reads a file or a store as `zarrify` does, with the same sniffing,
-files beside it, pins, reader policy and object stores, and returns a `Parsed`:
+files beside it, pins, reader policy and object stores, and returns a `Parsed`. It parses and
+stops: it makes no output, and reads nothing that only an output needs.
+
+A `Parsed` holds the input open until it is closed: a local file, and any file read beside it, stays
+mapped, so that the built-in output can still be made of it (`project`, below). Use it as a context
+manager, `with read(...) as p:` or `async with await read_async(...) as p:`, or call `p.close()`.
+One that is collected unclosed releases the input then, with a `ResourceWarning`. A closed `Parsed`
+keeps its IR, its sources' sizes and pins, and the values made of it, so it can still be sealed
+without checksums.
 
 ```python
 from refkv.build import read
@@ -95,7 +103,11 @@ only Python knows: the caller's objects, the inputs, the policy's URL rules, the
 the archive.
 
 `refkv.build.project(p)` is the output `zarrify` writes for the input, as values:
-`seal(project(p).written, [p])` reads what `zarrify` writes.
+`seal(project(p).written, [p])` reads what `zarrify` writes. `read` did not make it: the first
+`project(p)` does, from the parse `p` keeps, and reads then what the built-in output alone needs
+(an edge chunk it copies, a chunk its `omero` windows sample). So `p` must still be open the
+first time; the output is kept, and a later `project(p)` builds on it, after `p` is closed too.
+`project` blocks, and `project_async` is the same on a caller's event loop.
 
 ## A TIFF made of several
 

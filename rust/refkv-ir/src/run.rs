@@ -9,6 +9,7 @@ use crate::plan::{Planner, Request};
 use crate::project::Copied;
 use crate::Parser;
 use serde_json::Value as J;
+use std::sync::Arc;
 
 /// The bytes a file's signatures test, and of what a gzipped file inflates to (spec/zarrify.md §1.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
@@ -163,8 +164,9 @@ pub struct Run {
     pub format: Format,
     parser: Option<AnyParser>,
     /// the parser's IR and facts, once it is done; then the values the view shows
-    /// that it did not read are read (`fill`) and held
-    parsed: Option<(Ir, serde_json::Value)>,
+    /// that it did not read are read (`fill`) and held. The IR is shared once the run is done
+    /// (`parsed`), and not changed after
+    parsed: Option<(Arc<Ir>, serde_json::Value)>,
     fill: Vec<(u32, u64, u64)>,
     /// the fill batch's ranges, and the planner's (requests, bytes) before and after it
     fill_counts: (u64, (u64, u64), (u64, u64)),
@@ -172,6 +174,10 @@ pub struct Run {
     /// and their bytes
     copies: Vec<(u64, u64)>,
     copied: crate::project::Copied,
+    /// the host asks for the projection's reads itself (`defer_projection`), and has asked
+    /// (`begin_projection`)
+    deferred: bool,
+    projecting: bool,
     pub planner: Planner,
     /// Whether the parser takes whole responses (`FileProfile::whole`).
     whole: bool,
@@ -191,6 +197,8 @@ impl Run {
             fill_counts: (0, (0, 0), (0, 0)),
             copies: Vec::new(),
             copied: Default::default(),
+            deferred: false,
+            projecting: false,
             planner: Planner::new(size, remote, concurrency),
             whole: format.profile().whole(),
             in_batch: false,
@@ -227,6 +235,7 @@ impl Run {
                     // the values the view shows, read after the parser
                     let at: std::collections::HashMap<(u64, u64), &Vec<u8>> =
                         got.iter().map(|(o, b)| ((*o, b.len() as u64), b)).collect();
+                    let ir = Arc::get_mut(ir).ok_or("internal: the IR was shared before its values were read")?;
                     for &(i, o, n) in &self.fill {
                         let b = at.get(&(o, n)).ok_or("internal: a value the view shows was not read")?;
                         ir.put_value(i, b);
@@ -265,7 +274,7 @@ impl Run {
                         r.dedup();
                         r
                     };
-                    self.parsed = Some((ir, facts));
+                    self.parsed = Some((Arc::new(ir), facts));
                     if ranges.is_empty() {
                         return self.read_copies();
                     }
@@ -277,20 +286,98 @@ impl Run {
         }
     }
 
-    /// After the fill: the batch of the ranges the projection copies, if any; else done.
+    /// After the fill: the batch of the ranges the projection copies, if any; else done. A run
+    /// whose host asks for them itself (`defer_projection`) is done here: the IR is whole.
     fn read_copies(&mut self) -> Result<Option<Vec<Request>>, String> {
+        if (self.deferred && !self.projecting) || !self.begin_copies()? {
+            self.done = true;
+            return Ok(None);
+        }
+        self.poll()
+    }
+
+    /// Begins the batch of the ranges the projection copies (`project::reads`); false when it
+    /// copies none.
+    fn begin_copies(&mut self) -> Result<bool, String> {
         let (ir, facts) = self.parsed.as_ref().ok_or("internal: no IR")?;
         let mut ranges = crate::project::reads(self.format, ir, facts)?;
         ranges.sort_unstable();
         ranges.dedup();
         if ranges.is_empty() {
-            self.done = true;
-            return Ok(None);
+            return Ok(false);
         }
         self.planner.begin(ranges.clone(), false);
         self.copies = ranges;
         self.in_batch = true;
-        self.poll()
+        Ok(true)
+    }
+
+    /// Leaves the built-in projection's reads out of the run, before its first poll: `poll` then
+    /// gives None once the IR is whole (parsed, and the view's values read), and reads nothing
+    /// for an output. A host that wants the built-in output asks for its reads later
+    /// (`begin_projection`); one that builds another output never pays for them.
+    pub fn defer_projection(&mut self) {
+        self.deferred = true;
+    }
+
+    /// Asks for the built-in projection's reads, of a run that left them out
+    /// (`defer_projection`) and is done: the host polls again until None, and may then project
+    /// (`project`). Asking again once they are read, or of a run that read them itself, asks for
+    /// nothing. Asking again before they are all read (a read failed, or the host stopped
+    /// polling) asks for the whole batch again, so one host at a time asks.
+    pub fn begin_projection(&mut self) -> Result<(), String> {
+        if self.beside || self.parsed.is_none() || (!self.done && !self.projecting) {
+            return Err("the run has no IR to project".into());
+        }
+        if !self.deferred || (self.projecting && self.done) {
+            return Ok(());
+        }
+        // an interrupted batch is dropped, and begun again
+        self.in_batch = false;
+        self.copies.clear();
+        let more = self.begin_copies()?;
+        self.projecting = true;
+        self.done = !more;
+        Ok(())
+    }
+
+    /// The IR and the facts of a run that is done, shared: the IR is not changed after.
+    pub fn parsed(&self) -> Result<(&Arc<Ir>, &serde_json::Value), String> {
+        if !self.done && !self.projecting {
+            return Err("the run is not done".into());
+        }
+        if self.beside {
+            return Err("internal: a file that names siblings has no file run's IR".into());
+        }
+        self.parsed.as_ref().map(|(ir, facts)| (ir, facts)).ok_or_else(|| "internal: no IR".into())
+    }
+
+    /// The planner's counts, with the fill batch's: the summary's `planner`.
+    pub fn stats(&self) -> serde_json::Value {
+        let mut stats = self.planner.stats_json();
+        // the batch that read what the parser did not keep of the view's values
+        let (n, a, b) = self.fill_counts;
+        let (requests, bytes) = if n == 0 { (0, 0) } else { (b.0 - a.0, b.1 - a.1) };
+        stats["fill"] = serde_json::json!({"ranges": n, "requests": requests, "bytes": bytes});
+        stats
+    }
+
+    /// The output (`output`) of a run that is done and has read the projection's ranges, the run
+    /// kept: a host may project it again, with other options. `layouts` names the layouts the
+    /// projection writes beside the image (None: every one), and `checksums` and `written` are
+    /// `output`'s.
+    pub fn project(&self, url: &str, mirror: bool, layouts: Option<&[String]>, checksums: bool, written: bool)
+                   -> Result<crate::out::Out, crate::seal::Refusal> {
+        if !self.done || (self.deferred && !self.projecting) {
+            return Err("the run has not read what its projection copies".to_string().into());
+        }
+        let (ir, facts) = self.parsed()?;
+        let mut facts = facts.clone();
+        if let Some(l) = layouts {
+            facts["layouts"] = serde_json::json!(l);
+        }
+        facts["checksums"] = checksums.into();
+        output(self.format, ir, &facts, self.stats(), url, mirror, &self.copied, written)
     }
 
     /// Whether the parser found that the file names siblings, once `poll` gave None: it has no
@@ -309,24 +396,27 @@ impl Run {
     }
 
     pub fn finish(self) -> Result<(Ir, serde_json::Value, serde_json::Value), String> {
-        self.finish_copied().map(|(ir, facts, stats, _)| (ir, facts, stats))
+        self.finished().map(|(ir, facts, stats, _)| (ir, facts, stats))
     }
 
     /// `finish`, and the bytes of the ranges the projection copies.
     pub fn finish_copied(self) -> Result<(Ir, serde_json::Value, serde_json::Value, crate::project::Copied), String> {
+        if self.deferred && !self.projecting {
+            return Err("the run has not read what its projection copies".into());
+        }
+        self.finished()
+    }
+
+    fn finished(self) -> Result<(Ir, serde_json::Value, serde_json::Value, crate::project::Copied), String> {
         if !self.done {
             return Err("the run is not done".into());
         }
         if self.beside {
             return Err("internal: a file that names siblings has no file run's output".into());
         }
-        let mut stats = self.planner.stats_json();
-        // the batch that read what the parser did not keep of the view's values
-        let (n, a, b) = self.fill_counts;
-        let (requests, bytes) = if n == 0 { (0, 0) } else { (b.0 - a.0, b.1 - a.1) };
-        stats["fill"] = serde_json::json!({"ranges": n, "requests": requests, "bytes": bytes});
+        let stats = self.stats();
         let (ir, facts) = self.parsed.ok_or("internal: no IR")?;
-        Ok((ir, facts, stats, self.copied))
+        Ok((Arc::try_unwrap(ir).unwrap_or_else(|shared| (*shared).clone()), facts, stats, self.copied))
     }
 }
 
@@ -430,5 +520,55 @@ mod tests {
         assert!(run.poll().unwrap().is_none());
         assert!(run.beside());
         assert_eq!(run.finish().err().as_deref(), Some("internal: a file that names siblings has no file run's output"));
+    }
+
+    /// A parser that is done at its first step, with an empty IR.
+    struct Empty;
+
+    impl Parser for Empty {
+        fn new(_size: u64) -> Self {
+            Empty
+        }
+        fn step(&mut self) -> Result<Step, String> {
+            Ok(Step::Done)
+        }
+        fn feed(&mut self, _offset: u64, _data: Vec<u8>) {}
+        fn finish(self) -> Result<(Ir, J), String> {
+            Ok((Ir::default(), serde_json::json!({})))
+        }
+        fn found(&self) -> Option<&'static str> {
+            None
+        }
+    }
+
+    #[test]
+    fn a_run_that_defers_its_projection_is_done_with_its_ir_and_projects_once_asked() {
+        let mut run = Run::new(Format::ALL[0], 8, false, 1);
+        run.parser = Some(AnyParser::of::<Empty>(8));
+        assert_eq!(run.parsed().err().as_deref(), Some("the run is not done"));
+        assert_eq!(run.begin_projection().err().as_deref(), Some("the run has no IR to project"));
+        run.defer_projection();
+        assert!(run.poll().unwrap().is_none());
+        // the IR is there, shared, and no output can be made of it yet
+        let (ir, _) = run.parsed().unwrap();
+        let held = Arc::clone(ir);
+        assert!(matches!(run.project("u", false, None, false, true), Err(crate::seal::Refusal::Rejected(m))
+                         if m == "the run has not read what its projection copies"));
+        run.begin_projection().unwrap();
+        run.begin_projection().unwrap(); // asking twice asks for nothing more
+        assert!(run.poll().unwrap().is_none());
+        assert!(Arc::ptr_eq(run.parsed().unwrap().0, &held));
+        // the run is kept: it finishes with the IR it shared
+        let (ir, _, stats, copied) = run.finish_copied().unwrap();
+        assert_eq!((ir.len(), copied.len(), &stats["fill"]["ranges"]), (0, 0, &serde_json::json!(0)));
+    }
+
+    #[test]
+    fn a_run_that_deferred_its_projection_and_never_asked_has_no_copies_to_finish_with() {
+        let mut run = Run::new(Format::ALL[0], 8, false, 1);
+        run.parser = Some(AnyParser::of::<Empty>(8));
+        run.defer_projection();
+        assert!(run.poll().unwrap().is_none());
+        assert_eq!(run.finish_copied().err().as_deref(), Some("the run has not read what its projection copies"));
     }
 }
