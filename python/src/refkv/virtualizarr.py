@@ -118,35 +118,41 @@ class RefkvParser:
             header = _envi_header(url, registry)
             if header is None:
                 raise
-            store = self._zarrify(header, registry)
+            # the data file is the one at url: the profile probes others beside the header, and
+            # the scope keeps it from opening them
+            store = self._zarrify(header, registry, scope=url)
         # the mirror is left out of the traversal, not converted and then dropped
         mirror = frozenset() if self.group else frozenset({SOURCE_NODE})
         return _sync.run(_manifest_store(store, registry, self.group, set(self.skip_variables or ()), mirror))
 
-    def _zarrify(self, url: str, registry: ObjectStoreRegistry[Any]) -> ReferenceReader:
+    def _zarrify(self, url: str, registry: ObjectStoreRegistry[Any], scope: str | None = None) -> ReferenceReader:
         """`url` zarrified with the parser's layout, or with refkv's default layout where the
-        parser's does not read its format."""
+        parser's does not read its format; `scope` is `zarrify`'s."""
         try:
-            return zarrify(url, policy=self.policy, registry=registry, layout=self.layout)
+            return zarrify(url, policy=self.policy, registry=registry, layout=self.layout, scope=scope)
         except LayoutRejected:
             if self.layout is None:
                 raise
             # read again: zarrify does not hand back the output it built for the layout
-            return zarrify(url, policy=self.policy, registry=registry)
+            return zarrify(url, policy=self.policy, registry=registry, scope=scope)
 
 
 def _envi_header(url: str, registry: ObjectStoreRegistry[Any]) -> str | None:
     """The URL of the ENVI header beside the data file at `url`, as `ENVIParser` finds it: `url`
-    with `.hdr` added, else with its suffix replaced by `.hdr`; None where neither exists or the
-    registry holds no store for `url`."""
+    with `.hdr` added, else with its suffix replaced by `.hdr`; None where neither can be read
+    (a probe that fails for any reason, such as S3's 403 for a missing key without list rights,
+    is no header, as for `ENVIParser`) or the registry holds no store for `url`."""
     head, _, name = url.rpartition("/")
     stem = name.rpartition(".")[0]
     candidates = [f"{url}.hdr"] + ([f"{head}/{stem}.hdr"] if stem else [])
     for candidate in candidates:
         try:
             store, path = registry.resolve(candidate)
+        except ValueError:
+            return None
+        try:
             store.head(path)
-        except (ValueError, FileNotFoundError):
+        except Exception:  # noqa: BLE001 (any failed probe is no header; the caller's Rejected stands)
             continue
         return candidate
     return None

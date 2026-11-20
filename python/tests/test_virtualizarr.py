@@ -221,6 +221,12 @@ def test_refkv_parser(tmp_path, registry):
     envi = RefkvParser()((tmp_path / "e.img").as_uri(), registry)
     [name] = envi._group.arrays
     np.testing.assert_array_equal(read(envi, name), raster, strict=True)
+    # the data file named, not another the header's name also gives
+    (tmp_path / "e.dat").write_bytes((raster + 100).tobytes())
+    dat = RefkvParser()((tmp_path / "e.dat").as_uri(), registry)
+    np.testing.assert_array_equal(read(dat, name), raster + 100, strict=True)
+    assert {e["path"] for e in dat._group.arrays[name].manifest.dict().values()} == {
+        (tmp_path / "e.dat").as_uri()}
 
 
 ENVI_HEADER = ("ENVI\nsamples = 4\nlines = 3\nbands = 1\nheader offset = 0\nfile type = ENVI Standard\n"
