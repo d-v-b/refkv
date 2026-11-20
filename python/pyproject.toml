@@ -97,9 +97,11 @@ float6_e3m2fn = "refkv.zarr.dtypes:Float6E3M2FN"
 # of archives of zarrified image files and stores (the entry points above), and the data types
 # zarr-python lacks that archives of safetensors files name (bfloat16, float8, float6 and float4),
 # through ml_dtypes (src/refkv/zarr/dtypes.py, the `zarr.data_type` entry points below). zarr
-# 3.1.6 is VirtualiZarr's floor; the images extra's imagecodecs-zarr needs 3.2
+# 3.3.0 is the first to read the `struct` data type refkv writes for HDF5 compound types and FITS
+# tables as their sources hold them: 3.1 knows only its earlier `structured` form, and 3.2 reads
+# big-endian and nested fields wrong
 zarr = [
-    "zarr>=3.1.6",
+    "zarr>=3.3.0",
     "ml-dtypes>=0.6.0",
 ]
 # the image codecs: imagecodecs-zarr's JPEG, JPEG 2000, JPEG XR, LERC, WebP, JPEG XL, LZMA, CCITT, EER, PackBits and packed-integer codecs
@@ -131,17 +133,19 @@ layouts = [
     "zarr-metadata>=0.6.0",
 ]
 # obstore's stores, such as S3Store, to pass as registry= for s3://, gs:// and az:// sources
-# (refkv takes any obspec store, and does not import obstore itself); 0.7.0 is VirtualiZarr's floor
+# (refkv takes any obspec store, and does not import obstore itself). Before 0.8.0, obstore's
+# LocalStore cannot find a file whose path has a non-ASCII character
 obstore = [
-    "obstore>=0.7.0",
+    "obstore>=0.8.0",
 ]
 # ReferenceStore.from_virtualizarr, refkv.convert and refkv.shards, which build Zarr
 # metadata. refkv does not import xarray: it calls the methods of the datasets
 # VirtualiZarr builds. VirtualiZarr's registries hold obstore stores, so this has the
-# obstore extra too
+# obstore extra too. VirtualiZarr 2.8.0 is the release whose parsers the refkv.virtualizarr layout
+# presents files as (python/tests/test_layout_virtualizarr.py compares them)
 virtualizarr = [
     "refkv[zarr,obstore]",
-    "virtualizarr>=2.7.3",
+    "virtualizarr>=2.8.0",
 ]
 
 [tool.maturin]

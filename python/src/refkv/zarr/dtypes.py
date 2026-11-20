@@ -33,16 +33,11 @@ try:
     from zarr.core.dtype.common import DTypeConfig_V2, DTypeJSON, HasEndianness, HasItemSize
     from zarr.core.dtype.npy.common import endianness_to_numpy_str, get_endianness_from_numpy_dtype
     from zarr.core.dtype.wrapper import ZDType
+    from zarr.errors import DataTypeValidationError
 except ImportError as e:
     from refkv._extras import missing
 
     raise missing("zarr", "refkv.zarr.dtypes", e) from e
-# the exception zarr catches when it tries each data type: zarr.errors' since zarr 3.2, before it
-# zarr.core.dtype.common's (where zarr 3.2 and later keep a deprecated alias)
-try:
-    from zarr.errors import DataTypeValidationError
-except ImportError:
-    from zarr.core.dtype.common import DataTypeValidationError
 
 
 @dataclass(frozen=True, kw_only=True)
