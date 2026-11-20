@@ -13,6 +13,7 @@ import operator
 from typing import TYPE_CHECKING, Any
 
 from refkv import _core
+from refkv.zarrify.common import Rejected
 
 from .values import Copy, Data, Literal, Part, Ref, Shared, Value, Written, Zeros, concat, value
 
@@ -115,13 +116,13 @@ def mirror(parsed: Parsed) -> Written:
     which its own output also holds there (`refkv_source/objects`), are its projection's to
     write, not the mirror's.
 
-    The mirror is made by the run that parsed the input: ValueError for an input that is closed.
-    Raises `refkv.zarrify.Rejected` for an IR whose mirror would pass its budget, as `zarrify`
-    does."""
-    parse = parsed._parse  # noqa: SLF001 (the kept run)
-    if parse is None:
-        raise ValueError("the input is closed")
-    _, entries, refs, _, lazy, _ = parse.parse.mirror()
+    It reads nothing, so it may be made of a closed input, and while the input's built-in output
+    is being made. Raises `refkv.zarrify.Rejected` for an IR whose mirror would pass its budget,
+    as `zarrify` does."""
+    try:
+        _, entries, refs, _, lazy, _ = parsed._mirrored.entries()  # noqa: SLF001 (the parse's IR and facts)
+    except _core.Rejected as e:
+        raise Rejected(str(e)) from None
     if refs:  # the mirror copies what it holds: a reference would be a change to the core's mirror
         raise AssertionError(f"the IR mirror holds a reference, at {refs[0][0]!r}")
     out = Written()

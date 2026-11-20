@@ -173,7 +173,7 @@ pub struct Run {
     /// the parser's IR and facts, once it is done; then the values the view shows
     /// that it did not read are read (`fill`) and held. The IR is shared once the run is done
     /// (`parsed`), and not changed after
-    parsed: Option<(Arc<Ir>, serde_json::Value)>,
+    parsed: Option<(Arc<Ir>, Arc<serde_json::Value>)>,
     fill: Vec<(u32, u64, u64)>,
     /// the fill batch's ranges, and the planner's (requests, bytes) before and after it
     fill_counts: (u64, (u64, u64), (u64, u64)),
@@ -281,7 +281,7 @@ impl Run {
                         r.dedup();
                         r
                     };
-                    self.parsed = Some((Arc::new(ir), facts));
+                    self.parsed = Some((Arc::new(ir), Arc::new(facts)));
                     if ranges.is_empty() {
                         return self.read_copies();
                     }
@@ -356,7 +356,7 @@ impl Run {
         if self.beside {
             return Err("internal: a file that names siblings has no file run's IR".into());
         }
-        self.parsed.as_ref().map(|(ir, facts)| (ir, facts)).ok_or_else(|| "internal: no IR".into())
+        self.parsed.as_ref().map(|(ir, facts)| (ir, &**facts)).ok_or_else(|| "internal: no IR".into())
     }
 
     /// The profile's description of the source (`FileProfile::described`), without the run's
@@ -439,6 +439,7 @@ impl Run {
         }
         let stats = self.stats();
         let (ir, facts) = self.parsed.ok_or("internal: no IR")?;
+        let facts = Arc::try_unwrap(facts).unwrap_or_else(|shared| (*shared).clone());
         Ok((Arc::try_unwrap(ir).unwrap_or_else(|shared| (*shared).clone()), facts, stats, self.copied))
     }
 }
@@ -498,12 +499,11 @@ pub fn mirrored(format: Format, ir: &Ir, facts: &serde_json::Value, out: &mut cr
 }
 
 impl Run {
-    /// The mirror of a run that is done (`mirrored`), alone in an output of no url.
-    pub fn mirror(&self) -> Result<crate::out::Out, String> {
-        let (ir, facts) = self.parsed()?;
-        let mut out = crate::out::Out::new("");
-        mirrored(self.format, ir, facts, &mut out)?;
-        Ok(out)
+    /// The IR and the facts of a run that is done, shared with the run: what `mirrored` reads,
+    /// for a host that makes the mirror while the run is used elsewhere.
+    pub fn shared(&self) -> Result<(Arc<Ir>, Arc<serde_json::Value>), String> {
+        self.parsed()?;
+        self.parsed.as_ref().map(|(ir, facts)| (Arc::clone(ir), Arc::clone(facts))).ok_or_else(|| "internal: no IR".into())
     }
 
     /// Finishes, projects and mirrors: the output (`output`), for a host that records the

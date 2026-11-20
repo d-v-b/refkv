@@ -221,6 +221,9 @@ class FileParse:
         self._pinned = pinned
         self.fmt = fmt
         self.ir: _core.Ir = run.ir()
+        # what makes the IR mirror alone, with what the profile records beside it: the IR and the
+        # facts, shared with the run and usable while the run makes an output, or after it
+        self.mirrored: _core.Mirror = run.mirror()
         # the profile's description of the source, where its parser returns one
         text = run.description()
         self.description: dict[str, Any] | None = None if text is None else json.loads(text)
@@ -233,15 +236,6 @@ class FileParse:
         the output names the URL that was read (`pinned`); else None. An output's own reads
         count: one of them answered with no ETag, or a weak one, leaves no pin."""
         return self._transport.etag() if self._pinned else None
-
-    def mirror(self) -> _core.Out[_core.FilePart]:
-        """The IR mirror alone, as the built-in output holds it under `refkv_source`, with what
-        the profile records beside it (the entries a Zarr v3 or SAFE zip's listing ignored): the
-        core's output (`refkv.ir.output.RustOutput`), the url empty. It reads nothing."""
-        try:
-            return self._run.mirror()
-        except _core.Rejected as e:
-            raise Rejected(str(e)) from None
 
     async def output_async(self, mirror: bool = True, layouts: list[str] | None = None, checksums: bool = False,
                            written: bool = True) -> Output:

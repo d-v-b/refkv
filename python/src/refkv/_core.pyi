@@ -260,12 +260,23 @@ class Run:
         profile whose parser returns none yet."""
     def ir(self) -> Ir:
         """The IR of a run that is done, shared with the run, which is kept."""
-    def mirror(self) -> Out[FilePart]:
-        """The mirror of a run that is done, with what its profile records beside it, the url
-        empty; or Rejected."""
+    def mirror(self) -> Mirror:
+        """What makes the mirror of a run that is done: its IR and facts, shared with the run,
+        which is kept and may be used while the mirror is made."""
     def project(self, url: str, mirror: bool = True, layouts: list[str] | None = None,
                 checksums: bool = False, written: bool = True) -> Out[FilePart]:
         """`output`, of a run that is kept: the output alone."""
+
+@final
+class Mirror:
+    """What makes the IR mirror of an input a run parsed: its IR and its facts, shared with the
+    run and never changed, so `entries()` may be called from any thread, as often as the host
+    likes, while the run is used for something else (its output) or after it is gone."""
+
+    def entries(self) -> Out[FilePart] | Out[StorePart]:
+        """The mirror under `refkv_source` (the url empty), with what the input's convention
+        records beside it from the run's facts, the keys and directories a listing ignored: what
+        the built-in output writes there, but for a store's objects; or Rejected."""
 
 class StoreRun:
     """A store run (src/store.rs): `StoreRun(format, listing, concurrency)` over the listing
@@ -306,9 +317,9 @@ class StoreRun:
     def parse(self) -> Ir:
         """Finishes without an output: the IR, which the run keeps with its facts and counts, so
         that `project(...)` gives the built-in output of it, as often as the host likes."""
-    def mirror(self) -> Out[StorePart]:
-        """The mirror of a run `parse` finished, with the keys and directories its listing
-        ignored, the url empty; or Rejected."""
+    def mirror(self) -> Mirror:
+        """What makes the mirror of a run `parse` finished: its IR and facts, shared with the
+        run."""
     def project(self, url: str, mirror: bool = True, checksums: bool = False) -> Out[StorePart]:
         """`output`, of a run `parse` finished: the output alone."""
 

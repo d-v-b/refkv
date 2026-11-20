@@ -166,7 +166,7 @@ call, so that a caller's output can keep any piece of refkv's convention without
 | `grid(span, shape, item_size, limit=)` | contiguous values cut into chunks as [conventions §7](../spec/conventions.md#7-source-values-as-arrays) cuts them: the chunk shape, and each chunk's range of `span`, an edge chunk padded with `Zeros`, or a `Copy` where the padded reference would not fit |
 | `filled(value)` | a value with a `Copy` as its bytes, read through the input; any other value as it is |
 | `gzip_member(stream, crc32=, size=)` | a raw deflate stream (a ZIP member's) framed as the gzip member the `gzip` codec reads, the stream referenced where it lies |
-| `mirror(parsed)` | the IR mirror's entries under `refkv_source` ([conventions §8](../spec/conventions.md#8-the-ir-mirror)), with their placement: the table, the view, and the keys a store's or an archive's listing ignored, which the convention records there. A store's objects under `refkv_source/objects` are its projection's to write. The input must still be open |
+| `mirror(parsed)` | the IR mirror's entries under `refkv_source` ([conventions §8](../spec/conventions.md#8-the-ir-mirror)), with their placement: the table, the view, and the keys a store's or an archive's listing ignored, which the convention records there. A store's objects under `refkv_source/objects` are its projection's to write |
 | `declaration(parsed, path, own=, attributes=)` | a node's attributes with refkv's convention declared ([conventions §2](../spec/conventions.md#2-attributes)): at the root, the profile, its version and the source |
 
 ```python

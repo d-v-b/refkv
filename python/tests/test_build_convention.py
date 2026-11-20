@@ -6,6 +6,7 @@ import gzip
 import json
 import math
 import zlib
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -177,21 +178,28 @@ def test_the_mirror_is_the_one_refkv_s_own_output_holds(name, recorded):
 
 def test_a_mirror_past_its_budget_is_rejected():
     class OverBudget:
-        def mirror(self):
+        def entries(self):
             raise _core.Rejected("budget: the mirror would have more than 4194305 rows")
 
     with read(NPY) as p:
-        assert p._parse is not None
-        p._parse.parse._run = OverBudget()  # type: ignore[assignment]
+        p._mirrored = OverBudget()  # type: ignore[assignment]
         with pytest.raises(Rejected, match="the mirror would have more than"):
             mirror(p)
 
 
-def test_the_mirror_of_a_closed_input_is_refused():
-    with read(NPY) as p:
-        pass
-    with pytest.raises(ValueError, match="the input is closed"):
-        mirror(p)
+def test_the_mirror_is_made_whatever_else_uses_the_input():
+    """The mirror reads nothing and borrows nothing of the run: it is the same made of an open
+    input, of a closed one, and from several threads while the input's own output is being made."""
+    path = str(FIXTURES / "safe" / "safe_l2a_pb0207")
+    with read(path) as p:
+        before = dict(mirror(p))
+        with ThreadPoolExecutor(8) as pool:
+            output = pool.submit(project, p)
+            mirrors = [pool.submit(mirror, p) for _ in range(16)]
+            assert all(dict(m.result()) == before for m in mirrors)
+            assert dict(output.result().entries("refkv_source/zarr.json")) == {
+                "refkv_source/zarr.json": before["refkv_source/zarr.json"]}
+    assert dict(mirror(p)) == before
 
 
 def test_a_declaration_is_the_one_refkv_s_own_output_writes():

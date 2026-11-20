@@ -314,17 +314,10 @@ class StoreParse:
             self.ir: _core.Ir = run.parse()
         except _core.Rejected as e:
             raise Rejected(str(e), format=self.profile) from None
+        # what makes the IR mirror alone, with the keys and directories the listing ignored
+        self.mirrored: _core.Mirror = run.mirror()
         # the objects' sizes, from the IR: the listing's, and a VSI input's files probed into it
         self.sizes: dict[str, int] = {k: n for k, _, n in self.ir.object_bases()}
-
-    def mirror(self) -> _core.Out[_core.StorePart]:
-        """The IR mirror alone, as the built-in output holds it under `refkv_source` but for the
-        store's objects, which its projection writes: the table, the view, and the keys and
-        directories the listing ignored. The core's output, the url empty. It reads nothing."""
-        try:
-            return self._run.mirror()
-        except _core.Rejected as e:
-            raise Rejected(str(e), format=self.profile) from None
 
     def output(self, mirror: bool = True, checksums: bool = False, written: bool = True) -> StoreIrOutput:
         """The built-in output: the format's projection and, with `mirror`, the mirror, sealed as
