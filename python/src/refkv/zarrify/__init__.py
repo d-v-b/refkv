@@ -375,7 +375,7 @@ async def _parse_async(location: str, url: str | None = None, *, checksums: bool
     planner charges a byte fetched beyond those asked (default 0.1 s per MB).
     A store's documents are read by up to `workers` requests at a time. `layouts`: the
     layouts the output holds (`refkv.zarrify.sources.layout_names`). `written`: the output is written
-    as it is; false for one only built from (`refkv.build.read`, a plugin's base), which is not
+    as it is; false for one only built from (`refkv.build.project`), which is not
     held to the payload limit with checksums (`Failed`), as the output built from it is. `scope`:
     what a file input may read besides itself (`scope_keys`); a store input, whose objects are its
     listing's, takes none.
@@ -587,8 +587,9 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
     - `layout`: a layout a plugin writes, `Layout("acme-ome.ome06")` or `Layout(plugin)`
       (`refkv.zarrify.layouts`; spec/layout.md
       <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>), for a file or store input
-      of a profile the plugin's `formats` name: the output is then the plugin's, built from
-      the output with every built-in layout, and `layouts` is None.
+      of a profile the plugin's `formats` name: the output is then the plugin's, written from
+      the input as parsed (a `refkv.build.Parsed`) and sealed (`refkv.build.seal`); refkv's own
+      output is built only where the plugin asks for it. `layouts` is None.
 
     `location` may instead be a source or store class's instance, such as
     `TiffSource(url)` or `Zarr2Store(url)` (`refkv.zarrify.sources`), which names the profile,

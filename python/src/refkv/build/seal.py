@@ -50,13 +50,18 @@ class SealError(ValueError):
         super().__init__(f"{key}: {message}" if key else message)
         self.code = code
         self.key = key
+        self.message = message  # without the key
 
 
 def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy | None = None,
-         registry: Registry | None = None, info: Mapping[str, object] | None = None) -> ReferenceStore:
+         registry: Registry | None = None, info: Mapping[str, object] | None = None,
+         check_sources: bool = True) -> ReferenceStore:
     """The output `written` (a `Written`, or a mapping of keys to bytes or values) as a
     `refkv.ReferenceStore`, its references read from `inputs`. Raises `SealError` for an output it
-    does not vouch for. `info` is the store's (`ReferenceStore.info`).
+    does not vouch for. `info` is the store's (`ReferenceStore.info`). `check_sources`: whether
+    the url sources are held to the reader policy's URL rules now, as `save_vzip` holds them when
+    the store is written; `zarrify` leaves that to `save_vzip`, with or without a plugin, so that
+    a call may name its output's source by a URL the caller will only serve later.
 
     The source table is numbered by first use over the references in key order (UTF-8), the url
     sources first, then the data sources (each distinct `Shared` and `Data` byte string, and one
@@ -113,7 +118,7 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
     sources = [Source(url=table.urls[i][0], size=table.urls[i][1], etag=table.urls[i][2]) if kind == "url"
                else Source(data=table.data[i] if kind == "data" else bytes(i)) for kind, i in got]
     resolver = registry if registry is not None else _first(inputs, "registry_given")
-    used = rules = _check_policy(sources, used, resolver)
+    used = rules = _check_policy(sources, used, resolver, check_sources)
     for k in [*entries.at_open, *entries.stored]:
         if not isinstance(entries.get(k), bytes):
             raise SealError("open", k, "a placement names a key that is not a bytes entry of the output")
@@ -185,11 +190,12 @@ def _core_seal(*request: Any) -> tuple[list[tuple[str, int]], list[tuple[str, li
         raise SealError(code, key, message) from None
 
 
-def _check_policy(sources: Sequence[Source], policy: Policy | None, registry: object) -> Policy:
+def _check_policy(sources: Sequence[Source], policy: Policy | None, registry: object, urls: bool = True) -> Policy:
     """The store's reader policy: `policy`, which also reads the files of its inputs as the store
     zarrify builds does (`reading_own_files`), once it allows every url source (spec/refkv.md §6.7
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rules 1 to 3), as
-    `save_vzip` checks them: an absolute URL as it is, a local path's as a `file:` URL."""
+    `save_vzip` checks them: an absolute URL as it is, a local path's as a `file:` URL. Without
+    `urls`, the sources are not checked against it."""
     try:
         resolver = registry if isinstance(registry, Resolver) else Resolver(registry)  # type: ignore[arg-type]
     except (TypeError, ValueError, AttributeError) as e:
@@ -197,7 +203,7 @@ def _check_policy(sources: Sequence[Source], policy: Policy | None, registry: ob
     base = file_uri(str(Path.cwd())) + "/"
     try:
         rules = reading_own_files(policy, sources)
-        for s in sources:
+        for s in sources if urls else ():
             if s.url is not None:
                 url = resolve(base, s.url)
                 rules.check(url, registered=resolver.registered(url) is not None)

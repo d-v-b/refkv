@@ -482,7 +482,7 @@ def check(written: Mapping[str, object] | Written, inputs: Sequence[Parsed]) -> 
     try:
         seal(written, inputs)
     except SealError as e:
-        problems.append(Problem(e.key, e.code, str(e) if e.key is None else str(e)[len(e.key) + 2:]))
+        problems.append(Problem(e.key, e.code, e.message))
     try:
         values: dict[str, Value] = dict(written if isinstance(written, Written)
                                         else Written(cast("Mapping[str, Any]", written)))

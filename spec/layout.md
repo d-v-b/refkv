@@ -209,6 +209,8 @@ the profile's parser accepts, but the call writes no output. A refusal of the in
 built-in projection, which a plugin meets only if it asks for the built-in output, is such a
 rejection too. Anything else a plugin raises, and an output
 that breaks [§3](#3-the-output) or [§4](#4-sealing-the-output), is a **failure**. None writes an output.
+A read of the input that fails is none of these, whether the parser, the built-in output a
+plugin asked for or the seal's checksums made it: the call fails as it fails without a plugin.
 
 ## 7. Determinism
 

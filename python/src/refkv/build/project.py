@@ -10,9 +10,11 @@ from typing import Any
 
 from refkv import Range, _sync
 from refkv.ir.store import StoreIrOutput
+from refkv.zarrify.common import Rejected
 from refkv.zarrify.layouts import _Base, _base_of, chunk_coords
 
 from .parsed import Parsed
+from .plugin import mark_own
 from .values import MODELED, Array, Literal, Part, Ref, Shared, Value, Written, Zeros
 
 __all__ = ["Projected", "project", "project_async"]
@@ -232,7 +234,13 @@ async def project_async(parsed: Parsed) -> Projected:
     """The built-in projection of `parsed`'s input: what `zarrify` writes for it, as values. The
     first call makes the output, reading what it alone needs through what `read` opened, so
     `parsed` must not be closed yet; later calls build on the output it made."""
-    out = await parsed._output_async()  # noqa: SLF001 (the run read kept)
+    try:
+        out = await parsed._output_async()  # noqa: SLF001 (the run read kept)
+    except Rejected:  # the projection's refusal of the input
+        raise
+    except Exception as e:  # a read the built-in output makes, or its failure: refkv's own, whoever asked
+        mark_own(e)
+        raise
 
     def projected() -> Projected:
         base, store = _base_of(out, parsed._fmt, parsed.policy, parsed.registry,  # noqa: SLF001

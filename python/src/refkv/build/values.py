@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Self
 
 from refkv import Range
 from refkv.policy import MAX_SOURCES
-from refkv.zarrify.layouts import CRC_FIELD, MAX_PAYLOAD, chunk_key
+from refkv.zarrify.layouts import CRC_FIELD, MAX_OPEN, MAX_PAYLOAD, chunk_key
 
 if TYPE_CHECKING:
     from refkv.build.parsed import Parsed
@@ -243,13 +243,16 @@ def _varint(n: int) -> bytes:
 
 def fits(v: Value | Part | Sequence[Part], *, checksums: bool | None = None) -> str | None:
     """Why `seal` might not write `v`, measured before the sources are numbered, or None: a range
-    past its source, as the input's parser found its size; or its
+    past its source, as the input's parser found its size; a run of zero bytes longer than the
+    zero data source may be; or its
     payload with every source index at its largest, with checksums as `payload_size` counts them.
     It may refuse a value `seal` would write, never the other way. How many reads or bytes a value
     takes is its reader's limit (spec/refkv.md §6.7
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5), not
     `seal`'s."""
     for p in value(v).parts:
+        if isinstance(p, Zeros) and p.length > MAX_OPEN:
+            return f"a run of {p.length} zero bytes, more than the {MAX_OPEN} a zero data source holds"
         if not isinstance(p, Ref):
             continue
         sources = p.parsed.sources

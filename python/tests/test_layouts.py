@@ -265,7 +265,7 @@ def test_a_plugin_writes_the_whole_output(source, make, checksums):
 def test_a_plugin_that_asks_for_no_output_of_refkv_s_has_none_built(monkeypatch):
     """A plugin is given the input parsed, and nothing built of it: one that never calls `project`
     writes its entries, a document and a reference from the IR, where refkv's own output cannot
-    be made; one that calls it fails there."""
+    be made; one that calls it meets that error, which is refkv's and not the plugin's."""
     tile = zarrify(TIFF).get("0/c/0/0/0")
     no_output_of_refkv_s(monkeypatch)
 
@@ -276,7 +276,7 @@ def test_a_plugin_that_asks_for_no_output_of_refkv_s_has_none_built(monkeypatch)
     store = zarrify(TIFF, layout=Layout(Plugin(write)))
     assert set(store.mapping) == {"zarr.json", "tile"}
     assert store.get("tile") == tile
-    with pytest.raises(LayoutFailed, match="refkv's own output was built"):
+    with pytest.raises(AssertionError, match="refkv's own output was built"):
         zarrify(TIFF, layout=Layout(Plugin(images)))
 
 
@@ -968,3 +968,51 @@ def test_an_integer_fill_value_past_2_53_is_exact(tmp_path):
         assert fill_value(pr.document("count/zarr.json")) == 2**63 + 5
         assert check(pr.entries(), [p]) == []
         assert check({"zarr.json": group(), **copy(pr, "count", to="c")}, [p]) == []
+
+
+def test_a_plugin_s_output_names_its_source_by_any_url_zarrify_takes():
+    """`zarrify` with a plugin takes the `url` it takes without one: the reader policy holds the
+    sources' URLs when the store is written, not when it is made."""
+    url = "s3://bucket/x.tif"
+    store = zarrify(TIFF, url, layout=Layout(Plugin(images)))
+    assert store.sources[0].url == zarrify(TIFF, url).sources[0].url == url
+
+
+def test_a_read_refkv_s_own_output_makes_that_fails_is_the_input_s_error(monkeypatch):
+    """A read the built-in output makes, for a plugin that asks for it, fails as it fails without
+    a plugin, not as the plugin's failure; an error the plugin raises itself is the plugin's."""
+    async def unread(_self):
+        raise OSError("the source went away")
+
+    def raising(_inputs):
+        raise OSError("mine")
+
+    with pytest.raises(LayoutFailed, match=r"^acme\.test: OSError: mine"):
+        zarrify(TIFF, layout=Layout(Plugin(raising)))
+    monkeypatch.setattr(Parsed, "_output_async", unread)
+    with pytest.raises(OSError, match="the source went away"):
+        zarrify(TIFF, layout=Layout(Plugin(images)))
+
+
+def test_a_range_refkv_cannot_read_to_checksum_is_the_input_s_error(monkeypatch):
+    def unread(_self, _ranges):
+        raise OSError("the source went away")
+
+    monkeypatch.setattr(Parsed, "_read_ranges", unread)
+    with pytest.raises(OSError, match="the source went away"):
+        zarrify(TIFF, checksums=True, layout=Layout(Plugin(tiles_from_ir)))
+
+
+def test_fits_says_a_run_of_zeros_is_longer_than_a_zero_source():
+    assert fits(Zeros(seal_module.MAX_OPEN)) is None
+    assert "zero bytes" in (fits(Zeros(seal_module.MAX_OPEN + 1)) or "")
+
+
+def test_check_gives_seal_s_message_whole_for_the_empty_key():
+    with read(TIFF) as p:
+        [problem] = [x for x in check({"": b"1"}, [p]) if x.code == "key"]
+        with pytest.raises(SealError) as e:
+            seal({"": b"1"}, [p])
+        assert (problem.key, problem.message) == (e.value.key, e.value.message)
+        assert str(e.value).endswith(problem.message)
+

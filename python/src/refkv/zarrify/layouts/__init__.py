@@ -101,8 +101,9 @@ class LayoutUsageError(ValueError):
 
 
 class LayoutRejected(Rejected):
-    """The layout request is refused for this input: a base the plugin does not read, or a
-    `Rejected` the plugin raised. The input is one the profile accepts; no output is written."""
+    """The layout request is refused for this input: an input of a profile the plugin does not
+    read, or a `Rejected` the plugin raised (refkv's own output's among them, where the plugin
+    asked for it). The input is one the profile's parser accepts; no output is written."""
 
 
 class LayoutFailed(Exception):  # noqa: N818 (public name, beside Rejected)
@@ -274,7 +275,7 @@ class Planned:
         return json.loads(self.options)
 
     def reads(self, profile: str, version: int) -> bool:
-        """Whether the plugin reads a base of `profile`'s convention at `version`."""
+        """Whether the plugin reads an input of `profile`, its convention at `version`."""
         if isinstance(self.formats, frozenset):
             return profile in self.formats
         return version in self.formats.get(profile, frozenset())

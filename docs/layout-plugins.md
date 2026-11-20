@@ -148,7 +148,9 @@ def test_bare():
 | an input of a profile the plugin does not read, a store of DICOM files (which keeps no IR), a `Rejected` its `write` raises, refkv's own output's among them | `LayoutRejected` (a `Rejected`) | exit 3 |
 | any other exception from `write`, or an output refkv does not seal | `LayoutFailed` | exit 1, with the plugin's traceback |
 
-No output is written in any of them.
+No output is written in any of them. A read of the input that fails (a network error, a range
+that cannot be read to checksum it) is not a layout's error: it is raised as it is without a
+plugin, an `OSError` or a `refkv.errors.ResolutionError`.
 
 ## Determinism
 
