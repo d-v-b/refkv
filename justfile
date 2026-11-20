@@ -96,6 +96,7 @@ sections base="":
     uv run python spec/tools/sections.py check
     uv run python spec/tools/profiles.py check
     uv run python spec/tools/proposals.py check
+    uv run python spec/tools/stored_formats.py check
     uv run python spec/tools/changelog.py check {{ if base != "" { "--base " + base } else { "" } }}
 
 # Lint every Python file of the repository with ruff (pyproject.toml's [tool.ruff]: every rule, less

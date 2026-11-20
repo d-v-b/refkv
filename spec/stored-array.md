@@ -509,8 +509,10 @@ neither, and compiles no Arrow code.
 
 ## 7. The formats
 
-The parsers of HDF4, MP3, N5, OME-Zarr, Precomputed, Zarr v2 and Zarr v3 describe no array yet,
-and have no paragraph here.
+The parsers of [MP3](zarrify/mp3.md), [N5](zarrify/n5.md), [OME-Zarr](zarrify/ome-zarr.md),
+[Precomputed](zarrify/precomputed.md), [Zarr v2](zarrify/zarr2.md) and [Zarr v3](zarrify/zarr3.md)
+describe no array yet, and have no paragraph here. Every other profile but a layout has one
+(`spec/tools/stored_formats.py` checks it).
 
 **CZI** ([spec/zarrify/czi.md](zarrify/czi.md)). Every subblock the parser reads is a stored
 array, whether or not the profile places it: the `ZISRAWSUBBLOCK` segment an entry of the subblock
@@ -1530,6 +1532,54 @@ a mirror's quicklook) are in objects the parser does not read
   other than 0, components that are signed, subsampled or of unlike precisions), and builds no
   IR of it.
 - **The fill value** is `undefined`: JPEG 2000 has none.
+
+**HDF4** ([spec/zarrify/hdf4.md](zarrify/hdf4.md)). Every dataset of the SD interface the parser
+reaches is a stored array, whether or not the profile presents it: each `Var0.0` Vgroup of the
+file's `CDF0.0` Vgroup ([zarrify/hdf4.md §3](zarrify/hdf4.md#3-datasets)). It is keyed by that
+Vgroup's element (`elements/1965/<ref>`), with no index. The facts give the key: each presented
+dataset's `array.declared_by` is that element's id. The writer's Vdatas (tables) and the
+datasets' attributes are not described yet.
+
+- **Declarations.** The number type's element (`elements/106/<ref>`), whose type code and width
+  say what an element is and whose class byte gives the byte order (4: little-endian; else
+  big-endian), then the dimension record's (`elements/701/<ref>`), where the Vgroup names them;
+  then, of a `_FillValue` the description does not give (below), its Vdata header.
+- **`shape`** is the dimension record's sizes, in its order: HDF4 stores an array in its declared
+  order, so `axes` is absent. An unlimited first dimension's size is the records the data holds,
+  its bytes divided by a record's, as the SD interface reads it: the dimension record keeps the
+  size at its creation, and no place holds the records.
+- **`item_bits`** is the bits of the type the number type's code names: 8, 16, 32 or 64; of text
+  (`char8`), 8.
+- **Data stored whole** (as one element, in linked blocks, or compressed whole) is one unit, each
+  axis `Each` of its length, or an empty `List` for an axis of length 0, under `short`. Its row is
+  the one element that holds its bytes (the data element, the compressed stream's, or a linked
+  block's), with the range of them where the element holds more; or, where several linked blocks
+  hold them, `ranges` of the file, the blocks' bytes in order. The chain is empty,
+  `zlib` for data compressed with deflate (method 4, which HDF4 writes as a zlib stream), or
+  `source` for another method, with `format` `hdf4` and `id` the method's code; its row is then
+  the compressed stream. A dataset with no data, or whose compressed data decodes to no bytes, has
+  no row: every element is the fill value.
+- **A chunked dataset** has the grid of its chunk lengths, `Each` on every axis, under `full`: the
+  library stores every chunk at the full chunk size. Each chunk the chunk table lists is a row, at
+  the coordinates the table gives, as a dataset stored whole is (above), in the chain of its own
+  method: the array has a chain for each method its chunks use, the empty one first. A chunk of an
+  unlimited dimension past the records lies outside the array, and has no row; a chunk the table
+  does not list has none.
+- **No grid** for data the parser does not locate: in an external file, in a special element of
+  another kind, of a compression model other than 0, or in linked blocks one of which was never
+  written, which the library reads as zeros and no place holds. Nor where the data holds fewer
+  bytes than the dataset, or the number type or the dimension record does not read. Such a
+  dataset still has its `shape` and `item_bits`, but for an unlimited first dimension, whose size
+  only the data gives: it has no `shape`, unless the parser located its data.
+- **The fill value** is `given`: a chunked dataset's chunk header's (its bytes after the header's
+  dimensions), where it is one element long; else the `_FillValue` attribute's first element, its
+  place in the attribute's Vdata, where it is of the dataset's number type and byte order (of
+  text, its first byte). A `_FillValue` of the dataset's type in another byte order leaves
+  `undefined`, its Vdata header among the declarations. With neither, it is `format_default`, the
+  SD interface's: netCDF's default of the number type's netCDF type, as `NC_arrayfill` writes it
+  (`char` 0, of `char8` and `uchar8`; `byte` −127, `short` −32767 and `long` −2147483647, as
+  bytes of the number type, so 129, 32769 and 2147483649 of the unsigned types; and `float` and
+  `double` 9.9692099683868690e36), which a `_FillValue` of another type does not change.
 
 **FLAC** ([spec/zarrify/flac.md](zarrify/flac.md)). A FLAC file's samples are one stored array,
 keyed by its STREAMINFO block, the value `metadata/0/streaminfo`, with no index. The facts give

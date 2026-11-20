@@ -24,6 +24,9 @@ use crate::text::{text_json, utf8_or_latin1};
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+mod stored;
+use stored::{Desc, DescFill, Layout, Method};
+
 /// The file's first 4 bytes (spec/zarrify/hdf4.md §9
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#9-hdf4-profile>).
 pub const MAGIC: [u8; 4] = [0x0e, 0x03, 0x13, 0x01];
@@ -344,6 +347,8 @@ struct Found {
     dds: Vec<Dd>,
     /// the descriptors whose elements were read whole
     held: BTreeSet<usize>,
+    /// what each dataset's description is built from
+    descs: Vec<Desc>,
 }
 
 pub struct Hdf4 {
@@ -726,9 +731,9 @@ impl Hdf4 {
                 _ => {}
             }
         }
-        let facts = Self::facts_of(&mut p, &vgs, &vhs)?;
+        let (facts, descs) = Self::facts_of(&mut p, &vgs, &vhs)?;
         let Pass { dds, held, .. } = p;
-        self.found = Some(Found { blocks, dds, held });
+        self.found = Some(Found { blocks, dds, held, descs });
         self.facts = facts;
         Ok(())
     }
@@ -959,7 +964,7 @@ impl Hdf4 {
     }
 
     /// The facts: the hierarchy's nodes, as the projection writes them, and the summary.
-    fn facts_of(p: &mut Pass, vgs: &BTreeMap<u16, Vg>, vhs: &BTreeMap<u16, Vh>) -> R<J> {
+    fn facts_of(p: &mut Pass, vgs: &BTreeMap<u16, Vg>, vhs: &BTreeMap<u16, Vh>) -> R<(J, Vec<Desc>)> {
         let class_of = |r: u16| vgs.get(&r).map(|v| v.class.as_slice());
         // the SD interface's datasets: the Var0.0 members of the first CDF0.0 Vgroup
         let cdf = vgs.iter().find(|(_, v)| v.class == b"CDF0.0").map(|(&r, _)| r);
@@ -1006,10 +1011,13 @@ impl Hdf4 {
         acc.done()?;
         // each dataset decided, and its attributes; in one round each
         let mut decided = Vec::with_capacity(vars.len());
+        let mut descs = Vec::with_capacity(vars.len());
         let mut acc = Acc::default();
         for var in &vars {
-            if let Some(d) = acc.take(Self::decide(p, var, vhs)) {
+            let mut desc = Desc::default();
+            if let Some(d) = acc.take(Self::decide(p, var, vhs, &mut desc)) {
                 decided.push(d);
+                descs.push(desc);
             }
             if acc.stopped() {
                 break;
@@ -1124,7 +1132,7 @@ impl Hdf4 {
         }
         let summary = json!({"groups": groups, "arrays": arrays, "unpresented": counts, "chunks": chunks,
                              "descriptors": p.dds.len()});
-        Ok(json!({"nodes": nodes, "summary": summary}))
+        Ok((json!({"nodes": nodes, "summary": summary}), descs))
     }
 
     /// The writer's Vgroup `g` under node `parent`, and what it holds: depth first, each group's
@@ -1324,7 +1332,10 @@ impl Hdf4 {
 
     /// Whether and how the dataset `var` is an array (spec/zarrify/hdf4.md §3
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#3-datasets>).
-    fn decide(p: &mut Pass, var: &Var, vhs: &BTreeMap<u16, Vh>) -> R<Decided> {
+    /// A dataset's facts, or why it is not presented; and in `desc`, what its description is built
+    /// from, as far as the parse reads it.
+    fn decide(p: &mut Pass, var: &Var, vhs: &BTreeMap<u16, Vh>, desc: &mut Desc) -> R<Decided> {
+        desc.vg = p.by.get(&(VG, var.vg)).copied();
         let mut own = Map::new();
         own.insert("ref".into(), json!(var.vg));
         if let Some(n) = var.ndg {
@@ -1333,6 +1344,7 @@ impl Hdf4 {
         // the number type
         let Some(nt) = var.nt.and_then(|r| p.by.get(&(NT, r)).copied()) else { return Ok(Decided::Not("number_type")) };
         let ntb = p.header(nt)?;
+        desc.declarations.push(nt);
         let [_, code, width, class, ..] = ntb[..] else { return Ok(Decided::Not("number_type")) };
         own.insert("number_type".into(), json!({"type": type_name(code as u16), "width": width, "class": class}));
         // a dataset of text: its bytes are read as `uint8` until its last axis is made its strings'
@@ -1342,15 +1354,21 @@ impl Hdf4 {
         let Some((data_type, item, _)) = (if text { Some(("uint8", 1, false)) } else { numeric(code) }) else {
             return Ok(Decided::Not("number_type"));
         };
+        desc.item = Some(item);
         let big = match class {
             _ if item == 1 => true,
             0 | 1 => true,
             4 => false,
             _ => return Ok(Decided::Not("number_type")),
         };
+        // the fill value the description gives: `_FillValue`'s, else the default, unless a chunk
+        // header's (below), whatever the data's storage and whether the parser locates it
+        desc.fill = DescFill::FormatDefault;
+        Self::described_fill(p, var, vhs, code, item, big, desc)?;
         // the dimensions
         let Some(sdd) = var.sdd.and_then(|r| p.by.get(&(SDD, r)).copied()) else { return Ok(Decided::Not("dimensions")) };
         let sb = p.header(sdd)?;
+        desc.declarations.push(sdd);
         let mut r = Rd::new(&sb);
         let rank = r.u16().unwrap_or(0) as usize;
         let sizes: Option<Vec<u64>> = (0..rank).map(|_| r.u32().map(|v| v as u64)).collect();
@@ -1359,6 +1377,10 @@ impl Hdf4 {
             return Ok(Decided::Not("dimensions"));
         }
         let unlimited = var.dims[0].1;
+        // the shape, unless the records the data holds give an unlimited dimension's size (below)
+        if !unlimited {
+            desc.shape = Some(shape.clone());
+        }
         // the data
         let stored = match var.sd {
             Some(r) => p.stored(SD, r)?,
@@ -1383,6 +1405,7 @@ impl Hdf4 {
             shape[0] = count.checked_div(record).unwrap_or(0);
         }
         let Some(nbytes) = shape.iter().try_fold(item, |a, &v| a.checked_mul(v)) else { return Ok(Decided::Not("size")) };
+        desc.shape = Some(shape.clone());
         let names: Vec<J> = var.dims.iter().map(|d| json!(utf8_or_latin1(&d.0))).collect();
         if let Some(m) = var.marked {
             own.insert("coordinate".into(), json!(m));
@@ -1392,17 +1415,25 @@ impl Hdf4 {
         let mut chunk_fill: Option<Vec<u8>> = None;
         let mut nchunks = 0u64;
         let store = match stored {
-            _ if nbytes == 0 => json!({"kind": "none"}),
-            Stored::None => json!({"kind": "none"}),
+            _ if nbytes == 0 => {
+                desc.layout = Some(Layout::Whole(None));
+                json!({"kind": "none"})
+            }
+            Stored::None => {
+                desc.layout = Some(Layout::Whole(None));
+                json!({"kind": "none"})
+            }
             Stored::Plain(l) => {
                 if l.len < nbytes {
                     return Ok(Decided::Not("length"));
                 }
+                desc.layout = Some(Layout::Whole(Some((l.prefix(nbytes), Method::Plain))));
                 json!({"kind": "contiguous", "segments": l.prefix(nbytes).json()})
             }
             Stored::Compressed { length, method, model, data } => {
                 own.insert("compression".into(), json!(compression_name(method)));
                 if length == 0 {
+                    desc.layout = Some(Layout::Whole(None));
                     json!({"kind": "none"})
                 } else if model != 0 {
                     return Ok(Decided::Not("compression"));
@@ -1410,20 +1441,30 @@ impl Hdf4 {
                     if data.len < nbytes {
                         return Ok(Decided::Not("length"));
                     }
+                    desc.layout = Some(Layout::Whole(Some((data.prefix(nbytes), Method::Plain))));
                     json!({"kind": "contiguous", "segments": data.prefix(nbytes).json()})
                 } else if method == COMP_DEFLATE {
                     if length != nbytes || data.len == 0 {
                         return Ok(Decided::Not("length"));
                     }
+                    desc.layout = Some(Layout::Whole(Some((data.clone(), Method::Deflate))));
                     codecs.push(zlib.clone());
                     json!({"kind": "whole", "segments": data.json()})
                 } else {
+                    // described in the method's `source` codec, though not presented
+                    if length == nbytes && data.len > 0 {
+                        desc.layout = Some(Layout::Whole(Some((data, Method::Other(method)))));
+                    }
                     return Ok(Decided::Not("compression"));
                 }
             }
             Stored::Chunked(i) => {
                 let Special::Chunked(h) = p.special(i)? else { return Ok(Decided::Not("special")) };
-                match Self::chunked(p, i, &h, &shape, item, vhs)? {
+                if h.fill.len() as u64 == item {
+                    // the header's fill value, after its fields and its dimensions' (`special`)
+                    desc.fill = DescFill::At { dd: i, offset: 39 + 12 * h.dims.len() as u64, len: item };
+                }
+                match Self::chunked(p, i, &h, &shape, item, vhs, &mut desc.layout)? {
                     Ok((chunk, chunks, method)) => {
                         own.insert("chunks".into(), json!(chunk));
                         if let Some(m) = method {
@@ -1467,6 +1508,30 @@ impl Hdf4 {
         })
     }
 
+    /// A `_FillValue` the description gives, as the facts read it: the place of its bytes, where it
+    /// is of the dataset's type (its first byte, of text) and byte order and one element holds them;
+    /// else its Vdata header among the declarations and the fill undefined. A dataset with none, or
+    /// one of another type, which the SD interface does not read, has its default.
+    #[allow(clippy::too_many_arguments)]
+    fn described_fill(p: &mut Pass, var: &Var, vhs: &BTreeMap<u16, Vh>, code: u8, item: u64, big: bool, desc: &mut Desc) -> R<()> {
+        let Some(&r) = var.attrs.iter().find(|r| vhs.get(r).is_some_and(|h| h.name == b"_FillValue")) else { return Ok(()) };
+        let Some((c, b, raw)) = Self::attributes(p, vhs, &[r])?.into_iter().next().and_then(|a| a.raw) else { return Ok(()) };
+        let kind = |c: u8| numeric(c).map(|n| (n.0, n.1));
+        let read = if code == 4 { c == 4 } else { c == code || kind(c).is_some() && kind(c) == kind(code) };
+        if !read || (raw.len() as u64) < item {
+            return Ok(());
+        }
+        let first = match p.stored(VS, r)? {
+            Stored::Plain(l) => l.segs.first().copied(),
+            _ => None,
+        };
+        desc.fill = match first {
+            Some((Some(d), o, n)) if n >= item && (b == big || item == 1) => DescFill::At { dd: d, offset: o - p.dds[d].off, len: item },
+            _ => p.by.get(&(VH, r)).map_or(DescFill::Undefined, |&h| DescFill::Declared(h)),
+        };
+        Ok(())
+    }
+
     /// A `char8` dataset of `shape`, read as bytes, as an array of strings
     /// (spec/zarrify/hdf4.md §3.3
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#33-text>): `null_terminated_bytes`
@@ -1505,7 +1570,10 @@ impl Hdf4 {
     /// A chunked dataset's chunk shape and chunks (each its grid coordinates and the segments of its
     /// stored bytes) and the chunks' compression, or why it is not presented.
     #[allow(clippy::type_complexity)]
-    fn chunked(p: &mut Pass, i: usize, h: &ChunkedHeader, shape: &[u64], item: u64, vhs: &BTreeMap<u16, Vh>)
+    /// Where every chunk inside the array is placed and how it is encoded, `layout`, for the
+    /// description, which describes chunks of any method and of mixed methods.
+    #[allow(clippy::too_many_arguments)]
+    fn chunked(p: &mut Pass, i: usize, h: &ChunkedHeader, shape: &[u64], item: u64, vhs: &BTreeMap<u16, Vh>, layout: &mut Option<Layout>)
                -> R<Result<(Vec<u64>, Vec<J>, Option<u16>), &'static str>> {
         let what = p.what(i);
         if h.dims.len() != shape.len() {
@@ -1542,9 +1610,13 @@ impl Hdf4 {
         let mut method: Option<Option<u16>> = None;
         let mut acc = Acc::default();
         let mut mixed = false;
+        // the chunks the description places, and whether it places every one
+        let (mut placed, mut every) = (Vec::new(), true);
         for k in 0..rows as usize {
             let mut r = Rd::new(&table[k * record as usize..(k + 1) * record as usize]);
             let at: Vec<u64> = (0..rank).map(|_| r.u32().unwrap_or(0) as u64).collect();
+            // a chunk of the unlimited axis past the records lies outside the array
+            let outside = at.iter().zip(&chunk).zip(shape).any(|((a, c), s)| a * c >= *s);
             let (ct, cr) = (r.u16().unwrap_or(0), r.u16().unwrap_or(0));
             if at.iter().zip(&grid).any(|(a, g)| a >= g) {
                 return bad(format!("the chunk table of {what} places a chunk at {at:?}, outside its grid {grid:?}"));
@@ -1570,6 +1642,11 @@ impl Hdf4 {
                         return bad(format!("the chunk at {at:?} of {what} decodes to {length} bytes, not {chunk_bytes}"));
                     }
                     if model != 0 || !matches!(m, COMP_DEFLATE | COMP_NONE) {
+                        match (model, data.len) {
+                            _ if outside => {}
+                            (0, 1..) => placed.push((at.clone(), data.clone(), Method::Other(m))),
+                            _ => every = false,
+                        }
                         if method.is_none() {
                             method = Some(Some(m));
                         }
@@ -1595,12 +1672,16 @@ impl Hdf4 {
                 _ => {}
             }
             // a chunk of the unlimited axis past the records is not presented
-            if at.iter().zip(&chunk).zip(shape).any(|((a, c), s)| a * c >= *s) {
+            if outside {
                 continue;
             }
+            placed.push((at.clone(), segs.clone(), if m.is_some() { Method::Deflate } else { Method::Plain }));
             chunks.push(json!({"at": at, "segments": segs.json()}));
         }
         acc.done()?;
+        if every {
+            *layout = Some(Layout::Chunked { chunk: chunk.clone(), rows: placed });
+        }
         if mixed {
             return Ok(Err("chunks"));
         }
@@ -1628,6 +1709,8 @@ impl Hdf4 {
             ir.value(0, "descriptors/", k as u64, &ty, 0, (bl.at, n), Some(get(bl.at, n)?))?;
         }
         let els = ir.struct_(0, "elements", NO_INDEX, 0, None)?;
+        // each descriptor's element, for the descriptions
+        let mut el: Vec<Option<u32>> = vec![None; found.dds.len()];
         for (i, d) in found.dds.iter().enumerate() {
             if d.len == 0 {
                 continue;
@@ -1638,12 +1721,22 @@ impl Hdf4 {
                     (NT, 4) => "{version:u1,type:u1,width:u1,class:u1}".to_string(),
                     _ => format!("bytes[{}]", d.len),
                 };
-                ir.value(els, &name, d.rf as u64, &ty, 0, (d.off, d.len), Some(get(d.off, d.len)?))?;
+                el[i] = Some(ir.value(els, &name, d.rf as u64, &ty, 0, (d.off, d.len), Some(get(d.off, d.len)?))?);
             } else {
-                ir.data(els, &name, d.rf as u64, 0, (d.off, d.len), r#"{"recipe":[["src",0,null]]}"#)?;
+                el[i] = Some(ir.data(els, &name, d.rf as u64, 0, (d.off, d.len), r#"{"recipe":[["src",0,null]]}"#)?);
             }
         }
-        let (ir, mut facts) = crate::sans::finish(true, ir, self.facts)?;
+        let (mut ir, mut facts) = crate::sans::finish(true, ir, self.facts)?;
+        let (arrays, chains, map) = stored::described(&found.descs, &found.dds, &el)?;
+        // each presented dataset's key, by its Vgroup's ref
+        let key_of: HashMap<u64, u32> = arrays.iter().map(|a| (ir.nidx[a.element as usize], a.element)).collect();
+        ir.describe(arrays, chains, map)?;
+        for node in facts["nodes"].as_array_mut().into_iter().flatten() {
+            let vg = node["own"]["ref"].as_u64().filter(|_| node["own"].get("number_type").is_some());
+            if let Some(&e) = vg.and_then(|r| key_of.get(&r)) {
+                node["array"]["declared_by"] = json!(e);
+            }
+        }
         facts["copy_threshold"] = json!(crate::out::copy_threshold());
         self.asked.put(&mut facts);
         facts["summary"]["rounds"] = json!(self.asked.rounds);
