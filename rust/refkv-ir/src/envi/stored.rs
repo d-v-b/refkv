@@ -4,7 +4,7 @@
 //! of the data file. Raw data is stored as is; gzip data is a gzip stream of the whole file, after
 //! which a positive `header offset` passes over its first inflated bytes.
 
-use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Param, Place, Row, StoredArray};
+use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Grid, Param, Place, Row, StoredArray};
 use crate::ir::Res;
 use std::collections::BTreeMap;
 
@@ -52,9 +52,8 @@ pub(super) fn described(a: &Reached) -> Res<(Vec<StoredArray>, Vec<Chain>, Chunk
         item_bits: Some(a.item * 8),
         pad_from: None,
         // one unit of the whole array (the profile rejects an axis of no samples)
-        grid: Some(Grid { axes: a.shape.iter().map(|&n| AxisUnits::Each(n)).collect(), edge: Edge::Short }),
+        grid: Some(Grid { axes: a.shape.iter().map(|&n| AxisUnits::Each(n)).collect(), edge: Edge::Short, sparse: None }),
         chains: vec![0],
-        fill: Fill::Undefined,
         unit_parameters: Vec::new(),
     };
     let mut map = ChunkMap::default();
@@ -82,8 +81,8 @@ mod tests {
             assert_eq!((a.element, a.index), (1, None));
             assert_eq!(a.declarations, vec![Place::Element { element: 3, member: None, range: None }, Place::Element { element: 5, member: None, range: None }]);
             assert_eq!((a.shape.clone(), a.axes.clone(), a.item_bits, a.pad_from), (Some(vec![4, 3, 6]), Some(vec![1, 2, 0]), Some(16), None));
-            assert_eq!(a.grid, Some(Grid { axes: vec![AxisUnits::Each(4), AxisUnits::Each(3), AxisUnits::Each(6)], edge: Edge::Short }));
-            assert_eq!((a.chains.clone(), a.fill.clone(), a.unit_parameters.len()), (vec![0], Fill::Undefined, 0));
+            assert_eq!(a.grid, Some(Grid { axes: vec![AxisUnits::Each(4), AxisUnits::Each(3), AxisUnits::Each(6)], edge: Edge::Short, sparse: None }));
+            assert_eq!((a.chains.clone(), a.fill(), a.unit_parameters.len()), (vec![0], None, 0));
             assert_eq!(names(&chains[0]), want);
             if let Some((line, within)) = skip {
                 let length = Param::Source(Place::Element { element: line, member: None, range: Some(within) });
