@@ -91,7 +91,7 @@ def main() -> None:
     shutil.rmtree(OUT, ignore_errors=True)
     OUT.mkdir(parents=True)
 
-    # the example of spec/zarrify/envi.md §6
+    # the example of spec/zarrify/envi.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#6-example>
     raster("envi_bil_int16_big", interleave="bil", big=True,
            fields=["description = {a BIL test raster}", "samples = 5", "lines = 4", "bands = 3", "header offset = 0",
                    "file type = ENVI Standard", "data type = 2", "interleave = bil", "byte order = 1"],
