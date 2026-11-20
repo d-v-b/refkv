@@ -14,8 +14,9 @@ import re
 import subprocess
 import sys
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
+from unittest import mock
 
 import h5py
 import imagecodecs.numcodecs
@@ -177,7 +178,10 @@ def _input(name: str, tmp_path: Path) -> str:
 
 def _manifest_store(parser: str, path: str):
     url = Path(path).resolve().as_uri()
-    return getattr(virtualizarr.parsers, parser)()(url, ObjectStoreRegistry({"file:///": LocalStore()}))
+    # HDFParser joins a nested group's path with pathlib.Path, which on Windows gives `g\h`, a group h5py
+    # does not find; a POSIX path is what it means
+    with mock.patch("virtualizarr.parsers.hdf.hdf.Path", PurePosixPath):
+        return getattr(virtualizarr.parsers, parser)()(url, ObjectStoreRegistry({"file:///": LocalStore()}))
 
 
 References = dict[str, dict[tuple[int, ...], tuple[int, int]]]  # each array's chunks' (offset, length)
