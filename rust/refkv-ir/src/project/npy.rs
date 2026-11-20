@@ -103,10 +103,16 @@ fn presented<'a>(ir: &Ir, described: &Described, a: &'a J) -> Result<Presented<'
         Some(e) => ((ir.start[e as usize], ir.len[e as usize]), ir.form_id(e).unwrap_or(0)),
         None => ((ir.start[key as usize] + ir.len[key as usize], 0), 0),
     };
-    // the range the header's shape and the declared type give: a unit of another length is not this array's
-    let length = header.shape.iter().try_fold(dtype.item, |n, &s| n.checked_mul(s)).ok_or("internal: a presented array's data passes 2^64 bytes")?;
-    if data.1 != length {
-        return Err(format!("internal: the array at {path} holds {} bytes of the {length} its header declares", data.1));
+    // the bytes the header's shape and the declared type give, as the parser counts them (none
+    // for an array of no elements, whatever its other axes): a unit of another length is not
+    // this array's
+    let length = if header.shape.contains(&0) {
+        Some(0)
+    } else {
+        header.shape.iter().try_fold(dtype.item as u128, |n, &s| n.checked_mul(s as u128))
+    };
+    if length != Some(data.1 as u128) {
+        return Err(format!("internal: the array at {path} holds {} bytes, not what its header declares", data.1));
     }
     Ok(Presented { path, header, dtype, stored, reversed: array.axes.is_some(), data, form, deflate: None })
 }

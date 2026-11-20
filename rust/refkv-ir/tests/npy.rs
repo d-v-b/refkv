@@ -203,6 +203,18 @@ fn an_array_whose_description_has_no_grid_is_projected_from_its_data_element() {
     assert_eq!(out.refs, vec![("array/c/0/0".to_string(), vec![Part::Src(header_end, 15)])]);
 }
 
+/// An array of no elements projects, its shape and no chunks, whatever its other axes are:
+/// their product is not counted where one axis is 0, as the parser does not count it.
+#[test]
+fn an_array_of_no_elements_projects_whatever_its_other_axes() {
+    for shape in ["(4294967296, 4294967296, 0)", "(0, 4294967296, 4294967296)", "(0,)"] {
+        let data = npy_of("<f8", shape);
+        let (ir, description) = refkv_ir::parse_bytes::<Npy>(&data).unwrap_or_else(|e| panic!("{shape}: {e}"));
+        let out = refkv_ir::project::npy::project(&ir, &description, "u", &Default::default()).unwrap_or_else(|e| panic!("{shape}: {e}"));
+        assert!(out.refs.is_empty() && out.entries.iter().any(|(k, _)| k == "array/zarr.json"), "{shape}");
+    }
+}
+
 // one test per case of conformance/zarrify/rejects/npy.json (build.rs), each the message its check gives
 macro_rules! reject {
     ($name:ident, $input:literal, $msg:literal) => {
