@@ -3593,7 +3593,7 @@ requires-dist = [
     { name = "refkv", extras = ["zarr"], marker = "extra == 'media'", editable = "python" },
     { name = "refkv", extras = ["zarr"], marker = "extra == 'precomputed'", editable = "python" },
     { name = "refkv", extras = ["zarr", "obstore"], marker = "extra == 'virtualizarr'", editable = "python" },
-    { name = "virtualizarr", marker = "extra == 'virtualizarr'", specifier = ">=2.7.3" },
+    { name = "virtualizarr", marker = "extra == 'virtualizarr'", specifier = ">=2.8.0" },
     { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3.4.0" },
     { name = "zarr-metadata", marker = "extra == 'layouts'", specifier = ">=0.6.0" },
 ]

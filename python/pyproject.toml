@@ -137,10 +137,12 @@ obstore = [
 # ReferenceStore.from_virtualizarr, refkv.convert and refkv.shards, which build Zarr
 # metadata. refkv does not import xarray: it calls the methods of the datasets
 # VirtualiZarr builds. VirtualiZarr's registries hold obstore stores, so this has the
-# obstore extra too
+# obstore extra too. 2.8.0 is the VirtualiZarr the layout refkv.virtualizarr presents files as:
+# its FITSParser (2.7.3's went through kerchunk, and named and described HDUs otherwise) and
+# its codec virtualizarr.fits_ascii_table, which the layout writes for an ASCII table
 virtualizarr = [
     "refkv[zarr,obstore]",
-    "virtualizarr>=2.7.3",
+    "virtualizarr>=2.8.0",
 ]
 
 [tool.maturin]

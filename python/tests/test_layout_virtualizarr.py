@@ -29,7 +29,6 @@ import zarr.storage
 from astropy.io import fits
 from obspec_utils.registry import ObjectStoreRegistry
 from obstore.store import LocalStore
-from virtualizarr.parsers.fits import _attributes, _hdu_names
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.metadata import ArrayV3Metadata
 from zarr.core.sync import sync
@@ -207,6 +206,12 @@ def virtualizarr_s(parser: str, path: str) -> tuple[dict[str, Json], References,
     return docs, chunks, store
 
 
+async def _member_names(store) -> list[str]:
+    """A store's root members' names, in the order it lists them: a ManifestStore lists them
+    as its parser adds them, FITSParser's in the order of the HDUs it presents."""
+    return [k async for k in store.list_dir("") if k != "zarr.json"]
+
+
 def _arrays(group) -> dict[str, Any]:
     return {p: a for p, a in group.members(max_depth=None) if isinstance(a, zarr.Array)}
 
@@ -314,23 +319,25 @@ COMPRESSED = sorted(p.name for p in (FIXTURES / "fits").glob("fits_comp_*.fits")
 @pytest.mark.parametrize("name", [*COMPRESSED, "zero_scaled.fits"])
 def test_a_tile_compressed_fits_image_reads_as_astropy_reads_it(tmp_path, name):
     """FITSParser points a compressed HDU's table bytes at an uncompressed image; the layout
-    presents refkv's decoded image under FITSParser's name, with the image header astropy
-    reconstructs as its attributes and its axes named as FITSParser names them, and astropy's
-    values (BSCALE and BZERO applied, in float64)."""
+    presents refkv's decoded image under FITSParser's name, with FITSParser's attributes (the
+    image header astropy reconstructs) and dimension names, and astropy's values (BSCALE and BZERO
+    applied, in float64)."""
     path = zero_scaled_fits(tmp_path / name) if name == "zero_scaled.fits" else FIXTURES / "fits" / name
     store = zarrify(str(path), layout=Layout(NAME))
     group = zarr.open_group(refkv.zarr.store(store), mode="r")
+    theirs = _manifest_store("FITSParser", str(path))
+    parsed = zarr.open_group(theirs, mode="r", zarr_format=3)
     with fits.open(path) as hdus:
-        names = _hdu_names(hdus)
-        for hdu_name, hdu in zip(names[1:], hdus[1:], strict=True):
-            array = group[hdu_name]
+        # FITSParser presents each HDU with data axes, in the file's order
+        images = [hdu for hdu in hdus if hdu.header.get("NAXIS", 0)]
+        for hdu_name, hdu in zip(sync(_member_names(theirs)), images, strict=True):
+            array, expected = group[hdu_name], parsed[hdu_name]
             assert isinstance(array, zarr.Array)
-            dims = array.metadata.dimension_names if isinstance(array.metadata, ArrayV3Metadata) else None
-            assert dims is not None
-            str(hdu.header)
-            assert dict(array.attrs) == {k: v for k, v in _attributes(hdu.header).items() if k != "BLANK"}, hdu_name
-            assert len(dims) == hdu.header["NAXIS"]
-            assert all(str(n).startswith(f"{hdu_name}_") for n in dims)
+            assert isinstance(expected, zarr.Array)
+            assert isinstance(array.metadata, ArrayV3Metadata)
+            assert isinstance(expected.metadata, ArrayV3Metadata)
+            assert dict(array.attrs) == dict(expected.attrs), hdu_name
+            assert array.metadata.dimension_names == expected.metadata.dimension_names, hdu_name
             data, scaled = np.asarray(array[...]), "BSCALE" in hdu.header or "BZERO" in hdu.header
             assert data.dtype == (np.dtype("f8") if scaled else hdu.data.dtype.newbyteorder("="))
             # refkv's float64 dequantization may differ from astropy's in the last bit (in its default layout too)
