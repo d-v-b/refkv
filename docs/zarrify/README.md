@@ -21,6 +21,7 @@ who each one is for, what you get, and how to run it.
 |---|---|---|---|
 | CZI | Zeiss CZI files | [czi](czi/README.md) | [czi.md §7](../../spec/zarrify/czi.md#7-czi-profile) |
 | DICOM | DICOM files, including whole-slide images | [dicom](dicom/README.md) | [dicom.md §7](../../spec/zarrify/dicom.md#7-dicom-profile) |
+| ENVI | ENVI Standard rasters, BSQ, BIL or BIP, raw or gzip (`.hdr` with its data file) | [envi](envi/README.md) | [envi.md §8](../../spec/zarrify/envi.md#8-envi-profile) |
 | FITS | FITS images and tables (`.fits`, `.fz`) | [fits](fits/README.md) | [fits.md §9](../../spec/zarrify/fits.md#9-fits-profile) |
 | FLAC | FLAC audio files, as a sharded array of samples (`.flac`) | [flac](flac/README.md) | [flac.md §8](../../spec/zarrify/flac.md#8-flac-profile) |
 | GRIB | GRIB2 files of gridded weather and climate fields (`.grib2`), as labeled arrays with CF coordinates | [grib](grib/README.md) | [grib.md §8](../../spec/zarrify/grib.md#8-grib-profile) |
@@ -62,8 +63,9 @@ URLs without the trailing `/`; add it. `HF_ENDPOINT` names another Hub, as for
 `huggingface_hub`. SAFE reads either: a product's
 `.SAFE` directory as a store, or its `.SAFE.zip` as a file. VSI is named by
 its `.vsi` file and reads the tile files beside it by name, without listing
-the directory, and NRRD by its header file, a detached header's data file
-read beside it by name. MP3 and FLAC are not images: their archives hold a
+the directory, NRRD by its header file, a detached header's data file
+read beside it by name, and ENVI by its `.hdr` header, its data file found
+beside it by the header's name ([envi](envi/README.md)). MP3 and FLAC are not images: their archives hold a
 plain Zarr array of audio samples, decoded from the file's frames when a
 chunk is read ([mp3](mp3/README.md), [flac](flac/README.md)).
 
@@ -392,6 +394,12 @@ each format's metadata is:
   key/value pair and comment, and what the layout derives from them (the data
   type, the encoding, each axis's image axis, whether the orientation is
   applied).
+- **ENVI:** the IR mirror on `refkv_source`: the header file, line by line,
+  held, its bytes in the archive, and the data file described in place. The
+  root keeps every field as written (wavelengths, map info, band names, a
+  braced value with its line ends) and every comment, and what the layout
+  derives from them (the data type, the interleave, the byte order, the
+  compression and the data file's key).
 - **VSI:** the IR mirror on `refkv_source`: the `.vsi` file (its metadata
   tree field by field, and the IFDs inside it) and every tile file (its
   headers, tile directory and tiles), each described in place, so that the

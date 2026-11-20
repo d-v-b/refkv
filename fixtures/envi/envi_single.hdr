@@ -1,0 +1,6 @@
+ENVI
+samples = 1
+lines = 1
+bands = 1
+data type = 14
+interleave = BIL

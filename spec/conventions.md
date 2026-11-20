@@ -12,6 +12,7 @@ its JSON Schema `zarrify/<format>/schema.json`. Its changes are in [zarrify/chan
 |---|---|---|
 | Zeiss CZI | [czi](zarrify/czi.md) | `7a0733c7-d4be-4482-a64f-6904d9354ea5` |
 | DICOM | [dicom](zarrify/dicom.md) | `acf17198-e5a5-48d3-8187-22ec4bb40ea5` |
+| ENVI (NV5 Geospatial) | [envi](zarrify/envi.md) | `e9428528-2fe3-43f2-8c02-3850cfed2f62` |
 | FITS | [fits](zarrify/fits.md) | `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` |
 | FLAC (Free Lossless Audio Codec) | [flac](zarrify/flac.md) | `e9108d07-b24b-432f-a8ce-09d80c8073b4` |
 | WMO FM 92 GRIB edition 2 (WMO-No. 306, Manual on Codes, Volume I.2) | [grib](zarrify/grib.md) | `c9bbe039-8dfa-49f9-a655-756f822a42d6` |

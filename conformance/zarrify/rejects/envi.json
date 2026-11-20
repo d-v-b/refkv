@@ -1,0 +1,85 @@
+{
+  "about": "The inputs the envi profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/envi.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "reject_byte_order",
+      "input": "envi_reject_byte_order.hdr",
+      "message": "the byte order field \"2\" is not 0 or 1"
+    },
+    {
+      "test": "reject_compression",
+      "input": "envi_reject_compression.hdr",
+      "message": "the file compression field \"2\" is not 0 or 1"
+    },
+    {
+      "test": "reject_data_type",
+      "input": "envi_reject_data_type.hdr",
+      "message": "the data type field \"7\" is not the code of an ENVI data type of a flat array (1 to 6, 9, or 12 to 15)"
+    },
+    {
+      "test": "reject_file_type",
+      "input": "envi_reject_file_type.hdr",
+      "message": "the ENVI file type \"ENVI Spectral Library\" is not supported: only an ENVI Standard file is a flat binary array"
+    },
+    {
+      "test": "reject_framed",
+      "input": "envi_reject_framed.hdr",
+      "message": "the header has a major frame offsets field: the data is in frames, which the profile does not read"
+    },
+    {
+      "test": "reject_gzip_short",
+      "input": "envi_reject_gzip_short.hdr",
+      "message": "the 10-byte data file \"envi_reject_gzip_short.img\" is shorter than a gzip member"
+    },
+    {
+      "test": "reject_header_offset",
+      "input": "envi_reject_header_offset.hdr",
+      "message": "the header offset field \"-1\" is not an integer from 0 to 2^53 - 1"
+    },
+    {
+      "test": "reject_interleave",
+      "input": "envi_reject_interleave.hdr",
+      "message": "the interleave field \"bsx\" is not bsq, bil or bip"
+    },
+    {
+      "test": "reject_no_data_file",
+      "input": "envi_reject_no_data_file.hdr",
+      "message": "no data file beside the ENVI header \"envi_reject_no_data_file.hdr\": none of \"envi_reject_no_data_file\", \"envi_reject_no_data_file.img\", \"envi_reject_no_data_file.dat\", \"envi_reject_no_data_file.raw\", \"envi_reject_no_data_file.bin\", \"envi_reject_no_data_file.bsq\", \"envi_reject_no_data_file.bil\", \"envi_reject_no_data_file.bip\" exists"
+    },
+    {
+      "test": "reject_no_interleave",
+      "input": "envi_reject_no_interleave.hdr",
+      "message": "the header has no interleave field"
+    },
+    {
+      "test": "reject_no_samples",
+      "input": "envi_reject_no_samples.hdr",
+      "message": "the header has no samples field"
+    },
+    {
+      "test": "reject_not_gzip",
+      "input": "envi_reject_not_gzip.hdr",
+      "message": "the data file \"envi_reject_not_gzip.img\" does not start with a gzip header, and the header's file compression is 1"
+    },
+    {
+      "test": "reject_offset_past_end",
+      "input": "envi_reject_offset_past_end.hdr",
+      "message": "the header offset 4096 is past the end of the 120-byte data file \"envi_reject_offset_past_end.img\""
+    },
+    {
+      "test": "reject_samples_zero",
+      "input": "envi_reject_samples_zero.hdr",
+      "message": "the samples field \"0\" is not an integer from 1 to 2^53 - 1"
+    },
+    {
+      "test": "reject_size",
+      "input": "envi_reject_size.hdr",
+      "message": "the 119-byte data file \"envi_reject_size.img\" does not hold the header offset 0 and the array's 120 bytes, and nothing else"
+    },
+    {
+      "test": "reject_too_large",
+      "input": "envi_reject_too_large.hdr",
+      "message": "the array's 73786976294838206464 bytes are more than 2^53 - 1"
+    }
+  ]
+}

@@ -34,6 +34,8 @@ CASES = [
     ("czi/czi_gray16_tczyx.czi", None, False),
     ("czi/czi_clipped_raw.czi", None, False),  # a run-length rectilinear grid
     ("dicom/dicom_bigendian_mono16.dcm", None, False),
+    ("envi/envi_bil_int16_big.hdr", None, False),  # a file read as a store, transposed
+    ("envi/envi_gzip_header_offset.hdr", None, False),
     ("fits/fits_bintable.fits", None, False),
     ("fits/fits_gzip_image.fits.gz", None, False),
     ("flac/flac_mono_16.flac", "av", False),

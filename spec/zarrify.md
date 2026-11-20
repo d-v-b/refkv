@@ -35,6 +35,7 @@ The table, generated from the registry, lists them:
 |---|---|---|
 | [CZI](zarrify/czi.md#part-2-the-profile) | file | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids, in one file or across numbered files |
 | [DICOM](zarrify/dicom.md#part-2-the-profile) | file | DICOM Part 10 files with native, JPEG, lossless JPEG, JPEG-LS, RLE, JPEG 2000 or HTJ2K pixel data, including whole-slide images |
+| [ENVI](zarrify/envi.md#part-2-the-profile) | file | ENVI Standard rasters: a `.hdr` header and its flat binary data file beside it, BSQ, BIL or BIP, raw or gzip |
 | [FITS](zarrify/fits.md#part-2-the-profile) | file | FITS files: images, multi-extension files, binary and ASCII tables |
 | [FLAC](zarrify/flac.md#part-2-the-profile) | file | FLAC files (`.flac`) of a fixed block size, with their metadata blocks and ID3v2 and ID3v1 tags; one sharded array of integer samples, not an image |
 | [GRIB](zarrify/grib.md#part-2-the-profile) | file | GRIB edition 2 files of gridded fields, such as NOAA's and ECMWF's forecasts, whose fields on latitude/longitude, Gaussian, rotated, Lambert conformal, polar stereographic, Mercator, reduced and unstructured grids it presents |
@@ -248,6 +249,7 @@ profile name:
 |---|---|
 | CZI ([czi.md §7](zarrify/czi.md#7-czi-profile)) | 50 |
 | DICOM ([dicom.md §7](zarrify/dicom.md#7-dicom-profile)) | 10 |
+| ENVI ([envi.md §8](zarrify/envi.md#8-envi-profile)) | 92 |
 | FITS ([fits.md §9](zarrify/fits.md#9-fits-profile)) | 110 |
 | FLAC ([flac.md §8](zarrify/flac.md#8-flac-profile)) | 95 |
 | GRIB ([grib.md §8](zarrify/grib.md#8-grib-profile)) | 65 |
@@ -781,6 +783,7 @@ files, a project's documents and LOFs) as a store ([§1.4](#14-store-inputs)).
 | profile | read as a store | the named file | specified in |
 |---|---|---|---|
 | CZI | on demand | CZI file | [czi.md §7.9](zarrify/czi.md#79-several-files) |
+| ENVI | always | header file | [envi.md §8](zarrify/envi.md#8-envi-profile) |
 | GRIB | always | GRIB file | [grib.md §8](zarrify/grib.md#8-grib-profile) |
 | HDF5 | on demand | HDF5 file | [hdf5.md §8.6](zarrify/hdf5.md#86-external-files) |
 | LIF | on demand | named document | [lif.md §8](zarrify/lif.md#8-las-x-documents) |
@@ -1102,6 +1105,7 @@ else. The profiles, generated from the registry:
 <!-- profiles:spec-list -->
 - the CZI profile: [spec/zarrify/czi.md §7](zarrify/czi.md#7-czi-profile);
 - the DICOM profile: [spec/zarrify/dicom.md §7](zarrify/dicom.md#7-dicom-profile);
+- the ENVI profile: [spec/zarrify/envi.md §8](zarrify/envi.md#8-envi-profile);
 - the FITS profile: [spec/zarrify/fits.md §9](zarrify/fits.md#9-fits-profile);
 - the FLAC profile: [spec/zarrify/flac.md §8](zarrify/flac.md#8-flac-profile);
 - the GRIB profile: [spec/zarrify/grib.md §8](zarrify/grib.md#8-grib-profile);

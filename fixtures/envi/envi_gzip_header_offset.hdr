@@ -1,0 +1,10 @@
+ENVI
+samples = 5
+lines = 4
+bands = 3
+header offset = 32
+file type = ENVI Standard
+data type = 3
+interleave = bsq
+byte order = 1
+file compression = 1

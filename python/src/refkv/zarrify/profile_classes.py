@@ -28,6 +28,14 @@ class DicomSource(Source):
 
 
 @dataclass(frozen=True)
+class EnviSource(Source):
+    """ENVI (NV5 Geospatial): a file the `envi` profile reads, its first bytes untested
+    (`Source` lists its read options)."""
+
+    profile: ClassVar[str] = "envi"
+
+
+@dataclass(frozen=True)
 class FitsSource(Source):
     """FITS: a file the `fits` profile reads, its first bytes untested (`Source` lists its read
     options)."""
@@ -272,6 +280,7 @@ class Zarr3Store(Store):
 CLASSES: dict[str, type[Source | Store]] = {
     "CziSource": CziSource,
     "DicomSource": DicomSource,
+    "EnviSource": EnviSource,
     "FitsSource": FitsSource,
     "FlacSource": FlacSource,
     "GribSource": GribSource,
@@ -307,6 +316,7 @@ CLASSES: dict[str, type[Source | Store]] = {
 __all__ = [
     "CziSource",
     "DicomSource",
+    "EnviSource",
     "FitsSource",
     "FlacSource",
     "GribSource",
