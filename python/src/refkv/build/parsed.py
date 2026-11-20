@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import asyncio
 import bisect
+import concurrent.futures
 import dataclasses
 import json
 import os
+import threading
 import warnings
 from collections.abc import Callable
 from pathlib import Path
@@ -56,7 +58,9 @@ class Parsed:
         # the parse keeps what the built-in output reads through (a file's transport, a local
         # file's mapping among them) until this is closed
         self._parse: _Parse | None = parse
-        self._out: Output | StoreIrOutput | None = None
+        # the built-in output, once asked for: made by the first to ask, which the others wait for
+        self._made: concurrent.futures.Future[Output | StoreIrOutput] | None = None
+        self._making = threading.Lock()
         run = parse.parse
         self._location = location
         self.policy = policy
@@ -119,16 +123,31 @@ class Parsed:
     async def _output_async(self) -> Output | StoreIrOutput:
         """The built-in output of the input, made once (`refkv.build.project`): an output only
         built from, so not held to the payload limit with checksums, which `seal` holds what is
-        written to."""
-        if self._out is None:
+        written to. Callers that ask together, from any thread or loop, get the one output: the
+        first makes it and the others wait. One that failed is made again when next asked for."""
+        with self._making:
+            made, first = self._made, self._made is None
+            if made is None:
+                made = self._made = concurrent.futures.Future()
+        if not first:
+            return await asyncio.wrap_future(made)
+        try:
             if self._parse is None:
-                raise ValueError(f"{self._location}: closed before its built-in output was asked for")
+                raise ValueError(f"{self._location}: closed before its built-in output was asked for")  # noqa: TRY301
             out = await self._parse.output_async(written=False)
-            # the run's checksum function holds what read the input: `Parsed` reads its sources
-            # itself, and `seal` checksums them
-            out.checksum = None
-            self._out = out
-        return self._out
+        except BaseException as e:
+            with self._making:
+                self._made = None
+            made.set_exception(e)
+            raise
+        # the run's checksum function holds what read the input: `Parsed` reads its sources
+        # itself, and `seal` checksums them
+        out.checksum = None
+        if isinstance(out, Output):  # the pin, after the output's own reads
+            self.sources = (dataclasses.replace(self.sources[0], etag=out.etag),)
+            self._sources_read = None
+        made.set_result(out)
+        return out
 
     def __enter__(self) -> Self:
         return self

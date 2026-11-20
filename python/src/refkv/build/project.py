@@ -5,6 +5,7 @@ it, reading what that output alone needs, the first time it is asked for. It giv
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from refkv import Range, _sync
@@ -93,10 +94,15 @@ async def project_async(parsed: Parsed) -> Projected:
     first call makes the output, reading what it alone needs through what `read` opened, so
     `parsed` must not be closed yet; later calls build on the output it made."""
     out = await parsed._output_async()  # noqa: SLF001 (the run read kept)
-    base, store = base_of(out, parsed._fmt, parsed.policy, parsed.registry,  # noqa: SLF001
-                          checksums=parsed.checksums)
-    objects = out._numbered()[0] if isinstance(out, StoreIrOutput) else []  # noqa: SLF001
-    return Projected(parsed, base, frozenset(store.read_at_open), objects)
+
+    def projected() -> Projected:
+        base, store = base_of(out, parsed._fmt, parsed.policy, parsed.registry,  # noqa: SLF001
+                              checksums=parsed.checksums)
+        objects = out._numbered()[0] if isinstance(out, StoreIrOutput) else []  # noqa: SLF001
+        return Projected(parsed, base, frozenset(store.read_at_open), objects)
+
+    # the store and the values, on a thread: both grow with the chunks
+    return await asyncio.to_thread(projected)
 
 
 def project(parsed: Parsed) -> Projected:

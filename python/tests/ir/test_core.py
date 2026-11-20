@@ -2,16 +2,17 @@
 names' invariants, and the fill batch."""
 
 import json
+from typing import override
 
 import pytest
 from ir_helpers import FIXTURES
 
-from refkv import _core
+from refkv import _core, _sync
 from refkv._narrow import at
-from refkv.ir import drive, new_run
+from refkv.ir import drive, new_run, parse_async
 from refkv.ir import zarrify as via_ir
 from refkv.ir.output import from_rust
-from refkv.ir.planner import open_transport
+from refkv.ir.planner import FileTransport, open_transport
 from refkv.zarrify.common import Rejected
 
 
@@ -168,8 +169,10 @@ def test_a_run_that_defers_its_projection_reads_for_an_output_only_once_asked():
         run.project("u")
 
     run.begin_projection()
+    assert run.poll()  # the reads are asked for, and the host stops before answering them
+    run.begin_projection()  # asked again, the batch begins again
     drive(run, transport)
-    assert json.loads(run.stats())["ranges"] == json.loads(whole.stats())["ranges"] > asked
+    assert json.loads(run.stats())["ranges"] > json.loads(whole.stats())["ranges"] > asked
 
     def parts(out):
         summary = {k: v for k, v in out.summary.items() if k != "planner"}  # the planner's model is timed
@@ -182,4 +185,36 @@ def test_a_run_that_defers_its_projection_reads_for_an_output_only_once_asked():
     assert run.ir().digest() == ir.digest() == expected_ir.digest()
     bare = from_rust(run.project("u", False))
     assert bare.bytes_entries == {k: v for k, v in first.bytes_entries.items() if not k.startswith("refkv_source/")}
+
+
+def test_an_outputs_own_reads_count_for_its_etag_pin():
+    """The source's ETag is pinned when every response gave the same strong one, the responses
+    to the reads an output alone makes among them: one of those answered without an ETag leaves
+    the output no pin, though the parse's responses all gave one."""
+    path = str(FIXTURES / "tiff" / "edge_aperio_position.tif")  # its omero windows sample a chunk
+
+    class Tagged(FileTransport):
+        """A file whose reads give a strong ETag, up to its `strong`th."""
+
+        def __init__(self, strong: float) -> None:
+            super().__init__(path)
+            self.fetches = 0
+            self.etag = lambda: '"a"' if self.fetches <= strong else None
+
+        @override
+        def fetch(self, spans):
+            self.fetches += 1
+            return super().fetch(spans)
+
+    always = Tagged(float("inf"))
+    parsed = _sync.run(parse_async(path, transport=always))
+    parse_fetches = always.fetches
+    assert parsed.etag == '"a"'
+    assert _sync.run(parsed.output_async()).etag == '"a"'
+    assert always.fetches > parse_fetches
+
+    _, out, _ = via_ir(path, transport=Tagged(parse_fetches))
+    assert out.etag is None
+    _, named, _ = via_ir(path, "https://example.invalid/a.tif", transport=Tagged(float("inf")))
+    assert named.etag is None  # the output names another URL than the one read
 

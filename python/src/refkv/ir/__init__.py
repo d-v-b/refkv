@@ -180,18 +180,27 @@ class FileParse:
     """A file parsed, and its run kept: its format, its IR, and its built-in output when asked for
     (`output_async`), as often as asked. The parse read what the IR holds and nothing for an
     output; the output's own reads (the ranges a projection copies or samples) are made the first
-    time one is asked for, through the transport the file was opened with."""
+    time one is asked for, through the transport the file was opened with. One output is made
+    at a time: a caller that may ask twice at once waits for the first (`refkv.build.project`
+    does)."""
 
-    def __init__(self, run: _core.Run, transport: Transport, fmt: str, url: str, etag: str | None,
+    def __init__(self, run: _core.Run, transport: Transport, fmt: str, url: str, pinned: bool,
                  connections: int | None) -> None:
         self._run = run
         self._transport = transport
         self._connections = connections
+        self._pinned = pinned
         self.fmt = fmt
         self.ir: _core.Ir = run.ir()
         self.url = url
         self.size = transport.size
-        self.etag = etag
+
+    @property
+    def etag(self) -> str | None:
+        """The source's ETag pin, as of now: the strong ETag every response so far gave, when
+        the output names the URL that was read (`pinned`); else None. An output's own reads
+        count: one of them answered with no ETag, or a weak one, leaves no pin."""
+        return self._transport.etag() if self._pinned else None
 
     async def output_async(self, mirror: bool = True, layouts: list[str] | None = None, checksums: bool = False,
                            written: bool = True) -> Output:
@@ -214,7 +223,7 @@ class FileParse:
         out = await asyncio.to_thread(output)
         out.ir = self.ir
         out.size = self.size
-        out.etag = self.etag
+        out.etag = self.etag  # after the projection's reads
         return out
 
     def close(self) -> None:
@@ -246,7 +255,7 @@ async def parse_async(location: str, url: str | None = None, policy: Policy | No
     if named in TIFF_VARIANTS and fmt != named:  # before the projection reads more
         raise Rejected(f"not {TIFF_VARIANTS[named]}: the TIFF parser read it as {fmt}")
     return FileParse(run, transport, fmt, url or (location if transport.remote else path_reference(location)),
-                     transport.etag() if url in (None, location) else None, connections)
+                     url in (None, location), connections)
 
 
 async def zarrify_async(location: str, url: str | None = None, mirror: bool = True, policy: Policy | None = None,

@@ -1,12 +1,14 @@
 """refkv.build, the tools to build an output from the IR (the design of d-v-b/refkv#278): `read`
 and `Parsed`, values, `Array` and `Written`, `seal` and `project`."""
 
+import asyncio
 import dataclasses
 import gc
 import importlib
 import io
 import json
 import struct
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, BinaryIO, cast
 
@@ -34,6 +36,7 @@ from refkv.build import (
     fits,
     payload_size,
     project,
+    project_async,
     read,
     read_async,
     seal,
@@ -117,6 +120,23 @@ def test_read_makes_no_output_and_project_makes_it_when_asked(name):
         assert dict(project(p).written) == dict(first.written)
     assert dict(project(p).written) == dict(first.written)
     assert seal(first.written, [p]).mapping == zarrify(path, url).mapping
+
+
+def test_project_asked_for_together_makes_one_output():
+    """Callers that ask for an input's built-in output at once, from threads or from one loop, get
+    the one output: the first makes it, with its reads, and the others wait for it."""
+    path = FIXTURES / "tiff" / "edge_aperio_position.tif"  # its built-in output reads a chunk
+    with read(path) as p, ThreadPoolExecutor(4) as pool:
+        from_threads = list(pool.map(project, [p] * 4))
+        assert all(dict(x.written) == dict(from_threads[0].written) for x in from_threads)
+
+    async def together(q):
+        return await asyncio.gather(project_async(q), project_async(q), project_async(q))
+
+    with read(path) as q:
+        from_a_loop = asyncio.run(together(q))
+        assert all(x.base.keys() == from_threads[0].base.keys() for x in from_a_loop)
+        assert seal(from_a_loop[0].written, [q]).mapping == zarrify(str(path)).mapping
 
 
 def test_project_refuses_an_input_closed_before_its_output_was_asked_for():

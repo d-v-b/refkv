@@ -322,18 +322,22 @@ impl Run {
 
     /// Asks for the built-in projection's reads, of a run that left them out
     /// (`defer_projection`) and is done: the host polls again until None, and may then project
-    /// (`project`). Asking twice, or of a run that read them itself, asks for nothing.
+    /// (`project`). Asking again once they are read, or of a run that read them itself, asks for
+    /// nothing. Asking again before they are all read (a read failed, or the host stopped
+    /// polling) asks for the whole batch again, so one host at a time asks.
     pub fn begin_projection(&mut self) -> Result<(), String> {
-        if !self.done || self.beside || self.parsed.is_none() {
+        if self.beside || self.parsed.is_none() || (!self.done && !self.projecting) {
             return Err("the run has no IR to project".into());
         }
-        if !self.deferred || self.projecting {
+        if !self.deferred || (self.projecting && self.done) {
             return Ok(());
         }
+        // an interrupted batch is dropped, and begun again
+        self.in_batch = false;
+        self.copies.clear();
+        let more = self.begin_copies()?;
         self.projecting = true;
-        if self.begin_copies()? {
-            self.done = false;
-        }
+        self.done = !more;
         Ok(())
     }
 
