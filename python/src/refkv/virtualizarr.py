@@ -84,9 +84,10 @@ class RefkvParser:
     - `policy`: the `refkv.Policy` refkv reads `url` under, and that the chunks' sources must
       satisfy; None for the policy `refkv.zarrify.zarrify` gives the store it builds.
     - `layout`: the `refkv.zarrify.layouts.Layout` to zarrify with; `DEFAULT_LAYOUT` when not
-      given, None for refkv's default layout. An input of a format the layout does not read is
-      written as refkv's own output instead, so that the parser takes any input refkv
-      can zarrify. Either way the input is read once: both are projections of the one parse.
+      given, None for refkv's default layout. An input of a format the layout does not read, or
+      one the layout refuses (a FITS image with `BSCALE = 0`), is written as refkv's own output
+      instead, so that the parser takes any input refkv can zarrify. Either way the input is
+      read once: both are projections of the one parse.
 
     VirtualiZarr names an ENVI raster by its data file, refkv by its `.hdr` header: an input no
     profile accepts is zarrified by the header beside it, found as `ENVIParser` finds it (the

@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, Self, overload
 import refkv.ir  # its Ir, read at call time: refkv.ir imports refkv.zarrify, which imports this module (a cycle)
 import refkv.zarrify as _zarrify  # its parse, read at call time: refkv.zarrify imports this module (a cycle)
 from refkv import Range, ReferenceStore, Source, _sync
+from refkv.errors import RefkvError
 from refkv.ir.kind import Kind
 from refkv.ir.store import StoreIrOutput, StoreParse
 from refkv.policy import Policy
@@ -72,6 +73,9 @@ class Parsed:
         # the built-in output, once asked for: made by the first to ask, which the others wait for
         self._made: concurrent.futures.Future[Output | StoreIrOutput] | None = None
         self._making = threading.Lock()
+        # the last error of a read of the input refkv made itself (a source's bytes, the built-in
+        # output's reads), kept so that `refkv.build.apply` can tell it from a plugin's own
+        self._own_error: BaseException | None = None
         run = parse.parse
         self._location = location
         self.policy = policy
@@ -451,6 +455,9 @@ class Parsed:
             return list(await asyncio.gather(*(store.get_async(k) for k in mapping)))
         try:
             got = [b or b"" for b in _sync.run(each())]
+        except (OSError, RefkvError) as e:  # the read failed, or the policy refused it
+            self._own_error = e
+            raise
         except RuntimeError as e:  # called on refkv's own event loop, which this blocking read would stall
             raise RuntimeError("Parsed.bytes and seal's checksums block: call them from a thread, not from "
                                "refkv's event loop") from e

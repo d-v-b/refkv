@@ -994,13 +994,36 @@ def test_a_read_refkv_s_own_output_makes_that_fails_is_the_input_s_error(monkeyp
         zarrify(TIFF, layout=Layout(Plugin(images)))
 
 
-def test_a_range_refkv_cannot_read_to_checksum_is_the_input_s_error(monkeypatch):
-    def unread(_self, _ranges):
+def test_a_source_refkv_cannot_read_is_the_input_s_error(monkeypatch):
+    """A range that cannot be read to checksum it, and a source's bytes a plugin asks the input
+    for that cannot be read, fail as the input's reads fail, not as the plugin's failure."""
+    async def unread(_self, _key):
         raise OSError("the source went away")
 
-    monkeypatch.setattr(Parsed, "_read_ranges", unread)
+    def reading(inputs):
+        [parsed] = inputs
+        return {"zarr.json": group(), "head": parsed.bytes((0, 0, 4))}
+
+    assert zarrify(TIFF, layout=Layout(Plugin(reading))).get("head") == Path(TIFF).read_bytes()[:4]
+    monkeypatch.setattr(refkv.ReferenceStore, "get_async", unread)
     with pytest.raises(OSError, match="the source went away"):
         zarrify(TIFF, checksums=True, layout=Layout(Plugin(tiles_from_ir)))
+    with pytest.raises(OSError, match="the source went away"):
+        zarrify(TIFF, layout=Layout(Plugin(reading)))
+
+
+def test_a_plugin_s_error_whose_attributes_raise_is_still_a_failure():
+    """Whether an error is refkv's own is told without running the error's code: a plugin's
+    exception whose attribute lookups raise is a failure of the layout, as any other of its is."""
+    class HostileError(Exception):
+        def __getattr__(self, name):
+            raise RuntimeError(name)
+
+    def raising(_inputs):
+        raise HostileError("mine")
+
+    with pytest.raises(LayoutFailed, match=r"^acme\.test: "):
+        zarrify(TIFF, layout=Layout(Plugin(raising)))
 
 
 def test_fits_says_a_run_of_zeros_is_longer_than_a_zero_source():

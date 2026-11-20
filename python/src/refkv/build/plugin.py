@@ -9,7 +9,6 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from refkv import ReferenceStore
-from refkv.errors import ResolutionError
 from refkv.zarrify.common import Rejected
 from refkv.zarrify.layouts import (
     BASE_PROFILES,
@@ -27,14 +26,13 @@ if TYPE_CHECKING:
 
 __all__ = ["apply"]
 
-_OWN = "_refkv_own_read"
 
-
-def mark_own(error: BaseException) -> None:
-    """Marks `error` as one of refkv's own reads of an input (the reads its built-in output
-    makes), not of a plugin's code: `apply` raises it as it is, as `zarrify` without a plugin
-    would, where a plugin's own error is a failure of the layout."""
-    setattr(error, _OWN, True)
+def _own(error: BaseException | None, inputs: Sequence[Parsed]) -> bool:
+    """Whether `error` is one of refkv's own reads of an input (a source's bytes, the reads its
+    built-in output makes), which the input recorded, and not of a plugin's code: `apply` raises
+    it as it is, as `zarrify` without a plugin would. Told by identity, so that no code of the
+    error's own runs."""
+    return error is not None and any(error is p._own_error for p in inputs)  # noqa: SLF001
 
 
 def apply(planned: Planned, inputs: Sequence[Parsed], *, info: Mapping[str, object] | None = None) -> ReferenceStore:
@@ -47,8 +45,9 @@ def apply(planned: Planned, inputs: Sequence[Parsed], *, info: Mapping[str, obje
     one the plugin rejects (`refkv.zarrify.Rejected`), and `LayoutFailed` for a plugin that
     raises anything else or an output `seal` refuses. An error of refkv's own reads of an input
     is neither: a read the built-in output makes that fails (where the plugin asked for that
-    output), or a range that cannot be read to checksum it, raises what it raises without a
-    plugin (`OSError`, `refkv.errors.ResolutionError`). The inputs must be open where the plugin
+    output), a source's bytes the plugin asked for (`Parsed.bytes`) that cannot be read, or a
+    range that cannot be read to checksum it, raises what it raises without a
+    plugin (`OSError`, or an error of `refkv.errors`). The inputs must be open where the plugin
     asks for the built-in output (`project`), or was read for checksums. The sources' URLs are
     not held to the reader policy here: `save_vzip` holds them, as for refkv's own output."""
     name = planned.name
@@ -66,10 +65,10 @@ def apply(planned: Planned, inputs: Sequence[Parsed], *, info: Mapping[str, obje
         raise LayoutRejected(f"{name}: {_text(e)}") from e
     except SealError as e:
         cause = e.__cause__
-        if e.code == "checksums" and isinstance(cause, (OSError, ResolutionError)):
+        if cause is not None and _own(cause, inputs):
             raise cause from None  # a range refkv could not read to checksum it: the input's error
         raise LayoutFailed(f"{name}: {e}") from e
     except BaseException as e:  # any of a plugin's, made a failure
-        if getattr(e, _OWN, False):
+        if _own(e, inputs):
             raise
         raise LayoutFailed(f"{name}: {described(e)}") from e

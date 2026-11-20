@@ -14,7 +14,6 @@ from refkv.zarrify.common import Rejected
 from refkv.zarrify.layouts import _Base, _base_of, chunk_coords
 
 from .parsed import Parsed
-from .plugin import mark_own
 from .values import MODELED, Array, Literal, Part, Ref, Shared, Value, Written, Zeros
 
 __all__ = ["Projected", "project", "project_async"]
@@ -239,7 +238,7 @@ async def project_async(parsed: Parsed) -> Projected:
     except Rejected:  # the projection's refusal of the input
         raise
     except Exception as e:  # a read the built-in output makes, or its failure: refkv's own, whoever asked
-        mark_own(e)
+        parsed._own_error = e  # noqa: SLF001
         raise
 
     def projected() -> Projected:
