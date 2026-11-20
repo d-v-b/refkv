@@ -98,6 +98,20 @@ impl Transform {
         }
     }
 
+    /// Whether more of the element's source bytes could change what `rederive` gives of `raw`, the
+    /// first of them: only for a `deflate` element with a `prefix` whose stream, as far as `raw`
+    /// goes, neither ended nor broke before the prefix. A stream that ended or broke short of it
+    /// is an error whatever follows, so a validator stops reading there.
+    pub fn starved(self, raw: &[u8], form: &J) -> bool {
+        match (self, Transform::prefix(form)) {
+            (Transform::Deflate, Some(prefix)) => {
+                let (out, more) = crate::gz::inflate_prefix(raw, prefix);
+                more && (out.len() as u64) < prefix
+            }
+            _ => false,
+        }
+    }
+
     /// The derived bytes from the element's source bytes `raw` (all of them, or the first of them,
     /// as `window` reads them) and its form, or None when a validator cannot derive them (the
     /// transform may then hold no shown value). A `deflate` element with a `prefix` gives its
@@ -184,17 +198,36 @@ mod tests {
         assert_eq!(t.window(&json!({"transform": "deflate"}), 0, 1 << 30), Some(1 << 30));
     }
 
+    /// A stream that ends before its prefix is an error that no more bytes change.
     #[test]
     fn a_deflate_stream_shorter_than_its_prefix_is_an_error() {
         let stream = deflated(b"only these bytes");
         let form = json!({"transform": "deflate", "prefix": 17});
         let e = Transform::Deflate.rederive(&stream, &form).unwrap().unwrap_err();
         assert_eq!(e, "a deflate stream that inflates to 16 bytes, fewer than its prefix of 17");
+        assert!(!Transform::Deflate.starved(&stream, &form));
     }
 
+    /// Bytes that are no deflate stream are an error that no more bytes change.
     #[test]
     fn a_deflate_stream_that_is_not_one_is_an_error() {
         let form = json!({"transform": "deflate", "prefix": 4});
         assert!(Transform::Deflate.rederive(&[0xff; 32], &form).unwrap().is_err());
+        assert!(!Transform::Deflate.starved(&[0xff; 32], &form));
+    }
+
+    /// Only a stream cut short of its prefix asks for more: the start of a valid stream that has
+    /// not reached the prefix yet. One that has, an element with no prefix, and another
+    /// transform's do not.
+    #[test]
+    fn only_a_stream_cut_short_of_its_prefix_is_read_further() {
+        let data: Vec<u8> = (0..50_000u32).flat_map(|i| i.wrapping_mul(2_654_435_761).to_le_bytes()).collect();
+        let stream = deflated(&data);
+        let form = json!({"transform": "deflate", "prefix": 100_000});
+        assert!(Transform::Deflate.starved(&stream[..1000], &form));
+        assert!(Transform::Deflate.rederive(&stream[..1000], &form).unwrap().is_err());
+        assert!(!Transform::Deflate.starved(&stream, &form));
+        assert!(!Transform::Deflate.starved(&stream[..1000], &json!({"transform": "deflate"})));
+        assert!(!Transform::Gunzip.starved(&stream[..1000], &json!({"transform": "gunzip", "prefix": 100_000})));
     }
 }

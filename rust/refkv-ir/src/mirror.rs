@@ -1723,7 +1723,8 @@ fn derived_bytes(y: &Ir, d: u32, read: &mut dyn FnMut(u32, u64) -> Result<Vec<u8
         have = n;
         match t.rederive(&raw, &form) {
             None => return Err(cannot()),
-            Some(Err(_)) if t.window(&form, have, length).is_some() => {}
+            // a stream cut short of its prefix by the window, not one that ended or broke: read on
+            Some(Err(_)) if t.starved(&raw, &form) && t.window(&form, have, length).is_some() => {}
             Some(r) => return r,
         }
     }

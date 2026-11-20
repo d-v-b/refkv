@@ -279,3 +279,74 @@ fn a_deflated_members_header_is_in_the_view_and_a_validator_derives_it_again() {
     let mut read = |o: u64, n: u64| Ok(swapped[o as usize..(o + n) as usize].to_vec());
     assert!(view_problem(&keys, &get, &mut read).is_some());
 }
+
+/// A `.npz` archive of one deflated member, `a.npy`, whose bytes are `member`.
+fn npz_deflated(member: &[u8]) -> Vec<u8> {
+    let stream = miniz_oxide::deflate::compress_to_vec(member, 6);
+    let name = b"a.npy";
+    let sizes = |out: &mut Vec<u8>| {
+        out.extend_from_slice(&refkv_ir::zip::crc32(member).to_le_bytes());
+        out.extend_from_slice(&(stream.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(member.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+    };
+    // the local header: version 20, no flags, method 8, no time or date
+    let mut out = b"PK\x03\x04\x14\x00\x00\x00\x08\x00\x00\x00\x00\x00".to_vec();
+    sizes(&mut out);
+    out.extend_from_slice(&[0; 2]);
+    out.extend_from_slice(name);
+    out.extend_from_slice(&stream);
+    let directory = out.len() as u32;
+    out.extend_from_slice(b"PK\x01\x02\x14\x00\x14\x00\x00\x00\x08\x00\x00\x00\x00\x00");
+    sizes(&mut out);
+    out.extend_from_slice(&[0; 16]); // no extra or comment, disk 0, no attributes, at offset 0
+    out.extend_from_slice(name);
+    let length = out.len() as u32 - directory;
+    out.extend_from_slice(b"PK\x05\x06\x00\x00\x00\x00\x01\x00\x01\x00");
+    out.extend_from_slice(&length.to_le_bytes());
+    out.extend_from_slice(&directory.to_le_bytes());
+    out.extend_from_slice(&[0; 2]);
+    out
+}
+
+/// A validator reads only the start of a deflated member's stream to rebuild its header: the
+/// first window, however long the member; and no more than that of a stream that breaks before
+/// the header's end, which more bytes would not mend.
+#[test]
+fn a_validator_reads_only_the_start_of_a_deflated_members_stream() {
+    use refkv_ir::mirror::{mirror, view_problem};
+    // 2 MiB that do not compress
+    let values: Vec<u8> = (0..(1u32 << 19)).flat_map(|i| i.wrapping_mul(2_654_435_761).to_le_bytes()).collect();
+    let mut member = npy_of("|u1", &format!("({},)", values.len()));
+    member.extend_from_slice(&values);
+    let data = npz_deflated(&member);
+    let (ir, description) = refkv_ir::parse_bytes::<Npy>(&data).unwrap();
+    let header = description["arrays"][0]["stored"].as_u64().unwrap() as usize;
+    let stream = ir.space[header] as usize;
+    let (start, length) = (ir.start[stream], ir.len[stream]);
+    let prefix = ir.start[header] + ir.len[header];
+    assert!(length > 1 << 20, "the member's stream is {length} bytes");
+    let mut out = refkv_ir::out::Out::new("u");
+    mirror(&ir, &mut out, "npy").unwrap();
+    let get = |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone());
+    let keys: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
+    let window = prefix + prefix / 8 + (1 << 16);
+
+    for broken in [false, true] {
+        let mut source = data.clone();
+        if broken {
+            // a reserved block type (both BTYPE bits set): no deflate stream starts so
+            source[start as usize] = 0x07;
+        }
+        let mut most = 0;
+        let mut read = |o: u64, n: u64| {
+            if o >= start && o < start + length {
+                most = most.max(o + n - start);
+            }
+            Ok(source[o as usize..(o + n) as usize].to_vec())
+        };
+        let problem = view_problem(&keys, &get, &mut read);
+        assert_eq!(problem.is_some(), broken, "{problem:?}");
+        assert_eq!(most, window, "broken: {broken}");
+    }
+}
