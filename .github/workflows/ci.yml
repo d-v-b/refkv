@@ -6,7 +6,8 @@
 # spec/bindings/vzip.md's strict reading of every archive), the reproducibility of the fixture
 # generators and of the conventions' schemas, and the section references, each a link to a heading that exists. Every format (docs/zarrify/README.md) goes through the Rust core (rust/refkv-ir), built natively
 # for Python (`uv sync`, which builds python/, refkv, with its bindings as the module refkv._core) and for wasm32 for the browser code (`just js::wasm`).
-# The vzip CLI (rust/refkv-cli) is checked against the Python zarrifier, archive for archive.
+# The vzip CLI (rust/refkv-cli) is checked against the Python zarrifier, archive for archive, and
+# refkv's VirtualiZarr parser against VirtualiZarr's own parsers, on Linux.
 # The Python tests, the install without extras, the IR core's tests, the CLI's and the Node tests
 # run on Linux for a pull request (the Python tests on Windows too), and on Linux, macOS and
 # Windows on main; the Python tests also
@@ -290,6 +291,29 @@ jobs:
         with:
           name: fixture-compare-${{ matrix.shard }}
           path: conformance/results/fixtures/results.json
+
+  # refkv's VirtualiZarr parser (refkv.virtualizarr) against VirtualiZarr's own parsers, on generated
+  # fixtures (conformance/virtualizarr/test_parity.py): each open gap of
+  # https://github.com/d-v-b/refkv/issues/271 is a strict xfail, which fails once the gap closes
+  virtualizarr-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust/refkv-ir
+            rust/refkv-python
+      - run: uv sync --all-groups --locked
+      - run: just virtualizarr-parity -rxX
 
   # The package without its extras (python/pyproject.toml): it reads, writes and zarrifies
   # archives without zarr, and each optional part's ImportError names the extra that
