@@ -95,12 +95,22 @@ pub(super) enum Values {
     /// entry does not take: complex packing with missing values among them, which no integer the
     /// field codes stands for
     Source,
-    /// section 7 holds fewer octets than the values take
+    /// section 7 holds fewer octets than the values take, or, of values to code, none
     Short,
 }
 
-/// The values of a field of `n` values (section 5's octets 6–9).
+/// The values of a field of `n` values (section 5's octets 6–9), its section 7 holding `data`
+/// octets of them: a field of values to code in no octet is short, whatever its packing, as no
+/// unit of no bytes is named.
 pub(super) fn values(s5: &[u8], data: u64, n: u64) -> Values {
+    match coded(s5, data, n) {
+        Values::Source if data == 0 && n > 0 => Values::Short,
+        v => v,
+    }
+}
+
+/// [`values`], but for a `source` field of values to code in no octet.
+fn coded(s5: &[u8], data: u64, n: u64) -> Values {
     let template = uint(s5, 9, 2);
     if template == 4 {
         // octet 12: the precision, 1 for binary32 and 2 for binary64
@@ -423,6 +433,10 @@ mod tests {
     #[test]
     fn a_stream_of_no_octets_is_short() {
         assert_eq!(values(&s5(40, 10, 23, 12), 0, 10), Values::Short);
+        // a packing the list has no name for, and a section 5 shorter than its template
+        assert_eq!(values(&s5(50, 10, 23, 12), 0, 10), Values::Short);
+        assert_eq!(values(&s5(0, 10, 19, 0), 0, 10), Values::Short);
+        assert_eq!(values(&s5(50, 0, 23, 12), 0, 0), Values::Source);
         // a field of no values has none to hold
         assert!(matches!(values(&s5(40, 0, 23, 12), 0, 0), Values::Packed { length: 0, .. }));
     }

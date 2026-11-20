@@ -1081,8 +1081,8 @@ is section 5's number of values (octets 6–9).
   for it. The field then has no `item_bits`, and its row's range is section 7 after its first 5
   octets.
 - **No grid** for a field whose section 7 holds fewer octets than its IEEE floats or its simple
-  packing's integers take, and for one of another named packing with values to code and a section
-  7 of 5 octets.
+  packing's integers take, and for one of another packing, named or `source`, with values to code
+  and a section 7 of 5 octets: no unit of no bytes is named.
 - **The grid** is dense, but a constant field's: GRIB has no fill value.
 
 **NIfTI** ([spec/zarrify/nifti.md](zarrify/nifti.md)). A NIfTI file's voxels are one stored
@@ -1291,8 +1291,9 @@ decoded file's.
   - **Its table's rows and heap** are described as a binary table's: the rows one unit, the
     `table` element; the heap one unit, the range of the HDU's element (`hdus/<i>`) that holds
     it, since its bytes are in the elements of its tiles' chunks.
-- **The grid** is dense: FITS has no fill value. `BLANK`, the stored value of a pixel with none,
-  is a declaration.
+- **The grid** is dense, but a tile-compressed image's, which is sparse, a table row whose
+  descriptors are both empty leaving its tile out: FITS has no fill value. `BLANK`, the stored
+  value of a pixel with none, is a declaration.
 
 **NDPI** ([spec/zarrify/ndpi.md](zarrify/ndpi.md)). An NDPI is read by the TIFF parser in NDPI's
 layout, and every IFD that declares a size is described as a TIFF's, keyed likewise, the macro

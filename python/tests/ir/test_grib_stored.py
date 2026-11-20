@@ -551,7 +551,14 @@ def check_bitmap(d: Described, k: int, name: str, held: Held, read: Read) -> lis
 def expected_chain(read: Read) -> tuple[str, list[str]]:
     """How a field's values are stored, by ecCodes' keys: "floats", "constant", "integers" as
     stored, "packed" with the chain's codecs, "source", or "no grid" where its section 7 does not
-    hold them."""
+    hold them: a field of values to code in no octet, whatever its packing."""
+    kind = coded_chain(read)
+    data, n = read.sections[7][1] - 5, read.keys["numberOfValues"]
+    return ("no grid", []) if kind[0] == "source" and data == 0 and n > 0 else kind
+
+
+def coded_chain(read: Read) -> tuple[str, list[str]]:
+    """`expected_chain`, but for a `source` field of values to code in no octet."""
     k = read.keys
     template, bits, n = k["dataRepresentationTemplateNumber"], k["bitsPerValue"], k["numberOfValues"]
     data = read.sections[7][1] - 5
@@ -1197,6 +1204,18 @@ def test_a_stream_of_no_octets_has_no_grid(tmp_path):
     said, seen = compare(path)
     assert said == ()
     assert seen["fields of 5.40, no grid"] == 1
+    _, a, rows, _ = last_field(path)
+    assert (a.shape, a.grid, a.chains, rows) == ((12, 16), None, (), [])
+
+
+def test_a_source_field_of_no_octets_has_no_grid(tmp_path):
+    """A field the list has no codec for (IEEE floats of precision 3), with values to code and a
+    section 7 of 5 octets, has no grid: no unit of no bytes is named."""
+    empty = edited(edited(fixture("grib_ieee32"), 5, octets(12, bytes([3]))), 7, lambda _: b"")
+    path = written(tmp_path, "empty", empty)
+    said, seen = compare(path)
+    assert said == ()
+    assert seen["fields of 5.4, no grid"] == 1
     _, a, rows, _ = last_field(path)
     assert (a.shape, a.grid, a.chains, rows) == ((12, 16), None, (), [])
 
