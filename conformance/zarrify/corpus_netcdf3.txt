@@ -1,0 +1,21 @@
+# url|name|no-ref of the public netCDF3 files in the corpus (the frozen reference has no netCDF3 profile, so each
+# compares py with web alone; js/test/netcdf3/verify.py compares them with netCDF-C, given a directory of them).
+# netcdfc_*: netCDF-C's own test files (its BSD-style license), pinned to commit 69d79a91d4f6: every type of CDF-1 and
+# CDF-2, record and fixed-size variables, a name with a trailing NUL (ref_nctest_classic), 367 variables of 10
+# records (ref_nccopy3_subset), and bad_cdf5_begin, a CDF-5 file whose variable runs past its end, which netCDF-C
+# and the profile reject.
+# scipy_*: scipy's netCDF test files (its BSD license), pinned to commit dcc33f686090: a char variable's _FillValue.
+# xarraydata_*: xarray's tutorial datasets (NOAA and NCAR products), pinned to commit a35297e9da2c: CDF-1 and CDF-2
+# files of several MB, packed int16 variables with a NaN _FillValue (eraint_uvz).
+https://raw.githubusercontent.com/Unidata/netcdf-c/69d79a91d4f60f5ffc3eb365c6859a1c8a4ca7bd/nctest/ref_nctest_classic.nc|netcdfc_ref_nctest_classic|no-ref|ends-sha256=b4aa5151e993842d0aafd9df75305d0daf64be637d400d8e7f96e1dfa55bccb5
+https://raw.githubusercontent.com/Unidata/netcdf-c/69d79a91d4f60f5ffc3eb365c6859a1c8a4ca7bd/nctest/ref_nctest_64bit_offset.nc|netcdfc_ref_nctest_64bit_offset|no-ref|ends-sha256=09426c8ce25f58d0ffd456bb37f90d744f86199747b9f4a0db2e2f5beaf691db
+https://raw.githubusercontent.com/Unidata/netcdf-c/69d79a91d4f60f5ffc3eb365c6859a1c8a4ca7bd/ncdump/ref_nccopy3_subset.nc|netcdfc_ref_nccopy3_subset|no-ref|ends-sha256=90ae5cff9e009966aea739336616b2a7af9e485beb07f13ab1c6a7d1c813dd0f
+https://raw.githubusercontent.com/Unidata/netcdf-c/69d79a91d4f60f5ffc3eb365c6859a1c8a4ca7bd/ncdump/ref_null_byte_padding_test.nc|netcdfc_ref_null_byte_padding_test|no-ref|ends-sha256=9483a483eb7ac9c0a9d44843cfae2be4efad2f383b740f01356dfb2959b62b91
+https://raw.githubusercontent.com/Unidata/netcdf-c/69d79a91d4f60f5ffc3eb365c6859a1c8a4ca7bd/ncdump/ref_test_360_day_1900.nc|netcdfc_ref_test_360_day_1900|no-ref|ends-sha256=7b507b548cb138f747b1e7a3f87ff7e19700336886802350e4aa3b007c01f391
+https://raw.githubusercontent.com/Unidata/netcdf-c/69d79a91d4f60f5ffc3eb365c6859a1c8a4ca7bd/nc_test/bad_cdf5_begin.nc|netcdfc_bad_cdf5_begin|no-ref|ends-sha256=2b14ad6737cd5f7b1686e4c538af4d8aae9ac9e3771eefa7e0627583416f2cc4
+https://raw.githubusercontent.com/scipy/scipy/dcc33f686090d0b3f4220e083964565f0746827c/scipy/io/tests/data/example_1.nc|scipy_example_1|no-ref|ends-sha256=08ff7b56ae4de62aa4816ac7c59eeadd439b43e9bf66c170d7696979bdd11834
+https://raw.githubusercontent.com/scipy/scipy/dcc33f686090d0b3f4220e083964565f0746827c/scipy/io/tests/data/example_2.nc|scipy_example_2|no-ref|ends-sha256=dbc59bc6fb091ac3bf4b7460c47d39557703d69b0b59aeaa23aec7a7cb078544
+https://raw.githubusercontent.com/scipy/scipy/dcc33f686090d0b3f4220e083964565f0746827c/scipy/io/tests/data/example_3_maskedvals.nc|scipy_example_3_maskedvals|no-ref|ends-sha256=9ca72f3558f9ae264aa416a6648fd00c11cc172c81e87e6db600ab69f0940c36
+https://raw.githubusercontent.com/pydata/xarray-data/a35297e9da2cc99c811014f0c8a4297345a5c28d/air_temperature.nc|xarraydata_air_temperature|no-ref|ends-sha256=18202a616b84c8acd924216c058cb9c82819c81af3bfa6d2aade33975f9a1e57
+https://raw.githubusercontent.com/pydata/xarray-data/a35297e9da2cc99c811014f0c8a4297345a5c28d/eraint_uvz.nc|xarraydata_eraint_uvz|no-ref|ends-sha256=e364ce2895771ce74e4d0323e66fab482211eba9dcb5ebaf15bd8fce5d5f70ad
+https://raw.githubusercontent.com/pydata/xarray-data/a35297e9da2cc99c811014f0c8a4297345a5c28d/rasm.nc|xarraydata_rasm|no-ref|ends-sha256=98ab3fa3f8afe4eb80a12211504f756006cc549389b2d1453623e54db0ba4b45

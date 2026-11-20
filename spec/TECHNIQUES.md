@@ -2,7 +2,7 @@
 
 refkv maps about two dozen source formats ([the formats table](../docs/zarrify/README.md#formats):
 image files, chunked array stores, and Sentinel-2 SAFE products, a directory or a zip file
-of JPEG 2000 bands and XML metadata, audio and video files, and HDF4, HDF5, GRIB and NumPy files) to
+of JPEG 2000 bands and XML metadata, audio and video files, and HDF4, HDF5, netCDF3, GRIB and NumPy files) to
 Zarr v3 without copying their data.
 
 Doing the same thing two dozen times shows which problems recur, and which
@@ -217,6 +217,7 @@ From [§1](#1-three-kinds-of-information), [§4](#4-numeric-metadata-as-arrays) 
 | MP3 | the stream's parameters (version, sample rate, channels, frames, bitrate), the Xing or Info frame's counts and LAME fields, the ID3v1 tag's fields; the ID3v2 and APE tags, and every frame, by reference | none | none |
 | FLAC | the stream's parameters, STREAMINFO's fields (its MD5 as hex), each metadata block's type and size, the Vorbis comments, the cue sheet, each picture's fields, the seek table's counts, the ID3v2 and ID3v1 tags' fields | none | each picture's data, by reference (`pictures/<i>`) |
 | HDF4 | the library version that wrote the file; the file's attributes beside the convention's, HDF-EOS2's ODL text whole | each group's Vgroup ref and class, each dataset's refs, number type, storage and chunk shape, and each table's class and fields, with the members not presented and their reasons; attributes beside the convention's | none; the descriptor blocks and every header element held in the IR mirror, the data by reference |
+| netCDF3 | the format and version, the record count as written and as used, the record size, the header's length and every dimension; the global attributes beside the convention's | each variable's position, type, `begin`, `vsize` and whether it is a record variable, with the variables not presented and their reasons; attributes beside the convention's | none; the header held in the IR mirror, the data by reference |
 | H5J | the root's and `/Channels`'s attributes; every channel, with where it is or why it is not zarrified | each channel's dataset attributes, its MP4 file's place, brands and timescale, and its track's codec, size, bit depth, profile, level and sync samples, on its image group | none; the HDF5 file in the IR mirror, each channel's MP4 file's boxes and tables in place of its data, each sample by reference |
 | IMS | none | the whole HDF5 tree, mirrored under `refkv_source/hdf5`: each group's attributes, links and named datatypes on its own group | every dataset but the image's (histograms, thumbnail, `DataSetTimes`, `Scene8` tables), by reference, typed when its elements are numbers; large attributes, copied |
 | N5 | each node's `attributes.json` without its layout members (`dimensions`, `blockSize`, `dataType`, `compression`, `n5`) | none | none |

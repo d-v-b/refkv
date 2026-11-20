@@ -49,6 +49,7 @@ The table, generated from the registry, lists them:
 | [N5](zarrify/n5.md#part-2-the-profile) | store | N5 containers, default-mode blocks |
 | [ND2](zarrify/nd2.md#part-2-the-profile) | file | Nikon ND2, format version 3 and later |
 | [NDPI](zarrify/ndpi.md#part-2-the-profile) | file | Hamamatsu NDPI slides, a TIFF variant with 64-bit offsets |
+| [netCDF3](zarrify/netcdf3.md#part-2-the-profile) | file | netCDF3 files of the three classic formats: their fixed-size and record variables of every type, their dimensions and their attributes |
 | [NIfTI](zarrify/nifti.md#part-2-the-profile) | file | NIfTI-1 and NIfTI-2 single files (`.nii`, `.nii.gz`) and header-and-image pairs (`.hdr`, `.img`) |
 | [NumPy](zarrify/npy.md#part-2-the-profile) | file | NumPy `.npy` files, and `.npz` archives of them (`np.savez`, `np.savez_compressed`), whose stored and deflated members it presents |
 | [NRRD](zarrify/nrrd.md#part-2-the-profile) | file | NRRD files (`.nrrd`) and detached headers with one data file (`.nhdr`), raw or gzip-encoded |
@@ -253,6 +254,7 @@ profile name:
 | MP4 ([mp4.md §8](zarrify/mp4.md#8-mp4-profile)) | 85 |
 | MRC ([mrc.md §8](zarrify/mrc.md#8-mrc-profile)) | 90 |
 | ND2 ([nd2.md §7](zarrify/nd2.md#7-nd2-profile)) | 20 |
+| netCDF3 ([netcdf3.md §7](zarrify/netcdf3.md#7-netcdf3-profile)) | 72 |
 | NIfTI ([nifti.md §7](zarrify/nifti.md#7-nifti-profile)) | 60 |
 | NumPy ([npy.md §8](zarrify/npy.md#8-numpy-profile)) | 75 |
 | NRRD ([nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile)) | 95 |
@@ -1107,6 +1109,7 @@ else. The profiles, generated from the registry:
 - the N5 profile: [spec/zarrify/n5.md §8](zarrify/n5.md#8-n5-profile);
 - the ND2 profile: [spec/zarrify/nd2.md §7](zarrify/nd2.md#7-nd2-profile);
 - the NDPI profile: [spec/zarrify/ndpi.md §7](zarrify/ndpi.md#7-ndpi-profile);
+- the netCDF3 profile: [spec/zarrify/netcdf3.md §7](zarrify/netcdf3.md#7-netcdf3-profile);
 - the NIfTI profile: [spec/zarrify/nifti.md §7](zarrify/nifti.md#7-nifti-profile);
 - the NumPy profile: [spec/zarrify/npy.md §8](zarrify/npy.md#8-numpy-profile);
 - the NRRD profile: [spec/zarrify/nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile);

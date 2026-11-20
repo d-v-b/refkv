@@ -1,0 +1,561 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/netcdf3/schema.json",
+  "title": "refkv netCDF3 convention, version 0",
+  "description": "The zarr.json of a node that declares the refkv netCDF3 convention (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md)",
+  "type": "object",
+  "properties": {
+    "zarr_format": {
+      "type": "integer",
+      "const": 3
+    },
+    "node_type": {
+      "type": "string",
+      "enum": [
+        "group",
+        "array"
+      ]
+    },
+    "attributes": {
+      "type": "object",
+      "properties": {
+        "ome": {
+          "type": "object",
+          "description": "OME-NGFF 0.5 metadata"
+        },
+        "zarr_conventions": {
+          "type": "array",
+          "contains": {
+            "$ref": "#/$defs/conventionMetadata"
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        "refkv_zarrified": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/rootProperty"
+            },
+            {
+              "$ref": "#/$defs/nodeProperty"
+            }
+          ]
+        }
+      },
+      "required": [
+        "zarr_conventions",
+        "refkv_zarrified"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "zarr_format",
+    "node_type",
+    "attributes"
+  ],
+  "$defs": {
+    "conventionMetadata": {
+      "type": "object",
+      "description": "The netCDF3 convention's metadata object in zarr_conventions",
+      "properties": {
+        "uuid": {
+          "type": "string",
+          "const": "b708fd91-025a-4c2e-91e2-543503ea163a"
+        },
+        "schema_url": {
+          "type": "string",
+          "const": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/netcdf3/schema.json"
+        },
+        "spec_url": {
+          "type": "string",
+          "const": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md"
+        },
+        "name": {
+          "type": "string",
+          "const": "refkv_zarrified"
+        },
+        "description": {
+          "type": "string",
+          "const": "The Zarr layout of a netCDF3 source zarrified by refkv, and the source's metadata"
+        }
+      },
+      "required": [
+        "uuid",
+        "schema_url",
+        "spec_url",
+        "name",
+        "description"
+      ],
+      "additionalProperties": false
+    },
+    "rootProperty": {
+      "type": "object",
+      "description": "The root's property: the profile and version that produced the hierarchy, its source, and the root's source metadata",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "const": "netcdf3"
+        },
+        "version": {
+          "type": "integer",
+          "const": 0
+        },
+        "source": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "The URL of the source file"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false
+        },
+        "layouts": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[^/]+(/[^/]+)*$"
+          },
+          "description": "The other layouts of the source in this hierarchy, by name, each the path of its node below the root (spec/conventions.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)"
+        },
+        "netcdf3": {
+          "$ref": "#/$defs/sourceMetadata"
+        }
+      },
+      "required": [
+        "profile",
+        "version",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "sourceMetadata": {
+      "anyOf": [
+        {
+          "type": "object",
+          "description": "The root's (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#61-the-root)",
+          "properties": {
+            "format": {
+              "enum": [
+                "classic",
+                "64-bit offset",
+                "64-bit data"
+              ]
+            },
+            "version": {
+              "enum": [
+                1,
+                2,
+                5
+              ]
+            },
+            "numrecs": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "const": "streaming"
+                }
+              ],
+              "description": "The header's record count, or `streaming` for the all-ones value"
+            },
+            "records": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "recsize": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "header": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "dimensions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "length": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "unlimited": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "name",
+                  "length"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "attributes": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/netcdf3AttributeType"
+              },
+              "description": "Each attribute's type, by name"
+            },
+            "unpresented_attributes": {
+              "type": "object",
+              "additionalProperties": {
+                "enum": [
+                  "reserved",
+                  "fill_value"
+                ]
+              },
+              "description": "The attributes not presented, by name, each with the reason"
+            },
+            "unpresented": {
+              "type": "array",
+              "description": "The variables not presented, in the header's order (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#2-the-hierarchy)",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "index": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "reason": {
+                    "enum": [
+                      "name",
+                      "reserved",
+                      "duplicate"
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "index",
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "format",
+            "version",
+            "numrecs",
+            "records",
+            "recsize",
+            "header",
+            "dimensions"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A variable's (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#62-variables)",
+          "properties": {
+            "index": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "type": {
+              "enum": [
+                "NC_BYTE",
+                "NC_CHAR",
+                "NC_SHORT",
+                "NC_INT",
+                "NC_FLOAT",
+                "NC_DOUBLE",
+                "NC_UBYTE",
+                "NC_USHORT",
+                "NC_UINT",
+                "NC_INT64",
+                "NC_UINT64"
+              ]
+            },
+            "record": {
+              "type": "boolean"
+            },
+            "begin": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "vsize": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "attributes": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/netcdf3AttributeType"
+              },
+              "description": "Each attribute's type, by name"
+            },
+            "unpresented_attributes": {
+              "type": "object",
+              "additionalProperties": {
+                "enum": [
+                  "reserved",
+                  "fill_value"
+                ]
+              },
+              "description": "The attributes not presented, by name, each with the reason"
+            }
+          },
+          "required": [
+            "index",
+            "type",
+            "record",
+            "begin",
+            "vsize"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "$ref": "#/$defs/mirror"
+        },
+        {
+          "$ref": "#/$defs/mirrorView"
+        }
+      ]
+    },
+    "headerValue": {
+      "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "text": {
+      "description": "A text value: a string (UTF-8), or its ISO 8859-1 reading when it is not UTF-8",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "latin1": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "latin1"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "mirror": {
+      "type": "object",
+      "description": "refkv_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>)",
+      "properties": {
+        "ir": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "const": 2
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The source's size in bytes (a store IR's: its objects' sizes, summed)"
+            },
+            "objects": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>); a file IR has none"
+            },
+            "elements": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The elements, column runs expanded"
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The rows the table stores"
+            },
+            "names": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "const": ""
+                }
+              ],
+              "description": "The interned names, sorted; the first, \"\", is the root's (conventions §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>)"
+            },
+            "types": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "const": ""
+                }
+              ],
+              "description": "The interned types (§8.6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#86-types>)"
+            },
+            "forms": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The interned forms, each a JSON text (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"
+            }
+          },
+          "required": [
+            "version",
+            "size",
+            "elements",
+            "rows",
+            "names",
+            "types",
+            "forms"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ir"
+      ],
+      "additionalProperties": false
+    },
+    "mirrorView": {
+      "type": "object",
+      "description": "A view group's (refkv_source/tree/...): a struct's view document (spec/conventions.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)",
+      "properties": {
+        "$vz": {
+          "const": "derived",
+          "description": "A derived element's document"
+        },
+        "$form": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A derived element's form (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"
+        },
+        "$partial": {
+          "const": true,
+          "description": "The document stops short of the struct's children"
+        }
+      },
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/viewValue"
+      }
+    },
+    "viewValue": {
+      "description": "A child's view: a JSON value, a nested document, or a $vz form",
+      "anyOf": [
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null",
+            "array"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$vz": {
+              "enum": [
+                "alias",
+                "group",
+                "element",
+                "derived",
+                "float",
+                "bytes",
+                "utf16"
+              ]
+            }
+          },
+          "required": [
+            "$vz"
+          ]
+        },
+        {
+          "type": "object"
+        }
+      ]
+    },
+    "netcdf3AttributeType": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "NC_BYTE",
+            "NC_CHAR",
+            "NC_SHORT",
+            "NC_INT",
+            "NC_FLOAT",
+            "NC_DOUBLE",
+            "NC_UBYTE",
+            "NC_USHORT",
+            "NC_UINT",
+            "NC_INT64",
+            "NC_UINT64"
+          ]
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "type",
+        "count"
+      ],
+      "additionalProperties": false,
+      "description": "An attribute's type and value count (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#61-the-root)"
+    },
+    "nodeProperty": {
+      "type": "object",
+      "description": "Any other node's property: its source metadata only",
+      "properties": {
+        "netcdf3": {
+          "$ref": "#/$defs/sourceMetadata"
+        }
+      },
+      "required": [
+        "netcdf3"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
