@@ -123,11 +123,16 @@ class Parsed:
         """The profile's description of the input: what its parser found of the source, as the
         profile's document specifies it (the design of d-v-b/refkv#278, "The description"), a
         copy the caller may change. None for a profile that has none yet: every profile but
-        NumPy's, whose `description` holds `own`, the source metadata
-        (spec/zarrify/npy.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#51-the-root>),
-        and `arrays`, each array the profile presents with its `path`, its header's text
-        (`header`), `stored`, the IR element that keys its stored array, and, for a deflated
-        archive member, `deflate`, its stream's CRC-32 and the size of what it inflates to."""
+        NumPy's and FITS's.
+
+        - NumPy's holds `own`, the source metadata
+          (spec/zarrify/npy.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#51-the-root>),
+          and `arrays`, each array the profile presents with its `path`, its header's text
+          (`header`), `stored`, the IR element that keys its stored array, and, for a deflated
+          archive member, `deflate`, its stream's CRC-32 and the size of what it inflates to.
+        - FITS's holds `hdus`, each HDU as its header and the IR give it (its kind, axes, table and
+          tile compression, and its elements' ids), and a compressed file's `stream`
+          (spec/zarrify/fits.md §9.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#96-the-description>)."""
         return None if self._description is None else json.loads(json.dumps(self._description))
 
     @property

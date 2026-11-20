@@ -1220,9 +1220,9 @@ descriptions, whether or not the profile presents them, keyed by its `header` el
 (`hdus/<i>/header`), a kind of element that may declare several arrays: each of an HDU's has an
 index. An image (the primary HDU, or an `IMAGE` extension) has one array, index 0; a table
 (`TABLE` or `BINTABLE`) two, its rows (0) and its heap (1); a tile-compressed image (a `BINTABLE`
-with `ZIMAGE = T`) three, its image (0) and its table's rows (1) and heap (2). The facts give the
-key: each HDU's `declared_by` is the id of its header, or null for an HDU of no axes, which holds
-no array. In a compressed file ([zarrify/fits.md §2.1](zarrify/fits.md#21-a-compressed-file))
+with `ZIMAGE = T`) three, its image (0) and its table's rows (1) and heap (2). The parser's
+description gives the key: each HDU's `elements` has its `header`'s id, which keys its arrays
+unless it is of no axes, and so holds none ([zarrify/fits.md §9.6](zarrify/fits.md#96-the-description)). In a compressed file ([zarrify/fits.md §2.1](zarrify/fits.md#21-a-compressed-file))
 the headers and the units' elements are in the `stream` element's space: a unit's bytes are the
 decoded file's.
 

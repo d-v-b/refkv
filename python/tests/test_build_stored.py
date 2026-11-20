@@ -213,3 +213,24 @@ def test_encoded_refuses_an_element_that_is_not_derived():
     with read(FIXTURES / "npy" / "npz_compressed.npz") as parsed, \
             pytest.raises(ValueError, match="'entries/0/data/header' is not an element derived from bytes"):
         parsed.encoded(parsed.ir.index("entries/0/data/header"))
+
+
+def test_a_parsed_fits_file_describes_its_hdus_as_their_headers_declare_them():
+    """`Parsed.description` of a FITS file holds each HDU as its header gives it, with none of the
+    output's decisions: its index, kind, `BITPIX` and `NAXISn` as astropy reads them, and the IR
+    element of its header, which keys its stored arrays."""
+    astropy_fits = pytest.importorskip("astropy.io.fits")
+    path = FIXTURES / "fits" / "fits_mef_sci_err_dq.fits"
+    with read(path) as parsed, astropy_fits.open(path) as hdul:
+        description: Any = parsed.description
+        assert set(description) == {"hdus"}
+        assert len(description["hdus"]) == len(hdul)
+        keys = {a.element for a in parsed.ir.stored_arrays().arrays}
+        for i, (h, theirs) in enumerate(zip(description["hdus"], hdul, strict=True)):
+            assert "data_type" not in h
+            assert h["index"] == i
+            assert h["bitpix"] == theirs.header["BITPIX"]
+            assert h["naxis"] == [theirs.header[f"NAXIS{n}"] for n in range(1, theirs.header["NAXIS"] + 1)]
+            header = h["elements"]["header"]
+            assert parsed.ir.path(header) == f"hdus/{i}/header"
+            assert (header in keys) == (h["kind"] != "empty")

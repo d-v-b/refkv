@@ -429,7 +429,7 @@ fn field_of(form: &str) -> Result<Option<Field>, &'static str> {
 /// A binary table's rows as a struct, or why they stay bytes (§4.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#41-rows-as-a-struct>): the first
 /// reason that holds, every column's form before any name.
-fn row_struct(cards: &[Card], forms: &[String], row_bytes: u64, max_fields: u64, max_row: u64) -> Result<J, &'static str> {
+pub fn row_struct(cards: &[Card], forms: &[String], row_bytes: u64, max_fields: u64, max_row: u64) -> Result<J, &'static str> {
     let columns = forms.iter().map(|form| field_of(form)).collect::<Result<Vec<_>, _>>()?;
     let mut names: Vec<J> = Vec::with_capacity(forms.len());
     let mut taken = std::collections::HashSet::new();
@@ -1218,10 +1218,15 @@ impl Fits {
         Ok(())
     }
 
-    /// The finished IR, with its HDUs' arrays described (`stored.rs`), and the facts.
+    /// The finished IR, with its HDUs' arrays described (`stored.rs`), and the description of
+    /// the file (spec/zarrify/fits.md §9.6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#96-the-description>): each
+    /// HDU as its header and the IR give it, with none of the output's decisions (a data type, a
+    /// row's struct, the chunks of a tile-compressed image), which the projection makes.
     pub fn finish(mut self) -> Result<(Ir, J), String> {
         let described = if self.phase == Phase::Done { Some(stored::described(&self.ir, &self.hdus)?) } else { None };
-        let mut facts = json!({"hdus": self.hdus, "copy_threshold": crate::out::copy_threshold()});
+        let hdus: Vec<J> = self.hdus.iter().map(description).collect();
+        let mut facts = json!({"hdus": hdus});
         if let Some(d) = &self.decoded {
             // the checker fills the source's gaps: this one, special records, is in the space
             if self.offset < self.size {
@@ -1239,6 +1244,28 @@ impl Fits {
 
 crate::parser!(Fits);
 
+/// An HDU as the description gives it (§9.6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#96-the-description>): the
+/// parser's record of it without the output's decisions, which `stored.rs` reads before the IR
+/// is finished and the projection makes again from the header and the IR.
+fn description(h: &J) -> J {
+    let mut h = h.clone();
+    if let Some(m) = h.as_object_mut() {
+        m.remove("data_type");
+        m.remove("declared_by");
+    }
+    if let Some(t) = h["table"].as_object_mut() {
+        t.remove("struct");
+        t.remove("not_struct");
+    }
+    if let Some(c) = h["compression"].as_object_mut() {
+        for k in ["data_type", "chunk_shape", "grid", "chunks"] {
+            c.remove(k);
+        }
+    }
+    h
+}
+
 /// The FITS profile's file run (spec/zarrify/fits.md).
 pub struct Profile;
 
@@ -1255,6 +1282,9 @@ impl crate::run::FileProfile for Profile {
     }
     fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
         crate::project::fits::reads(ir, facts)
+    }
+    fn described(&self) -> bool {
+        true
     }
 }
 
