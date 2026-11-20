@@ -78,6 +78,8 @@ class Parsed:
         self._own_error: BaseException | None = None
         run = parse.parse
         self._location = location
+        #: the URL an output names the input by: the one `read` was given, else where it read
+        self.url: str = run.url
         self.policy = policy
         self.registry = registry
         self.registry_given = registry_given

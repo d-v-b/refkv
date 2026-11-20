@@ -156,6 +156,42 @@ NumPy `a<n>` array's, which the profile still presents from its header), whose e
 whole bytes, whose units are encoded (`zarr_codecs` translates only the empty chain yet), or whose
 units lie in the members of a run of elements (an ND2 file's frames).
 
+## The pieces of refkv's own output
+
+What refkv's own projections share is public too, each routine the binding of the function they
+call, so that a caller's output can keep any piece of refkv's convention without restating it:
+
+| routine | gives |
+|---|---|
+| `grid(span, shape, item_size, limit=)` | contiguous values cut into chunks as [conventions §7](../spec/conventions.md#7-source-values-as-arrays) cuts them: the chunk shape, and each chunk's range of `span`, an edge chunk padded with `Zeros`, or a `Copy` where the padded reference would not fit |
+| `filled(value)` | a value with a `Copy` as its bytes, read through the input; any other value as it is |
+| `gzip_member(stream, crc32=, size=)` | a raw deflate stream (a ZIP member's) framed as the gzip member the `gzip` codec reads, the stream referenced where it lies |
+| `mirror(parsed)` | the IR mirror's entries under `refkv_source` ([conventions §8](../spec/conventions.md#8-the-ir-mirror)), with their placement |
+| `declaration(parsed, path, own=, attributes=)` | a node's attributes with refkv's convention declared ([conventions §2](../spec/conventions.md#2-attributes)): at the root, the profile, its version and the source |
+
+```python
+from refkv.build import Array, Written, declaration, filled, grid, mirror, read, seal
+from refkv.zarrify.layouts.hierarchy import group
+
+with read("volume.npy") as p:
+    span = p.span(p.ir.index("data"))                      # the range that holds the values
+    chunk_shape, chunks = grid(span, [512, 512, 300], 2, limit=1 << 20)
+    array = Array([512, 512, 300], "uint16", chunk_shape, [{"name": "bytes", "configuration": {"endian": "little"}}],
+                  {coords: filled(v) for coords, v in chunks.items()})
+    out = Written({"zarr.json": group(declaration(p, own=p.description["own"]))})
+    out |= array.entries(to="array")
+    out |= mirror(p)
+    store = seal(out, [p])
+```
+
+A declaration is a claim: an output that keeps it says its subtree follows refkv's convention.
+`seal` does not check that; `refkv.zarrify.layouts.hierarchy.check` does.
+
+`python/tests/test_rebuild_npy.py` is the test of these tools: a NumPy projection written with
+them, and with `npy_array_type` and `gzip_codecs`, writes what `zarrify` writes for every NumPy
+fixture, with the same source table, IR mirror, declarations and placement, and without ever
+asking for refkv's own output.
+
 ## A TIFF made of several
 
 The tests (`python/tests/test_build.py`, `stack`) build one classic TIFF of the pages of several

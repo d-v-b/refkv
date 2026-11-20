@@ -373,6 +373,17 @@ def project(format: str, ir: Ir, facts: str, url: str) -> Out[FilePart]:  # noqa
     """The image projection of an IR (`format` a name of `Format::from_name`; facts as JSON) as
     Python objects (`out_py`), or Rejected. Raises ValueError for an unknown format, or facts
     that are not JSON."""
+def grid_chunks(offset: int, shape: list[int], item: int,
+                limit: int) -> tuple[list[int], list[tuple[list[int], int, int, int, bool]]] | None:
+    """The C-order array of `shape`, of `item`-byte elements contiguous at `offset`, cut as
+    spec/conventions.md §7 cuts contiguous values into chunks of at most `limit` bytes: its chunk
+    shape, and each chunk's coordinates, its range (offset, length), the zero bytes that pad it,
+    and whether the range is to be copied; None when an element is larger than `limit` or the
+    sizes overflow."""
+def gzip_frame(crc32: int, size: int) -> tuple[bytes, bytes]:
+    """What frames a raw deflate stream as a gzip member, as the built-in projections write one:
+    the 10-byte header, and the trailer, the stream's CRC-32 and the size of what it inflates to,
+    modulo 2^32."""
 def mirror(ir: Ir, profile: str) -> tuple[Out[FilePart], str]:
     """The mirror of an IR under `profile`'s convention (a name of spec/zarrify/profiles/): its
     entries and references under `refkv_source` (`out_py`'s form, the url empty), and what the
