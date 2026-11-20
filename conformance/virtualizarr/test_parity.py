@@ -42,9 +42,7 @@ from virtualizarr.parsers import (
     ZippedZarrParser,
 )
 
-from refkv.errors import ResolutionError
 from refkv.virtualizarr import RefkvParser
-from refkv.zarrify import zarrify
 from refkv.zarrify.common import Rejected
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -63,10 +61,8 @@ class Gap:
 SOURCE_METADATA = Gap("#271 'Separate source metadata from dataset attributes'")
 FITS_NAMES = Gap("#271 'Decide array names for FITS': refkv names the primary HDU '0', FITSParser 'PRIMARY'")
 NETCDF3 = Gap("#271 'Support the missing formats': netCDF3 is not a file of any supported format", Rejected)
-ENVI = Gap("#271 'Support the missing formats': ENVI is not a file of any supported format", Rejected)
-ZARR_DIRECTORIES = Gap("#271 'Support local Zarr directories': a local directory needs url", ValueError)
-FILE_URLS = Gap("#271 'Accept file: URLs as inputs': zarrify refuses a local file's file: URL", ResolutionError)
-NUMPY_FLOOR = Gap("#271 'Reconcile the numpy floor': refkv requires a newer numpy than VirtualiZarr")
+ENVI = Gap("#271 'Support the missing formats': refkv names an ENVI raster by its .hdr header, VirtualiZarr "
+           "by its data file, which RefkvParser rejects", Rejected)
 
 ASPECTS = ("arrays", "shape", "data type", "fill value", "dimension names", "attributes",
            "byte ranges", "values", "root attributes")
@@ -194,11 +190,14 @@ KNOWN_GAPS: dict[tuple[str, str], Gap] = {
     ("HDF5 without dimension scales", "attributes"): SOURCE_METADATA,
     ("HDF5 without dimension scales", "root attributes"): SOURCE_METADATA,
     ("zipped Zarr v3", "root attributes"): SOURCE_METADATA,
+    # the default layout keeps a v2 array's _ARRAY_DIMENSIONS among the source's attributes
+    ("Zarr v2 directory", "dimension names"): SOURCE_METADATA,
+    ("Zarr v2 directory", "attributes"): SOURCE_METADATA,
+    ("Zarr v2 directory", "root attributes"): SOURCE_METADATA,
+    ("Zarr v3 directory", "root attributes"): SOURCE_METADATA,
     ("netCDF3", ALL): NETCDF3,
     ("ENVI", ALL): ENVI,
     ("FITS image", ALL): FITS_NAMES,
-    ("Zarr v2 directory", ALL): ZARR_DIRECTORIES,
-    ("Zarr v3 directory", ALL): ZARR_DIRECTORIES,
 }
 """The differences #271 tracks, by (case, aspect), `*` for every aspect of a case."""
 
@@ -301,13 +300,6 @@ def test_parity(parsed: Callable[[str], Any], case: str, aspect: str) -> None:
     assert differences(theirs, ours, aspect) == []
 
 
-@pytest.mark.xfail(strict=True, reason=FILE_URLS.reason, raises=FILE_URLS.raises)
-def test_zarrify_takes_file_url(tmp_path: Path, registry: ObjectStoreRegistry) -> None:
-    """RefkvParser turns a file: URL back into a path for now; zarrify should take it as given."""
-    zarrify(hdf5_plain(tmp_path).as_uri(), registry=registry)
-
-
-@pytest.mark.xfail(strict=True, reason=NUMPY_FLOOR.reason, raises=NUMPY_FLOOR.raises)
 def test_numpy_floor() -> None:
     """refkv's lowest numpy is no higher than VirtualiZarr's, so replacing its parsers does not
     raise VirtualiZarr's."""
