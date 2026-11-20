@@ -43,7 +43,7 @@ from refkv.build import (
     seal,
     value,
 )
-from refkv.errors import RequestError
+from refkv.errors import RequestError, ResolutionError
 from refkv.policy import Policy
 from refkv.zarrify import zarrify
 from refkv.zarrify.common import PAGE_SIZE
@@ -722,13 +722,21 @@ def test_seal_refuses_a_zero_source_past_a_source_table(tmp_path, n):
     assert e.value.code == "archive"
 
 
-def test_seal_refuses_a_range_it_cannot_read_to_checksum(tmp_path):
-    path = _npy(tmp_path)
-    with read(path, checksums=True) as p:
-        path.write_bytes(path.read_bytes()[:64])  # the file shrinks after it was read
-        with pytest.raises(SealError) as e:
-            seal(Written({"v": Ref(p, 0, 100, 4)}), [p])
+@pytest.mark.parametrize("error", [OSError("the source went away"), ResolutionError("the source went away")],
+                         ids=["unreadable", "changed-under-its-pin"])
+def test_seal_refuses_a_range_it_cannot_read_to_checksum(tmp_path, monkeypatch, error):
+    """A read that fails as the system's does, or as the reader's does for a source that is no
+    longer what its pin says (a file cut short after it was read)."""
+    async def unread(_self, _key):
+        raise error
+
+    # the read is made to fail, not the file cut short: an open input holds a local file mapped,
+    # and Windows refuses to shrink a mapped file
+    monkeypatch.setattr(refkv.ReferenceStore, "get_async", unread)
+    with read(_npy(tmp_path), checksums=True) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(p, 0, 100, 4)}), [p])
     assert e.value.code == "checksums"
+    assert "the source went away" in str(e.value)
 
 
 def test_a_store_named_by_a_url_is_read_where_it_was_opened(tmp_path):
