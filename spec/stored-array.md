@@ -852,8 +852,8 @@ index. The facts give the key: `array.declared_by` is the id of that object.
   than the header offset's bytes and the array's is not detected.
 - **No grid** for no input: the profile rejects what it does not read (other file types, framed
   data, a raw data file of another size), and builds no IR of it.
-- **The fill value** is `undefined`: the header's `data ignore value` marks pixels to ignore, and
-  is recorded, not made a fill value.
+- **The grid** is dense: ENVI has no fill value. The header's `data ignore value` marks pixels to
+  ignore, and is recorded, not made a fill value.
 
 **DICOM** ([spec/zarrify/dicom.md](zarrify/dicom.md)). A DICOM file's stored arrays are its
 Pixel Data (7FE0,0010), each lookup table of a `PALETTE COLOR` image, and each Pixel Data in an
@@ -1646,3 +1646,26 @@ the key: `info_value` is that element's id.
 - **The chain** is one, `flac`, its `setup` the STREAMINFO block. A frame decodes alone: FLAC has
   no state from frame to frame, so the codec is not a stream ([§3.1](#31-chains)).
 - **The grid** is dense: FLAC has no fill value.
+
+**netCDF3** ([spec/zarrify/netcdf3.md](zarrify/netcdf3.md)). Every variable of the header is a
+stored array, whether or not the profile presents it, keyed by the file's `header` element, a kind
+of element that may declare several arrays: a variable's index is its position in the header's
+variable list. The facts give the key: `declared_by` is the id of the `header` element, and each
+presented variable's entry of the facts' `arrays` gives its position as `index`.
+
+- **Declarations.** The range of the header that holds the variable's `nc_type`, 4 bytes, which
+  names its type ([zarrify/netcdf3.md §3.1](zarrify/netcdf3.md#31-data-types)). The format fixes the byte order (big-endian) and the
+  order of the elements (the last index varying fastest), which no place declares.
+- **`shape`** is the lengths of the variable's dimensions, in order, a record variable's first the
+  record count ([zarrify/netcdf3.md §7.3](zarrify/netcdf3.md#73-records)), which no place holds for
+  a streaming file; empty for a scalar. `axes` is absent.
+- **`item_bits`** is the bits of the type: 8, 16, 32 or 64. There is no `pad_from`.
+- **The grid.** A fixed-size variable is one unit, each axis `Each` of its length, under `short`;
+  its row is its data's element, `variables/<k>`. A record variable is a unit per record: `Each(1)`
+  along the record axis and `Each` of its length along each other, under `short`; the row of
+  record `r` is the `records` element, with the range of its slice, `r × recsize` past the
+  variable's own offset in a record. A record variable of no records has no row.
+- **The grid** is dense: the file stores every unit, a fixed-size variable's data and each of the
+  records it counts, so the grid has no fill value. A netCDF-C file written without fill holds
+  bytes in every unit all the same, whatever they are.
+- **The chain** is empty: the format stores every value as it is.

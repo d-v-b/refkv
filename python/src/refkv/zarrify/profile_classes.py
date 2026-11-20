@@ -149,6 +149,14 @@ class NdpiSource(Source):
 
 
 @dataclass(frozen=True)
+class Netcdf3Source(Source):
+    """netCDF classic (CDF-1), 64-bit offset (CDF-2) and 64-bit data (CDF-5): a file the
+    `netcdf3` profile reads, its first bytes untested (`Source` lists its read options)."""
+
+    profile: ClassVar[str] = "netcdf3"
+
+
+@dataclass(frozen=True)
 class NiftiSource(Source):
     """NIfTI-1 and NIfTI-2: a file the `nifti` profile reads, its first bytes untested (`Source`
     lists its read options)."""
@@ -287,6 +295,7 @@ CLASSES: dict[str, type[Source | Store]] = {
     "N5Store": N5Store,
     "Nd2Source": Nd2Source,
     "NdpiSource": NdpiSource,
+    "Netcdf3Source": Netcdf3Source,
     "NiftiSource": NiftiSource,
     "NpySource": NpySource,
     "NrrdSource": NrrdSource,
@@ -322,6 +331,7 @@ __all__ = [
     "N5Store",
     "Nd2Source",
     "NdpiSource",
+    "Netcdf3Source",
     "NiftiSource",
     "NpySource",
     "NrrdSource",

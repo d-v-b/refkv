@@ -82,7 +82,7 @@ mod tests {
             assert_eq!(a.declarations, vec![Place::Element { element: 3, member: None, range: None }, Place::Element { element: 5, member: None, range: None }]);
             assert_eq!((a.shape.clone(), a.axes.clone(), a.item_bits, a.pad_from), (Some(vec![4, 3, 6]), Some(vec![1, 2, 0]), Some(16), None));
             assert_eq!(a.grid, Some(Grid { axes: vec![AxisUnits::Each(4), AxisUnits::Each(3), AxisUnits::Each(6)], edge: Edge::Short, sparse: None }));
-            assert_eq!((a.chains.clone(), a.unit_parameters.len()), (vec![0], 0));
+            assert_eq!((a.chains.clone(), a.fill(), a.unit_parameters.len()), (vec![0], None, 0));
             assert_eq!(names(&chains[0]), want);
             if let Some((line, within)) = skip {
                 let length = Param::Source(Place::Element { element: line, member: None, range: Some(within) });
