@@ -43,6 +43,10 @@ Where VirtualiZarr's presentation is a defect rather than a contract, this layou
 - refkv's chunk grid, where refkv splits a large contiguous dataset or HDU into chunks within its
   payload limit or `HDFParser` trims an oversized chunk, and the `numcodecs.zlib` level (refkv
   writes 1; a decoder ignores it, and the IR does not hold the filter's client data);
+- a one-element array of fixed-length strings on a dataset with dimension names is its string,
+  where `HDFParser` keeps a list: the base writes such an attribute as its element (hdf5.md §6
+  <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>), and its source
+  metadata does not say which it was;
 - the datasets refkv does not present (spec/zarrify/hdf5.md §7.4
   <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#74-what-is-not-presented>), such
   as a fixed-length string dataset whose fill value is not one byte repeated;
@@ -232,6 +236,7 @@ def _card_value(value: object) -> object:
 # astropy's record-valued keyword cards (astropy/io/fits/card.py, _rvkc_field_specifier_val)
 RECORD = re.compile(r"(?P<field>[a-zA-Z_]\w*(\.\d+)?(\.[a-zA-Z_]\w*(\.\d+)?)*): +"
                     r"(?P<value>[+-]?(\.\d+|\d+(\.\d*)?)([DE][+-]?\d+)?)")
+RECORD_CARD = re.compile(r" *'(?P<raw>" + RECORD.pattern + r")' *(/.*)?$")
 STANDARD = re.compile(r"[A-Z0-9_-]{1,8}")  # a keyword that is no HIERARCH one
 INTEGER = re.compile(r"[+-]?[0-9]+")
 REAL = re.compile(r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[EeDd][+-]?[0-9]+)?")
@@ -298,21 +303,36 @@ def _parsed_cards(records: list[str]) -> list[list[Any]]:
     return out
 
 
-def _record(keyword: str, value: object) -> tuple[str, object] | None:
-    """A record-valued keyword card (`DP1 = 'AXIS.1: 1'`) as astropy reads it, `DP1.AXIS.1` and
-    its number as a float, or None for another card."""
-    match = RECORD.fullmatch(value) if isinstance(value, str) and STANDARD.fullmatch(keyword) else None
-    if match is None:
+def _records(records: list[str] | None) -> set[tuple[str, str]] | None:
+    """The (keyword, value) of each record-valued card of a header's 80-byte records, as astropy
+    finds them: the closing quote right after the number; None without the records."""
+    if records is None:
         return None
-    return f"{keyword}.{match.group('field')}", float(match.group("value").replace("D", "E"))
+    out = set()
+    for record in records:
+        if STANDARD.fullmatch(keyword := record[:8].rstrip()) and record[8:10] == "= ":
+            match = RECORD_CARD.match(record[10:])
+            if match is not None:
+                out.add((keyword, match.group("raw")))
+    return out
 
 
-def _header(cards: list[list[Any]]) -> dict[str, Any]:
+def _record(keyword: str, value: object, records: set[tuple[str, str]] | None) -> tuple[str, object] | None:
+    """A record-valued keyword card (`DP1 = 'AXIS.1: 1'`) as astropy reads it, `DP1.AXIS.1` and
+    its number as a float, or None for another card (one `records` does not name, given them)."""
+    match = RECORD.fullmatch(value) if isinstance(value, str) and STANDARD.fullmatch(keyword) else None
+    if match is None or (records is not None and (keyword, value) not in records):
+        return None
+    number = float(match.group("value").replace("D", "E"))
+    return (f"{keyword}.{match.group('field')}", number) if math.isfinite(number) else None
+
+
+def _header(cards: list[list[Any]], records: set[tuple[str, str]] | None = None) -> dict[str, Any]:
     """A header's cards as attributes, as `dict(header)` gives them: a repeated keyword's first
-    value, and each record of a record-valued keyword its own member."""
+    value, and each record of a record-valued keyword (of `records`, given them) its own member."""
     out: dict[str, Any] = {}
     for keyword, value, _comment in cards:
-        record = _record(keyword, value)
+        record = _record(keyword, value, records)
         key, shown = record if record is not None else (keyword, _card_value(value))
         if keyword not in COMMENTARY and key not in out:
             out[key] = shown
@@ -404,7 +424,8 @@ def _scaled(doc: dict[str, Any], header: Mapping[str, Any], cards: Mapping[str, 
     return {**doc, "attributes": header}
 
 
-def _ascii_table(base: Base, path: str, name: str, cards: list[list[Any]]) -> Entries | None:
+def _ascii_table(base: Base, path: str, name: str, cards: list[list[Any]],
+                 records: set[tuple[str, str]] | None) -> Entries | None:
     """An ASCII table HDU as FITSParser presents it: a struct array of its columns, decoded by
     VirtualiZarr's codec from the table's one chunk; None for a table whose columns this cannot
     read as astropy does (a TFORM without a width)."""
@@ -450,7 +471,7 @@ def _ascii_table(base: Base, path: str, name: str, cards: list[list[Any]]) -> En
         # the base's bytes-to-bytes codecs after it: a FITS file compressed whole (gzip, bzip2)
         "codecs": [{"name": ASCII_CODEC, "configuration": {"columns": columns, "row_nbytes": row_nbytes}},
                    *doc["codecs"][1:]],
-        "attributes": _header(cards),
+        "attributes": _header(cards, records),
         "dimension_names": _dimension_names(name, 1),
     }
     out: Entries = {f"{name}/zarr.json": dump(out_doc)}
@@ -467,11 +488,12 @@ def _fits(base: Base) -> Entries:
     for index, path in hdus:
         metadata = base.source_metadata(path) or {}
         cards = metadata.get("cards") if isinstance(metadata, dict) else None
+        header = base.ir.at(f"hdus/{index}/header")
+        lines = base.ir.value(header) if header is not None else None
+        raw = [str(r["card"]) for r in lines if isinstance(r, dict)] if isinstance(lines, list) else None
         if cards is None:  # past the base's budget: the header's records, from the IR
-            header = base.ir.at(f"hdus/{index}/header")
-            records = base.ir.value(header) if header is not None else None
-            cards = _parsed_cards([str(r["card"]) for r in records if isinstance(r, dict)]) \
-                if isinstance(records, list) else []
+            cards = _parsed_cards(raw) if raw is not None else []
+        records = _records(raw)
         table = {k: v for k, v, _ in reversed(cards)}
         compressed = table.get("XTENSION") == "BINTABLE" and table.get("ZIMAGE") is True
         name = _hdu_name(cards, index, compressed) or str(index)
@@ -483,13 +505,13 @@ def _fits(base: Base) -> Entries:
         naxis = int(table.get("ZNAXIS" if compressed else "NAXIS", 0))
         if naxis == 0:
             if index == 0:
-                root = _header(cards)
+                root = _header(cards, records)
             continue
         is_image = (table.get("SIMPLE") is True and not table.get("GROUPS")) or table.get("XTENSION") == "IMAGE" \
             or compressed
         if is_image and base.node_type(path) == "array":
             doc, chunks = base.array(path)
-            header = _header(_image_header(cards) if compressed else cards)
+            header = _header(_image_header(cards) if compressed else cards, records)
             doc = _scaled(dict(doc), header, table)
             if str(doc["data_type"]).startswith("float") and type(doc.get("fill_value")) is int:
                 doc["fill_value"] = float(doc["fill_value"])  # as zarr-python writes a float's zero
@@ -497,7 +519,8 @@ def _fits(base: Base) -> Entries:
             out[f"{name}/zarr.json"] = dump(doc)
             out.update({f"{name}/{k}": v for k, v in chunks.items()})
             continue
-        if table.get("XTENSION") == "TABLE" and (ascii_table := _ascii_table(base, path, name, cards)) is not None:
+        ascii_table = _ascii_table(base, path, name, cards, records) if table.get("XTENSION") == "TABLE" else None
+        if ascii_table is not None:
             out.update(ascii_table)
             continue
         # an HDU FITSParser cannot present (a binary table): refkv's node for it, under its name

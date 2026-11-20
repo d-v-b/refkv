@@ -117,7 +117,8 @@ def blank_fits(path: Path) -> Path:
         image(True, 16, np.array([[1, -32768], [3, 4]], "i2"), ("BSCALE", 2.0), ("BZERO", 10.0),
               ("BLANK", -32768), ("EXTNAME", "SCALED")),
         image(True, 32, np.array([5, -1, 7], "i4"), ("BLANK", -1), ("EXTNAME", "MASKED"),
-              ("DP1", "EXTVER: 1"), ("DP1", "NAXES: 2"), ("DP1", "AXIS.1: 1.5"), ("NOTREC", "a: b")),
+              ("DP1", "EXTVER: 1"), ("DP1", "NAXES: 2"), ("DP1", "AXIS.1: 1.5"), ("NOTREC", "a: b"),
+              ("PADDED", "AB: 1")),  # padded to 8 within its quotes: no record to astropy
     ])
 
 
