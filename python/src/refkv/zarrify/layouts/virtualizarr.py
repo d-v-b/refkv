@@ -82,7 +82,11 @@ Where VirtualiZarr's presentation is a defect rather than a contract, this layou
   codec), as GDAL skips it, where `ENVIParser` starts the data at that offset in the compressed
   bytes; the `gzip` level is refkv's 1, not `ENVIParser`'s 5;
 - an ENVI `data ignore value` that numpy does not cast to the data type, on which `ENVIParser`
-  fails, is the attribute `data_ignore_value`, its text.
+  fails, is the attribute `data_ignore_value`, its text;
+- an ENVI header field that is not UTF-8, on which `ENVIParser` fails, is refkv's `{"latin1": T}`,
+  braced or not;
+- a netCDF3 variable's integer `_FillValue` that its data type does not hold, on which
+  `NetCDF3Parser` fails, leaves the variable refkv's fill value.
 
 `check` finds no problem on its output but `json` at a document that holds a `NaN` or `Infinity`
 token (only where a source attribute is not finite and `nonfinite` is `"token"`: zarr-python
@@ -593,11 +597,18 @@ def _netcdf3_attributes(base: Base, path: str, token: bool) -> dict[str, Any]:
     return out
 
 
+def _int_range(data_type: str) -> tuple[int, int]:
+    """The least and greatest values of the integer data type `data_type` (`int16`, `uint8`, ...)."""
+    bits = int(data_type.lstrip("uint"))
+    return (0, 2**bits - 1) if data_type.startswith("u") else (-(2 ** (bits - 1)), 2 ** (bits - 1) - 1)
+
+
 def _netcdf3_fill(doc: Mapping[str, Any], attributes: Mapping[str, Any], unpresented: Mapping[str, Any]) -> object:
     """The fill value `NetCDF3Parser` gives a variable: its `_FillValue`, in the variable's data
     type, else zarr-python's default (0); refkv's where netcdf3.md §5
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#5-attributes> does not
-    present the `_FillValue` (one `NetCDF3Parser` fails to encode, or one on an `NC_CHAR` variable)."""
+    present the `_FillValue` (one `NetCDF3Parser` fails to encode, or one on an `NC_CHAR` variable)
+    or the variable's data type does not hold it."""
     data_type = doc.get("data_type")
     if not isinstance(data_type, str) or "_FillValue" in unpresented:
         return doc.get("fill_value")
@@ -607,7 +618,10 @@ def _netcdf3_fill(doc: Mapping[str, Any], attributes: Mapping[str, Any], unprese
             value = float(struct.unpack("<d", base64.standard_b64decode(fill))[0])
             return _zarr_float(_float32(value) if data_type == "float32" else value)
         return 0.0
-    return fill if isinstance(fill, int) and not isinstance(fill, bool) else 0
+    if not isinstance(fill, int) or isinstance(fill, bool):
+        return 0
+    # an integer of another type the variable's does not hold, on which NetCDF3Parser fails: refkv's
+    return fill if _int_range(data_type)[0] <= fill <= _int_range(data_type)[1] else doc.get("fill_value")
 
 
 def _netcdf3(base: Base, token: bool) -> Entries:
@@ -641,9 +655,12 @@ ENVI_PASSTHROUGH = ("description", "sensor type", "acquisition time", "wavelengt
 ENVI_AXES = {"c": "band", "y": "y", "x": "x"}
 
 
-def _envi_value(raw: str) -> str | list[str]:
+def _envi_value(raw: object) -> object:
     """A header field's value as ENVIParser gives it: a braced value a list of its comma-separated
-    items, stripped, empty ones left out; any other the text."""
+    items, stripped, empty ones left out; any other the text. Text that is not UTF-8, refkv's
+    `{"latin1": T}`, on which ENVIParser fails, stays that."""
+    if not isinstance(raw, str):
+        return raw
     text = raw.strip()
     if not text.startswith("{"):
         return raw
@@ -653,10 +670,12 @@ def _envi_value(raw: str) -> str | list[str]:
     return [item for item in items if item]
 
 
-def _envi_fill(raw: str, data_type: str) -> object:
+def _envi_fill(raw: object, data_type: str) -> object:
     """The `_FillValue` ENVIParser gives `data ignore value` `raw` on an array of `data_type`, as
     xarray's `FillValueCoder` encodes it (a float as the Base64 of its binary64, a complex number as
     two), or None for a value numpy does not cast to it (where ENVIParser fails)."""
+    if not isinstance(raw, str):
+        return None
     text = raw.strip()
     try:
         if data_type.startswith("complex"):
@@ -673,14 +692,13 @@ def _envi_fill(raw: str, data_type: str) -> object:
         number = int(text)
     except ValueError:
         return None
-    bits = int(data_type.lstrip("uint"))
-    low, high = (0, 2**bits - 1) if data_type.startswith("u") else (-(2 ** (bits - 1)), 2 ** (bits - 1) - 1)
+    low, high = _int_range(data_type)
     return number if low <= number <= high else None
 
 
 def _envi(base: Base) -> Entries:
     metadata = base.source_metadata("") or {}
-    fields: Mapping[str, str] = metadata.get("fields", {})
+    fields: Mapping[str, object] = metadata.get("fields", {})
     data_file = str(metadata.get("data_file", ""))
     stem = data_file.rsplit(".", 1)[0] if "." in data_file.lstrip(".") else data_file
     name = stem if stem and _node_name(stem) else "data"  # ENVIParser's Path(data).stem, else data

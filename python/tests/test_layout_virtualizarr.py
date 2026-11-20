@@ -7,6 +7,7 @@ refused."""
 
 import bz2
 import gzip
+import importlib.util
 import json
 import math
 import os
@@ -190,12 +191,46 @@ def envi_float(path: Path, data_type: int, dtype: str, ignore: str) -> Path:
     return path
 
 
+def _netcdf3_writer():
+    """refkv's netCDF3 fixture writer (fixtures/generators/netcdf3/write_fixtures.py), which writes
+    what netCDF4-python refuses to: a `_FillValue` of another type than its variable's."""
+    spec = importlib.util.spec_from_file_location("netcdf3_writer", FIXTURES / "generators/netcdf3/write_fixtures.py")
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # its dataclasses look their module up
+    spec.loader.exec_module(module)
+    return module
+
+
+def fills_nc(path: Path) -> Path:
+    """A netCDF3 file of `_FillValue`s NetCDF3Parser fails on or refkv does not present: an
+    `NC_INT` 100000 on an `NC_SHORT` variable, NaN on another, two values, and one on text."""
+    w = _netcdf3_writer()
+    path.write_bytes(w.File(1, [("n", 3)], [], [
+        w.Var("wide", ["n"], w.SHORT, [1, 2, 3], [("_FillValue", w.INT, 100000)]),
+        w.Var("nan", ["n"], w.SHORT, [1, 2, 3], [("_FillValue", w.DOUBLE, float("nan"))]),
+        w.Var("two", ["n"], w.INT, [1, 2, 3], [("_FillValue", w.INT, [1, 2])]),
+        w.Var("text", ["n"], w.CHAR, np.array([b"a", b"b", b"c"], "S1"), [("_FillValue", w.CHAR, "x")]),
+    ]).bytes())
+    return path
+
+
+def latin_hdr(path: Path) -> Path:
+    """An ENVI raster whose header holds text that is not UTF-8, braced and not."""
+    path.write_bytes(b"ENVI\nsamples = 2\nlines = 2\nbands = 1\nfile type = ENVI Standard\ndata type = 1\n"
+                     b"interleave = bsq\ndescription = caf\xe9\nband names = {\xb5m}\n")
+    path.with_suffix(".img").write_bytes(bytes(range(4)))
+    return path
+
+
 GENERATED = {"attributes.h5": attributes_h5, "blank.fits": blank_fits, "store.zarr.zip": zipped_zarr,
              "attributes.nc": attributes_nc, "fields.hdr": envi_file,
              "float32.hdr": lambda p: envi_float(p, 4, "<f4", "0.1"),
              "complex64.hdr": lambda p: envi_float(p, 6, "<c8", "-9999"),
              "uint16.hdr": lambda p: envi_float(p, 12, "<u2", "65535"),
-             "not_a_number.hdr": lambda p: envi_float(p, 2, "<i2", "n/a")}
+             "not_a_number.hdr": lambda p: envi_float(p, 2, "<i2", "n/a"), "fills.nc": fills_nc,
+             "latin.hdr": latin_hdr}
 PARSERS = {"hdf5": "HDFParser", "fits": "FITSParser", "zarr3": "ZippedZarrParser", "netcdf3": "NetCDF3Parser",
            "envi": "ENVIParser"}
 
@@ -243,12 +278,17 @@ DEFECTS = [
                  marks=pytest.mark.xfail(strict=True, raises=UnicodeDecodeError,
                                          reason="NetCDF3Parser fails on a name that is not UTF-8")),
     pytest.param("envi/envi_gzip_header_offset.hdr", frozenset(), id="envi/envi_gzip_header_offset.hdr",
-                 marks=pytest.mark.xfail(strict=True, reason="ENVIParser starts a gzip file's data at its header "
-                                         "offset in the compressed bytes; GDAL, and refkv, skip the offset in the "
-                                         "inflated stream")),
+                 marks=pytest.mark.xfail(strict=True, raises=AssertionError,
+                                         reason="ENVIParser starts a gzip file's data at its header offset in the "
+                                         "compressed bytes; GDAL, and refkv, skip the offset in the inflated stream")),
     pytest.param("not_a_number.hdr", frozenset(), id="not_a_number.hdr", marks=pytest.mark.xfail(
         strict=True, raises=ValueError, reason="ENVIParser fails on a data ignore value numpy does not cast to the "
                                                "data type")),
+    pytest.param("latin.hdr", frozenset(), id="latin.hdr", marks=pytest.mark.xfail(
+        strict=True, raises=UnicodeDecodeError, reason="ENVIParser fails on a header that is not UTF-8")),
+    pytest.param("fills.nc", frozenset(), id="fills.nc", marks=pytest.mark.xfail(
+        strict=True, raises=OverflowError, reason="NetCDF3Parser fails on a _FillValue its variable's type does "
+                                                  "not hold")),
 ]
 
 
@@ -480,6 +520,46 @@ def test_the_layout_is_deterministic(name):
     env = {**os.environ, "PYTHONHASHSEED": "12345"}
     run = subprocess.run([sys.executable, "-c", OUTPUT, path], env=env, capture_output=True, check=True)
     assert run.stdout == encode_entries(VirtualiZarr().write(base(path), {"nonfinite": "token"}))
+
+
+@pytest.mark.parametrize("name", [p.values[0] for p in DEFECTS])
+def test_where_virtualizarr_fails_the_layout_reads_as_refkv_s_default_layout(tmp_path, name):
+    """On each input where VirtualiZarr's parser fails or reads wrong, `check` finds only what the
+    module's docstring names, and every array reads as refkv's default layout's, in the file's
+    axis order for ENVI."""
+    path = _input(str(name), tmp_path)
+    b = base(path)
+    out = VirtualiZarr().write(b, {"nonfinite": "token"})
+    assert [p for p in check(b, out) if p.code not in ALLOWED] == []
+    mine = _arrays(zarr.open_group(refkv.zarr.store(zarrify(path, layout=Layout(NAME))), mode="r"))
+    default = _arrays(zarr.open_group(refkv.zarr.store(zarrify(path)), mode="r"))
+    if b.profile == "envi":
+        codecs = b.document("0/zarr.json")["codecs"]
+        logical = np.asarray(default["0"][...])
+        order = codecs[0]["configuration"]["order"] if codecs[0]["name"] == "transpose" else range(logical.ndim)
+        [(_, array)] = mine.items()
+        assert np.transpose(logical, list(order)).tobytes() == np.asarray(array[...]).tobytes()
+        return
+    assert sorted(mine) == sorted(p for p in default if not p.startswith("refkv_source"))
+    for path_, array in mine.items():
+        assert np.asarray(array[...]).tobytes() == np.asarray(default[path_][...]).tobytes(), path_
+
+
+def test_a_fill_value_virtualizarr_fails_on_is_refkv_s(tmp_path):
+    """A `_FillValue` NetCDF3Parser fails on, or refkv does not present, leaves the variable the
+    base's fill value."""
+    b = base(str(fills_nc(tmp_path / "fills.nc")))
+    out = VirtualiZarr().write(b, {"nonfinite": "token"})
+    for name in ["wide", "nan", "two", "text"]:
+        assert json.loads(cast("bytes", out[f"{name}/zarr.json"]))["fill_value"] == b.document(f"{name}/zarr.json")[
+            "fill_value"], name
+
+
+def test_an_envi_header_field_not_utf8_is_refkv_s_text(tmp_path):
+    """A header field that is not UTF-8, on which ENVIParser fails, is refkv's `{"latin1": T}`."""
+    b = base(str(latin_hdr(tmp_path / "latin.hdr")))
+    doc = json.loads(cast("bytes", VirtualiZarr().write(b, {"nonfinite": "token"})["latin/zarr.json"]))
+    assert doc["attributes"] == {"description": {"latin1": "caf\u00e9"}, "band_names": {"latin1": "{\u00b5m}"}}
 
 
 def test_a_data_ignore_value_not_of_the_data_type_is_its_text(tmp_path):
