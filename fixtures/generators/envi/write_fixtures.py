@@ -145,6 +145,10 @@ def main() -> None:
                                                   "interleave = bsq", "header offset = 4096"])
     raster("envi_reject_no_data_file", data_suffix=".img")
     (OUT / "envi_reject_no_data_file.img").unlink()
+    write("envi_reject_too_large.hdr", ["samples = 2097152", "lines = 2097152", "bands = 2097152", "data type = 5",
+                                        "interleave = bsq"], "envi_reject_too_large.img", bytes(8))
+    short = ["samples = 1", "lines = 1", "bands = 1", "data type = 1", "interleave = bsq", "file compression = 1"]
+    write("envi_reject_gzip_short.hdr", short, "envi_reject_gzip_short.img", b"\x1f\x8b\x08" + bytes(7))
     raster("envi_reject_not_gzip", fields=["samples = 5", "lines = 4", "bands = 3", "data type = 2",
                                            "interleave = bsq", "file compression = 1"])
 

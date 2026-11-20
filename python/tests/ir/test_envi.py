@@ -1,7 +1,9 @@
 """The ENVI IR: the Rust parser and its schema, the image projection (spec/zarrify/envi.md) against
 NumPy's reading of every accepted input's data file and GDAL's reading of the raster, the chunks'
-byte ranges against VirtualiZarr's `ENVIParser`'s rule, the mirror's rebuild of both files, and the
-host's side: the data file probed beside the header, from a local directory and over HTTP, where a
+byte ranges against VirtualiZarr's `ENVIParser`'s rule (restated here from its source,
+https://github.com/zarr-developers/VirtualiZarr/blob/30221eb05a3bb0040956bda1dcc68e6bded5e149/virtualizarr/parsers/envi.py:
+the VirtualiZarr this project locks predates the parser), the mirror's rebuild of both files, and
+the host's side: the data file probed beside the header, from a local directory and over HTTP, where a
 missing file is a 404. ENVI has no frozen Python reference; rust/refkv-ir/tests/envi.rs checks the
 layout's details, and conformance/zarrify/rejects/envi.json each rejection's message."""
 
@@ -26,6 +28,8 @@ from refkv.ir.store import StoreIrOutput
 from refkv.policy import Policy
 from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify as zarrify
+from refkv.zarrify import zarrify as zarrify_named
+from refkv.zarrify.profile_classes import EnviSource
 from refkv.zarrify.store import object_url
 
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
@@ -77,7 +81,7 @@ def test_inputs_match_numpy_gdal_and_virtualizarr_and_rebuild(path, tmp_path):
     assert np.array_equal(got, want)
     assert at(root.attrs, "refkv_zarrified", "envi", "data_file") == data.name
 
-    # the chunks' ranges: VirtualiZarr's, with its default of one chunk along the outermost axis
+    # the chunks' ranges: `ENVIParser`'s rule, with its default of one chunk along the outermost axis
     gzipped = fields.get("file_compression", "0") == "1"
     order = ORDER[fields["interleave"].lower()]
     stored = [want.shape[i] for i in order]
@@ -172,3 +176,13 @@ def test_over_http_the_data_file_is_probed_beside_the_header(server, tmp_path):
 def test_over_http_a_missing_data_file_is_rejected(server):
     with pytest.raises(Rejected, match=re.escape('no data file beside the ENVI header "envi_reject_no_data_file.hdr"')):
         zarrify(server + "envi_reject_no_data_file.hdr", policy=Policy(allow_private_hosts=True))
+
+
+def test_a_header_whose_first_line_is_not_envi_is_rejected(tmp_path):
+    """Named as the ENVI profile's input (spec/zarrify.md §1.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#17-named-inputs-and-layouts>), a
+    `.hdr` file whose first line is not `ENVI` fails the magic check, which no signature reaches."""
+    (tmp_path / "raster.hdr").write_bytes(b"NOT ENVI\nsamples = 1\n")
+    (tmp_path / "raster").write_bytes(b"\0")
+    with pytest.raises(Rejected, match=re.escape("not an ENVI header: its first line is not ENVI")):
+        zarrify_named(EnviSource(str(tmp_path / "raster.hdr")))

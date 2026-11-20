@@ -8,7 +8,8 @@ rasters.
 
 ENVI's format is the working format of remote sensing and hyperspectral imaging: airborne and
 spaceborne imaging spectrometers (AVIRIS, EnMAP, PRISMA and many lab cameras) ship their cubes
-as ENVI, and GDAL, spectral and VirtualiZarr read it. An "ENVI Standard" raster is two files: a
+as ENVI, and GDAL, spectral and VirtualiZarr's [`ENVIParser`](https://github.com/zarr-developers/VirtualiZarr/blob/30221eb05a3bb0040956bda1dcc68e6bded5e149/virtualizarr/parsers/envi.py) (newer than its
+releases) read it. An "ENVI Standard" raster is two files: a
 flat binary data file, and a short text header beside it, `<name>.hdr`, which says the sizes, the
 data type, the byte order and how the bands are interleaved. refkv reads the header and writes an
 archive whose chunks are ranges of the data file.
@@ -103,7 +104,8 @@ Rejected, each with a message that says why, as VirtualiZarr's `ENVIParser` reje
 (including inputs to reject) with the browser code, reads them back through zarr-python, and
 compares the values with GDAL's ENVI driver's reading (through rasterio) and NumPy's reading of the
 data file, and every header field with GDAL's. `python/tests/ir/test_envi.py` does the same for the
-Python host and checks that the chunks are the byte ranges VirtualiZarr's `ENVIParser` gives;
+Python host and checks that the chunks are the byte ranges [`ENVIParser`'s source](https://github.com/zarr-developers/VirtualiZarr/blob/30221eb05a3bb0040956bda1dcc68e6bded5e149/virtualizarr/parsers/envi.py)
+gives, restated in the test, since the VirtualiZarr release refkv locks predates the parser;
 `rust/refkv-ir/tests/envi.rs` checks the layout and each rejection. GDAL's own ENVI test rasters
 are in the public corpus ([corpus_envi.txt](../../../conformance/zarrify/corpus_envi.txt)).
 

@@ -666,14 +666,15 @@ STORE_FORMATS = tuple(string(e["name"]) for e in REGISTRY if e["kind"] in ("stor
 FILE_SUFFIXES = {string(s): e for e in REGISTRY for s in sequence(e["suffixes"])}
 
 
-def entry_of(path: Path):
-    """The registry entry of a fixture file: its profile's, whose fixtures are under fixtures/<p>,
-    as two profiles may share a suffix (NIfTI's and ENVI's `.hdr`); else by the suffix its name ends
-    in (`.nii.gz` has two)."""
-    parts = path.parts[:-1]
-    below = {parts[i + 1] for i in range(len(parts) - 1) if parts[i] == "fixtures"}
-    by_dir = next((e for e in REGISTRY if e["name"] in below), None)
-    return by_dir or next(e for s, e in FILE_SUFFIXES.items() if path.name.endswith(s))
+def entry_of(path: Path, fixtures: Path):
+    """The registry entry of a fixture file: the profile of its directory, fixtures/<p>, when that
+    is a profile's (NIfTI and ENVI share `.hdr`, SAFE and Zarr v3 `.zip`, and ND2's expected arrays
+    are `.npz`, NumPy's); else, for a file outside them such as a mutant, the profile of the suffix
+    its name ends in (`.nii.gz` has two)."""
+    names = {string(e["name"]): e for e in REGISTRY}
+    if path.is_relative_to(fixtures) and (e := names.get(path.relative_to(fixtures).parts[0])) is not None:
+        return e
+    return next(e for s, e in FILE_SUFFIXES.items() if path.name.endswith(s))
 
 
 def store_fixtures(fixtures: Path) -> list[Path]:
@@ -710,7 +711,7 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
         return p.stem if stems[p.stem] == 1 else p.relative_to(fixtures).as_posix().replace("/", "__")
 
     items = [(f"fixture-{name(p)}", proxy.local(urllib.parse.quote(p.relative_to(fixtures).as_posix())),
-              *(["no-ref"] if entry_of(p)["reference"] is None
+              *(["no-ref"] if entry_of(p, fixtures)["reference"] is None
                 or unmutated(p.name) in REVISED else []))
              for p in files]
     registry = {string(e["name"]): e for e in REGISTRY}

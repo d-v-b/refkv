@@ -77,8 +77,9 @@ the spaces and tabs around it, is `ENVI`, in any case. Each later line is, in th
 | any other | otherwise | nothing: such lines are not fields, and only the mirror keeps them ([§5.2](#52-the-ir-mirror)) |
 
 A name given twice keeps its last value, at its first place. A value open at the end of the header
-holds the lines to the end. These are the rules of VirtualiZarr's `ENVIParser`, whose reading of a
-header this profile follows; GDAL's ENVI driver reads the same fields of real files.
+holds the lines to the end. These are the rules of VirtualiZarr's `ENVIParser`
+([its source](https://github.com/zarr-developers/VirtualiZarr/blob/30221eb05a3bb0040956bda1dcc68e6bded5e149/virtualizarr/parsers/envi.py), newer than VirtualiZarr's releases; cited here as "`ENVIParser`" throughout),
+whose reading of a header this profile follows; GDAL's ENVI driver reads the same fields of real files.
 
 The layout reads these fields, each named by its name; the others (`description`, `wavelength`,
 `map info`, `band names`, `data ignore value`, ...) are recorded as written ([§5.1](#51-the-root)):
