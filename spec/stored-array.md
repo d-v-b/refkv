@@ -609,15 +609,14 @@ own IR, and the CZI store, which grafts them, renumbers the ids its facts give
 - **The grid** is dense: CZI has no fill value.
 
 **NumPy** ([spec/zarrify/npy.md](zarrify/npy.md)). A `.npy` file's array, and each stored
-(method 0) `.npz` member's whose header was read, is a stored array, keyed by its `header` element,
-with no index; that element is its one declaration (its `descr`, `fortran_order` and `shape`). Its
-key is found by its path: a `.npy` file's `header` element, or a `.npz` member's
-`entries/<i>/data/header`, `i` the member's position in the archive's central directory, which is
-its position among the source metadata's `members`, presented or not; a member with no
-description (a deflated one, or one whose header was not read) has no such element. For an array
-the profile presents, the parser's description gives the key too: its entry of `arrays` holds
-`stored`, the `header` element's id, null for a deflated member, beside its `path` and its
-header's text.
+(method 0) or deflated (method 8) `.npz` member's whose header was read, is a stored array, keyed by
+its `header` element, with no index; that element is its one declaration (its `descr`,
+`fortran_order` and `shape`). Its key is found by its path: a `.npy` file's `header` element, or a
+`.npz` member's `entries/<i>/data/header`, `i` the member's position in the archive's central
+directory, which is its position among the source metadata's `members`, presented or not; a member
+with no description (one whose header was not read) has no such element. For an array the profile
+presents, the parser's description gives the key too: its entry of `arrays` holds `stored`, the
+`header` element's id, beside its `path` and its header's text.
 `shape` is the header's, reversed for a Fortran-order array of two or more axes, whose `axes` then
 give the header's order; `item_bits` is eight times the size of an element of its `descr` as NumPy
 lays it out, whether or not the profile presents the array: a type string (with its one-character
@@ -631,9 +630,12 @@ empty `List` for an axis of length 0 (which has no unit, and no row), under `sho
 defines no fill value. An array whose data is not presented (its `descr` has no data type, or
 its data does not fit) has no grid, nor, by the general fallback ([§1](#1-stored-arrays)), has one
 whose element's bits would pass 2^64 (an array of no elements may be of such a type), whose
-`item_bits` is then absent too. A deflated member's array is not
-described yet: its header and data lie in what its stream inflates to, which the IR holds as one
-derived element, with none for the header or for the data.
+`item_bits` is then absent too. A deflated member's `header` and `data` elements lie in a
+derived space, what its deflate stream inflates to
+([npy.md §5.3](zarrify/npy.md#53-elements)): its unit is its `data` element there, in the same
+empty chain, since inflating the stream is the IR's transform of the derived element and no codec
+of the array. No range of the file holds such a unit; a projection references the derived
+element's own bytes, the stream, and decodes them.
 
 **MRC** ([spec/zarrify/mrc.md](zarrify/mrc.md)). An MRC file's data is one stored array, keyed by
 the file's `header` element, with no index. The facts give the key: `declared_by` is that element's

@@ -266,8 +266,8 @@ is rebuilt byte for byte.
 `refkv_source` is the file's **IR mirror**
 ([conventions §11.3](../conventions.md#113-the-ir-mirror)). The IR's elements (the NumPy
 **source model**) are below; nothing is left out: the preamble and header of every NPY
-array the profile read in a range of the file, every member (a deflated member's preamble and
-header are in its deflate data, and in the root's source metadata), the ZIP structures, and
+array the profile read, every member (a deflated member's preamble, header and data are in
+what its deflate data inflates to, and are elements of that space), the ZIP structures, and
 every byte between or after them.
 
 ### 5.3 Elements
@@ -275,8 +275,10 @@ every byte between or after them.
 Paths are relative to the IR's root, whose path is `""`
 ([conventions §8.1](../conventions.md#81-elements)). Types are those of
 [conventions §8.6](../conventions.md#86-types). In a `.npy` file the NPY elements are the
-root's children, at offsets from 0; in a `.npz` archive, a stored member's, below its entry's
-`data`, at its offsets in the file.
+root's children, at offsets from 0; in a `.npz` archive, a member's, below its entry's
+`data`: a stored member's at its offsets in the file, and a deflated member's in the space of
+its `data` element ([conventions §8.1](../conventions.md#81-elements)), at its offsets in what
+its deflate stream inflates to.
 
 | path | kind | type | extent: what |
 |---|---|---|---|
@@ -288,12 +290,14 @@ root's children, at offsets from 0; in a `.npz` archive, a stored member's, belo
 | `entries/<i>` | struct | | a `.npz` archive's central directory entry `i`: its local header and data, `[lho, ds + cs)` |
 | `entries/<i>/local_header`, `…/name`, `…/extra` | value | | as [safe.md §6.3](safe.md#63-the-source-metadata-node) names them |
 | `entries/<i>/data` | struct | | a stored member whose preamble and header were read, `(ds, cs)`: the NPY elements above |
-| `entries/<i>/data` | derived | | a deflated member, `(ds, cs)`: form `{"transform":"deflate"}` |
+| `entries/<i>/data` | derived | | a deflated member, `(ds, cs)`. One whose preamble and header were read has the form `{"transform":"deflate","prefix":p + n}`, with `"size":us` when its array is presented, and the NPY elements above in its space, at their offsets in what its stream inflates to: `…/preamble` at `(0, p)`, `…/header` at `(p, n)` and `…/data` at `(p + n, B)`. Any other has the form `{"transform":"deflate"}` and nothing in its space |
 | `entries/<i>/data` | value | `bytes[cs]` | any other member, when `cs > 0`, opaque |
 | `gaps/<offset>` | gap | | bytes no other element claims: a stored member's bytes after its header when it is not presented, and after its data; data descriptors; and the bytes after a `.npy` file's data |
 
 The view ([conventions §8.7](../conventions.md#87-the-view)) shows the values its rules
-show: the preambles, the headers of at most 1024 bytes, and the ZIP structures and names; not
+show: the preambles, the headers of at most 1024 bytes (a deflated member's too, which a
+validator inflates again from the start of its stream,
+[conventions §8.8](../conventions.md#88-canonical-form)), and the ZIP structures and names; not
 the data, nor the opaque values. A parser reads them all, a member's local file name
 included.
 
@@ -525,13 +529,16 @@ and an entry of `arrays` has these:
 |---|---|
 | `path` | the array's path ([§4](#4-the-hierarchy)) |
 | `header` | its NPY header's text, decoded as its version says ([§2](#2-the-npy-format)): the array's declaration |
-| `stored` | the id of the IR element that keys its stored array, its `header` element; null for a deflated member, which the IR does not describe yet |
-| `deflate` | a deflated member's only: `start` and `length`, its stream's range in the file; `crc` and `size`, the central directory's CRC-32 and uncompressed size; `skip` and `data`, the offset and length of its data in what the stream inflates to |
+| `stored` | the id of the IR element that keys its stored array, its `header` element |
+| `deflate` | a deflated member's only: `crc` and `size`, its central directory entry's CRC-32 and its uncompressed size (which a ZIP64 entry's 32-bit fields do not hold) |
 
 The profile's projection reads an array's shape and its order from its stored array, its data
 from the chunk map (one unit, its `data` element), and its data type, byte order and fill value
-from `header`'s `descr` ([§3](#3-data-types)). A deflated member's shape and order are its
-header's. A stored array may have no grid, and so no unit, for an array the profile presents all
+from `header`'s `descr` ([§3](#3-data-types)). A deflated member's `header` and `data` are in
+the space of the derived element that is its stream ([§5.3](#53-elements)): the stream is that
+element's extent in the file, and the offset the `refkv.skip` codec skips to
+([§8.4](#84-chunks)) is its `data` element's in that space (its header's end, for an array of
+no elements). A stored array may have no grid, and so no unit, for an array the profile presents all
 the same: one of a type NumPy's own layout gives no size, `a<n>`, which [§3](#3-data-types) reads
 as `S<n>`. The projection then reads the declaring structure for the rest
 ([spec/stored-array.md §2.3](../stored-array.md#23-the-grid)): its data is the `data` element

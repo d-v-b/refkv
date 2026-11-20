@@ -8,8 +8,8 @@ sparse grid's, a grid whose layout may leave a unit out, where a dense one has a
 unit
 ([stored-array.md §2.4](../../spec/stored-array.md#24-sparse-grids-and-the-fill-value)). The type's name is
 settled, `StoredArray` ([open question 1](#open-questions)). Every format of
-[ir-format-descriptions.md](ir-format-descriptions.md) now describes its arrays, but for NumPy's
-deflated `.npz` members, and so do MP4's tracks (d-v-b/refkv#303) and FLAC's frames, which
+[ir-format-descriptions.md](ir-format-descriptions.md) now describes its arrays, NumPy's
+deflated `.npz` members among them, and so do MP4's tracks (d-v-b/refkv#303) and FLAC's frames, which
 this note left to a proposal of their own; MP3 is still not described. NumPy's projection reads its
 descriptions; no other does yet: that is the plan of [profile-plugins.md](profile-plugins.md#order-of-work). The rest of this
 note is as it was proposed.

@@ -67,6 +67,11 @@ def _unit(parsed: Parsed, unit: Unit) -> Value:
     if unit.member is not None:
         raise ValueError(f"the unit at {unit.coords} lies in member {unit.member} of a run of elements, "
                          "which stored_array does not place yet")
+    space = parsed.ir.space(unit.element)
+    if space != 0:
+        raise ValueError(f"the unit at {unit.coords} lies in what {parsed.ir.path(space)!r} decodes to, which no "
+                         "range of a source holds: reference that element's own bytes (Parsed.encoded) under "
+                         "the codec that undoes its transform")
     if unit.range is None:
         return parsed.reference(unit.element)
     return cut(Value((parsed.span(unit.element),)), unit.range[0], unit.range[0] + unit.range[1])
@@ -99,8 +104,9 @@ def stored_array(parsed: Parsed, array: int, data_type: str | Mapping[str, Any],
     ValueError for an array whose storage the IR does not model (no grid, or no extent: a
     description a profile may still present, from the declaring structure), whose
     elements are not whole bytes, whose units are encoded with more than one chain or skip codecs
-    of it, whose chain has no Zarr codecs yet, or whose units lie in the members of a run of
-    elements (an ND2 file's frames), which this does not place yet."""
+    of it, whose chain has no Zarr codecs yet, whose units lie in the members of a run of
+    elements (an ND2 file's frames), which this does not place yet, or whose units lie in a
+    derived space (a deflated `.npz` member's data, which only its stream, decoded, holds)."""
     stored = parsed.ir.stored_arrays()
     if not 0 <= array < len(stored.arrays):
         raise ValueError(f"no stored array {array}: the IR describes {len(stored.arrays)}")

@@ -125,7 +125,8 @@ class Parsed:
         NumPy's, whose `description` holds `own`, the source metadata
         (spec/zarrify/npy.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#51-the-root>),
         and `arrays`, each array the profile presents with its `path`, its header's text
-        (`header`) and `stored`, the IR element that keys its stored array."""
+        (`header`), `stored`, the IR element that keys its stored array, and, for a deflated
+        archive member, `deflate`, its stream's CRC-32 and the size of what it inflates to."""
         return None if self._description is None else json.loads(json.dumps(self._description))
 
     @property
@@ -342,6 +343,18 @@ class Parsed:
         self._source_space(i)
         if self._ir.kind(i) not in (DATA, VALUE, GAP):
             raise ValueError(f"{self._ir.path(i)!r} is not data or a value: it holds no bytes of its own")
+        start, length = self._ir.extent(i)
+        return Ref(self, self.source_of(i), start, length)
+
+    def encoded(self, i: int) -> Ref:
+        """The bytes of its source that a derived element `i` is derived from: a deflated archive
+        member's stream, a compressed record. They are not the bytes the elements in its space
+        are ranges of (`ir.space(j)` is `i` for such an element `j`): those exist only once these
+        are decoded, by the transform the element's form names. ValueError for an element that is
+        not derived from bytes of a source."""
+        i = self._element(i)
+        if self._ir.kind(i) != DERIVED or self._ir.space(i) != 0:
+            raise ValueError(f"{self._ir.path(i)!r} is not an element derived from bytes of a source")
         start, length = self._ir.extent(i)
         return Ref(self, self.source_of(i), start, length)
 

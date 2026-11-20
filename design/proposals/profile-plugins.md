@@ -42,7 +42,7 @@ description and the IR's stored arrays, and NumPy has the first
 plan's machine, and each format's description and plan) have not otherwise, though
 NumPy's arrays, MP4's tracks and the stored arrays of every format in the
 scope of [ir-format-descriptions.md](ir-format-descriptions.md) are described,
-but for NumPy's deflated `.npz` members; those of the store profiles, MP3 and
+NumPy's deflated `.npz` members among them; those of the store profiles, MP3 and
 FLAC are not.
 [The gap](#the-gap) describes main before step 1.
 [Open question 3](#open-questions) is settled: a reader follows symbolic links
