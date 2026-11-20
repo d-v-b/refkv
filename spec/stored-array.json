@@ -87,15 +87,22 @@
       "type": "object",
       "properties": {
         "axes": {"type": "array", "items": {"$ref": "#/$defs/axis"}},
-        "edge": {"enum": ["full", "short"]}
+        "edge": {"enum": ["full", "short"]},
+        "sparse": {
+          "description": "Null for a dense grid, whose source stores every unit; else the fill value of a unit the source leaves out (https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#24-sparse-grids-and-the-fill-value).",
+          "oneOf": [
+            {"type": "null"},
+            {"type": "object", "properties": {"fill": {"oneOf": [{"$ref": "#/$defs/fill"}, {"type": "null"}]}}, "required": ["fill"], "additionalProperties": false}
+          ]
+        }
       },
-      "required": ["axes", "edge"],
+      "required": ["axes", "edge", "sparse"],
       "additionalProperties": false
     },
     "fill": {
-      "description": "The source's fill value (https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#24-the-fill-value).",
+      "description": "The fill value a sparse grid's source gives (https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#24-sparse-grids-and-the-fill-value).",
       "oneOf": [
-        {"enum": ["undefined", "format_default"]},
+        {"const": "format_default"},
         {
           "type": "object",
           "properties": {
@@ -137,10 +144,9 @@
         "pad_from": {"oneOf": [{"$ref": "#/$defs/count"}, {"type": "null"}]},
         "grid": {"oneOf": [{"$ref": "#/$defs/grid"}, {"type": "null"}]},
         "chains": {"type": "array", "items": {"$ref": "#/$defs/count"}},
-        "fill": {"$ref": "#/$defs/fill"},
         "unit_parameters": {"type": "array", "items": {"$ref": "#/$defs/unit_parameter"}}
       },
-      "required": ["element", "path", "index", "declarations", "shape", "axes", "item_bits", "pad_from", "grid", "chains", "fill", "unit_parameters"],
+      "required": ["element", "path", "index", "declarations", "shape", "axes", "item_bits", "pad_from", "grid", "chains", "unit_parameters"],
       "additionalProperties": false
     }
   }

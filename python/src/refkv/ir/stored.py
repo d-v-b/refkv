@@ -81,21 +81,32 @@ class Listed:
 
 
 @dataclass(frozen=True)
-class Grid:
-    """How the source cuts an array into units."""
-
-    axes: tuple[Each | Listed, ...]
-    edge: Literal["full", "short"]
-
-
-@dataclass(frozen=True)
 class Given:
     """A fill value the source gives: one decoded element's bytes."""
 
     param: Param
 
 
-type Fill = Literal["undefined", "format_default"] | Given
+type Fill = Literal["format_default"] | Given
+
+
+@dataclass(frozen=True)
+class Sparse:
+    """A grid whose source may leave a unit out, which then holds `fill`: None where the source
+    gives none (spec/stored-array.md §2.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#24-sparse-grids-and-the-fill-value>)."""
+
+    fill: Fill | None
+
+
+@dataclass(frozen=True)
+class Grid:
+    """How the source cuts an array into units, and, where it may leave a unit out, `sparse`;
+    None for a dense grid, whose source stores every unit."""
+
+    axes: tuple[Each | Listed, ...]
+    edge: Literal["full", "short"]
+    sparse: Sparse | None
 
 
 @dataclass(frozen=True)
@@ -123,8 +134,12 @@ class StoredArray:
     pad_from: int | None
     grid: Grid | None
     chains: tuple[int, ...]
-    fill: Fill
     unit_parameters: tuple[UnitParameter, ...]
+
+    @property
+    def fill(self) -> Fill | None:
+        """The fill of its grid, where the grid is sparse and the source gives one."""
+        return None if self.grid is None or self.grid.sparse is None else self.grid.sparse.fill
 
 
 @dataclass(frozen=True)
@@ -228,17 +243,22 @@ def _axis(v: JSON, where: str) -> Each | Listed:
 def _grid(v: JSON, where: str) -> Grid | None:
     if v is None:
         return None
-    m = _members(mapping(v, where), frozenset({"axes", "edge"}), where)
+    m = _members(mapping(v, where), frozenset({"axes", "edge", "sparse"}), where)
     edge = string(m["edge"], f"{where}.edge")
     if edge not in ("full", "short"):
         raise ValueError(f"{where}.edge: {edge!r} is neither 'full' nor 'short'")
     units = tuple(_axis(a, f"{where}.axes[{k}]") for k, a in enumerate(sequence(m["axes"], f"{where}.axes")))
-    return Grid(units, "full" if edge == "full" else "short")
+    return Grid(units, "full" if edge == "full" else "short", _sparse(m["sparse"], f"{where}.sparse"))
+
+
+def _sparse(v: JSON, where: str) -> Sparse | None:
+    if v is None:
+        return None
+    fill = _members(mapping(v, where), frozenset({"fill"}), where)["fill"]
+    return Sparse(None if fill is None else _fill(fill, f"{where}.fill"))
 
 
 def _fill(v: JSON, where: str) -> Fill:
-    if v == "undefined":
-        return "undefined"
     if v == "format_default":
         return "format_default"
     if isinstance(v, str):
@@ -257,7 +277,7 @@ def _unit_parameter(v: JSON, where: str) -> UnitParameter:
 
 
 _ARRAY = frozenset({"element", "path", "index", "declarations", "shape", "axes", "item_bits", "pad_from", "grid",
-                    "chains", "fill", "unit_parameters"})
+                    "chains", "unit_parameters"})
 
 
 def _array(v: JSON, where: str) -> StoredArray:
@@ -276,7 +296,6 @@ def _array(v: JSON, where: str) -> StoredArray:
         pad_from=_optional(m["pad_from"], f"{where}.pad_from"),
         grid=_grid(m["grid"], f"{where}.grid"),
         chains=_counts(m["chains"], f"{where}.chains"),
-        fill=_fill(m["fill"], f"{where}.fill"),
         unit_parameters=tuple(_unit_parameter(u, f"{where}.unit_parameters[{k}]") for k, u in enumerate(ups)),
     )
 

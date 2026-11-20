@@ -10,7 +10,7 @@
 use super::elements::{tag_key, El};
 use super::json::is_integer;
 use super::{first_string, frame_ranges, Image, Layout};
-use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Param, Place, Row, StoredArray};
+use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Grid, Param, Place, Row, StoredArray};
 use crate::ir::{Ir, Res, DATA, NONE, NO_INDEX, STRUCT, VALUE};
 use serde_json::{json, Value as J};
 use std::collections::{BTreeMap, HashMap};
@@ -71,7 +71,7 @@ impl Frames {
     /// `together` frames a unit, whole.
     fn grid(&self, together: u64) -> Grid {
         let axes = self.declared.map(|_| together).into_iter().chain(self.within()).map(AxisUnits::Each).collect();
-        Grid { axes, edge: Edge::Short }
+        Grid { axes, edge: Edge::Short, sparse: None }
     }
 
     fn coords(&self, unit: u64) -> Vec<u64> {
@@ -268,7 +268,6 @@ impl Build<'_> {
             pad_from: None,
             grid: None,
             chains: Vec::new(),
-            fill: Fill::Undefined,
             unit_parameters: Vec::new(),
         });
         (self.arrays.len() - 1) as u32
@@ -372,7 +371,7 @@ fn palette(b: &mut Build, img: &Image, dataset: u32) -> Res<Option<Vec<u32>>> {
         if swapped || !b.fits(1, 1, 0) {
             continue;
         }
-        b.cut(array, Grid { axes: vec![AxisUnits::Each(p.entries)], edge: Edge::Short }, Vec::new());
+        b.cut(array, Grid { axes: vec![AxisUnits::Each(p.entries)], edge: Edge::Short, sparse: None }, Vec::new());
         b.map.push(row(array, vec![0], named(ir, &b.roots, Some((*e, None)), (el.value, p.entries * p.cell))))?;
     }
     Ok(Some(tables.into_iter().map(|t| t.1).collect()))

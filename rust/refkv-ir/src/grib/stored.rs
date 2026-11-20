@@ -212,9 +212,8 @@ pub(super) fn described(reached: &[Reached]) -> Res<(Vec<StoredArray>, Vec<Chain
                     axes: None,
                     item_bits: Some(1),
                     pad_from: None,
-                    grid: stored.then(|| Units { axes: vec![whole(b.points)], edge: Edge::Short }),
+                    grid: stored.then(|| Units::dense(vec![whole(b.points)], Edge::Short)),
                     chains: if stored { vec![chain_of(Chain::new())] } else { Vec::new() },
-                    fill: Fill::Undefined,
                     unit_parameters: Vec::new(),
                 });
                 if let Some((element, length)) = held.filter(|_| b.points > 0) {
@@ -240,15 +239,15 @@ pub(super) fn described(reached: &[Reached]) -> Res<(Vec<StoredArray>, Vec<Chain
                 let data = f.data.saturating_sub(5);
                 let stored = values(&f.packing, data, n);
                 // the elements' bits, the chain, the octets of section 7's data that are the
-                // unit, and the fill value
-                let (item_bits, chain, unit, fill) = match &stored {
-                    Values::Floats { size } => (Some(size * 8), Some(Chain::new()), n * size, Fill::Undefined),
+                // unit, and, where the field stores no unit, the fill value
+                let (item_bits, chain, unit, sparse) = match &stored {
+                    Values::Floats { size } => (Some(size * 8), Some(Chain::new()), n * size, None),
                     // the reference value, an IEEE binary32, is every value: none is stored
-                    Values::Constant => (Some(32), Some(Chain::new()), 0, Fill::Given(Param::Source(within(12, 4)))),
-                    Values::Integers { bits, length } => (Some(*bits), Some(Chain::new()), *length, Fill::Undefined),
+                    Values::Constant => (Some(32), Some(Chain::new()), 0, Some(Fill::Given(Param::Source(within(12, 4))))),
+                    Values::Integers { bits, length } => (Some(*bits), Some(Chain::new()), *length, None),
                     Values::Packed { codec, bits, parameters, length } => {
                         let parameters = parameters.iter().map(|&(k, first, count)| (k.to_string(), Param::Source(within(first, count)))).collect();
-                        (Some(*bits), Some(vec![Codec { name: codec.to_string(), parameters }]), *length, Fill::Undefined)
+                        (Some(*bits), Some(vec![Codec { name: codec.to_string(), parameters }]), *length, None)
                     }
                     Values::Source => {
                         let mut parameters = BTreeMap::from([
@@ -259,11 +258,17 @@ pub(super) fn described(reached: &[Reached]) -> Res<(Vec<StoredArray>, Vec<Chain
                         if f.packing.len() > 11 {
                             parameters.insert("parameters".to_string(), Param::Source(within(12, f.packing.len() as u64 - 11)));
                         }
-                        (None, Some(vec![Codec { name: "source".into(), parameters }]), data, Fill::Undefined)
+                        (None, Some(vec![Codec { name: "source".into(), parameters }]), data, None)
                     }
-                    Values::Short => (None, None, 0, Fill::Undefined),
+                    Values::Short => (None, None, 0, None),
                 };
-                let grid = chain.is_some().then(|| Units { axes: shape.iter().map(|&s| whole(s)).collect(), edge: Edge::Short });
+                let grid = chain.is_some().then(|| {
+                    let axes = shape.iter().map(|&s| whole(s)).collect();
+                    match sparse {
+                        Some(fill) => Units::sparse(axes, Edge::Short, Some(fill)),
+                        None => Units::dense(axes, Edge::Short),
+                    }
+                });
                 arrays.push(StoredArray {
                     element: f.message,
                     index: Some(f.index),
@@ -274,7 +279,6 @@ pub(super) fn described(reached: &[Reached]) -> Res<(Vec<StoredArray>, Vec<Chain
                     pad_from: None,
                     grid,
                     chains: chain.map(&mut chain_of).into_iter().collect(),
-                    fill,
                     unit_parameters: Vec::new(),
                 });
                 if unit > 0 && n > 0 {

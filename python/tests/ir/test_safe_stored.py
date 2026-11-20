@@ -326,7 +326,7 @@ def check_band(d: Product, k: int, at: tuple[str | None, int, bytes], read: Read
     said = []
     if d.where(a.element) != there(jp2.codestream) or a.path is None or not a.path.endswith("/codestream"):
         said.append(f"keyed by {a.path} at {d.where(a.element)}, not by the codestream at {there(jp2.codestream)}")
-    if a.index is not None or a.fill != "undefined" or a.unit_parameters or a.pad_from is not None:
+    if a.index is not None or a.fill is not None or a.unit_parameters or a.pad_from is not None:
         said.append("an index, a fill value, unit parameters or pad_from")
     # the declarations: SIZ, then the JP2 header box's contents
     declared = [there(jp2.siz), *[there(h) for h in jp2.headers]]

@@ -272,7 +272,7 @@ def check_description(a: StoredArray, lay: Layout, before: tuple[int, ...], held
     said = []
     if (a.shape, a.item_bits) != ((*before, *lay.shape), lay.bits):
         said.append(f"shape {a.shape} of {a.item_bits} bits, nd2 {(*before, *lay.shape)} of {lay.bits}")
-    if a.fill != "undefined" or a.axes is not None or a.pad_from is not None or a.unit_parameters:
+    if a.fill is not None or a.axes is not None or a.pad_from is not None or a.unit_parameters:
         said.append("a fill value, axes, a padding or unit parameters")
     want = (*[1] * len(before), 1 if lay.padded else lay.height, *lay.shape[1:]) if held else None
     if lengths(a) != want or (a.grid is not None and a.grid.edge != "short"):

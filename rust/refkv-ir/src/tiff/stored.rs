@@ -11,7 +11,7 @@
 
 use super::{type_size, unsigned, Ifd, Tiff, Unit};
 use crate::ndpi;
-use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Param, Place, Row, StoredArray};
+use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Grid, Param, Place, Row, StoredArray};
 use crate::ir::Res;
 use serde_json::{json, Value as J};
 use std::collections::{BTreeMap, HashMap};
@@ -186,7 +186,6 @@ impl Image {
             pad_from: None,
             grid: None,
             chains: Vec::new(),
-            fill: Fill::Undefined,
             unit_parameters: Vec::new(),
         }
     }
@@ -396,7 +395,8 @@ impl Tiff {
             let range = framed.then(|| (0, length(e)));
             out.push(Row { coords, element: Some(e), range, ..Row::default() });
         }
-        Some((Grid { axes, edge }, out))
+        // an entry of no bytes at offset 0 leaves its unit out, of no fill value: TIFF has none
+        Some((Grid::sparse(axes, edge, None), out))
     }
 
     /// What the headers the layout read say of each NDPI image's stream, by IFD: taken while the
@@ -492,7 +492,7 @@ impl Tiff {
             }
             Row { coords, element: Some(e), range: Some((s, end - s)), ..Row::default() }
         });
-        Some((chain, (Grid { axes, edge: Edge::Full }, units.collect())))
+        Some((chain, (Grid { axes, edge: Edge::Full, sparse: None }, units.collect())))
     }
 
     /// The descriptions of the images the IFDs declare, their chains and their rows.

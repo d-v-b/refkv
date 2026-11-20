@@ -19,7 +19,7 @@
 
 pub mod header;
 
-use crate::array::{AxisUnits, Chain, ChunkMap, Edge, Fill, Grid, Place, Row, StoredArray};
+use crate::array::{AxisUnits, Chain, ChunkMap, Edge, Grid, Place, Row, StoredArray};
 use crate::expr::V;
 use crate::fed::{Fed, Overlap, uint};
 use crate::gz::inflate_prefix;
@@ -292,6 +292,7 @@ fn described(reached: &[Reached]) -> Result<(Vec<StoredArray>, Vec<Chain>, Chunk
         let grid = presented.then(|| Grid {
             axes: shape.iter().map(|&n| if n == 0 { AxisUnits::List(Vec::new()) } else { AxisUnits::Each(n) }).collect(),
             edge: Edge::Short,
+            sparse: None,
         });
         if let (true, Some(d)) = (presented, a.data) {
             map.push(Row { array: k as u32, coords: vec![0; r], element: Some(d), ..Row::default() })?;
@@ -306,7 +307,6 @@ fn described(reached: &[Reached]) -> Result<(Vec<StoredArray>, Vec<Chain>, Chunk
             pad_from: None,
             chains: if presented { vec![0] } else { Vec::new() },
             grid,
-            fill: Fill::Undefined,
             unit_parameters: Vec::new(),
         });
     }

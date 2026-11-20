@@ -9,7 +9,7 @@
 //! not.
 
 use super::{card, field_of, parse_card, parse_cards, str_of, tile_at, Card, Value, CARD};
-use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Param, Place, Row, StoredArray};
+use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Grid, Param, Place, Row, StoredArray};
 use crate::fed::Word;
 use crate::ir::{Ir, Res};
 use serde_json::{json, Value as J};
@@ -88,6 +88,7 @@ impl Built {
         let grid = bits.map(|_| Grid {
             axes: shape.iter().map(|&n| if n == 0 { AxisUnits::List(Vec::new()) } else { AxisUnits::Each(n) }).collect(),
             edge: Edge::Short,
+            sparse: None,
         });
         let chains = if grid.is_some() { vec![self.chain(Vec::new())] } else { Vec::new() };
         let described = grid.is_some();
@@ -101,7 +102,6 @@ impl Built {
             pad_from: None,
             grid,
             chains,
-            fill: Fill::Undefined,
             unit_parameters: Vec::new(),
         });
         if let (Some((element, range)), true) = (unit, described) {
@@ -177,7 +177,6 @@ impl Built {
             pad_from: None,
             grid: None,
             chains: Vec::new(),
-            fill: Fill::Undefined,
             unit_parameters: Vec::new(),
         };
         if !modeled {
@@ -224,7 +223,8 @@ impl Built {
         if second {
             described.chains.push(self.chain(fallback));
         }
-        described.grid = Some(Grid { axes: tile.iter().map(|&n| AxisUnits::Each(n.max(1))).collect(), edge: Edge::Short });
+        // a table row with both descriptors empty holds no tile: FITS has no fill value
+        described.grid = Some(Grid::sparse(tile.iter().map(|&n| AxisUnits::Each(n.max(1))).collect(), Edge::Short, None));
         self.arrays.push(described);
         // the tiles, from the table's rows, each in its chunk of the heap
         let Some(table) = table() else {

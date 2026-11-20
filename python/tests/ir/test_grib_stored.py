@@ -528,7 +528,7 @@ def check_bitmap(d: Described, k: int, name: str, held: Held, read: Read) -> lis
     if spans(d, a) != [held.s3, (start, 6)] or len(a.declarations) != 2:
         said.append(f"declarations at {spans(d, a)}")
     stated = (a.shape, a.axes, a.item_bits, a.pad_from, a.fill, a.unit_parameters)
-    if stated != ((points,), None, 1, None, "undefined", ()):
+    if stated != ((points,), None, 1, None, None, ()):
         said.append(f"shape {a.shape}, axes {a.axes}, {a.item_bits} bits, fill {a.fill}")
     rows = d.rows.get(k, [])
     if 8 * (length - 6) < points:
@@ -649,7 +649,7 @@ def check_field(d: Described, k: int, path: Path, held: Held, read: Read, seen: 
     seen[f"fields of 5.{template}, {kind}"] += 1
     if kind == "no grid":
         # section 7 does not hold the values
-        if a.grid is not None or chains or rows or a.item_bits is not None or a.fill != "undefined":
+        if a.grid is not None or chains or rows or a.item_bits is not None or a.fill is not None:
             said.append(f"grid {a.grid}, chains {chains} and {len(rows)} rows, of a section 7 of {held.s7[1]} octets")
         return said
     if units_of(a) != shape or len(chains) != 1 or [c.name for c in chains[0]] != names:
@@ -669,7 +669,7 @@ def check_field(d: Described, k: int, path: Path, held: Held, read: Read, seen: 
             said.append(f"a fill value of {value}, and ecCodes reads {want[:3]}")
         seen["constant fields whose decimal scale factor is not 0"] += keys["decimalScaleFactor"] != 0
         return said
-    if a.fill != "undefined":
+    if a.fill is not None:
         said.append(f"the fill {a.fill}")
     if kind == "source":
         (codec,) = chain
@@ -951,7 +951,7 @@ def assert_source(path: Path, template: int) -> None:
     stated sample size, in a `source` chain of its template's number and octets."""
     d, a, rows, held = last_field(path)
     assert source_of(d, a) == {"format": "grib", "id": template, "parameters": (held.s5[0] + 11, held.s5[1] - 11)}
-    assert (a.item_bits, a.fill, units_of(a)) == (None, "undefined", a.shape)
+    assert (a.item_bits, a.fill, units_of(a)) == (None, None, a.shape)
     assert [d.parts(r) for r in rows] == [[(path.name, held.s7[0] + 5, held.s7[1] - 5)]]
 
 

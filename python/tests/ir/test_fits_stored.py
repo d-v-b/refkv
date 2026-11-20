@@ -51,7 +51,7 @@ from astropy.io.fits.hdu.compressed._tiled_compression import (
 from described import Described, described
 from ir_helpers import FIXTURES
 
-from refkv.ir.stored import Codec, Each, ElementPlace, Grid, Listed, Source, StoredArray, Value
+from refkv.ir.stored import Codec, Each, ElementPlace, Grid, Listed, Source, Sparse, StoredArray, Value
 
 FILES = sorted(p for p in (FIXTURES / "fits").iterdir() if ".fits" in p.name and "reject" not in p.name)
 BLOCK, CARD = 2880, 80
@@ -233,7 +233,7 @@ def check_whole(d: Described, data: bytes, k: int, want: tuple[tuple[int, ...], 
     if not bits:
         seen[f"{what} with no grid"] += 1
         return [*said, "a grid, a chain or a row of elements of no size"] if a.grid or a.chains or rows else said
-    if a.grid != Grid(tuple(Each(n) if n else Listed(()) for n in shape), "short"):
+    if a.grid != Grid(tuple(Each(n) if n else Listed(()) for n in shape), "short", None):
         said.append(f"grid {a.grid} of {shape}")
     if [d.stored.chains[c] for c in a.chains] != [()] or a.unit_parameters:
         said.append(f"chains {a.chains}, not the one empty chain")
@@ -361,7 +361,9 @@ def check_tiled(d: Described, data: bytes, k: int, table: Astropy, image: Astrop
     seen["tile-compressed images"] += 1
     # the tiles, with the defaults of a header that leaves ZTILEn out
     tile = tuple(header.get(f"ZTILE{n}", header["ZNAXIS1"] if n == 1 else 1) for n in range(rank, 0, -1))
-    if a.grid != Grid(tuple(Each(t) for t in tile), "short") or (image is not None and tuple(image.tile_shape) != tile):
+    # a table row with both descriptors empty holds no tile: the grid is sparse, of no fill value
+    tiles = Grid(tuple(Each(t) for t in tile), "short", Sparse(None))
+    if a.grid != tiles or (image is not None and tuple(image.tile_shape) != tile):
         return [*said, f"grid {a.grid}, tiles of {tile}"]
     said += check_codecs(d, data, a, header, names)
     chains = [d.stored.chains[c] for c in a.chains]
@@ -478,7 +480,7 @@ def check_hdu(d: Described, data: bytes, arrays: list[int], table: Astropy, imag
             said.append(f"array {index}: index {a.index}, declarations {a.declarations}")
         if (start, length) != (info["hdrLoc"], info["datLoc"] - info["hdrLoc"]):
             said.append(f"array {index}: its header at {(start, length)}, astropy {info['hdrLoc']} to {info['datLoc']}")
-        if a.fill != "undefined" or a.pad_from is not None:
+        if a.fill is not None or a.pad_from is not None:
             said.append(f"array {index}: a fill value or pad_from")
     if not is_table:
         seen["images"] += 1
@@ -637,7 +639,7 @@ def blocks(data: bytes) -> bytes:
 
 PRIMARY = cards_of(("SIMPLE", True), ("BITPIX", 8), ("NAXIS", 0))
 # a table's heap of no bytes, as its description's index, shape, sample size and grid
-EMPTY_HEAP = (1, (0,), 8, Grid((Listed(()),), "short"))
+EMPTY_HEAP = (1, (0,), 8, Grid((Listed(()),), "short", None))
 
 
 def table_cards(row_bytes: int, rows: int, heap: int, columns: list[tuple[str, str]]) -> list[tuple[str, object]]:

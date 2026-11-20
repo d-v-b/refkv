@@ -7,7 +7,7 @@
 //! header in what it inflates to, and no place names the header, so it has no declarations.
 
 use super::{FIELDS, IMOD_FLAGS, IMOD_STAMP};
-use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Fill, Grid, Param, Place, Row, StoredArray};
+use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Grid, Param, Place, Row, StoredArray};
 use crate::ir::Res;
 use serde_json::json;
 
@@ -94,10 +94,9 @@ pub(super) fn described(r: &Reached) -> Res<(Vec<StoredArray>, Vec<Chain>, Chunk
         // a packed mode's rows each end on a byte
         pad_from: r.packed.then_some(shape.len() as u32 - 1),
         // one unit, the whole array: the header's checks leave no axis of length 0
-        grid: Some(Grid { axes: shape.iter().map(|&n| AxisUnits::Each(n)).collect(), edge: Edge::Short }),
+        grid: Some(Grid { axes: shape.iter().map(|&n| AxisUnits::Each(n)).collect(), edge: Edge::Short, sparse: None }),
         shape: Some(shape),
         chains: vec![0],
-        fill: Fill::Undefined,
         unit_parameters: Vec::new(),
     };
     Ok((vec![array], vec![chain(r)], map))
@@ -152,7 +151,7 @@ mod tests {
         let (arrays, chains, map) = described(&reached(101, 4, None)).unwrap();
         let a = &arrays[0];
         assert_eq!((a.shape.clone(), a.axes.clone(), a.item_bits, a.pad_from), (Some(vec![2, 3, 5]), Some(vec![2, 1, 0]), Some(4), Some(2)));
-        assert_eq!(a.grid, Some(Grid { axes: vec![AxisUnits::Each(2), AxisUnits::Each(3), AxisUnits::Each(5)], edge: Edge::Short }));
+        assert_eq!(a.grid, Some(Grid { axes: vec![AxisUnits::Each(2), AxisUnits::Each(3), AxisUnits::Each(5)], edge: Edge::Short, sparse: None }));
         assert_eq!((a.element, a.index, a.chains.clone(), chains.len()), (1, None, vec![0], 1));
         assert_eq!((map.len(), map.element[0], map.coords_of(0)), (1, Some(2), &[0, 0, 0][..]));
         assert_eq!(described(&reached(2, 32, None)).unwrap().0[0].pad_from, None);

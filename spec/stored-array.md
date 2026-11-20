@@ -2,9 +2,9 @@
 
 A **stored array** is one structure that a source itself declares as an array, described as the
 source stores it, at the byte level: its shape, the size of its elements in bits and how they
-pack, how the source cuts it into units, the codecs that decode a unit to the elements' bytes, its
-fill value, where the source declares what its elements are, and a map of the units the source
-holds. Parsers build the descriptions and the map into the IR
+pack, how the source cuts it into units and whether it may leave a unit out, the codecs that
+decode a unit to the elements' bytes, the fill value of a unit it leaves out, where the source
+declares what its elements are, and a map of the units the source holds. Parsers build the descriptions and the map into the IR
 ([conventions §8](conventions.md#8-the-ir-mirror)); projections and profiles read them, together
 with the source's own declarations, and decide everything about the output, starting with the data
 type. This document is not a convention: nothing it specifies is written in an output, and the IR
@@ -50,11 +50,10 @@ A description has these members (the Rust type `StoredArray` of `rust/refkv-ir/s
 | `declarations` | the places where the source declares what the array's elements are, as the format's paragraph of [§7](#7-the-formats) lists them |
 | `shape` | the axes in storage order, the slowest-varying first; absent where the source declares no extent (an HDF5 null dataspace), which holds no element, unlike a scalar's empty shape (the JSON form writes `"shape": null`, the member present) |
 | `axes` | the source's own order of the axes, where it differs from storage order: `axes[i]` is storage axis i's position in the source's list (a Fortran-order NumPy array of shape (3, 4) has `shape` [4, 3] and `axes` [1, 0]); else absent, never the identity |
-| `item_bits` | the bits of one element, decoded; absent for an array with no grid and no given fill, and, of an array with a grid, where its elements are those `source` makes ([§3.2](#32-the-list)) and the IR does not know their size |
+| `item_bits` | the bits of one element, decoded; absent for an array with no grid, and, of an array whose grid gives no fill, where its elements are those `source` makes ([§3.2](#32-the-list)) and the IR does not know their size |
 | `pad_from` | for elements that are not whole bytes: the first axis from which the elements of a decoded unit pack unbroken, each run over this axis and those after it ending on a byte boundary; absent: the whole unit packs unbroken |
-| `grid` | how the source cuts the array into units ([§2.3](#23-the-grid)); absent where the IR does not model the array's storage |
+| `grid` | how the source cuts the array into units ([§2.3](#23-the-grid)), and, where its layout may leave a unit out, the fill value ([§2.4](#24-sparse-grids-and-the-fill-value)); absent where the IR does not model the array's storage |
 | `chains` | the codec chains a unit may be encoded with, by position in the IR's chain table ([§3.1](#31-chains)) |
-| `fill` | the source's fill value ([§2.4](#24-the-fill-value)) |
 | `unit_parameters` | the codec parameters whose values differ from unit to unit, each a column of the chunk map ([§3.1](#31-chains)) |
 
 A description stops at the elements' bytes as they come out of a chain. Which data type those
@@ -97,13 +96,14 @@ place lies within what it names: a range within its element's extent, and an obj
 within the object where its size is known (the parsed source's in a file IR, any object's in a
 store IR).
 
-A **parameter** of a codec, or a given fill value, is a value (`{"value": …}`) or a place whose
+A **parameter** of a codec, or a given fill value ([§2.4](#24-sparse-grids-and-the-fill-value)), is a value (`{"value": …}`) or a place whose
 bytes the codec makes it from (`{"source": place}`). It is tagged, so that a value that is an
 object cannot be read as a place.
 
 ### 2.3 The grid
 
-A grid has an entry for each axis, `Each(n)` or a `List`, and an `edge`:
+A grid has an entry for each axis, `Each(n)` or a `List`, an `edge`, and `sparse`
+([§2.4](#24-sparse-grids-and-the-fill-value)):
 
 - `Each(n)`: the axis's units are all `n` elements long, but for a last one the axis's end cuts.
 - `List`: each unit's length in order, a run of `c` equal lengths `n` kept as `[n, c]`.
@@ -128,14 +128,20 @@ An array whose storage the IR does not model (an HDF5 virtual dataset, a NumPy o
 no grid, no chains and no chunk map rows: its element, shape, declarations and whatever else its
 parser knows. The profile reads the declaring structure for the rest, or leaves the array out.
 
-### 2.4 The fill value
+### 2.4 Sparse grids and the fill value
 
-`fill` is one of:
+A grid is **dense** where the source's layout stores every unit (a NIfTI's voxels, a FITS image,
+a FLAC's frames): the chunk map has a row for each of its units, and it has no fill value. A grid
+is **sparse** where the layout may leave a unit out (an HDF5 chunk index, a TIFF entry of no
+bytes): the map has a row for each unit the source holds, and a unit it leaves out holds the fill
+value, where the source gives one. Sparse says what the layout allows, not what the file does: a
+sparse grid whose source holds every unit stays sparse, its fill kept.
 
-- `undefined`: the source defines none (HDF5's "undefined", and a format that has no fill value),
-  or defines one the IR cannot express, whose place is then among the description's
-  `declarations` (the general fallback); a profile tells the two apart through the format's list of
-  declaration places;
+A sparse grid's `fill` is absent where the source defines none (HDF5's "undefined", and a format
+that has no fill value), or defines one the IR cannot express, whose place is then among the
+description's `declarations` (the general fallback); a profile tells the two apart through the
+format's list of declaration places. Otherwise it is one of:
+
 - `format_default`: the source says its format's default (HDF5's "default", which the HDF5
   specification defines as zero bytes);
 - `given`: one decoded element's bytes, ceil(`item_bits` / 8) of them, as a parameter
@@ -153,11 +159,12 @@ a source that kept no descriptions at all at the descriptions' limit ([§6](#6-i
 IR `true` or `false`, in a store IR a list of the keys of the objects whose arrays kept none, empty
 where none is marked. A description has every member of [§2](#2-the-description),
 `null` where it is absent, and `path`, its element's path in the IR (null for an element the IR
-does not hold, which no checked IR has). A place is
+does not hold, which no checked IR has); a description has no `fill`, which is its grid's. A place is
 `{"element": e, "member": j, "range": [offset, length]}` (`member` and `range` may be null) or
 `{"object": key, "offset": o, "length": n}` (`object` null for the parsed source). A grid is
-`{"axes": [...], "edge": "full" | "short"}`, each axis `{"each": n}` or `{"list": [...]}`, each
-run of a list `n` or `[n, c]`. A fill is `"undefined"`, `"format_default"` or
+`{"axes": [...], "edge": "full" | "short", "sparse": …}`, each axis `{"each": n}` or
+`{"list": [...]}`, each run of a list `n` or `[n, c]`, and `sparse` null for a dense grid, else
+`{"fill": …}`, the fill null where the source gives none, else `"format_default"` or
 `{"given": parameter}`. A unit parameter is `{"chain": c, "codec": k, "name": …}`. The JSON
 Schema [stored-array.json](stored-array.json) gives the document, and, under `$defs`, the
 description (`stored_array`), which each format's description schema refers to for its arrays.
@@ -293,7 +300,8 @@ describes its arrays.
 ## 4. The chunk map
 
 An IR's chunk map is one table with a row for each unit the source holds, of every array with a
-grid. A unit the source does not hold has no row, and no row is for an array with no grid.
+grid. A unit the source does not hold has no row, which only a sparse grid's may lack
+([§2.4](#24-sparse-grids-and-the-fill-value)), and no row is for an array with no grid.
 
 ### 4.1 The Arrow schema
 
@@ -363,8 +371,8 @@ list names its objects, once each, none of which holds a description's key or a 
   table, and none twice. The chain table holds no chain twice, and every codec of it is one of the
   list ([§3.2](#32-the-list)), with only its entry's parameters.
 - **`axes`.** When given, a permutation of the rank other than the identity.
-- **`item_bits`, `pad_from` and the fill.** `item_bits` is set when the fill is given, and when
-  `grid` is, unless every chain of the array begins with `source`; it is at least 1. `pad_from` is below the rank, given only when `item_bits` is set and
+- **`item_bits`, `pad_from` and the fill.** `item_bits` is set when its grid's fill is given,
+  and when `grid` is, unless every chain of the array begins with `source`; it is at least 1. `pad_from` is below the rank, given only when `item_bits` is set and
   is not a multiple of 8. A given fill value is ceil(`item_bits` / 8) bytes: a base64 string of
   that many, or a place of that length (a range's or an extent's length, else its element's).
 - **`unit_parameters`.** None is listed twice. Each names a chain of the description, a codec of
@@ -381,6 +389,8 @@ list names its objects, once each, none of which holds a description's key or a 
 - rows are only for arrays the IR describes that have a grid;
 - coordinates are of the array's rank, inside its grid, grouped and ordered as
   [§4.2](#42-rows) says, with no repeats;
+- an array whose grid is dense has a row for each of its units
+  ([§2.4](#24-sparse-grids-and-the-fill-value));
 - exactly one of `element` and `ranges` is set in each row, and a row's ranges are at least one,
   each at least one byte long;
 - `member` is set exactly when `element` is set and is in a run's subtree, and is below the
@@ -449,7 +459,7 @@ descriptions and the chunk map out before it unfolds the runs, so its unfolds re
 **Limits.** The IR's budget counts the descriptions' entries and the chunk map's in fields of its
 own, each against a limit of its own, never against the IR's room (its records and elements). The
 descriptions' entries are each description, each axis of its shape, each run of a listed axis (an
-`Each` axis has none), each of its places (its declarations, and a fill given at a place), each of
+`Each` axis has none), each of its places (its declarations, and its grid's fill given at a place), each of
 its chains and each unit parameter; and of the chain table, each chain, each codec and each place
 a codec's parameter names. The chunk map's are each row, each of its coordinates, each of its
 `ranges` items and each unit-parameter value it sets (a row's `range` is part of it, and is none).
@@ -594,7 +604,7 @@ own IR, and the CZI store, which grafts them, renumbers the ids its facts give
   of which the parser reads the segment header alone; a subblock's attachment (a valid-pixel
   mask); and the attachments that hold images (a `JPG` thumbnail, an embedded `CZI` label or
   preview), which the parser keeps as bytes and reads nothing of.
-- **The fill value** is `undefined`: CZI has none.
+- **The grid** is dense: CZI has no fill value.
 
 **NumPy** ([spec/zarrify/npy.md](zarrify/npy.md)). A `.npy` file's array, and each stored
 (method 0) `.npz` member's whose header was read, is a stored array, keyed by its `header` element,
@@ -614,8 +624,8 @@ fields of no bytes, such as `|S0`, which add none). It is absent for a `descr` o
 array's; one of 0 bytes; one whose size is the machine's (`l`, `L`, `g`, `G`, `p`, `P`), which a
 header does not give; and a structure with two fields of one name, which NumPy refuses. A presented
 array is one unit, its `data` element, in an empty chain: each axis is `Each` of its length, or an
-empty `List` for an axis of length 0 (which has no unit, and no row), under `short`. NumPy defines
-no fill value: `undefined`. An array whose data is not presented (its `descr` has no data type, or
+empty `List` for an axis of length 0 (which has no unit, and no row), under `short`, dense: NumPy
+defines no fill value. An array whose data is not presented (its `descr` has no data type, or
 its data does not fit) has no grid, nor, by the general fallback ([§1](#1-stored-arrays)), has one
 whose element's bits would pass 2^64 (an array of no elements may be of such a type), whose
 `item_bits` is then absent too. A deflated member's array is not
@@ -657,7 +667,7 @@ the same file, and has no description of its own.
   of the header the parser inflated. Its chain ends with `skip`, then `gzip`: the values are what
   the stream inflates to, after the header and the extended header. `skip`'s `length`, 1024 plus
   `nsymbt`, is a value, since no place holds `nsymbt` either.
-- **The fill value** is `undefined`: MRC has none.
+- **The grid** is dense: MRC has no fill value.
 
 **HDF5** ([spec/zarrify/hdf5.md](zarrify/hdf5.md)). Every object the parser reads whose header has
 a data layout message, and neither a symbol table nor a link info message, is a stored array,
@@ -702,13 +712,17 @@ renumbers with `store.element` ([§2.1](#21-keys)). An attribute's value is not 
 - **No grid** also for a virtual dataset, a null dataspace, a chunked dataset whose index the
   parser did not read, and a dataset of which it did not read the dataspace, the datatype, the
   layout, the filter pipeline message or the fill value message.
-- **The fill value** has HDF5's three states, as the library's `H5Pfill_value_defined` gives them
-  for the dataset: `undefined` (the message says so, or the header has no fill value message of
-  either type), `format_default` (a fill value is defined and the message holds none: zeros), or
-  `given`, the place of the value's bytes in the message, which are an element as the datatype
-  stores one. The new message (type 5) is read where a header has both. A shared message,
-  several messages of the type read, a message that does not read, or a value whose length is
-  not the datatype's size, leaves `undefined`, with those messages among the declarations.
+- **Sparse and dense.** A chunked dataset's grid is sparse (its index may leave a chunk out), and
+  so is a contiguous one's (a dataset of no address holds no unit); a compact dataset's, and one in
+  external files, is dense.
+- **The fill value** of a sparse grid has HDF5's three states, as the library's
+  `H5Pfill_value_defined` gives them for the dataset: none where it is undefined (the message says
+  so, or the header has no fill value message of either type), `format_default` (a fill value is defined and
+  the message holds none: zeros), or `given`, the place of the value's bytes in the message, which
+  are an element as the datatype stores one. The new message (type 5) is read where a header has
+  both. A shared message, several messages of the type read, a message that does not read, or a
+  value whose length is not the datatype's size, leaves none, with those messages among the
+  declarations, whatever the grid.
 
 **LIF** ([spec/zarrify/lif.md](zarrify/lif.md)). Every image of a LIF, LOF or LIFEXT file
 ([zarrify/lif.md §2.3](zarrify/lif.md#23-images)) is a stored array, keyed by the element that
@@ -773,7 +787,7 @@ memory block.
   chunk map limit ([§6](#6-in-the-ir)), which are not built. Either image has its `shape`, `axes`
   and `item_bits`. What the parser refuses (bit-packed samples, channels of two types, channels
   neither planar nor interleaved, rows that overlap) has no IR.
-- **The fill value** is `undefined`: LIF has none.
+- **The grid** is dense: LIF has no fill value.
 
 **NRRD** ([spec/zarrify/nrrd.md](zarrify/nrrd.md)). A NRRD input is one stored array, the one its
 header declares, in the store IR the profile's run builds of the header file and, for a detached
@@ -811,7 +825,7 @@ the NRRD definition is Teem's, which
   definition names reads whole.)
 - **No grid** for no input: the profile rejects what it does not read (the text, hex and bzip2
   encodings, the type `block`, several data files), and builds no IR of it.
-- **The fill value** is `undefined`: NRRD has none.
+- **The grid** is dense: NRRD has no fill value.
 
 **DICOM** ([spec/zarrify/dicom.md](zarrify/dicom.md)). A DICOM file's stored arrays are its
 Pixel Data (7FE0,0010), each lookup table of a `PALETTE COLOR` image, and each Pixel Data in an
@@ -901,7 +915,7 @@ is Samples per Pixel (0028,0002).
   syntax's, nor, under Explicit VR Big Endian, for Bits Allocated 1 or 8, whose bytes a VR of OW
   swaps. A value of undefined length, a fragment sequence the parser does not read as frames, has
   no grid.
-- **The fill value** is `undefined`: DICOM has none, and Pixel Padding Value is a declaration.
+- **The grid** is dense: DICOM has no fill value, and Pixel Padding Value is a declaration.
 
 **TIFF** ([spec/zarrify/tiff.md](zarrify/tiff.md)). Every IFD the parser reads (of the main
 chain, a SubIFD, or one another pointer tag leads to) whose ImageWidth (256) and ImageLength (257)
@@ -977,7 +991,8 @@ grid, its rows are the plane's own strips, `imagej/planes/<p>/strips/<j>`.
 - **More bytes than the unit's.** A tile or strip may hold, or decode to, more bytes than its
   unit's elements take (a tile stored at a larger sample size than its fields give): the unit's
   are the first, as libtiff and tifffile read them.
-- **The fill value** is `undefined`: TIFF has none.
+- **The grid** is sparse, an entry of no bytes at offset 0 leaving its unit out, and has no fill
+  value: TIFF has none. NDPI's grid of restart intervals (below) is dense.
 
 **GRIB** ([spec/zarrify/grib.md](zarrify/grib.md)). Every message of a GRIB edition 2 file has
 descriptions, whether or not the profile presents its fields, keyed by its element
@@ -1031,8 +1046,8 @@ is section 5's number of values (octets 6–9).
 - **A constant field** codes no value: simple packing, JPEG 2000, PNG or CCSDS packing (5.0, 5.40,
   5.41, 5.42) of a bit width of 0 (octet 20), and complex packing (5.2, 5.3) of no groups (octets
   32–35). Every value is the reference value `R`, an IEEE binary32, big-endian: `item_bits` is
-  32, the chain is empty, there is no row, and `fill` is given, the place of `R` (section 5's
-  octets 12–15). ecCodes and NCEP's g2c read `R` itself whatever the decimal scale factor `D` is,
+  32, the chain is empty, and the grid is sparse, with no row, its fill given: the place of `R`
+  (section 5's octets 12–15). ecCodes and NCEP's g2c read `R` itself whatever the decimal scale factor `D` is,
   as their encoders write it, where FM 92's regulation 92.9.4 would give `R × 10^−D`.
 - **A field in simple packing** (5.0) is its integers as section 7 stores them: `item_bits` is
   the bit width (octet 20), whatever it is, the chain empty, and the row's range the octets that
@@ -1068,7 +1083,7 @@ is section 5's number of values (octets 6–9).
 - **No grid** for a field whose section 7 holds fewer octets than its IEEE floats or its simple
   packing's integers take, and for one of another named packing with values to code and a section
   7 of 5 octets.
-- **The fill value** is `undefined`, but a constant field's: GRIB has none.
+- **The grid** is dense, but a constant field's: GRIB has no fill value.
 
 **NIfTI** ([spec/zarrify/nifti.md](zarrify/nifti.md)). A NIfTI file's voxels are one stored
 array, of a single file, of a file gzipped whole and of a header-and-image pair alike, as nibabel
@@ -1101,7 +1116,7 @@ reads them. The facts give its key: `declared_by` is the id of the element that 
 - **No grid** for no file the parser accepts: it refuses one whose voxels it does not read as one
   array (a `datatype` it has no size for, a dimension below 1, a sixth or seventh dimension above
   1, voxels the file does not hold).
-- **The fill value** is `undefined`: NIfTI has none.
+- **The grid** is dense: NIfTI has no fill value.
 
 **VSI** ([spec/zarrify/vsi.md](zarrify/vsi.md)). A VSI slide's arrays are described by its store
 parser itself ([§6](#6-in-the-ir)), in the store IR of the `.vsi` file and its tile files: each
@@ -1144,9 +1159,10 @@ an entry of `not_presented`) finds its image's.
   has no codec for, and JPEG or JPEG 2000 of larger samples, which those codecs' entries do not
   cover. The parser reads no tile, so a stream that holds other samples
   than the header says is not detected.
-- **The fill value** is given, as the place of the background's first sample in the `ets` element
-  (a sample's bytes at offset 108), where the tiles are uncompressed and the background's samples
-  are all the same. Otherwise it is `undefined`, the background being in the declaration: an
+- **The grid** is sparse: a tile the directory does not list is the background. The fill value is
+  given, as the place of the background's first sample in the `ets` element (a sample's bytes at
+  offset 108), where the tiles are uncompressed and the background's samples are all the same.
+  Otherwise there is none, the background being in the declaration: an
   element is one sample, and what a codec's decoding makes (a JPEG stream's components, before
   any color conversion) need not be in the background's color space.
 - **No grid**, and no shape, for a level after 0 that holds no tile, below one that holds some:
@@ -1275,8 +1291,8 @@ decoded file's.
   - **Its table's rows and heap** are described as a binary table's: the rows one unit, the
     `table` element; the heap one unit, the range of the HDU's element (`hdus/<i>`) that holds
     it, since its bytes are in the elements of its tiles' chunks.
-- **The fill value** is `undefined`: FITS has none. `BLANK`, the stored value of a pixel with
-  none, is a declaration.
+- **The grid** is dense: FITS has no fill value. `BLANK`, the stored value of a pixel with none,
+  is a declaration.
 
 **NDPI** ([spec/zarrify/ndpi.md](zarrify/ndpi.md)). An NDPI is read by the TIFF parser in NDPI's
 layout, and every IFD that declares a size is described as a TIFF's, keyed likewise, the macro
@@ -1352,7 +1368,7 @@ in the facts' `own.tensors`, which a presented tensor's entry of the facts' `arr
   reads a tensor's bytes and none of its elements, so this order rests on that section: for `F4`
   it is the order of PyTorch's `float4_e2m1fn_x2`, which the library writes, and for the 6-bit
   types, of which no writer was found, the same order by analogy.
-- **The fill value** is `undefined`: safetensors has none.
+- **The grid** is dense: safetensors has no fill value.
 - **No grid** for no tensor of a checked header, but at the descriptions' limit's fallback
   ([§6](#6-in-the-ir)): the checks leave no tensor whose storage the IR does not model, and the
   chunk map's limit has room for the row of any tensor that holds a byte. A header reaches the
@@ -1427,7 +1443,9 @@ among those chunks, in the order of their numbers. The facts give the keys: `dec
   in a file that names both `ImageDataSeq|0!` and `ImageDataSeq|00!`, nd2 reads the second as
   frame 0, and the description, with the profile, the first. The description follows the
   convention there, and no file a writer is known to make has such a name.
-- **The fill value** is `undefined`: ND2 has none.
+- **The grid** of the frames the loops count is sparse, a frame the chunk map does not name
+  being a unit the source does not hold, and that of a frame past them dense: ND2 has no fill
+  value.
 
 **MP4** ([spec/zarrify/mp4.md](zarrify/mp4.md)). Every track whose handler is `vide` or `soun` has
 descriptions, whether or not the profile zarrifies it, keyed by its `trak` box, a kind of element
@@ -1479,7 +1497,7 @@ the element `samples/<T>/<j>`.
   description, or with its sample sizes in an `stz2` box; and a PCM track with a sample that its
   tables size as no whole number of frames, which readers do not agree on (ffmpeg reads its
   frames by the sample entry's size).
-- **The fill value** is `undefined`: MP4 has none.
+- **The grid** is dense: MP4 has no fill value.
 
 **H5J** ([spec/zarrify/h5j.md](zarrify/h5j.md)). An H5J file is described as the two formats it
 is made of. Its datasets are described as HDF5's, by the same code: a channel's dataset is an
@@ -1531,7 +1549,7 @@ a mirror's quicklook) are in objects the parser does not read
   to its end (a TLM, PLM or PPM marker, several tile-parts for a tile, an image or tile origin
   other than 0, components that are signed, subsampled or of unlike precisions), and builds no
   IR of it.
-- **The fill value** is `undefined`: JPEG 2000 has none.
+- **The grid** is dense: JPEG 2000 has no fill value.
 
 **HDF4** ([spec/zarrify/hdf4.md](zarrify/hdf4.md)). Every dataset of the SD interface the parser
 reaches is a stored array, whether or not the profile presents it: each `Var0.0` Vgroup of the
@@ -1571,11 +1589,12 @@ datasets' attributes are not described yet.
   bytes than the dataset, or the number type or the dimension record does not read. Such a
   dataset still has its `shape` and `item_bits`, but for an unlimited first dimension, whose size
   only the data gives: it has no `shape`, unless the parser located its data.
-- **The fill value** is `given`: a chunked dataset's chunk header's (its bytes after the header's
-  dimensions), where it is one element long; else the `_FillValue` attribute's first element, its
-  place in the attribute's Vdata, where it is of the dataset's number type and byte order (of
-  text, its first byte). A `_FillValue` of the dataset's type in another byte order leaves
-  `undefined`, its Vdata header among the declarations. With neither, it is `format_default`, the
+- **The grid** is sparse, whole or chunked: a dataset may hold no data, and a chunk table need not
+  list every chunk. Its fill value is `given`: a chunked dataset's chunk header's (its bytes after
+  the header's dimensions), where it is one element long; else the `_FillValue` attribute's first
+  element, its place in the attribute's Vdata, where it is of the dataset's number type and byte
+  order (of text, its first byte). A `_FillValue` of the dataset's type in another byte order
+  leaves none, its Vdata header among the declarations. With neither, it is `format_default`, the
   SD interface's: netCDF's default of the number type's netCDF type, as `NC_arrayfill` writes it
   (`char` 0, of `char8` and `uchar8`; `byte` −127, `short` −32767 and `long` −2147483647, as
   bytes of the number type, so 129, 32769 and 2147483649 of the unsigned types; and `float` and
@@ -1597,4 +1616,4 @@ the key: `info_value` is that element's id.
   last frame alone may hold fewer samples. Each frame is a row, the element `frames/<j>`, whole.
 - **The chain** is one, `flac`, its `setup` the STREAMINFO block. A frame decodes alone: FLAC has
   no state from frame to frame, so the codec is not a stream ([§3.1](#31-chains)).
-- **The fill value** is `undefined`: FLAC has none.
+- **The grid** is dense: FLAC has no fill value.

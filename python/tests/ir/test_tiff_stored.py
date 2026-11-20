@@ -25,7 +25,7 @@ import tifffile
 from described import Described, described
 from ir_helpers import FIXTURES
 
-from refkv.ir.stored import Codec, Each, ElementPlace, Source, StoredArray, Value
+from refkv.ir.stored import Codec, Each, ElementPlace, Source, Sparse, StoredArray, Value
 
 # files the TIFF profile rejects, whose names do not say so
 REJECTED = {"mm_split_MMStack_Pos0_1.ome.tif", "unsupported_predictor_2_float.tif"}
@@ -412,7 +412,7 @@ def check_image(d: Described, k: int, im: Image, seen: Counter) -> list[str]:
         said.append(f"shape {a.shape}, tifffile {im.shape}")
     if a.item_bits != im.bits:
         said.append(f"item_bits {a.item_bits}, tifffile {im.bits}")
-    if a.fill != "undefined" or a.axes is not None or a.index is not None or a.unit_parameters:
+    if a.fill is not None or a.axes is not None or a.index is not None or a.unit_parameters:
         said.append("a fill value, axes, an index or unit parameters")
     declared = [data[:2]] + [b for t in DECLARING if (b := tag_bytes(page, t, data)) is not None]
     if [d.place(p) for p in a.declarations] != declared or not all(isinstance(p, ElementPlace) for p in a.declarations):
@@ -428,8 +428,9 @@ def check_image(d: Described, k: int, im: Image, seen: Counter) -> list[str]:
     axes = (Each(rows), Each(columns))
     axes = axes if im.samples == 1 else (Each(1), *axes) if im.planar else (*axes, Each(im.samples))
     edge = "full" if im.tiled else "short"
-    if (a.grid.axes, a.grid.edge) != (axes, edge):
-        said.append(f"grid {a.grid}, tifffile {axes} {edge}")
+    # an entry of no bytes at offset 0 leaves its unit out: the grid is sparse, of no fill value
+    if (a.grid.axes, a.grid.edge, a.grid.sparse) != (axes, edge, Sparse(None)):
+        said.append(f"grid {a.grid}, tifffile {axes} {edge}, sparse")
         return said
     pad = None if im.bits is None or im.bits % 8 == 0 else 2 if im.planar else 1
     if a.pad_from != pad:

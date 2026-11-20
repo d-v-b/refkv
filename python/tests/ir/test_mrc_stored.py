@@ -231,7 +231,7 @@ def check_values(d: Described, a: StoredArray, r: Read, row: dict, name: str, se
 def check_array(d: Described, a: StoredArray, r: Read, rows: list[dict], name: str, seen: Counter) -> list[str]:
     """The file's description against mrcfile's reading."""
     said = check_declarations(d, a, r, seen)
-    if a.index is not None or a.fill != "undefined" or a.unit_parameters or a.axes != (2, 1, 0):
+    if a.index is not None or a.fill is not None or a.unit_parameters or a.axes != (2, 1, 0):
         said.append(f"an index, a fill value, unit parameters, or the axes {a.axes}")
     mode = int(r.header.mode)
     shape = (int(r.header.nz), int(r.header.ny), int(r.header.nx))
