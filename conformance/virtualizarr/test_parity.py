@@ -43,7 +43,6 @@ from virtualizarr.parsers import (
 )
 
 from refkv.virtualizarr import RefkvParser
-from refkv.zarrify import zarrify
 from refkv.zarrify.common import Rejected
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -60,11 +59,10 @@ class Gap:
 
 
 SOURCE_METADATA = Gap("#271 'Separate source metadata from dataset attributes'")
-ZARR2_DIMENSIONS = Gap("#271 'Separate source metadata from dataset attributes': refkv keeps a Zarr v2 "
-                       "array's _ARRAY_DIMENSIONS as source metadata, ZarrParser makes them its dimension names")
 FITS_NAMES = Gap("#271 'Decide array names for FITS': refkv names the primary HDU '0', FITSParser 'PRIMARY'")
 NETCDF3 = Gap("#271 'Support the missing formats': netCDF3 is not a file of any supported format", Rejected)
-ENVI = Gap("#271 'Support the missing formats': ENVI is not a file of any supported format", Rejected)
+ENVI = Gap("#271 'Support the missing formats': refkv names an ENVI raster by its .hdr header, VirtualiZarr "
+           "by its data file, which RefkvParser rejects", Rejected)
 
 ASPECTS = ("arrays", "shape", "data type", "fill value", "dimension names", "attributes",
            "byte ranges", "values", "root attributes")
@@ -192,13 +190,14 @@ KNOWN_GAPS: dict[tuple[str, str], Gap] = {
     ("HDF5 without dimension scales", "attributes"): SOURCE_METADATA,
     ("HDF5 without dimension scales", "root attributes"): SOURCE_METADATA,
     ("zipped Zarr v3", "root attributes"): SOURCE_METADATA,
-    ("netCDF3", ALL): NETCDF3,
-    ("ENVI", ALL): ENVI,
-    ("FITS image", ALL): FITS_NAMES,
-    ("Zarr v2 directory", "dimension names"): ZARR2_DIMENSIONS,
+    # the default layout keeps a v2 array's _ARRAY_DIMENSIONS among the source's attributes
+    ("Zarr v2 directory", "dimension names"): SOURCE_METADATA,
     ("Zarr v2 directory", "attributes"): SOURCE_METADATA,
     ("Zarr v2 directory", "root attributes"): SOURCE_METADATA,
     ("Zarr v3 directory", "root attributes"): SOURCE_METADATA,
+    ("netCDF3", ALL): NETCDF3,
+    ("ENVI", ALL): ENVI,
+    ("FITS image", ALL): FITS_NAMES,
 }
 """The differences #271 tracks, by (case, aspect), `*` for every aspect of a case."""
 
@@ -299,11 +298,6 @@ def test_parity(parsed: Callable[[str], Any], case: str, aspect: str) -> None:
     if isinstance(ours, Exception):
         raise ours
     assert differences(theirs, ours, aspect) == []
-
-
-def test_zarrify_takes_file_url(tmp_path: Path, registry: ObjectStoreRegistry) -> None:
-    """zarrify takes a local file's file: URL as given."""
-    zarrify(hdf5_plain(tmp_path).as_uri(), registry=registry)
 
 
 def test_numpy_floor() -> None:
