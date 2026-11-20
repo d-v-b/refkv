@@ -43,7 +43,7 @@ from refkv.build import (
     seal,
     value,
 )
-from refkv.errors import RequestError
+from refkv.errors import RequestError, ResolutionError
 from refkv.policy import Policy
 from refkv.zarrify import zarrify
 from refkv.zarrify.common import PAGE_SIZE
@@ -722,9 +722,13 @@ def test_seal_refuses_a_zero_source_past_a_source_table(tmp_path, n):
     assert e.value.code == "archive"
 
 
-def test_seal_refuses_a_range_it_cannot_read_to_checksum(tmp_path, monkeypatch):
+@pytest.mark.parametrize("error", [OSError("the source went away"), ResolutionError("the source went away")],
+                         ids=["unreadable", "changed-under-its-pin"])
+def test_seal_refuses_a_range_it_cannot_read_to_checksum(tmp_path, monkeypatch, error):
+    """A read that fails as the system's does, or as the reader's does for a source that is no
+    longer what its pin says (a file cut short after it was read)."""
     async def unread(_self, _key):
-        raise OSError("the source went away")
+        raise error
 
     # the read is made to fail, not the file cut short: an open input holds a local file mapped,
     # and Windows refuses to shrink a mapped file
