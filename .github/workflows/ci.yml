@@ -372,6 +372,29 @@ jobs:
       - run: uv sync --all-groups --locked
       - run: just virtualizarr-parity -rxX
 
+  # What zarrify makes of every input of the fixture corpus, against the committed manifest
+  # (conformance/outputs/digest.py): a change that alters an output must alter the manifest, so
+  # the change's diff names the inputs and the parts of their outputs that changed
+  outputs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust/refkv-ir
+            rust/refkv-python
+      - run: uv sync --all-groups --locked
+      - run: just outputs-check
+
   # The package without its extras (python/pyproject.toml): it reads, writes and zarrifies
   # archives without zarr, and each optional part's ImportError names the extra that
   # installs it; then with only the zarr extra, which reads them through zarr
