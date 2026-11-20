@@ -193,7 +193,7 @@ in the output. An output whose payload exceeds 65519 bytes only because of
 its checksums is a failure, not a rejection: for an output a profile writes without a plugin,
 each range of a `url` source is counted with the most bytes its `crc32c` field takes, 6 (a tag,
 and a varint of 32 bits), so whether it fails depends on the output's ranges, never on the bytes
-they read (a plugin's output is measured as [spec/layout.md §4](layout.md#4-writing-the-output)
+they read (a plugin's output is measured as [spec/layout.md §4](layout.md#4-sealing-the-output)
 says). A data source is a `data` source
 ([spec/refkv.md §5](refkv.md#5-source-table)) holding a byte string that a profile names as **shared**: one
 that many references would otherwise each read from the file, or each carry
@@ -312,7 +312,7 @@ the whole source), every reference entry's
 payload MUST be at most 65519 bytes, and every key MUST be at most 65535 bytes in UTF-8 and MUST
 NOT start with `__vz__/` (the ZIP binding's own, [spec/bindings/vzip.md](bindings/vzip.md));
 otherwise the input is rejected. The first two hold for every
-reference of a plugin's output ([spec/layout.md §4](layout.md#4-writing-the-output)), where a
+reference of a plugin's output ([spec/layout.md §4](layout.md#4-sealing-the-output)), where a
 range of a data source may be any bytes within it, and one that breaks them is a failure of the
 call, not a rejection of the input. The
 payload ([spec/refkv.md §4.4](refkv.md#44-reference-payloads), [§4](refkv.md#4-messages)) of a single range is its `Range` message: for a
@@ -914,10 +914,8 @@ CORS headers from a network failure, so asking for a file that is not there can 
 uses it. The order of the sources is a function of the bytes alone, never of when a probe or a read
 completed. Every profile uses the order of **first use** ([§1.2](#12-input)): walk the
 output's reference entries in the order of their keys, and number each object as it first
-appears. A plugin's output ([spec/layout.md](layout.md)) keeps the base's source table, in the
-base's order, sources it does not use included, and after them, at most one zero data source
-([spec/layout.md §4](layout.md#4-writing-the-output)): the numbering by first use, and the rule that a
-`url` source is one a reference uses, hold for an output without a plugin.
+appears. A plugin's output ([spec/layout.md](layout.md)) is numbered by the same rule
+([spec/layout.md §4](layout.md#4-sealing-the-output)): it is sealed as an output without a plugin is.
 
 **Pins.** A sibling is pinned as source 0 of a file input is ([§1.2](#12-input)): a `size` pin, and
 an `etag` pin when every response received for it had an `ETag` with the same strong value. Every

@@ -65,6 +65,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import functools
 import threading
 from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
@@ -88,7 +89,6 @@ from refkv.zarrify.layouts import (
     LayoutRejected,
     LayoutUsageError,
     Planned,
-    apply,
     described,
     plan,
 )
@@ -108,6 +108,14 @@ from refkv.zarrify.store import (
 from refkv.zarrify.store import Store as Listed
 from refkv.zarrify.store.beside import Scope, VsiFiles, scope_keys
 from refkv.zarrify.store.stores import DirStore
+
+# a plugin layout is given the input parsed (refkv.build.read's Parsed) and its output is sealed
+# (refkv.build.seal): modules of refkv.build, which reads its inputs with this module's parse, so
+# each side names the other's module and reads its names at call time (a cycle). They come after
+# this package's own modules, which refkv.build imports names from.
+# isort: split
+import refkv.build.parsed as _build_parsed
+import refkv.build.plugin as _build_plugin
 
 NOT_SUPPORTED = "not a file of any supported format"
 
@@ -367,7 +375,7 @@ async def _parse_async(location: str, url: str | None = None, *, checksums: bool
     planner charges a byte fetched beyond those asked (default 0.1 s per MB).
     A store's documents are read by up to `workers` requests at a time. `layouts`: the
     layouts the output holds (`refkv.zarrify.sources.layout_names`). `written`: the output is written
-    as it is; false for one only built from (`refkv.build.read`, a plugin's base), which is not
+    as it is; false for one only built from (`refkv.build.project`), which is not
     held to the payload limit with checksums (`Failed`), as the output built from it is. `scope`:
     what a file input may read besides itself (`scope_keys`); a store input, whose objects are its
     listing's, takes none.
@@ -427,17 +435,39 @@ def _zarrify(location: str, url: str | None = None, *, checksums: bool = False,
     return fmt, out
 
 
-def _with_layout(out: Output | StoreIrOutput | SeriesOutput, fmt: str, policy: Policy | None,
-                 planned: Planned | None, registry: Resolver | None = None) -> ReferenceStore:
-    """The output as a `refkv.ReferenceStore`, or, with a plugin layout `planned`, the plugin's
-    output built from it (`refkv.zarrify.layouts.apply`): on a thread, which the plugin's `write`
-    runs on."""
-    if planned is None:
+async def _built_in(parse: _Parse | SeriesOutput, policy: Policy | None, registry: Resolver) -> ReferenceStore:
+    """The built-in output of a parsed input, as a `refkv.ReferenceStore`: its projection, then
+    the store, on a thread of its own."""
+    if isinstance(parse, SeriesOutput):
+        fmt, out = "dicom", parse
+    else:
+        fmt, out = parse.fmt, await parse.output_async()
+
+    def store() -> ReferenceStore:
         return out.to_store(policy=policy, registry=registry, info={"format": fmt, **out.summary})
-    if isinstance(out, SeriesOutput):  # the DICOM store form's, a series of files' outputs with no base
-        raise LayoutRejected(f"{planned.name}: a store of DICOM files has no base for a plugin layout: "
+
+    return await _on_own_thread(store)
+
+
+async def _laid_out(planned: Planned, parse: _Parse | SeriesOutput, location: str, url: str | None, *,
+                    policy: Policy | None, registry: Registry | None, resolver: Resolver, checksums: bool,
+                    scope: Scope | None = None) -> ReferenceStore:
+    """The output the plugin layout `planned` writes of a parsed input (spec/layout.md
+    <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): the input as `refkv.build.read`
+    gives it, the plugin's `write` on a thread of its own, and its output sealed
+    (`refkv.build.plugin.apply`). No output of refkv's own is built, unless the plugin asks for
+    it. The input is closed when the plugin's output is made."""
+    if isinstance(parse, SeriesOutput):  # the DICOM store form's, a series of files' outputs with no IR
+        raise LayoutRejected(f"{planned.name}: a store of DICOM files has no IR for a plugin layout: "
                              "name one of its files")
-    return apply(out, fmt, policy, planned, registry)
+    # a `file:` URL, read as its path
+    parsed = await _build_parsed.parsed_async(parse, local_path(location, policy), url, policy=policy,
+                                              registry=registry, resolver=resolver, checksums=checksums, scope=scope)
+    try:
+        info = {"format": parsed.profile, "elements": len(parsed.ir)}
+        return await _on_own_thread(functools.partial(_build_plugin.apply, planned, [parsed], info=info))
+    finally:
+        parsed.close()
 
 
 async def _on_own_thread[T](f: Callable[..., T], *args: object) -> T:
@@ -557,8 +587,9 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
     - `layout`: a layout a plugin writes, `Layout("acme-ome.ome06")` or `Layout(plugin)`
       (`refkv.zarrify.layouts`; spec/layout.md
       <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>), for a file or store input
-      of a profile the plugin's `formats` name: the output is then the plugin's, built from
-      the output with every built-in layout, and `layouts` is None.
+      of a profile the plugin's `formats` name: the output is then the plugin's, written from
+      the input as parsed (a `refkv.build.Parsed`) and sealed (`refkv.build.seal`); refkv's own
+      output is built only where the plugin asks for it. `layouts` is None.
 
     `location` may instead be a source or store class's instance, such as
     `TiffSource(url)` or `Zarr2Store(url)` (`refkv.zarrify.sources`), which names the profile,
@@ -600,22 +631,28 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
         source = location
         resolver = Resolver(source.registry)
         if isinstance(source, Store):
-            fmt, out = await _zarrify_store_async(source.store_url, source.url, max_objects=source.max_objects,
-                                                  checksums=source.checksums, workers=source.workers,
-                                                  policy=source.policy, fmt=source.profile, layouts=layouts,
-                                                  registry=resolver, written=planned is None)
+            where, scoped, parsing = source.store_url, None, _parse_store_async(
+                source.store_url, source.url, max_objects=source.max_objects, checksums=source.checksums,
+                workers=source.workers, policy=source.policy, fmt=source.profile, layouts=layouts,
+                registry=resolver, written=planned is None)
         else:
-            fmt, out = await _zarrify_async(source.location, source.url, checksums=source.checksums,
-                                            policy=source.policy, connections=source.connections,
-                                            byte_cost=source.byte_cost, fmt=source.profile, layouts=layouts,
-                                            scope=source.scope, registry=resolver, written=planned is None)
-        return await _on_own_thread(_with_layout, out, fmt, source.policy, planned, resolver)
+            where, scoped, parsing = source.location, source.scope, _parse_async(
+                source.location, source.url, checksums=source.checksums, policy=source.policy,
+                connections=source.connections, byte_cost=source.byte_cost, fmt=source.profile, layouts=layouts,
+                scope=source.scope, registry=resolver, written=planned is None)
+        if planned is not None:
+            return await _laid_out(planned, await parsing, where, source.url, policy=source.policy,
+                                   registry=source.registry, resolver=resolver, checksums=bool(source.checksums),
+                                   scope=scoped)
+        return await _built_in(await parsing, source.policy, resolver)
     resolver = Resolver(registry)
-    fmt, out = await _zarrify_async(location, url, checksums=bool(checksums), policy=policy,
-                                    connections=connections, byte_cost=byte_cost,
-                                    workers=WORKERS if workers is None else workers, layouts=layouts,
-                                    scope=scope, registry=resolver, written=planned is None)
-    return await _on_own_thread(_with_layout, out, fmt, policy, planned, resolver)
+    parsing = _parse_async(location, url, checksums=bool(checksums), policy=policy, connections=connections,
+                           byte_cost=byte_cost, workers=WORKERS if workers is None else workers, layouts=layouts,
+                           scope=scope, registry=resolver, written=planned is None)
+    if planned is not None:
+        return await _laid_out(planned, await parsing, location, url, policy=policy, registry=registry,
+                               resolver=resolver, checksums=bool(checksums), scope=scope)
+    return await _built_in(await parsing, policy, resolver)
 
 
 def zarrify(location: str | Source | Store, url: str | None = None, *, checksums: bool | None = None,

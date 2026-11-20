@@ -3,10 +3,13 @@
 conformance/virtualizarr compares RefkvParser with VirtualiZarr's own parsers."""
 
 import json
+from pathlib import Path
 
 import h5py
+import numcodecs
 import numpy as np
 import pytest
+import tifffile
 import xarray as xr
 import zarr
 from obspec_utils.registry import ObjectStoreRegistry
@@ -15,11 +18,14 @@ from virtualizarr import open_virtual_dataset
 from virtualizarr.parsers import HDFParser
 
 import refkv
+import refkv.zarrify
 from refkv import Concat, Policy, Range, ReferenceStore, Source
 from refkv.errors import ResolutionError
 from refkv.virtualizarr import RefkvParser, manifest_store
-from refkv.zarrify.layouts import Layout
+from refkv.zarrify import Rejected, zarrify
+from refkv.zarrify.layouts import Layout, LayoutRejected
 
+FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 GROUP = b'{"zarr_format": 3, "node_type": "group", "attributes": {"title": "kinds"}}'
 
 
@@ -58,6 +64,21 @@ def source(tmp_path):
     path = tmp_path / "the source.bin"
     path.write_bytes(int32s(*range(8)))
     return path
+
+
+def v2_array():
+    """The documents and chunks of a Zarr v2 array, big-endian, in F order, with a
+    numcodecs filter and Blosc, no fill value and xarray's dimension names, under `v2/`; and its values."""
+    values = np.arange(12, dtype=">i2").reshape(3, 4)
+    memory: dict = {}
+    array = zarr.create_array(
+        memory, name="v2", shape=values.shape, chunks=(2, 2), dtype=values.dtype, zarr_format=2, order="F",
+        filters=[numcodecs.Delta(dtype=">i2")],  # pyrefly: ignore[bad-argument-type]
+        compressors=numcodecs.Blosc(shuffle=numcodecs.Blosc.BITSHUFFLE), fill_value=None,
+        attributes={"_ARRAY_DIMENSIONS": ["y", "x"], "units": "s"})
+    array[:2] = values[:2]  # the last row of chunks is left out: the fill value, the data type's default
+    return {k: v.to_bytes() for k, v in memory.items() if k.startswith("v2/")}, np.where(
+        np.arange(3)[:, None] < 2, values, 0)
 
 
 def kinds_store(tmp_path, source):
@@ -141,6 +162,14 @@ def test_manifest_store(tmp_path, source, registry):
         everything = manifest_store(store, registry)
         np.testing.assert_array_equal(read(everything, "skipped"), [16, 17])
 
+    # a Zarr v2 hierarchy, as Zarr v3: the array's values, and _ARRAY_DIMENSIONS its dimension names
+    documents, values = v2_array()
+    v2_store = ReferenceStore({".zgroup": b'{"zarr_format": 2}', **documents}, [])
+    v2 = manifest_store(v2_store, registry)
+    np.testing.assert_array_equal(read(v2, "v2"), values, strict=True)
+    metadata = v2._group.arrays["v2"].metadata
+    assert (metadata.dimension_names, metadata.attributes) == (("y", "x"), {"units": "s"})
+
 
 def test_from_virtualizarr_roundtrip(tmp_path, registry):
     """A virtual dataset through a ReferenceStore and back keeps its references and values."""
@@ -170,7 +199,9 @@ def test_refkv_parser(tmp_path, registry):
 
     for url in (str(path), path.as_uri()):
         result = RefkvParser()(url, registry)
+        # the refkv.virtualizarr layout: no mirror, and none of refkv's declarations
         assert "refkv_source" not in result._group.groups
+        assert "refkv_zarrified" not in result._group.metadata.attributes
         np.testing.assert_array_equal(read(result, "a"), data)
         np.testing.assert_array_equal(read(result, "g/b"), data)
         assert result._group.arrays["a"].manifest.shape_chunk_grid == (2, 2)
@@ -185,6 +216,96 @@ def test_refkv_parser(tmp_path, registry):
 
     with open_virtual_dataset(path.as_uri(), registry=registry, parser=RefkvParser()) as vds:
         assert set(vds.variables) == {"a"}
+
+    # an ENVI raster by its data file, as VirtualiZarr names it: zarrified from the header beside
+    # it, and presented by the refkv.virtualizarr layout under the data file's name
+    raster = np.arange(12, dtype="<i2").reshape(1, 3, 4)
+    (tmp_path / "e.img").write_bytes(raster.tobytes())
+    (tmp_path / "e.hdr").write_text(ENVI_HEADER)
+    envi = RefkvParser()((tmp_path / "e.img").as_uri(), registry)
+    [name] = envi._group.arrays
+    np.testing.assert_array_equal(read(envi, name), raster, strict=True)
+    # the data file named, not another the header's name also gives
+    (tmp_path / "e.dat").write_bytes((raster + 100).tobytes())
+    dat = RefkvParser()((tmp_path / "e.dat").as_uri(), registry)
+    np.testing.assert_array_equal(read(dat, name), raster + 100, strict=True)
+    assert {e["path"] for e in dat._group.arrays[name].manifest.dict().values()} == {
+        (tmp_path / "e.dat").as_uri()}
+
+
+ENVI_HEADER = ("ENVI\nsamples = 4\nlines = 3\nbands = 1\nheader offset = 0\nfile type = ENVI Standard\n"
+               "data type = 2\ninterleave = bsq\nbyte order = 0\n")
+
+
+def test_refkv_parser_reads_an_input_once(tmp_path, registry, monkeypatch):
+    """With a layout, the parser parses an input once, whether the layout reads its profile
+    (HDF5) or not (TIFF, written as refkv's own output of the same parse), and gives the
+    arrays refkv's own output has for the one its layout does not read."""
+    data = np.arange(16, dtype="<u2").reshape(4, 4)
+    with h5py.File(tmp_path / "a.h5", "w") as f:
+        f.create_dataset("a", data=data)
+    tifffile.imwrite(tmp_path / "a.tif", data, photometric="minisblack")
+    parses: list[str] = []
+    parse = refkv.zarrify._parse_async
+
+    async def counted(location, *args, **kwargs):
+        parses.append(str(location))
+        return await parse(location, *args, **kwargs)
+
+    monkeypatch.setattr(refkv.zarrify, "_parse_async", counted)
+    for name in ("a.h5", "a.tif"):
+        parses.clear()
+        result = RefkvParser()((tmp_path / name).as_uri(), registry)
+        assert len(parses) == 1, name
+        [array] = result._group.arrays
+        np.testing.assert_array_equal(read(result, array).reshape(4, 4), data)
+    own = RefkvParser(layout=None)((tmp_path / "a.tif").as_uri(), registry)
+    assert set(result._group.arrays) == set(own._group.arrays)
+
+
+def test_refkv_parser_gives_refkv_s_own_output_of_an_input_its_layout_refuses(tmp_path, registry, monkeypatch):
+    """An input whose profile the parser's layout reads, and which the layout refuses (a FITS
+    image with BSCALE = 0, which refkv's own output records and does not apply), is written as
+    refkv's own output of the same parse."""
+    cards = ["SIMPLE  =                    T", "BITPIX  =                   16", "NAXIS   =                    1",
+             "NAXIS1  =                    2", "BSCALE  =                  0.0", "END"]
+    header = "".join(c.ljust(80) for c in cards).ljust(2880).encode()
+    path = tmp_path / "zero.fits"
+    path.write_bytes(header + np.array([1, 2], ">i2").tobytes().ljust(2880, b"\0"))
+    with pytest.raises(LayoutRejected, match="BSCALE = 0"):
+        zarrify(str(path), layout=Layout("refkv.virtualizarr"))
+    parses: list[str] = []
+    parse = refkv.zarrify._parse_async
+
+    async def counted(location, *args, **kwargs):
+        parses.append(str(location))
+        return await parse(location, *args, **kwargs)
+
+    monkeypatch.setattr(refkv.zarrify, "_parse_async", counted)
+    result = RefkvParser()(path.as_uri(), registry)
+    assert len(parses) == 1
+    own = RefkvParser(layout=None)(path.as_uri(), registry)
+    assert set(result._group.arrays) == set(own._group.arrays) != set()
+    for name in own._group.arrays:
+        np.testing.assert_array_equal(read(result, name), read(own, name), strict=True)
+
+
+def test_refkv_parser_gives_refkv_s_own_output_of_a_store_of_dicom_files(registry):
+    """A store of DICOM files keeps no IR, so no layout is given it: the parser, with its layout,
+    writes what it writes without one."""
+    series = min(p for p in (FIXTURES / "dicom_series").iterdir() if p.is_dir())
+    result = RefkvParser()(f"{series.as_uri()}/", registry)
+    own = RefkvParser(layout=None)(f"{series.as_uri()}/", registry)
+    assert set(result._group.groups) == set(own._group.groups) != set()
+
+
+def test_unsupported_input_without_header_raises(tmp_path, registry):
+    """An input no profile accepts, with no ENVI header beside it, is refused as zarrify
+    refuses it."""
+    path = tmp_path / "e.img"
+    path.write_bytes(bytes(24))
+    with pytest.raises(Rejected, match="not a file of any supported format"):
+        RefkvParser()(path.as_uri(), registry)
 
 
 def test_scheme_outside_policy_raises(registry):

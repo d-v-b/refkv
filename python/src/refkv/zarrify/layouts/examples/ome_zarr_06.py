@@ -11,29 +11,35 @@
         "order": ["t", "y", "x"], "axes": [{"name": "t", "type": "time", "unit": "second"},
         {"name": "y", "type": "space"}, {"name": "x", "type": "space"}], "scale": [0.033, 1, 1]}]}))
 
-A TIFF's base is already an OME-Zarr 0.5 image, so its levels are copied to the same paths and
-0.6 metadata written over them, each level's translation moved by half its pixel to the pixel's
-center on the axes refkv places by a corner. An HDF5 file's images are its conventions' (NWB's,
-BigDataViewer's), not HDF5's, so the options name them: each is copied into time, channel,
-space order under a group of its own. With the option `source` (default true) the output keeps
-the IR mirror, `refkv_source/`, which an OME-Zarr reader skips as a group it does not know.
+refkv's own output of a TIFF (`refkv.build.project`) is already an OME-Zarr 0.5 image, so its
+levels are copied to the same paths and 0.6 metadata written over them, each level's translation
+moved by half its pixel to the pixel's center on the axes refkv places by a corner. An HDF5
+file's images are its conventions' (NWB's, BigDataViewer's), not HDF5's, so the options name
+them: each is copied into time, channel, space order under a group of its own. With the option
+`source` (default true) the output keeps the IR mirror, `refkv_source/`, which an OME-Zarr reader
+skips as a group it does not know.
+
+It asks for refkv's own output because it reads what the IR does not yet describe: the root's
+`ome` metadata, and the arrays it copies.
 
 Its output has no `check` problems: every array is a `copy`, every document is written by
-`hierarchy.group` or `copy`, and the kept mirror is the base's, entry for entry.
+`hierarchy.group` or `copy`, and the kept mirror is that of refkv's own output, entry for entry,
+each with its placement.
 """
 
 from __future__ import annotations
 
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
+from refkv.build import Parsed, Projected, Value, Written, project
 from refkv.zarrify import Rejected
-from refkv.zarrify.layouts import MIRROR, Base, Entries, EntryValue
+from refkv.zarrify.layouts import MIRROR
 from refkv.zarrify.layouts.hierarchy import copy, group, node_name
 
-IMAGES = ("tiff", "ndpi", "qptiff", "ims")  # the profiles whose base is an OME-Zarr 0.5 image
+IMAGES = ("tiff", "ndpi", "qptiff", "ims")  # the profiles of which refkv's own output is an OME-Zarr 0.5 image
 AXIS_TYPES = ("time", "channel", "space")  # stricter than 0.6, which allows one axis of another type
 AXIS_MEMBERS = frozenset(["name", "type", "unit", "longName", "discrete"])
 IMAGE_MEMBERS = frozenset(["name", "array", "dims", "order", "axes", "scale"])
@@ -116,32 +122,40 @@ class OmeZarr06:
             out["images"] = images
         return out
 
-    def write(self, base: Base, options: Mapping[str, Any]) -> Entries:
-        out: dict[str, EntryValue] = base.entries(f"{MIRROR}/") if options["source"] else {}
-        if base.profile == "hdf5":
-            return out | self._datasets(base, options.get("images"))
+    def write(self, inputs: Sequence[Parsed], options: Mapping[str, Any]) -> Written:
+        """The image's entries, of refkv's own output of the input, after the IR mirror's when it
+        is kept: a `Written`, so that the mirror's entries keep the placements they have there."""
+        [parsed] = inputs
+        pr = project(parsed)
+        out = Written()
+        if options["source"]:
+            out |= pr.entries(f"{MIRROR}/")
+        if pr.profile == "hdf5":
+            out |= self._datasets(pr, options.get("images"))
+            return out
         if "images" in options:
-            raise Rejected(f"images name an HDF5 file's datasets; a {base.profile} file's image is its own")
-        return out | self._image(base)
+            raise Rejected(f"images name an HDF5 file's datasets; a {pr.profile} file's image is its own")
+        out |= self._image(pr)
+        return out
 
-    def _image(self, base: Base) -> dict[str, EntryValue]:
-        """The base's levels, copied, under 0.6 metadata. refkv's translation places a level's
-        upper-left corner in y and x (spec/conventions.md §5
+    def _image(self, pr: Projected) -> dict[str, bytes | Value]:
+        """The levels of refkv's own output, copied, under 0.6 metadata. refkv's translation
+        places a level's upper-left corner in y and x (spec/conventions.md §5
         <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>), and an IMS
         image's in z too, while an NDPI file's z is a plane's own position; 0.6 places a pixel's
         center, so each level moves by half its own pixel on the axes placed by a corner."""
-        ome = base.document("zarr.json")["attributes"].get("ome")
+        ome = pr.document("zarr.json")["attributes"].get("ome")
         if not isinstance(ome, Mapping) or not ome.get("multiscales"):
-            raise Rejected(f"the {base.profile} base's root holds no OME-Zarr multiscales")
-        cornered = {"y", "x", *({"z"} if base.profile == "ims" else ())}
-        out: dict[str, EntryValue] = {}
+            raise Rejected(f"the root of refkv's own {pr.profile} output holds no OME-Zarr multiscales")
+        cornered = {"y", "x", *({"z"} if pr.profile == "ims" else ())}
+        out: dict[str, bytes | Value] = {}
         images = []
         for ms in ome["multiscales"]:
             placed = [a.get("name") in cornered and a.get("type") == "space" for a in ms["axes"]]
             datasets = []
             for level in ms["datasets"]:
                 p = level["path"]
-                out |= copy(base, p, attributes=base.attributes(p), to=p)
+                out |= copy(pr, p, attributes=pr.attributes(p), to=p)
                 steps = level["coordinateTransformations"]
                 scale = next(t["scale"] for t in steps if t["type"] == "scale")
                 corner = next((t["translation"] for t in steps if t["type"] == "translation"), [0] * len(scale))
@@ -157,25 +171,25 @@ class OmeZarr06:
         out["zarr.json"] = group({"ome": attrs})
         return out
 
-    def _datasets(self, base: Base, images: list[dict[str, Any]] | None) -> dict[str, EntryValue]:
+    def _datasets(self, pr: Projected, images: list[dict[str, Any]] | None) -> dict[str, bytes | Value]:
         """The images the options name, each its array transposed into the image's axis order, at
         `<name>/0`, under a 0.6 group `<name>`."""
         if images is None:
             raise Rejected("an HDF5 file's images are named by the layout's option images")
-        out: dict[str, EntryValue] = {"zarr.json": group()}
+        out: dict[str, bytes | Value] = {"zarr.json": group()}
         for image in images:
             name, path = image["name"], image["array"]
             try:
-                doc, _ = base.array(path)
+                doc, _ = pr.array_entries(path)
             except KeyError:
-                raise Rejected(f"{name}: {path!r} is not an array of the base (refkv presents some datasets as "
-                               "groups or not at all)") from None
+                raise Rejected(f"{name}: {path!r} is not an array of refkv's own output (refkv presents some "
+                               "datasets as groups or not at all)") from None
             if len(doc["shape"]) != len(image["dims"]):
                 raise Rejected(f"{name}: {path!r} has {len(doc['shape'])} dimensions, not {len(image['dims'])}")
             if not isinstance(doc["data_type"], str) or NUMERIC.fullmatch(doc["data_type"]) is None:
                 raise Rejected(f"{name}: {path!r} holds {doc['data_type']!r}, not numbers")
             order = [image["dims"].index(d) for d in image["order"]]
-            out |= copy(base, path, order=order, attributes=base.attributes(path), dimension_names=image["order"],
+            out |= copy(pr, path, order=order, attributes=pr.attributes(path), dimension_names=image["order"],
                         to=f"{name}/0")
             ome = {"version": "0.6", "multiscales": [{
                 "name": name, "coordinateSystems": [{"name": "physical", "axes": image["axes"]}],

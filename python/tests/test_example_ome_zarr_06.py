@@ -1,7 +1,8 @@
 """The example layout `refkv.example.ome-zarr-06` (refkv.zarrify.layouts.examples.ome_zarr_06):
 an OME-Zarr 0.6 image of TIFF, NDPI, QPTIFF and IMS files and of HDF5 datasets, checked with
-`check`, read back with zarr against the base and h5py, validated by ome-zarr-models' 0.6 models,
-and written alike under another PYTHONHASHSEED; and each way its options or an input are refused."""
+`check`, read back with zarr against refkv's own output and h5py, validated by ome-zarr-models' 0.6
+models, and written alike under another PYTHONHASHSEED; and each way its options or an input are
+refused."""
 
 import functools
 import json
@@ -17,8 +18,9 @@ import pytest
 import zarr
 
 import refkv.zarr
+from refkv.build import Written, project, read, seal
 from refkv.zarrify import Rejected, zarrify
-from refkv.zarrify.layouts import MIRROR, Base, Layout, LayoutRejected, base, encode_entries, without_checksums
+from refkv.zarrify.layouts import MIRROR, Layout, LayoutRejected, encode_entries
 from refkv.zarrify.layouts.examples.ome_zarr_06 import OmeZarr06
 from refkv.zarrify.layouts.hierarchy import check
 
@@ -56,30 +58,31 @@ CASES: list[tuple[str, Json, bool]] = [
     ("hdf5/hdf5_numbers.h5", {"images": [D3], "source": False}, False),
 ]
 
-# what the determinism check runs in a second process: each case's entries, encoded
+# what the determinism check runs in a second process: each case's entries, in the order written,
+# and encoded as `seal` seals them
 SCRIPT = """
 import json, sys
-from refkv.zarrify.layouts import base, encode_entries
+from refkv.build import read, seal
+from refkv.zarrify.layouts import encode_entries
 from refkv.zarrify.layouts.examples.ome_zarr_06 import OmeZarr06
 
 plugin = OmeZarr06()
-print(json.dumps([encode_entries(plugin.write(base(path, checksums=checksums), plugin.options(options))).hex()
-                  for path, options, checksums in json.loads(sys.argv[1])]))
+out = []
+for path, options, checksums in json.loads(sys.argv[1]):
+    with read(path, checksums=checksums) as p:
+        entries = plugin.write([p], plugin.options(options))
+        out.append([list(entries), encode_entries(seal(entries, [p]).mapping).hex()])
+print(json.dumps(out))
 """
 
 
 @functools.cache
-def base_of(source: str, checksums: bool = False) -> Base:
-    return base(str(FIXTURES / source), checksums=checksums)
-
-
-@functools.cache
-def base_store(source: str) -> refkv.zarr.ZarrStore:
-    """The built-in output, as zarr reads it."""
+def own_store(source: str) -> refkv.zarr.ZarrStore:
+    """refkv's own output, as zarr reads it."""
     return refkv.zarr.store(zarrify(str(FIXTURES / source)))
 
 
-def read(store: refkv.zarr.ZarrStore, path: str) -> np.ndarray:
+def read_array(store: refkv.zarr.ZarrStore, path: str) -> np.ndarray:
     """The array at `path` of `store`, read with zarr."""
     return np.asarray(zarr.open_array(store, path=path, mode="r")[...])
 
@@ -90,7 +93,7 @@ def ome(store: refkv.zarr.ZarrStore, path: str = "") -> Any:
 
 
 @pytest.fixture(scope="module")
-def elsewhere() -> list[str]:
+def elsewhere() -> list[list[Any]]:
     """Each case's entries as another process writes them, under another PYTHONHASHSEED."""
     seed = "1" if os.environ.get("PYTHONHASHSEED") != "1" else "2"
     cases = [[str(FIXTURES / s), o, c] for s, o, c in CASES]
@@ -113,24 +116,30 @@ def validate(store: refkv.zarr.ZarrStore, path: str = "") -> None:
 
 
 @pytest.mark.parametrize(("source", "given", "checksums"), CASES)
-def test_the_output_is_an_ome_zarr_06_image_of_the_base_s_arrays(source: str, given: Json, checksums: bool,
-                                                                  elsewhere: list[str]) -> None:
+def test_the_output_is_an_ome_zarr_06_image_of_the_arrays_of_refkv_s_own_output(
+        source: str, given: Json, checksums: bool, elsewhere: list[list[Any]]) -> None:
     """The output has no `check` problems; zarrify writes exactly it; each array reads back equal
-    to the base's (and, for HDF5, to h5py's), transposed into the image's order; the metadata is
-    0.6, each level's translation moved to its pixel's center on the axes placed by a corner; the
-    mirror is kept unless `source` is false; and another process writes the same entries."""
-    b = base_of(source, checksums)
+    to that of refkv's own output (and, for HDF5, to h5py's), transposed into the image's order;
+    the metadata is 0.6, each level's translation moved to its pixel's center on the axes placed
+    by a corner; the mirror is kept, each entry with its placement, unless `source` is false; and
+    another process writes the same entries."""
     plugin = OmeZarr06()
     options = plugin.options(given)
-    entries = plugin.write(b, options)
-    assert [p for p in check(b, entries) if p.code not in ALLOWED] == []
-    assert encode_entries(entries).hex() == elsewhere[CASES.index((source, given, checksums))]
+    with read(str(FIXTURES / source), checksums=checksums) as parsed:
+        entries = plugin.write([parsed], options)
+        assert [p for p in check(entries, [parsed]) if p.code not in ALLOWED] == []
+        sealed = seal(entries, [parsed])
+        b = project(parsed)
+        mirror = b.entries(f"{MIRROR}/")
+    assert [list(entries), encode_entries(sealed.mapping).hex()] == elsewhere[CASES.index((source, given, checksums))]
 
     store = zarrify(str(FIXTURES / source), layout=Layout(plugin, given), checksums=checksums)
-    assert {k: v if isinstance(v, bytes) else without_checksums(v) for k, v in store.mapping.items()} == entries
-    mirror = b.entries(f"{MIRROR}/")
+    assert store.mapping == sealed.mapping
+    assert store.read_at_open == sealed.read_at_open
+    assert isinstance(entries, Written)
     kept = {k: v for k, v in mirror.items() if entries.get(k) == v}
-    assert kept == (mirror if options["source"] else {})
+    assert kept == (dict(mirror) if options["source"] else {})
+    assert entries.at_open == (mirror.at_open if options["source"] else {})
     out = refkv.zarr.store(store)
 
     if b.profile == "hdf5":
@@ -138,10 +147,10 @@ def test_the_output_is_an_ome_zarr_06_image_of_the_base_s_arrays(source: str, gi
         with h5py.File(FIXTURES / source) as f:
             for image in options["images"]:
                 order = [image["dims"].index(d) for d in image["order"]]
-                got = read(out, f"{image['name']}/0")
+                got = read_array(out, f"{image['name']}/0")
                 dataset: Any = f[image["array"]]
                 assert np.array_equal(got, np.transpose(dataset[...], order))
-                assert np.array_equal(got, np.transpose(read(base_store(source), image["array"]), order))
+                assert np.array_equal(got, np.transpose(read_array(own_store(source), image["array"]), order))
                 copied = zarr.open_array(out, path=f"{image['name']}/0", mode="r")
                 assert copied.metadata.to_dict()["dimension_names"] == tuple(image["order"])
                 assert copied.attrs.asdict() == b.attributes(image["array"])
@@ -169,12 +178,12 @@ def test_the_output_is_an_ome_zarr_06_image_of_the_base_s_arrays(source: str, gi
                       for c, s, a in zip(corner, scale, old["axes"], strict=True)]
             assert sequence["transformations"] == [{"type": "scale", "scale": scale},
                                                    {"type": "translation", "translation": center}]
-            assert np.array_equal(read(out, p), read(base_store(source), p))
-    if options["source"]:  # the mirror's arrays read as the base's do
+            assert np.array_equal(read_array(out, p), read_array(own_store(source), p))
+    if options["source"]:  # the mirror's arrays read as those of refkv's own output do
         for k, v in mirror.items():
             if k.endswith("/zarr.json") and isinstance(v, bytes) and json.loads(v)["node_type"] == "array":
                 p = k[: -len("/zarr.json")]
-                assert np.array_equal(read(out, p), read(base_store(source), p))
+                assert np.array_equal(read_array(out, p), read_array(own_store(source), p))
     validate(out)
 
 
@@ -262,30 +271,30 @@ def test_an_hdf5_file_without_images_is_rejected():
         zarrify(str(FIXTURES / "hdf5/nwb_ophys.nwb"), layout=Layout(OmeZarr06()))
 
 
+def rejected(source: str, given: Json, match: str) -> None:
+    """The plugin's `write` of the fixture `source` raises `Rejected`, its message matching."""
+    plugin = OmeZarr06()
+    with read(str(FIXTURES / source)) as parsed, pytest.raises(Rejected, match=match):
+        plugin.write([parsed], plugin.options(given))
+
+
 def test_images_of_a_tiff_are_rejected():
-    plugin = OmeZarr06()
-    with pytest.raises(Rejected, match="images name an HDF5 file's datasets"):
-        plugin.write(base_of("tiff/strips_uint8.tif"), plugin.options({"images": [MOVIE]}))
+    rejected("tiff/strips_uint8.tif", {"images": [MOVIE]}, "images name an HDF5 file's datasets")
 
 
-def test_an_array_the_base_does_not_have_is_rejected():
-    plugin = OmeZarr06()
-    with pytest.raises(Rejected, match="is not an array of the base"):
-        plugin.write(base_of("hdf5/nwb_ophys.nwb"), plugin.options({"images": [{**MOVIE, "array": "stimulus"}]}))
+def test_an_array_refkv_s_own_output_does_not_have_is_rejected():
+    rejected("hdf5/nwb_ophys.nwb", {"images": [{**MOVIE, "array": "stimulus"}]},
+             "is not an array of refkv's own output")
 
 
 def test_an_array_of_another_rank_is_rejected():
-    plugin = OmeZarr06()
     image = {**MOVIE, "dims": ["y", "x"], "order": ["y", "x"], "axes": [Y, X], "scale": [1, 1]}
-    with pytest.raises(Rejected, match="has 3 dimensions, not 2"):
-        plugin.write(base_of("hdf5/nwb_ophys.nwb"), plugin.options({"images": [image]}))
+    rejected("hdf5/nwb_ophys.nwb", {"images": [image]}, "has 3 dimensions, not 2")
 
 
 def test_an_array_of_strings_is_rejected():
-    plugin = OmeZarr06()
     image = {"name": "text", "array": "grid", "dims": ["y", "x"], "axes": [Y, X]}
-    with pytest.raises(Rejected, match="not numbers"):
-        plugin.write(base_of("hdf5/hdf5_strings.h5"), plugin.options({"images": [image]}))
+    rejected("hdf5/hdf5_strings.h5", {"images": [image]}, "not numbers")
 
 
 def test_a_format_it_does_not_read_is_rejected():

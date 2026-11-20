@@ -1,25 +1,25 @@
 """The layout `refkv.virtualizarr` (spec/layout.md
 <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): a file presented as VirtualiZarr's own
-parsers present it, so that code written against `HDFParser`, `FITSParser`, `ZippedZarrParser`,
-`NetCDF3Parser` or `ENVIParser` finds the arrays, dimension names and attributes it expects. Its
-chunk references, chunk grids and codecs are those of refkv's own output, and it writes none of
-refkv's declarations and no `refkv_source` mirror. It writes its documents with `dump`, so it runs
-without the `layouts` extra.
+parsers present it, so that code written against `HDFParser`, `FITSParser`, `ZarrParser`,
+`ZippedZarrParser`, `NetCDF3Parser` or `ENVIParser` finds the arrays, dimension names and
+attributes it expects. Its chunk references, chunk grids and codecs are those of refkv's own output
+(`refkv.build.project`), and it writes none of refkv's declarations and no `refkv_source` mirror.
+It writes its documents with `dump`, so it runs without the `layouts` extra.
 
     python -m refkv.zarrify data.nc out.vzip --layout refkv.virtualizarr
 
 The reference is VirtualiZarr 2.8.0 (`virtualizarr/parsers/hdf/hdf.py`, `parsers/fits.py`,
 `parsers/zarr/`, `parsers/netcdf3.py`, `parsers/envi.py`), read profile by profile:
 
-- **HDF5 and netCDF-4** (`HDFParser`): every group and dataset of the base at its path, with the
-  base's `dimension_names` (its dimension scales, else the names netCDF-4 gives an axis without
+- **HDF5 and netCDF-4** (`HDFParser`): every group and dataset of refkv's own output at its path,
+  with its `dimension_names` (its dimension scales, else the names netCDF-4 gives an axis without
   one), and `[]` for a scalar. Attributes are the source's, as `coding.hdf5_attributes` gives them, without the
   bookkeeping `HDFParser` hides (`CLASS`, `NAME`, `DIMENSION_LIST`, `REFERENCE_LIST`,
   `_Netcdf4Dimid`, `_Netcdf4Coordinates`, `_nc3_strict`, `_NCProperties`) nor any whose value is
   `"DIMENSION_SCALE"`; an array of one element is that element, an array of fixed-length strings a
   list of strings, a null attribute `""`, and a numeric dataset's `_FillValue` is encoded as xarray's
   `FillValueCoder` encodes it (a float as the Base64 of its binary64). A fixed-length string
-  dataset, which the base holds as uint8 with a trailing axis of its bytes, is a
+  dataset, which refkv's own output holds as uint8 with a trailing axis of its bytes, is a
   `null_terminated_bytes` array without that axis, its chunks at the keys the shorter grid gives
   them, as `HDFParser` presents it through numpy's `S<n>`; `vlen-utf8` gets its empty
   configuration.
@@ -32,17 +32,24 @@ The reference is VirtualiZarr 2.8.0 (`virtualizarr/parsers/hdf/hdf.py`, `parsers
   integer image's `BLANK` its `_FillValue`, scaled. An ASCII table is a struct array read by
   VirtualiZarr's `virtualizarr.fits_ascii_table` codec, which a reader registers by importing
   `virtualizarr`. A primary HDU with no data gives the root its attributes; another is left out.
-- **Zipped Zarr v3** (`ZippedZarrParser`): the store's hierarchy as the base has it.
-- **netCDF3** (`NetCDF3Parser`): the base's variables and dimension names, the attributes the base
-  presents with a float attribute's values as numbers, and a variable's fill value its
-  `_FillValue` in its data type, else zarr-python's default, 0.
+- **Zipped Zarr v3** (`ZippedZarrParser`): the store's hierarchy as refkv's own output has it.
+- **Zarr v2** (`ZarrParser`): the nodes of refkv's own output, each with its `.zattrs` as
+  attributes, and an array's xarray `_ARRAY_DIMENSIONS` its `dimension_names` rather than an
+  attribute (where it names each axis with a string or null; another stays an attribute, on which
+  `ZarrParser` fails). An array of `|S<n>` or `|V<n>`, which refkv's own output holds as uint8 with
+  a trailing axis of its bytes, is a `null_terminated_bytes` or `raw_bytes` array without that
+  axis, blosc's `typesize` its length, as `ZarrParser` keeps the source's data type. A root array
+  is its own chunks.
+- **netCDF3** (`NetCDF3Parser`): the variables and dimension names of refkv's own output, the
+  attributes it presents with a float attribute's values as numbers, and a variable's fill value
+  its `_FillValue` in its data type, else zarr-python's default, 0.
 - **ENVI** (`ENVIParser`): one array, named by the data file's name without its extension, in the
   file's own axis order (refkv's transpose codec's order) with no transpose, its axes `band`, `y`
-  and `x` in that order, its chunks the base's at the keys of that order, and fill value 0. Its
-  attributes are the header fields `ENVIParser` carries through (`description`, `wavelength`,
-  `map info`, ...), each named with `_` for its spaces, a braced value a list of its items as
-  text, and `data ignore value` as its `_FillValue`, encoded as `FillValueCoder` encodes it (a
-  complex number as two Base64 binary64s). The root has no attributes.
+  and `x` in that order, its chunks those of refkv's own output at the keys of that order, and fill
+  value 0. Its attributes are the header fields `ENVIParser` carries through (`description`,
+  `wavelength`, `map info`, ...), each named with `_` for its spaces, a braced value a list of its
+  items as text, and `data ignore value` as its `_FillValue`, encoded as `FillValueCoder` encodes
+  it (a complex number as two Base64 binary64s). The root has no attributes.
 
 Where VirtualiZarr's presentation is a defect rather than a contract, this layout keeps refkv's:
 
@@ -55,9 +62,9 @@ Where VirtualiZarr's presentation is a defect rather than a contract, this layou
   payload limit or `HDFParser` trims an oversized chunk, and the `numcodecs.zlib` level (refkv
   writes 1; a decoder ignores it, and the IR does not hold the filter's client data);
 - a one-element array of fixed-length strings on a dataset with dimension names is its string,
-  where `HDFParser` keeps a list: the base writes such an attribute as its element (hdf5.md §6
-  <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>), and its source
-  metadata does not say which it was;
+  where `HDFParser` keeps a list: refkv's own output writes such an attribute as its element
+  (hdf5.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>), and its
+  source metadata does not say which it was;
 - the datasets refkv does not present (spec/zarrify/hdf5.md §7.4
   <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#74-what-is-not-presented>), such
   as a fixed-length string dataset whose fill value is not one byte repeated;
@@ -67,8 +74,13 @@ Where VirtualiZarr's presentation is a defect rather than a contract, this layou
   at an uncompressed image), its attributes the image header astropy reconstructs;
 - a FITS binary table, which `FITSParser` refuses, is refkv's group for the HDU, under the HDU's
   name, as is any other HDU it cannot present;
-- a zipped Zarr store's own chunk key encoding, where `ZippedZarrParser`'s `ManifestStore`
-  presents a `.` separator;
+- a zipped Zarr store's or a Zarr v2 directory's own chunk key encoding, where the
+  `ManifestStore` of `ZippedZarrParser` or `ZarrParser` presents the default encoding with a `.`
+  separator;
+- the Zarr v2 arrays refkv does not present (spec/zarrify/zarr2.md §3.4
+  <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#34-arrays-that-are-not-presented>),
+  such as one of the `delta` filter, and no `transpose` codec on a 1-D Fortran-order array, where
+  `ZarrParser` writes one that keeps the order;
 - netCDF3 text that is not UTF-8 is refkv's `{"latin1": T}` (spec/conventions.md §6
   <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>), where
   `NetCDF3Parser` writes replacement characters, and fails on such a name;
@@ -91,21 +103,22 @@ Where VirtualiZarr's presentation is a defect rather than a contract, this layou
 `check` finds no problem on its output but `json` at a document that holds a `NaN` or `Infinity`
 token (only where a source attribute is not finite and `nonfinite` is `"token"`: zarr-python
 writes those tokens, and VirtualiZarr's metadata is written by zarr-python), and `copy` at a
-fixed-length string dataset or an ASCII table, whose chunks are the base's at the keys of a grid
-without the base's trailing axis of bytes, and at a netCDF3 variable whose fill value is
-`NetCDF3Parser`'s rather than the base's.
+fixed-length string dataset, a Zarr v2 array of bytes or an ASCII table, whose chunks are those of
+refkv's own output at the keys of a grid without its trailing axis of bytes, and at a netCDF3
+variable whose fill value is `NetCDF3Parser`'s rather than that of refkv's own output.
 """
 
 import base64
 import math
 import re
 import struct
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
+from refkv.build import Parsed, Projected, Value, Written, project
 from refkv.zarrify import Rejected
 from refkv.zarrify.coding import hdf5_attributes, hdf5_value
-from refkv.zarrify.layouts import Base, Entries, EntryValue, chunk_coords, chunk_key, dump
+from refkv.zarrify.layouts import MIRROR, chunk_coords, chunk_key, dump
 
 # ---- HDF5 and netCDF-4
 
@@ -154,13 +167,13 @@ def _fill_value_coded(value: object, kind: str | None) -> object:
     return value
 
 
-def _presented(base: Base, path: str, kind: str | None) -> dict[str, Any]:
+def _presented(pr: Projected, path: str, kind: str | None) -> dict[str, Any]:
     """The attributes HDFParser presents for the node at `path`, `kind` its dataset's datatype
     class (None for a group), as Python values (NaN and the infinities as floats)."""
-    metadata = base.source_metadata(path) or {}
+    metadata = pr.source_metadata(path) or {}
     described = metadata.get("attributes", {}) if isinstance(metadata, dict) else {}
     out: dict[str, Any] = {}
-    for name, given in hdf5_attributes(base, path).items():
+    for name, given in hdf5_attributes(pr, path).items():
         if name in HIDDEN:
             continue
         value = _one(given, (described.get(name) or {}).get("class"))
@@ -172,10 +185,10 @@ def _presented(base: Base, path: str, kind: str | None) -> dict[str, Any]:
     return out
 
 
-def _string_length(base: Base, path: str, doc: Mapping[str, Any]) -> int | None:
-    """The length of a fixed-length string dataset the base holds as uint8 with a trailing axis of
-    its bytes, or None for another array."""
-    metadata = base.source_metadata(path)
+def _string_length(pr: Projected, path: str, doc: Mapping[str, Any]) -> int | None:
+    """The length of a fixed-length string dataset refkv's own output holds as uint8 with a
+    trailing axis of its bytes, or None for another array."""
+    metadata = pr.source_metadata(path)
     datatype = metadata.get("datatype") if isinstance(metadata, dict) else None
     if not isinstance(datatype, dict) or datatype.get("class") != "string" or doc.get("data_type") != "uint8":
         return None
@@ -193,36 +206,44 @@ def _bytes_fill(fill: object, length: int) -> str:
     return base64.standard_b64encode(bytes([byte] * length).rstrip(b"\0")).decode()
 
 
-def _hdf5(base: Base, token: bool) -> Entries:
-    out: Entries = {}
-    for path in base.nodes():
+def _without_byte_axis(doc: dict[str, Any], chunks: Mapping[str, bytes | Value], name: str, length: int,
+                       fill: object) -> tuple[dict[str, Any], dict[str, bytes | Value]]:
+    """An array refkv's own output holds as uint8 with a trailing axis of its items' `length` bytes
+    as one of the data type `name` (`null_terminated_bytes` or `raw_bytes`) of that length without
+    the axis, of fill value `fill`, its chunks at the keys the shorter grid gives them."""
+    doc = {**doc, "shape": doc["shape"][:-1],
+           "chunk_grid": {"name": "regular", "configuration": {
+               "chunk_shape": doc["chunk_grid"]["configuration"]["chunk_shape"][:-1]}},
+           "data_type": {"name": name, "configuration": {"length_bytes": length}}, "fill_value": fill}
+    if doc.get("dimension_names") is not None:
+        doc["dimension_names"] = doc["dimension_names"][:-1]
+    before = {**doc, "shape": [*doc["shape"], length]}
+    return doc, {chunk_key(chunk_coords(k, before)[:-1], doc): v for k, v in chunks.items()}
+
+
+def _hdf5(pr: Projected, token: bool) -> Written:
+    out = Written()
+    for path in pr.nodes():
         prefix = f"{path}/" if path else ""
-        if base.node_type(path) == "group":
-            attrs = _nonfinite(_presented(base, path, None), token)
+        if pr.node_type(path) == "group":
+            attrs = _nonfinite(_presented(pr, path, None), token)
             out[f"{prefix}zarr.json"] = dump({"zarr_format": 3, "node_type": "group", "attributes": attrs},
                                              allow_nan=token)
             continue
-        doc, chunks = base.array(path)
-        metadata = base.source_metadata(path) or {}
+        doc, chunks = pr.array_entries(path)
+        metadata = pr.source_metadata(path) or {}
         datatype = metadata.get("datatype") if isinstance(metadata, dict) else None
         kind = datatype.get("class") if isinstance(datatype, dict) else None
         doc = dict(doc)
-        length = _string_length(base, path, doc)
+        length = _string_length(pr, path, doc)
         if length is not None:
-            doc["shape"] = doc["shape"][:-1]
-            doc["chunk_grid"] = {"name": "regular", "configuration": {
-                "chunk_shape": doc["chunk_grid"]["configuration"]["chunk_shape"][:-1]}}
-            doc["data_type"] = {"name": "null_terminated_bytes", "configuration": {"length_bytes": length}}
-            doc["fill_value"] = _bytes_fill(doc.get("fill_value"), length)
-            if doc.get("dimension_names") is not None:
-                doc["dimension_names"] = doc["dimension_names"][:-1]
+            doc, chunks = _without_byte_axis(doc, chunks, "null_terminated_bytes", length,
+                                             _bytes_fill(doc.get("fill_value"), length))
             kind = "string"
-            before = {**doc, "shape": [*doc["shape"], length]}
-            chunks = {chunk_key(chunk_coords(k, before)[:-1], doc): v for k, v in chunks.items()}
         if doc.get("dimension_names") is None and doc["shape"] == []:
             doc["dimension_names"] = list[str]()
         doc["codecs"] = [VLEN_UTF8 if c == {"name": "vlen-utf8"} else c for c in doc["codecs"]]
-        doc["attributes"] = _nonfinite(_presented(base, path, kind), token)
+        doc["attributes"] = _nonfinite(_presented(pr, path, kind), token)
         out[f"{prefix}zarr.json"] = dump(doc, allow_nan=token)
         out.update({f"{prefix}{k}": v for k, v in chunks.items()})
     return out
@@ -253,7 +274,7 @@ STRING_FILL = base64.standard_b64encode(b"0").decode()
 
 
 def _card_value(value: object) -> object:
-    """A card's value as FITSParser writes it: a complex value (the base's pair) as Python's text
+    """A card's value as FITSParser writes it: a complex value (refkv's pair) as Python's text
     of the complex number, a value the standard does not define as its text; a value-less card
     stays null."""
     if isinstance(value, list) and len(value) == 2 and all(isinstance(v, (int, float)) for v in value):
@@ -310,8 +331,8 @@ def _value_field(field: str) -> object:
 
 
 def _parsed_cards(records: list[str]) -> list[list[Any]]:
-    """A header's cards from its 80-byte records, as the base's `cards` holds them, where the base
-    leaves them out (a header past its budget); comments are not read."""
+    """A header's cards from its 80-byte records, as the `cards` of refkv's own output holds them,
+    where it leaves them out (a header past its budget); comments are not read."""
     out: list[list[Any]] = []
     for record in records:
         keyword = record[:8].rstrip()
@@ -443,7 +464,7 @@ def _scaled(doc: dict[str, Any], header: Mapping[str, Any], cards: Mapping[str, 
         if blank is not None:
             blank = bzero + bscale * blank
         bytes_codecs = doc["codecs"]
-        # the base's own codec (refkv.fits_tiles) gives native integers; its bytes codec big-endian ones
+        # refkv's own codec (refkv.fits_tiles) gives native integers; its bytes codec big-endian ones
         astype = stored if bytes_codecs[0].get("name") == "bytes" else "<" + stored[1:] if stored[0] == ">" else stored
         doc = {**doc, "data_type": "float64", "fill_value": 0.0, "codecs": [
             {"name": "numcodecs.fixedscaleoffset",
@@ -454,15 +475,15 @@ def _scaled(doc: dict[str, Any], header: Mapping[str, Any], cards: Mapping[str, 
     return {**doc, "attributes": header}
 
 
-def _ascii_table(base: Base, path: str, name: str, cards: list[list[Any]],
-                 records: set[tuple[str, str]] | None) -> Entries | None:
+def _ascii_table(pr: Projected, path: str, name: str, cards: list[list[Any]],
+                 records: set[tuple[str, str]] | None) -> Written | None:
     """An ASCII table HDU as FITSParser presents it: a struct array of its columns, decoded by
     VirtualiZarr's codec from the table's one chunk; None for a table whose columns this cannot
     read as astropy does (a TFORM without a width)."""
     rows = f"{path}/rows"
-    if base.node_type(rows) != "array":
+    if pr.node_type(rows) != "array":
         return None
-    doc, chunks = base.array(rows)
+    doc, chunks = pr.array_entries(rows)
     table = {k: v for k, v, _ in reversed(cards)}
     nrows, row_nbytes = int(table.get("NAXIS2", 0)), int(table.get("NAXIS1", 0))
     whole = [nrows, row_nbytes]
@@ -498,30 +519,30 @@ def _ascii_table(base: Base, path: str, name: str, cards: list[list[Any]],
         "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [nrows]}},
         "chunk_key_encoding": {"name": "default", "configuration": {"separator": "/"}},
         "fill_value": fills,
-        # the base's bytes-to-bytes codecs after it: a FITS file compressed whole (gzip, bzip2)
+        # the bytes-to-bytes codecs of refkv's own output after it: a FITS file compressed whole (gzip, bzip2)
         "codecs": [{"name": ASCII_CODEC, "configuration": {"columns": columns, "row_nbytes": row_nbytes}},
                    *doc["codecs"][1:]],
         "attributes": _header(cards, records),
         "dimension_names": _dimension_names(name, 1),
     }
-    out: Entries = {f"{name}/zarr.json": dump(out_doc)}
+    out = Written({f"{name}/zarr.json": dump(out_doc)})
     for key, value in chunks.items():
         out[f"{name}/{chunk_key(chunk_coords(key, doc)[:1], out_doc)}"] = value
     return out
 
 
-def _fits(base: Base) -> Entries:
-    hdus = sorted((int(p), p) for p in base.nodes() if p and "/" not in p and p.isdigit())
+def _fits(parsed: Parsed, pr: Projected) -> Written:
+    hdus = sorted((int(p), p) for p in pr.nodes() if p and "/" not in p and p.isdigit())
     names: list[str] = []
-    out: Entries = {}
+    out = Written()
     root: dict[str, Any] = {}
     for index, path in hdus:
-        metadata = base.source_metadata(path) or {}
+        metadata = pr.source_metadata(path) or {}
         cards = metadata.get("cards") if isinstance(metadata, dict) else None
-        header = base.ir.at(f"hdus/{index}/header")
-        lines = base.ir.value(header) if header is not None else None
+        header = parsed.ir.at(f"hdus/{index}/header")
+        lines = parsed.ir.value(header) if header is not None else None
         raw = [str(r["card"]) for r in lines if isinstance(r, dict)] if isinstance(lines, list) else None
-        if cards is None:  # past the base's budget: the header's records, from the IR
+        if cards is None:  # past the budget of refkv's own output: the header's records, from the IR
             cards = _parsed_cards(raw) if raw is not None else []
         records = _records(raw)
         table = {k: v for k, v, _ in reversed(cards)}
@@ -539,8 +560,8 @@ def _fits(base: Base) -> Entries:
             continue
         is_image = (table.get("SIMPLE") is True and not table.get("GROUPS")) or table.get("XTENSION") == "IMAGE" \
             or compressed
-        if is_image and base.node_type(path) == "array":
-            doc, chunks = base.array(path)
+        if is_image and pr.node_type(path) == "array":
+            doc, chunks = pr.array_entries(path)
             header = _header(_image_header(cards) if compressed else cards, records)
             doc = _scaled(dict(doc), header, table)
             if str(doc["data_type"]).startswith("float") and type(doc.get("fill_value")) is int:
@@ -549,13 +570,18 @@ def _fits(base: Base) -> Entries:
             out[f"{name}/zarr.json"] = dump(doc)
             out.update({f"{name}/{k}": v for k, v in chunks.items()})
             continue
-        ascii_table = _ascii_table(base, path, name, cards, records) if table.get("XTENSION") == "TABLE" else None
+        ascii_table = _ascii_table(pr, path, name, cards, records) if table.get("XTENSION") == "TABLE" else None
         if ascii_table is not None:
-            out.update(ascii_table)
+            out |= ascii_table
             continue
-        # an HDU FITSParser cannot present (a binary table): refkv's node for it, under its name
-        for key, value in base.entries(f"{path}/", declarations=False, mirror=False, datasets=False).items():
-            out[f"{name}/{key[len(path) + 1:]}"] = value
+        # an HDU FITSParser cannot present (a binary table): refkv's node for it, under its name, each
+        # entry kept as it is with its placement
+        kept = pr.entries(f"{path}/", declarations=False, mirror=False, datasets=False)
+        for key, value in kept.items():
+            under = f"{name}/{key[len(path) + 1:]}"
+            out[under] = value
+            if key in kept.at_open:
+                out.at_open[under] = kept.at_open[key]
     out["zarr.json"] = dump({"zarr_format": 3, "node_type": "group", "attributes": root})
     return out
 
@@ -582,15 +608,15 @@ def _float32(value: float) -> float:
         return math.copysign(math.inf, value)
 
 
-def _netcdf3_attributes(base: Base, path: str, token: bool) -> dict[str, Any]:
+def _netcdf3_attributes(pr: Projected, path: str, token: bool) -> dict[str, Any]:
     """The netCDF3 attributes of the node at `path` as `NetCDF3Parser` presents them: a float
     attribute's float values (netcdf3.md §5
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#5-attributes> writes them as
     hdf5.md's float values) as numbers, NaN and the infinities as `_nonfinite` writes them."""
-    metadata = base.source_metadata(path) or {}
+    metadata = pr.source_metadata(path) or {}
     types = metadata.get("attributes", {}) if isinstance(metadata, dict) else {}
     out: dict[str, Any] = {}
-    for name, given in base.attributes(path).items():
+    for name, given in pr.attributes(path).items():
         size = NC_FLOAT_SIZES.get(str((types.get(name) or {}).get("type")))
         floats = size is not None and not (name == "_FillValue" and path)  # a variable's: FillValueCoder's form
         out[name] = _nonfinite(hdf5_value(given, {"class": "float", "size": size}) if floats else given, token)
@@ -624,17 +650,17 @@ def _netcdf3_fill(doc: Mapping[str, Any], attributes: Mapping[str, Any], unprese
     return fill if _int_range(data_type)[0] <= fill <= _int_range(data_type)[1] else doc.get("fill_value")
 
 
-def _netcdf3(base: Base, token: bool) -> Entries:
-    out: Entries = {}
-    for path in base.nodes():
+def _netcdf3(pr: Projected, token: bool) -> Written:
+    out = Written()
+    for path in pr.nodes():
         prefix = f"{path}/" if path else ""
-        attributes = _netcdf3_attributes(base, path, token)
-        if base.node_type(path) == "group":
+        attributes = _netcdf3_attributes(pr, path, token)
+        if pr.node_type(path) == "group":
             out[f"{prefix}zarr.json"] = dump({"zarr_format": 3, "node_type": "group", "attributes": attributes},
                                              allow_nan=token)
             continue
-        doc, chunks = base.array(path)
-        metadata = base.source_metadata(path) or {}
+        doc, chunks = pr.array_entries(path)
+        metadata = pr.source_metadata(path) or {}
         unpresented = metadata.get("unpresented_attributes", {}) if isinstance(metadata, dict) else {}
         doc = {**doc, "attributes": attributes, "fill_value": _netcdf3_fill(doc, attributes, unpresented)}
         out[f"{prefix}zarr.json"] = dump(doc, allow_nan=token)
@@ -696,13 +722,13 @@ def _envi_fill(raw: object, data_type: str) -> object:
     return number if low <= number <= high else None
 
 
-def _envi(base: Base) -> Entries:
-    metadata = base.source_metadata("") or {}
+def _envi(pr: Projected) -> Written:
+    metadata = pr.source_metadata("") or {}
     fields: Mapping[str, object] = metadata.get("fields", {})
     data_file = str(metadata.get("data_file", ""))
     stem = data_file.rsplit(".", 1)[0] if "." in data_file.lstrip(".") else data_file
     name = stem if stem and _node_name(stem) else "data"  # ENVIParser's Path(data).stem, else data
-    doc, chunks = base.array("0")
+    doc, chunks = pr.array_entries("0")
     codecs = list(doc["codecs"])
     rank = len(doc["shape"])
     # the file's axis order, outermost first: refkv's transpose codec's order (envi.md §4.1
@@ -729,11 +755,77 @@ def _envi(base: Base) -> Entries:
         "dimension_names": [ENVI_AXES.get(doc["dimension_names"][i], doc["dimension_names"][i]) for i in order],
         "attributes": attributes,
     }
-    out: Entries = {"zarr.json": dump({"zarr_format": 3, "node_type": "group", "attributes": {}}),
-                    f"{name}/zarr.json": dump(presented)}
+    out = Written({"zarr.json": dump({"zarr_format": 3, "node_type": "group", "attributes": {}}),
+                   f"{name}/zarr.json": dump(presented)})
     for key, value in chunks.items():
         coords = chunk_coords(key, doc)
         out[f"{name}/{chunk_key([coords[i] for i in order], presented)}"] = value
+    return out
+
+
+# ---- Zarr v2
+
+ZARR2_BYTES = re.compile(r"\|(?P<kind>[SV])(?P<length>[1-9][0-9]*)")  # a Zarr v2 dtype of bytes
+ZARR2_BYTES_TYPES = {"S": "null_terminated_bytes", "V": "raw_bytes"}
+
+
+def _zarr2_bytes_fill(fill: object, kind: str, length: int) -> str:
+    """The Zarr v3 fill value of a `|S<n>` (`kind` S) or `|V<n>` array of Zarr v2 fill value `fill`
+    (the Base64 of its bytes, or null for zero bytes): the Base64 of its `length` bytes, trailing
+    NULs dropped for `null_terminated_bytes`, as zarr-python writes them."""
+    try:
+        raw = base64.standard_b64decode(fill) if isinstance(fill, str) else b""
+    except ValueError:
+        raw = b""
+    raw = raw[:length].ljust(length, b"\0")
+    return base64.standard_b64encode(raw.rstrip(b"\0") if kind == "S" else raw).decode()
+
+
+def _zarr2(pr: Projected, token: bool) -> Written:
+    """Each node of refkv's own output with its `.zattrs` as attributes (refkv's source metadata, zarr2.md §4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#4-source-metadata>), an array's
+    `_ARRAY_DIMENSIONS` its `dimension_names`, as `ZarrParser` promotes it."""
+    out = Written()
+    for path in pr.nodes():
+        prefix = f"{path}/" if path else ""
+        metadata = pr.source_metadata(path) or {}
+        given = metadata.get("attributes") if isinstance(metadata, dict) else None
+        attributes: dict[str, Any] = dict(given) if isinstance(given, dict) else {}
+        if pr.node_type(path) == "group":
+            out[f"{prefix}zarr.json"] = dump({"zarr_format": 3, "node_type": "group",
+                                              "attributes": _nonfinite(attributes, token)}, allow_nan=token)
+            continue
+        doc, chunks = pr.array_entries(path)
+        doc = dict(doc)
+        if not path:  # a root array: its chunks, not the mirror's keys beside them
+            chunks = {k: v for k, v in chunks.items() if not k.startswith(f"{MIRROR}/")}
+        found = metadata.get("metadata") if isinstance(metadata, dict) else None
+        source: Mapping[str, Any] = found if isinstance(found, dict) else {}
+        dtype = ZARR2_BYTES.fullmatch(str(source.get("dtype")))
+        shape, grid = doc["shape"], doc["chunk_grid"]["configuration"]["chunk_shape"]
+        length = int(dtype["length"]) if dtype else 0
+        if dtype and doc["data_type"] == "uint8" and shape and shape[-1] == length and grid[-1] == length:
+            # zarr2.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#3-arrays> holds
+            # |S<n> and |V<n> as uint8 with a trailing axis; ZarrParser keeps the source's data type
+            doc, chunks = _without_byte_axis(doc, chunks, ZARR2_BYTES_TYPES[dtype["kind"]], length,
+                                             _zarr2_bytes_fill(source.get("fill_value"), dtype["kind"], length))
+            doc["codecs"] = [{**c, "configuration": {**c["configuration"], "typesize": length}}
+                             if c.get("name") == "blosc" and "configuration" in c else c for c in doc["codecs"]]
+            # an array in Fortran order starts with a transpose, which took the byte axis, last, with it
+            first = doc["codecs"][0] if doc["codecs"] else {}
+            order = first.get("configuration", {}).get("order") if first.get("name") == "transpose" else None
+            if isinstance(order, list) and order and order[-1] == len(doc["shape"]):
+                doc["codecs"] = [{**first, "configuration": {**first["configuration"], "order": order[:-1]}},
+                                 *doc["codecs"][1:]]
+        names = attributes.get("_ARRAY_DIMENSIONS")
+        # names a Zarr v3 array takes (ZarrParser fails on others, which stay an attribute)
+        if isinstance(names, list) and len(names) == len(doc["shape"]) and \
+                all(n is None or isinstance(n, str) for n in names):
+            del attributes["_ARRAY_DIMENSIONS"]
+            doc["dimension_names"] = names
+        doc["attributes"] = _nonfinite(attributes, token)
+        out[f"{prefix}zarr.json"] = dump(doc, allow_nan=token)
+        out.update({f"{prefix}{k}": v for k, v in chunks.items()})
     return out
 
 
@@ -743,7 +835,7 @@ class VirtualiZarr:
     name = "refkv.virtualizarr"
     formats: ClassVar[Mapping[str, frozenset[int]]] = {
         "hdf5": frozenset({0}), "fits": frozenset({0}), "zarr3": frozenset({0}), "netcdf3": frozenset({0}),
-        "envi": frozenset({0})}
+        "envi": frozenset({0}), "zarr2": frozenset({0})}
 
     def options(self, given: Mapping[str, object]) -> dict[str, object]:
         """`{"nonfinite": "token"}` by default: whether a NaN or infinite attribute is a bare JSON
@@ -757,15 +849,19 @@ class VirtualiZarr:
             raise ValueError(f"nonfinite is token or text, not {nonfinite!r}")
         return {"nonfinite": nonfinite}
 
-    def write(self, base: Base, options: Mapping[str, object]) -> Entries:
-        """The base as VirtualiZarr's parser of its format presents it."""
-        if base.profile == "hdf5":
-            return _hdf5(base, options["nonfinite"] == "token")
-        if base.profile == "fits":
-            return _fits(base)
-        if base.profile == "netcdf3":
-            return _netcdf3(base, options["nonfinite"] == "token")
-        if base.profile == "envi":
-            return _envi(base)
-        out: dict[str, EntryValue] = base.entries(declarations=False, mirror=False, datasets=False)
-        return out
+    def write(self, inputs: Sequence[Parsed], options: Mapping[str, object]) -> Written:
+        """The input as VirtualiZarr's parser of its format presents it, built on refkv's own
+        output of it and, for a FITS header's 80-byte records, on its IR."""
+        [parsed] = inputs
+        pr = project(parsed)
+        if parsed.profile == "hdf5":
+            return _hdf5(pr, options["nonfinite"] == "token")
+        if parsed.profile == "fits":
+            return _fits(parsed, pr)
+        if parsed.profile == "netcdf3":
+            return _netcdf3(pr, options["nonfinite"] == "token")
+        if parsed.profile == "envi":
+            return _envi(pr)
+        if parsed.profile == "zarr2":
+            return _zarr2(pr, options["nonfinite"] == "token")
+        return pr.entries(declarations=False, mirror=False, datasets=False)

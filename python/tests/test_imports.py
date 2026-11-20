@@ -18,6 +18,8 @@ import sys
 from collections.abc import Collection
 from pathlib import Path
 
+import pytest
+
 SRC = Path(__file__).resolve().parents[1] / "src" / "refkv"
 
 ZARR_MODULES = {"zarr/__init__.py", "zarr/dtypes.py", "convert.py", "shards.py", "virtualizarr.py"} | {
@@ -157,3 +159,16 @@ def test_importing_refkv_imports_no_zip_code():
     code = "import sys, refkv\nprint(sorted(n for n in sys.modules if n.startswith('refkv.vzip')))"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "['refkv.vzip', 'refkv.vzip.names']", out.stdout
+
+
+@pytest.mark.parametrize("first", ["refkv.ir", "refkv.ir.store", "refkv.zarrify", "refkv.zarrify.common",
+                                   "refkv.zarrify.layouts", "refkv.build", "refkv.build.parsed",
+                                   "refkv.build.seal", "refkv.build.plugin", "refkv.zarrify.layouts.examples.bare"])
+def test_each_side_of_the_zarrify_and_build_cycle_imports_first(first):
+    """refkv.zarrify gives a plugin layout its input through refkv.build, which reads inputs with
+    refkv.zarrify's parse, and both use refkv.ir, which imports refkv.zarrify: each of them can be
+    the first module of them a process imports."""
+    code = f"import {first}, refkv.ir, refkv.zarrify, refkv.build; print(refkv.build.apply.__name__)"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
+    assert (out.returncode, out.stdout.strip()) == (0, "apply"), out.stderr
+

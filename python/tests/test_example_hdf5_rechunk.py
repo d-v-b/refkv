@@ -15,8 +15,9 @@ import pytest
 import zarr
 
 import refkv.zarr
+from refkv.build import project, read, seal
 from refkv.zarrify import zarrify
-from refkv.zarrify.layouts import Layout, LayoutRejected, LayoutUsageError, base, encode_entries
+from refkv.zarrify.layouts import Layout, LayoutRejected, LayoutUsageError, encode_entries
 from refkv.zarrify.layouts.examples.hdf5_rechunk import Hdf5Rechunk
 from refkv.zarrify.layouts.hierarchy import check
 
@@ -28,14 +29,14 @@ GENERATED = {  # name: (data, chunk shape asked for), each stored contiguous
     "f64be": (np.linspace(-1, 1, 5 * 17 * 13, dtype=">f8").reshape(5, 17, 13), [2, 4, 5]),
     "u8": (np.arange(64 * 64, dtype="u1").reshape(64, 64), [16, 16]),  # a multiple
     "u32_3d": (np.arange(3 * 40 * 50, dtype="<u4").reshape(3, 40, 50), [None, 16, 16]),  # null: the whole axis
-    "big": (np.arange(700 * 600, dtype="<f4").reshape(700, 600) / 7, [128, 128]),  # 1.6 MiB: the base slabs it
+    "big": (np.arange(700 * 600, dtype="<f4").reshape(700, 600) / 7, [128, 128]),  # 1.6 MiB: refkv slabs it
 }
 
 
 @pytest.fixture(scope="module")
 def generated(tmp_path_factory):
     """A directory of HDF5 files: `generated.h5`, contiguous datasets of several data types and
-    one chunked; `square.h5`, one dataset whose base needs no zero data source."""
+    one chunked; `square.h5`, one dataset whose output by refkv needs no zero data source."""
     folder = tmp_path_factory.mktemp("rechunk")
     with h5py.File(folder / "generated.h5", "w") as f:
         for name, (data, _) in GENERATED.items():
@@ -118,21 +119,27 @@ CASES = [  # (input, options, checksums, the arrays re-tiled with their chunk sh
 
 @pytest.mark.parametrize(("source", "given", "checksums", "retiled"), CASES)
 def test_hdf5_rechunk_re_tiles_contiguous_datasets(generated, source, given, checksums, retiled):
-    """The output has no `check` problem; it is the base's hierarchy with each array named in
-    `retiled` in chunks of the shape asked for, read back equal to h5py's values, and every other
-    array read back equal to the base's."""
+    """The output has no `check` problem; it is the hierarchy of refkv's own output with each array
+    named in `retiled` in chunks of the shape asked for, read back equal to h5py's values, and
+    every other array read back equal to that of refkv's own output; the IR mirror is refkv's,
+    entry for entry, each document placed as refkv places it."""
     path = generated / source if isinstance(source, str) else source
     plugin = Hdf5Rechunk()
     options = plugin.options(given)
-    b = base(str(path), checksums=checksums)
-    out = plugin.write(b, options)
-    assert check(b, out) == []
-    mirror = {k for k in b.keys() if k.startswith(MIRROR)}  # noqa: SIM118 (a Base is no mapping)
+    with read(str(path), checksums=checksums) as parsed:
+        pr = project(parsed)
+        out = plugin.write([parsed], options)
+        assert check(out, [parsed]) == []
+        mirror = {k for k in pr.keys() if k.startswith(MIRROR)}  # noqa: SIM118 (a Projected is no mapping)
+        grids = {p: pr.document(f"{p}/zarr.json")["chunk_grid"] for p in pr.nodes() if pr.node_type(p) == "array"}
     assert mirror == {k for k in out if k.startswith(MIRROR)}
 
     store = zarrify(str(path), layout=Layout(plugin, given), checksums=checksums)
     assert set(store.mapping) == set(out)
-    plain = arrays(zarr.open_group(refkv.zarr.store(zarrify(str(path), checksums=checksums)), mode="r"))
+    own = zarrify(str(path), checksums=checksums)  # refkv's own output
+    assert {k for k in store.read_at_open if k.startswith(MIRROR)} == \
+        {k for k in own.read_at_open if k.startswith(MIRROR)}
+    plain = arrays(zarr.open_group(refkv.zarr.store(own), mode="r"))
     mine = arrays(zarr.open_group(refkv.zarr.store(store), mode="r"))
     assert set(mine) == set(plain)
     expected = h5_values(path, retiled)
@@ -142,7 +149,7 @@ def test_hdf5_rechunk_re_tiles_contiguous_datasets(generated, source, given, che
             assert doc["chunk_grid"] == grid(a.shape, retiled[name], options["edge"]), name
             assert same(a[...], expected[name]), name
         else:
-            assert doc["chunk_grid"] == b.document(f"{name}/zarr.json")["chunk_grid"]
+            assert doc["chunk_grid"] == grids[name]
         want, got = np.asarray(plain[name][...]), np.asarray(a[...])
         assert want.dtype == got.dtype, name
         assert want.shape == got.shape, name
@@ -154,22 +161,25 @@ def test_hdf5_rechunk_re_tiles_contiguous_datasets(generated, source, given, che
 
 DIGEST = """
 import hashlib, sys
-from refkv.zarrify.layouts import base, encode_entries
+from refkv.build import read, seal
+from refkv.zarrify.layouts import encode_entries
 from refkv.zarrify.layouts.examples.hdf5_rechunk import Hdf5Rechunk
 p = Hdf5Rechunk()
-out = p.write(base(sys.argv[1]), p.options({"default": [10, 10], "chunks": {"big": [128, 128]}}))
-print(hashlib.sha256(encode_entries(out)).hexdigest())
+with read(sys.argv[1]) as parsed:
+    out = seal(p.write([parsed], p.options({"default": [10, 10], "chunks": {"big": [128, 128]}})), [parsed])
+print(hashlib.sha256(encode_entries(out.mapping)).hexdigest())
 """
 
 
 def test_hdf5_rechunk_is_deterministic(generated):
-    """Two runs with other hash seeds write the same entries as this one."""
+    """Two runs with other hash seeds write the same entries, sealed, as this one."""
     path = generated / "generated.h5"
     runs = {subprocess.run([sys.executable, "-c", DIGEST, str(path)], check=True, capture_output=True,
                            text=True, env={**os.environ, "PYTHONHASHSEED": seed}).stdout for seed in ("1", "2")}
     p = Hdf5Rechunk()
-    out = p.write(base(path), p.options({"default": [10, 10], "chunks": {"big": [128, 128]}}))
-    assert runs == {hashlib.sha256(encode_entries(out)).hexdigest() + "\n"}
+    with read(path) as parsed:
+        out = seal(p.write([parsed], p.options({"default": [10, 10], "chunks": {"big": [128, 128]}})), [parsed])
+    assert runs == {hashlib.sha256(encode_entries(out.mapping)).hexdigest() + "\n"}
 
 
 # ---- options refused
@@ -210,7 +220,7 @@ def rejected(path, chunks, match):
 
 @pytest.mark.parametrize("name", ["missing", "d1"])  # no node; a group
 def test_a_named_path_that_is_no_array_is_rejected(name):
-    rejected(HDF5 / "hdf5_numbers.h5", {name: [2]}, "no array of the base")
+    rejected(HDF5 / "hdf5_numbers.h5", {name: [2]}, "no array of refkv's own output")
 
 
 @pytest.mark.parametrize(("name", "storage"), [("fill7", "chunked"), ("compact_i2", "compact")])

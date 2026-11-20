@@ -1,6 +1,6 @@
 """The example layout `refkv.example.bare` (refkv.zarrify.layouts.examples.bare) over a fixture or
 two of every file and store profile: its output is refkv's own hierarchy without refkv's declarations and
-without the IR mirror, `check` finds nothing in it, and zarr reads every array as the base's."""
+without the IR mirror, `check` finds nothing in it, and zarr reads every array as that of refkv's own output."""
 
 import ast
 import hashlib
@@ -16,9 +16,10 @@ import zarr
 
 import refkv
 import refkv.zarr
+from refkv.build import project, read, seal
 from refkv.zarrify import zarrify
 from refkv.zarrify.common import PROFILES
-from refkv.zarrify.layouts import BASE_PROFILES, MIRROR, Layout, LayoutUsageError, base, encode_entries
+from refkv.zarrify.layouts import BASE_PROFILES, MIRROR, Layout, LayoutUsageError, encode_entries
 from refkv.zarrify.layouts.examples.bare import Bare
 from refkv.zarrify.layouts.hierarchy import check
 
@@ -89,6 +90,17 @@ def _arrays(store):
     return {path: a for path, a in group.members(max_depth=None) if isinstance(a, zarr.Array)}
 
 
+def _reads(store, value):
+    """What an entry of a store reads: its bytes, or each of its ranges with the source it names in
+    place of that source's index, which is the store's own (a table holds the sources its values
+    use, numbered by first use)."""
+    if isinstance(value, bytes):
+        return value
+    parts = value.parts if isinstance(value, refkv.Concat) else (value,)
+    return [(None if r.data is not None else store.sources[r.source], r.offset, r.length, r.data, r.crc32c)
+            for r in parts]
+
+
 def _same(a, b):
     """Whether two arrays hold the same values, NaNs and structured records included."""
     if a.dtype != b.dtype or a.shape != b.shape:
@@ -97,49 +109,58 @@ def _same(a, b):
 
 
 def _digest(path, options):
-    """The plugin's output for a fixture, hashed."""
-    b = base(path)
+    """The plugin's output for a fixture, sealed and hashed."""
     plugin = Bare()
-    out = plugin.write(b, plugin.options(options))
-    return hashlib.sha256(encode_entries(out)).hexdigest()
+    with read(path) as p:
+        out = plugin.write([p], plugin.options(options))
+        return hashlib.sha256(encode_entries(seal(out, [p]).mapping)).hexdigest()
+
+
+def _profile(path):
+    """The profile refkv reads the input at `path` with."""
+    with read(path) as p:
+        return p.profile
 
 
 def test_the_cases_cover_every_profile():
-    profiles = {base(str(FIXTURES / f)).profile for f, _, _ in CASES}
+    profiles = {_profile(str(FIXTURES / f)) for f, _, _ in CASES}
     assert profiles == BASE_PROFILES
 
 
 @pytest.mark.parametrize("options", OPTIONS, ids=["dataset", "no-dataset"])
 @pytest.mark.parametrize(("fixture", "needs", "checksums"), CASES,
                          ids=[f + (" checksums" if c else "") for f, _, c in CASES])
-def test_bare_is_the_base_without_refkv_s_declarations(tmp_path, fixture, needs, options, checksums):
-    """`check` finds nothing; the output is the base's entries but the mirror's (and, with
-    `dataset: false`, the dataset layout's), each document's attributes as `Base.attributes`
-    gives them; zarr reads every array as the base's, in memory and from a saved archive."""
+def test_bare_is_refkv_s_own_output_without_its_declarations(tmp_path, fixture, needs, options, checksums):
+    """`check` finds nothing; the output is the entries of refkv's own output but the mirror's
+    (and, with `dataset: false`, the dataset layout's), each document's attributes as
+    `Projected.attributes` gives them; zarr reads every array as that output's, in memory and
+    from a saved archive; `info` names the profile, the IR's elements and the layout."""
     if needs is not None:
         pytest.importorskip(needs, reason=f"{fixture}'s arrays need {needs} to decode")
     path = str(FIXTURES / fixture)
-    b = base(path, checksums=checksums)
     plugin = Bare()
-    out = plugin.write(b, plugin.options(options))
-    assert [p for p in check(b, out) if p.code not in ALLOWED] == []
+    with read(path, checksums=checksums) as p:
+        out = plugin.write([p], plugin.options(options))
+        assert [x for x in check(out, [p]) if x.code not in ALLOWED] == []
+        pr = project(p)
+        info = {"format": p.profile, "elements": len(p.ir), "layouts": [NAME]}
 
     store = zarrify(path, layout=Layout(NAME, options), checksums=checksums)
     whole = zarrify(path, checksums=checksums)
-    assert store.info["layouts"] == [NAME]
+    assert store.info == info
     docs, theirs = _documents(store), _documents(whole)
-    root = theirs["zarr.json"]["attributes"]["refkv_zarrified"]  # read here as the base declares it
+    root = theirs["zarr.json"]["attributes"]["refkv_zarrified"]  # read here as refkv's own output declares it
     left_out = [f"{MIRROR}/"] + ([] if options.get("dataset", True) else
                                  [f"{p}/" for p in root.get("layouts", {}).values()])
-    assert b.datasets == root.get("layouts", {})
-    assert b.mirror == MIRROR
+    assert pr.datasets == root.get("layouts", {})
+    assert pr.mirror == MIRROR
     assert sorted(store.mapping) == sorted(k for k in whole.mapping if not k.startswith(tuple(left_out)))
     if fixture.startswith("mrc/") and not options.get("dataset", True):
         assert not any(k.startswith("dataset/") for k in store.mapping)
 
     for key, doc in docs.items():
         node = key.rpartition("/")[0]
-        assert doc.get("attributes", {}) == b.attributes(node), key
+        assert doc.get("attributes", {}) == pr.attributes(node), key
         attrs = doc.get("attributes", {})
         assert "refkv_zarrified" not in attrs, key
         assert "refkv_provenance" not in attrs, key
@@ -149,7 +170,8 @@ def test_bare_is_the_base_without_refkv_s_declarations(tmp_path, fixture, needs,
             {k: v for k, v in theirs[key].items() if k != "attributes"}, key
     for key, value in store.mapping.items():
         if key not in docs:
-            assert value == whole.mapping[key], key
+            assert _reads(store, value) == _reads(whole, whole.mapping[key]), key
+    assert all(s in whole.sources for s in store.sources)
 
     expected = _arrays(whole)
     archive = tmp_path / "out.vzip"
@@ -166,11 +188,13 @@ def test_bare_is_the_base_without_refkv_s_declarations(tmp_path, fixture, needs,
 WITHOUT_THE_EXTRA = """
 import hashlib, json, sys
 sys.modules["zarr_metadata"] = None
-from refkv.zarrify.layouts import base, encode_entries
+from refkv.build import read, seal
+from refkv.zarrify.layouts import encode_entries
 from refkv.zarrify.layouts.examples.bare import Bare
-b, plugin = base(sys.argv[1]), Bare()
-out = plugin.write(b, plugin.options(json.loads(sys.argv[2])))
-print(hashlib.sha256(encode_entries(out)).hexdigest())
+plugin = Bare()
+with read(sys.argv[1]) as p:
+    out = plugin.write([p], plugin.options(json.loads(sys.argv[2])))
+    print(hashlib.sha256(encode_entries(seal(out, [p]).mapping)).hexdigest())
 """
 
 
@@ -182,6 +206,7 @@ def test_bare_is_deterministic():
     run = subprocess.run([sys.executable, "-c", WITHOUT_THE_EXTRA, path, json.dumps(options)],
                          env=env, capture_output=True, text=True, check=True)
     assert run.stdout.strip() == _digest(path, options)
+
 
 def _cli(*args):
     return subprocess.run([sys.executable, "-m", "refkv.zarrify", *args], capture_output=True, text=True,
@@ -234,7 +259,7 @@ def test_bare_imports_only_public_modules():
     """The module imports the standard library and refkv's public API (not `hierarchy`, so that
     it runs without the `layouts` extra), at its top, and no underscore name."""
     tree = ast.parse((ROOT / "python/src/refkv/zarrify/layouts/examples/bare.py").read_text())
-    allowed = {"refkv", "refkv.ir", "refkv.zarrify", "refkv.zarrify.layouts", "refkv.zarrify.coding"}
+    allowed = {"refkv", "refkv.build", "refkv.ir", "refkv.zarrify", "refkv.zarrify.layouts", "refkv.zarrify.coding"}
     found = [n for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))]
     assert all(n in tree.body for n in found)
     modules = [a.name for n in found if isinstance(n, ast.Import) for a in n.names]
