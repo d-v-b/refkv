@@ -63,7 +63,6 @@ SOURCE_METADATA = Gap("#271 'Separate source metadata from dataset attributes'")
 ZARR2_DIMENSIONS = Gap("#271 'Separate source metadata from dataset attributes': refkv keeps a Zarr v2 "
                        "array's _ARRAY_DIMENSIONS as source metadata, ZarrParser makes them its dimension names")
 FITS_NAMES = Gap("#271 'Decide array names for FITS': refkv names the primary HDU '0', FITSParser 'PRIMARY'")
-NETCDF3 = Gap("#271 'Support the missing formats': netCDF3 is not a file of any supported format", Rejected)
 ENVI = Gap("#271 'Support the missing formats': ENVI is not a file of any supported format", Rejected)
 
 ASPECTS = ("arrays", "shape", "data type", "fill value", "dimension names", "attributes",
@@ -192,7 +191,8 @@ KNOWN_GAPS: dict[tuple[str, str], Gap] = {
     ("HDF5 without dimension scales", "attributes"): SOURCE_METADATA,
     ("HDF5 without dimension scales", "root attributes"): SOURCE_METADATA,
     ("zipped Zarr v3", "root attributes"): SOURCE_METADATA,
-    ("netCDF3", ALL): NETCDF3,
+    ("netCDF3", "attributes"): SOURCE_METADATA,
+    ("netCDF3", "root attributes"): SOURCE_METADATA,
     ("ENVI", ALL): ENVI,
     ("FITS image", ALL): FITS_NAMES,
     ("Zarr v2 directory", "dimension names"): ZARR2_DIMENSIONS,
@@ -268,8 +268,10 @@ def differences(theirs: ManifestStore, ours: ManifestStore, aspect: str) -> list
         if aspect == "shape":
             same, shown = x.metadata.shape == y.metadata.shape, (x.metadata.shape, y.metadata.shape)
         elif aspect == "data type":
-            same, shown = str(x.metadata.data_type) == str(y.metadata.data_type), (
-                x.metadata.data_type, y.metadata.data_type)
+            # as the metadata document writes it: zarr-python's data type object also holds the
+            # byte order of the dtype a parser built it from, which Zarr v3 gives the `bytes` codec
+            dx, dy = (m.metadata.data_type.to_json(zarr_format=3) for m in (x, y))
+            same, shown = dx == dy, (dx, dy)
         elif aspect == "fill value":
             same, shown = str(x.metadata.fill_value) == str(y.metadata.fill_value), (
                 x.metadata.fill_value, y.metadata.fill_value)
