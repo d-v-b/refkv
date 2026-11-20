@@ -183,8 +183,8 @@ fn own_json(h: &J, cards: &[Card], row: Option<&Result<J, &'static str>>) -> J {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
 /// contiguous values; in a compressed file, each one chunk, the file's `length` bytes (§2.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#21-a-compressed-file>).
-fn arrays(ir: &Ir, h: &J, cards: &[Card], threshold: usize, stream: &J) -> Result<Vec<Node>, String> {
-    let mut out = cut_arrays(ir, h, cards, threshold)?;
+fn arrays(ir: &Ir, h: &J, row: Option<&J>, threshold: usize, stream: &J) -> Result<Vec<Node>, String> {
+    let mut out = cut_arrays(ir, h, row, threshold)?;
     if let Some(length) = stream["length"].as_u64() {
         for a in &mut out {
             let (start, bytes) = a.element.map_or((0, 0), |e| (ir.start[e as usize], ir.len[e as usize]));
@@ -200,7 +200,7 @@ fn arrays(ir: &Ir, h: &J, cards: &[Card], threshold: usize, stream: &J) -> Resul
     Ok(out)
 }
 
-fn cut_arrays(ir: &Ir, h: &J, cards: &[Card], threshold: usize) -> Result<Vec<Node>, String> {
+fn cut_arrays(ir: &Ir, h: &J, row: Option<&J>, threshold: usize) -> Result<Vec<Node>, String> {
     let index = h["index"].as_u64().unwrap_or(0);
     let mut out = Vec::new();
     match h["kind"].as_str() {
@@ -219,7 +219,7 @@ fn cut_arrays(ir: &Ir, h: &J, cards: &[Card], threshold: usize) -> Result<Vec<No
             let element = h["elements"]["rows"].as_u64().map(|v| v as u32);
             let offset = element.map_or(0, |e| ir.start[e as usize]);
             let path = format!("{index}/rows");
-            let row = row_of(h, cards).and_then(Result::ok);
+            let row = row.cloned();
             // a struct's element is a row; bytes' a byte of a row
             let (shape, item, dims, data_type): (Vec<u64>, u64, Vec<String>, &str) = match row {
                 Some(_) => (vec![rows], row_bytes, vec!["row".into()], "struct"),
@@ -247,7 +247,8 @@ pub fn reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
             continue;
         }
         let cards = cards_of(ir, h)?;
-        for a in arrays(ir, h, &cards, threshold, &description["stream"])? {
+        let row = row_of(h, &cards).and_then(Result::ok);
+        for a in arrays(ir, h, row.as_ref(), threshold, &description["stream"])? {
             out.extend(contiguous::copy_reads(&a.chunks));
         }
     }
@@ -287,13 +288,14 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<O
             "offset": h["offset"], "header_bytes": h["header_bytes"], "data_offset": h["data_offset"], "data_bytes": h["data_bytes"],
             "compression": compression_json(&h["compression"]),
         }));
-        let own = own_json(h, &cards, row_of(h, &cards).as_ref());
+        let row = row_of(h, &cards);
+        let own = own_json(h, &cards, row.as_ref());
         let index = h["index"].as_u64().unwrap_or(0);
         if !h["compression"].is_null() {
             tiled.push((h.clone(), own));
             continue;
         }
-        let node_arrays = arrays(ir, h, &cards, threshold, stream)?;
+        let node_arrays = arrays(ir, h, row.and_then(Result::ok).as_ref(), threshold, stream)?;
         if kind == "image" {
             // the array is the node itself: its document gets the declaration
         } else {
