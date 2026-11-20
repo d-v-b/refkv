@@ -1,19 +1,21 @@
 """`project`: the built-in output of an input `read` read, as values (the design of
-d-v-b/refkv#278, "The built-in output"). In this first step it is the output the run already
-made, which `refkv.zarrify.layouts.Base` holds."""
+d-v-b/refkv#278, "The built-in output"). `read` made no output: `project` has the kept run make
+it, reading what that output alone needs, the first time it is asked for. It gives the output as
+`refkv.zarrify.layouts.Base` holds it."""
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
-from refkv import Range
+from refkv import Range, _sync
 from refkv.ir.store import StoreIrOutput
 from refkv.zarrify.layouts import Base, base_of, chunk_coords
 
 from .parsed import Parsed
 from .values import MODELED, Array, Literal, Part, Ref, Shared, Value, Written, Zeros
 
-__all__ = ["Projected", "project"]
+__all__ = ["Projected", "project", "project_async"]
 
 
 class Projected:
@@ -22,9 +24,11 @@ class Projected:
     `base`, the `refkv.zarrify.layouts.Base` it was made from (for `hierarchy.copy`, a node's
     attributes and source metadata)."""
 
-    def __init__(self, parsed: Parsed, base: Base, read_at_open: frozenset[str]) -> None:
+    def __init__(self, parsed: Parsed, base: Base, read_at_open: frozenset[str],
+                 objects: list[str]) -> None:
         self.parsed = parsed
         self.base = base
+        self._objects = objects  # a store output's objects, in its table's order
         self._sources = self._source_map()
         self.written = Written()
         for k in base.keys():  # noqa: SIM118 (a Base has keys(), not iteration)
@@ -39,9 +43,7 @@ class Projected:
         """Each base source's index in the input's sources, or None for a data source."""
         parsed = self.parsed
         out: list[int | None] = []
-        objects: list[str] = []
-        if isinstance(parsed._out, StoreIrOutput):  # noqa: SLF001 (the run read made)
-            objects, _, _ = parsed._out._numbered()  # noqa: SLF001
+        objects = self._objects
         for j, s in enumerate(self.base.sources):
             if s.url is None:
                 out.append(None)
@@ -87,8 +89,23 @@ def _coords(key: str, doc: dict[str, Any]) -> tuple[int, ...] | None:
         return None
 
 
+async def project_async(parsed: Parsed) -> Projected:
+    """The built-in projection of `parsed`'s input: what `zarrify` writes for it, as values. The
+    first call makes the output, reading what it alone needs through what `read` opened, so
+    `parsed` must not be closed yet; later calls build on the output it made."""
+    out = await parsed._output_async()  # noqa: SLF001 (the run read kept)
+
+    def projected() -> Projected:
+        base, store = base_of(out, parsed._fmt, parsed.policy, parsed.registry,  # noqa: SLF001
+                              checksums=parsed.checksums)
+        objects = out._numbered()[0] if isinstance(out, StoreIrOutput) else []  # noqa: SLF001
+        return Projected(parsed, base, frozenset(store.read_at_open), objects)
+
+    # the store and the values, on a thread: both grow with the chunks
+    return await asyncio.to_thread(projected)
+
+
 def project(parsed: Parsed) -> Projected:
-    """The built-in projection of `parsed`'s input: what `zarrify` writes for it, as values."""
-    base, store = base_of(parsed._out, parsed._fmt, parsed.policy, parsed.registry,  # noqa: SLF001
-                          checksums=parsed.checksums)
-    return Projected(parsed, base, frozenset(store.read_at_open))
+    """`project_async`, the caller's thread waiting for it: call it from a thread, not from
+    refkv's own event loop."""
+    return _sync.run(project_async(parsed))

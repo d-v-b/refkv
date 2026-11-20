@@ -24,9 +24,12 @@ It is a design note. It replaces this note's earlier versions;
 [What changes on main](#what-changes-on-main) says what of the plugin
 implementation stays.
 
-Status (2026-11-16): step 1 of the [order of work](#order-of-work) has landed,
+Status (2026-11-20): step 1 of the [order of work](#order-of-work) has landed,
 as `refkv.build` (d-v-b/refkv#283) and the core's `seal` (d-v-b/refkv#284);
-[docs/build.md](../../docs/build.md) is its user document. Steps 2 to 4 (the
+[docs/build.md](../../docs/build.md) is its user document. Since then a run
+parses without projecting: `read` makes no output and `project` makes the
+built-in one when asked, the core's `Run` keeping what it parsed
+(`defer_projection`, `begin_projection`, `project`). Steps 2 to 4 (the
 plan's machine, and each format's description and plan) have not, though
 NumPy's arrays, MP4's tracks and the stored arrays of every format in the
 scope of [ir-format-descriptions.md](ir-format-descriptions.md) are described,

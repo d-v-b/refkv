@@ -18,7 +18,7 @@ use refkv_ir::array::arrow::arrow_array::ffi_stream::FFI_ArrowArrayStream;
 use refkv_ir::array::arrow::arrow_array::{Array, RecordBatch, RecordBatchIterator, StructArray};
 use refkv_ir::array::arrow::arrow_schema::ffi::FFI_ArrowSchema;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 pyo3::create_exception!(refkv._core, Rejected, PyException);
 pyo3::create_exception!(refkv._core, Failed, PyValueError);
@@ -75,12 +75,16 @@ fn to_py<'py>(py: Python<'py>, v: &Val) -> PyResult<Bound<'py, PyAny>> {
 
 #[pyclass(name = "Ir", module = "refkv._core")]
 pub struct PyIr {
-    pub ir: Ir,
+    pub ir: Arc<Ir>,
     types: Mutex<HashMap<u32, Option<types::Ty>>>,
 }
 
 impl PyIr {
     pub fn new(ir: Ir) -> Self {
+        PyIr::of(Arc::new(ir))
+    }
+    /// An IR a run keeps (`Run::parsed`), shared with it.
+    pub fn of(ir: Arc<Ir>) -> Self {
         PyIr {
             ir,
             types: Mutex::new(HashMap::new()),
@@ -720,6 +724,31 @@ impl PyRun {
         let (ir, facts, stats) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
         Ok((PyIr::new(ir), facts.to_string(), stats.to_string()))
     }
+    /// Leaves the built-in projection's reads out of the run, before its first poll
+    /// (`Run::defer_projection`): `poll()` gives None once the IR is whole, `ir()` gives it, and
+    /// a host that wants the built-in output calls `begin_projection()`, polls again until
+    /// None, then `project(...)`, as often as it likes.
+    fn defer_projection(&mut self) -> PyResult<()> {
+        self.get()?.defer_projection();
+        Ok(())
+    }
+    /// Asks for the built-in projection's reads (`Run::begin_projection`).
+    fn begin_projection(&mut self) -> PyResult<()> {
+        self.get()?.begin_projection().map_err(Rejected::new_err)
+    }
+    /// The IR of a run that is done, shared with the run, which is kept.
+    fn ir(&mut self) -> PyResult<PyIr> {
+        let (ir, _) = self.get()?.parsed().map_err(PyValueError::new_err)?;
+        Ok(PyIr::of(Arc::clone(ir)))
+    }
+    /// `output`, of a run that is kept (`Run::project`): the output alone, in `out_py`'s form.
+    #[pyo3(signature = (url, mirror=true, layouts=None, checksums=false, written=true))]
+    fn project<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, layouts: Option<Vec<String>>, checksums: bool,
+                    written: bool) -> PyResult<Bound<'py, PyAny>> {
+        let r = &*self.get()?;
+        let o = py.detach(|| r.project(url, mirror, layouts.as_deref(), checksums, written)).map_err(refused)?;
+        out_py(py, &o)
+    }
 }
 
 /// A store run (src/store.rs): `StoreRun(format, listing, concurrency)` over the listing
@@ -730,6 +759,8 @@ impl PyRun {
 #[pyclass(name = "StoreRun", module = "refkv._core")]
 pub struct PyStoreRun {
     r: Option<refkv_ir::store::StoreRun>,
+    /// the run finished without an output (`parse`): its format, IR, facts and counts, kept
+    parsed: Option<(refkv_ir::store::StoreFormat, Arc<Ir>, serde_json::Value, serde_json::Value)>,
 }
 
 impl PyStoreRun {
@@ -744,7 +775,7 @@ impl PyStoreRun {
     fn new(format: &str, listing: Vec<(String, u64)>, concurrency: usize) -> PyResult<Self> {
         let f = refkv_ir::store::StoreFormat::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no store format {format:?}")))?;
         let r = refkv_ir::store::StoreRun::new(f, listing, concurrency).map_err(Rejected::new_err)?;
-        Ok(PyStoreRun { r: Some(r) })
+        Ok(PyStoreRun { r: Some(r), parsed: None })
     }
     #[allow(clippy::type_complexity)]
     fn poll(&mut self, py: Python<'_>) -> PyResult<Option<Vec<(usize, String, Vec<(u64, u64)>)>>> {
@@ -810,6 +841,25 @@ impl PyStoreRun {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
         let (ir, facts, stats) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
         Ok((PyIr::new(ir), facts.to_string(), stats.to_string()))
+    }
+    /// Finishes without an output: the IR, which the run keeps with its facts and counts, so
+    /// that `project(...)` gives the built-in output of it, as often as the host likes.
+    fn parse(&mut self, py: Python<'_>) -> PyResult<PyIr> {
+        let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
+        let format = r.format;
+        let (ir, facts, stats) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
+        let ir = Arc::new(ir);
+        self.parsed = Some((format, Arc::clone(&ir), facts, stats));
+        Ok(PyIr::of(ir))
+    }
+    /// `output`, of a run `parse` finished: the output alone, in `out_py`'s form.
+    #[pyo3(signature = (url, mirror=true, checksums=false))]
+    fn project<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, checksums: bool) -> PyResult<Bound<'py, PyAny>> {
+        let (format, ir, facts, stats) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        let o = py
+            .detach(|| refkv_ir::store::store_output(*format, ir, facts, stats.clone(), url, mirror, checksums))
+            .map_err(refused)?;
+        out_py(py, &o)
     }
 }
 
