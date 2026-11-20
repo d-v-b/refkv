@@ -27,12 +27,13 @@ Beside the examples, refkv supports one layout, which it keeps working from rele
 
 - **`refkv.virtualizarr`**
   ([refkv.zarrify.layouts.virtualizarr](../python/src/refkv/zarrify/layouts/virtualizarr.py))
-  presents an HDF5, netCDF-4, FITS or zipped Zarr v3 file as VirtualiZarr's own parsers
-  (`HDFParser`, `FITSParser`, `ZippedZarrParser`) present it, so that code that selects variables
+  presents an HDF5, netCDF-4, netCDF3, FITS, ENVI or zipped Zarr v3 file as VirtualiZarr's own
+  parsers (`HDFParser`, `NetCDF3Parser`, `FITSParser`, `ENVIParser`, `ZippedZarrParser`) present it, so that code that selects variables
   and reads attributes from those parsers' output reads refkv's alike. Its chunk references are
   refkv's own layout's; it drops what `HDFParser` hides (`CLASS`, `NAME`, `REFERENCE_LIST`,
   `_Netcdf4Dimid`, `_NCProperties`, ...), names each FITS HDU by its `EXTNAME` (`PRIMARY`, `SCI`,
-  ...) with its header cards as attributes, and writes no refkv declarations and no
+  ...) with its header cards as attributes, presents an ENVI raster in its file's axis order
+  (`band`, `y`, `x` as the interleave orders them) under its data file's name, and writes no refkv declarations and no
   `refkv_source` mirror. It runs without the `layouts` extra. Its option `{"nonfinite": "text"}`
   writes a NaN or infinite attribute as text (`"NaN"`) rather than the bare token zarr-python
   writes. The module's docstring lists where it keeps refkv's presentation because VirtualiZarr's
