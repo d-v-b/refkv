@@ -737,7 +737,8 @@ the HDU by its number.
   (`1D`) or `ZBLANK` (`1J`) with that `TFORM` (`UNCOMPRESSED_DATA` and
   `NULL_PIXEL_MASK` are rejected and named; any other column is rejected);
   `COMPRESSED_DATA` is a column, and `ZSCALE` and `ZZERO` both or neither;
-  the row count is the tile count. Then, from the table: no tile has both
+  the columns' widths (8 bytes for `1PB`, 16 for `1QB`, 8 for `1D`, 4 for `1J`) sum to
+  `NAXIS1`; the row count is the tile count. Then, from the table: no tile has both
   descriptors non-null; each tile's stream lies within the heap; the
   present tiles are in storage order in the heap (a tile starting before
   the previous present tile ends is rejected). Every integer card named

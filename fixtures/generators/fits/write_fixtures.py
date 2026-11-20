@@ -529,10 +529,12 @@ def tile_bytes(tile: np.ndarray, algorithm: str, **settings) -> bytes:
 def hand_comp(image: np.ndarray, ztile: tuple[int, ...], tiles: list, *, zcmptype: str = "RICE_1",
               columns=(("COMPRESSED_DATA", "1PB"), ("GZIP_COMPRESSED_DATA", "1PB")),
               zvals=(("BLOCKSIZE", 32), ("BYTEPIX", 2)), heap_order: list[int] | None = None, gap: int = 0,
-              extra_cards=(), rows: int | None = None, zbitpix: int = 16, extname: str = "HAND") -> bytes:
+              extra_cards=(), rows: int | None = None, zbitpix: int = 16, extname: str = "HAND",
+              naxis1: int | None = None) -> bytes:
     """A tile-compressed BINTABLE built by hand: `tiles` is one (column index or None, stream
     bytes, [zscale, zzero]) per tile; the heap holds the streams in `heap_order` (tile indexes,
-    default in order) with `gap` unused bytes between them."""
+    default in order) with `gap` unused bytes between them. `naxis1` is the NAXIS1 card's value
+    where it is not the columns' width."""
     shape = image.shape
     descs = {c[0]: [(0, 0)] * len(tiles) for c in columns}
     heap = bytearray()
@@ -547,6 +549,7 @@ def hand_comp(image: np.ndarray, ztile: tuple[int, ...], tiles: list, *, zcmptyp
     cards = ["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2"]
     width = sum(16 if "Q" in f else 8 if "P" in f else 8 if f == "1D" else 4 for _, f in columns)
     nrows = len(tiles) if rows is None else rows
+    width = width if naxis1 is None else naxis1
     cards += [f"NAXIS1  = {width:>20}", f"NAXIS2  = {nrows:>20}", f"PCOUNT  = {len(heap):>20}",
               "GCOUNT  =                    1", f"TFIELDS = {len(columns):>20}"]
     for k, (name, form) in enumerate(columns, 1):
@@ -676,6 +679,9 @@ def compressed() -> None:
     both = both[:row1] + both[row1 + 8 : row1 + 16] + both[row1 + 8 :]
     out("descriptor_both", both)
     out("tiles_out_of_order", pr + hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)], heap_order=[1, 0, 2, 3]))
+    # a row of two P descriptors is 16 bytes: NAXIS1 says 12, or 20
+    out("row_width", pr + hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)], naxis1=12))
+    out("row_width_wide", pr + hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)], naxis1=20))
 
 
 def whole_files() -> None:

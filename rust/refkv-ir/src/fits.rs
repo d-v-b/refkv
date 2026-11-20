@@ -886,7 +886,7 @@ impl Fits {
             if xtension == "BINTABLE" && Self::is_true(&cards, "ZIMAGE") {
                 self.rules.check("stream_tiles", rules::env([("hdu", num(hdu)), ("compressed", flag(self.decoded.is_some()))]))?;
                 self.rules.check("table_size", rules::env([("hdu", num(hdu)), ("bytes", num(rows as f64))]))?;
-                comp = Some(self.compressed(&cards, &forms, axes[1])?);
+                comp = Some(self.compressed(&cards, &forms, axes[0], axes[1])?);
             } else if xtension == "BINTABLE" {
                 match row_struct(&cards, &forms, axes[0], self.limit("max_row_fields"), self.limit("max_row_bytes")) {
                     Ok(row) => table["struct"] = row,
@@ -985,9 +985,9 @@ impl Fits {
         Ok(())
     }
 
-    /// A tile-compressed image's cards and columns, checked (§9.3
+    /// A tile-compressed image's cards and columns, checked, `naxis1` its table's NAXIS1 (§9.3
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#93-checks>).
-    fn compressed(&self, cards: &[Card], forms: &[String], rows: u64) -> Res<Comp> {
+    fn compressed(&self, cards: &[Card], forms: &[String], naxis1: u64, rows: u64) -> Res<Comp> {
         let hdu = self.index as f64;
         let name = card(cards, "ZCMPTYPE").map(str_of).unwrap_or_default();
         let mut env = rules::env([("hdu", num(hdu)), ("name", text(&name))]);
@@ -1090,6 +1090,8 @@ impl Fits {
                 ("has_compressed", flag(columns.compressed.is_some())),
                 ("has_scale", flag(columns.zscale.is_some())),
                 ("has_zero", flag(columns.zzero.is_some())),
+                ("row_bytes", num(at as f64)),
+                ("naxis1", num(naxis1 as f64)),
             ]),
         )?;
         let shape: Vec<u64> = shape_fits.iter().rev().copied().collect();
