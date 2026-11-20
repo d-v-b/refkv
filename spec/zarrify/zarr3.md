@@ -436,7 +436,7 @@ A Zarr v3 store is read in one of two forms:
 
 | form | input | `U` | its objects |
 |---|---|---|---|
-| **listed** | a store input ([spec/zarrify.md §1.4](../zarrify.md#14-store-inputs)): a store URL, or a local directory with the URL it is served from | the store URL, ending in `/` | the listing's ([spec/zarrify.md §1.5](../zarrify.md#15-listing-a-store)) |
+| **listed** | a store input ([spec/zarrify.md §1.4](../zarrify.md#14-store-inputs)): a store URL, or a local directory with the URL it is served from or its own `file:` URL | the store URL, ending in `/` | the listing's ([spec/zarrify.md §1.5](../zarrify.md#15-listing-a-store)) |
 | **zipped** | a file input ([spec/zarrify.md §1.2](../zarrify.md#12-input)) | the zip file's URL | its entries ([§7.4](#74-the-zip-form)) |
 
 The two forms give the same hierarchy for the same store, but for `source.url`, the chunks'

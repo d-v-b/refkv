@@ -34,7 +34,7 @@ class Bare:
     """refkv's image layout, without refkv's declarations, the IR mirror or dataset layouts."""
 
     name = "acme.bare"  # <distribution>.<layout>
-    formats = "*"  # every file profile; or {"tiff": {0}, "hdf5": {0}}
+    formats = "*"  # every file and store profile; or {"tiff": {0}, "hdf5": {0}, "zarr2": {0}}
 
     def options(self, given):
         return {}  # the options in canonical form; raise ValueError to refuse them
@@ -107,8 +107,8 @@ def test_bare():
 
 | what | error | `python -m refkv.zarrify` |
 |---|---|---|
-| a name no plugin has, a plugin that fails to load, options it refuses, `layout=` beside `layouts=`, a store input | `LayoutUsageError` (a `ValueError`) | exit 2 |
-| a base the plugin does not read, a `Rejected` its `write` raises | `LayoutRejected` (a `Rejected`) | exit 3 |
+| a name no plugin has, a plugin that fails to load, options it refuses, `layout=` beside `layouts=` | `LayoutUsageError` (a `ValueError`) | exit 2 |
+| a base the plugin does not read, a store of DICOM files (which has no base), a `Rejected` its `write` raises | `LayoutRejected` (a `Rejected`) | exit 3 |
 | any other exception from `write`, or an output refkv does not write | `LayoutFailed` | exit 1, with the plugin's traceback |
 
 No output is written in any of them.

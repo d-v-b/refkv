@@ -83,8 +83,9 @@ class Store:
     profile reads it, and rejects it with its own message if it is not its format.
 
     - `location`: a URL (http(s), or under a prefix of `registry`), a trailing `/` added if it
-      has none, or a local directory.
-    - `url`: the store URL the archive names its objects by (needed for a local directory).
+      has none, or a local directory, by its path or `file:` URL.
+    - `url`: the store URL the archive names its objects by (for a local directory, its own
+      `file:` URL by default).
     - `checksums`: each range carries the CRC-32C of its bytes, which reads them.
     - `policy`: the reader policy the store is listed and read under (default `Policy()`).
     - `workers`: how many of the store's documents are read at a time.

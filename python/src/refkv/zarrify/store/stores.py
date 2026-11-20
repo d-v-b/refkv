@@ -30,7 +30,9 @@ from refkv.zarrify.store.documents import MAX_DOCUMENT, parse_json
 from refkv.zarrify.store.listing import next_link, parse_hub_revision, parse_hub_tree, parse_listing
 from refkv.zarrify.store.urls import (
     HubRepo,
+    check_directory_url,
     check_store_url,
+    directory_url,
     hub_endpoint,
     hub_repo,
     listing_endpoint,
@@ -508,10 +510,14 @@ class RegisteredStore(Store):
 
 class DirStore(Store):
     """A local directory, read as the store at `url` (§1.5
-    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): the http(s)
+    URL it is served from, or its own `file:` URL (`check_directory_url`)."""
 
     def __init__(self, path: str, url: str) -> None:
-        check_store_url(url)
+        if url[:5].lower() == "file:":
+            check_directory_url(url, path)
+        else:
+            check_store_url(url)
         self.url = url
         self.root = Path(path)
         self.objects = {}
@@ -563,8 +569,10 @@ def open_store(location: str, url: str | None = None, *, max_objects: int | None
     when it is under the Hub's endpoint (`hub`, else `HF_ENDPOINT`, else
     https://huggingface.co; §1.5
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), else an
-    S3-style one. Or a local directory served at `url` (§1.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), read sequentially."""
+    S3-style one. Or a local directory, read sequentially and named `url`: the http(s) URL it is
+    served from (§1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), or
+    by default its own `file:` URL (§1.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>)."""
     found = registered(location, registry, policy)
     if found is not None:
         listed = RegisteredStore(location, *found, max_objects=max_objects, workers=workers)
@@ -580,9 +588,7 @@ def open_store(location: str, url: str | None = None, *, max_objects: int | None
             check_store_url(url)
             store.url = url
         return store
-    if url is None:
-        raise ValueError("a local directory needs url, the URL it is served from")
-    return DirStore(location, url)
+    return DirStore(location, directory_url(location) if url is None else url)
 
 
 def choose_profile(store: Store) -> str:

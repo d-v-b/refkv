@@ -1,6 +1,6 @@
 """The example layout `refkv.example.bare` (spec/layout.md
 <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>), the smallest plugin: refkv's own
-hierarchy for every file profile, with none of refkv's declarations and without the IR mirror
+hierarchy for every file and store profile, with none of refkv's declarations and without the IR mirror
 `refkv_source/`. With the option `{"dataset": false}` it leaves out the dataset layouts too
 (spec/conventions.md §9
 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>), keeping the

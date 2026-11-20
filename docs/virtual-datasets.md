@@ -280,6 +280,13 @@ from the bucket: a file, the files it names beside it, or a store (a URL
 ending in `/`), each read with the registered store. The result reads its
 sources with that registry too.
 
+A local input may be its path or its `file:` URL, as VirtualiZarr passes it,
+with or without a `file://` store in the registry: a file, or a local Zarr v2,
+Zarr v3 or N5 directory, whose chunks are then references to the directory's
+files, named by their `file:` URLs. The store `zarrify` returns reads those
+files, the input's own, below its directory, and no other local file; a store
+saved from it is read as below.
+
 ```python
 from refkv.zarrify import zarrify
 

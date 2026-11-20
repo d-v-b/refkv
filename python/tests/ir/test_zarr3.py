@@ -80,13 +80,14 @@ def test_the_arrays_read_as_zarr_python_reads_the_store(name, tmp_path):
         assert np.array_equal(x, y, equal_nan=x.dtype.kind in "fc"), path
 
 
-def test_a_local_directory_still_needs_the_url_it_is_served_from():
+def test_a_local_directory_is_named_by_its_own_file_url():
     """A store's object URLs are the store's (spec/zarrify.md §1.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>): a directory has
-    none of its own, so it is named by the URL it will be served from; a zip file, a file input,
-    needs none."""
-    with pytest.raises(ValueError, match="a local directory needs url"):
-        zarrify(str(FIXTURES / "zarr3_hierarchy"))
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>): a directory given
+    no URL it is served from is named by its own `file:` URL; a zip file, a file input, by its
+    path."""
+    fmt, out = zarrify(str(FIXTURES / "zarr3_hierarchy"))
+    assert fmt == "zarr3"
+    assert out.url == (FIXTURES / "zarr3_hierarchy").as_uri() + "/"
     fmt, out = zarrify(str(FIXTURES / "zarr3_hierarchy.zip"))
     assert fmt == "zarr3"
     assert out.url.endswith("zarr3_hierarchy.zip")

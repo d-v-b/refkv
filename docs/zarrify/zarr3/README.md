@@ -71,7 +71,7 @@ Supported:
 
 - Zarr v3 groups and arrays of 0 to 32 dimensions, on any S3-compatible host
   that answers `ListObjectsV2` anonymously, a Hugging Face Hub repository, or
-  a local directory (with `--url`).
+  a local directory (with `--url`; in Python, by its path or `file:` URL alone).
 - Zip files whose chunks are stored, as zarr-python's `ZipStore` writes them,
   ZIP64 included. A `zarr.json` written twice (zarr-python rewrites a document
   by adding an entry) is read from its last entry, as `zipfile` reads it.

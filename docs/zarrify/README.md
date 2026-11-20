@@ -123,7 +123,9 @@ host (below); it then writes no archive. The format is chosen by the file's firs
 store by the objects at its root. Options:
 
 - `--url <url>`: the URL to record as the source, for a local file or
-  directory that will be served from that URL (a local directory needs it;
+  directory that will be served from that URL (a local directory needs it,
+  since `zarrify` in Python names one by its `file:` URL otherwise, which an
+  archive's readers refuse by default;
   for a VSI slide, the `.vsi` file's URL, whose directory the tile files are
   named under, and for a NRRD input the header file's);
 - `--checksums`: also record the CRC-32C of every referenced range
