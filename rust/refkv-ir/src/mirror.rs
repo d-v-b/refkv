@@ -370,11 +370,33 @@ fn tiff_layout(y: &Ir, r: usize, f: i64) -> Option<(u32, usize, bool)> {
     Some((v, z, big))
 }
 
+/// A column's arithmetic pieces (conventions §8.8
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>, encoding 4):
+/// from the first value on, each piece as long as it can be, as (first value, step, count).
+pub fn pieces(v: &[i64]) -> Vec<(i64, i64, usize)> {
+    let mut out = Vec::new();
+    let mut a = 0;
+    while a < v.len() {
+        let Some(&next) = v.get(a + 1) else {
+            out.push((v[a], 0, 1));
+            break;
+        };
+        let d = next.wrapping_sub(v[a]);
+        let mut b = a + 1;
+        while b + 1 < v.len() && v[b + 1].wrapping_sub(v[b]) == d {
+            b += 1;
+        }
+        out.push((v[a], d, b - a + 1));
+        a = b + 1;
+    }
+    out
+}
+
 /// The stored table of a canonical IR (conventions §8.8
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>): its column
 /// runs found outermost first, left to right, each at the period that folds the most siblings
 /// (the smaller on a tie); each column at the first encoding that holds it (none
-/// when constant, 3, 0, 2, 1). `array(row)` gives the bytes of a value an encoding-2
+/// when constant, 3, 0, 2, 4, 1). `array(row)` gives the bytes of a value an encoding-2
 /// column would read (the IR's, or the source's at its extent).
 pub fn table(y: &Ir, profile: &str, array: &dyn Fn(u32) -> Option<Vec<u8>>) -> (Table, Folded) {
     let n = y.len();
@@ -478,6 +500,13 @@ pub fn table(y: &Ir, profile: &str, array: &dyn Fn(u32) -> Option<Vec<u8>>) -> (
                             continue;
                         }
                     }
+                }
+                let ps = pieces(&v);
+                if 3 * ps.len() < v.len() {
+                    t.columns.push(col(4, t.column_values.len() as i64, ps.len() as i64));
+                    t.column_values.extend(ps.iter().flat_map(|&(x, d, c)| [x, d, c as i64]));
+                    folded.arithmetic += 1;
+                    continue;
                 }
                 t.columns.push(col(1, t.column_values.len() as i64, 0));
                 let mut prev = 0i64;
@@ -1269,6 +1298,23 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
                     let vals = t.column_values.get(a..a + count as usize).ok_or("a column past its values")?;
                     let mut acc = 0i64;
                     vals.iter().map(|d| { acc = acc.wrapping_add(*d); acc }).collect()
+                }
+                4 => {
+                    let a = usize::try_from(x).map_err(|_| "a column past its values")?;
+                    let k = usize::try_from(y).ok().and_then(|k| k.checked_mul(3)).ok_or("a column past its values")?;
+                    let vals = a.checked_add(k).and_then(|end| t.column_values.get(a..end)).ok_or("a column past its values")?;
+                    let mut v = Vec::with_capacity(count as usize);
+                    for p in vals.chunks(3) {
+                        let c = p[2];
+                        if c < 1 || c as u64 > count - v.len() as u64 {
+                            return Err(format!("column run {q}: pieces that are not its members"));
+                        }
+                        v.extend((0..c).map(|j| p[0].wrapping_add(j.wrapping_mul(p[1]))));
+                    }
+                    if v.len() as u64 != count {
+                        return Err(format!("column run {q}: pieces that are not its members"));
+                    }
+                    v
                 }
                 2 if ir.store => return Err("a column read from an array, in a store IR".into()),
                 2 => {
