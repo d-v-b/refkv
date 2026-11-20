@@ -1,7 +1,7 @@
 """The stored arrays of the SAFE fixtures (spec/stored-array.md §7
 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>), compared with the
 reference readers: rasterio (GDAL's JP2OpenJPEG driver), which reads a band file's image, in a
-process of its own (rasterio_jp2.py says why); imagecodecs (OpenJPEG), which decodes a
+process of its own (rasterio_process.py says why); imagecodecs (OpenJPEG), which decodes a
 codestream; and a reader of a JP2 file's boxes and its codestream's markers written here, which
 gives the places. Of each product, in the directory form and in the zip form,
 
@@ -54,7 +54,7 @@ from refkv.zarrify import Rejected, _zarrify
 from refkv.zarrify.common import Output
 
 pa = pytest.importorskip("pyarrow")
-# rasterio runs in a process of its own (rasterio_jp2.py), so it is looked for here, and not
+# rasterio runs in a process of its own (rasterio_process.py), so it is looked for here, and not
 # imported: where it is not installed, this module's tests are skipped, and with them those of
 # test_safe_presented.py, which imports this module
 if importlib.util.find_spec("rasterio") is None:
@@ -64,7 +64,7 @@ INPUTS = sorted(p for p in (FIXTURES / "safe").iterdir() if "reject" not in p.na
 SCHEMA = json.loads((ROOT / "spec" / "stored-array.json").read_text())
 URL = "https://data.test/safe/{}"
 METADATA = ("MTD_MSIL1C.xml", "MTD_MSIL2A.xml")
-RASTERIO = Path(__file__).with_name("rasterio_jp2.py")
+RASTERIO = Path(__file__).with_name("rasterio_process.py")
 SOC, SIZ, SOT, EOC = b"\xff\x4f", b"\xff\x51", b"\xff\x90", b"\xff\xd9"
 
 type Range = tuple[str | None, int, int]
@@ -239,7 +239,7 @@ def band_files(path: Path) -> dict[str, tuple[str | None, int, bytes]]:
 
 
 def rasterio_does(what: str, requests: list[dict]) -> dict[str, np.ndarray]:
-    """What rasterio makes of `requests`, in a process of its own (rasterio_jp2.py): the images it
+    """What rasterio makes of `requests`, in a process of its own (rasterio_process.py): the images it
     reads, or the files it writes."""
     done = subprocess.run([sys.executable, str(RASTERIO), what], input=json.dumps(requests).encode(),
                           capture_output=True, check=True)
@@ -472,7 +472,7 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
 
 def written(rows: int, columns: int, tile: tuple[int, int], *, samples: int = 1, bits: int = 8, layers: int = 1,
             precincts: str | None = None, seed: int = 0) -> dict:
-    """The request of a JP2 file (rasterio_jp2.py) of `rows` by `columns` pixels of `samples`
+    """The request of a JP2 file (rasterio_process.py) of `rows` by `columns` pixels of `samples`
     components of `bits` bits, in tiles of `tile` rows and columns, which may be more than the
     image's, in `layers` quality layers and precincts of the sizes `precincts` (None: of the
     largest, which a header does not list); three components go through the codestream's

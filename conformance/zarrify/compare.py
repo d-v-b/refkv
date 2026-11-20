@@ -667,8 +667,13 @@ FILE_SUFFIXES = {string(s): e for e in REGISTRY for s in sequence(e["suffixes"])
 
 
 def entry_of(path: Path):
-    """The registry entry of a fixture file, by the suffix its name ends in (`.nii.gz` has two)."""
-    return next(e for s, e in FILE_SUFFIXES.items() if path.name.endswith(s))
+    """The registry entry of a fixture file: its profile's, whose fixtures are under fixtures/<p>,
+    as two profiles may share a suffix (NIfTI's and ENVI's `.hdr`); else by the suffix its name ends
+    in (`.nii.gz` has two)."""
+    parts = path.parts[:-1]
+    below = {parts[i + 1] for i in range(len(parts) - 1) if parts[i] == "fixtures"}
+    by_dir = next((e for e in REGISTRY if e["name"] in below), None)
+    return by_dir or next(e for s, e in FILE_SUFFIXES.items() if path.name.endswith(s))
 
 
 def store_fixtures(fixtures: Path) -> list[Path]:
