@@ -68,10 +68,12 @@ variable**. The file is flat: the hierarchy's root is the file, its attributes t
 attributes ([§5](#5-attributes)), and its members an array per variable, in the header's order.
 
 A variable is presented at its name, when that is a **node name**: valid UTF-8, not empty, not `.`,
-`..` or `zarr.json` (the key of the root's own document), not starting with `__` (which Zarr v3 reserves), without `/`, and not `refkv_source`
-(reason `reserved`); otherwise it is not presented (reason `name`). When two variables have one
-name, the first keeps it, and a later one is not presented (reason `duplicate`). netCDF-C refuses
-to write any of these, so a file that has one was written by other software. A variable not
+`..` or `zarr.json` (the key of the root's own document), not starting with `__` (which Zarr v3
+reserves), without `/`, and not `refkv_source` (reason `reserved`); otherwise it is not presented
+(reason `name`). When two variables have one name, the first keeps it, and a later one is not
+presented (reason `duplicate`). netCDF-C refuses to write a name that is empty, `.`, `..`, not
+UTF-8, holds `/` or repeats another, so a file that has one was written by other software; it
+writes `zarr.json`, a name starting with `__` and `refkv_source`. A variable not
 presented is listed in the root's source metadata ([§6.1](#61-the-root)), and its bytes stay in the
 IR mirror.
 

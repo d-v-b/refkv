@@ -42,8 +42,8 @@ A Zarr v3 hierarchy, flat as the file is:
   the file is rebuilt byte for byte.
 
 **What is not presented**, and recorded instead: a variable whose name no Zarr
-node may take (empty, `.`, `..`, starting with `__`, holding `/`, not UTF-8,
-or `refkv_source`), or that repeats a name; an attribute named
+node may take (empty, `.`, `..`, `zarr.json`, starting with `__`, holding `/`,
+not UTF-8, or `refkv_source`), or that repeats a name; an attribute named
 `zarr_conventions` or `refkv_zarrified`; and a `_FillValue` that xarray's Zarr
 backend cannot decode (on a `char` variable, a NaN on an integer variable).
 [spec/zarrify/netcdf3.md](../../../spec/zarrify/netcdf3.md) gives each reason.
