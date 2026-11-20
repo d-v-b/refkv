@@ -29,7 +29,6 @@ import zarr.storage
 from astropy.io import fits
 from obspec_utils.registry import ObjectStoreRegistry
 from obstore.store import LocalStore
-from virtualizarr.parsers.fits import _attributes, _hdu_names
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.metadata import ArrayV3Metadata
 from zarr.core.sync import sync
@@ -40,6 +39,11 @@ from refkv.zarrify import zarrify
 from refkv.zarrify.layouts import Layout, LayoutRejected, LayoutUsageError, base, chunk_coords, encode_entries
 from refkv.zarrify.layouts.hierarchy import check
 from refkv.zarrify.layouts.virtualizarr import VirtualiZarr
+
+# the FITS oracle's helpers are VirtualiZarr's private ones, of 2.8.0 on: refkv's floor, 2.7.3, which
+# CI's minimum-versions job installs, has neither
+pytest.importorskip("virtualizarr", minversion="2.8.0")
+from virtualizarr.parsers.fits import _attributes, _hdu_names
 
 imagecodecs.numcodecs.register_codecs(verbose=False)  # VirtualiZarr's lzf arrays
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
