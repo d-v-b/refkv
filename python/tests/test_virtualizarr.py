@@ -5,6 +5,7 @@ conformance/virtualizarr compares RefkvParser with VirtualiZarr's own parsers.""
 import json
 
 import h5py
+import numcodecs
 import numpy as np
 import pytest
 import xarray as xr
@@ -18,6 +19,7 @@ import refkv
 from refkv import Concat, Policy, Range, ReferenceStore, Source
 from refkv.errors import ResolutionError
 from refkv.virtualizarr import RefkvParser, manifest_store
+from refkv.zarrify import Rejected
 from refkv.zarrify.layouts import Layout
 
 GROUP = b'{"zarr_format": 3, "node_type": "group", "attributes": {"title": "kinds"}}'
@@ -58,6 +60,21 @@ def source(tmp_path):
     path = tmp_path / "the source.bin"
     path.write_bytes(int32s(*range(8)))
     return path
+
+
+def v2_array():
+    """The documents and chunks of a Zarr v2 array, big-endian, in F order, with a
+    numcodecs filter and Blosc, no fill value and xarray's dimension names, under `v2/`; and its values."""
+    values = np.arange(12, dtype=">i2").reshape(3, 4)
+    memory: dict = {}
+    array = zarr.create_array(
+        memory, name="v2", shape=values.shape, chunks=(2, 2), dtype=values.dtype, zarr_format=2, order="F",
+        filters=[numcodecs.Delta(dtype=">i2")],  # pyrefly: ignore[bad-argument-type]
+        compressors=numcodecs.Blosc(shuffle=numcodecs.Blosc.BITSHUFFLE), fill_value=None,
+        attributes={"_ARRAY_DIMENSIONS": ["y", "x"], "units": "s"})
+    array[:2] = values[:2]  # the last row of chunks is left out: the fill value, the data type's default
+    return {k: v.to_bytes() for k, v in memory.items() if k.startswith("v2/")}, np.where(
+        np.arange(3)[:, None] < 2, values, 0)
 
 
 def kinds_store(tmp_path, source):
@@ -141,6 +158,14 @@ def test_manifest_store(tmp_path, source, registry):
         everything = manifest_store(store, registry)
         np.testing.assert_array_equal(read(everything, "skipped"), [16, 17])
 
+    # a Zarr v2 hierarchy, as Zarr v3: the array's values, and _ARRAY_DIMENSIONS its dimension names
+    documents, values = v2_array()
+    v2_store = ReferenceStore({".zgroup": b'{"zarr_format": 2}', **documents}, [])
+    v2 = manifest_store(v2_store, registry)
+    np.testing.assert_array_equal(read(v2, "v2"), values, strict=True)
+    metadata = v2._group.arrays["v2"].metadata
+    assert (metadata.dimension_names, metadata.attributes) == (("y", "x"), {"units": "s"})
+
 
 def test_from_virtualizarr_roundtrip(tmp_path, registry):
     """A virtual dataset through a ReferenceStore and back keeps its references and values."""
@@ -170,7 +195,9 @@ def test_refkv_parser(tmp_path, registry):
 
     for url in (str(path), path.as_uri()):
         result = RefkvParser()(url, registry)
+        # the refkv.virtualizarr layout: no mirror, and none of refkv's declarations
         assert "refkv_source" not in result._group.groups
+        assert "refkv_zarrified" not in result._group.metadata.attributes
         np.testing.assert_array_equal(read(result, "a"), data)
         np.testing.assert_array_equal(read(result, "g/b"), data)
         assert result._group.arrays["a"].manifest.shape_chunk_grid == (2, 2)
@@ -185,6 +212,28 @@ def test_refkv_parser(tmp_path, registry):
 
     with open_virtual_dataset(path.as_uri(), registry=registry, parser=RefkvParser()) as vds:
         assert set(vds.variables) == {"a"}
+
+    # an ENVI raster by its data file, as VirtualiZarr names it: a format the default layout does
+    # not read, so refkv's default layout, from the header beside it
+    raster = np.arange(12, dtype="<i2").reshape(1, 3, 4)
+    (tmp_path / "e.img").write_bytes(raster.tobytes())
+    (tmp_path / "e.hdr").write_text(ENVI_HEADER)
+    envi = RefkvParser()((tmp_path / "e.img").as_uri(), registry)
+    [name] = envi._group.arrays
+    np.testing.assert_array_equal(read(envi, name), raster, strict=True)
+
+
+ENVI_HEADER = ("ENVI\nsamples = 4\nlines = 3\nbands = 1\nheader offset = 0\nfile type = ENVI Standard\n"
+               "data type = 2\ninterleave = bsq\nbyte order = 0\n")
+
+
+def test_unsupported_input_without_header_raises(tmp_path, registry):
+    """An input no profile accepts, with no ENVI header beside it, is refused as zarrify
+    refuses it."""
+    path = tmp_path / "e.img"
+    path.write_bytes(bytes(24))
+    with pytest.raises(Rejected, match="not a file of any supported format"):
+        RefkvParser()(path.as_uri(), registry)
 
 
 def test_scheme_outside_policy_raises(registry):

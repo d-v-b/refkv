@@ -38,10 +38,10 @@ from refkv import _sync
 from refkv._extras import missing
 from refkv.errors import ResolutionError
 from refkv.pb import parts
-from refkv.uri import file_path
 from refkv.uri import resolve as resolve_uri
-from refkv.zarrify import zarrify
+from refkv.zarrify import Rejected, zarrify
 from refkv.zarrify.common import SOURCE_NODE
+from refkv.zarrify.layouts import Layout, LayoutRejected
 
 try:
     import zarr
@@ -49,7 +49,6 @@ try:
     from obspec_utils.registry import ObjectStoreRegistry
     from virtualizarr.manifests import ChunkManifest, ManifestArray, ManifestGroup, ManifestStore
     from virtualizarr.manifests.manifest import ChunkEntry
-    from virtualizarr.parsers.zarr.common import metadata_as_v3
     from zarr.core.metadata import ArrayV2Metadata, ArrayV3Metadata
 except ImportError as e:
     raise missing("virtualizarr", "VirtualiZarr manifest stores (refkv.virtualizarr)", e) from e
@@ -57,14 +56,17 @@ except ImportError as e:
 import refkv.zarr
 
 if TYPE_CHECKING:
+    from zarr.abc.numcodec import Numcodec
+
     from refkv.policy import Policy
     from refkv.reader import ReferenceReader
-    from refkv.zarrify.layouts import Layout
 
 __all__ = ["DEFAULT_LAYOUT", "RefkvParser", "manifest_store"]
 
-DEFAULT_LAYOUT: Layout | None = None
-"""The layout `RefkvParser` zarrifies with when given none: None, refkv's default layout."""
+DEFAULT_LAYOUT: Layout | None = Layout("refkv.virtualizarr")
+"""The layout `RefkvParser` zarrifies with when given none: `refkv.virtualizarr`
+(`refkv.zarrify.layouts.virtualizarr`), which presents a file as VirtualiZarr's own parsers
+present it."""
 
 _METADATA_KEYS = frozenset({"zarr.json", ".zarray", ".zattrs", ".zgroup", ".zmetadata"})
 """The names of a node's metadata documents, in Zarr v3 and v2: what an array's keys hold
@@ -81,7 +83,13 @@ class RefkvParser:
     - `policy`: the `refkv.Policy` refkv reads `url` under, and that the chunks' sources must
       satisfy; None for the policy `refkv.zarrify.zarrify` gives the store it builds.
     - `layout`: the `refkv.zarrify.layouts.Layout` to zarrify with; `DEFAULT_LAYOUT` when not
-      given.
+      given, None for refkv's default layout. An input of a format the layout does not read is
+      zarrified with refkv's default layout instead, so that the parser takes any input refkv
+      can zarrify.
+
+    VirtualiZarr names an ENVI raster by its data file, refkv by its `.hdr` header: an input no
+    profile accepts is zarrified by the header beside it, found as `ENVIParser` finds it (the
+    input's name with `.hdr` added, then with its suffix replaced by `.hdr`), where there is one.
 
     refkv's mirror of the file's own structure (the `refkv_source` group, spec/conventions.md
     §2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>) describes
@@ -102,13 +110,46 @@ class RefkvParser:
 
     def __call__(self, url: str, registry: ObjectStoreRegistry[Any]) -> ManifestStore:
         """The ManifestStore of the file or store at `url`, read through `registry`."""
-        # VirtualiZarr names a local input by its file: URL, which zarrify does not take yet; it
-        # reads the same file by its path
-        location = file_path(url) if url.startswith("file:") else url
-        store = zarrify(location, policy=self.policy, registry=registry, layout=self.layout)
+        try:
+            store = self._zarrify(url, registry)
+        except LayoutRejected:
+            raise
+        except Rejected:
+            header = _envi_header(url, registry)
+            if header is None:
+                raise
+            store = self._zarrify(header, registry)
         # the mirror is left out of the traversal, not converted and then dropped
         mirror = frozenset() if self.group else frozenset({SOURCE_NODE})
         return _sync.run(_manifest_store(store, registry, self.group, set(self.skip_variables or ()), mirror))
+
+    def _zarrify(self, url: str, registry: ObjectStoreRegistry[Any]) -> ReferenceReader:
+        """`url` zarrified with the parser's layout, or with refkv's default layout where the
+        parser's does not read its format."""
+        try:
+            return zarrify(url, policy=self.policy, registry=registry, layout=self.layout)
+        except LayoutRejected:
+            if self.layout is None:
+                raise
+            # read again: zarrify does not hand back the output it built for the layout
+            return zarrify(url, policy=self.policy, registry=registry)
+
+
+def _envi_header(url: str, registry: ObjectStoreRegistry[Any]) -> str | None:
+    """The URL of the ENVI header beside the data file at `url`, as `ENVIParser` finds it: `url`
+    with `.hdr` added, else with its suffix replaced by `.hdr`; None where neither exists or the
+    registry holds no store for `url`."""
+    head, _, name = url.rpartition("/")
+    stem = name.rpartition(".")[0]
+    candidates = [f"{url}.hdr"] + ([f"{head}/{stem}.hdr"] if stem else [])
+    for candidate in candidates:
+        try:
+            store, path = registry.resolve(candidate)
+            store.head(path)
+        except (ValueError, FileNotFoundError):
+            continue
+        return candidate
+    return None
 
 
 def manifest_store(
@@ -183,7 +224,7 @@ async def _manifest_array(
     """The ManifestArray of `array`: its metadata as Zarr v3, and an entry for each chunk the
     store holds. A chunk it does not hold is missing from the manifest too, so a reader gives
     the fill value for it."""
-    metadata = metadata_as_v3(array.metadata)
+    metadata = _metadata_v3(array.metadata)
     chunk_grid = metadata.chunk_grid
     chunk_shape = getattr(chunk_grid, "chunk_shape", None)
     if chunk_shape is None:
@@ -196,6 +237,69 @@ async def _manifest_array(
     manifest = {_manifest_key(key[len(prefix):], array.metadata): e
                 for key, e in zip(keys, entries, strict=True)}
     return ManifestArray(metadata=metadata, chunkmanifest=ChunkManifest(manifest, shape=grid))
+
+
+def _metadata_v3(metadata: ArrayV2Metadata | ArrayV3Metadata) -> ArrayV3Metadata:
+    """`metadata` as Zarr v3, its chunk key encoding `default` with `.` between coordinates,
+    the keys a ManifestStore gives its chunks."""
+    document = metadata.to_dict() if isinstance(metadata, ArrayV3Metadata) else _v2_as_v3(metadata)
+    document["chunk_key_encoding"] = {"name": "default", "configuration": {"separator": "."}}
+    return ArrayV3Metadata.from_dict(document)
+
+
+def _v2_as_v3(metadata: ArrayV2Metadata) -> dict[str, Any]:
+    """The Zarr v3 document of the Zarr v2 array `metadata`, as zarr-python's `migrate_v2_to_v3`
+    writes it, and as VirtualiZarr's ZarrParser presents it: a missing fill value is the data
+    type's default, and the `_ARRAY_DIMENSIONS` attribute is the array's dimension names."""
+    attributes = dict(metadata.attributes)
+    names = attributes.pop("_ARRAY_DIMENSIONS", None)
+    codecs: list[dict[str, Any]] = []
+    if metadata.order == "F" and len(metadata.shape) > 1:
+        codecs.append({"name": "transpose", "configuration": {"order": list(range(len(metadata.shape)))[::-1]}})
+    codecs.extend(_numcodecs(f) for f in metadata.filters or ())
+    endian = getattr(metadata.dtype, "endianness", None)
+    codecs.append({"name": "bytes", "configuration": {"endian": endian}} if endian else {"name": "bytes"})
+    dtype = metadata.dtype
+    if metadata.compressor is not None:
+        codecs.append(_compressor(metadata.compressor, dtype.to_native_dtype().itemsize))
+    fill = dtype.default_scalar() if metadata.fill_value is None else metadata.fill_value
+    return {
+        "zarr_format": 3,
+        "node_type": "array",
+        "shape": list(metadata.shape),
+        "data_type": dtype.to_json(zarr_format=3),
+        "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": list(metadata.chunks)}},
+        "chunk_key_encoding": {"name": "default"},
+        "fill_value": dtype.to_json_scalar(fill, zarr_format=3),
+        "codecs": codecs,
+        "attributes": attributes,
+        "dimension_names": names,
+    }
+
+
+_BLOSC_SHUFFLES = {0: "noshuffle", 1: "shuffle", 2: "bitshuffle"}
+"""Zarr v3's names for numcodecs' Blosc shuffles."""
+
+
+def _compressor(codec: Numcodec, item_size: int) -> dict[str, Any]:
+    """The Zarr v3 codec of the Zarr v2 compressor `codec`: Zarr v3's own `gzip`, `zstd` or
+    `blosc`, as zarr-python's `migrate_v2_to_v3` writes them, else its numcodecs codec."""
+    config = codec.get_config()
+    if codec.codec_id == "gzip":
+        return {"name": "gzip", "configuration": {"level": config["level"]}}
+    if codec.codec_id == "zstd":
+        return {"name": "zstd", "configuration": {"level": config["level"], "checksum": config.get("checksum", False)}}
+    if codec.codec_id == "blosc" and config["shuffle"] in _BLOSC_SHUFFLES:
+        return {"name": "blosc", "configuration": {
+            "typesize": item_size, "cname": config["cname"], "clevel": config["clevel"],
+            "shuffle": _BLOSC_SHUFFLES[config["shuffle"]], "blocksize": config["blocksize"]}}
+    return _numcodecs(codec)
+
+
+def _numcodecs(codec: Numcodec) -> dict[str, Any]:
+    """The Zarr v3 codec of the numcodecs codec `codec`, as zarr-python names it."""
+    config = {k: v for k, v in codec.get_config().items() if k != "id"}
+    return {"name": f"numcodecs.{codec.codec_id}", "configuration": config}
 
 
 def _manifest_key(chunk_key: str, metadata: ArrayV2Metadata | ArrayV3Metadata) -> str:

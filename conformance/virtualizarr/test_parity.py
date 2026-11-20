@@ -51,17 +51,20 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @dataclass(frozen=True)
 class Gap:
-    """A gap of https://github.com/d-v-b/refkv/issues/271, by the heading of its item, and the
-    exception a comparison fails with while it is open."""
+    """A gap of https://github.com/d-v-b/refkv/issues/271, by the heading of its item (or, for
+    one the issue does not list yet, what differs), and the exception a comparison fails with
+    while it is open."""
 
     reason: str
     raises: type[BaseException] = AssertionError
 
 
 SOURCE_METADATA = Gap("#271 'Separate source metadata from dataset attributes'")
-FITS_NAMES = Gap("#271 'Decide array names for FITS': refkv names the primary HDU '0', FITSParser 'PRIMARY'")
+FITS_BYTE_ORDER = Gap("not yet in #271: the refkv.virtualizarr layout gives a FITS image's data type "
+                      "little-endian, FITSParser big-endian")
 NETCDF3 = Gap("#271 'Support the missing formats': netCDF3 is not a file of any supported format", Rejected)
-ENVI = Gap("#271 'Support the missing formats': ENVI is not a file of any supported format", Rejected)
+ENVI_NAMES = Gap("not yet in #271: the refkv.virtualizarr layout does not read ENVI, so refkv names the "
+                 "array '0', ENVIParser by the data file's stem")
 
 ASPECTS = ("arrays", "shape", "data type", "fill value", "dimension names", "attributes",
            "byte ranges", "values", "root attributes")
@@ -178,25 +181,14 @@ CASES = {
 
 ALL = "*"
 KNOWN_GAPS: dict[tuple[str, str], Gap] = {
-    ("netCDF4 chunked and gzip", "attributes"): SOURCE_METADATA,
-    ("netCDF4 chunked and gzip", "root attributes"): SOURCE_METADATA,
-    ("netCDF4 packed with fill", "attributes"): SOURCE_METADATA,
-    ("netCDF4 packed with fill", "root attributes"): SOURCE_METADATA,
-    ("netCDF4 vlen strings", "attributes"): SOURCE_METADATA,
-    ("netCDF4 vlen strings", "root attributes"): SOURCE_METADATA,
-    ("netCDF4 in a group", "attributes"): SOURCE_METADATA,
-    ("netCDF4 in a group", "root attributes"): SOURCE_METADATA,
-    ("HDF5 without dimension scales", "attributes"): SOURCE_METADATA,
-    ("HDF5 without dimension scales", "root attributes"): SOURCE_METADATA,
-    ("zipped Zarr v3", "root attributes"): SOURCE_METADATA,
-    # the default layout keeps a v2 array's _ARRAY_DIMENSIONS among the source's attributes
+    # the refkv.virtualizarr layout does not read Zarr v2, and refkv's default layout keeps a v2
+    # array's _ARRAY_DIMENSIONS among the source's attributes
     ("Zarr v2 directory", "dimension names"): SOURCE_METADATA,
     ("Zarr v2 directory", "attributes"): SOURCE_METADATA,
     ("Zarr v2 directory", "root attributes"): SOURCE_METADATA,
-    ("Zarr v3 directory", "root attributes"): SOURCE_METADATA,
     ("netCDF3", ALL): NETCDF3,
-    ("ENVI", ALL): ENVI,
-    ("FITS image", ALL): FITS_NAMES,
+    ("ENVI", ALL): ENVI_NAMES,
+    ("FITS image", "data type"): FITS_BYTE_ORDER,
 }
 """The differences #271 tracks, by (case, aspect), `*` for every aspect of a case."""
 
@@ -297,6 +289,21 @@ def test_parity(parsed: Callable[[str], Any], case: str, aspect: str) -> None:
     if isinstance(ours, Exception):
         raise ours
     assert differences(theirs, ours, aspect) == []
+
+
+@pytest.mark.parametrize("header", ["e.hdr", "e.img.hdr"])
+def test_envi_by_data_file(tmp_path: Path, registry: ObjectStoreRegistry, header: str) -> None:
+    """RefkvParser, given an ENVI raster's data file as ENVIParser is, finds the header beside
+    it by either of ENVIParser's conventions, and gives the same array whatever its name."""
+    data = envi(tmp_path)
+    (tmp_path / "e.hdr").rename(tmp_path / header)
+    theirs = ENVIParser()(data.as_uri(), registry)
+    ours = RefkvParser()(data.as_uri(), registry)
+    [(x_name, x)] = theirs._group.arrays.items()
+    [(y_name, y)] = ours._group.arrays.items()
+    assert (y.metadata.shape, str(y.metadata.data_type)) == (x.metadata.shape, str(x.metadata.data_type))
+    assert manifest_ranges(y.manifest) == manifest_ranges(x.manifest)
+    np.testing.assert_array_equal(read(ours, y_name), read(theirs, x_name), strict=True)
 
 
 def test_numpy_floor() -> None:
