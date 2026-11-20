@@ -14,7 +14,8 @@ A manifest entry is one byte range of one object, so the conversion maps each ch
 - a bytes value, and a reference whose ranges are all literal bytes, `data` sources or `key`
   sources, becomes an inlined entry;
 - a reference made from several ranges, at least one of a url source (an HDF5 `vlen-utf8`
-  chunk, a JPEG tile with its shared tables), is read now and inlined, which copies its bytes.
+  chunk, a JPEG tile with its shared tables), is read now and inlined, which copies its bytes,
+  as is a range of an object whose name holds a `#` or `?`, which a manifest path cannot name.
 
 The ManifestStore reads its manifests' URLs through the registry without refkv's reader policy,
 so each url source is checked against the store's policy here, and the pins and checksums a
@@ -35,6 +36,7 @@ from urllib.parse import unquote
 
 from refkv import _sync
 from refkv._extras import missing
+from refkv.errors import ResolutionError
 from refkv.pb import parts
 from refkv.uri import file_path
 from refkv.uri import resolve as resolve_uri
@@ -104,18 +106,9 @@ class RefkvParser:
         # reads the same file by its path
         location = file_path(url) if url.startswith("file:") else url
         store = zarrify(location, policy=self.policy, registry=registry, layout=self.layout)
-        result = manifest_store(store, registry, group=self.group, skip_variables=self.skip_variables)
-        root = result._group  # noqa: SLF001 (VirtualiZarr has no public accessor)
-        if SOURCE_NODE not in root.groups:
-            return result
-        return ManifestStore(
-            group=ManifestGroup(
-                arrays=root.arrays,
-                groups={k: v for k, v in root.groups.items() if k != SOURCE_NODE},
-                attributes=root.metadata.attributes,
-            ),
-            registry=registry,
-        )
+        # the mirror is left out of the traversal, not converted and then dropped
+        mirror = frozenset() if self.group else frozenset({SOURCE_NODE})
+        return _sync.run(_manifest_store(store, registry, self.group, set(self.skip_variables or ()), mirror))
 
 
 def manifest_store(
@@ -139,7 +132,7 @@ def manifest_store(
     Raises `refkv.errors.ResolutionError` for a url source the store's policy refuses, and
     NotImplementedError for an array whose chunk grid is not regular.
     """
-    return _sync.run(_manifest_store(store, registry, group, set(skip_variables or ())))
+    return _sync.run(_manifest_store(store, registry, group, set(skip_variables or ()), frozenset()))
 
 
 async def _manifest_store(
@@ -147,9 +140,11 @@ async def _manifest_store(
     registry: ObjectStoreRegistry[Any],
     group: str | None,
     skip: set[str],
+    skip_groups: frozenset[str],
 ) -> ManifestStore:
-    urls: dict[int, str] = {}
-    root = await _manifest_group(refkv.zarr.store(store), store, registry, group, skip, urls)
+    """`manifest_store`, leaving out the groups `skip_groups` of the root."""
+    urls: dict[int, str | None] = {}
+    root = await _manifest_group(refkv.zarr.store(store), store, registry, group, skip, urls, skip_groups)
     return ManifestStore(group=root, registry=registry)
 
 
@@ -159,15 +154,16 @@ async def _manifest_group(
     registry: ObjectStoreRegistry[Any],
     path: str | None,
     skip: set[str],
-    urls: dict[int, str],
+    urls: dict[int, str | None],
+    skip_groups: frozenset[str] = frozenset(),
 ) -> ManifestGroup:
-    """The ManifestGroup of the group at `path`, its subgroups included."""
+    """The ManifestGroup of the group at `path`, its subgroups but `skip_groups` included."""
     node = await zarr.api.asynchronous.open_group(store=zarr_store, path=path or "", mode="r")
     names = [name async for name in node.array_keys() if name not in skip]
     nodes = await asyncio.gather(*(node.getitem(name) for name in names))
     arrays = await asyncio.gather(
         *(_manifest_array(cast("zarr.AsyncArray[Any]", a), store, registry, urls) for a in nodes))
-    children = [name async for name in node.group_keys()]
+    children = [name async for name in node.group_keys() if name not in skip_groups]
     groups = await asyncio.gather(
         *(_manifest_group(zarr_store, store, registry, f"{path}/{name}" if path else name, skip, urls)
           for name in children))
@@ -182,7 +178,7 @@ async def _manifest_array(
     array: zarr.AsyncArray[Any],
     store: ReferenceReader,
     registry: ObjectStoreRegistry[Any],
-    urls: dict[int, str],
+    urls: dict[int, str | None],
 ) -> ManifestArray:
     """The ManifestArray of `array`: its metadata as Zarr v3, and an entry for each chunk the
     store holds. A chunk it does not hold is missing from the manifest too, so a reader gives
@@ -217,7 +213,7 @@ async def _entry(
     key: str,
     store: ReferenceReader,
     registry: ObjectStoreRegistry[Any],
-    urls: dict[int, str],
+    urls: dict[int, str | None],
 ) -> ChunkEntry:
     """The manifest entry of the chunk at `key`."""
     value = await store.value_async(key)
@@ -226,19 +222,22 @@ async def _entry(
     external = [r for r in ranges if r.data is None and sources[r.source].url is not None]
     if len(ranges) == 1 and external:
         r = external[0]
-        return ChunkEntry.with_validation(
-            path=_source_url(r.source, store, registry, urls), offset=r.offset, length=r.length)
-    # bytes, a reference with nothing to read outside the store, or one made from several
-    # ranges, which a manifest entry cannot hold: the store reads it, under its own policy
+        path = _source_url(r.source, store, registry, urls)
+        if path is not None:
+            return ChunkEntry.with_validation(path=path, offset=r.offset, length=r.length)
+    # bytes, a reference with nothing to read outside the store, one made from several ranges,
+    # or one of an object a manifest path cannot name: the store reads it, under its own policy
     data = await store.get_async(key)
     if data is None:  # listed a moment ago; a store that changes under the conversion
         raise KeyError(key)
     return ChunkEntry.with_validation(path="", offset=0, length=len(data), inlined_data=data)
 
 
-def _source_url(index: int, store: ReferenceReader, registry: ObjectStoreRegistry[Any], urls: dict[int, str]) -> str:
+def _source_url(index: int, store: ReferenceReader, registry: ObjectStoreRegistry[Any],
+                urls: dict[int, str | None]) -> str | None:
     """The absolute URL of the url source `index`, once the store's policy has allowed it, as
-    the registry takes it."""
+    the registry takes it; None for an object whose name has a `#` or `?`, which a manifest path
+    cannot hold (the ManifestStore cuts its paths there), so that its chunks are inlined."""
     if index not in urls:
         url = resolve_uri(store.url, cast("str", store.sources[index].url))
         try:
@@ -250,7 +249,14 @@ def _source_url(index: int, store: ReferenceReader, registry: ObjectStoreRegistr
         # last place to apply it
         store.policy.check(url, registered=registered)
         if url.startswith("file:"):
-            store.policy.check_file(url)
+            try:
+                store.policy.check_file(url)
+            # a file: URL that breaks the rules of spec §5
+            # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>, as the reader
+            # reports it
+            except ValueError as e:
+                raise ResolutionError(f"{url}: {e}") from None
         # refkv's URLs are percent-encoded, and a registry takes an object's path as written
-        urls[index] = unquote(url)
+        path = unquote(url)
+        urls[index] = None if "#" in path or "?" in path else path
     return urls[index]

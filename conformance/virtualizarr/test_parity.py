@@ -31,6 +31,7 @@ from astropy.io import fits
 from obspec_utils.registry import ObjectStoreRegistry
 from obstore.store import LocalStore
 from packaging.requirements import Requirement
+from packaging.version import Version
 from virtualizarr.manifests import ManifestStore
 from virtualizarr.parsers import (
     ENVIParser,
@@ -317,4 +318,4 @@ def test_numpy_floor() -> None:
 
     ours = tomllib.loads((ROOT / "python" / "pyproject.toml").read_text())["project"]["dependencies"]
     theirs = requires("virtualizarr") or []
-    assert tuple(map(int, floor(ours).split("."))) <= tuple(map(int, floor(theirs).split(".")))
+    assert Version(floor(ours)) <= Version(floor(theirs))

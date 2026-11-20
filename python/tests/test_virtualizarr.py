@@ -65,7 +65,7 @@ def kinds_store(tmp_path, source):
     return ReferenceStore(
         {
             "zarr.json": GROUP,
-            "kinds/zarr.json": array_document([14], [2]),
+            "kinds/zarr.json": array_document([18], [2]),
             # a range of a url source, and the same in a Concat of one
             "kinds/c/0": Range(source=0, offset=0, length=8),
             "kinds/c/1": Concat((Range(source=0, offset=8, length=8),)),
@@ -76,7 +76,9 @@ def kinds_store(tmp_path, source):
             "kinds/c/5": Range(source=3, offset=0, length=8),
             # several ranges, one of a url source: read now and inlined
             "kinds/c/6": Concat((Range(data=int32s(20)), Range(source=0, offset=4, length=4))),
-            # kinds/c/7 is missing
+            # a range of a file whose name has a '#', which a manifest path cannot name: inlined
+            "kinds/c/7": Range(source=4, offset=0, length=8),
+            # kinds/c/8 is missing
             "dots/zarr.json": array_document([2, 2], [1, 1], separator="."),
             "dots/c.0.0": int32s(1),
             "dots/c.1.1": int32s(2),
@@ -96,6 +98,7 @@ def kinds_store(tmp_path, source):
             Source(data=int32s(14, 15)),
             Source(url="the%20source.bin"),
             Source(key="skipped/c/0"),
+            Source(url="a%23b.bin"),
         ],
         url=f"{tmp_path.as_uri()}/",
         policy=Policy(schemes=frozenset({"file"})),
@@ -105,6 +108,7 @@ def kinds_store(tmp_path, source):
 def test_manifest_store(tmp_path, source, registry):
     """Every kind of chunk, from a store in memory and the same store saved, with and without
     group= and skip_variables=, reads back the store's values through the ManifestStore."""
+    (tmp_path / "a#b.bin").write_bytes(int32s(30, 31))
     in_memory = kinds_store(tmp_path, source)
     in_memory.save_vzip(tmp_path / "kinds.vzip")
     saved = refkv.open(str(tmp_path / "kinds.vzip"), policy=Policy(schemes=frozenset({"file"})))
@@ -114,7 +118,8 @@ def test_manifest_store(tmp_path, source, registry):
         result = manifest_store(store, registry, skip_variables=["skipped"])
         assert dict(zarr.open_group(result, mode="r", zarr_format=3).attrs) == {"title": "kinds"}
         assert dict(zarr.open_array(result, path="kinds", mode="r", zarr_format=3).attrs) == {"units": "m"}
-        np.testing.assert_array_equal(read(result, "kinds"), [0, 1, 2, 3, 10, 11, 12, 13, 14, 15, 16, 17, 20, 1])
+        np.testing.assert_array_equal(
+            read(result, "kinds"), [0, 1, 2, 3, 10, 11, 12, 13, 14, 15, 16, 17, 20, 1, 30, 31, -1, -1])
         np.testing.assert_array_equal(read(result, "dots"), [[1, -1], [-1, 2]])
         np.testing.assert_array_equal(read(result, "v2_keys"), [-1, 3])
         assert read(result, "scalar") == 4
@@ -126,7 +131,7 @@ def test_manifest_store(tmp_path, source, registry):
         inlined = {"path": "__inlined__", "offset": 0, "length": 8}
         assert refs == {(0,): {"path": url, "offset": 0, "length": 8},
                         (1,): {"path": url, "offset": 8, "length": 8},
-                        **dict.fromkeys([(2,), (3,), (4,), (5,), (6,)], inlined)}
+                        **dict.fromkeys([(2,), (3,), (4,), (5,), (6,), (7,)], inlined)}
         inner = dict(result._group.groups["nested"].arrays["inner"].manifest.iter_refs())
         assert inner == {(0,): {"path": url, "offset": 24, "length": 8}}
 
@@ -209,4 +214,17 @@ def test_inlined_local_source_not_allowed_raises(source, registry):
         [Source(url=source.as_uri())],
     )
     with pytest.raises(ResolutionError, match="reads a local file only when it is allowed"):
+        manifest_store(store, registry)
+
+
+def test_malformed_local_source_raises(tmp_path, registry):
+    """A file: source that breaks the rules of spec §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table> is refused as the reader
+    refuses it."""
+    store = ReferenceStore(
+        {"zarr.json": GROUP, "a/zarr.json": array_document([1], [1]), "a/c/0": Range(length=4)},
+        [Source(url=f"{tmp_path.as_uri()}/a%2Fb.bin")],
+        policy=Policy(prefixes=(f"{tmp_path.as_uri()}/",)),
+    )
+    with pytest.raises(ResolutionError, match=r"a%2Fb\.bin: "):
         manifest_store(store, registry)
