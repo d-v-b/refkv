@@ -152,7 +152,7 @@ def _envi_header(url: str, registry: ObjectStoreRegistry[Any]) -> str | None:
             return None
         try:
             store.head(path)
-        except Exception:  # noqa: BLE001 (any failed probe is no header; the caller's Rejected stands)
+        except Exception:  # noqa: BLE001, S112 (any failed probe is no header; the caller's Rejected stands)
             continue
         return candidate
     return None
