@@ -24,7 +24,10 @@ A line of the manifest is one input's record, a JSON object:
     reference's parts with their checksums);
   - `mirror`: its entries under `refkv_source/`;
   - `sources`: its source table;
-  - `placement`: which entries a reader is given at open, and which are compressed;
+  - `order`: its keys in the order the store holds them, which is the order `save_vzip` writes
+    their values in;
+  - `placement`: which entries a reader is given at open, which are compressed, and the page
+    size;
   - `summary`: its summary, without the read planner's counts, which depend on timing.
 
   `checksums` holds only the members that differ from `plain`'s, where both are outputs, and is
@@ -121,8 +124,10 @@ def result(name: str, checksums: bool) -> dict[str, Any]:
         "layout": digest([x for x in lines if not x.startswith(MIRROR)]),
         "mirror": digest([x for x in lines if x.startswith(MIRROR)]),
         "sources": digest(sources(store)),
+        "order": digest(list(store.mapping)),
         "placement": digest([f"open {k}" for k in sorted(store.read_at_open)]
-                            + [f"compressed {k}" for k in sorted(store.compressed)]),
+                            + [f"compressed {k}" for k in sorted(store.compressed)]
+                            + [f"page_size {store.page_size}"]),
         "summary": digest([json.dumps(summary, sort_keys=True, ensure_ascii=False)]),
     }
 
