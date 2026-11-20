@@ -1,0 +1,18 @@
+{
+  "source_model": "netcdf3",
+  "version": 1,
+  "about": "The source model of a netCDF3 file (spec/zarrify/netcdf3.md §6.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#63-the-ir-mirror>): the elements a parser emits, and the bounds of what it reads (§7.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#74-checks>). The checks are the reader's (`netcdf3/mod.rs`), in the profile's order; projections read a valid IR and check nothing.",
+  "limits": {
+    "first_read": 65536,
+    "header_bytes": 67108864
+  },
+  "tables": {},
+  "elements": {
+    "about": "The IR of a netCDF3 file: its header, the data of each fixed-size variable, and the records. Bytes no element claims are gaps.",
+    "header": {"kind": "value", "type": "bytes[n]", "about": "the header, from byte 0 to the end of its variable list"},
+    "variables/<k>": {"kind": "data", "about": "the values of the fixed-size variable at position k of the header, whose form is {recipe: [[src, 0, null]]}"},
+    "records": {"kind": "data", "about": "the records, from the least begin of a record variable to the end of the last record or the file's end, whichever is first"},
+    "gaps/<offset>": {"kind": "gap"}
+  },
+  "roles": {}
+}

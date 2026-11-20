@@ -43,6 +43,7 @@ CASES = [
     ("h5j/h5j_two_channels.h5j", "av", False),
     ("hdf4/hdf4_layouts.hdf", None, False),
     ("hdf4/hdf4_groups.hdf", None, False),
+    ("netcdf3/netcdf3_classic.nc", None, False),
     ("hdf5/hdf5_attributes.h5", None, False),
     ("hdf5/hdf5_compounds.h5", None, False),
     ("ims/ims_2d_no_metadata.ims", None, False),

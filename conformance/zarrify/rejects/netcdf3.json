@@ -1,0 +1,70 @@
+{
+  "about": "The inputs the netcdf3 profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/netcdf3.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "netcdf3_reject_header_truncated",
+      "input": "netcdf3_reject_header_truncated.nc",
+      "message": "the header runs past the end of the file"
+    },
+    {
+      "test": "netcdf3_reject_dimension_tag",
+      "input": "netcdf3_reject_dimension_tag.nc",
+      "message": "the dimension list has the tag 13 and 1 elements"
+    },
+    {
+      "test": "netcdf3_reject_attribute_type",
+      "input": "netcdf3_reject_attribute_type.nc",
+      "message": "the attribute x has the unknown type 12"
+    },
+    {
+      "test": "netcdf3_reject_cdf5_type",
+      "input": "netcdf3_reject_cdf5_type.nc",
+      "message": "variable 0 has the type 7, of CDF-5 only"
+    },
+    {
+      "test": "netcdf3_reject_dimension_id",
+      "input": "netcdf3_reject_dimension_id.nc",
+      "message": "variable 0 names the dimension 7, of 1"
+    },
+    {
+      "test": "netcdf3_reject_unlimited_axis",
+      "input": "netcdf3_reject_unlimited_axis.nc",
+      "message": "variable 0 has the unlimited dimension at axis 1"
+    },
+    {
+      "test": "netcdf3_reject_too_big",
+      "input": "netcdf3_reject_too_big.nc",
+      "message": "variable 0 holds more than 2^64 bytes"
+    },
+    {
+      "test": "netcdf3_reject_variable_past_end",
+      "input": "netcdf3_reject_variable_past_end.nc",
+      "message": "variable 0 (8 bytes at byte 80) runs past the end of the file"
+    },
+    {
+      "test": "netcdf3_reject_variable_in_header",
+      "input": "netcdf3_reject_variable_in_header.nc",
+      "message": "variable 0 begins at byte 8, inside the header of 80 bytes"
+    },
+    {
+      "test": "netcdf3_reject_slices_overlap",
+      "input": "netcdf3_reject_slices_overlap.nc",
+      "message": "the slices of record variable 0 overlap the next"
+    },
+    {
+      "test": "netcdf3_reject_records_past_end",
+      "input": "netcdf3_reject_records_past_end.nc",
+      "message": "record 2 of variable 0 runs past the end of the file"
+    },
+    {
+      "test": "netcdf3_reject_variables_overlap",
+      "input": "netcdf3_reject_variables_overlap.nc",
+      "message": "variables 0 and 1 overlap"
+    },
+    {
+      "test": "netcdf3_reject_records_overlap",
+      "input": "netcdf3_reject_records_overlap.nc",
+      "message": "variable 0 and the records overlap"
+    }
+  ]
+}
