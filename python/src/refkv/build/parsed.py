@@ -40,11 +40,17 @@ if TYPE_CHECKING:
     from refkv.zarrify import _Parse
     from refkv.zarrify.store.beside import Scope
 
-__all__ = ["Parsed", "read", "read_async"]
+__all__ = ["NoIrError", "Parsed", "read", "read_async"]
 
 STRUCT, VALUE, DATA, DERIVED, ALIAS, GAP, OBJECT = (Kind.STRUCT, Kind.VALUE, Kind.DATA, Kind.DERIVED, Kind.ALIAS,
                                                     Kind.GAP, Kind.OBJECT)
 MAX_BYTES = 64 << 20  # the default bound on what `Parsed.bytes` reads from sources
+
+
+class NoIrError(ValueError):
+    """An input whose run keeps no IR, so that `read` has nothing to give: a store of DICOM
+    files, which is joined from its files' outputs
+    (spec/zarrify/dicom.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#9-the-store-form>)."""
 
 
 class Parsed:
@@ -536,19 +542,21 @@ def _fetched(ranges: list[tuple[int, int, int]], gap: int = MERGE_GAP) -> int:
 
 async def read_async(location: str | os.PathLike[str], url: str | None = None, *, policy: Policy | None = None,
                      registry: Registry | None = None, checksums: bool = False,
-                     max_bytes: int = MAX_BYTES) -> Parsed:
+                     max_bytes: int = MAX_BYTES, scope: Scope | None = None) -> Parsed:
     """The input at `location` read as `zarrify` reads it (the same sniffing, siblings, pins, reader
-    policy and object stores), as a `Parsed`. Raises `Rejected` as `zarrify` does, and ValueError
+    policy and object stores), as a `Parsed`. `scope` is `zarrify`'s: what a file input may read
+    besides itself. Raises `Rejected` as `zarrify` does, and `NoIrError` (a ValueError)
     for an input whose run keeps no IR (a store of DICOM files)."""
     location = os.fspath(location)
     resolver = Resolver(registry)
     # the built-in output, if asked for, is only built from: `seal` holds what is written to the limits
     parse = await _zarrify._parse_async(location, url, checksums=checksums, policy=policy,  # noqa: SLF001
-                                        registry=resolver, written=False)
+                                        registry=resolver, written=False, scope=scope)
     if not isinstance(parse, _zarrify._Parse):  # noqa: SLF001
-        raise ValueError(f"{location}: its run keeps no IR, so refkv.build cannot read it")  # noqa: TRY004 (an input refkv.build does not read, not a wrong argument type)
-    return await parsed_async(parse, location, url, policy=policy, registry=registry, resolver=resolver,
-                              checksums=checksums, max_bytes=max_bytes)
+        raise NoIrError(f"{location}: its run keeps no IR, so refkv.build cannot read it")
+    # a `file:` URL, read as its path
+    return await parsed_async(parse, _zarrify.local_path(location, policy), url, policy=policy, registry=registry,
+                              resolver=resolver, checksums=checksums, max_bytes=max_bytes, scope=scope)
 
 
 async def parsed_async(parse: _Parse, location: str, url: str | None, *, policy: Policy | None,
@@ -582,7 +590,8 @@ async def parsed_async(parse: _Parse, location: str, url: str | None, *, policy:
 
 
 def read(location: str | os.PathLike[str], url: str | None = None, *, policy: Policy | None = None,
-         registry: Registry | None = None, checksums: bool = False, max_bytes: int = MAX_BYTES) -> Parsed:
+         registry: Registry | None = None, checksums: bool = False, max_bytes: int = MAX_BYTES,
+         scope: Scope | None = None) -> Parsed:
     """`read_async`, the caller's thread waiting for it."""
     return _sync.run(read_async(location, url, policy=policy, registry=registry, checksums=checksums,
-                                max_bytes=max_bytes))
+                                max_bytes=max_bytes, scope=scope))

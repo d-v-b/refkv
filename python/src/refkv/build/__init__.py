@@ -17,7 +17,7 @@ routines that build on them come later.
 
 from refkv.zarrify.layouts import MAX_PAYLOAD
 
-from .parsed import MAX_BYTES, Parsed, read, read_async
+from .parsed import MAX_BYTES, NoIrError, Parsed, read, read_async
 from .plugin import apply
 from .project import Projected, project, project_async
 from .seal import CODES, SealError, seal
@@ -49,6 +49,7 @@ __all__ = [
     "Copy",
     "Data",
     "Literal",
+    "NoIrError",
     "Parsed",
     "Part",
     "Projected",

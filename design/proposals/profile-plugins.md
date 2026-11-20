@@ -29,7 +29,12 @@ as `refkv.build` (d-v-b/refkv#283) and the core's `seal` (d-v-b/refkv#284);
 [docs/build.md](../../docs/build.md) is its user document. Since then a run
 parses without projecting: `read` makes no output and `project` makes the
 built-in one when asked, the core's `Run` keeping what it parsed
-(`defer_projection`, `begin_projection`, `project`). Steps 2 to 4 (the
+(`defer_projection`, `begin_projection`, `project`); and a plugin is given
+the parsed inputs, `write(inputs, options)`, its output sealed as the built-in
+ones are, the base gone from what it is given
+([spec/layout.md](../../spec/layout.md)), though five of the six shipped
+plugins still ask for the built-in output (`project`), which their formats'
+descriptions will let them stop doing. Steps 2 to 4 (the
 plan's machine, and each format's description and plan) have not, though
 NumPy's arrays, MP4's tracks and the stored arrays of every format in the
 scope of [ir-format-descriptions.md](ir-format-descriptions.md) are described,
