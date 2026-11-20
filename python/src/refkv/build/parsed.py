@@ -42,6 +42,11 @@ STRUCT, VALUE, DATA, DERIVED, ALIAS, GAP, OBJECT = (Kind.STRUCT, Kind.VALUE, Kin
 MAX_BYTES = 64 << 20  # the default bound on what `Parsed.bytes` reads from sources
 
 
+class _MakerStoppedError(Exception):
+    """The caller that was making a `Parsed`'s built-in output was cancelled: one that waited for
+    it makes the output itself."""
+
+
 class Parsed:
     """An input as `read` read it: its profile, its IR, its sources (each url source with its size
     as the run found it), and the accessors that turn IR elements into values.
@@ -124,13 +129,23 @@ class Parsed:
         """The built-in output of the input, made once (`refkv.build.project`): an output only
         built from, so not held to the payload limit with checksums, which `seal` holds what is
         written to. Callers that ask together, from any thread or loop, get the one output: the
-        first makes it and the others wait. One that failed is made again when next asked for."""
-        with self._making:
-            made, first = self._made, self._made is None
-            if made is None:
-                made = self._made = concurrent.futures.Future()
-        if not first:
-            return await asyncio.wrap_future(made)
+        first makes it and the others wait. A waiter that is cancelled stops waiting, and changes
+        nothing for the rest; when the one making it is cancelled, a waiter makes it instead. One
+        that failed is made again when next asked for, and those waiting for it get its error."""
+        while True:
+            with self._making:
+                made, first = self._made, self._made is None
+                if made is None:
+                    made = self._made = concurrent.futures.Future()
+                    # running: a waiter's cancellation, which asyncio passes on to the future it
+                    # waits for, does not cancel it
+                    made.set_running_or_notify_cancel()
+            if first:
+                break
+            try:
+                return await asyncio.wrap_future(made)
+            except _MakerStoppedError:
+                continue
         try:
             if self._parse is None:
                 raise ValueError(f"{self._location}: closed before its built-in output was asked for")  # noqa: TRY301
@@ -138,7 +153,7 @@ class Parsed:
         except BaseException as e:
             with self._making:
                 self._made = None
-            made.set_exception(e)
+            made.set_exception(_MakerStoppedError() if isinstance(e, asyncio.CancelledError) else e)
             raise
         # the run's checksum function holds what read the input: `Parsed` reads its sources
         # itself, and `seal` checksums them

@@ -139,6 +139,55 @@ def test_project_asked_for_together_makes_one_output():
         assert seal(from_a_loop[0].written, [q]).mapping == zarrify(str(path)).mapping
 
 
+def test_a_cancelled_caller_of_project_leaves_the_others_their_output():
+    """Of two callers that ask for one input's built-in output together: when the one waiting is
+    cancelled, the one making it goes on, and the output is there for a later call; when the one
+    making it is cancelled, the one waiting makes it instead."""
+    path = FIXTURES / "tiff" / "edge_aperio_position.tif"
+
+    async def two_callers(cancel: str) -> tuple[int, list[str]]:
+        with read(path) as p:
+            real, gate, calls = cast("Any", p._parse), asyncio.Event(), 0
+
+            class Held:
+                """The parse, its output held back until `gate` opens."""
+
+                async def output_async(self, written: bool = True):
+                    nonlocal calls
+                    calls += 1
+                    await gate.wait()
+                    return await real.output_async(written)
+
+                def close(self) -> None:
+                    real.close()
+
+            cast("Any", p)._parse = Held()
+            tasks = {"maker": asyncio.create_task(project_async(p))}
+            await asyncio.sleep(0)  # the maker is making it
+            tasks["waiter"] = asyncio.create_task(project_async(p))
+            await asyncio.sleep(0)  # the waiter is waiting
+            tasks[cancel].cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await tasks[cancel]
+            gate.set()
+            other = await tasks["waiter" if cancel == "maker" else "maker"]
+            again = await project_async(p)
+            assert dict(again.written) == dict(other.written)
+            return calls, sorted(other.written)
+
+    made_once, keys = asyncio.run(two_callers("waiter"))
+    made_again, same_keys = asyncio.run(two_callers("maker"))
+    assert (made_once, made_again) == (1, 2)
+    assert keys == same_keys == sorted(project(read_closing(path)).written)
+
+
+def read_closing(path):
+    """A `Parsed` of `path` that a test projects once and leaves closed."""
+    with read(path) as p:
+        project(p)
+    return p
+
+
 def test_project_refuses_an_input_closed_before_its_output_was_asked_for():
     p = read(FIXTURES / "npy" / "npy_c_float64.npy")
     p.close()
