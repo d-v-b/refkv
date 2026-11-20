@@ -308,6 +308,29 @@ impl PyIr {
     fn stored_arrays(&self) -> String {
         self.ir.stored.document(&self.ir).to_string()
     }
+    /// The rows of the chunk map (spec/stored-array.md §4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#4-the-chunk-map>) of the
+    /// stored array at position `array` among the descriptions, in the map's order, each
+    /// (coords, element, member, range, ranges, chain, skips): the unit's coordinates in storage
+    /// order; the element that holds its bytes; where that element is in a run's subtree, the
+    /// position of the run's member the unit is in; where the unit is part of the element, its
+    /// (offset, length) within the element's bytes; or its ranges, each (object key or None for
+    /// the parsed source, offset, length); the chain it is encoded with, None for its array's
+    /// first; and the codecs it skips. Each is None where it does not apply. What `chunk_map()` gives as Arrow, for
+    /// a caller without an Arrow reader.
+    #[allow(clippy::type_complexity)]
+    fn units(&self, array: u32) -> Vec<(Vec<u64>, Option<u32>, Option<u64>, Option<(u64, u64)>, Option<Vec<(Option<String>, u64, u64)>>, Option<u32>, Option<u64>)> {
+        let map = &self.ir.stored.map;
+        (0..map.len())
+            .filter(|&k| map.array[k] == array)
+            .map(|k| {
+                let ranges = map.ranges_of(k).map(|r| {
+                    r.map(|x| (map.range_object[x].map(|o| map.objects[o as usize].clone()), map.range_offset[x], map.range_length[x])).collect()
+                });
+                (map.coords_of(k).to_vec(), map.element[k], map.member[k], map.range[k], ranges, map.chain[k], map.skips[k])
+            })
+            .collect()
+    }
     /// The chunk map (spec/stored-array.md §4
     /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#4-the-chunk-map>): an object
     /// of the Arrow PyCapsule interface, one record batch.
@@ -736,6 +759,11 @@ impl PyRun {
     fn begin_projection(&mut self) -> PyResult<()> {
         self.get()?.begin_projection().map_err(Rejected::new_err)
     }
+    /// The profile's description of the source (JSON), of a run that is done; None for a
+    /// profile whose parser returns none yet (`Run::description`).
+    fn description(&mut self) -> PyResult<Option<String>> {
+        Ok(self.get()?.description().map_err(PyValueError::new_err)?.map(|d| d.to_string()))
+    }
     /// The IR of a run that is done, shared with the run, which is kept.
     fn ir(&mut self) -> PyResult<PyIr> {
         let (ir, _) = self.get()?.parsed().map_err(PyValueError::new_err)?;
@@ -1087,6 +1115,44 @@ fn coding(name: &str, params: &str) -> PyResult<String> {
     }
 }
 
+/// A chunk of `grid_chunks`: its coordinates, its range of the source (offset, length), the zero
+/// bytes that pad it, and whether the range is to be copied (its padded reference would not fit).
+type GridChunk = (Vec<u64>, u64, u64, u64, bool);
+
+/// The C-order array of `shape`, of `item`-byte elements contiguous at `offset`, cut as
+/// conventions §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
+/// contiguous values into chunks of at most `limit` bytes (`out::grid_chunks`, with the copy
+/// threshold the built-in projections use): its chunk shape and its chunks, or None when an
+/// element is larger than `limit` or the sizes overflow.
+#[pyfunction]
+fn grid_chunks(py: Python<'_>, offset: u64, shape: Vec<u64>, item: u64, limit: u64) -> Option<(Vec<u64>, Vec<GridChunk>)> {
+    use refkv_ir::out::{Chunk, Part};
+    py.detach(|| {
+        let (grid, chunks) = refkv_ir::out::grid_chunks(offset, &shape, item, limit, refkv_ir::out::copy_threshold())?;
+        let chunks = chunks.into_iter().map(|(coords, chunk)| match chunk {
+            Chunk::Copy(o, n, pad) => Some((coords, o, n, pad, true)),
+            Chunk::Ranges(parts) => match parts.as_slice() {
+                [Part::Src(o, n)] => Some((coords, *o, *n, 0, false)),
+                [Part::Src(o, n), Part::Lit(z)] => Some((coords, *o, *n, z.len() as u64, false)),
+                _ => None,
+            },
+            Chunk::Bytes(_) => None,
+        }).collect::<Option<Vec<GridChunk>>>()?;
+        Some((grid, chunks))
+    })
+}
+
+/// What frames a raw deflate stream as a gzip member, as the built-in projections write one: the
+/// 10-byte header (`out::GZIP_HEADER`), and the trailer, the stream's CRC-32 and the size of what
+/// it inflates to, modulo 2^32.
+#[pyfunction]
+fn gzip_frame<'py>(py: Python<'py>, crc32: u32, size: u64) -> (Bound<'py, PyBytes>, Bound<'py, PyBytes>) {
+    let mut trailer = crc32.to_le_bytes().to_vec();
+    trailer.extend_from_slice(&(size as u32).to_le_bytes());
+    (PyBytes::new(py, &refkv_ir::out::GZIP_HEADER), PyBytes::new(py, &trailer))
+}
+
 /// For tests: the reference payload past which a NIfTI or MRC edge chunk is copied (None:
 /// the payload limit), so that small files reach the copy (spec/zarrify/nifti.md §7.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>,
@@ -1145,6 +1211,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_set_shard_frames, m)?)?;
     m.add_function(wrap_pyfunction!(project, m)?)?;
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
+    m.add_function(wrap_pyfunction!(grid_chunks, m)?)?;
+    m.add_function(wrap_pyfunction!(gzip_frame, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;
     m.add_function(wrap_pyfunction!(view_problem, m)?)?;
     m.add_function(wrap_pyfunction!(synthetic, m)?)?;

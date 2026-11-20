@@ -425,7 +425,9 @@ chains no description names, keeping the others' order, and renumbers the descri
 in it; fits the descriptions to their limit (below), which falls back the same way and drops the
 chains it leaves unnamed; sorts the rows; and checks them ([§5](#5-checks)). They are
 not in the facts a projection reads, which keep their arrays until each format's projection reads
-the descriptions.
+the descriptions. NumPy's does: its parser returns no facts of an array but its header's text and
+its description's key, and its projection takes the array's shape, order and data from the
+description and the chunk map.
 
 **Only two things change ids afterwards.**
 
@@ -608,13 +610,14 @@ own IR, and the CZI store, which grafts them, renumbers the ids its facts give
 
 **NumPy** ([spec/zarrify/npy.md](zarrify/npy.md)). A `.npy` file's array, and each stored
 (method 0) `.npz` member's whose header was read, is a stored array, keyed by its `header` element,
-with no index; that element is its one declaration (its `descr`, `fortran_order` and `shape`). The
-facts give its key: `declared_by` is the id of a `.npy` file's `header` element (a list of one),
-or, for a `.npz` archive, a list of one id per member of the facts' `own.members` in their order
-(the archive's central directory's), presented or not: its `header` element's
-(`entries/<i>/data/header`), or null for a member with no description (a deflated one, or one
-whose header was not read). A presented member's entry of the facts' `arrays` is the member of
-`own.members` with its `path`.
+with no index; that element is its one declaration (its `descr`, `fortran_order` and `shape`). Its
+key is found by its path: a `.npy` file's `header` element, or a `.npz` member's
+`entries/<i>/data/header`, `i` the member's position in the archive's central directory, which is
+its position among the source metadata's `members`, presented or not; a member with no
+description (a deflated one, or one whose header was not read) has no such element. For an array
+the profile presents, the parser's description gives the key too: its entry of `arrays` holds
+`stored`, the `header` element's id, null for a deflated member, beside its `path` and its
+header's text.
 `shape` is the header's, reversed for a Fortran-order array of two or more axes, whose `axes` then
 give the header's order; `item_bits` is eight times the size of an element of its `descr` as NumPy
 lays it out, whether or not the profile presents the array: a type string (with its one-character

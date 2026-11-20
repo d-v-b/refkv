@@ -84,6 +84,13 @@ pub trait FileProfile: Sync {
         let _ = (ir, facts);
         Ok(Vec::new())
     }
+    /// Whether what the profile's parser returns beside the IR is a description of the source
+    /// (the design of d-v-b/refkv#278, "The description"): what the parser found of it, with none
+    /// of an output's decisions that the profile's document does not name there. A profile whose
+    /// parser still returns its projection's private facts has none.
+    fn described(&self) -> bool {
+        false
+    }
     /// What the output adds beside the mirror (`output`, when it mirrors).
     fn mirrored(&self, out: &mut Out, facts: &J) -> Result<(), String> {
         let _ = (out, facts);
@@ -350,6 +357,22 @@ impl Run {
             return Err("internal: a file that names siblings has no file run's IR".into());
         }
         self.parsed.as_ref().map(|(ir, facts)| (ir, facts)).ok_or_else(|| "internal: no IR".into())
+    }
+
+    /// The profile's description of the source (`FileProfile::described`), without the run's
+    /// own counts; None for a profile that has none yet.
+    pub fn description(&self) -> Result<Option<serde_json::Value>, String> {
+        let (_, facts) = self.parsed()?;
+        if !self.format.profile().described() {
+            return Ok(None);
+        }
+        let mut description = facts.clone();
+        if let Some(m) = description.as_object_mut() {
+            for count in ["requests", "requested", "rounds"] {
+                m.remove(count);
+            }
+        }
+        Ok(Some(description))
     }
 
     /// The planner's counts, with the fill batch's: the summary's `planner`.

@@ -13,7 +13,9 @@ rebuild from an archive (`cmirror.py`), and the reader of the IR's stored-array 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
+from typing import Any
 
 from refkv import _core, _sync
 from refkv.ir.kind import Kind as Kind  # re-exported: refkv.ir.Kind
@@ -117,6 +119,12 @@ class Ir:
         descriptions and the `undescribed` mark."""
         return _read_stored(self._core.stored_arrays())
 
+    def units(self, array: int) -> list[Unit]:
+        """The units the source holds of the stored array at position `array` of
+        `stored_arrays().arrays`, in the chunk map's order: its rows, without an Arrow reader."""
+        return [Unit(tuple(c), e, m, r, None if rs is None else tuple(rs), chain, skips)
+                for c, e, m, r, rs, chain, skips in self._core.units(array)]
+
     def chunk_map(self) -> _core.ChunkMap:
         """The chunk map, a row for each unit the source holds (spec/stored-array.md §4
         <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#4-the-chunk-map>): an object
@@ -176,6 +184,27 @@ class NamesSiblingsError(Exception):
     caller starts over with a store run of the format, `args[0]`."""
 
 
+@dataclasses.dataclass(frozen=True)
+class Unit:
+    """A unit of a stored array, a row of the chunk map (spec/stored-array.md §4.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#42-rows>): its coordinates in
+    storage order; the IR element that holds its bytes (its recipe gives them); `member`, where
+    that element is in a run's subtree, the position of the run's member the unit is in; `range`,
+    where the unit is part of the element, its (offset, length) within the element's own bytes;
+    or, where no element holds it, its `ranges`, each (object key, or None for the parsed source;
+    offset; length); the chain it is encoded with, None for its array's first; and the codecs of
+    the chain it skips, as a bit mask. `member`, `range`, `chain` and `skips` are None where they
+    do not apply."""
+
+    coords: tuple[int, ...]
+    element: int | None
+    member: int | None
+    range: tuple[int, int] | None
+    ranges: tuple[tuple[str | None, int, int], ...] | None
+    chain: int | None
+    skips: int | None
+
+
 class FileParse:
     """A file parsed, and its run kept: its format, its IR, and its built-in output when asked for
     (`output_async`), as often as asked. The parse read what the IR holds and nothing for an
@@ -192,6 +221,9 @@ class FileParse:
         self._pinned = pinned
         self.fmt = fmt
         self.ir: _core.Ir = run.ir()
+        # the profile's description of the source, where its parser returns one
+        text = run.description()
+        self.description: dict[str, Any] | None = None if text is None else json.loads(text)
         self.url = url
         self.size = transport.size
 

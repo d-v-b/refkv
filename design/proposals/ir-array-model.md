@@ -10,8 +10,8 @@ unit
 settled, `StoredArray` ([open question 1](#open-questions)). Every format of
 [ir-format-descriptions.md](ir-format-descriptions.md) now describes its arrays, but for NumPy's
 deflated `.npz` members, and so do MP4's tracks (d-v-b/refkv#303) and FLAC's frames, which
-this note left to a proposal of their own; MP3 is still not described. No projection reads the descriptions
-yet: that is the plan of [profile-plugins.md](profile-plugins.md#order-of-work). The rest of this
+this note left to a proposal of their own; MP3 is still not described. NumPy's projection reads its
+descriptions; no other does yet: that is the plan of [profile-plugins.md](profile-plugins.md#order-of-work). The rest of this
 note is as it was proposed.
 
 refkv's parsers describe the arrays a source holds in untyped JSON, in a different shape for each
