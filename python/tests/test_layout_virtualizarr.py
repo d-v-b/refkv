@@ -345,11 +345,9 @@ def _input(name: str, tmp_path: Path) -> str:
 
 # ---- VirtualiZarr's presentation
 
-def _manifest_store(parser: str, path: str, header: str | None = None):
+def _manifest_store(parser: str, path: str, **options: str):
+    """A parser's ManifestStore of the file at `path`, the parser made with `options`."""
     url = Path(path).resolve().as_uri()
-    # ENVIParser is given the header: it looks for one only as `<data>.hdr` or `<stem>.hdr`, in lower
-    # case and with Windows' separators in a URL, and finding a raster's header is not what is compared
-    options = {"header_url": Path(header).resolve().as_uri()} if header is not None else {}
     # HDFParser joins a nested group's path with pathlib.Path, which on Windows gives `g\h`, a group h5py
     # does not find; a POSIX path is what it means
     with mock.patch("virtualizarr.parsers.hdf.hdf.Path", PurePosixPath):
@@ -359,10 +357,10 @@ def _manifest_store(parser: str, path: str, header: str | None = None):
 References = dict[str, dict[tuple[int, ...], tuple[int, int]]]  # each array's chunks' (offset, length)
 
 
-def virtualizarr_s(parser: str, path: str, header: str | None = None) -> tuple[dict[str, Json], References, Any]:
+def virtualizarr_s(parser: str, path: str, **options: str) -> tuple[dict[str, Json], References, Any]:
     """The documents a parser's ManifestStore serves, by key, each array's chunk references by
-    coordinates as (offset, length), and the store."""
-    store = _manifest_store(parser, path, header)
+    coordinates as (offset, length), and the store; `options` are the parser's own."""
+    store = _manifest_store(parser, path, **options)
     keys, chunks = ["zarr.json"], {}
 
     def walk(group, prefix: str) -> None:
@@ -461,10 +459,14 @@ def test_the_layout_presents_a_file_as_virtualizarr_s_parser_does(tmp_path, name
         assert nonfinite == "token" or not [p for p in problems if p.code == "json"]
 
         profile = parsed.profile
-        # ENVIParser is given the data file, and the header
-        envi = profile == "envi"
-        given = str(Path(path).with_name(pr.source_metadata("")["data_file"])) if envi else path
-        theirs, references, manifest_store = virtualizarr_s(PARSERS[profile], given, path if envi else None)
+        # ENVIParser is given the data file, and the header by name: it looks only for a lower-case
+        # `.hdr` beside the data (which a file system that tells cases apart does not match to
+        # `envi_upper.HDR`), and on Windows it joins one of its two guesses with a backslash
+        given, options = path, {}
+        if profile == "envi":
+            given = str(Path(path).with_name(pr.source_metadata("")["data_file"]))
+            options = {"header_url": Path(path).resolve().as_uri()}
+        theirs, references, manifest_store = virtualizarr_s(PARSERS[profile], given, **options)
         ours = {k: json.loads(v) for k, v in out.items()
                 if k.rpartition("/")[2] == "zarr.json" and isinstance(v, bytes)}
         defaults = _own_chunks(pr)
