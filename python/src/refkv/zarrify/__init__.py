@@ -21,7 +21,8 @@ machinery (§1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-st
 <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>), from the built-in output.
 
 Exits with status 3 if the input is rejected (or a plugin layout refused for it), with status 2 on
-a usage error (such as a local directory without `--url`, or a layout no plugin provides), and with
+a usage error (such as a local directory without `--url`, which the command needs, since an
+archive's readers refuse `file:` sources by default; or a layout no plugin provides), and with
 status 1 if a plugin layout failed, if the reader policy
 refuses the input, or a source the archive would name (such as a `--url` on a private
 host without `--allow-private-hosts`): the archive is checked against the policy the
@@ -77,10 +78,20 @@ from refkv.ir.store import StoreIrOutput, run_store_async
 from refkv.policy import Policy, crc32c
 from refkv.reader import Registry, Resolver
 from refkv.refstore import ReferenceStore
+from refkv.uri import file_path
 from refkv.zarrify import profile_classes
 from refkv.zarrify.common import Output, Rejected
 from refkv.zarrify.dicom_series import SeriesOutput, zarrify_series_async
-from refkv.zarrify.layouts import Layout, LayoutFailed, LayoutUsageError, Planned, apply, described, plan
+from refkv.zarrify.layouts import (
+    Layout,
+    LayoutFailed,
+    LayoutRejected,
+    LayoutUsageError,
+    Planned,
+    apply,
+    described,
+    plan,
+)
 from refkv.zarrify.profile_classes import *  # noqa: F403 (one class per profile: profile_classes.__all__)
 from refkv.zarrify.profiles import BESIDE, CASE, ON_DEMAND
 from refkv.zarrify.sources import Dataset, Image, Source, Store, layout_names
@@ -129,6 +140,7 @@ async def _zarrify_store_async(location: str, url: str | None = None, *, max_obj
     profile is `fmt`, when given, else the one its root keys select (§1.7
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#17-named-inputs-and-layouts>);
     `layouts` the layouts it writes (`refkv.zarrify.sources.layout_names`)."""
+    location = local_path(location, policy)
     if fmt is not None:
         _no_store_layouts(layouts, fmt)  # before the store is listed
     named = fmt
@@ -240,13 +252,32 @@ async def _zarrify_beside_async(fmt: str, location: str, url: str | None, transp
     return fmt, out
 
 
+def local_path(location: str, policy: Policy | None = None) -> str:
+    """The local path a `file:` URL `location` names, which zarrify reads as it reads that path,
+    whether or not a store is registered for `file:` URLs (§1.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>); any other `location` as
+    it is. Raises `refkv.errors.ResolutionError` for a `file:` URL with a host (a UNC path) that
+    `policy` (default `Policy()`) does not allow, and ValueError for one that names no local path."""
+    if url_scheme(location) != "file":
+        return location
+    policy = policy or Policy()
+    policy.check_file_host(location)
+    try:
+        return file_path(location, allow_host=policy.allow_file_hosts)
+    except ValueError as e:
+        raise ValueError(f"{location}: {e}") from None
+
+
 def is_store(location: str) -> bool:
     """Whether `location` is a store input (§1.2
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): a URL (not a `file:` one)
-    whose path ends in `/`, or a local directory."""
+    whose path ends in `/`, or a local directory, by its path or its `file:` URL."""
     if url_scheme(location) not in (None, "file"):
         return location.split("?", 1)[0].split("#", 1)[0].endswith("/")
-    return Path(location).is_dir()
+    try:
+        return Path(local_path(location)).is_dir()
+    except ValueError:  # not a local path (a ResolutionError among them): read as a file, which fails there
+        return False
 
 
 async def _zarrify_async(location: str, url: str | None = None, *, checksums: bool = False,
@@ -283,6 +314,7 @@ async def _zarrify_async(location: str, url: str | None = None, *, checksums: bo
         return await _zarrify_store_async(location, url, checksums=checksums, workers=workers, policy=policy,
                                           layouts=layouts, registry=registry, written=written)
     within = None if scope is None else scope_keys(location, scope)
+    location = local_path(location, policy)  # a `file:` URL, read as its path (its scope keys are the same)
     # a Hub tree's web page (§1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
     if location.startswith(("http://", "https://")) and hub_page(location, hub_endpoint()):
         raise Rejected(f"{location} is a Hub repository's page, not a file: end it in / to zarrify the repository")
@@ -331,8 +363,9 @@ def _with_layout(out: Output | StoreIrOutput | SeriesOutput, fmt: str, policy: P
     runs on."""
     if planned is None:
         return out.to_store(policy=policy, registry=registry, info={"format": fmt, **out.summary})
-    if isinstance(out, SeriesOutput):  # a store input's, which _planned refused
-        raise TypeError("a store of DICOM files takes no plugin layout")
+    if isinstance(out, SeriesOutput):  # the DICOM store form's, a series of files' outputs with no base
+        raise LayoutRejected(f"{planned.name}: a store of DICOM files has no base for a plugin layout: "
+                             "name one of its files")
     return apply(out, fmt, policy, planned, registry)
 
 
@@ -367,15 +400,13 @@ async def _on_own_thread[T](f: Callable[..., T], *args: object) -> T:
     return await done
 
 
-def _planned(layout: object, layouts: object, store: bool) -> Planned | None:
+def _planned(layout: object, layouts: object) -> Planned | None:
     """The plugin layout asked for, loaded and checked before the input is opened."""
     if layout is None:
         return None
     if layouts is not None:
         raise LayoutUsageError("a call names a plugin layout (layout=) or the built-in layouts (layouts=), not both: "
                                "a plugin's output is the whole output")
-    if store:
-        raise LayoutUsageError("a store input takes no plugin layout yet: name a file")
     return plan(layout)
 
 
@@ -385,9 +416,10 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
                         layouts: Iterable[Image | Dataset] | None = None,
                         scope: Scope | None = None,
                         registry: Registry | None = None, layout: Layout | None = None) -> ReferenceStore:
-    """The file at `location` (a local path, an http(s) URL, or a URL under a prefix of
-    `registry`), by its first bytes, or
-    the store at `location` (a URL ending in `/`, or a directory), zarrified
+    """The file at `location` (a local path or `file:` URL, an http(s) URL, or a URL under a
+    prefix of `registry`), by its first bytes, or
+    the store at `location` (a URL ending in `/`, or a local directory by its path or `file:`
+    URL), zarrified
     (spec/zarrify.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md>), as a
     `refkv.ReferenceStore`: the Zarr hierarchy, each chunk a reference to the
     bytes of the source that hold it; `zarrify` is the same, blocking.
@@ -405,8 +437,15 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
     the run's own, and the calls into the Rust core run on those threads too.
 
     - `url`: the URL the archive names the source by (default: `location`, a local
-      path percent-encoded as a URI reference); a local directory needs one, the
-      store URL (ending in `/`) it is served from.
+      path percent-encoded as a URI reference). A local directory's is the store URL
+      (ending in `/`) it is served from, or its own `file:` URL, the default (spec/zarrify.md
+      §1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>).
+
+      A `file:` URL `location` is read as the local path it names, with or without a
+      `file://` store in `registry`, and gives the store that path gives: the returned
+      store's policy allows the input's own files, below its directory, and no other local
+      file. Saving it (`save_vzip`) still checks its sources against the policy of the
+      archive's readers.
     - `checksums`: each range of a url source carries the CRC-32C of its bytes
       (spec/refkv.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>),
       which reads every byte the store references.
@@ -446,9 +485,9 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
             store = zarrify("s3://my-bucket/data/file.nc", registry=registry)
     - `layout`: a layout a plugin writes, `Layout("acme-ome.ome06")` or `Layout(plugin)`
       (`refkv.zarrify.layouts`; spec/layout.md
-      <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>), for a file input: the
-      output is then the plugin's, built from the output with every built-in layout, and
-      `layouts` is None.
+      <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>), for a file or store input
+      of a profile the plugin's `formats` name: the output is then the plugin's, built from
+      the output with every built-in layout, and `layouts` is None.
 
     `location` may instead be a source or store class's instance, such as
     `TiffSource(url)` or `Zarr2Store(url)` (`refkv.zarrify.sources`), which names the profile,
@@ -462,9 +501,9 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
       that reads it finds what its specification rejects (spec/zarrify.md §1.2
       <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
     - `refkv.errors.ResolutionError`: the reader policy refuses the input, or a request for it
-      (a host, an address it resolves to, a redirect target), or the input is a URL of another
-      scheme than http(s) that `registry` has no store for.
-    - `FileNotFoundError`: a local path that does not exist.
+      (a host, an address it resolves to, a redirect target, a `file:` URL's host), or the input
+      is a URL of another scheme than http(s) or `file` that `registry` has no store for.
+    - `FileNotFoundError`: a local path (or `file:` URL) that does not exist.
     - `OSError`: the input could not be read, such as an HTTP status no retry mends, a
       response of the wrong length, or a local file that changed while it was read.
       `ListingFailed` and `StoreLimit` (`refkv.zarrify`) are the two of a store: its listing
@@ -473,14 +512,14 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
     - `Failed` (`refkv.zarrify.Failed`, a `ValueError`): the output would pass the payload limit
       only with its checksums, which is no rejection of the input (spec/zarrify.md §1.2
       <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
-    - `ValueError`: a local directory without `url`, or an argument out of range.
+    - `ValueError`: a `file:` URL that names no local path (one with a query, say), or an
+      argument out of range.
     - `TypeError`: a read option passed beside a source or store instance.
     - `NotImplementedError`: a layout the profile cannot write.
     - `refkv.zarrify.layouts.LayoutUsageError` (a `ValueError`), `LayoutRejected` (a
       `Rejected`) and `LayoutFailed`: a plugin layout asked for wrongly, refused for this
       input, or failed."""
-    planned = await _on_own_thread(
-        _planned, layout, layouts, isinstance(location, Store) or (isinstance(location, str) and is_store(location)))
+    planned = await _on_own_thread(_planned, layout, layouts)
     if isinstance(location, (Source, Store)):
         given = {"url": url, "checksums": checksums, "policy": policy, "connections": connections,
                  "byte_cost": byte_cost, "workers": workers, "scope": scope, "registry": registry}
@@ -527,7 +566,8 @@ async def zarrify_store_async(location: str, url: str | None = None, *, max_obje
                               registry: Registry | None = None) -> ReferenceStore:
     """The store at `location` (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), zarrified: what
-    `zarrify_async` does for a store, with the same `url` (needed for a local directory),
+    `zarrify_async` does for a store, with the same `url` (a local directory's own `file:` URL
+    by default),
     `checksums`, `policy`, `workers`, `layouts` and `registry`, and the same errors; `max_objects` caps how
     many objects the store may list (beyond it, `StoreLimit`). `workers`, `max_objects` and
     `policy` apply to a store at an http(s) URL: a local directory is read one document at a

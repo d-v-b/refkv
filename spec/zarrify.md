@@ -156,7 +156,11 @@ zarrifiers do not normalize it. If `U`'s path ends in `/`, the input is a
 rest of this section is about **file inputs**, where `U` is the URL of one
 file. (An implementation MAY also accept a local file or directory, with `U`
 the URL it will be served from: a directory is a store input, listed as
-[§1.5](#15-listing-a-store) says.)
+[§1.5](#15-listing-a-store) says. It MAY also accept a local file or directory by its `file:` URL
+([RFC 8089](https://www.rfc-editor.org/rfc/rfc8089)), which it reads as the local file or
+directory that URL names, whether or not the application registered a store for it; the output is
+then the one that local file or directory gives, a directory's under the rule of
+[§1.4](#14-store-inputs).)
 
 **Registered stores.** An implementation MAY read `U` with an **object store** the
 application provides for a prefix of `U` (as [spec/refkv.md §6.7](refkv.md#67-reader-policy)'s
@@ -358,7 +362,10 @@ whose objects are the objects under `U`.
 case), an authority without userinfo, and no query or fragment component
 (not even an empty `?` or `#`); otherwise the input is rejected. (An
 implementation that reads a local directory uses the URL the directory will
-be served from, which MUST satisfy the same rules. A store read with a
+be served from, which MUST satisfy the same rules, or the directory's own `file:` URL: one with
+no authority, or the authority `localhost`, whose path ends in `/` and names that directory, with
+no query or fragment. A `file:` store URL names no other store, so that an output cannot claim
+one directory's files as another's, nor a store on another host. A store read with a
 [registered store](#12-input) may have that store's scheme.)
 
 **The objects.** The store is listed as [§1.5](#15-listing-a-store) says. Each listed key `K`

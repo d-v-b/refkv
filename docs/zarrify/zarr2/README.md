@@ -125,7 +125,7 @@ Supported:
 
 - Zarr v2 groups and arrays of 0 to 32 dimensions, C or F order, `.` or `/`
   separators, on any S3-compatible host that answers `ListObjectsV2`
-  anonymously, or in a local directory (with `--url`).
+  anonymously, or in a local directory (with `--url`; in Python, by its path or `file:` URL alone).
 - `zlib`, `gzip`, `zstd`, `blosc`, `lz4`, `bz2` and `lzma` compressors, or none, and the filters
   `vlen-utf8`, `fixedscaleoffset` and `quantize`.
 
