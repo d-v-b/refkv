@@ -4,11 +4,12 @@ Each fixtures/flac/*.flac is served over local HTTP and zarrified by
 js/conformance/zarrify.ts (the browser code, run under Node). The array, sharded, is read
 through the reference reader, zarr-python's sharding codec and the `refkv.stream` codec, and
 must be the stream's samples (spec/zarrify/flac.md §4.3
-<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#43-the-samples>): STREAMINFO's
-MD5 of them, and, for 8, 16 and 24 bits, libsndfile's decoding of the whole file (through
-soundfile), sample for sample; ffmpeg's demuxer and decoder (through PyAV), reading the file
-itself, must give them too. The root's metadata must agree with the array, and the file must be
-rebuilt byte for byte from the archive's IR mirror (refkv_source, §5.2
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#43-the-samples>): where
+STREAMINFO records its MD5 and total (not 0, unknown), its MD5 of them, and, for 8, 16 and 24
+bits, libsndfile's decoding of the whole file (through soundfile), sample for sample; ffmpeg's
+demuxer and decoder (through PyAV), reading the file itself, must give them too. The root's
+metadata must agree with the array, and the file must be rebuilt byte for byte from the archive's
+IR mirror (refkv_source, §5.2
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#52-the-ir-mirror>). Rejected
 fixtures (`edge_reject_flac_*`) must be rejected.
 
@@ -70,9 +71,11 @@ def problems_of(path: Path, out: Path) -> list[str]:
     problems = []
     if got.shape != (meta["samples"], meta["channels"]):
         return [f"shape {got.shape} is not {meta['samples']} x {meta['channels']}"]
-    if md5(got, bits) != string(at(meta, "streaminfo", "md5")):
+    # STREAMINFO's MD5 and total of zeros are unknown (RFC 9639 §8.2): libsndfile refuses such a file
+    known = string(at(meta, "streaminfo", "md5")) != "0" * 32
+    if known and md5(got, bits) != string(at(meta, "streaminfo", "md5")):
         problems.append("the samples' MD5 is not STREAMINFO's")
-    if bits in (8, 16, 24):
+    if bits in (8, 16, 24) and known:
         want, _ = soundfile.read(path, dtype="int32", always_2d=True)
         if not np.array_equal(got, np.right_shift(want, 32 - bits)):
             problems.append("samples differ from libsndfile's")

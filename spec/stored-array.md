@@ -271,6 +271,7 @@ A chain's codec has only its entry's parameters.
 | `hevc` | one access unit of an HEVC stream (ITU-T H.265), stored as `h264`'s | as `h264`'s, `setup` a place of an HEVCDecoderConfigurationRecord (an `hvcC` box's payload) | as `h264`'s | as `h264`'s |
 | `av1` | one temporal unit of an AV1 stream, as [AV1-ISOBMFF](https://aomediacodec.github.io/av1-isobmff/) stores a sample: its OBUs, each with its size | as `h264`'s, `setup` a place of an AV1CodecConfigurationRecord (an `av1C` box's payload) | as `h264`'s | as `h264`'s |
 | `vp9` | one frame or superframe of a VP9 stream | as `h264`'s, `setup` a place of a VPCodecConfigurationRecord (a `vpcC` box's payload) | as `h264`'s | as `h264`'s |
+| `flac` | one frame of a FLAC stream ([RFC 9639 §9](https://www.rfc-editor.org/rfc/rfc9639#section-9)): its header, its subframes and its CRC-16 | `setup`: a place of the stream's STREAMINFO block's body, its 34 bytes ([RFC 9639 §8.2](https://www.rfc-editor.org/rfc/rfc9639#section-8.2)), which gives the sample rate and the bit depth to a frame whose header refers to it | none | the frame's samples, its inter-channel samples in order and each one's channels together, in the stream's order of channels (a side or mid channel restored to the left and right ones); each sample a two's-complement integer of `item_bits` bits, little-endian: the bytes of STREAMINFO's MD5 |
 | `fits_rice` | one unit's stream of FITS's Rice coding (`RICE_1`, FITS Standard 4.0 section 10.4.1, as cfitsio's `fits_rcomp` writes it), its bits most significant first: a first value of `byte_pix` bytes; then the unit's pixels in blocks of `block_size`, each block a code of 3, 4 or 5 bits (for a `byte_pix` of 1, 2 or 4) and its pixels' differences, each pixel less the one before it (the first less the first value), a difference d mapped to 2d where it is not negative and to −2d − 1 where it is. A code of 0 has no more bits, every difference of its block 0; the highest code (7, 15 or 26) has each mapped difference in 8 × `byte_pix` bits; any other code c has each as its bits above its low c − 1 in unary (as many 0 bits, then a 1), then its low c − 1 bits | `block_size`, `byte_pix`: each a place of a card; absent, 32 and 4 | none | the unit's pixels, each an integer of `byte_pix` bytes, big-endian: the sums of the differences, modulo 2^(8 × `byte_pix`) |
 
 A place parameter of an HDF5 filter's codec holds client data values of the filter, as its filter
@@ -508,7 +509,7 @@ neither, and compiles no Arrow code.
 
 ## 7. The formats
 
-The parsers of FLAC, MP3, N5, OME-Zarr, Precomputed, Zarr v2 and Zarr v3 describe no array yet,
+The parsers of HDF4, MP3, N5, OME-Zarr, Precomputed, Zarr v2 and Zarr v3 describe no array yet,
 and have no paragraph here.
 
 **CZI** ([spec/zarrify/czi.md](zarrify/czi.md)). Every subblock the parser reads is a stored
@@ -1529,3 +1530,21 @@ a mirror's quicklook) are in objects the parser does not read
   other than 0, components that are signed, subsampled or of unlike precisions), and builds no
   IR of it.
 - **The fill value** is `undefined`: JPEG 2000 has none.
+
+**FLAC** ([spec/zarrify/flac.md](zarrify/flac.md)). A FLAC file's samples are one stored array,
+keyed by its STREAMINFO block, the value `metadata/0/streaminfo`, with no index. The facts give
+the key: `info_value` is that element's id.
+
+- **Declarations.** One: the STREAMINFO block, whose fields give the sample rate, the channels,
+  the bit depth, the samples in all and the MD5 of the decoded samples.
+- **`shape`** is the samples, then the channels: the frames' samples in all, which the parser
+  checks are STREAMINFO's total where it records one, 0 meaning unknown
+  ([zarrify/flac.md §8.1](zarrify/flac.md#81-the-stream)), and STREAMINFO's channels. A sample's channels are together, last, as the codec makes them.
+- **`item_bits`** is the bit depth rounded up to whole bytes: 8, 16, 24 or 32. These are the bytes
+  STREAMINFO's MD5 is of (RFC 9639 §8.2): each sample little-endian, sign-extended.
+- **The grid** is the frames: `Each` of the first frame's block size, then `Each` of the
+  channels, under `short`. The profile accepts a stream of one block size, whose
+  last frame alone may hold fewer samples. Each frame is a row, the element `frames/<j>`, whole.
+- **The chain** is one, `flac`, its `setup` the STREAMINFO block. A frame decodes alone: FLAC has
+  no state from frame to frame, so the codec is not a stream ([§3.1](#31-chains)).
+- **The fill value** is `undefined`: FLAC has none.

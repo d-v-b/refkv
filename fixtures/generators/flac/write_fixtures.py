@@ -327,6 +327,9 @@ def main() -> None:
     info, frames = split(mono16)
     write("flac_id3v2.flac", id3v2(b"TIT2\0\0\0\x05\0\0\x03Tone" + bytes(40)) + flac(info, frames))
     write("flac_id3v1.flac", flac(info, frames) + id3v1("A tone", "refkv", "Fixtures", "2026", "FLAC", 3, 12))
+    # STREAMINFO's total and MD5 unknown (0), as an encoder that cannot seek back writes them
+    unknown = info[:13] + bytes([info[13] & 0xF0]) + bytes(4) + bytes(16)
+    write("flac_unknown_total.flac", flac(unknown, frames))
     # many frames (block size 16): two shards of 1024 frames
     info, frames = split(ffmpeg(signal(8000, 2.1, 1, 16, 5), 8000, 16, "-frame_size", "16"))
     write("flac_many_frames.flac", flac(info, frames))

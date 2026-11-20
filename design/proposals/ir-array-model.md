@@ -1,13 +1,13 @@
 # Proposal: a description of stored arrays in the IR, at the byte level
 
-Status (2026-11-16): landed in part. Step 1, the type and NumPy's descriptions, is d-v-b/refkv#290,
+Status (2026-11-19): landed in part. Step 1, the type and NumPy's descriptions, is d-v-b/refkv#290,
 and the normative text is now [spec/stored-array.md](../../spec/stored-array.md), which governs
 where it and this note differ: its list columns are `LargeList`, `item_bits` may be absent for an
 array whose chains begin with `source`, and `axes` is never the identity. The type's name is
 settled, `StoredArray` ([open question 1](#open-questions)). Every format of
 [ir-format-descriptions.md](ir-format-descriptions.md) now describes its arrays, but for NumPy's
-deflated `.npz` members, and so do MP4's tracks (d-v-b/refkv#303), which this note left to a
-proposal of their own; MP3 and FLAC are still not described. No projection reads the descriptions
+deflated `.npz` members, and so do MP4's tracks (d-v-b/refkv#303) and FLAC's frames, which
+this note left to a proposal of their own; MP3 is still not described. No projection reads the descriptions
 yet: that is the plan of [profile-plugins.md](profile-plugins.md#order-of-work). The rest of this
 note is as it was proposed.
 
