@@ -4,16 +4,17 @@ the reference reader: the file's type, version and `UniqueID`; its XML's root; i
 with the offset and size of their data; and of each image, its name, path, `UniqueID`, the attributes of
 its element, `Memory`, dimensions and channels as liffile's XML element holds them, the memory block it
 names, its sample count, and its `TileScanInfo` attachment as liffile reads it. The description's header
-block, LOF parts and tail are checked against the file's bytes. A second test asserts which cases the
-fixtures reached, and a third that the description holds none of the output's decisions.
+block, LOF parts and tail are checked against the file's bytes. Of a LAS X project, each document's
+element, `Memory`, entries and references are checked against ElementTree's reading of the document,
+and each LOF's description as a file's. A second test asserts which cases the fixtures reached, and a
+third that the description holds none of the output's decisions.
 
 liffile 2026.10.14 departs from what the file declares in four ways, each counted where it is met:
 it names a LOF's one memory block by its XML's `MemoryBlockID`, where the block itself has no ID field
 (the description's `id` is null); it reads an older writer's LOF XML, whose root is `Data`, as if it were
 in an `LMSDataContainerHeader` of `Version` 2 (the description's `root` is `Data` and its `version`
 null); it names an image whose element has no `Name` by the file's stem; and it reads only the first
-`ChildrenOf` of a LIFEXT file, so the images of a second are compared with the XML alone. A LAS X
-project, a store run's input, has no description yet."""
+`ChildrenOf` of a LIFEXT file, so the images of a second are compared with the XML alone."""
 
 import json
 import math
@@ -36,7 +37,7 @@ SCHEMA = json.loads((ROOT / "spec" / "zarrify" / "lif" / "description.json").rea
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#9-the-description>)
 DECISIONS = {"data_type", "item", "interleaved", "axes", "shape", "chunk_shape", "offsets", "order", "colors",
              "resolution", "t", "z", "rows", "row", "y_stride", "band", "base", "end", "field_dims", "fields",
-             "tiles", "scale", "units", "series", "omero", "held"}
+             "tiles", "scale", "units", "series", "omero", "held", "not_presented", "unused"}
 LIFFILE_TYPE = {"lif": liffile.LifFileType.LIF, "lof": liffile.LifFileType.LOF,
                 "lifext": liffile.LifFileType.LIFEXT}
 
@@ -150,20 +151,58 @@ def check_image(d: dict, mine: dict, im: liffile.LifImageABC, stem: str, said: l
     check_tile_scan(mine["tile_scan"], im, said, seen)
 
 
+def check_document(doc: dict, path: Path, said: list[str], seen: Counter) -> None:
+    """A project's document against ElementTree's reading of its file."""
+    seen["documents"] += 1
+    root = ET.fromstring(path.read_bytes().removeprefix(b"\xef\xbb\xbf"))  # noqa: S314 (a fixture's)
+    e = root.find("Element")
+    assert e is not None
+    memory = e.find("Memory")
+    entries = [] if memory is None else [x for x in memory if x.get("File") is not None]
+    references = [x for x in e.findall("Children/Reference") if x.get("File") is not None]
+    want = {"name": e.get("Name"), "attributes": dict(e.attrib), "image": e.find("Data/Image") is not None,
+            "memory": attributes(memory),
+            "entries": [{"tag": x.tag, "file": x.get("File"), "offset": x.get("Offset"), "size": x.get("Size")}
+                        for x in entries],
+            "uuids": [x.get("UUID") for x in references]}
+    got = {k: doc[k] for k in want if k != "uuids"} | {"uuids": [r["uuid"] for r in doc["references"]]}
+    if got != want:
+        said.append(f"document {doc['key']}: {got}, ElementTree's {want}")
+    seen["references"] += len(references)
+
+
 @cache
 def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
     said: list[str] = []
     seen: Counter = Counter()
     with read(path) as parsed:
         d = parsed.description
-    if d is None:
-        seen["sets"] += 1
-        return (), seen
+    assert d is not None
+    errors = sorted(e.message[:200] for e in jsonschema.Draft202012Validator(SCHEMA).iter_errors(d))
+    said += [f"not of the schema: {e}" for e in errors]
+    if "documents" not in d:
+        compare_file(d, path, said, seen)
+        return tuple(said), seen
+    # a LAS X project: its documents, and each LOF as a file of its own
+    seen["sets"] += 1
+    base = path.parent
+    for doc in d["documents"]:
+        check_document(doc, base / doc["key"], said, seen)
+    for i, lof in enumerate(d["lofs"]):
+        if d["documents"][lof["document"]]["lof"] != i:
+            said.append(f"LOF {lof['key']}: its document does not name it")
+        file = base / lof["key"]
+        if lof["size"] != file.stat().st_size:
+            said.append(f"LOF {lof['key']}: size {lof['size']}")
+        compare_file(lof["description"], file, said, seen)
+    return tuple(said), seen
+
+
+def compare_file(d: dict, path: Path, said: list[str], seen: Counter) -> None:
+    """A LIF, LOF or LIFEXT file's description against liffile's reading of it."""
     seen["files"] += 1
     seen[d["file"]] += 1
     seen[f"version {d['version']}"] += 1
-    errors = sorted(e.message[:200] for e in jsonschema.Draft202012Validator(SCHEMA).iter_errors(d))
-    said += [f"not of the schema: {e}" for e in errors]
     check_header(d, path.read_bytes(), said, seen)
     with liffile.LifFile(path) as f:
         version, root = d["version"], d["root"]
@@ -191,7 +230,6 @@ def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
             said.append(f"{len(d['images'])} images, liffile's {len(images)}")
         for mine_image, im in zip(d["images"], images, strict=False):
             check_image(d, mine_image, im, path.stem, said, seen)
-    return tuple(said), seen
 
 
 @pytest.mark.parametrize("path", FILES, ids=[p.name for p in FILES])
@@ -206,8 +244,8 @@ def test_the_fixtures_reach_every_case_the_comparison_reads():
         seen += compared(path)[1]
     wanted = ["files", "sets", "lif", "lof", "lifext", "version 1", "version 2", "lofs", "older lofs", "blocks",
               "tails", "images", "images without a name", "parents", "dimensions", "channels", "tile scans", "tiles",
-              "lof blocks named by their xml", "images liffile does not read", "files without images",
-              "older lofs read in a root liffile makes"]
+              "lof blocks named by their xml", "images liffile does not read", "files without images", "documents",
+              "references", "older lofs read in a root liffile makes"]
     assert [w for w in wanted if not seen[w]] == []
 
 
@@ -215,4 +253,7 @@ def test_the_fixtures_reach_every_case_the_comparison_reads():
 def test_a_description_holds_none_of_the_outputs_decisions(path):
     with read(path) as parsed:
         d = parsed.description
-    assert d is None or not DECISIONS & (d.keys() | {k for im in d["images"] for k in im})
+    assert d is not None
+    files = [lof["description"] for lof in d["lofs"]] if "lofs" in d else [d]
+    members = d.keys() | {k for f in files for k in f.keys() | {k for im in f["images"] for k in im}}
+    assert not DECISIONS & members

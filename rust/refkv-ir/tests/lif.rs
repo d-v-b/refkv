@@ -46,12 +46,15 @@ fn lif_dir() -> PathBuf {
     common::fixtures().join("lif")
 }
 
-/// The rejection of the fixture `input`: of a file run, or a project's store run.
+/// The rejection of the fixture `input`: of a file run, or a project's store run, by its parser or
+/// by refkv's plan of its description.
 fn rejection(input: &str) -> String {
     let result = if input.ends_with(".xlef") {
-        run_project(&lif_dir(), input).map(|_| ())
+        run_project(&lif_dir(), input).and_then(|(_, description, _)| refkv_ir::lif::plan::plan_set(&description)).map(|_| ())
     } else {
-        refkv_ir::parse_bytes::<Lif>(&std::fs::read(lif_dir().join(input)).unwrap()).map(|_| ())
+        refkv_ir::parse_bytes::<Lif>(&std::fs::read(lif_dir().join(input)).unwrap())
+            .and_then(|(_, description)| refkv_ir::lif::plan::plan(&description))
+            .map(|_| ())
     };
     result.err().unwrap_or_else(|| panic!("{input} was accepted"))
 }
@@ -77,7 +80,8 @@ fn a_project_is_a_valid_store_ir() {
     for (named, images, objects) in cases {
         let (ir, facts, files) = run_project(&lif_dir(), named).unwrap_or_else(|m| panic!("{named}: {m}"));
         refkv_ir::check::check(&ir).unwrap_or_else(|m| panic!("{named}: {m}"));
-        assert_eq!(facts["images"].as_array().unwrap().len(), images, "{named}");
+        let plan = refkv_ir::lif::plan::plan_set(&facts).unwrap_or_else(|m| panic!("{named}: {m}"));
+        assert_eq!(plan["images"].as_array().unwrap().len(), images, "{named}");
         assert_eq!(files.len(), objects, "{named}");
         let out = refkv_ir::store::store_output(StoreFormat::Lif, &ir, &facts, serde_json::json!({}), "https://example.org/set/", true, false).map_err(String::from)
             .unwrap_or_else(|m| panic!("{named}: {m}"));
@@ -99,8 +103,8 @@ fn two_spellings_of_a_key_are_one_object() {
         <Children><Reference File=\".%5Csolo.xlif\"/><Reference File=\".%5CSOLO.XLIF\"/></Children></Element></LMSDataContainerHeader>");
     std::fs::write(dir.join("a.xlef"), doc).unwrap();
     let (_, facts, files) = run_project(&dir, "a.xlef").unwrap();
-    assert_eq!(facts["documents"], 2);
-    assert_eq!(facts["images"].as_array().unwrap().len(), 1);
+    assert_eq!(facts["documents"].as_array().unwrap().len(), 2);
+    assert_eq!(refkv_ir::lif::plan::plan_set(&facts).unwrap()["images"].as_array().unwrap().len(), 1);
     assert_eq!(files.len(), 3);
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -112,7 +116,7 @@ fn two_spellings_of_a_key_are_one_object() {
 fn an_unpredicted_long_block_id_is_read() {
     let data = std::fs::read(common::fixtures().join("lif/lif_long_block_id.lif")).unwrap();
     let (ir, facts) = refkv_ir::parse_bytes::<Lif>(&data).unwrap();
-    assert_eq!(facts["blocks"], 3);
+    assert_eq!(facts["blocks"].as_array().unwrap().len(), 3);
     assert!(facts["rounds"].as_u64().unwrap() <= 5, "{}", facts["rounds"]);
     assert_eq!(common::rebuilt(&ir, &data), data);
 }
@@ -145,7 +149,12 @@ fn every_accepted_fixtures_images_name_their_descriptions() {
         files += !project as u32;
         projects += project as u32;
         let s = &ir.stored;
-        let listed = facts["images"].as_array().unwrap();
+        // the images of the file's description, or of each LOF's of a project's
+        let listed: Vec<&serde_json::Value> = if project {
+            facts["lofs"].as_array().unwrap().iter().flat_map(|l| l["description"]["images"].as_array().unwrap()).collect()
+        } else {
+            facts["images"].as_array().unwrap().iter().collect()
+        };
         assert_eq!(s.arrays.len(), listed.len(), "{name}");
         for (i, im) in listed.iter().enumerate() {
             let at = format!("{name} image {i}");
