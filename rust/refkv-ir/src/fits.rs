@@ -429,7 +429,7 @@ fn field_of(form: &str) -> Result<Option<Field>, &'static str> {
 /// A binary table's rows as a struct, or why they stay bytes (§4.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#41-rows-as-a-struct>): the first
 /// reason that holds, every column's form before any name.
-fn row_struct(cards: &[Card], forms: &[String], row_bytes: u64, max_fields: u64, max_row: u64) -> Result<J, &'static str> {
+pub fn row_struct(cards: &[Card], forms: &[String], row_bytes: u64, max_fields: u64, max_row: u64) -> Result<J, &'static str> {
     let columns = forms.iter().map(|form| field_of(form)).collect::<Result<Vec<_>, _>>()?;
     let mut names: Vec<J> = Vec::with_capacity(forms.len());
     let mut taken = std::collections::HashSet::new();
@@ -502,7 +502,6 @@ struct Columns {
 struct Comp {
     codec: String,
     zbitpix: i64,
-    data_type: String,
     /// the image's shape and tile shape, in the array's order (slowest axis first)
     shape: Vec<u64>,
     tile: Vec<u64>,
@@ -887,13 +886,6 @@ impl Fits {
                 self.rules.check("stream_tiles", rules::env([("hdu", num(hdu)), ("compressed", flag(self.decoded.is_some()))]))?;
                 self.rules.check("table_size", rules::env([("hdu", num(hdu)), ("bytes", num(rows as f64))]))?;
                 comp = Some(self.compressed(&cards, &forms, axes[1])?);
-            } else if xtension == "BINTABLE" {
-                match row_struct(&cards, &forms, axes[0], self.limit("max_row_fields"), self.limit("max_row_bytes")) {
-                    Ok(row) => table["struct"] = row,
-                    Err(reason) => table["not_struct"] = json!(reason),
-                }
-            } else {
-                table["not_struct"] = json!("ascii");
             }
         }
         // the elements
@@ -949,18 +941,12 @@ impl Fits {
             _ => None,
         });
         let kind_out = if empty { "empty" } else if comp.is_some() { "image" } else { kind };
-        let data_type = match &comp {
-            Some(c) => json!(c.data_type),
-            None => spec["dtype"].clone(),
-        };
         self.hdus.push(json!({
             "index": self.index, "type": if primary { "primary".to_string() } else { xtension.to_lowercase() },
             "kind": kind_out, "offset": self.offset, "header_bytes": header_bytes,
             "cards": records - 1, "data_offset": data_offset, "data_bytes": total, "pad": pad,
-            "bitpix": bitpix as i64, "data_type": data_type, "naxis": axes, "pcount": pcount as i64, "gcount": gcount as i64,
+            "bitpix": bitpix as i64, "naxis": axes, "pcount": pcount as i64, "gcount": gcount as i64,
             "name": name, "version": version, "table": table, "compression": J::Null, "elements": elements,
-            // the key of its arrays' descriptions (`stored.rs`): its header, where it holds data
-            "declared_by": if empty { J::Null } else { json!(header) },
         }));
         if let Some(c) = comp {
             self.pending = Some(Pending {
@@ -998,7 +984,6 @@ impl Fits {
         };
         let zbitpix = self.opt_int(cards, "ZBITPIX")?.unwrap_or(0);
         self.rules.check("zbitpix", rules::env([("hdu", num(hdu)), ("value", num(zbitpix as f64))]))?;
-        let spec = &self.rules.table("data_types")[zbitpix.to_string()];
         let znaxis = self.opt_int(cards, "ZNAXIS")?.unwrap_or(0);
         self.rules.check("znaxis", rules::env([("hdu", num(hdu)), ("value", num(znaxis as f64))]))?;
         let (mut shape_fits, mut tile_fits) = (Vec::new(), Vec::new());
@@ -1099,7 +1084,6 @@ impl Fits {
         Ok(Comp {
             codec,
             zbitpix: zbitpix as i64,
-            data_type: spec["dtype"].as_str().unwrap_or("uint8").to_string(),
             shape,
             tile,
             blocksize: blocksize as i64,
@@ -1182,7 +1166,7 @@ impl Fits {
         }
         // the chunks: an element per chunk with a present tile
         let item = c.zbitpix.unsigned_abs() / 8;
-        let (chunk_shape, grid, chunks) = tile_cut(&c.shape, &c.tile, item);
+        let (_, _, chunks) = tile_cut(&c.shape, &c.tile, item);
         let mut chunk_facts = Vec::with_capacity(chunks.len());
         for (j, ch) in chunks.iter().enumerate() {
             let present: Vec<(u64, u64)> = (ch.first..ch.first + ch.count).filter_map(|r| tiles[r as usize]).collect();
@@ -1205,7 +1189,7 @@ impl Fits {
         let h = &mut self.hdus[p.hdu];
         h["compression"] = json!({
             "type": c.codec, "parameters": {"BLOCKSIZE": c.blocksize, "BYTEPIX": c.bytepix}, "zbitpix": c.zbitpix,
-            "data_type": c.data_type, "shape": c.shape, "tile": c.tile, "quantize": c.quantize, "dither_seed": c.dither_seed,
+            "shape": c.shape, "tile": c.tile, "quantize": c.quantize, "dither_seed": c.dither_seed,
             "zblank": c.zblank, "columns": {
                 "COMPRESSED_DATA": c.columns.compressed.map(|(at, q)| json!({"offset": at, "q": q})),
                 "GZIP_COMPRESSED_DATA": c.columns.gzip.map(|(at, q)| json!({"offset": at, "q": q})),
@@ -1213,15 +1197,22 @@ impl Fits {
             },
             "row_bytes": c.columns.row_bytes, "rows": c.rows, "tiles": tiles.len(),
             "present": tiles.iter().filter(|t| t.is_some()).count(),
-            "chunk_shape": chunk_shape, "grid": grid, "chunks": chunk_facts,
+            // the heap's elements, one per chunk the projection cuts (`tile_cut`), which `stored.rs`
+            // reads to place each tile; the description leaves them out
+            "chunks": chunk_facts,
         });
         Ok(())
     }
 
-    /// The finished IR, with its HDUs' arrays described (`stored.rs`), and the facts.
+    /// The finished IR, with its HDUs' arrays described (`stored.rs`), and the description of
+    /// the file (spec/zarrify/fits.md §9.6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#96-the-description>): each
+    /// HDU as its header and the IR give it, with none of the output's decisions (a data type, a
+    /// row's struct, the chunks of a tile-compressed image), which the projection makes.
     pub fn finish(mut self) -> Result<(Ir, J), String> {
         let described = if self.phase == Phase::Done { Some(stored::described(&self.ir, &self.hdus)?) } else { None };
-        let mut facts = json!({"hdus": self.hdus, "copy_threshold": crate::out::copy_threshold()});
+        let hdus: Vec<J> = self.hdus.iter().map(description).collect();
+        let mut facts = json!({"hdus": hdus});
         if let Some(d) = &self.decoded {
             // the checker fills the source's gaps: this one, special records, is in the space
             if self.offset < self.size {
@@ -1239,6 +1230,18 @@ impl Fits {
 
 crate::parser!(Fits);
 
+/// An HDU as the description gives it (§9.6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#96-the-description>): the
+/// parser's record of it without the heap's chunk elements of a tile-compressed image, which
+/// `stored.rs` reads before the IR is finished and the projection finds in the IR.
+fn description(h: &J) -> J {
+    let mut h = h.clone();
+    if let Some(c) = h["compression"].as_object_mut() {
+        c.remove("chunks");
+    }
+    h
+}
+
 /// The FITS profile's file run (spec/zarrify/fits.md).
 pub struct Profile;
 
@@ -1255,6 +1258,9 @@ impl crate::run::FileProfile for Profile {
     }
     fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
         crate::project::fits::reads(ir, facts)
+    }
+    fn described(&self) -> bool {
+        true
     }
 }
 

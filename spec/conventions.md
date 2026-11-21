@@ -28,6 +28,7 @@ its JSON Schema `zarrify/<format>/schema.json`. Its changes are in [zarrify/chan
 | N5 | [n5](zarrify/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
 | Nikon ND2 | [nd2](zarrify/nd2.md) | `59612f14-e314-4207-ba00-8f422ba71490` |
 | Hamamatsu NDPI | [ndpi](zarrify/ndpi.md) | `6cac71ef-dbb2-4acd-b60c-00389aa4238a` |
+| netCDF classic (CDF-1), 64-bit offset (CDF-2) and 64-bit data (CDF-5) | [netcdf3](zarrify/netcdf3.md) | `b708fd91-025a-4c2e-91e2-543503ea163a` |
 | NIfTI-1 and NIfTI-2 | [nifti](zarrify/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
 | NumPy NPY and NPZ (NEP 1) | [npy](zarrify/npy.md) | `62b1d1ba-8eb3-465c-a333-75e096fce519` |
 | NRRD (Teem) | [nrrd](zarrify/nrrd.md) | `23e0c600-8da6-40f1-81e7-ab246e948e88` |
@@ -1047,7 +1048,11 @@ gives them, `geometry` (the format's description of the unit, such as its shape
 and data type) and `codec` (a SAFE tile part has no `geometry`, and a FITS
 table's rows and heap have no `codec`); for a derived element,
 `transform` and, when known, `size`, with `skip` for `nd2-lv-zlib` (the bytes
-of the element before its zlib stream); for an object of a store described in
+of the element before its zlib stream), and, for a `deflate` element whose
+space holds values, `prefix`: the number of bytes, from the start of what its
+stream inflates to, that hold them (a deflated `.npz` member's preamble and
+header, [npy.md §5.3](zarrify/npy.md#53-elements)), a value of the source
+alone, never of how much of the stream a parser read; for an object of a store described in
 place, `{"bytes":"source"}` ([§8.9](#89-stores)).
 A **recipe** is the bytes of the unit as a list of parts: `["src", o, n]`,
 the `n` bytes (`null`: up to the element's end) at offset `o` from the
@@ -1330,14 +1335,20 @@ byte for byte. The validator also rebuilds the view (8.7) from the table and
 the source: each shown value's bytes from source 0 at its extent, or, in a
 derived space, from that space's bytes, which it derives again by the
 derived element's transform (`nd2-lv-zlib`: the record inflated;
-`gunzip`, `bunzip2`: the file decoded; `xml-variant`: the chunk; an `xml` value is then its span with its
+`gunzip`, `bunzip2`: the file decoded; `deflate` with a `prefix`
+([8.5](#85-forms-and-recipes)): the first `prefix` bytes its raw deflate stream
+inflates to, of which the validator need read no more than they take;
+`xml-variant`: the chunk; an `xml` value is then its span with its
 references decoded); it compares the rebuilt view with the stored one group
 by group and member by member, and flags the first group or member missing,
 extra or different. So **a derived transform may hold shown values only if
 validators can derive it again** from source 0: of the transforms the
 parsers emit, `nd2-lv-zlib`, `xml-variant`, and `gunzip` and `bunzip2` (a compressed FITS file,
-[fits §2.1](zarrify/fits.md#21-a-compressed-file): the file decoded) can, and `gzip` (a CZI's
-compressed attachment) and `deflate` (a SAFE zip entry's raw deflate stream),
+[fits §2.1](zarrify/fits.md#21-a-compressed-file): the file decoded) can; `deflate` with a
+`prefix` (a deflated `.npz` member, [npy.md §5.3](zarrify/npy.md#53-elements)) can for the
+values that end at or before its prefix, and a shown value past it is flagged as one past its
+derived space; and `gzip` (a CZI's
+compressed attachment) and `deflate` without a `prefix` (a SAFE zip entry's raw deflate stream),
 whose spaces hold nothing, may hold none. A new
 transform that would hold shown values comes with its re-derivation, in a
 revision of this section.

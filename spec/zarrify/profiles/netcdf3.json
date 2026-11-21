@@ -1,0 +1,17 @@
+{
+  "name": "netcdf3",
+  "title": "netCDF3",
+  "uuid": "b708fd91-025a-4c2e-91e2-543503ea163a",
+  "version": 0,
+  "kind": "file",
+  "store_run": null,
+  "sniff": 72,
+  "chosen_by": null,
+  "suffixes": [
+    ".nc"
+  ],
+  "reference": null,
+  "source": "netCDF classic (CDF-1), 64-bit offset (CDF-2) and 64-bit data (CDF-5)",
+  "inputs": "netCDF3 files of the three classic formats: their fixed-size and record variables of every type, their dimensions and their attributes",
+  "for": "netCDF3 files (`.nc`) of the classic, 64-bit offset and 64-bit data formats, as labeled arrays that xarray opens"
+}

@@ -1,11 +1,15 @@
 """refkv.build, the tools to build an output from the IR (the design of d-v-b/refkv#278): `read`
 and `Parsed`, values, `Array` and `Written`, `seal` and `project`."""
 
+import asyncio
 import dataclasses
+import gc
 import importlib
 import io
 import json
 import struct
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, BinaryIO, cast
 
@@ -33,11 +37,13 @@ from refkv.build import (
     fits,
     payload_size,
     project,
+    project_async,
     read,
+    read_async,
     seal,
     value,
 )
-from refkv.errors import RequestError
+from refkv.errors import RequestError, ResolutionError
 from refkv.policy import Policy
 from refkv.zarrify import zarrify
 from refkv.zarrify.common import PAGE_SIZE
@@ -90,10 +96,171 @@ def test_seal_of_the_built_in_output_reads_what_zarrify_writes(name, checksums):
         pr = project(p)
         store = seal(pr.written, [p])
         built = zarrify(path, url, checksums=checksums)
-        assert pr.base.checksums is checksums
+        assert pr.checksums is checksums
         assert store.sources == built.sources
         assert store.mapping == built.mapping
         assert sorted(store.read_at_open) == sorted(built.read_at_open)
+
+
+@pytest.mark.parametrize("name", [
+    "npy/npy_c_float64.npy",
+    "tiff/edge_aperio_position.tif",  # its built-in output reads a chunk, for its omero windows
+    "nrrd/nrrd_detached_raw.nhdr",  # a file read with the one beside it
+    "zarr2/zarr2_codecs/",  # a store, whose run decides its profile
+])
+def test_read_makes_no_output_and_project_makes_it_when_asked(name):
+    """`read` parses and stops: the input's profile and its convention's version are the run's,
+    not read from an output; `project` makes the built-in output when asked, once, and gives it
+    again after the input is closed."""
+    path = str(FIXTURES / name) + ("/" if name.endswith("/") else "")
+    url = f"https://example.invalid/{name}" if name.endswith("/") else None
+    with read(path, url) as p:
+        first = project(p)
+        declared = json.loads(cast("bytes", first.written["zarr.json"]))["attributes"]["refkv_zarrified"]
+        assert (p.profile, p.version) == (declared["profile"], declared["version"])
+        assert dict(project(p).written) == dict(first.written)
+    assert dict(project(p).written) == dict(first.written)
+    assert seal(first.written, [p]).mapping == zarrify(path, url).mapping
+
+
+def test_project_asked_for_together_makes_one_output():
+    """Callers that ask for an input's built-in output at once, from threads or from one loop, get
+    the one output: the first makes it, with its reads, and the others wait for it."""
+    path = FIXTURES / "tiff" / "edge_aperio_position.tif"  # its built-in output reads a chunk
+    with read(path) as p, ThreadPoolExecutor(4) as pool:
+        from_threads = list(pool.map(project, [p] * 4))
+        assert all(dict(x.written) == dict(from_threads[0].written) for x in from_threads)
+
+    async def together(q):
+        return await asyncio.gather(project_async(q), project_async(q), project_async(q))
+
+    with read(path) as q:
+        from_a_loop = asyncio.run(together(q))
+        assert all(x.keys() == from_threads[0].keys() for x in from_a_loop)
+        assert seal(from_a_loop[0].written, [q]).mapping == zarrify(str(path)).mapping
+
+
+def test_a_cancelled_caller_of_project_leaves_the_others_their_output():
+    """The built-in output is made by a task of its own, not by the caller that asked first: of
+    two callers that ask together, whichever is cancelled, while a thread of the work is inside
+    the run, stops waiting; the work goes on, once, the other gets the output, and it is there
+    for a later call."""
+    path = FIXTURES / "tiff" / "edge_aperio_position.tif"
+
+    async def two_callers(cancel: str) -> tuple[int, list[str]]:
+        with read(path) as p:
+            real, gate, calls = cast("Any", p._parse), threading.Event(), 0
+
+            class Held:
+                """The parse, its output held back on a thread until `gate` opens."""
+
+                async def output_async(self, written: bool = True):
+                    nonlocal calls
+                    calls += 1
+                    await asyncio.to_thread(gate.wait)
+                    return await real.output_async(written)
+
+                def close(self) -> None:
+                    real.close()
+
+            cast("Any", p)._parse = Held()
+            tasks = {"first": asyncio.create_task(project_async(p))}
+            await asyncio.sleep(0)  # the first has asked, and the work has begun
+            tasks["second"] = asyncio.create_task(project_async(p))
+            await asyncio.sleep(0)
+            tasks[cancel].cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await tasks[cancel]
+            gate.set()
+            other = await tasks["second" if cancel == "first" else "first"]
+            again = await project_async(p)
+            assert dict(again.written) == dict(other.written)
+            return calls, sorted(other.written)
+
+    once, keys = asyncio.run(two_callers("second"))
+    once_too, same_keys = asyncio.run(two_callers("first"))
+    assert (once, once_too) == (1, 1)
+    assert keys == same_keys == sorted(project(read_closing(path)).written)
+
+
+def test_a_failed_built_in_output_is_made_again_when_next_asked_for():
+    with read(FIXTURES / "npy" / "npy_c_float64.npy") as p:
+        real, failures = cast("Any", p._parse), [OSError("the read failed")]
+
+        class Failing:
+            """The parse, whose output fails the first time."""
+
+            async def output_async(self, written: bool = True):
+                if failures:
+                    raise failures.pop()
+                return await real.output_async(written)
+
+            def close(self) -> None:
+                real.close()
+
+        cast("Any", p)._parse = Failing()
+        with pytest.raises(OSError, match="the read failed"):
+            project(p)
+        assert "zarr.json" in project(p).written
+
+
+def read_closing(path):
+    """A `Parsed` of `path` that a test projects once and leaves closed."""
+    with read(path) as p:
+        project(p)
+    return p
+
+
+def test_project_refuses_an_input_closed_before_its_output_was_asked_for():
+    p = read(FIXTURES / "npy" / "npy_c_float64.npy")
+    p.close()
+    with pytest.raises(ValueError, match="closed before its built-in output was asked for"):
+        project(p)
+
+
+def test_a_parsed_input_holds_its_file_until_it_is_closed(tmp_path):
+    """`read` keeps the input open, for `project`: a local file is mapped until the `Parsed` is
+    closed, by `with`, by `async with` or by `close()` (twice is once), and one collected
+    unclosed warns and releases it."""
+    path = tmp_path / "x.npy"
+    np.save(path, np.arange(64, dtype=np.uint8))
+
+    def mapping(parsed):
+        return cast("Any", parsed._parse).parse._transport.data  # the file's mapping, which the run read through
+
+    with read(path) as p:
+        held = mapping(p)
+        assert not held.closed
+        assert p.bytes((0, 128, 2)) == b"\x00\x01"
+    assert (p.closed, held.closed) == (True, True)
+    p.close()
+
+    async def with_async():
+        async with await read_async(path) as q:
+            inside = mapping(q)
+            assert not inside.closed
+        return q, inside
+
+    q, held = _sync.run(with_async())
+    assert (q.closed, held.closed) == (True, True)
+
+    left = [read(path)]
+    held = mapping(left[0])
+
+    def forget():
+        left.clear()
+        gc.collect()
+
+    with pytest.warns(ResourceWarning, match="unclosed refkv.build.Parsed"):
+        forget()
+    assert held.closed
+
+    # a file read with the one beside it: both are released
+    with read(FIXTURES / "nrrd" / "nrrd_detached_raw.nhdr") as beside:
+        files = cast("Any", beside._parse)._close.__self__.transports  # the files the run opened, by key
+        assert len(files) == 2
+        assert not any(t.data.closed for t in files.values())
+    assert all(t.data.closed for t in files.values())
 
 
 # ---- the TIFF stack, built from the IR: one TIFF file of every page of several (test case 2)
@@ -377,10 +544,10 @@ def test_seal_refuses_inputs_read_with_and_without_checksums(tmp_path):
 
 def test_seal_refuses_one_file_read_with_two_sizes(tmp_path):
     path = _npy(tmp_path)
-    p = read(path)
+    with read(path) as p:  # closed, it still knows the size it read
+        pass
     _npy(tmp_path, n=8192)  # the file changes between two reads of it
-    q = read(path)
-    with pytest.raises(SealError) as e:
+    with read(path) as q, pytest.raises(SealError) as e:
         seal(Written({"v": concat(Ref(p, 0, 0, 4), Ref(q, 0, 0, 4))}), [p, q])
     assert e.value.code == "inputs"
 
@@ -555,13 +722,21 @@ def test_seal_refuses_a_zero_source_past_a_source_table(tmp_path, n):
     assert e.value.code == "archive"
 
 
-def test_seal_refuses_a_range_it_cannot_read_to_checksum(tmp_path):
-    path = _npy(tmp_path)
-    with read(path, checksums=True) as p:
-        path.write_bytes(path.read_bytes()[:64])  # the file shrinks after it was read
-        with pytest.raises(SealError) as e:
-            seal(Written({"v": Ref(p, 0, 100, 4)}), [p])
+@pytest.mark.parametrize("error", [OSError("the source went away"), ResolutionError("the source went away")],
+                         ids=["unreadable", "changed-under-its-pin"])
+def test_seal_refuses_a_range_it_cannot_read_to_checksum(tmp_path, monkeypatch, error):
+    """A read that fails as the system's does, or as the reader's does for a source that is no
+    longer what its pin says (a file cut short after it was read)."""
+    async def unread(_self, _key):
+        raise error
+
+    # the read is made to fail, not the file cut short: an open input holds a local file mapped,
+    # and Windows refuses to shrink a mapped file
+    monkeypatch.setattr(refkv.ReferenceStore, "get_async", unread)
+    with read(_npy(tmp_path), checksums=True) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(p, 0, 100, 4)}), [p])
     assert e.value.code == "checksums"
+    assert "the source went away" in str(e.value)
 
 
 def test_a_store_named_by_a_url_is_read_where_it_was_opened(tmp_path):

@@ -68,6 +68,43 @@ pub fn call(name: &str, p: &J) -> R<J> {
             let endian = if enc.little { "little" } else { "big" };
             Ok(J::Array(vec![crate::project::dicom::chain(codec, data_type, uint(p, "samples")?, endian)]))
         }
+        "npy_array_type" => {
+            // an NPY header's text, as the profile reads it: the data type its `descr` is
+            // presented as (spec/zarrify/npy.md §3
+            // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#3-data-types>), with
+            // its header's order and shape
+            let rules = rules::of("npy");
+            let header = crate::npy::header::parse(text(p, "header")?, rules.limit("max_rank") as usize)
+                .map_or_else(|e| bad(format!("not an NPY header: {e}")), Ok)?;
+            let t = crate::npy::header::dtype(rules, &header.descr).map_err(Refused::NoCodec)?;
+            Ok(json!({
+                "data_type": t.zarr, "fill_value": t.fill, "item_size": t.item, "trailing": t.trailing,
+                "endian": t.little.map(|l| if l { "little" } else { "big" }),
+                "fortran_order": header.fortran_order, "shape": header.shape,
+            }))
+        }
+        "declare" => {
+            // a node's attributes with the declaration of a profile's convention (conventions §2
+            // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), as
+            // every built-in projection writes it (`out::declare`): `url` at the root, `own` the
+            // node's source metadata
+            let profile = text(p, "profile")?;
+            if !crate::out::registry().iter().any(|e| e["name"] == profile) {
+                return bad(format!("no profile {profile:?}"));
+            }
+            let attributes = match p.get("attributes") {
+                None | Some(J::Null) => Map::new(),
+                Some(J::Object(m)) => m.clone(),
+                Some(_) => return bad("attributes is an object"),
+            };
+            let url = match p.get("url") {
+                None | Some(J::Null) => None,
+                Some(J::String(u)) => Some(u.as_str()),
+                Some(_) => return bad("url is a string"),
+            };
+            let own = p.get("own").filter(|o| !o.is_null()).cloned();
+            Ok(J::Object(crate::out::declare(attributes, profile, url, own)))
+        }
         "gzip_codecs" => {
             let level = uint(p, "level")?;
             let level = u8::try_from(level).ok().filter(|l| *l <= 9).map_or_else(|| bad("level is 0 to 9"), Ok)?;

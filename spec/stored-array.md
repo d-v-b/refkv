@@ -425,7 +425,9 @@ chains no description names, keeping the others' order, and renumbers the descri
 in it; fits the descriptions to their limit (below), which falls back the same way and drops the
 chains it leaves unnamed; sorts the rows; and checks them ([§5](#5-checks)). They are
 not in the facts a projection reads, which keep their arrays until each format's projection reads
-the descriptions.
+the descriptions. NumPy's does: its parser returns no facts of an array but its header's text and
+its description's key, and its projection takes the array's shape, order and data from the
+description and the chunk map.
 
 **Only two things change ids afterwards.**
 
@@ -607,14 +609,14 @@ own IR, and the CZI store, which grafts them, renumbers the ids its facts give
 - **The grid** is dense: CZI has no fill value.
 
 **NumPy** ([spec/zarrify/npy.md](zarrify/npy.md)). A `.npy` file's array, and each stored
-(method 0) `.npz` member's whose header was read, is a stored array, keyed by its `header` element,
-with no index; that element is its one declaration (its `descr`, `fortran_order` and `shape`). The
-facts give its key: `declared_by` is the id of a `.npy` file's `header` element (a list of one),
-or, for a `.npz` archive, a list of one id per member of the facts' `own.members` in their order
-(the archive's central directory's), presented or not: its `header` element's
-(`entries/<i>/data/header`), or null for a member with no description (a deflated one, or one
-whose header was not read). A presented member's entry of the facts' `arrays` is the member of
-`own.members` with its `path`.
+(method 0) or deflated (method 8) `.npz` member's whose header was read, is a stored array, keyed by
+its `header` element, with no index; that element is its one declaration (its `descr`,
+`fortran_order` and `shape`). Its key is found by its path: a `.npy` file's `header` element, or a
+`.npz` member's `entries/<i>/data/header`, `i` the member's position in the archive's central
+directory, which is its position among the source metadata's `members`, presented or not; a member
+with no description (one whose header was not read) has no such element. For an array the profile
+presents, the parser's description gives the key too: its entry of `arrays` holds `stored`, the
+`header` element's id, beside its `path` and its header's text.
 `shape` is the header's, reversed for a Fortran-order array of two or more axes, whose `axes` then
 give the header's order; `item_bits` is eight times the size of an element of its `descr` as NumPy
 lays it out, whether or not the profile presents the array: a type string (with its one-character
@@ -628,9 +630,12 @@ empty `List` for an axis of length 0 (which has no unit, and no row), under `sho
 defines no fill value. An array whose data is not presented (its `descr` has no data type, or
 its data does not fit) has no grid, nor, by the general fallback ([§1](#1-stored-arrays)), has one
 whose element's bits would pass 2^64 (an array of no elements may be of such a type), whose
-`item_bits` is then absent too. A deflated member's array is not
-described yet: its header and data lie in what its stream inflates to, which the IR holds as one
-derived element, with none for the header or for the data.
+`item_bits` is then absent too. A deflated member's `header` and `data` elements lie in a
+derived space, what its deflate stream inflates to
+([npy.md §5.3](zarrify/npy.md#53-elements)): its unit is its `data` element there, in the same
+empty chain, since inflating the stream is the IR's transform of the derived element and no codec
+of the array. No range of the file holds such a unit; a projection references the derived
+element's own bytes, the stream, and decodes them.
 
 **MRC** ([spec/zarrify/mrc.md](zarrify/mrc.md)). An MRC file's data is one stored array, keyed by
 the file's `header` element, with no index. The facts give the key: `declared_by` is that element's
@@ -852,8 +857,8 @@ index. The facts give the key: `array.declared_by` is the id of that object.
   than the header offset's bytes and the array's is not detected.
 - **No grid** for no input: the profile rejects what it does not read (other file types, framed
   data, a raw data file of another size), and builds no IR of it.
-- **The fill value** is `undefined`: the header's `data ignore value` marks pixels to ignore, and
-  is recorded, not made a fill value.
+- **The grid** is dense: ENVI has no fill value. The header's `data ignore value` marks pixels to
+  ignore, and is recorded, not made a fill value.
 
 **DICOM** ([spec/zarrify/dicom.md](zarrify/dicom.md)). A DICOM file's stored arrays are its
 Pixel Data (7FE0,0010), each lookup table of a `PALETTE COLOR` image, and each Pixel Data in an
@@ -1215,9 +1220,9 @@ descriptions, whether or not the profile presents them, keyed by its `header` el
 (`hdus/<i>/header`), a kind of element that may declare several arrays: each of an HDU's has an
 index. An image (the primary HDU, or an `IMAGE` extension) has one array, index 0; a table
 (`TABLE` or `BINTABLE`) two, its rows (0) and its heap (1); a tile-compressed image (a `BINTABLE`
-with `ZIMAGE = T`) three, its image (0) and its table's rows (1) and heap (2). The facts give the
-key: each HDU's `declared_by` is the id of its header, or null for an HDU of no axes, which holds
-no array. In a compressed file ([zarrify/fits.md §2.1](zarrify/fits.md#21-a-compressed-file))
+with `ZIMAGE = T`) three, its image (0) and its table's rows (1) and heap (2). The parser's
+description gives the key: each HDU's `elements` has its `header`'s id, which keys its arrays
+unless it is of no axes, and so holds none ([zarrify/fits.md §9.6](zarrify/fits.md#96-the-description)). In a compressed file ([zarrify/fits.md §2.1](zarrify/fits.md#21-a-compressed-file))
 the headers and the units' elements are in the `stream` element's space: a unit's bytes are the
 decoded file's.
 
@@ -1646,3 +1651,26 @@ the key: `info_value` is that element's id.
 - **The chain** is one, `flac`, its `setup` the STREAMINFO block. A frame decodes alone: FLAC has
   no state from frame to frame, so the codec is not a stream ([§3.1](#31-chains)).
 - **The grid** is dense: FLAC has no fill value.
+
+**netCDF3** ([spec/zarrify/netcdf3.md](zarrify/netcdf3.md)). Every variable of the header is a
+stored array, whether or not the profile presents it, keyed by the file's `header` element, a kind
+of element that may declare several arrays: a variable's index is its position in the header's
+variable list. The facts give the key: `declared_by` is the id of the `header` element, and each
+presented variable's entry of the facts' `arrays` gives its position as `index`.
+
+- **Declarations.** The range of the header that holds the variable's `nc_type`, 4 bytes, which
+  names its type ([zarrify/netcdf3.md §3.1](zarrify/netcdf3.md#31-data-types)). The format fixes the byte order (big-endian) and the
+  order of the elements (the last index varying fastest), which no place declares.
+- **`shape`** is the lengths of the variable's dimensions, in order, a record variable's first the
+  record count ([zarrify/netcdf3.md §7.3](zarrify/netcdf3.md#73-records)), which no place holds for
+  a streaming file; empty for a scalar. `axes` is absent.
+- **`item_bits`** is the bits of the type: 8, 16, 32 or 64. There is no `pad_from`.
+- **The grid.** A fixed-size variable is one unit, each axis `Each` of its length, under `short`;
+  its row is its data's element, `variables/<k>`. A record variable is a unit per record: `Each(1)`
+  along the record axis and `Each` of its length along each other, under `short`; the row of
+  record `r` is the `records` element, with the range of its slice, `r × recsize` past the
+  variable's own offset in a record. A record variable of no records has no row.
+- **The grid** is dense: the file stores every unit, a fixed-size variable's data and each of the
+  records it counts, so the grid has no fill value. A netCDF-C file written without fill holds
+  bytes in every unit all the same, whatever they are.
+- **The chain** is empty: the format stores every value as it is.

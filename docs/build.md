@@ -13,7 +13,15 @@ give them.
 ## Reading an input
 
 `refkv.build.read(location)` reads a file or a store as `zarrify` does, with the same sniffing,
-files beside it, pins, reader policy and object stores, and returns a `Parsed`:
+files beside it, pins, reader policy and object stores, and returns a `Parsed`. It parses and
+stops: it makes no output, and reads nothing that only an output needs.
+
+A `Parsed` holds the input open until it is closed: a local file, and any file read beside it, stays
+mapped, so that the built-in output can still be made of it (`project`, below). Use it as a context
+manager, `with read(...) as p:` or `async with await read_async(...) as p:`, or call `p.close()`.
+One that is collected unclosed releases the input then, with a `ResourceWarning`. A closed `Parsed`
+keeps its IR, its sources' sizes and pins, and the values made of it, so it can still be sealed
+without checksums.
 
 ```python
 from refkv.build import read
@@ -90,12 +98,104 @@ raise. A value that needs more than a reader allows fails that `get`, and only t
 A failure is a `SealError`, whose `code` (one of `CODES`) says which rule. The numbering and the
 checks of keys, ranges and payloads are the core's (`refkv._core.seal`), the same function
 every output of a core run passes through, from Python, the CLI or the browser (every output of
-`zarrify` but a plugin's and the DICOM store form's); `seal` adds what
+`zarrify` but the DICOM store form's); `seal` adds what
 only Python knows: the caller's objects, the inputs, the policy's URL rules, the placements and
-the archive.
+the archive. A layout plugin's output is sealed the same way
+([docs/layout-plugins.md](layout-plugins.md)): `refkv.build.apply(plan(layout), [p])` is what
+`zarrify(..., layout=layout)` does with the input once it is parsed.
 
 `refkv.build.project(p)` is the output `zarrify` writes for the input, as values:
-`seal(project(p).written, [p])` reads what `zarrify` writes.
+`seal(project(p).written, [p])` reads what `zarrify` writes. `read` did not make it: the first
+`project(p)` does, from the parse `p` keeps, and reads then what the built-in output alone needs
+(an edge chunk it copies, a chunk its `omero` windows sample). So `p` must still be open the
+first time; the output is kept, and a later `project(p)` builds on it, after `p` is closed too.
+`project` blocks, and `project_async` is the same on a caller's event loop.
+
+What `project` returns (a `Projected`) is refkv's own output to build on: `written`, every entry
+with its placement; `keys()`, `nodes()`, `document(key)`, `attributes(path)` (without refkv's
+declarations) and `source_metadata(path)`; `array(path)`, an array as an `Array`, and
+`array_entries(path)`, its document and chunk entries; `entries(prefix)`, the entries below a
+prefix as a `Written`; and `elements(path)`, the IR elements each chunk of an array reads. It is
+one projection of the input, and nothing else in `refkv.build` needs it.
+
+## Arrays as the source stores them
+
+The IR describes each array the source stores (`p.ir.stored_arrays()`), and the units it holds
+(`p.ir.units(k)`, the chunk map's rows of the array at position `k`). `stored_array` is the plainest
+projection of one: a Zarr array with the description's shape and grid, a chunk for each unit, its
+bytes referenced where they lie.
+
+```python
+from refkv.build import Written, read, seal, stored_array
+from refkv.zarrify.coding import npy_array_type
+
+with read("weights.npz") as p:
+    described = p.ir.stored_arrays().arrays
+    position = {a.element: k for k, a in enumerate(described)}
+    out = Written({"zarr.json": b'{"zarr_format":3,"node_type":"group","attributes":{}}'})
+    for entry in p.description["arrays"]:          # what the NumPy parser found
+        k = position[entry["stored"]]
+        if "deflate" in entry or described[k].grid is None:
+            continue                               # see below
+        t = npy_array_type(entry["header"])        # the header's declaration, as the profile reads it
+        array = stored_array(p, k, t["data_type"], endian=t["endian"],
+                             inner_shape=[t["trailing"]] if t["trailing"] else (),
+                             fill_value=t["fill_value"])
+        out |= array.entries(to=entry["path"])
+    store = seal(out, [p])
+```
+
+A description stops at the bytes of an element: the data type, its byte order and the fill value
+are what the source declares, which a profile's routine reads (`npy_array_type` for an NPY
+header), and the caller gives them. Nothing here asks for refkv's own output. `p.description` is
+the profile's description of the input, where its parser returns one: NumPy's
+([npy.md §8.6](../spec/zarrify/npy.md#86-the-description)) and FITS's
+([fits.md §9.6](../spec/zarrify/fits.md#96-the-description)) do, and the other profiles' is None
+until their projections read the descriptions too. `stored_array` raises `ValueError` for an array it
+cannot write so: one whose storage the IR does not model (a description with no grid, such as a
+NumPy `a<n>` array's, which the profile still presents from its header), whose elements are not
+whole bytes, whose units are encoded (`zarr_codecs` translates only the empty chain yet), whose
+units lie in the members of a run of elements (an ND2 file's frames), or whose units lie in a
+derived space: a deflated `.npz` member's data is a range of what its stream inflates to, which no
+range of the file holds. For such an array a caller references the stream itself,
+`p.encoded(p.ir.space(entry["stored"]))`, and writes the codecs that decode it (`gzip_member` and
+`gzip_codecs`, below).
+
+## The pieces of refkv's own output
+
+What refkv's own projections share is public too, each routine the binding of the function they
+call, so that a caller's output can keep any piece of refkv's convention without restating it:
+
+| routine | gives |
+|---|---|
+| `grid(span, shape, item_size, limit=)` | contiguous values cut into chunks as [conventions §7](../spec/conventions.md#7-source-values-as-arrays) cuts them: the chunk shape, and each chunk's range of `span`, an edge chunk padded with `Zeros`, or a `Copy` where the padded reference would not fit |
+| `filled(value)` | a value with a `Copy` as its bytes, read through the input; any other value as it is |
+| `gzip_member(stream, crc32=, size=)` | a raw deflate stream (a ZIP member's) framed as the gzip member the `gzip` codec reads, the stream referenced where it lies |
+| `mirror(parsed)` | the IR mirror's entries under `refkv_source` ([conventions §8](../spec/conventions.md#8-the-ir-mirror)), with their placement: the table, the view, and the keys a store's or an archive's listing ignored, which the convention records there. A store's objects under `refkv_source/objects` are its projection's to write |
+| `declaration(parsed, path, own=, attributes=)` | a node's attributes with refkv's convention declared ([conventions §2](../spec/conventions.md#2-attributes)): at the root, the profile, its version and the source |
+
+```python
+from refkv.build import Array, Written, declaration, filled, grid, mirror, read, seal
+from refkv.zarrify.layouts.hierarchy import group
+
+with read("volume.npy") as p:
+    span = p.span(p.ir.index("data"))                      # the range that holds the values
+    chunk_shape, chunks = grid(span, [512, 512, 300], 2, limit=1 << 20)
+    array = Array([512, 512, 300], "uint16", chunk_shape, [{"name": "bytes", "configuration": {"endian": "little"}}],
+                  {coords: filled(v) for coords, v in chunks.items()})
+    out = Written({"zarr.json": group(declaration(p, own=p.description["own"]))})
+    out |= array.entries(to="array")
+    out |= mirror(p)
+    store = seal(out, [p])
+```
+
+A declaration is a claim: an output that keeps it says its subtree follows refkv's convention.
+`seal` does not check that; `refkv.zarrify.layouts.hierarchy.check` does.
+
+`python/tests/test_rebuild_npy.py` is the test of these tools: a NumPy projection written with
+them, and with `npy_array_type` and `gzip_codecs`, writes what `zarrify` writes for every NumPy
+fixture, with the same source table, IR mirror, declarations and placement, and without ever
+asking for refkv's own output.
 
 ## A TIFF made of several
 

@@ -36,6 +36,7 @@ who each one is for, what you get, and how to run it.
 | N5 | N5 containers on S3 | [n5](n5/README.md) | [n5.md §8](../../spec/zarrify/n5.md#8-n5-profile) |
 | ND2 | Nikon NIS-Elements ND2 files | [nd2](nd2/README.md) | [nd2.md §7](../../spec/zarrify/nd2.md#7-nd2-profile) |
 | NDPI | Hamamatsu NDPI whole-slide images | [ndpi](ndpi/README.md) | [ndpi.md §7](../../spec/zarrify/ndpi.md#7-ndpi-profile) |
+| netCDF3 | netCDF3 files (`.nc`) of the classic, 64-bit offset and 64-bit data formats, as labeled arrays that xarray opens | [netcdf3](netcdf3/README.md) | [netcdf3.md §7](../../spec/zarrify/netcdf3.md#7-netcdf3-profile) |
 | NIfTI | NIfTI-1 and NIfTI-2 volumes (`.nii`, `.nii.gz`, `.hdr` and `.img`) | [nifti](nifti/README.md) | [nifti.md §7](../../spec/zarrify/nifti.md#7-nifti-profile) |
 | NumPy | NumPy arrays: `.npy` files, and the arrays of `.npz` archives, stored or deflated | [npy](npy/README.md) | [npy.md §8](../../spec/zarrify/npy.md#8-numpy-profile) |
 | NRRD | NRRD volumes, attached or detached, raw or gzip (`.nrrd`, `.nhdr`) | [nrrd](nrrd/README.md) | [nrrd.md §8](../../spec/zarrify/nrrd.md#8-nrrd-profile) |
@@ -447,6 +448,13 @@ each format's metadata is:
   with the reason. Each dataset's array keeps its refs, number type, storage, chunk
   shape and compression, and each table its ref, class, fields and record count
   ([hdf4 §8](../../spec/zarrify/hdf4.md#8-source-metadata)).
+- **netCDF3:** the IR mirror on `refkv_source`: the header held, each fixed-size
+  variable's data and the records referenced. The root keeps the format and version,
+  the header's record count and the one the arrays use, the record size, every
+  dimension, each global attribute's type and count, and the variables it does not
+  present, with the reason. Each variable's array keeps its position, type, `begin`
+  and `vsize`, whether it is a record variable, and its attributes' types
+  ([netcdf3 §6](../../spec/zarrify/netcdf3.md#6-source-metadata)).
 - **MP4:** the IR mirror on `refkv_source`, from the file's boxes down. The root
   keeps the `ftyp` brands, the movie's timescale and duration, and a row per track
   (its ID, handler and codec, with its path or the reason it is not presented). Each

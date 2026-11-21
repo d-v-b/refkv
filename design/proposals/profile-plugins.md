@@ -24,13 +24,25 @@ It is a design note. It replaces this note's earlier versions;
 [What changes on main](#what-changes-on-main) says what of the plugin
 implementation stays.
 
-Status (2026-11-16): step 1 of the [order of work](#order-of-work) has landed,
+Status (2026-11-20): step 1 of the [order of work](#order-of-work) has landed,
 as `refkv.build` (d-v-b/refkv#283) and the core's `seal` (d-v-b/refkv#284);
-[docs/build.md](../../docs/build.md) is its user document. Steps 2 to 4 (the
-plan's machine, and each format's description and plan) have not, though
+[docs/build.md](../../docs/build.md) is its user document. Since then a run
+parses without projecting: `read` makes no output and `project` makes the
+built-in one when asked, the core's `Run` keeping what it parsed
+(`defer_projection`, `begin_projection`, `project`); and a plugin is given
+the parsed inputs, `write(inputs, options)`, its output sealed as the built-in
+ones are, the base gone from what it is given
+([spec/layout.md](../../spec/layout.md)), though five of the six shipped
+plugins still ask for the built-in output (`project`), which their formats'
+descriptions will let them stop doing. NumPy's projection reads its
+description and the IR's stored arrays, and NumPy has the first
+[rebuild test](#testing-that-the-tools-suffice) (`python/tests/test_rebuild_npy.py`), written with
+`grid`, `filled`, `gzip_member`, `mirror` and `declaration`, the first of
+[group 4](#4-building-and-writing)'s routines to be bound. Steps 2 to 4 (the
+plan's machine, and each format's description and plan) have not otherwise, though
 NumPy's arrays, MP4's tracks and the stored arrays of every format in the
 scope of [ir-format-descriptions.md](ir-format-descriptions.md) are described,
-but for NumPy's deflated `.npz` members; those of the store profiles, MP3 and
+NumPy's deflated `.npz` members among them; those of the store profiles, MP3 and
 FLAC are not.
 [The gap](#the-gap) describes main before step 1.
 [Open question 3](#open-questions) is settled: a reader follows symbolic links
@@ -110,7 +122,7 @@ has, today:
 | what a projection uses | what a caller has today |
 |---|---|
 | **The IR**, with every element's path, kind, extent, form and value | `refkv.ir.parse(fmt, transport)` returns it with the facts and the planner's counts, unprojected, as the core's `Ir`, undocumented, for a file run; a store run has `StoreRun.finish` in the core and no such wrapper. The supported way, `layouts.base(path)`, runs the whole projection first and refuses store inputs |
-| **The facts**: what the parser decoded (TIFF's sample format, compression, OME channels, pyramid levels; HDF5's nodes) | `parse` returns them, unspecified, changing with every projection change. [spec/layout.md §2](../../spec/layout.md#2-the-base) withholds them from plugins, which copy the decoded result from the base's documents instead |
+| **The facts**: what the parser decoded (TIFF's sample format, compression, OME channels, pyramid levels; HDF5's nodes) | `parse` returns them, unspecified, changing with every projection change. [spec/layout.md §2](../../spec/layout.md#2-the-inputs) withholds them from plugins, which copy the decoded result from the base's documents instead |
 | **The convention's decisions**: how planes map to IFDs and which IFDs are levels, which strips join and how a level shards, which HDF5 datasets are presented and why the others are not, their dimension names | Only as the base's documents |
 | **Bytes read for the output**: edge chunks copied into it ([conventions §7](../../spec/conventions.md#7-source-values-as-arrays)), chunks sampled for `omero` windows ([tiff.md §4.4](../../spec/zarrify/tiff.md#44-arrays)), the Adler-32 of an HDF5 chunk a filter skipped ([hdf5.md §3.2](../../spec/zarrify/hdf5.md#32-chunks)), an LZW strip's tail ([tiff.md §4.5](../../spec/zarrify/tiff.md#45-strips)), HDF5 strings and records ([hdf5.md §4](../../spec/zarrify/hdf5.md#4-variable-length-strings)) | Nothing |
 | **The source table**, each source opened under the reader policy and its pins, with its size; data sources numbered as [zarrify §1.2](../../spec/zarrify.md#12-input) says | `Base.sources`, the base's table, through a base only |
@@ -629,7 +641,7 @@ store.save_vzip("out.vzip")
 
 `seal(written, inputs, *, policy=None, registry=None)` is the check that
 vouches for an output: the steps of
-[spec/layout.md §4](../../spec/layout.md#4-writing-the-output), for any
+[spec/layout.md §4](../../spec/layout.md#4-sealing-the-output), for any
 number of inputs and without a base, as a function of the core. `seal`:
 
 1. **Builds the source table** by first use over the references in key
@@ -916,7 +928,7 @@ them, and a Python projection is the test of the tools, not a replacement.
 - **Specification**: spec/layout.md splits in two. The checks `seal` applies
   become a document of their own (what an output built from parsed inputs
   must satisfy, for any number of inputs); what is left is plugins, and its
-  [§2](../../spec/layout.md#2-the-base) no longer binds a plugin to Structure
+  [§2](../../spec/layout.md#2-the-inputs) no longer binds a plugin to Structure
   only by withholding reads: a plugin's output claims refkv's conventions
   only where it keeps their declarations ([zarrify §1.2](../../spec/zarrify.md#12-input)
   is amended with it). Each profile's document gains its known structures

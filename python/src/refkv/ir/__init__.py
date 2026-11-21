@@ -13,7 +13,9 @@ rebuild from an archive (`cmirror.py`), and the reader of the IR's stored-array 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
+from typing import Any
 
 from refkv import _core, _sync
 from refkv.ir.kind import Kind as Kind  # re-exported: refkv.ir.Kind
@@ -117,6 +119,12 @@ class Ir:
         descriptions and the `undescribed` mark."""
         return _read_stored(self._core.stored_arrays())
 
+    def units(self, array: int) -> list[Unit]:
+        """The units the source holds of the stored array at position `array` of
+        `stored_arrays().arrays`, in the chunk map's order: its rows, without an Arrow reader."""
+        return [Unit(tuple(c), e, m, r, None if rs is None else tuple(rs), chain, skips)
+                for c, e, m, r, rs, chain, skips in self._core.units(array)]
+
     def chunk_map(self) -> _core.ChunkMap:
         """The chunk map, a row for each unit the source holds (spec/stored-array.md §4
         <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#4-the-chunk-map>): an object
@@ -176,6 +184,115 @@ class NamesSiblingsError(Exception):
     caller starts over with a store run of the format, `args[0]`."""
 
 
+@dataclasses.dataclass(frozen=True)
+class Unit:
+    """A unit of a stored array, a row of the chunk map (spec/stored-array.md §4.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#42-rows>): its coordinates in
+    storage order; the IR element that holds its bytes (its recipe gives them); `member`, where
+    that element is in a run's subtree, the position of the run's member the unit is in; `range`,
+    where the unit is part of the element, its (offset, length) within the element's own bytes;
+    or, where no element holds it, its `ranges`, each (object key, or None for the parsed source;
+    offset; length); the chain it is encoded with, None for its array's first; and the codecs of
+    the chain it skips, as a bit mask. `member`, `range`, `chain` and `skips` are None where they
+    do not apply."""
+
+    coords: tuple[int, ...]
+    element: int | None
+    member: int | None
+    range: tuple[int, int] | None
+    ranges: tuple[tuple[str | None, int, int], ...] | None
+    chain: int | None
+    skips: int | None
+
+
+class FileParse:
+    """A file parsed, and its run kept: its format, its IR, and its built-in output when asked for
+    (`output_async`), as often as asked. The parse read what the IR holds and nothing for an
+    output; the output's own reads (the ranges a projection copies or samples) are made the first
+    time one is asked for, through the transport the file was opened with. One output is made
+    at a time: a caller that may ask twice at once waits for the first (`refkv.build.project`
+    does)."""
+
+    def __init__(self, run: _core.Run, transport: Transport, fmt: str, url: str, pinned: bool,
+                 connections: int | None) -> None:
+        self._run = run
+        self._transport = transport
+        self._connections = connections
+        self._pinned = pinned
+        self.fmt = fmt
+        self.ir: _core.Ir = run.ir()
+        # what makes the IR mirror alone, with what the profile records beside it: the IR and the
+        # facts, shared with the run and usable while the run makes an output, or after it
+        self.mirrored: _core.Mirror = run.mirror()
+        # the profile's description of the source, where its parser returns one
+        text = run.description()
+        self.description: dict[str, Any] | None = None if text is None else json.loads(text)
+        self.url = url
+        self.size = transport.size
+
+    @property
+    def etag(self) -> str | None:
+        """The source's ETag pin, as of now: the strong ETag every response so far gave, when
+        the output names the URL that was read (`pinned`); else None. An output's own reads
+        count: one of them answered with no ETag, or a weak one, leaves no pin."""
+        return self._transport.etag() if self._pinned else None
+
+    async def output_async(self, mirror: bool = True, layouts: list[str] | None = None, checksums: bool = False,
+                           written: bool = True) -> Output:
+        """The built-in output: the IR projected and, with `mirror`, mirrored under refkv_source
+        by the Rust core, pinning source 0's size, and its ETag when every response gave the same
+        strong one. `layouts`, `checksums` and `written` are `zarrify_async`'s."""
+        try:
+            self._run.begin_projection()
+        except _core.Rejected as e:
+            raise Rejected(str(e)) from None
+        await drive_async(self._run, self._transport, self._connections)
+
+        def output() -> Output:
+            try:
+                return from_rust(self._run.project(self.url, mirror, layouts, bool(checksums), written))
+            except _core.Rejected as e:
+                raise Rejected(str(e)) from None
+
+        # the projection, and its output's conversion, on a thread: both grow with the chunks
+        out = await asyncio.to_thread(output)
+        out.ir = self.ir
+        out.size = self.size
+        out.etag = self.etag  # after the projection's reads
+        return out
+
+    def close(self) -> None:
+        """Closes the transport the file was read through (`Transport.close`): no output is made
+        after, unless one was and it read all it needs."""
+        self._transport.close()
+
+
+async def parse_async(location: str, url: str | None = None, policy: Policy | None = None,
+                      transport: Transport | None = None, connections: int | None = None,
+                      byte_cost: float | None = None, fmt: str | None = None) -> FileParse:
+    """The source read through the read planner and parsed by the Rust parser of its format
+    (`fmt`, else the one its first bytes give; a TIFF variant's file, rejected unless the TIFF
+    parser finds that variant), with no output made of it: a `FileParse`. Raises
+    `NamesSiblingsError` for a file that names siblings. `connections` and `byte_cost` are
+    `zarrify_async`'s."""
+    transport = transport or await asyncio.to_thread(open_transport, location, policy)
+    if fmt is None:
+        fmt = await sniffed(transport)
+        if fmt is None:
+            raise Rejected("not a file of any supported format")
+    named = fmt
+    run = new_run("tiff" if fmt in TIFF_VARIANTS else fmt, transport, connections, byte_cost)
+    run.defer_projection()
+    await drive_async(run, transport, connections)
+    fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"
+    if run.beside:
+        raise NamesSiblingsError(fmt)
+    if named in TIFF_VARIANTS and fmt != named:  # before the projection reads more
+        raise Rejected(f"not {TIFF_VARIANTS[named]}: the TIFF parser read it as {fmt}")
+    return FileParse(run, transport, fmt, url or (location if transport.remote else path_reference(location)),
+                     url in (None, location), connections)
+
+
 async def zarrify_async(location: str, url: str | None = None, mirror: bool = True, policy: Policy | None = None,
                         transport: Transport | None = None, connections: int | None = None,
                         byte_cost: float | None = None, fmt: str | None = None,
@@ -184,7 +301,8 @@ async def zarrify_async(location: str, url: str | None = None, mirror: bool = Tr
     """(format, output, IR): the source read through the read planner, parsed by the
     Rust parser of its format (`fmt`, else the one its first bytes give; a TIFF variant's
     file, rejected unless the TIFF parser finds that variant), projected and
-    mirrored under refkv_source by the Rust core. The output pins source 0's size, and its
+    mirrored under refkv_source by the Rust core (`parse_async`, then `FileParse.output_async`).
+    The output pins source 0's size, and its
     ETag when every response gave the same strong one. `connections`: requests at a time to
     a remote source (default 8); `byte_cost`: seconds of wall time the planner charges a
     byte fetched (default 0.1 s per MB); `layouts`: the layouts the projection writes beside
@@ -193,34 +311,9 @@ async def zarrify_async(location: str, url: str | None = None, mirror: bool = Tr
     (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>),
     and, when `written` (the output is written as it is, not only built from), a payload over the
     limit only with them is `refkv._core.Failed`."""
-    transport = transport or await asyncio.to_thread(open_transport, location, policy)
-    if fmt is None:
-        fmt = await sniffed(transport)
-        if fmt is None:
-            raise Rejected("not a file of any supported format")
-    named = fmt
-    run = new_run("tiff" if fmt in TIFF_VARIANTS else fmt, transport, connections, byte_cost)
-    await drive_async(run, transport, connections)
-    fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"
-    if run.beside:
-        raise NamesSiblingsError(fmt)
-    if named in TIFF_VARIANTS and fmt != named:  # before the projection reads more
-        raise Rejected(f"not {TIFF_VARIANTS[named]}: the TIFF parser read it as {fmt}")
-
-    def output() -> tuple[Output, _core.Ir]:
-        try:
-            t, ir = run.output(url or (location if transport.remote else path_reference(location)),
-                               mirror, layouts, bool(checksums), written)
-        except _core.Rejected as e:
-            raise Rejected(str(e)) from None
-        return from_rust(t), ir
-
-    # the projection, and its output's conversion, on a thread: both grow with the chunks
-    out, ir = await asyncio.to_thread(output)
-    out.ir = ir
-    out.size = transport.size
-    out.etag = transport.etag() if url in (None, location) else None
-    return fmt, out, ir
+    parsed = await parse_async(location, url, policy, transport, connections, byte_cost, fmt)
+    out = await parsed.output_async(mirror, layouts, checksums, written)
+    return parsed.fmt, out, parsed.ir
 
 
 def zarrify(location: str, url: str | None = None, mirror: bool = True, policy: Policy | None = None,

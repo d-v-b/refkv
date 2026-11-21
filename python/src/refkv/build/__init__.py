@@ -9,16 +9,20 @@ bytes of sources `read` opened, within them.
         out = Written({"first-strip": p.reference(p.ir.index("ifds/0/strips/0"))})
         seal(out, [p]).save_vzip("out.vzip")
 
-This is the proposal's first step: `read` runs `zarrify`'s path and keeps the IR and the sources
-it opened, `project` gives the built-in output it made, and a format's description, its plan and
-the routines that build on them come later.
+`read` parses an input as `zarrify` does and keeps its IR and the sources it opened; `project`
+gives refkv's own output of it, made when asked for; `apply` is what `zarrify` does with a plugin
+layout: the plugin's `write(inputs, options)`, sealed. A format's description, its plan and the
+routines that build on them come later.
 """
 
 from refkv.zarrify.layouts import MAX_PAYLOAD
 
-from .parsed import MAX_BYTES, Parsed, read, read_async
-from .project import Projected, project
+from .convention import declaration, filled, grid, gzip_member, mirror
+from .parsed import MAX_BYTES, NoIrError, Parsed, read, read_async
+from .plugin import apply
+from .project import Projected, project, project_async
 from .seal import CODES, SealError, seal
+from .stored import stored_array, zarr_codecs
 from .values import (
     MAX_SOURCES,
     Array,
@@ -38,6 +42,41 @@ from .values import (
     value,
 )
 
-__all__ = ["CODES", "MAX_BYTES", "MAX_PAYLOAD", "MAX_SOURCES", "Array", "Copy", "Data", "Literal", "Parsed", "Part",
-           "Projected", "Ref", "SealError", "Shared", "Value", "Written", "Zeros", "concat", "cut", "fits",
-           "payload_size", "project", "read", "read_async", "seal", "value"]
+__all__ = [
+    "CODES",
+    "MAX_BYTES",
+    "MAX_PAYLOAD",
+    "MAX_SOURCES",
+    "Array",
+    "Copy",
+    "Data",
+    "Literal",
+    "NoIrError",
+    "Parsed",
+    "Part",
+    "Projected",
+    "Ref",
+    "SealError",
+    "Shared",
+    "Value",
+    "Written",
+    "Zeros",
+    "apply",
+    "concat",
+    "cut",
+    "declaration",
+    "filled",
+    "fits",
+    "grid",
+    "gzip_member",
+    "mirror",
+    "payload_size",
+    "project",
+    "project_async",
+    "read",
+    "read_async",
+    "seal",
+    "stored_array",
+    "value",
+    "zarr_codecs",
+]

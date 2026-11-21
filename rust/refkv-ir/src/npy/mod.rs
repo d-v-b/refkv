@@ -13,9 +13,9 @@
 //!
 //! The parser describes the arrays it reaches as the source stores them (spec/stored-array.md
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md>): a `.npy` file's, and each
-//! stored `.npz` member's whose header it read, keyed by its `header` element. A deflated
-//! member's array has none yet: its header lies in what its stream inflates to, which the IR
-//! holds as one derived element, with none for the header.
+//! `.npz` member's whose header it read, keyed by its `header` element. A deflated member's
+//! header and data lie in what its stream inflates to: they are elements of its derived element's
+//! space, and its array's one unit is its `data` element there.
 
 pub mod header;
 
@@ -205,16 +205,17 @@ impl Array {
         }))
     }
 
-    /// Its elements under `parent`: the preamble, the header and the data (presented, and not
-    /// empty); the header's and the data's ids, and, when its header was read, what the
+    /// Its elements under `parent`, in `space` (0: the file; a deflated member's derived
+    /// element: what its stream inflates to): the preamble, the header and the data (presented,
+    /// and not empty); the header's and the data's ids, and, when its header was read, what the
     /// description of its array is built from.
-    fn emit(&self, ir: &mut Ir, parent: u32) -> Result<(Option<u32>, Option<Reached>), String> {
+    fn emit(&self, ir: &mut Ir, parent: u32, space: u32) -> Result<(Option<u32>, Option<Reached>), String> {
         let p = self.preamble.len() as u64;
         let ty = if p == 10 { "{magic:bytes[6],major:u1,minor:u1,header_length:<u2}" } else { "{magic:bytes[6],major:u1,minor:u1,header_length:<u4}" };
-        ir.value(parent, "preamble", NO_INDEX, ty, 0, (self.base, p), Some(&self.preamble))?;
+        ir.value(parent, "preamble", NO_INDEX, ty, space, (self.base, p), Some(&self.preamble))?;
         let mut header = None;
         if self.n > 0 {
-            header = Some(ir.value(parent, "header", NO_INDEX, &format!("ascii[{}]", self.n), 0, (self.at, self.n), self.raw.as_deref())?);
+            header = Some(ir.value(parent, "header", NO_INDEX, &format!("ascii[{}]", self.n), space, (self.at, self.n), self.raw.as_deref())?);
         }
         let reached = match (header, &self.header) {
             (Some(element), Some(h)) => Some(Reached {
@@ -237,25 +238,47 @@ impl Array {
             "codec": {"endian": endian},
             "recipe": [["src", 0, null]],
         });
-        let data = ir.data(parent, "data", NO_INDEX, 0, (o, b), &form.to_string())?;
+        let data = ir.data(parent, "data", NO_INDEX, space, (o, b), &form.to_string())?;
         Ok((Some(data), reached.map(|r| Reached { data: Some(data), ..r })))
     }
 
-    /// The facts the projection reads of it, presented at `path`, its data element `data`; a
-    /// deflated member's `deflate`, its stream's range, CRC-32 and size and the bytes before its
-    /// data.
-    fn facts(&self, path: &str, data: Option<u32>, deflated: Option<&zip::Entry>) -> J {
-        let (h, t) = (self.header.as_ref().unwrap(), self.dtype.as_ref().unwrap());
-        let (offset, length) = self.data.unwrap();
-        let mut f = json!({
-            "path": path, "data": data, "offset": offset, "length": length,
-            "data_type": t.zarr, "item": t.item, "little": t.little, "trailing": t.trailing, "fill": t.fill,
-            "fortran_order": h.fortran_order, "shape": h.shape,
-        });
+    /// Its header's text: versions 1 and 2 are ISO 8859-1, every byte a character; version 3
+    /// is UTF-8.
+    fn text(&self) -> Option<String> {
+        let raw = self.raw.as_deref()?;
+        if self.version.0 == 3 {
+            std::str::from_utf8(raw).ok().map(str::to_string)
+        } else {
+            Some(raw.iter().map(|&b| b as char).collect())
+        }
+    }
+
+    /// What the description says of it as an array the profile presents at `path`
+    /// (spec/zarrify/npy.md §4.3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#43-the-arrays>): its header's
+    /// text, which declares its type, order and shape, and `stored`, the key of its stored
+    /// array's description (its `header` element), which gives its shape and its data. A deflated
+    /// member's `header` and data are elements of what its stream inflates to; its `deflate` is
+    /// what its central directory entry says of that: its CRC-32 and its size.
+    fn entry(&self, path: &str, stored: Option<u32>, deflated: Option<&zip::Entry>) -> J {
+        let mut f = json!({"path": path, "header": self.text(), "stored": stored});
         if let Some(e) = deflated {
-            f["deflate"] = json!({"start": e.ds, "length": e.cs, "crc": e.crc, "size": e.us, "skip": offset});
+            f["deflate"] = json!({"crc": e.crc, "size": e.us});
         }
         f
+    }
+
+    /// The form of a deflated member's derived element, once its header was read (conventions
+    /// §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>):
+    /// its `prefix`, where its header ends in what its stream inflates to, which holds the values
+    /// the view shows; and, when its array is presented, so that its elements claim every byte,
+    /// the `size` of what the stream inflates to.
+    fn deflated_form(&self, e: &zip::Entry) -> String {
+        let mut form = json!({"transform": crate::transform::Transform::Deflate.name(), "prefix": self.at + self.n});
+        if self.reason.is_none() && self.data.is_some() && self.dtype.is_some() {
+            form["size"] = json!(e.us);
+        }
+        form.to_string()
     }
 }
 
@@ -275,7 +298,8 @@ struct Reached {
 }
 
 /// The descriptions of the arrays reached, in order, with the chain table and the chunk map: a
-/// presented array is one unit, its data element, stored as is (chain 0, empty), its storage order
+/// presented array is one unit, its data element (a deflated member's, in the space its stream
+/// inflates to, which is the IR's transform and no codec), stored as is (chain 0, empty), its storage order
 /// a Fortran-order array's axes reversed; NumPy defines no fill value. An array whose data is not
 /// presented has no grid, nor, by the general fallback, has one whose element's bits pass 2^64
 /// (an array of no elements may be of such a type).
@@ -536,16 +560,15 @@ impl Npy {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#53-elements>) and the facts.
     fn done(&mut self) -> Result<Step, String> {
         self.phase = Phase::Done;
+        // the arrays the profile presents, each with the key of its description
+        // (spec/stored-array.md §2.1
+        // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>), its `header`
+        // element
         let mut arrays = Vec::new();
-        // the element keying each array's description (spec/stored-array.md §2.1
-        // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>): a `.npy`
-        // file's one, or each member's of `own.members`, null for one with none
-        let mut declared_by: Vec<Option<u32>> = Vec::new();
         let own = if let Some(a) = self.array.take() {
-            let (data, reached) = a.emit(&mut self.ir, 0)?;
-            declared_by.push(reached.as_ref().map(|r| r.header));
+            let (_, reached) = a.emit(&mut self.ir, 0, 0)?;
+            arrays.push(a.entry("array", reached.as_ref().map(|r| r.header), None));
             self.reached.extend(reached);
-            arrays.push(a.facts("array", data, None));
             json!({"kind": "npy", "array": a.header_json()})
         } else {
             let raw = zip::Records { tail: &self.tail, cd: &self.cd, record: self.record.as_deref(), locator: self.locator.as_deref() };
@@ -555,19 +578,25 @@ impl Npy {
             for (i, (m, e)) in self.members.iter().zip(&self.entries).enumerate() {
                 let name = self.fed.get(e.lho + 30, e.local_nn).map(<[u8]>::to_vec);
                 let s = zip::emit_local(&mut self.ir, i as u64, e, name.as_deref())?;
-                let read = m.array.as_ref().filter(|a| a.raw.is_some() && e.method == 0);
-                let mut data = None;
+                let read = m.array.as_ref().filter(|a| a.raw.is_some() && (e.method == 0 || e.method == 8));
                 let mut key = None;
                 if e.cs > 0 {
                     match read {
-                        Some(a) => {
+                        Some(a) if e.method == 0 => {
                             let d = self.ir.struct_(s, "data", NO_INDEX, 0, Some((e.ds, e.cs)))?;
-                            let reached;
-                            (data, reached) = a.emit(&mut self.ir, d)?;
+                            let (_, reached) = a.emit(&mut self.ir, d, 0)?;
                             key = reached.as_ref().map(|r| r.header);
                             self.reached.extend(reached);
                         }
-                        // its preamble and header, which the stream holds, are in the source metadata
+                        // a deflated member whose header was read: its preamble, header and data
+                        // are elements of what its stream inflates to, its derived space
+                        Some(a) => {
+                            let d = self.ir.derived(s, "data", 0, (e.ds, e.cs), &a.deflated_form(e))?;
+                            let (_, reached) = a.emit(&mut self.ir, d, d)?;
+                            key = reached.as_ref().map(|r| r.header);
+                            self.reached.extend(reached);
+                        }
+                        // one whose header was not: its stream, which holds nothing
                         None if e.method == 8 => {
                             self.ir.derived(s, "data", 0, (e.ds, e.cs), DEFLATE_FORM)?;
                         }
@@ -584,7 +613,7 @@ impl Npy {
                 match (&m.path, m.reason) {
                     (Some(p), None) => {
                         j.insert("path".into(), json!(p));
-                        arrays.push(m.array.as_ref().unwrap().facts(p, data, (e.method == 8).then_some(e)));
+                        arrays.push(m.array.as_ref().unwrap().entry(p, key, (e.method == 8).then_some(e)));
                     }
                     (_, r) => {
                         let r = r.unwrap_or("header");
@@ -597,12 +626,14 @@ impl Npy {
                     j.insert("header".into(), h);
                 }
                 members.push(J::Object(j));
-                declared_by.push(key);
             }
             self.rules.check("arrays", rules::env([("count", num(arrays.len() as f64)), ("reasons", text(&reasons.join(", ")))]))?;
             json!({"kind": "npz", "members": members})
         };
-        let mut facts = json!({"own": own, "arrays": arrays, "declared_by": declared_by, "copy_threshold": crate::out::copy_threshold()});
+        // the description: the source metadata (`own`), and the arrays presented. It holds none
+        // of the output's decisions but those: a data type, a chunk and a codec are the plan's
+        // (project/npy.rs), from the header's text and the stored arrays
+        let mut facts = json!({"own": own, "arrays": arrays});
         self.asked.put(&mut facts);
         self.facts = facts;
         Ok(Step::Done)
@@ -632,6 +663,9 @@ impl crate::run::FileProfile for Profile {
     }
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::npy::project(ir, facts, url, copied)
+    }
+    fn described(&self) -> bool {
+        true
     }
     fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
         crate::project::npy::reads(ir, facts)
