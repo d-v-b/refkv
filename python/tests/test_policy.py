@@ -27,6 +27,7 @@ from refkv.pb import Concat, Range, Source, decode_table
 from refkv.policy import Policy, address_class, crc32c, matches_prefix
 from refkv.reader import RangeRequest, http_range
 from refkv.refstore import ReferenceStore
+from refkv.uri import file_uri
 from refkv.vzip.archive import SPEC_REVISION, VZipWriter
 from refkv.vzip.store import VZipStore
 
@@ -108,6 +109,7 @@ def test_policy_allows_these_urls(tmp_path):
     local, remote = "file:///d/a.vzip", "https://h.example/a.vzip"
     files = tmp_path.as_uri()  # a path this system has: a file: URL it cannot map is refused
     named = f"file://localhost{files.removeprefix('file://')}"
+    odd = tmp_path / "a (b)"  # as_uri writes %28b%29, a source URL (b): file_uri's spelling
     allowed = Policy(schemes=frozenset({"file"}))
     cases = [
         # (policy, archive base, source url)
@@ -129,6 +131,10 @@ def test_policy_allows_these_urls(tmp_path):
         (Policy(prefixes=("https://data.example/a",)), local, "https://data.example/a?x=1"),
         (Policy(prefixes=("file:///d/", "https://g/")), remote, "file:///d/x"),
         (allowed, local, f"{named}/blob.bin"),
+        (Policy(prefixes=(f"{named}/",)), local, f"{named}/blob.bin"),
+        (Policy(prefixes=(f"{odd.as_uri()}/",)), local, f"{file_uri(odd)}/blob.bin"),
+        (Policy(prefixes=(f"{file_uri(odd)}/",)), local, f"{file_uri(odd)}/blob.bin"),
+        (Policy(prefixes=(odd.as_uri(),)), local, f"{file_uri(odd)}/blob.bin"),
         # public literals, and names (checked when they are resolved)
         (Policy(), remote, "http://93.184.215.14/x"),
         (Policy(), remote, "http://[2606:4700::1111]/x"),

@@ -190,7 +190,10 @@ class Policy:
       a file under a `file:` prefix, symbolic links followed, must also be under
       the prefix's, for the file opened at each read. A `file:` prefix's real
       path is resolved once, when the policy is made, so a link put in place of
-      the prefix later does not move it.
+      the prefix later does not move it. A `file:` prefix also matches in the
+      spelling resolution gives its path, so `Path.as_uri()`, which
+      percent-encodes `(` and other bytes a source URL writes as they are,
+      names the same files.
     - `allow_file_hosts`: UNSAFE. Lets a `file:` URL name a host
       (`file://server/share/x`), which on Windows is the UNC path
       `\\\\server\\share\\x`: reading it connects to that server over the
@@ -258,6 +261,8 @@ class Policy:
     max_read_amplification: float = MAX_READ_AMPLIFICATION
     max_coalesce_gap: int = MAX_COALESCE_GAP
     max_format_entry: int = MAX_FORMAT_ENTRY
+    # the prefixes as given, and each `file:` prefix as resolution spells its path, where that differs
+    _spellings: tuple[str, ...] = field(init=False, repr=False, compare=False)
     # each `file:` prefix's real path, or None for one that has no local path
     _real_prefixes: tuple[str | None, ...] = field(init=False, repr=False, compare=False)
 
@@ -274,14 +279,21 @@ class Policy:
             finite = False
         if not finite:
             raise ValueError(f"Policy.max_read_amplification is a finite number of at least 0, not {amplification!r}")
-        object.__setattr__(self, "_real_prefixes", tuple(
-            self._real_prefix(p) for p in self.prefixes or () if _scheme(p) == "file"))
+        prefixes = tuple(self.prefixes or ())
+        files = [p for p in prefixes if _scheme(p) == "file"]
+        spelled = (self._file_prefix(p, real=False) for p in files)
+        object.__setattr__(self, "_spellings", tuple(dict.fromkeys(
+            [*prefixes, *(p for p in spelled if p is not None)])))
+        object.__setattr__(self, "_real_prefixes", tuple(self._file_prefix(p, real=True) for p in files))
 
-    def _real_prefix(self, prefix: str) -> str | None:
-        """The real path of a `file:` `prefix`, as a prefix: links followed, with its trailing `/`
-        kept. None if it names a host that `allow_file_hosts` does not allow, so nothing matches it."""
+    def _file_prefix(self, prefix: str, *, real: bool) -> str | None:
+        """A `file:` `prefix` as resolution spells a local path's URI (spec §5
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>), with its
+        trailing `/` kept, and with links followed if `real`. None if it has no local path, as
+        when it names a host that `allow_file_hosts` does not allow, so nothing matches it."""
         try:
-            target = file_uri(_real_path(file_path(prefix, allow_host=self.allow_file_hosts)))
+            path = file_path(prefix, allow_host=self.allow_file_hosts)
+            target = file_uri(_real_path(path) if real else path)
         except ValueError:
             return None
         return target + "/" if prefix.endswith("/") and not target.endswith("/") else target
@@ -297,7 +309,7 @@ class Policy:
         `allow_file_hosts`, still apply."""
         self.check_file_host(url)
         if self.prefixes is not None:
-            if not any(matches_prefix(url, p) for p in self.prefixes):
+            if not any(matches_prefix(url, p) for p in self._spellings):
                 raise ResolutionError(f"{url}: not under an allowed URL prefix (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
         else:
             s = _scheme(url)
