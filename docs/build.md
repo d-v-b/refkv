@@ -152,6 +152,13 @@ the profile's description of the input, where its parser returns one, and None w
 yet. Each profile that returns one specifies it in its own document, in the section of Part 2
 titled "The description" (`spec/zarrify/<profile>.md`), and
 `python/tests/test_description_documented.py` checks that every such profile has that section.
+The documentation site lists them when it is built:
+
+<!-- profiles:descriptions -->
+The list is rendered from each profile's document when the documentation site is built: see it on
+[the site](https://d-v-b.github.io/refkv/docs/build.html#arrays-as-the-source-stores-them).
+<!-- /profiles -->
+
 `stored_array` raises `ValueError` for an array it cannot write so: one whose storage the IR does not model (a description with no grid, such as a
 NumPy `a<n>` array's, which the profile still presents from its header), whose elements are not
 whole bytes, whose units are encoded with a codec `zarr_codecs` has no Zarr codec after `bytes`

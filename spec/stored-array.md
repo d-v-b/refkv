@@ -526,3 +526,10 @@ Each profile but a layout specifies the stored arrays its parser describes in a 
 declarations and shape, their units, codecs and fill value, and what is not described. A profile
 whose parser describes none yet says so there. `spec/tools/stored_formats.py` checks that every
 profile of the registry but a layout has that file, and no profile that is not in the registry.
+
+The documentation site renders every profile's file here, in the registry's order, when it is built:
+
+<!-- profiles:stored-arrays -->
+Each profile's stored arrays are in its own directory of [zarrify/](zarrify/), and on
+[the documentation site](https://d-v-b.github.io/refkv/spec/stored-array.html#7-the-formats) all of them are here.
+<!-- /profiles -->

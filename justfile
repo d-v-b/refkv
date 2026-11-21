@@ -111,6 +111,7 @@ sections base="":
     uv run pytest -q spec/tools
     uv run python spec/tools/sections.py check
     uv run python spec/tools/profiles.py check
+    uv run python spec/tools/blocks.py check
     uv run python spec/tools/proposals.py check
     uv run python spec/tools/stored_formats.py check
     uv run python spec/tools/changelog.py check {{ if base != "" { "--base " + base } else { "" } }}
@@ -126,16 +127,28 @@ typecheck:
     uv run pyrefly check
 
 # Run before every push what CI's `sections` job runs (.github/workflows/ci.yml): the section checks
-# against a freshly fetched origin/main, lint and typecheck
+# against a freshly fetched origin/main, lint and typecheck; and the documentation site's build
+# (.github/workflows/docs.yml)
 preflight:
     git fetch --no-tags origin main
     just sections origin/main
     just lint
     just typecheck
+    just docs
+
+# Build the documentation site into docs-site/_build (docs-site/conf.py: the repository's Markdown,
+# its cross-format blocks rendered from the profile registry), failing on any warning, such as a
+# link to a heading that does not exist
+docs:
+    uv run sphinx-build -q -W --keep-going -j auto -c docs-site . docs-site/_build
+
+# Build the documentation site and serve it at http://localhost:8000
+docs-serve: docs
+    uv run python -m http.server -d docs-site/_build 8000
 
 # Regenerate what derives from the profile registry, spec/zarrify/profiles/<name>.json (the one
 # place a profile's identity is written, one file per profile): the Rust core's copies, and the
-# index tables of spec/zarrify.md, spec/conventions.md and docs/zarrify/README.md
+# Python package's profile classes. The documents' cross-format blocks are rendered by `just docs`
 profiles:
     uv run python spec/tools/profiles.py
 

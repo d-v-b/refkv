@@ -380,12 +380,13 @@ Copy an existing entry, such as
 
 Then run `just profiles`. It regenerates:
 - the core's copy, `rust/refkv-ir/profiles/<p>.json`;
-- the profile tables of `spec/zarrify.md`, `spec/conventions.md` and
-  `docs/zarrify/README.md`;
 - `python/src/refkv/zarrify/profile_classes.py`.
 
-Commit them all. When two format PRs conflict in a generated block, rerun
-`just profiles` instead of merging by hand.
+Commit them. The profile tables of `spec/zarrify.md`, `spec/conventions.md` and
+`docs/zarrify/README.md`, the stored arrays of every format and the index of
+descriptions are not committed: the documentation site renders them from the
+registry and your format's own files when it is built (`just docs`,
+`spec/tools/blocks.py`).
 
 This registry exists because adding a format used to touch about fifteen
 shared files and renumber spec sections. FITS was renumbered twice
@@ -459,7 +460,7 @@ Either form, and a store input ([§5.6](#56-a-store-input)), is a member of the 
 `store_run`, which the hosts read: `{"form": "listed"}` for a store a listing finds, and for a file read as a
 store `{"form": "always" or "on_demand", "named": ..., "section": ...}`, where `named` is the named file as a
 rejection names it and `section` is the anchor of the section of the profile's document that specifies it.
-`just profiles` lists it in the table of [zarrify §1.8](../spec/zarrify.md#18-files-read-as-stores). Then
+The documentation site lists it in the table of [zarrify §1.8](../spec/zarrify.md#18-files-read-as-stores). Then
 add two functions, which `build.rs` calls from the `StoreFormat` it generates:
 
 - `pub fn store_parser(ir, objects, keys)` in `src/<m>.rs`;
