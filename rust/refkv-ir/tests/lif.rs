@@ -109,6 +109,19 @@ fn two_spellings_of_a_key_are_one_object() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// An image the parser makes no stored array for, which refkv's plan rejects, has a null
+/// `declared_by` in the description: one whose dimensions are not integers, and the second of two
+/// images naming one block; the other images keep their keys.
+#[test]
+fn an_image_with_no_stored_array_declares_nothing() {
+    for (input, keyed) in [("edge_reject_lif_not_integer.lif", vec![false]), ("edge_reject_lif_shared_block.lif", vec![true, false])] {
+        let (ir, description) = refkv_ir::parse_bytes::<Lif>(&std::fs::read(lif_dir().join(input)).unwrap()).unwrap();
+        let got: Vec<bool> = description["images"].as_array().unwrap().iter().map(|im| !im["declared_by"].is_null()).collect();
+        assert_eq!(got, keyed, "{input}");
+        assert_eq!(ir.stored.arrays.len(), keyed.iter().filter(|&&k| k).count(), "{input}");
+    }
+}
+
 /// A block no Memory element predicts, whose ID is past the walk's guess at a header, is read
 /// when each round is fed exactly the ranges it asked for (the walk once asked for the ID alone
 /// and dropped the fixed part, forever).
