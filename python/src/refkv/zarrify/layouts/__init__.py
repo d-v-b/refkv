@@ -78,6 +78,24 @@ MIRROR = "refkv_source"
 BASE_PROFILES = frozenset(str(e["name"]) for e in REGISTRY if e["kind"] in ("file", "store", "both"))
 REFKV_UUIDS = frozenset(str(e["uuid"]).lower() for e in REGISTRY)
 REFKV_MEMBERS = ("refkv_zarrified", "refkv_provenance")  # what refkv declares on a node
+
+
+def undeclared(attributes: Mapping[str, Any]) -> dict[str, Any]:
+    """A node's attributes without refkv's declarations: no `refkv_zarrified` or
+    `refkv_provenance`, and no CMO of refkv's conventions in `zarr_conventions` (dropped when
+    nothing is left in it); a copy of the top level."""
+    attrs = dict(attributes)
+    for member in REFKV_MEMBERS:
+        attrs.pop(member, None)
+    cmos = attrs.get("zarr_conventions")
+    if isinstance(cmos, list):
+        kept = [c for c in cmos if not (isinstance(c, dict) and (
+            str(c.get("uuid", "")).lower() in REFKV_UUIDS or c.get("name") in REFKV_MEMBERS))]
+        if kept:
+            attrs["zarr_conventions"] = kept
+        else:
+            del attrs["zarr_conventions"]
+    return attrs
 NAME = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+")
 
 # bytes of a key's UTF-8 the ZIP binding holds (spec/bindings/vzip.md §10.3 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#103-file-names>)
@@ -524,21 +542,8 @@ class _Base:
             raise KeyError(f"no node {path!r} in the base") from None
 
     def attributes(self, path: str) -> dict[str, Any]:
-        """The attributes of the node at `path` without refkv's declarations: no
-        `refkv_zarrified` or `refkv_provenance`, and no CMO of refkv's conventions in
-        `zarr_conventions` (dropped when nothing is left in it)."""
-        attrs = dict(self._node(path).get("attributes", {}))
-        for member in REFKV_MEMBERS:
-            attrs.pop(member, None)
-        cmos = attrs.get("zarr_conventions")
-        if isinstance(cmos, list):
-            kept = [c for c in cmos if not (isinstance(c, dict) and (
-                str(c.get("uuid", "")).lower() in REFKV_UUIDS or c.get("name") in REFKV_MEMBERS))]
-            if kept:
-                attrs["zarr_conventions"] = kept
-            else:
-                del attrs["zarr_conventions"]
-        return attrs
+        """The attributes of the node at `path` without refkv's declarations (`undeclared`)."""
+        return undeclared(self._node(path).get("attributes", {}))
 
     def source_metadata(self, path: str) -> Any:  # noqa: ANN401 (JSON the format's convention specifies)
         """The source metadata the node at `path` declares: the member named after the profile its

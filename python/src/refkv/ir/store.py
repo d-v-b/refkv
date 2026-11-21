@@ -318,6 +318,8 @@ class StoreParse:
         self.mirrored: _core.Mirror = run.mirror()
         # an HDF5 input's IR and descriptions, for the HDF5 convention's routine
         self.hdf5: _core.Hdf5 | None = run.hdf5() if fmt == "hdf5" else None
+        # a Zarr v2 or v3 store's IR and description, for the Zarr convention's routine
+        self.zarr: _core.Zarr | None = run.zarr() if fmt in ("zarr2", "zarr3") else None
         # the format's description of the store, where its parser returns one (Zarr v2's and v3's)
         described = run.description()
         self.description: dict[str, Any] | None = None if described is None else json.loads(described)
