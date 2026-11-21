@@ -621,6 +621,11 @@ impl crate::run::FileProfile for Profile {
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::ndpi::project(ir, facts, url)
     }
+    /// The parser's description of the file, beside its projection's facts
+    /// (spec/zarrify/ndpi.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#71-the-description>).
+    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
+        facts.get("description").cloned()
+    }
 }
 
 #[cfg(test)]

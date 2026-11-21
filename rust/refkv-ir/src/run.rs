@@ -91,6 +91,22 @@ pub trait FileProfile: Sync {
     fn described(&self) -> bool {
         false
     }
+    /// The profile's description of the source, from what its parser returned beside the IR,
+    /// `facts`: those facts without the run's own counts, of a profile whose facts are its
+    /// description (`described`); None for a profile that has none. A profile whose parser returns
+    /// a description beside its projection's facts says where it is.
+    fn description(&self, facts: &J) -> Option<J> {
+        if !self.described() {
+            return None;
+        }
+        let mut description = facts.clone();
+        if let Some(m) = description.as_object_mut() {
+            for count in ["requests", "requested", "rounds"] {
+                m.remove(count);
+            }
+        }
+        Some(description)
+    }
     /// Whether what the profile's store run returns beside the IR is a description of the input
     /// (`described`'s, for the run of a store format of the profile's name;
     /// `store::StoreFormat::description`). A profile whose store facts no document specifies as a
@@ -370,16 +386,7 @@ impl Run {
     /// own counts; None for a profile that has none yet.
     pub fn description(&self) -> Result<Option<serde_json::Value>, String> {
         let (_, facts) = self.parsed()?;
-        if !self.format.profile().described() {
-            return Ok(None);
-        }
-        let mut description = facts.clone();
-        if let Some(m) = description.as_object_mut() {
-            for count in ["requests", "requested", "rounds"] {
-                m.remove(count);
-            }
-        }
-        Ok(Some(description))
+        Ok(self.format.profile().description(facts))
     }
 
     /// The planner's counts, with the fill batch's: the summary's `planner`.

@@ -690,3 +690,33 @@ as it is:
 | part | range | presence | value |
 |---|---|---|---|
 | the stream | source range `(0, t, n)` | required | of a tiled level, tile `j`: `t` and `n` its offset and length (**Tiles**, above), `n` above 0; of a level in one strip, the strip: `S`, `t` its offset and `n` its length |
+
+### 7.1 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a **description** of the file, for a projection to read with the IR and its
+stored arrays ([spec/stored-array.md §7](../stored-array.md#7-the-formats)). Its JSON Schema is
+[ndpi/description.json](ndpi/description.json). It holds none of an output's decisions: which images
+are levels and planes ([§3](#3-levels)), the chunk grids, the data type, the scales and position
+([§4](#4-the-image)) and the root's source metadata ([§5](#5-source-metadata)) are the projection's.
+It is a JSON object with `byte_order` (`little`), `bigtiff` (false), `size` (the file's) and `ifds`,
+the main chain's IFDs, each:
+
+| member | value |
+|---|---|
+| `offset`, `element` | its offset, and its IR element (`ifds/<i>`, [§5.1](#51-elements)) |
+| `tags` | each tag of [§2](#2-the-source)'s table it has, by its number: `type`, `count`, and `value`, the values the profile reads (a scalar's first, an array's every value; an in-line LONG of count 1 with its high word, but the high tables' own values), integers as a list, floats as numbers ([conventions §6](../conventions.md#6-source-metadata-as-json)), rationals as `[numerator, denominator]` pairs |
+| `tiles` | the IR's struct of its tiles, or null |
+
+An IFD whose Magnification is above 0, an image, also has:
+
+| member | value |
+|---|---|
+| `tile_tables` | TileOffsets and TileByteCounts, each value with its high table's times 2^32 (`offsets`, `byte_counts`), and `high_tables_fit`, whether the high tables are as long as the tables and an in-line one holds its entry's high word; null without both tables |
+| `mcu_starts` | McuStarts, with McuStartsHighBytes times 2^32 where `high_added` (`starts`); `same_length`, whether McuStartsHighBytes is absent or as long; `high_word`, whether it holds an in-line McuStarts' high word; null without McuStarts |
+| `elements` | the IR's elements of McuStarts and McuStartsHighBytes: each `value`, `type` and `high` (its high word's element, where its value has it), or null |
+| `focal_offset` | tag 65424's first value in nanometers, where of its field types, within the file and at most 2^53 - 1 from 0; else null |
+| `acquisition` | its acquisition tags as [§5](#5-source-metadata) writes them, by name |
+| `jpegxr` | of a JPEG XR image: `first`, its first stream's `[offset, length]` (its strip, or its first tile of a byte or more), and `header`, its `pixel_format` (hexadecimal), `width` and `height`, or null where it does not read |
+| `jpeg_header` | of a JPEG strip McuStarts locates: its bytes before the first interval, in base64, or null where outside the strip or the file |
+| `jpeg_frame` | of a JPEG strip without McuStarts: its frame header's `at`, `height`, `width`, `mcu_width` and `mcu_height`, or null where none is found |

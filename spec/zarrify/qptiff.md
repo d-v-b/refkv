@@ -426,3 +426,14 @@ keys. Besides
 the references and the root's and the arrays' `zarr.json`, the archive's entries are
 those of the source metadata node `refkv_source`, the file's IR mirror
 ([the convention §5](#5-source-metadata), [conventions §8](../conventions.md#8-the-ir-mirror)).
+
+### 7.1 The description
+
+This section is not part of the convention. The parser returns, beside the IR, a description of the
+file as spec/zarrify/tiff.md [§7.6](tiff.md#76-the-description) specifies a TIFF's, with the tags of
+[§2](#2-the-source)'s table (the position tags with them), and none of the structures of a first
+IFD's ImageDescription. Each IFD's `qpi` holds its ImageDescription's QPI elements as
+[§3](#3-images-and-channels) reads them: `image_type`, `name`, `color` and `slide_id`, the root's
+direct children `ImageType`, `Name`, `Color` and `SlideID` (the first of each, references decoded and
+white space trimmed, null where absent); `qpi` is null where the ImageDescription is not a QPI
+description. The channels, levels, scales and position are the projection's.
