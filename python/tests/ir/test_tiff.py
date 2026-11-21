@@ -172,9 +172,8 @@ def kinds(ir, prefix):
 
 def test_planes_and_tiles_that_share_bytes_are_aliases(probes):
     _, out, ir = via_ir(str(probes / "tiff_amp_100_100.tif"), "u", mirror=False)
-    planes = [i for i in range(len(ir)) if ir.path(i).startswith("ome/planes")]
-    assert len(planes) == 100
-    assert all(ir.kind(i) == 4 for i in planes)
+    # which IFD holds which plane is refkv's plan's, not the IR's
+    assert not [i for i in range(len(ir)) if ir.path(i).startswith("ome/planes")]
     tiles = integer(ir.child(integer(ir.child(0, "ifds/0")), "tiles"))
     ks, starts, _lengths, _ = ir.members(tiles)
     assert len(ks) == 100

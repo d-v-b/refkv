@@ -23,7 +23,7 @@ enum Phase {
     Siblings,
     /// the named file, which now knows the planes
     Layout,
-    /// the siblings' planes
+    /// the siblings, which describe themselves
     Planes,
     /// the values the mirror's view shows that the parsers did not keep
     Fill,
@@ -49,8 +49,8 @@ pub struct TiffSet {
     keys: Vec<String>,
     elems: Vec<u32>,
     phase: Phase,
-    /// the parsed files, in the listing's order: (IR, facts, tile elements, IFD elements)
-    parsed: Vec<(Ir, J, Vec<Option<u32>>, Vec<u32>)>,
+    /// the parsed files, in the listing's order: each one's IR and description
+    parsed: Vec<(Ir, J)>,
     fill: Vec<(usize, u32, u64, u64)>,
     /// the store IR and the facts, once the files' IRs have joined it
     finished: Option<(Ir, J)>,
@@ -107,12 +107,11 @@ impl TiffSet {
         files.push(self.named.take().ok_or("internal: no named file")?);
         files.append(&mut self.siblings);
         for f in files {
-            let (tiles, ifds) = (f.parser.tile_elements(), f.parser.ifd_elements());
-            let (ir, facts) = f.parser.finish()?;
+            let (ir, description) = f.parser.finish()?;
             for (i, o, n) in unread_shown(&ir, "tiff") {
                 self.fill.push((f.index, i, o, n));
             }
-            self.parsed.push((ir, facts, tiles, ifds));
+            self.parsed.push((ir, description));
         }
         let mut asked: Vec<(usize, u64, u64)> = self.fill.iter().map(|&(k, _, o, n)| (k, o, n)).collect();
         asked.sort_unstable();
@@ -122,40 +121,32 @@ impl TiffSet {
 }
 
 impl TiffSet {
-    /// Joins the files' IRs into the store IR, gives each plane its tiles or strips, and asks for
-    /// the bytes the windows sample.
+    /// Joins the files' IRs into the store IR, and their descriptions into the store's: the named
+    /// file's, with the named file's key and each other file's key and description, their elements
+    /// those of the store IR. Then asks for the bytes the windows of refkv's plan sample.
     fn join(&mut self) -> Res<Option<StoreStep>> {
         let mut ir = self.ir.take().ok_or("internal: no IR")?;
-        let mut tiles: Vec<Vec<Option<u32>>> = Vec::with_capacity(self.parsed.len());
-        let mut ifds: Vec<Vec<u32>> = Vec::with_capacity(self.parsed.len());
         let mut facts = J::Null;
-        for (k, (mut file, f, t, i)) in std::mem::take(&mut self.parsed).into_iter().enumerate() {
+        let mut files = Vec::new();
+        for (k, (mut file, mut d)) in std::mem::take(&mut self.parsed).into_iter().enumerate() {
             file.sort_values();
             let e = self.elems[k];
             ir.describe_in_place(e)?;
             let at = ir.graft(&file, e)?;
-            tiles.push(t.into_iter().map(|x| x.map(|i| at[i as usize])).collect());
-            ifds.push(i.into_iter().map(|i| at[i as usize]).collect());
+            remap(&mut d, &at);
+            if let Some(m) = d.as_object_mut() {
+                for count in ["requests", "requested", "rounds"] {
+                    m.remove(count);
+                }
+            }
             if k == 0 {
-                facts = f;
+                facts = d;
+            } else {
+                files.push(json!({"key": self.keys[k], "description": d}));
             }
         }
-        // each plane's tiles or strips, and its IFD (the key of its description), in the file that
-        // holds it
-        let plan = facts["plan"].take();
-        let of = |p: &J| p.as_array().map(|fi| (fi[0].as_u64().unwrap_or(0) as usize, fi[1].as_u64().unwrap_or(0) as usize));
-        let planes: Vec<J> = plan.as_array().into_iter().flatten().map(|p| {
-            of(p).map_or(J::Null, |(f, i)| json!(tiles.get(f).and_then(|t| t.get(i)).copied().flatten()))
-        }).collect();
-        let declared_by: Vec<J> = plan.as_array().into_iter().flatten().map(|p| {
-            of(p).map_or(J::Null, |(f, i)| json!(ifds.get(f).and_then(|t| t.get(i))))
-        }).collect();
-        if let Some(lv) = facts["levels"].get_mut(0) {
-            lv["planes"] = J::Array(planes);
-            lv["declared_by"] = J::Array(declared_by);
-        }
         facts["named_key"] = json!(self.named_key);
-        facts["files"] = json!(self.keys[1..]);
+        facts["files"] = J::Array(files);
         let (ir, facts) = crate::sans::finish(true, ir, facts)?;
         let sources = ir.sources();
         let mut asked = Vec::new();
@@ -189,10 +180,8 @@ impl StoreParser for TiffSet {
                             }
                         }
                         Step::Done => {
-                            let plan = f.parser.sibling_plan();
-                            let expected = f.parser.expected().ok_or("internal: no format")?;
-                            for (s, planes) in self.siblings.iter_mut().zip(plan) {
-                                s.parser.give_planes(planes, expected.clone());
+                            for s in &mut self.siblings {
+                                s.parser.resume();
                                 s.waiting = false;
                             }
                             self.phase = Phase::Planes;
@@ -288,5 +277,28 @@ impl StoreParser for TiffSet {
         self.sampled.sort_unstable_by_key(|s| s.0);
         facts["set_bytes"] = J::Array(self.sampled.iter().map(|(at, b)| json!([at, b])).collect());
         Ok((ir, facts))
+    }
+}
+
+/// A file's description with each IR element it names (`element`, `tiles`, `strips`, an ImageJ
+/// plane's) the store IR's, `at` mapping the file IR's to it.
+fn remap(d: &mut J, at: &[u32]) {
+    let map = |v: &mut J| {
+        if let Some(e) = v.as_u64() {
+            *v = json!(at.get(e as usize).copied().unwrap_or(e as u32));
+        }
+    };
+    for f in d.get_mut("ifds").and_then(J::as_array_mut).into_iter().flatten() {
+        for name in ["element", "tiles", "strips"] {
+            map(&mut f[name]);
+        }
+    }
+    let planes = d.get_mut("imagej").and_then(|ij| ij.get_mut("planes")).and_then(J::as_array_mut);
+    for p in planes.into_iter().flatten() {
+        map(&mut p["element"]);
+        map(&mut p["strips"]);
+        for e in p["data"].as_array_mut().into_iter().flatten() {
+            map(e);
+        }
     }
 }

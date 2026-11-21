@@ -118,7 +118,7 @@ def test_a_parsed_numpy_file_describes_what_its_parser_found():
         description["arrays"].clear()
         again: Any = parsed.description
         assert len(again["arrays"]) == 1
-    with read(FIXTURES / "tiff" / "strips_uint8.tif") as other:
+    with read(FIXTURES / "nrrd" / "nrrd_byte_skip.nrrd") as other:
         assert other.description is None
 
 

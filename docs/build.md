@@ -154,8 +154,10 @@ the profile's description of the input, where its parser returns one: NumPy's
 ([hdf5.md §8.7](../spec/zarrify/hdf5.md#87-the-description)), netCDF3's
 ([netcdf3.md §7.7](../spec/zarrify/netcdf3.md#77-the-description)), ENVI's
 ([envi.md §8.7](../spec/zarrify/envi.md#87-the-description)), Zarr v2's
-([zarr2.md §7.3](../spec/zarrify/zarr2.md#73-the-description)) and Zarr v3's
-([zarr3.md §7.6](../spec/zarrify/zarr3.md#76-the-description)) do, and the other profiles' is None
+([zarr2.md §7.3](../spec/zarrify/zarr2.md#73-the-description)), Zarr v3's
+([zarr3.md §7.6](../spec/zarrify/zarr3.md#76-the-description)), TIFF's and QPTIFF's
+([tiff.md §7.6](../spec/zarrify/tiff.md#76-the-description)), and NDPI's
+([ndpi.md §7.1](../spec/zarrify/ndpi.md#71-the-description)) do, and the other profiles' is None
 until their projections read the descriptions too. `stored_array` raises `ValueError` for an array it
 cannot write so: one whose storage the IR does not model (a description with no grid, such as a
 NumPy `a<n>` array's, which the profile still presents from its header), whose elements are not
@@ -184,6 +186,7 @@ call, so that a caller's output can keep any piece of refkv's convention without
 | `netcdf3_hierarchy(parsed)` | a netCDF3 file's hierarchy as the netCDF3 convention presents it ([netcdf3.md §2](../spec/zarrify/netcdf3.md#2-the-hierarchy)): the root, then an array per variable it presents, each node's attributes without refkv's declarations and its source metadata, and each array's document and chunks (an edge chunk refkv copies a `Copy`, for `filled`), made from the parser's description by the function refkv's own projection calls; the `refkv.virtualizarr` layout presents netCDF3 files with it. `ValueError` for an input that is not a netCDF3 file |
 | `envi_image(parsed)` | an ENVI raster's image as the ENVI convention presents it, read as a store of its header and data files: the root's source metadata (`source_metadata()`), the array's document with no attributes (`document()`), its chunks by coordinates, each a value of its range of the data file (`chunks()`), the data file's key (`data_key`) and the URL the root names the source by (`url`, the header file's), made from the parser's description by the function refkv's own projection calls; `refkv.virtualizarr` presents ENVI rasters with it |
 | `zarr_hierarchy(parsed)` | a Zarr v2 store's (and an OME-Zarr store's) or a Zarr v3 store's hierarchy, listed or zipped, as the Zarr convention presents it: its nodes, each node's source metadata, and each array's document (a Zarr v2 node's with no attributes but an OME group's `ome`, a Zarr v3 node's with the attributes it keeps in place) and chunks, made from the parser's description by the function refkv's own projection calls; `refkv.virtualizarr` presents Zarr stores with it |
+| `ome_image(parsed)` | the OME-Zarr 0.5 image refkv's convention writes at the root of a TIFF, QPTIFF, NDPI or IMS input, a file or a TIFF's image across files: the root's `ome` attributes without refkv's declarations and its source metadata, each level's document and chunks (sharded as the convention shards strips), and the URL the root names the source by (`url`, an image across files' named file), made for the TIFF family from the parser's description through refkv's plan, by the function refkv's own projection calls; it reads the chunks the `omero` windows sample. `ome-zarr-06` presents these images with it, and python/tests/test_rebuild_tiff.py rebuilds refkv's own TIFF output with it |
 | `declaration(parsed, path, own=, attributes=, url=)` | a node's attributes with refkv's convention declared ([conventions §2](../spec/conventions.md#2-attributes)): at the root, the profile, its version and the source, by `url` (the input's by default) |
 
 ```python

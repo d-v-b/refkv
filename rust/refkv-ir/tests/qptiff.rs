@@ -4,14 +4,12 @@
 mod common;
 
 use common::fixtures;
-use refkv_ir::parse_bytes;
-use refkv_ir::tiff::Tiff;
 
 // one test per rejected fixture, each the message its check gives
 // one test per case of conformance/zarrify/rejects/qptiff.json (build.rs), each the message its check gives
 macro_rules! reject {
     ($name:ident, $input:literal, $msg:literal) => {
-        common::reject!($name, Tiff, concat!("qptiff/", $input), $msg);
+        common::reject_tiff!($name, concat!("qptiff/", $input), $msg);
     };
 }
 include!(concat!(env!("OUT_DIR"), "/rejects_qptiff.rs"));
@@ -31,14 +29,14 @@ fn the_tiff_parser_finds_qptiff() {
         ("qptiff/qptiff_fl_lzw_narrow_eoi.qptiff", 1, 1),
     ] {
         let data = std::fs::read(fixtures().join(file)).unwrap();
-        let (_, facts) = parse_bytes::<Tiff>(&data).unwrap();
+        let (_, _, facts) = common::tiff_plan(&data).unwrap();
         assert_eq!(facts["profile"], "qptiff", "{file}");
         assert_eq!(facts["channels"].as_array().unwrap().len(), channels, "{file}");
         assert_eq!(facts["levels"].as_array().unwrap().len(), levels, "{file}");
     }
     for file in ["tiff/jpeg_gray.tif", "ndpi/ndpi_levels.ndpi"] {
         let data = std::fs::read(fixtures().join(file)).unwrap();
-        let (_, facts) = parse_bytes::<Tiff>(&data).unwrap();
+        let (_, _, facts) = common::tiff_plan(&data).unwrap();
         assert_ne!(facts["profile"], "qptiff", "{file}");
     }
 }
@@ -51,7 +49,7 @@ fn the_tiff_parser_finds_qptiff() {
 #[test]
 fn qptiff_facts_read_the_descriptions() {
     let data = std::fs::read(fixtures().join("qptiff/qptiff_fl_uint8_lzw.qptiff")).unwrap();
-    let (_, facts) = parse_bytes::<Tiff>(&data).unwrap();
+    let (_, _, facts) = common::tiff_plan(&data).unwrap();
     let names: Vec<&str> = facts["channels"].as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap()).collect();
     assert_eq!(names, ["DAPI", "Cy3 & TRITC", "Opal 520"]);
     assert_eq!(facts["channels"][1]["color"], "255, 60, 157");

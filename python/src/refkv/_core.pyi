@@ -266,6 +266,9 @@ class Run:
     def hdf5(self) -> Hdf5:
         """The HDF5 file a run that is done parsed, its IR and description shared with the run;
         ValueError for a run of another format."""
+    def ome_image(self) -> OmeImage:
+        """The TIFF, QPTIFF, NDPI or IMS file a run that is done parsed, its IR and description
+        shared with the run; ValueError for a run of another format."""
     def netcdf3(self) -> Netcdf3:
         """The netCDF3 file a run that is done parsed, its IR and description shared with the run;
         ValueError for a run of another format."""
@@ -341,6 +344,9 @@ class StoreRun:
     def hdf5(self) -> Hdf5:
         """The HDF5 files a run `parse` finished read, its IR and descriptions shared with the
         run; ValueError for a run of a store of another format."""
+    def ome_image(self) -> OmeImage:
+        """The image across files a TIFF store run `parse` finished read, its IR and description
+        shared with the run; ValueError for a run of a store of another format."""
     def zarr(self) -> Zarr:
         """The Zarr v2 or v3 store a run `parse` finished read, its IR and description shared with
         the run; ValueError for a run of a store of another format."""
@@ -456,6 +462,23 @@ class Hdf5:
         """The HDF5 convention's hierarchy: its nodes as JSON, its documents and chunks (`out_py`'s
         form, the url empty) but for the edge chunks it copies, and those, each `(key, offset,
         length, padding)` of the file; or Rejected."""
+    def named_key(self) -> str | None:
+        """The key of the file a store run was named by; None for a file run."""
+
+@final
+class OmeImage:
+    """A TIFF, QPTIFF, NDPI or IMS input a run parsed (`Run.ome_image()`, `StoreRun.ome_image()`):
+    its IR and its description, shared with the run and never changed."""
+
+    @property
+    def profile(self) -> str:
+        """`tiff`, `qptiff`, `ndpi` or `ims`."""
+    def reads(self) -> list[tuple[int, int]]:
+        """The file's ranges the image's `omero` windows sample, `(offset, length)`; or Rejected."""
+    def image(self, copied: list[tuple[tuple[int, int], bytes]],
+              checksums: bool = False) -> tuple[str, Out[FilePart | StorePart]]:
+        """The OME image: its nodes as JSON, its documents and chunks (`out_py`'s form, the url
+        empty), its arrays sharded; `copied` the bytes of the ranges `reads` gave; or Rejected."""
     def named_key(self) -> str | None:
         """The key of the file a store run was named by; None for a file run."""
 

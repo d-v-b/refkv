@@ -71,3 +71,41 @@ macro_rules! reject {
     };
 }
 pub(crate) use reject;
+
+/// The TIFF parser's IR and description of a file, and refkv's plan of it (`tiff::plan::plan`),
+/// of the profile the parser found: Err with the parser's rejection, or the plan's.
+pub fn tiff_plan(data: &[u8]) -> Result<(refkv_ir::ir::Ir, serde_json::Value, serde_json::Value), String> {
+    use refkv_ir::nd2::Step;
+    let mut p = refkv_ir::tiff::Tiff::new(data.len() as u64);
+    loop {
+        match p.step()? {
+            Step::Read(r) => {
+                for (o, n) in r {
+                    p.feed(o, data[o as usize..(o + n) as usize].to_vec());
+                }
+            }
+            Step::Beside => return Err("the file names siblings, which its bytes alone cannot give".into()),
+            Step::Done => break,
+        }
+    }
+    let profile = if p.ndpi { "ndpi" } else if p.qptiff { "qptiff" } else { "tiff" };
+    let (ir, description) = p.finish()?;
+    let plan = refkv_ir::tiff::plan::plan(profile, &description)?;
+    Ok((ir, description, plan))
+}
+
+/// A test that the TIFF parser or refkv's plan rejects the fixture `$file` with a message that
+/// starts with `$msg` (the role the schema names).
+macro_rules! reject_tiff {
+    ($name:ident, $file:expr, $msg:expr) => {
+        #[test]
+        fn $name() {
+            let data = std::fs::read($crate::common::fixtures().join($file)).unwrap();
+            match $crate::common::tiff_plan(&data) {
+                Err(m) => assert!(m.starts_with($msg), "{m}"),
+                Ok(_) => panic!("{} was accepted", $file),
+            }
+        }
+    };
+}
+pub(crate) use reject_tiff;

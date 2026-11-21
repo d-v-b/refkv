@@ -621,6 +621,16 @@ impl crate::run::FileProfile for Profile {
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::ndpi::project(ir, facts, url)
     }
+    /// The projection reads nothing; refkv's plan is made here, so that a run rejects the file
+    /// before it is done, as the plan does (`tiff::plan::plan`).
+    fn reads(&self, _ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+        crate::tiff::plan::plan("ndpi", facts).map(|_| Vec::new())
+    }
+    /// The parser returns a description of the file (spec/zarrify/ndpi.md §7.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#71-the-description>).
+    fn described(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

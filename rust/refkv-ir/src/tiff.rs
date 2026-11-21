@@ -9,10 +9,11 @@
 //! the next); (3) the out-of-line values of the chain's IFDs that the profile
 //! reads, their tile and strip tables (whatever their size: the IR lists every IFD's
 //! tiles), and those that are small; (4) the SubIFDs, a depth a round, with their values;
-//! (5) the values the layout needs that were not read yet, as the layout asks for them;
-//! (6) the IFDs other pointer tags lead to, with their values, for the IR only. The
-//! schema (`schema/tiff.json`) is checked as the profile meets each role: a file that
-//! fails is rejected there, and nowhere else.
+//! (5) the values the description needs that were not read yet (`describe`, tiff/describe.rs);
+//! (6) the IFDs other pointer tags lead to, with their values, for the IR only. The source
+//! model's roles of the schema (`schema/tiff.json`) are checked as the parser meets each; the
+//! image's are refkv's plan's (tiff/plan.rs), which reads the parser's description and nothing
+//! else, and which the convention's projections call.
 //!
 //! **The QPTIFF variant** (spec/zarrify/qptiff.md
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md>). After the header (and
@@ -21,8 +22,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#7-qptiff-profile>, which
 //! never rejects). A QPTIFF is read as a TIFF, with the table of `QPTIFF_TABLE` (the position
 //! tags added), the schema `schema/qptiff.json`, and its
-//! own layout (`derive_qptiff`: the channels are the FullResolution images, the levels the runs
-//! of ReducedResolution images, tiled or in strips), whose facts the QPTIFF projection
+//! own plan (`plan::Src::derive_qptiff`: the channels are the FullResolution images, the levels the
+//! runs of ReducedResolution images, tiled or in strips), which the QPTIFF projection
 //! (`project/qptiff.rs`) reads; `self.qptiff` marks it.
 //!
 //! **The NDPI variant** (spec/zarrify/ndpi.md
@@ -39,8 +40,9 @@
 //! - the tags (`table`, `layout_tag`, `is_pointer`): NDPI's table and layout tags, with
 //!   SubIFDs followed as a pointer tag (an NDPI's tree is its main chain only), against the
 //!   schema `schema/ndpi.json`;
-//! - the checks of the chain (`check_offset`) and the layout (`derive_ndpi`, with the strips'
-//!   JPEG headers and restart intervals read by `ndpi.rs`), whose facts the NDPI projection
+//! - the checks of the chain (`check_offset`), and the description of each image's stream
+//!   header (`describe_ndpi`), from which the plan (`plan::Src::derive_ndpi`, with the strips'
+//!   JPEG headers and restart intervals read by `ndpi.rs`) makes the levels the NDPI projection
 //!   (`project/ndpi.rs`) reads.
 
 use crate::expr::V;
@@ -57,6 +59,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[path = "tiff/stored.rs"]
 pub(crate) mod stored;
+#[path = "tiff/describe.rs"]
+mod describe;
+#[path = "tiff/plan.rs"]
+pub mod plan;
 
 const TABLE: [u16; 24] = [
     256, 257, 258, 259, 262, 266, 270, 273, 277, 278, 279, 282, 283, 284, 296, 317, 322, 323, 324, 325, 330, 339, 347, 530,
@@ -336,20 +342,6 @@ fn imagej_lines(d: &str) -> Option<(u64, (u64, u64, u64))> {
     Some((images, (frames.unwrap_or(1), channels.unwrap_or(1), slices.unwrap_or(1))))
 }
 
-/// What the named file's parser needs of a sibling that waits for its planes.
-struct SiblingFacts {
-    /// its main chain's IFD offsets
-    offsets: Vec<u64>,
-    mm: Option<Mm>,
-}
-
-/// The size and format every plane of an image across files has.
-#[derive(Clone)]
-pub struct Expected {
-    dims: (u64, u64, bool, u64, u64),
-    format: Fmt,
-}
-
 /// The read ahead of a Micro-Manager file's IFDs, whose offsets its index map holds.
 #[derive(Clone, Copy, PartialEq)]
 enum Prefetch {
@@ -368,9 +360,9 @@ const PREFETCH_IFD: u64 = 1024;
 struct SetState {
     role: Role,
     ask: Ask,
-    siblings: Option<Vec<SiblingFacts>>,
-    /// a sibling's planes, as main-chain indices, and what each must be
-    given: Option<(Vec<usize>, Expected)>,
+    siblings: Option<usize>,
+    /// a sibling the named file's parser has found every file of, which describes itself
+    resumed: bool,
     /// a sibling's own `UUID`: its OME-XML's, or its Micro-Manager summary's
     identity: Option<String>,
     mm: Option<Mm>,
@@ -445,6 +437,8 @@ pub struct Tiff {
     /// of an ImageJ stack in one IFD, each plane after the first: its `imagej/planes/<p>` element,
     /// which keys its description (`stored.rs`), and its strips' data elements in IFD 0's order
     imagej_planes: Vec<(u32, Vec<u32>)>,
+    /// of such a stack, each later plane's `strips` struct, in the planes' order
+    imagej_strips: Vec<u32>,
     /// IFD extents, for pointer targets: start -> end
     extents: BTreeMap<u64, u64>,
     tries: u64,
@@ -472,13 +466,18 @@ pub struct Tiff {
     /// what the layout read of each NDPI image's stream, by IFD, kept past the bytes it was read
     /// from, for the stored arrays (`stored.rs`)
     ndpi_streams: HashMap<usize, stored::ReadStream>,
+    /// the description of the file (`describe`), once the layout has read what it needs; the IR's
+    /// elements it names are added when the parse is done (`finished_description`)
+    description: Option<J>,
 }
 
 /// The bytes of a row of `w` pixels of `samples` samples of `bits` bits each, which a row of packed
 /// samples rounds up to a whole byte (spec/zarrify/tiff.md §4.5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>).
 fn row_size(w: u64, bits: u64, samples: u64) -> u128 {
-    (w as u128 * bits as u128 * samples as u128).div_ceil(8)
+    // at most u64::MAX, so that a row times a count of rows still fits in u128: a row of more
+    // bytes is more than any check allows
+    (w as u128).saturating_mul(bits as u128).saturating_mul(samples as u128).div_ceil(8).min(u64::MAX as u128)
 }
 
 /// Whether each strip of StripByteCounts `counts` holds exactly its rows' bytes, `row` bytes a
@@ -547,38 +546,8 @@ impl Level {
     }
 }
 
-/// Makes the LZW, Deflate and zstd strips of each level the inner chunks of shards of at most
-/// 2^10 strips and 2^30 decoded bytes, as even as whole strips allow (spec/zarrify/tiff.md §4.5
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): each strip stays a
-/// stream of its own, which the sharding codec finds through the shard's index. A level stays
-/// one strip a chunk when it has one strip, when two do not fit, or when its last strip is short
-/// and cannot be padded: the sharding codec refuses the `rectilinear` grid that then needs.
-fn shard_strips(levels: &mut [Level], bits: u64, spp: u64, planar: u64, compression: u64) {
-    if !matches!(compression, 5 | 8 | 32946 | 50000) {
-        return;
-    }
-    let contig = spp > 1 && planar == 1;
-    for lv in levels.iter_mut().filter(|lv| lv.strips) {
-        let row = row_size(lv.w, bits, if contig { spp } else { 1 });
-        let strips = lv.h.div_ceil(lv.th);
-        let most = (MAX_SHARD_BYTES / (lv.th as u128 * row)).min(MAX_JOINED_STRIPS) as u64;
-        if strips >= 2 && most >= 2 && (compression == 5 || lv.h % lv.th == 0) {
-            lv.shard = strips.div_ceil(strips.div_ceil(most));
-        }
-    }
-}
-
+/// What the parser found at the layout that the IR's elements follow.
 struct Layout {
-    facts: J,
-    /// (IFD, JPEG prefix) of every IFD a level uses
-    prefixes: HashMap<usize, Vec<u8>>,
-    levels: Vec<Level>,
-    planes: Option<Vec<usize>>,
-    /// each plane's (file, main-chain index), the named file being file 0, when a plane may lie in
-    /// another file or be absent (spec/zarrify/tiff.md §7.4
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#74-several-files>)
-    plan: Option<Vec<Option<(usize, usize)>>>,
-    expected: Option<Expected>,
     /// an ImageJ hyperstack's planes (spec/zarrify/tiff.md §4.1
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>)
     imagej: Option<ImageJ>,
@@ -614,6 +583,7 @@ impl Tiff {
             layout: None,
             strips0: Vec::new(),
             imagej_planes: Vec::new(),
+            imagej_strips: Vec::new(),
             extents: BTreeMap::new(),
             tries: 0,
             todo: Vec::new(),
@@ -629,6 +599,7 @@ impl Tiff {
             order_el: 0,
             units: HashMap::new(),
             ndpi_streams: HashMap::new(),
+            description: None,
         }
     }
 
@@ -831,18 +802,8 @@ impl Tiff {
                         }
                         self.fed.clear();
                     }
-                    let waiting = self.set.role == Role::Sibling && self.set.given.is_none();
-                    let derived = if waiting {
-                        self.sibling_head().map(|()| None)
-                    } else if self.set.role == Role::Sibling {
-                        self.derive_sibling().map(Some)
-                    } else if self.ndpi {
-                        self.derive_ndpi().map(Some)
-                    } else if self.qptiff {
-                        self.derive_qptiff().map(Some)
-                    } else {
-                        self.derive().map(Some)
-                    };
+                    let waiting = self.set.role == Role::Sibling && !self.set.resumed;
+                    let derived = if waiting { self.sibling_head().map(|()| None) } else { self.discover().map(Some) };
                     match derived {
                         Ok(None) => return Ok(Step::Beside),
                         Err(Stop::Beside(ask)) => {
@@ -850,6 +811,22 @@ impl Tiff {
                             return Ok(Step::Beside);
                         }
                         Ok(Some(l)) => {
+                            {
+                                match self.describe(l.imagej.as_ref()) {
+                                    Ok(d) => self.description = Some(d),
+                                    Err(Stop::Reject(m)) => return Err(m),
+                                    Err(Stop::Beside(_)) => return Err("internal: the description names siblings".into()),
+                                    Err(Stop::Need(mut r)) => {
+                                        r.sort_unstable();
+                                        r.dedup();
+                                        if r.is_empty() || r.iter().any(|x| self.heads.contains_key(x)) {
+                                            return Err("internal: the description asked again for bytes it has".into());
+                                        }
+                                        self.layout_asked = r.clone();
+                                        return Ok(self.ask(r));
+                                    }
+                                }
+                            }
                             self.layout = Some(l);
                             self.emit_data()?;
                             self.keep_tables();
@@ -1732,15 +1709,6 @@ impl Tiff {
         std::mem::take(&mut self.set.ask.wanted)
     }
 
-    /// The main chain's length of file `f`, the named file being 0.
-    fn chain_of(&self, f: usize) -> usize {
-        match (f, &self.set.siblings) {
-            (0, _) => self.chain.len(),
-            (f, Some(s)) => s.get(f - 1).map_or(0, |x| x.offsets.len()),
-            _ => 0,
-        }
-    }
-
     /// A range the layout reads, once.
     fn at(&self, o: u64, n: u64) -> Got<Vec<u8>> {
         self.heads.get(&(o, n)).cloned().ok_or(Stop::Need(vec![(o, n)]))
@@ -1836,46 +1804,6 @@ impl Tiff {
         }
     }
 
-    /// The stack's planes, once every file is known; else what to probe next: a file run stops
-    /// at a stack its own index map does not cover, and a store run asks for the family's first.
-    fn mm_stack(&self, m: &Mm) -> Got<MmStack> {
-        let covered = m.entries.len() as u64 >= m.expected();
-        if let Role::Named(key) = &self.set.role {
-            let part = key.strip_suffix(".ome.tif").and_then(|s| s.rsplit_once('_')).filter(|(s, d)| {
-                !d.is_empty() && d.bytes().all(|c| c.is_ascii_digit()) && s.contains("_MMStack")
-            });
-            let first = part.map(|(s, _)| format!("{s}.ome.tif"));
-            self.rules.check("micromanager_part", rules::env([("key", text(key)), ("later", flag(first.is_some())), ("first", text(first.as_deref().unwrap_or("")))]))?;
-        }
-        if !covered && self.set.siblings.is_none() {
-            let family = match &self.set.role {
-                Role::Named(key) => key.strip_suffix(".ome.tif").map(|s| Family { stem: s.to_string(), next: 1, expected: m.expected(), ended: false }),
-                _ => None,
-            };
-            let wanted = family.iter().map(|f| format!("{}_{}.ome.tif", f.stem, f.next)).collect();
-            return Err(Stop::Beside(Ask { wanted, family: family.map(|f| Family { next: 2, ..f }), uuids: HashMap::new() }));
-        }
-        let mut files: Vec<(usize, &Mm, Vec<u64>)> = vec![(0, m, self.chain.iter().map(|&k| self.ifds[k].offset).collect())];
-        for (k, s) in self.set.siblings.iter().flatten().enumerate() {
-            if let Some(o) = &s.mm {
-                files.push((k + 1, o, s.offsets.clone()));
-            }
-        }
-        let position = m.entries[0].position;
-        let mut sizes = (1, 1, 1);
-        let mut entries = Vec::new();
-        for (f, file, offsets) in files {
-            let at: HashMap<u64, usize> = offsets.iter().enumerate().map(|(i, &o)| (o, i)).collect();
-            for e in &file.entries {
-                self.rules.check("micromanager", rules::env([("one_position", flag(e.position == position)), ("found", flag(at.contains_key(&(e.ifd as u64))))]))?;
-                let (t, c, z) = (e.frame as u64, e.channel as u64, e.slice as u64);
-                sizes = (sizes.0.max(t + 1), sizes.1.max(c + 1), sizes.2.max(z + 1));
-                entries.push((t, c, z, f, at[&(e.ifd as u64)]));
-            }
-        }
-        Ok(MmStack { sizes, entries })
-    }
-
     /// Each TiffData's file (0: this one; k: `wanted`'s k-th) of a document that names several,
     /// once a store run knows them; a file run stops here.
     fn ome_files(&self, o: &Ome) -> Got<Vec<usize>> {
@@ -1921,6 +1849,81 @@ impl Tiff {
             return Err(Stop::Beside(Ask { wanted, uuids, family: None }));
         }
         Ok(files)
+    }
+
+    /// What the parser finds at the layout, before it describes the file: of a TIFF that names
+    /// other files, which ones (spec/zarrify/tiff.md §7.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#74-several-files>), where a
+    /// file run stops and a store run probes them; and an ImageJ hyperstack, whose planes in one
+    /// IFD the IR's elements follow (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>).
+    /// The image's decisions and checks are refkv's plan's (`plan::plan`).
+    fn discover(&self) -> Got<Layout> {
+        if self.ndpi || self.qptiff || self.set.role == Role::Sibling || self.chain.is_empty() {
+            return Ok(Layout { imagej: None });
+        }
+        let i0 = self.chain[0];
+        let m0 = self.load(&[i0], false, true)?.pop().unwrap_or_default();
+        let description = match m0.get(&270) {
+            Some(Loaded::Bytes(d)) if self.ifds[i0].field(270).is_some_and(|e| e.typ == 2) => {
+                std::str::from_utf8(d.split(|&c| c == 0).next().unwrap_or(&[])).ok().map(str::to_string)
+            }
+            _ => None,
+        };
+        let ome = match description.as_deref() {
+            Some(t) => read_ome(t, self.rules)?,
+            None => None,
+        };
+        if let Some(o) = &ome {
+            let mut files: Vec<&String> = o.tiff_data.iter().filter_map(|t| t.1.as_ref()).collect();
+            files.sort();
+            files.dedup();
+            if files.len() > 1 {
+                self.ome_files(o)?;
+            }
+        }
+        let mm = if ome.is_none() { self.micromanager()? } else { None };
+        if let Some(m) = &mm {
+            self.mm_family(m)?;
+            return Ok(Layout { imagej: None });
+        }
+        let imagej = match description.as_deref().and_then(imagej_lines) {
+            Some((images, sizes)) => {
+                let one = |t: u16, d: u64| first_int(&m0, t).unwrap_or(d);
+                let bits = match m0.get(&258) {
+                    Some(Loaded::Ints(v)) => v.first().copied().unwrap_or(1),
+                    _ => 1,
+                };
+                let spp = one(277, 1);
+                let planar = if spp > 1 { one(284, 1) } else { 1 };
+                Some(self.imagej_stack(i0, &m0, (bits, spp, planar, one(259, 1)), images, sizes)?)
+            }
+            None => None,
+        };
+        Ok(Layout { imagej })
+    }
+
+    /// Of a Micro-Manager stack its own index map does not cover: a file run stops, and a store
+    /// run asks for the family's first later file (spec/zarrify/tiff.md §7.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#75-micro-manager-stacks>). A
+    /// named file that is a later file is rejected.
+    fn mm_family(&self, m: &Mm) -> Got<()> {
+        let covered = m.entries.len() as u64 >= m.expected();
+        if let Role::Named(key) = &self.set.role {
+            let part = key.strip_suffix(".ome.tif").and_then(|s| s.rsplit_once('_')).filter(|(s, d)| {
+                !d.is_empty() && d.bytes().all(|c| c.is_ascii_digit()) && s.contains("_MMStack")
+            });
+            let first = part.map(|(s, _)| format!("{s}.ome.tif"));
+            self.rules.check("micromanager_part", rules::env([("key", text(key)), ("later", flag(first.is_some())), ("first", text(first.as_deref().unwrap_or("")))]))?;
+        }
+        if !covered && self.set.siblings.is_none() {
+            let family = match &self.set.role {
+                Role::Named(key) => key.strip_suffix(".ome.tif").map(|s| Family { stem: s.to_string(), next: 1, expected: m.expected(), ended: false }),
+                _ => None,
+            };
+            let wanted = family.iter().map(|f| format!("{}_{}.ome.tif", f.stem, f.next)).collect();
+            return Err(Stop::Beside(Ask { wanted, family: family.map(|f| Family { next: 2, ..f }), uuids: HashMap::new() }));
+        }
+        Ok(())
     }
 
     /// What a sibling reads before it waits for its planes: who it says it is.
@@ -1982,117 +1985,18 @@ impl Tiff {
         self.rules.check("set_file", rules::env([("key", text(key)), ("found", flag(false))]))
     }
 
-    /// The siblings are all known, each waiting for its planes.
+    /// The siblings are all known, each waiting to describe itself.
     pub fn give_siblings(&mut self, siblings: &[&Tiff]) {
-        self.set.siblings = Some(siblings.iter().map(|s| SiblingFacts {
-            offsets: s.chain.iter().map(|&k| s.ifds[k].offset).collect(),
-            mm: s.set.mm.clone(),
-        }).collect());
+        self.set.siblings = Some(siblings.len());
     }
 
-    /// Each sibling's planes, as main-chain indices.
-    pub fn sibling_plan(&self) -> Vec<Vec<usize>> {
-        let n = self.set.siblings.as_ref().map_or(0, Vec::len);
-        let mut out = vec![Vec::new(); n];
-        for &(f, i) in self.layout.iter().flat_map(|l| l.plan.iter().flatten().flatten()) {
-            if f > 0 {
-                out[f - 1].push(i);
-            }
-        }
-        out
+    /// Lets a sibling that waits describe itself, once the named file's parser has found every
+    /// file (spec/zarrify/tiff.md §7.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#74-several-files>).
+    pub fn resume(&mut self) {
+        self.set.resumed = true;
     }
 
-    pub fn expected(&self) -> Option<Expected> {
-        self.layout.as_ref().and_then(|l| l.expected.clone())
-    }
-
-    /// A sibling's planes, and what they must be.
-    pub fn give_planes(&mut self, planes: Vec<usize>, expected: Expected) {
-        self.set.given = Some((planes, expected));
-    }
-
-    /// Each main-chain IFD's tiles or strips element, as the image's planes are.
-    pub fn tile_elements(&self) -> Vec<Option<u32>> {
-        let strips = match (&self.set.given, self.layout.as_ref().and_then(|l| l.expected.as_ref())) {
-            (Some((_, e)), _) | (None, Some(e)) => !e.dims.2,
-            _ => false,
-        };
-        self.chain.iter().map(|k| self.set.tiles.get(k).and_then(|&units| units_element(units, strips))).collect()
-    }
-
-    /// Each main-chain IFD's element, the key of its image's description.
-    pub fn ifd_elements(&self) -> Vec<u32> {
-        self.chain.iter().map(|&k| self.ifds[k].el).collect()
-    }
-
-    /// A sibling's layout: each of its planes is of the image's size and format, and its tiles
-    /// or strips lie in it.
-    fn derive_sibling(&self) -> Got<Layout> {
-        let (planes, expected) = self.set.given.as_ref().ok_or_else(|| Stop::Reject("internal: a sibling without planes".into()))?;
-        let ks: Vec<usize> = planes.iter().map(|&i| self.chain[i]).collect();
-        let mut prefixes = HashMap::new();
-        if !ks.is_empty() {
-            let mut vals = HashMap::new();
-            let lv = self.level(&ks, &mut vals)?;
-            let f = self.fmt(ks[0], &vals[&ks[0]])?;
-            let same = (lv.w, lv.h, !lv.strips, lv.tw, lv.th) == expected.dims && f == expected.format;
-            self.rules.check("set_format", rules::env([("same", flag(same))]))?;
-            self.check_tiles(&lv, &vals, f, &mut prefixes)?;
-        }
-        Ok(Layout { facts: J::Null, prefixes, levels: Vec::new(), planes: None, plan: None, expected: None, imagej: None })
-    }
-
-    /// The tiles, or strips, of each plane of a level (spec/zarrify/tiff.md §4
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#4-the-image>).
-    fn check_tiles(&self, lv: &Level, vals: &HashMap<usize, Vals>, f: Fmt, prefixes: &mut HashMap<usize, Vec<u8>>) -> Got<()> {
-        let (_, spp, _, planar, compression, _, photometric) = f;
-        let contig = spp > 1 && planar == 1;
-        let samples = if spp > 1 && !contig { spp } else { 1 };
-        let jpeg = compression == 7;
-        let across = if lv.strips { 1 } else { lv.w.div_ceil(lv.tw) };
-        let down = lv.h.div_ceil(lv.th);
-        let per = across as u128 * down as u128;
-        for &k in &lv.ifds {
-            let m = &vals[&k];
-            let (ot, ct) = if lv.strips { (273, 279) } else { self.tile_tables(k) };
-            let offsets = self.reqs(k, m, ot)?;
-            let counts = self.reqs(k, m, ct)?;
-            let (prefix, has_tables, tables_ok) = jpeg_prefix(m, jpeg, spp, photometric);
-            self.rules.check(
-                "plane",
-                rules::env([
-                    ("offset", num(self.ifds[k].offset as f64)),
-                    ("jpeg", flag(jpeg)),
-                    ("has_tables", flag(has_tables)),
-                    ("tables_ok", flag(tables_ok)),
-                    ("tiles", num(offsets.len() as f64)),
-                    ("counts", num(counts.len() as f64)),
-                    ("expected", num((samples as u128 * per) as f64)),
-                ]),
-            )?;
-            if prefixes.contains_key(&k) {
-                continue;
-            }
-            for (j, (&o, &c)) in offsets.iter().zip(&counts).enumerate() {
-                if c == 0 {
-                    continue;
-                }
-                let within = (o as u128 + c as u128) <= self.size as u128;
-                self.rules.check(
-                    "tile",
-                    rules::env([
-                        ("k", num(j as f64)),
-                        ("offset", num(self.ifds[k].offset as f64)),
-                        ("within", flag(within)),
-                        ("count", num(c as f64)),
-                        ("jpeg", flag(jpeg)),
-                    ]),
-                )?;
-            }
-            prefixes.insert(k, if jpeg { prefix } else { Vec::new() });
-        }
-        Ok(())
-    }
 }
 
 impl Tiff {
@@ -2112,6 +2016,11 @@ impl Tiff {
     /// (all of them, or all but its tile tables), and IFD 0's ImageDescription.
     /// Asks for what was not read yet, for every IFD of `ks` at once.
     fn load(&self, ks: &[usize], tiles: bool, description: bool) -> Got<Vec<Vals>> {
+        self.load_as(ks, tiles, description, true)
+    }
+
+    /// `load`, with each integer tag's values checked (the `values` role) when `check`.
+    fn load_as(&self, ks: &[usize], tiles: bool, description: bool, check: bool) -> Got<Vec<Vals>> {
         let mut need = Vec::new();
         let mut out = Vec::new();
         for &k in ks {
@@ -2151,7 +2060,7 @@ impl Tiff {
                                 ("type", int(e.typ as i128)),
                                 ("largest", num(v.iter().copied().max().unwrap_or(0) as f64)),
                             ]);
-                            if need.is_empty() {
+                            if need.is_empty() && check {
                                 self.rules.check("values", &mut env)?;
                             }
                         }
@@ -2191,60 +2100,12 @@ impl Tiff {
         }
     }
 
-    fn fmt(&self, k: usize, m: &Vals) -> Got<Fmt> {
-        // TIFF 6.0's default, which a bilevel image's writer may rely on
-        let bits = match m.get(&258) {
-            Some(Loaded::Ints(v)) => v.clone(),
-            _ => vec![1],
-        };
-        let formats = match m.get(&339) {
-            Some(Loaded::Ints(v)) => v.clone(),
-            _ => vec![1],
-        };
-        let spp = self.req(k, m, 277, Some(1))?;
-        let planar = if spp > 1 { self.req(k, m, 284, Some(1))? } else { 1 };
-        let num_list = |v: &[u64]| V::List(v.iter().map(|&x| V::Num(x as f64)).collect());
-        self.rules.check(
-            "format",
-            rules::env([
-                ("bits", num_list(&bits)),
-                ("formats", num_list(&formats)),
-                ("spp", num(spp as f64)),
-                ("planar", num(planar as f64)),
-            ]),
-        )?;
-        let compression = self.req(k, m, 259, Some(1))?;
-        let photometric = if compression == 7 { first_int(m, 262) } else { None };
-        Ok((bits[0], spp, formats[0], planar, compression, self.req(k, m, 317, Some(1))?, photometric))
-    }
-
-    /// The main-chain indexes of an EER file's frames: the IFDs of IFD 0's size and format, as
-    /// `pages` tests them, in chain order. Each frame's tags are read, in one batch.
-    fn eer_frames(&self, i0: usize, f0: &Fmt) -> Got<Vec<usize>> {
-        let loaded = self.load(&self.chain, false, false)?;
-        let size = |k: usize, m: &Vals| (first_int(m, 256), first_int(m, 257), self.tiled(k));
-        let at0 = self.chain.iter().position(|&k| k == i0).unwrap_or(0);
-        let want = size(i0, &loaded[at0]);
-        let mut frames = Vec::new();
-        for (i, (&k, m)) in self.chain.iter().zip(&loaded).enumerate() {
-            let format = match self.fmt(k, m) {
-                Ok(f) => Some(f),
-                Err(Stop::Reject(_)) => None,
-                Err(e) => return Err(e),
-            };
-            if size(k, m) == want && format.as_ref() == Some(f0) {
-                frames.push(i);
-            }
-        }
-        Ok(frames)
-    }
-
     /// An ImageJ hyperstack's planes (spec/zarrify/tiff.md §4.1
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>), the `imagej`
     /// role: `images` main-chain IFDs, or, in one IFD, IFD 0's strips (uncompressed, each exactly its
     /// rows, each starting where the one before it ends) repeated `images` times, within the file.
-    fn imagej_stack(&self, i0: usize, m0: &Vals, f0: &Fmt, images: u64, sizes: (u64, u64, u64)) -> Got<ImageJ> {
-        let (bits, spp, _, planar, compression, _, _) = *f0;
+    fn imagej_stack(&self, i0: usize, m0: &Vals, f0: (u64, u64, u64, u64), images: u64, sizes: (u64, u64, u64)) -> Got<ImageJ> {
+        let (bits, spp, planar, compression) = f0;
         let one = self.chain.len() == 1;
         let tiled = self.tiled(i0);
         let (mut whole, mut within, mut plane_bytes) = (true, true, 0u64);
@@ -2284,17 +2145,6 @@ impl Tiff {
         Ok(ImageJ { images, sizes, plane_bytes: one.then_some(plane_bytes) })
     }
 
-    /// An EER image's skip, horizontal and vertical bits (spec/zarrify/tiff.md §4.3
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>): from
-    /// its compression, but for 65002's, from tags 65007 to 65009, each 7, 2 and 2 without its tag.
-    /// A tag of another field type counts as absent: these are outside the table, and read only here.
-    fn eer_bits(&self, k: usize, compression: u64) -> (u64, u64, u64) {
-        eer_bits(compression, |t, default| {
-            let value = self.ifds[k].field(t).filter(|e| unsigned(e.typ)).and_then(|e| self.ints(e, true));
-            value.and_then(|v| v.first().copied()).unwrap_or(default)
-        })
-    }
-
     /// An IFD with a tile's size, TileWidth and TileLength, is tiled, as libtiff and tifffile read
     /// it and as its description takes it (spec/zarrify/tiff.md §2
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#2-the-source>,
@@ -2303,615 +2153,13 @@ impl Tiff {
         self.ifds[k].has(322) && self.ifds[k].has(323)
     }
 
-    /// The tags of the tables that list a tiled IFD's tiles: TileOffsets and TileByteCounts, its
-    /// own tables, or, in an IFD with neither, StripOffsets and StripByteCounts, under which some
-    /// writers list a tiled image's tiles. An IFD with one of its own tables and not the other has
-    /// no tile tables (`check_size`): libtiff and tifffile would pair the one with a strips'
-    /// table, and its description takes the strips' two.
-    fn tile_tables(&self, k: usize) -> (u16, u16) {
-        if self.ifds[k].has(324) || self.ifds[k].has(325) { (324, 325) } else { (273, 279) }
-    }
-
-    fn check_size(&self, k: usize, m: &Vals) -> Got<()> {
-        let w = self.req(k, m, 256, None)?;
-        let h = self.req(k, m, 257, None)?;
-        let tiled = self.tiled(k);
-        let (ot, ct) = self.tile_tables(k);
-        let (has_offsets, has_counts) = (self.ifds[k].has(ot), self.ifds[k].has(ct));
-        let (mut tw, mut th) = (1, 1);
-        if tiled && has_offsets && has_counts && w >= 1 && h >= 1 {
-            tw = self.req(k, m, 322, None)?;
-            th = self.req(k, m, 323, None)?;
-        }
-        self.rules.check(
-            "size",
-            rules::env([
-                ("offset", num(self.ifds[k].offset as f64)),
-                ("width", num(w as f64)),
-                ("height", num(h as f64)),
-                ("tiled", flag(tiled)),
-                ("has_offsets", flag(has_offsets)),
-                ("has_counts", flag(has_counts)),
-                ("missing", int(if has_offsets { ct } else { ot } as i128)),
-                ("tile_width", num(tw as f64)),
-                ("tile_height", num(th as f64)),
-            ]),
-        )?;
-        Ok(())
-    }
-
-    fn check_samples(&self, k: usize, m: &Vals) -> Got<()> {
-        let compression = self.req(k, m, 259, Some(1))?;
-        let fill = self.req(k, m, 266, Some(1))?;
-        let photometric = self.req(k, m, 262, Some(0))?;
-        let sub = match m.get(&530) {
-            Some(Loaded::Ints(v)) => v.clone(),
-            _ => vec![2, 2],
-        };
-        self.rules.check(
-            "samples",
-            rules::env([
-                ("offset", num(self.ifds[k].offset as f64)),
-                ("compression", num(compression as f64)),
-                ("fill_order", num(fill as f64)),
-                ("photometric", num(photometric as f64)),
-                ("subsampling", V::List(sub.iter().map(|&x| V::Num(x as f64)).collect())),
-            ]),
-        )?;
-        Ok(())
-    }
-
-    /// A level of the IFDs `ks` (one per plane): each loaded and checked.
-    fn level(&self, ks: &[usize], vals: &mut HashMap<usize, Vals>) -> Got<Level> {
-        let mut uniq: Vec<usize> = ks.to_vec();
-        uniq.sort_unstable();
-        uniq.dedup();
-        let loaded = self.load(&uniq, true, false)?;
-        for (k, m) in uniq.iter().zip(loaded) {
-            let mut m = m;
-            if let Some(old) = vals.get(k) {
-                if let Some(d) = old.get(&270) {
-                    m.insert(270, d.clone());
-                }
-            }
-            vals.insert(*k, m);
-        }
-        for &k in ks {
-            let m = &vals[&k];
-            self.check_size(k, m)?;
-            self.fmt(k, m)?;
-            self.check_samples(k, m)?;
-        }
-        // a plane in strips (spec/zarrify/tiff.md §4.5
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): its strips and RowsPerStrip
-        for &k in ks {
-            if !self.tiled(k) {
-                self.check_strips(k, &vals[&k])?;
-            }
-        }
-        let k0 = ks[0];
-        let m0 = &vals[&k0];
-        // the size, and the chunk's: the tile's, or the image's width and the rows per strip
-        let dims = |k: usize, m: &Vals| -> Got<(u64, u64, bool, u64, u64)> {
-            let (w, h) = (self.req(k, m, 256, None)?, self.req(k, m, 257, None)?);
-            Ok(if self.tiled(k) {
-                (w, h, true, self.req(k, m, 322, None)?, self.req(k, m, 323, None)?)
-            } else {
-                (w, h, false, w, self.req(k, m, 278, Some(u32::MAX as u64))?.min(h))
-            })
-        };
-        let d0 = dims(k0, m0)?;
-        let f0 = self.fmt(k0, m0)?;
-        for &k in ks {
-            let same = dims(k, &vals[&k])? == d0 && self.fmt(k, &vals[&k])? == f0;
-            self.rules.check("level_ifd", rules::env([("offset", num(self.ifds[k].offset as f64)), ("same", flag(same))]))?;
-        }
-        Ok(Level { w: d0.0, h: d0.1, tw: d0.3, th: d0.4, ifds: ks.to_vec(), strips: !d0.2, join: 1, shard: 1, rectilinear: false, pad: J::Null })
-    }
-
-    /// The `strips` role of an IFD that is not tiled: StripOffsets, StripByteCounts and a
-    /// RowsPerStrip of at least 1.
-    fn check_strips(&self, k: usize, m: &Vals) -> Got<()> {
-        let rows = self.req(k, m, 278, Some(u32::MAX as u64))?;
-        self.rules.check(
-            "strips",
-            rules::env([
-                ("offset", num(self.ifds[k].offset as f64)),
-                ("has_offsets", flag(self.ifds[k].has(273))),
-                ("has_counts", flag(self.ifds[k].has(279))),
-                ("rows", num(rows as f64)),
-            ]),
-        )?;
-        Ok(())
-    }
-
-    fn derive(&self) -> Got<Layout> {
-        self.rules.check("images", rules::env([("ifds", num(self.chain.len() as f64))]))?;
-        let i0 = self.chain[0];
-        let mut vals: HashMap<usize, Vals> = HashMap::new();
-        let m0 = self.load(&[i0], false, true)?.pop().unwrap();
-        vals.insert(i0, m0.clone());
-        // IFD 0's ImageDescription: ASCII, up to its first NUL; OME-XML when it is UTF-8 with an OME start tag
-        let mut description: Option<String> = None;
-        let mut ome: Option<Ome> = None;
-        if self.ifds[i0].field(270).is_some_and(|e| e.typ == 2) {
-            if let Some(Loaded::Bytes(d)) = m0.get(&270) {
-                let raw = d.split(|&c| c == 0).next().unwrap_or(&[]);
-                if let Ok(t) = std::str::from_utf8(raw) {
-                    ome = read_ome(t, self.rules)?;
-                    description = Some(t.to_string());
-                }
-            }
-        }
-        let f0 = self.fmt(i0, &m0)?;
-        let (bits, spp, sample_format, planar, compression, predictor, photometric) = f0;
-        self.rules.check(
-            "predictor",
-            rules::env([
-                ("compression", num(compression as f64)),
-                ("predictor", num(predictor as f64)),
-                ("sample_format", num(sample_format as f64)),
-                ("bits", num(bits as f64)),
-            ]),
-        )?;
-        // the planes (spec/zarrify/tiff.md §3
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#3-ome-xml>, §4.1
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>), in (t, c,
-        // z) order, as main-chain IFD indices
-        let empty = vec![];
-        let px = ome.as_ref().map(|o| &o.pixels).unwrap_or(&empty);
-        // a Micro-Manager stack (spec/zarrify/tiff.md §7.5
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#75-micro-manager-stacks>):
-        // its index maps give the sizes and the planes
-        let mm = if ome.is_none() { self.micromanager()? } else { None };
-        let mm_stack = match &mm {
-            Some(m) => Some(self.mm_stack(m)?),
-            None => None,
-        };
-        // an ImageJ hyperstack, without OME-XML (spec/zarrify/tiff.md §4.1
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>): its description
-        // gives the sizes, and its planes are the main-chain IFDs or, in one IFD, IFD 0's strips shifted
-        let imagej = match if mm_stack.is_none() { description.as_deref().and_then(imagej_lines) } else { None } {
-            Some((images, sizes)) => Some(self.imagej_stack(i0, &m0, &f0, images, sizes)?),
-            None => None,
-        };
-        let size_z = match (&mm_stack, &imagej) {
-            (Some(s), _) => s.sizes.2,
-            (None, Some(ij)) => ij.sizes.2,
-            _ => int_attr(self.rules, px, "SizeZ", 1, 1)?,
-        };
-        // an EER file's frames, without OME-XML: the main-chain IFDs of IFD 0's size and format
-        // (spec/zarrify/tiff.md §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>)
-        let frames = if is_eer(compression) && ome.is_none() && mm_stack.is_none() && imagej.is_none() { Some(self.eer_frames(i0, &f0)?) } else { None };
-        let size_t = match (&mm_stack, &frames, &imagej) {
-            (Some(s), _, _) => s.sizes.0,
-            (None, Some(f), _) => f.len() as u64,
-            (None, None, Some(ij)) => ij.sizes.0,
-            _ => int_attr(self.rules, px, "SizeT", 1, 1)?,
-        };
-        let mut size_c = match (&mm_stack, &imagej) {
-            (Some(s), _) => s.sizes.1.max(if spp > 1 { spp } else { 1 }),
-            (None, Some(ij)) => ij.sizes.1.max(if spp > 1 { spp } else { 1 }),
-            _ => int_attr(self.rules, px, "SizeC", spp, 1)?,
-        };
-        let order = get(px, "DimensionOrder").unwrap_or("XYZCT").to_string();
-        if ome.is_some() || (spp > 1 && size_c != spp) {
-            self.rules.check(
-                "ome_pixels",
-                rules::env([("order", text(if ome.is_some() { &order } else { "XYZCT" })), ("spp", num(spp as f64)), ("size_c", num(size_c as f64))]),
-            )?;
-        }
-        if spp > 1 && size_c != spp {
-            size_c = spp;
-        }
-        let plane_c = if spp > 1 { 1 } else { size_c };
-        let count = (size_t as u128) * (plane_c as u128) * (size_z as u128);
-        let files = ome.as_ref().map(|o| {
-            let mut u: Vec<&String> = o.tiff_data.iter().filter_map(|t| t.1.as_ref()).collect();
-            u.sort();
-            u.dedup();
-            u.len()
-        });
-        self.rules.check("ome_planes", rules::env([("planes", num(count as f64))]))?;
-        let count = count as usize;
-        let mut plane_ifd: Vec<i128> = vec![-1; count];
-        let plane = |t: u64, c: u64, z: u64| ((t * plane_c + c) * size_z + z) as usize;
-        // the files the OME-XML names, by each TiffData (spec/zarrify/tiff.md §7.4
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#74-several-files>)
-        let tiff_data_file = match &ome {
-            Some(o) if files.unwrap() > 1 => Some(self.ome_files(o)?),
-            _ => None,
-        };
-        let mut plane_file: Vec<usize> = vec![0; if tiff_data_file.is_some() { count } else { 0 }];
-        match &ome {
-            None => match (&frames, &imagej) {
-                (Some(f), _) => plane_ifd.iter_mut().zip(f).for_each(|(p, &i)| *p = i as i128),
-                // ImageJ's planes: channels fastest, then slices, then frames; in one IFD, every
-                // plane is IFD 0's strips (`emit_data` shifts those of the planes after the first)
-                (None, Some(ij)) => {
-                    let (_, channels, slices) = ij.sizes;
-                    for t in 0..size_t {
-                        for c in 0..plane_c {
-                            for z in 0..size_z {
-                                let p = (t * slices + z) * channels + c;
-                                plane_ifd[plane(t, c, z)] = if ij.plane_bytes.is_some() { 0 } else { p as i128 };
-                            }
-                        }
-                    }
-                }
-                (None, None) => plane_ifd[0] = 0,
-            },
-            Some(o) => {
-                let sizes = |d: u8| match d {
-                    b'Z' => size_z,
-                    b'C' => plane_c,
-                    _ => size_t,
-                };
-                let default = vec![(vec![], None)];
-                let entries = if o.tiff_data.is_empty() { &default } else { &o.tiff_data };
-                let bound = 4 * count as u128 + 1000;
-                let mut total: u128 = 0;
-                let ord = order.as_bytes();
-                for (entry, (a, _)) in entries.iter().enumerate() {
-                    let file = tiff_data_file.as_ref().map_or(0, |f| f.get(entry).copied().unwrap_or(0));
-                    let mut pos = [0u64; 3]; // Z, C, T
-                    pos[0] = int_attr(self.rules, a, "FirstZ", 0, 0)?;
-                    pos[1] = int_attr(self.rules, a, "FirstC", 0, 0)?;
-                    pos[2] = int_attr(self.rules, a, "FirstT", 0, 0)?;
-                    let inside = pos[0] < size_z && pos[1] < plane_c && pos[2] < size_t;
-                    self.rules.check(
-                        "tiff_data",
-                        rules::env([("inside", flag(inside)), ("total", num(0.0)), ("bound", num(bound as f64))]),
-                    )?;
-                    let mut ifd = int_attr(self.rules, a, "IFD", 0, 0)? as i128;
-                    let dflt = if entries.len() == 1 && get(a, "IFD").is_none() { count as u64 } else { 1 };
-                    let n = int_attr(self.rules, a, "PlaneCount", dflt, 1)? as u128;
-                    let idx = |d: u8| match d {
-                        b'Z' => 0,
-                        b'C' => 1,
-                        _ => 2,
-                    };
-                    let (d0, d1, d2) = (ord[2], ord[3], ord[4]);
-                    let first = pos[idx(d0)] as u128
-                        + sizes(d0) as u128 * (pos[idx(d1)] as u128 + sizes(d1) as u128 * pos[idx(d2)] as u128);
-                    let mut n = n.min(count as u128 - first);
-                    total += n;
-                    self.rules.check(
-                        "tiff_data",
-                        rules::env([("inside", flag(true)), ("total", num(total as f64)), ("bound", num(bound as f64))]),
-                    )?;
-                    'fill: while n > 0 {
-                        n -= 1;
-                        let at = plane(pos[2], pos[1], pos[0]);
-                        plane_ifd[at] = ifd;
-                        if let Some(f) = plane_file.get_mut(at) {
-                            *f = file;
-                        }
-                        ifd += 1;
-                        for &d in &ord[2..] {
-                            let i = idx(d);
-                            pos[i] += 1;
-                            if pos[i] < sizes(d) {
-                                continue 'fill;
-                            }
-                            pos[i] = 0;
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-        // each plane's (file, main-chain index), when a plane may lie in another file or be absent
-        let plan: Option<Vec<Option<(usize, usize)>>> = match (&mm_stack, &tiff_data_file) {
-            (Some(s), _) => Some(s.plan(plane_c, size_z, count)),
-            (None, Some(_)) => Some(plane_ifd.iter().zip(&plane_file).map(|(&i, &f)| (i >= 0).then_some((f, i as usize))).collect()),
-            _ => None,
-        };
-        let mapped = match &plan {
-            Some(p) => mm_stack.is_some() || p.iter().all(|x| x.is_some_and(|(f, i)| i < self.chain_of(f))),
-            None => plane_ifd.iter().all(|&i| i >= 0 && (i as usize) < self.chain.len()),
-        };
-        self.rules.check("plane_map", rules::env([("mapped", flag(mapped))]))?;
-        let planes: Vec<usize> = match &plan {
-            // the planes this file holds: the other files check theirs (`derive_sibling`)
-            Some(p) => {
-                let own: Vec<usize> = p.iter().flatten().filter(|x| x.0 == 0).map(|x| self.chain[x.1]).collect();
-                if own.is_empty() { vec![i0] } else { own }
-            }
-            None => plane_ifd.iter().map(|&i| self.chain[i as usize]).collect(),
-        };
-        // the levels (spec/zarrify/tiff.md §4.2
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#42-pyramid-levels>)
-        let mut levels: Vec<Level> = Vec::new();
-        let subs0 = self.ifds[i0].subs.clone();
-        self.rules.check("set_layout", rules::env([("set", flag(plan.is_some())), ("flat", flag(subs0.is_empty())), ("whole", flag(true))]))?;
-        if !subs0.is_empty() {
-            let s = subs0.len();
-            for &p in &planes {
-                self.rules.check(
-                    "subifd_levels",
-                    rules::env([
-                        ("offset", num(self.ifds[p].offset as f64)),
-                        ("subs", num(self.ifds[p].subs.len() as f64)),
-                        ("levels", num(s as f64)),
-                    ]),
-                )?;
-            }
-            levels.push(self.level(&planes, &mut vals)?);
-            for k in 0..s {
-                let ks: Vec<usize> = planes.iter().map(|&p| self.ifds[p].subs[k]).collect();
-                levels.push(self.level(&ks, &mut vals)?);
-            }
-        } else {
-            levels.push(self.level(&planes, &mut vals)?);
-            if ome.is_none() && plan.is_none() {
-                for &k in &self.chain[1..] {
-                    let (pw, ph) = (levels.last().unwrap().w, levels.last().unwrap().h);
-                    if !self.tiled(k) {
-                        continue;
-                    }
-                    let m = self.load(&[k], false, false)?.pop().unwrap();
-                    self.check_size(k, &m)?;
-                    let (w, h) = (self.req(k, &m, 256, None)?, self.req(k, &m, 257, None)?);
-                    let f = self.fmt(k, &m)?;
-                    vals.entry(k).or_insert(m);
-                    if f == f0 && w < pw && h < ph {
-                        levels.push(self.level(&[k], &mut vals)?);
-                    }
-                }
-                // a stack of pages in strips, as ImageJ and tifffile write them without OME-XML
-                // (spec/zarrify/tiff.md §4.2
-                // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#42-pyramid-levels>):
-                // a later page of IFD 0's size and format is a plane the layout cannot map
-                if levels[0].strips {
-                    let used: HashSet<usize> = levels.iter().flat_map(|l| l.ifds.iter().copied()).collect();
-                    let (w0, h0) = (levels[0].w, levels[0].h);
-                    // a page's width and length are in line: only a page of IFD 0's size has its values
-                    // loaded, one at a time, so that a stack is rejected at its first such page; one
-                    // whose values do not load (a malformed tag) is not a page of IFD 0's format
-                    let one = |k: usize, t: u16| {
-                        self.ifds[k].field(t).filter(|e| unsigned(e.typ)).and_then(|e| self.ints(e, true)).and_then(|v| v.first().copied())
-                    };
-                    for &k in &self.chain[1..] {
-                        if used.contains(&k) || (one(k, 256), one(k, 257)) != (Some(w0), Some(h0)) {
-                            continue;
-                        }
-                        let m = match self.load(&[k], false, false) {
-                            Ok(mut m) => m.pop().unwrap(),
-                            Err(Stop::Reject(_)) => continue,
-                            Err(e) => return Err(e),
-                        };
-                        let format = match self.fmt(k, &m) {
-                            Ok(f) => Some(f),
-                            Err(Stop::Reject(_)) => None, // not of IFD 0's format, whatever it is
-                            Err(e) => return Err(e),
-                        };
-                        let page = format == Some(f0);
-                        self.rules.check("pages", rules::env([("offset", num(self.ifds[k].offset as f64)), ("page", flag(page))]))?;
-                    }
-                }
-            }
-        }
-        for lv in &levels {
-            for &k in &lv.ifds {
-                let same = self.fmt(k, &vals[&k])? == f0;
-                self.rules.check("pyramid", rules::env([("same", flag(same))]))?;
-            }
-        }
-        // data type and codecs (spec/zarrify/tiff.md §4.3
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>)
-        let mut env = rules::env([
-            ("bits", num(bits as f64)),
-            ("sample_format", num(sample_format as f64)),
-            ("spp", num(spp as f64)),
-            ("planar", num(planar as f64)),
-            ("compression", num(compression as f64)),
-            ("photometric", photometric.map(|p| num(p as f64)).unwrap_or(V::Absent)),
-        ]);
-        self.rules.check("image", &mut env)?;
-        // an EER image's codec reads the tag's bits, and decodes one shape for a level's chunks
-        let eer = if is_eer(compression) { Some(self.eer_bits(i0, compression)) } else { None };
-        if let Some(bits) = eer {
-            for lv in &levels {
-                let short = lv.strips && lv.h % lv.th != 0;
-                for &k in &lv.ifds {
-                    let same = self.eer_bits(k, compression) == bits;
-                    self.rules.check("eer", rules::env([("offset", num(self.ifds[k].offset as f64)), ("same", flag(same)), ("short", flag(short))]))?;
-                }
-            }
-        }
-        // the tiles, or strips, of every plane of every level
-        let mut prefixes = HashMap::new();
-        for lv in &levels {
-            self.check_tiles(lv, &vals, f0, &mut prefixes)?;
-        }
-        // uncompressed strips joined into larger chunks, then each level's short last chunk padded,
-        // but for an image whose planes may lie in several files, of one strip a chunk
-        // (spec/zarrify/tiff.md §7.4
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#74-several-files>)
-        if plan.is_some() {
-            let lv = &levels[0];
-            let whole = !lv.strips || lv.h.is_multiple_of(lv.th);
-            self.rules.check("set_layout", rules::env([("set", flag(true)), ("flat", flag(true)), ("whole", flag(whole))]))?;
-        } else {
-            self.join_strips(&mut levels, &vals, bits, spp, planar, compression)?;
-            shard_strips(&mut levels, bits, spp, planar, compression);
-        }
-        // a level in strips whose last strip is short, padded to the chunk (spec/zarrify/tiff.md §4.5
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): one that
-        // cannot be padded has a `rectilinear` grid
-        if plan.is_none() {
-            let padded = self.pad_strips(&mut levels, &vals, bits, spp, planar, compression)?;
-            for (lv, padded) in levels.iter_mut().zip(padded) {
-                lv.rectilinear = !padded;
-            }
-        }
-        // pixel size and position (spec/zarrify/tiff.md §4.4
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>)
-        let unit_of = |u: &str| self.rules.table("units").get(u).and_then(|x| x.as_str()).map(|x| x.to_string());
-        let length = |u: &str| self.rules.table("lengths").get(u).and_then(|x| x.as_f64());
-        let mut units: BTreeMap<char, String> = BTreeMap::new();
-        let mut sizes: HashMap<char, f64> = HashMap::new();
-        let mut centre: Option<(f64, f64)> = None;
-        let mut corner: Option<(f64, f64)> = None;
-        if let Some(o) = &ome {
-            for (d, a) in [("Z", 'z'), ("Y", 'y'), ("X", 'x')] {
-                if let Some(v) = get(&o.pixels, &format!("PhysicalSize{d}")).and_then(|v| xml::decimal_value(v, true)) {
-                    sizes.insert(a, v);
-                    if let Some(u) = unit_of(get(&o.pixels, &format!("PhysicalSize{d}Unit")).unwrap_or("µm")) {
-                        units.insert(a, u);
-                    }
-                }
-            }
-            let stage = o.plane.clone().unwrap_or_default();
-            let pos = |d: &str| get(&stage, &format!("Position{d}")).and_then(|v| xml::decimal_value(v, false));
-            let pos_unit = |d: &str| unit_of(get(&stage, &format!("Position{d}Unit")).unwrap_or(""));
-            let mut c = [0.0; 2];
-            let mut all = true;
-            for (i, (d, a)) in [("X", 'x'), ("Y", 'y')].into_iter().enumerate() {
-                match (pos(d), pos_unit(d).and_then(|u| length(&u)), units.get(&a).and_then(|u| length(u))) {
-                    (Some(p), Some(lp), Some(lu)) => c[i] = p * (lp / lu),
-                    _ => all = false,
-                }
-            }
-            if all {
-                centre = Some((c[0], c[1]));
-            }
-        } else {
-            let fields = description.as_deref().and_then(aperio_fields);
-            let mpp = fields.as_ref().and_then(|f| get(f, "MPP")).and_then(|v| xml::decimal_value(v, true));
-            if let Some(mpp) = mpp {
-                sizes.insert('x', mpp);
-                sizes.insert('y', mpp);
-                units.insert('x', "micrometer".into());
-                units.insert('y', "micrometer".into());
-                let f = fields.unwrap();
-                if let (Some(l), Some(t)) = (get(&f, "Left").and_then(|v| xml::decimal_value(v, false)), get(&f, "Top").and_then(|v| xml::decimal_value(v, false))) {
-                    corner = Some((l * 1000.0, t * 1000.0));
-                }
-            } else {
-                let per_unit = self.rules.table("resolution_units").get(first_int(&vals[&i0], 296).unwrap_or(0).to_string()).and_then(|x| x.as_f64());
-                for (tag, a) in [(282u16, 'x'), (283, 'y')] {
-                    if let (Some(pu), Some(Loaded::Pairs(r))) = (per_unit, vals[&i0].get(&tag)) {
-                        let (n, d) = r[0];
-                        if n > 0 && d > 0 {
-                            let pixel = pu / (n as f64 / d as f64);
-                            if pixel < 25.4 {
-                                sizes.insert(a, pixel);
-                                units.insert(a, "micrometer".into());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        // a Micro-Manager summary's sizes, in place of the resolution tags'
-        if let Some(m) = &mm {
-            let positive = |k: &str| m.summary[k].as_f64().map(f64::abs).filter(|v| *v > 0.0);
-            if let Some(v) = positive("PixelSize_um") {
-                for a in ['x', 'y'] {
-                    sizes.insert(a, v);
-                    units.insert(a, "micrometer".into());
-                }
-            }
-            if let Some(v) = positive("z-step_um") {
-                sizes.insert('z', v);
-                units.insert('z', "micrometer".into());
-            }
-        }
-        let axes: Vec<char> = [('t', size_t > 1), ('c', size_c > 1), ('z', size_z > 1), ('y', true), ('x', true)]
-            .into_iter()
-            .filter(|x| x.1)
-            .map(|x| x.0)
-            .collect();
-        let size_of = |a: char| sizes.get(&a).copied();
-        let (bw, bh) = (levels[0].w as f64, levels[0].h as f64);
-        let scales: Vec<Vec<J>> = levels
-            .iter()
-            .map(|lv| {
-                axes.iter()
-                    .map(|&a| match a {
-                        't' | 'c' => json!(1),
-                        'z' => size_of('z').map(|v| json!(v)).unwrap_or(json!(1)),
-                        'y' => json!(size_of('y').unwrap_or(1.0) * (bh / lv.h as f64)),
-                        _ => json!(size_of('x').unwrap_or(1.0) * (bw / lv.w as f64)),
-                    })
-                    .collect()
-            })
-            .collect();
-        let mut translation = J::Null;
-        if units.contains_key(&'x') && units.contains_key(&'y') {
-            if let Some((cx, cy)) = centre {
-                let (sx, sy) = (size_of('x').unwrap_or(1.0), size_of('y').unwrap_or(1.0));
-                corner = Some((cx - bw * sx / 2.0, cy - bh * sy / 2.0));
-            }
-            if let Some((x, y)) = corner {
-                self.rules.check("translation", rules::env([("x", num(x)), ("y", num(y))]))?;
-                translation = J::Array(axes.iter().map(|&a| match a {
-                    'x' => json!(x),
-                    'y' => json!(y),
-                    _ => json!(0),
-                }).collect());
-            }
-        }
-        let name = ome.as_ref().and_then(|o| o.name.clone()).filter(|n| !n.is_empty());
-        let pair = |m: &Vals, t: u16| match m.get(&t) {
-            Some(Loaded::Pairs(p)) => json!([p[0].0, p[0].1]),
-            _ => J::Null,
-        };
-        let m0 = &vals[&i0];
-        let facts = json!({
-            "little": self.le,
-            "bigtiff": self.big,
-            "ifds": self.chain.len(),
-            "bits": bits,
-            "spp": spp,
-            "sample_format": sample_format,
-            "planar": planar,
-            "compression": compression,
-            "predictor": predictor,
-            "photometric": photometric,
-            "eer": eer.map(|(skip, horz, vert)| json!({"skipbits": skip, "horzbits": horz, "vertbits": vert})),
-            "sizes": {"t": size_t, "c": size_c, "z": size_z},
-            "plane_c": plane_c,
-            "ome": ome.as_ref().map(|o| json!({
-                "name": o.name,
-                "pixels": o.pixels.iter().map(|(k, v)| (k.clone(), J::String(v.clone()))).collect::<serde_json::Map<_, _>>(),
-                "plane": o.plane.as_ref().map(|p| p.iter().map(|(k, v)| (k.clone(), J::String(v.clone()))).collect::<serde_json::Map<_, _>>()),
-                "channels": o.channels.iter().map(|c| json!({"name": get(c, "Name"), "color": get(c, "Color")})).collect::<Vec<_>>(),
-            })).or(mm.as_ref().map(|m| json!({
-                "channels": m.summary["ChNames"].as_array().into_iter().flatten().take(MAX_OMERO as usize).map(|n| json!({"name": n})).collect::<Vec<_>>(),
-            }))),
-            "micromanager": mm.as_ref().map(|m| &m.summary),
-            "imagej": imagej.as_ref().map(|ij| json!({"images": ij.images, "frames": ij.sizes.0, "channels": ij.sizes.1, "slices": ij.sizes.2, "one_ifd": ij.plane_bytes.is_some()})),
-            "interpretation": first_int(m0, 262),
-            "axes": axes.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
-            "units": units.iter().map(|(a, u)| (a.to_string(), J::String(u.clone()))).collect::<serde_json::Map<_, _>>(),
-            "scales": scales,
-            "translation": translation,
-            "name": name,
-            "resolution_unit": first_int(m0, 296).unwrap_or(0),
-            "x_resolution": pair(m0, 282),
-            "y_resolution": pair(m0, 283),
-        });
-        let _ = &vals;
-        let expected = plan.as_ref().map(|_| Expected {
-            dims: (levels[0].w, levels[0].h, !levels[0].strips, levels[0].tw, levels[0].th),
-            format: f0,
-        });
-        let mut facts = facts;
-        if plan.is_some() && matches!(self.set.role, Role::Named(_)) {
-            facts["plan"] = json!(plan.as_ref().unwrap().iter().map(|p| p.map(|(f, i)| [f, i])).collect::<Vec<_>>());
-        }
-        let planes = if plan.is_some() { None } else { ome.as_ref().map(|_| planes.clone()) };
-        Ok(Layout { facts, prefixes, levels, planes, plan, expected, imagej })
-    }
 }
 
 // ---- the strips and tiles, the planes, and the IFDs other pointer tags lead to
 
 impl Tiff {
-    /// An IFD's JPEG prefix by its own tags (for an IFD no level uses).
+    /// An IFD's JPEG prefix by its own tags (spec/zarrify/tiff.md §7.3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#73-chunks>).
     fn own_prefix(&self, k: usize) -> Vec<u8> {
         if self.ndpi {
             return Vec::new(); // an NDPI strip is a whole JPEG stream
@@ -2948,10 +2196,7 @@ impl Tiff {
                     }
                 }
             }
-            let prefix = match self.layout.as_ref().and_then(|l| l.prefixes.get(&k)) {
-                Some(p) => p.clone(),
-                None => self.own_prefix(k),
-            };
+            let prefix = self.own_prefix(k);
             let one = |t: u16| f.field(t).filter(|e| unsigned(e.typ)).and_then(|e| self.ints(e, true)).and_then(|v| v.first().copied());
             // the strips' tables of an IFD with a tile's size and no tiles element list its tiles,
             // as its description takes them (`tiff/stored.rs`; an NDPI image is tiled by its own
@@ -3030,7 +2275,6 @@ impl Tiff {
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#51-elements>): `imagej/planes/<p>`
         // names each plane's IFD; in one IFD, plane `p ≥ 1` is a struct whose strips are IFD 0's
         // shifted by `p × plane_bytes`, and the level's chunks are those structs' members
-        let mut imagej_planes: Option<(Vec<Option<u32>>, Vec<Option<u32>>)> = None;
         if let Some(ij) = self.layout.as_ref().and_then(|l| l.imagej.clone()) {
             let i0 = self.chain[0];
             let root = self.ir.struct_(0, "imagej", NO_INDEX, 0, None)?;
@@ -3042,11 +2286,8 @@ impl Tiff {
                 }
                 Some(bytes) => {
                     self.ir.alias(root, "planes/", 0, self.ifds[i0].el)?;
-                    let s0 = tiles_of.get(&i0).and_then(|t| t.1).ok_or("internal: an ImageJ stack whose IFD 0 has no strips")?;
+                    tiles_of.get(&i0).and_then(|t| t.1).ok_or("internal: an ImageJ stack whose IFD 0 has no strips")?;
                     let strips = std::mem::take(&mut self.strips0);
-                    // each plane's strips' struct, and the element that declares its image: IFD 0,
-                    // or the plane's own struct
-                    let mut structs: Vec<(Option<u32>, Option<u32>)> = vec![(Some(s0), Some(self.ifds[i0].el))];
                     for p in 1..ij.images {
                         let plane = self.ir.struct_(root, "planes/", p, 0, None)?;
                         let s = self.ir.struct_(plane, "strips", NO_INDEX, 0, None)?;
@@ -3055,66 +2296,9 @@ impl Tiff {
                             data.push(self.ir.data(s, "", *j, 0, (o + p * bytes, *n), form)?);
                         }
                         self.imagej_planes.push((plane, data));
-                        structs.push((Some(s), Some(plane)));
-                    }
-                    // the level's planes in (t, c, z) order
-                    let (frames, channels, slices) = ij.sizes;
-                    let mut planes = Vec::new();
-                    for t in 0..frames {
-                        for c in 0..channels {
-                            for z in 0..slices {
-                                planes.push(structs[((t * slices + z) * channels + c) as usize]);
-                            }
-                        }
-                    }
-                    imagej_planes = Some(planes.into_iter().unzip());
-                }
-            }
-        }
-        let lay = self.layout.as_mut().unwrap();
-        if self.ndpi {
-            // derive_ndpi wrote the levels; a tiled JPEG XR level's chunks are its IFD's tiles
-            for lv in lay.facts["levels"].as_array_mut().into_iter().flatten() {
-                // `declared_by`: each plane's IFD, the key of its stored array's description
-                let ifds = lv.as_object_mut().and_then(|o| o.remove("ifds")).unwrap_or_default();
-                let keys: Vec<J> = ifds.as_array().into_iter().flatten().map(|k| json!(k.as_u64().map(|k| self.ifds[k as usize].el))).collect();
-                lv["declared_by"] = J::Array(keys);
-                for plane in lv["planes"].as_array_mut().into_iter().flatten() {
-                    if let Some(k) = plane["tiles_ifd"].as_u64() {
-                        plane["tiles"] = json!(tiles_of.get(&(k as usize)).and_then(|t| t.0));
+                        self.imagej_strips.push(s);
                     }
                 }
-            }
-            return Ok(());
-        }
-        let (plan, chain, ifds) = (lay.plan.as_ref(), &self.chain, &self.ifds);
-        let levels: Vec<J> = lay
-            .levels
-            .iter()
-            .map(|lv| {
-                // a level's chunks are its IFDs' tiles, or strips
-                let of = |k: &usize| tiles_of.get(k).copied().and_then(|units| units_element(units, lv.strips));
-                let (planes, declared_by) = match (plan, &imagej_planes) {
-                    (Some(p), _) => (
-                        p.iter().map(|x| x.filter(|x| x.0 == 0).and_then(|x| of(&chain[x.1]))).collect::<Vec<_>>(),
-                        p.iter().map(|x| x.filter(|x| x.0 == 0).map(|x| ifds[chain[x.1]].el)).collect::<Vec<_>>(),
-                    ),
-                    // a stack in one IFD: IFD 0 declares plane 0's image, and each plane after it
-                    // its own `imagej/planes/<p>`
-                    (None, Some((planes, keys))) => (planes.clone(), keys.clone()),
-                    (None, None) => (lv.ifds.iter().map(of).collect::<Vec<_>>(), lv.ifds.iter().map(|&k| Some(ifds[k].el)).collect::<Vec<_>>()),
-                };
-                // `declared_by`: each plane's IFD (or `imagej/planes/<p>`), the key of its stored array's description
-                json!({"w": lv.w, "h": lv.h, "tw": lv.tw, "th": lv.th, "strips": lv.strips, "join": lv.join, "shard": lv.shard, "rectilinear": lv.rectilinear, "pad": lv.pad,
-                       "planes": planes, "declared_by": declared_by})
-            })
-            .collect();
-        lay.facts["levels"] = J::Array(levels);
-        if let Some(planes) = lay.planes.clone() {
-            let o = self.ir.struct_(0, "ome", NO_INDEX, 0, None)?;
-            for (p, k) in planes.iter().enumerate() {
-                let el = self.ifds[*k].el;
-                self.ir.alias(o, "planes/", p as u64, el)?;
             }
         }
         Ok(())
@@ -3263,9 +2447,10 @@ impl Tiff {
     }
 
     /// The finished IR, with the images its IFDs declare described (`stored.rs`), and the facts.
-    pub fn finish(mut self) -> Result<(Ir, J), String> {
+    pub fn finish(self) -> Result<(Ir, J), String> {
         let described = if self.phase == Phase::Done { Some(self.described()?) } else { None };
-        let mut facts = self.layout.take().map(|l| l.facts).unwrap_or(J::Null);
+        // what the parser returns beside the IR is its description of the file
+        let mut facts = self.finished_description();
         self.asked.put(&mut facts);
         let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, facts)?;
         if let Some((arrays, chains, map)) = described {
@@ -3379,17 +2564,6 @@ impl Tiff {
             out.insert(tag, v);
         }
         Ok(out)
-    }
-
-    /// A tag's first value, or the `required` role's rejection naming it.
-    fn nreq(&self, m: &NVals, tag: u16, what: &str) -> Res<f64> {
-        match m.get(&tag).and_then(|v| v.first()) {
-            Some(x) => Ok(x),
-            None => {
-                self.rules.check("required", rules::env([("what", text(what)), ("present", flag(false))]))?;
-                Ok(0.0)
-            }
-        }
     }
 
     fn nint(m: &NVals, tag: u16) -> Option<u64> {
@@ -3552,429 +2726,6 @@ impl Tiff {
         x
     }
 
-    /// The NDPI layout: levels, chunk grids, scales and translation, as facts for
-    /// `project/ndpi.rs`. Asks for the values and strip headers not read yet.
-    fn derive_ndpi(&self) -> Got<Layout> {
-        // The bytes first, each kind in one batch, with no check: every main-chain IFD's
-        // Magnification, the tags of those it makes levels, and their strips' headers (a JPEG
-        // XR level's first stream's). Then the checks, in the profile's order (an IFD's
-        // Magnification, then, for a level, its tags and the level's checks; then, level by
-        // level, its strip or tiles, McuStarts, header and chunks), so that a file with several
-        // faults is rejected for the one the profile meets first.
-        let mut need = Vec::new();
-        let mut mags = Vec::new();
-        for &k in &self.chain {
-            mags.push(self.nload(k, Some(&[65421]), &mut need, false)?);
-        }
-        if !need.is_empty() {
-            return Err(Stop::Need(need));
-        }
-        let positive = |j: usize| mags[j].get(&65421).and_then(|v| v.first()).is_some_and(|m| m > 0.0);
-        for (j, &k) in self.chain.iter().enumerate() {
-            if positive(j) {
-                self.nload(k, None, &mut need, false)?;
-            }
-        }
-        if !need.is_empty() {
-            return Err(Stop::Need(need));
-        }
-        // McuStarts with McuStartsHighBytes (spec/zarrify/ndpi.md §7
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)
-        let starts_of = |k: usize, m: &NVals| -> Option<McuStarts> {
-            let starts = m.get(&65426).and_then(|v| v.ints())?.to_vec();
-            Some(self.mcu_starts(k, starts, m.get(&65432).and_then(|v| v.ints())))
-        };
-        let tiled_of = |k: usize, m: &NVals| {
-            let f = &self.ifds[k];
-            [322u16, 323].iter().all(|&t| Self::nint(m, t).is_some_and(|v| v >= 1)) && f.has(324) && f.has(325)
-        };
-        // focal offsets are read only when a Magnification has more than one image
-        // (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>)
-        let mut seen = HashSet::new();
-        let repeated = (0..self.chain.len())
-            .filter(|&j| positive(j))
-            .filter_map(|j| mags[j].get(&65421).and_then(|v| v.first()))
-            .any(|m| !seen.insert(m.to_bits()));
-        let mut first_level = true;
-        for (j, &k) in self.chain.iter().enumerate() {
-            if !positive(j) {
-                continue;
-            }
-            let m = self.nload(k, None, &mut need, false)?;
-            if first_level {
-                // the first image's acquisition tags, when out of line and not read yet
-                self.ndpi_acquisition(k, &mut need);
-                first_level = false;
-            }
-            if repeated {
-                self.ndpi_focal(k, &mut need);
-            }
-            let (s0, n) = (Self::nint(&m, 273).unwrap_or(0), Self::nint(&m, 279).unwrap_or(0));
-            let fits = (s0 as u128 + n as u128) <= self.size as u128;
-            if Self::nint(&m, 259) == Some(ndpi::JPEGXR) {
-                // a JPEG XR level: its first stream's first bytes, for its header
-                if let Some((o, c)) = self.ndpi_first(k, &m, tiled_of(k, &m)).filter(|&(o, c)| c > 0 && self.within(o, c)) {
-                    if let Err(r) = self.ndpi_stream(o, c) {
-                        need.push(r);
-                    }
-                }
-                continue;
-            }
-            match starts_of(k, &m) {
-                Some(McuStarts { starts, same_length: true, high_word: true, .. }) => {
-                    let first = starts.first().is_some_and(|&f| f >= 2 && f <= n);
-                    if fits && first && !self.heads.contains_key(&(s0, starts[0])) {
-                        need.push((s0, starts[0]));
-                    }
-                }
-                // a strip without McuStarts: its first bytes, for its frame header
-                None if fits && n >= 4 => {
-                    if let Err(r) = self.ndpi_frame(s0, n) {
-                        need.push(r);
-                    }
-                }
-                _ => {}
-            }
-        }
-        if !need.is_empty() {
-            return Err(Stop::Need(need));
-        }
-        // the levels (spec/zarrify/ndpi.md §3
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>)
-        let mut tags: Vec<(usize, NVals)> = Vec::new();
-        let mut levels: Vec<(usize, f64, u64, u64, u64, bool)> = Vec::new(); // the images: (IFD, magnification, w, h, compression, tiled)
-        let mut last_size: Option<(u64, u64)> = None; // of the last new Magnification's first image
-        let mut magnifications = HashSet::new();
-        for (j, &k) in self.chain.iter().enumerate() {
-            self.nload(k, Some(&[65421]), &mut need, true)?; // the profile reads Magnification first
-            let mag = self.nreq(&mags[j], 65421, "Magnification")?;
-            if !(mag > 0.0) {
-                continue;
-            }
-            let m = self.nload(k, None, &mut need, true)?;
-            let w = self.nreq(&m, 256, "ImageWidth")? as u64;
-            let h = self.nreq(&m, 257, "ImageLength")? as u64;
-            let w = Self::nint(&m, 256).unwrap_or(w);
-            let h = Self::nint(&m, 257).unwrap_or(h);
-            let compression = Self::nint(&m, 259).unwrap_or(1);
-            let photometric = if compression == 7 { Some(self.nreq(&m, 262, "PhotometricInterpretation")? as u64) } else { Self::nint(&m, 262) };
-            let bits = m.get(&258).and_then(|v| v.ints()).map(|v| v.to_vec()).unwrap_or_default();
-            let f = &self.ifds[k];
-            let one_strip = [273u16, 279].iter().all(|&t| f.field(t).is_some_and(|e| e.count == 1));
-            let tiled = tiled_of(k, &m);
-            // an image of an earlier Magnification is a plane of that level, not a new level
-            let new_magnification = magnifications.insert(mag.to_bits());
-            let smaller = !new_magnification || last_size.is_none_or(|l| w < l.0 && h < l.1);
-            self.rules.check(
-                "level",
-                rules::env([
-                    ("compression", num(compression as f64)),
-                    ("first_compression", num(levels.first().map_or(compression, |l| l.4) as f64)),
-                    ("photometric", photometric.map(|p| num(p as f64)).unwrap_or(V::Absent)),
-                    ("spp", num(Self::nint(&m, 277).unwrap_or(1) as f64)),
-                    ("bits", V::List(bits.iter().map(|&b| V::Num(b as f64)).collect())),
-                    ("one_strip", flag(one_strip)),
-                    ("tiled", flag(tiled)),
-                    ("smaller", flag(smaller)),
-                    ("width", num(w as f64)),
-                    ("height", num(h as f64)),
-                ]),
-            )?;
-            if new_magnification {
-                last_size = Some((w, h));
-            }
-            levels.push((k, mag, w, h, compression, tiled));
-            tags.push((k, m));
-        }
-        self.rules.check("images", rules::env([("levels", num(levels.len() as f64))]))?;
-        let vals = |k: usize| &tags.iter().find(|t| t.0 == k).unwrap().1;
-        // scale and position (spec/zarrify/ndpi.md §4
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>)
-        let (k0, _, bw, bh, _, _) = levels[0];
-        let m0 = vals(k0);
-        let per_unit = self
-            .rules
-            .table("resolution_units")
-            .get(Self::nint(m0, 296).unwrap_or(0).to_string())
-            .and_then(|x| x.as_f64());
-        let physical = |tag: u16| -> Option<f64> {
-            let pu = per_unit?;
-            let Some(Nv::Rats(r)) = m0.get(&tag) else { return None };
-            let (n, d) = *r.first()?;
-            if n == 0 || d == 0 {
-                return None;
-            }
-            let pixel = pu / (n as f64 / d as f64);
-            (pixel < 25.4).then_some(pixel)
-        };
-        let (px, py) = (physical(282), physical(283));
-        let mut units = serde_json::Map::new();
-        for (a, p) in [("x", px), ("y", py)] {
-            if p.is_some() {
-                units.insert(a.into(), json!("micrometer"));
-            }
-        }
-        // the chunks of each level; the header's pieces are data sources, numbered by first use
-        let mut pieces: Vec<Vec<u8>> = Vec::new();
-        // by image: its facts, its grid, and what the focal plane rule reads of it
-        let mut out: Vec<J> = Vec::new();
-        let mut grids: Vec<Option<ndpi::Grid>> = Vec::new();
-        let mut images: Vec<ndpi::Image> = Vec::new();
-        // the pixel format of level 0's first JPEG XR stream (spec/zarrify/ndpi.md §3
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>)
-        let mut format0: Option<[u8; 16]> = None;
-        for (li, &(k, mag, w, h, compression, tiled)) in levels.iter().enumerate() {
-            let m = vals(k);
-            let offset = if repeated { self.ndpi_focal(k, &mut need) } else { None };
-            let image = |cut: ndpi::Cut, framed: bool| ndpi::Image { magnification: mag, width: w, height: h, cut, framed, offset };
-            let (s0, n) = (Self::nint(m, 273).unwrap_or(0), Self::nint(m, 279).unwrap_or(0));
-            if compression == ndpi::JPEGXR {
-                // a JPEG XR level: its tiles, or its strip, each a chunk
-                let (cw, ch) = if tiled {
-                    let (tw, th) = (Self::nint(m, 322).unwrap_or(1), Self::nint(m, 323).unwrap_or(1));
-                    let t = self.ndpi_tiles(k).ok_or_else(|| Stop::Reject("internal: an NDPI level's tile tables were not read".into()))?;
-                    let within = t.offsets.iter().zip(&t.counts).all(|(&o, &c)| c == 0 || self.within(o, c));
-                    self.rules.check(
-                        "tiles",
-                        rules::env([
-                            ("tiles", num(h.div_ceil(th).saturating_mul(w.div_ceil(tw)) as f64)),
-                            ("offsets", num(t.offsets.len() as f64)),
-                            ("counts", num(t.counts.len() as f64)),
-                            ("high", flag(t.matched)),
-                            ("within", flag(within)),
-                        ]),
-                    )?;
-                    (tw, th)
-                } else {
-                    let within = (s0 as u128 + n as u128) <= self.size as u128;
-                    self.rules.check("strip", rules::env([("within", flag(within)), ("length", num(n as f64))]))?;
-                    (w, h)
-                };
-                let first = self.ndpi_first(k, m, tiled).filter(|x| x.1 > 0);
-                let header = match first {
-                    Some((o, c)) => match self.ndpi_stream(o, c) {
-                        Ok(x) => x,
-                        Err(r) => return Err(Stop::Need(vec![r])),
-                    },
-                    None => None,
-                };
-                let format = header.map(|x| x.0);
-                if li == 0 {
-                    format0 = format;
-                }
-                let (fw, fh) = header.map_or((0, 0), |x| (x.1, x.2));
-                self.rules.check(
-                    "jpegxr",
-                    rules::env([
-                        ("stream", flag(first.is_some())),
-                        ("header", flag(header.is_some())),
-                        ("format", text(&format.as_ref().map(ndpi::hex).unwrap_or_default())),
-                        ("supported", flag(format.as_ref().and_then(ndpi::pixel_format).is_some())),
-                        ("same", flag(format.is_some() && format == format0)),
-                        ("width", num(fw as f64)),
-                        ("height", num(fh as f64)),
-                        ("chunk_width", num(cw as f64)),
-                        ("chunk_height", num(ch as f64)),
-                    ]),
-                )?;
-                out.push(json!({
-                    "tw": cw, "th": ch, "strip": s0, "length": n,
-                    "tiles_ifd": if tiled { json!(k) } else { J::Null },
-                }));
-                grids.push(None);
-                images.push(image(ndpi::Cut::Fixed(ch, cw), true));
-                continue;
-            }
-            let within = (s0 as u128 + n as u128) <= self.size as u128;
-            self.rules.check("strip", rules::env([("within", flag(within)), ("length", num(n as f64))]))?;
-            let head = starts_of(k, m);
-            // the projection adds McuStartsHighBytes as the layout does
-            let added = head.as_ref().is_some_and(|x| x.added);
-            if let Some(x) = &head {
-                self.rules.check(
-                    "mcu_starts",
-                    rules::env([
-                        ("same_length", flag(x.same_length)),
-                        ("high_word", flag(x.high_word)),
-                        ("first", x.starts.first().map(|&f| num(f as f64)).unwrap_or(V::Absent)),
-                        ("length", num(n as f64)),
-                    ]),
-                )?;
-            }
-            // a strip without McuStarts whose frame is not the level's size, but has its MCU rows
-            // and columns, is spliced the level's (spec/zarrify/ndpi.md §7
-            // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>); with
-            // others, the level is not a level
-            let mut frame = J::Null;
-            if head.is_none() {
-                let f = match self.ndpi_frame(s0, n) {
-                    Ok(f) => f,
-                    Err(r) => return Err(Stop::Need(vec![r])),
-                };
-                if let Some(f) = f.filter(|f| (f.height, f.width) != (h, w)) {
-                    let covers = f.covers(h, w);
-                    self.rules.check(
-                        "frame",
-                        rules::env([
-                            ("level", num(li as f64)),
-                            ("covers", flag(covers)),
-                            ("frame_height", num(f.height as f64)),
-                            ("frame_width", num(f.width as f64)),
-                            ("height", num(h as f64)),
-                            ("width", num(w as f64)),
-                        ]),
-                    )?;
-                    if !covers {
-                        out.push(J::Null);
-                        grids.push(None);
-                        images.push(image(ndpi::Cut::Fixed(h, w), false));
-                        continue;
-                    }
-                    frame = json!(f.at);
-                }
-            }
-            let grid = match head {
-                None => None,
-                Some(McuStarts { starts, .. }) => {
-                    let Some(hb) = self.heads.get(&(s0, starts[0])).cloned() else {
-                        // a header the batch above did not foresee: ask for it, when it is in the file
-                        if !self.within(s0, starts[0]) {
-                            return Err(Stop::Reject("internal: a strip header outside the file passed the checks".into()));
-                        }
-                        return Err(Stop::Need(vec![(s0, starts[0])]));
-                    };
-                    let hd = ndpi::header(&hb, self.rules)?;
-                    let (before, after) = (ndpi::piece(&mut pieces, &hb[..hd.sof.0]), ndpi::piece(&mut pieces, &hb[hd.sof.1..]));
-                    Some(ndpi::Grid::new(s0, n, w, h, hb, hd, starts, &before, &after, self.rules)?)
-                }
-            };
-            let high = if added { self.ent_facts(k, 65432) } else { J::Null };
-            let cut = grid.as_ref().map_or(ndpi::Cut::Fixed(h, w), |g| ndpi::Cut::Intervals { restart: g.h.restart, mw: g.h.mw, mh: g.h.mh });
-            out.push(json!({"strip": s0, "length": n, "starts": self.ent_facts(k, 65426), "high": high, "grid": J::Null, "frame": frame}));
-            grids.push(grid);
-            images.push(image(cut, true));
-        }
-        // the levels and their planes (spec/zarrify/ndpi.md §3
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>); with images to
-        // choose from, the data sources are numbered again by the first use of those kept, and a
-        // level's planes get one chunk height (§7
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)
-        let chosen = ndpi::levels(&images);
-        if repeated {
-            let mut pieces: Vec<Vec<u8>> = Vec::new();
-            for level in &chosen.levels {
-                let (mut at, mut planes) = (Vec::new(), Vec::new());
-                for &i in level {
-                    if let Some(g) = grids[i].take() {
-                        let (a, b) = g.pieces();
-                        let (before, after) = (ndpi::piece(&mut pieces, a), ndpi::piece(&mut pieces, b));
-                        at.push(i);
-                        planes.push((g, before, after));
-                    }
-                }
-                ndpi::Grid::one_height(&mut planes, self.rules)?;
-                for (i, (g, _, _)) in at.into_iter().zip(planes) {
-                    grids[i] = Some(g);
-                }
-            }
-        }
-        let offsets = chosen.offsets.as_deref().unwrap_or(&[]);
-        let stacked = offsets.len() > 1;
-        // `z`'s scale and position, when its planes are evenly spaced (§4
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>)
-        let step = if stacked { ndpi::even_step(offsets) } else { None };
-        if step.is_some() {
-            units.insert("z".into(), json!("micrometer"));
-        }
-        let (scale_z, start_z) = step.map_or((1.0, 0.0), |s| (s as f64 / 1000.0, offsets[0] as f64 / 1000.0));
-        let mut facts_of_levels = Vec::with_capacity(chosen.levels.len());
-        let mut scales = Vec::with_capacity(chosen.levels.len());
-        for level in &chosen.levels {
-            let (w, h) = (images[level[0]].width, images[level[0]].height);
-            let planes: Vec<J> = level
-                .iter()
-                .map(|&i| {
-                    let mut p = out[i].take();
-                    if let Some(g) = &grids[i] {
-                        p["grid"] = g.facts();
-                    }
-                    p
-                })
-                .collect();
-            // `ifds`: each plane's IFD, which `emit_data` makes `declared_by`
-            let ifds: Vec<usize> = level.iter().map(|&i| levels[i].0).collect();
-            facts_of_levels.push(json!({"w": w, "h": h, "planes": planes, "ifds": ifds}));
-            let (sy, sx) = (py.unwrap_or(1.0) * (bh as f64 / h as f64), px.unwrap_or(1.0) * (bw as f64 / w as f64));
-            scales.push(if stacked { json!([1, scale_z, sy, sx]) } else { json!([1, sy, sx]) });
-        }
-        let mut position = None;
-        if let (Some(sx), Some(sy), Some(ox), Some(oy)) =
-            (px, py, m0.get(&65422).and_then(|v| v.first()), m0.get(&65423).and_then(|v| v.first()))
-        {
-            let (x, y) = (ox / 1000.0 - bw as f64 * sx / 2.0, oy / 1000.0 - bh as f64 * sy / 2.0);
-            self.rules.check("translation", rules::env([("x", num(x)), ("y", num(y))]))?;
-            position = Some((y, x));
-        }
-        let translation = match (stacked, position) {
-            (false, Some((y, x))) => json!([0, y, x]),
-            (true, Some((y, x))) => json!([0, start_z, y, x]),
-            (true, None) if step.is_some() => json!([0, start_z, 0, 0]),
-            _ => J::Null,
-        };
-        // the pixels (spec/zarrify/ndpi.md §3
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>), and level 0's
-        // acquisition tags (§5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#5-source-metadata>)
-        let (data_type, samples, codec) = match format0.as_ref().and_then(ndpi::pixel_format) {
-            Some((t, s)) => (t, s, "imagecodecs_jpegxr"),
-            None => ("uint8", 3, "imagecodecs_jpeg"),
-        };
-        let (mut own, label) = self.ndpi_acquisition(k0, &mut need);
-        if !need.is_empty() {
-            return Err(Stop::Need(need));
-        }
-        // what the source metadata keeps of the focal planes (§5
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#5-source-metadata>)
-        if let Some(o) = &chosen.offsets {
-            own.insert("FocalOffsets".into(), json!(o));
-        }
-        if !chosen.left_out.is_empty() {
-            let entries: Vec<J> = chosen
-                .left_out
-                .iter()
-                .map(|&(i, reason)| {
-                    let im = &images[i];
-                    let mut e = json!({
-                        "ifd": self.chain.iter().position(|&k| k == levels[i].0),
-                        "magnification": crate::project::float_json(im.magnification.to_bits(), 8, im.magnification),
-                        "width": im.width,
-                        "height": im.height,
-                        "reason": reason,
-                    });
-                    if let Some(o) = im.offset {
-                        e["offset"] = json!(o);
-                    }
-                    e
-                })
-                .collect();
-            own.insert("LeftOut".into(), J::Array(entries));
-        }
-        let axes: &[&str] = if stacked { &["c", "z", "y", "x"] } else { &["c", "y", "x"] };
-        let facts = json!({
-            "profile": "ndpi",
-            "ifds": self.chain.len(),
-            "axes": axes,
-            "data_type": data_type,
-            "samples": samples,
-            "codec": codec,
-            "label": label,
-            "own": own,
-            "units": units,
-            "scales": scales,
-            "translation": translation,
-            "levels": facts_of_levels,
-        });
-        Ok(Layout { facts, prefixes: HashMap::new(), levels: Vec::new(), planes: None, plan: None, expected: None, imagej: None })
-    }
 }
 
 // ---- the QPTIFF layout (spec/zarrify/qptiff.md §3
@@ -4072,432 +2823,7 @@ fn qpi_description(x: &str) -> Option<Qpi> {
 }
 
 impl Tiff {
-    /// A QPTIFF level of the IFDs `ks` (one per channel), each checked (the `size`, `samples`,
-    /// `strips` and `level` roles): all the same size, tiling and format, IFD 0's format, and
-    /// smaller than the level before. A level in strips has the chunk width `w` and height
-    /// `min(RowsPerStrip, h)`.
-    fn qlevel(&self, index: usize, ks: &[usize], vals: &HashMap<usize, Vals>, f0: &Fmt, prev: Option<&Level>) -> Got<Level> {
-        let mut first: Option<(u64, u64, bool, u64, u64)> = None;
-        for &k in ks {
-            let m = &vals[&k];
-            self.check_size(k, m)?;
-            let f = self.fmt(k, m)?;
-            self.check_samples(k, m)?;
-            let w = self.req(k, m, 256, None)?;
-            let h = self.req(k, m, 257, None)?;
-            let tiled = self.tiled(k);
-            let (tw, th) = if tiled {
-                (self.req(k, m, 322, None)?, self.req(k, m, 323, None)?)
-            } else {
-                self.check_strips(k, m)?;
-                (w, self.req(k, m, 278, Some(u32::MAX as u64))?.min(h))
-            };
-            let this = (w, h, tiled, tw, th);
-            let same = first.is_none_or(|x| x == this);
-            let smaller = prev.is_none_or(|p| w < p.w && h < p.h);
-            self.rules.check(
-                "level",
-                rules::env([
-                    ("offset", num(self.ifds[k].offset as f64)),
-                    ("level", num(index as f64)),
-                    ("previous", num(index.saturating_sub(1) as f64)),
-                    ("same", flag(same)),
-                    ("format", flag(f == *f0)),
-                    ("smaller", flag(smaller)),
-                ]),
-            )?;
-            first.get_or_insert(this);
-        }
-        let (w, h, tiled, tw, th) = first.ok_or_else(|| Stop::Reject("internal: an empty QPTIFF level".into()))?;
-        Ok(Level { w, h, tw, th, ifds: ks.to_vec(), strips: !tiled, join: 1, shard: 1, rectilinear: false, pad: J::Null })
-    }
 
-    /// Joins the strips of each uncompressed level into chunks of at most 2^20 bytes and 2^10
-    /// strips, as even as whole strips allow (spec/zarrify/tiff.md §4.5
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>). A level stays one strip a chunk
-    /// when two strips do not fit, or when a strip does not hold exactly its rows' bytes, which
-    /// a chunk could not then find by position.
-    fn join_strips(&self, levels: &mut [Level], vals: &HashMap<usize, Vals>, bits: u64, spp: u64, planar: u64, compression: u64) -> Got<()> {
-        if compression != 1 {
-            return Ok(());
-        }
-        let contig = spp > 1 && planar == 1;
-        for lv in levels.iter_mut().filter(|lv| lv.strips) {
-            let row = row_size(lv.w, bits, if contig { spp } else { 1 });
-            let strips = lv.h.div_ceil(lv.th);
-            let most = (MAX_JOINED_BYTES / (lv.th as u128 * row)).min(MAX_JOINED_STRIPS) as u64;
-            if strips < 2 || most < 2 {
-                continue;
-            }
-            let mut whole = true;
-            for &k in &lv.ifds {
-                whole &= strips_hold_their_rows(&self.reqs(k, &vals[&k], 279)?, lv.h, lv.th, row);
-            }
-            if whole {
-                lv.join = strips.div_ceil(strips.div_ceil(most));
-            }
-        }
-        Ok(())
-    }
-
-    /// Pads each level in strips whose last strip is short to the chunk (spec/zarrify/tiff.md §4.5
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>,
-    /// spec/zarrify/qptiff.md §4.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>): with
-    /// zeros when uncompressed, or with a literal tail spliced into the strip's LZW stream, which is
-    /// read for that (asked for, when it was not yet); a level of another compression cannot be
-    /// padded, which the profile's `padding` role decides. Returns whether each level is kept: padded,
-    /// or without a short last strip. Each strip's pad is keyed by its IFD's index in the level and
-    /// the strip's.
-    fn pad_strips(&self, levels: &mut [Level], vals: &HashMap<usize, Vals>, bits: u64, spp: u64, planar: u64, compression: u64) -> Got<Vec<bool>> {
-        let contig = spp > 1 && planar == 1;
-        let samples = if spp > 1 && !contig { spp } else { 1 };
-        // the sizes in bytes, from the file's integers, in u128 (a product that does not fit in u64
-        // saturates, and is then more padding than the `padding` role allows)
-        let row_bytes = |lv: &Level| row_size(lv.w, bits, if contig { spp } else { 1 });
-        let bytes = |x: u128| u64::try_from(x).unwrap_or(u64::MAX);
-        // the bytes of an LZW strip of `n` bytes the scan reads to find where its output reaches
-        // `target` bytes (spec/zarrify/tiff.md §7.1
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#71-reading>): at most
-        // 3 × target + 64, as a stream that puts a Clear code (12 bits at most) before each
-        // literal (9 bits) spends 21 bits on a byte it decodes
-        let read = |n: u64, target: u64| n.min(bytes(3 * target as u128 + 64));
-        let last_strips = |lv: &Level, k: usize, m: &Vals| -> Got<Vec<(usize, u64, u64)>> {
-            let down = lv.h.div_ceil(lv.th);
-            let (offsets, counts) = (self.reqs(k, m, 273)?, self.reqs(k, m, 279)?);
-            Ok((0..samples)
-                .map(|s| {
-                    let j = (s * down + down - 1) as usize;
-                    (j, offsets[j], counts[j])
-                })
-                .collect())
-        };
-        let short_of = |lv: &Level| -> Option<u64> {
-            let rows = lv.chunk_rows();
-            let down = lv.h.div_ceil(rows);
-            let short = lv.h - rows * (down - 1);
-            (lv.strips && down > 1 && short != rows).then_some(short)
-        };
-        let mut need = Vec::new();
-        // the distinct ranges of the strips read for their tails, whose bytes together are at most
-        // the file's (as strips that do not overlap hold)
-        let mut tails: HashSet<(u64, u64)> = HashSet::new();
-        if compression == 5 {
-            for (li, lv) in levels.iter().enumerate() {
-                let Some(short) = short_of(lv) else { continue };
-                // the zeros an LZW tail would hold, and the bytes of a strip read for it, within the
-                // limits before its strips are read
-                let missing = bytes((lv.chunk_rows() - short) as u128 * row_bytes(lv));
-                let target = bytes(short as u128 * row_bytes(lv));
-                let mut most_read = 0;
-                for &k in &lv.ifds {
-                    for (_, _, c) in last_strips(lv, k, &vals[&k])? {
-                        most_read = most_read.max(read(c, target));
-                    }
-                }
-                self.rules.check(
-                    "padding",
-                    rules::env([
-                        ("level", num(li as f64)),
-                        ("compression", num(compression as f64)),
-                        ("kept", flag(true)),
-                        ("zeros", num(missing as f64)),
-                        ("read", num(most_read as f64)),
-                    ]),
-                )?;
-                for &k in &lv.ifds {
-                    for (_, o, c) in last_strips(lv, k, &vals[&k])? {
-                        let r = read(c, target);
-                        if c > 0 && tails.insert((o, r)) && !self.heads.contains_key(&(o, r)) {
-                            need.push((o, r));
-                        }
-                    }
-                }
-            }
-        }
-        let total: u128 = tails.iter().map(|&(_, r)| r as u128).sum();
-        self.rules.check("tails", rules::env([("read", num(total as f64)), ("size", num(self.size as f64))]))?;
-        if !need.is_empty() {
-            return Err(Stop::Need(need));
-        }
-        let mut keep = vec![true; levels.len()];
-        for (li, lv) in levels.iter_mut().enumerate() {
-            let Some(short) = short_of(lv) else { continue };
-            let rows = row_bytes(lv);
-            let missing = bytes((lv.chunk_rows() - short) as u128 * rows);
-            // the most zero bytes a strip of the level is padded with
-            let mut most = missing;
-            match compression {
-                1 => {
-                    // each strip with the zeros its byte count lacks of the chunk's size (none
-                    // when it holds the chunk, as a strip written whole does)
-                    let mut pads = Vec::new();
-                    most = 0;
-                    for (c, &k) in lv.ifds.iter().enumerate() {
-                        for (j, _, n) in last_strips(lv, k, &vals[&k])? {
-                            let z = if lv.join > 1 { missing } else { bytes(lv.th as u128 * rows).saturating_sub(n) };
-                            if n > 0 && z > 0 {
-                                most = most.max(z);
-                                pads.push(json!({"c": c, "k": j, "zeros": z}));
-                            }
-                        }
-                    }
-                    lv.pad = json!({"zeros": pads});
-                }
-                5 => {
-                    let mut pads = Vec::new();
-                    for (c, &k) in lv.ifds.iter().enumerate() {
-                        for (j, o, n) in last_strips(lv, k, &vals[&k])? {
-                            if n == 0 {
-                                continue; // an absent strip: an absent chunk
-                            }
-                            let b = self
-                                .heads
-                                .get(&(o, read(n, bytes(short as u128 * rows))))
-                                .ok_or_else(|| Stop::Reject("internal: a strip the layout asked for was not fed".into()))?;
-                            let (ok, problem, pad) = match lzw::scan(b, bytes(short as u128 * rows)).and_then(|cut| lzw::tail(b, cut, missing)) {
-                                Ok((prefix, tail)) => (true, String::new(), json!({"c": c, "k": j, "prefix": prefix, "tail": tail})),
-                                Err(e) => (false, e, J::Null),
-                            };
-                            self.rules.check(
-                                "strip_tail",
-                                rules::env([
-                                    ("offset", num(self.ifds[k].offset as f64)),
-                                    ("strip", num(j as f64)),
-                                    ("decodes", flag(ok)),
-                                    ("problem", text(&problem)),
-                                ]),
-                            )?;
-                            pads.push(pad);
-                        }
-                    }
-                    lv.pad = json!({"lzw": pads});
-                }
-                _ => {
-                    keep[li] = false; // not padded: no zeros
-                    most = 0;
-                }
-            }
-            self.rules.check(
-                "padding",
-                rules::env([
-                    ("level", num(li as f64)),
-                    ("compression", num(compression as f64)),
-                    ("kept", flag(keep[li])),
-                    ("zeros", num(most as f64)),
-                ]),
-            )?;
-        }
-        Ok(keep)
-    }
-
-    /// The QPTIFF layout: the channels (the FullResolution images at the start of the main
-    /// chain), the levels (the runs of ReducedResolution images), the data type and codecs,
-    /// each IFD's tiles or strips, the pixel size, the position and the channels' names and
-    /// colors, as facts for `project/qptiff.rs`. Asks for the values not read yet.
-    fn derive_qptiff(&self) -> Got<Layout> {
-        self.rules.check("images", rules::env([("ifds", num(self.chain.len() as f64))]))?;
-        // every main-chain IFD's values but its tile and strip tables, and its description, in one batch
-        let loaded = self.load(&self.chain, false, true)?;
-        let mut vals: HashMap<usize, Vals> = self.chain.iter().copied().zip(loaded).collect();
-        let desc = |m: &Vals| -> Option<Qpi> {
-            let Some(Loaded::Bytes(d)) = m.get(&270) else { return None };
-            let raw = d.split(|&c| c == 0).next().unwrap_or(&[]);
-            std::str::from_utf8(raw).ok().and_then(qpi_description)
-        };
-        let kinds: Vec<Option<Qpi>> = self.chain.iter().map(|k| desc(&vals[k])).collect();
-        let is = |q: &Option<Qpi>, t: &str| q.as_ref().is_some_and(|q| q.is(t));
-        let n = kinds.iter().take_while(|q| is(q, "FullResolution")).count();
-        let later = kinds[n..].iter().any(|q| is(q, "FullResolution"));
-        let i0 = self.chain[0];
-        let m0 = vals[&i0].clone(); // kept while the tables are loaded below
-        let m0 = &m0;
-        let f0 = self.fmt(i0, m0)?;
-        let (bits, spp, sample_format, planar, compression, predictor, photometric) = f0;
-        self.rules.check(
-            "baseline",
-            rules::env([
-                ("described", flag(kinds[0].is_some())),
-                ("baseline", flag(n >= 1)),
-                ("channels", num(n as f64)),
-                ("later", flag(later)),
-                ("spp", num(spp as f64)),
-            ]),
-        )?;
-        self.rules.check(
-            "predictor",
-            rules::env([
-                ("compression", num(compression as f64)),
-                ("predictor", num(predictor as f64)),
-                ("sample_format", num(sample_format as f64)),
-            ]),
-        )?;
-        let reduced: Vec<usize> =
-            self.chain.iter().copied().zip(&kinds).filter(|(_, q)| is(q, "ReducedResolution")).map(|(k, _)| k).collect();
-        self.rules.check(
-            "reduced",
-            rules::env([
-                ("channels", num(n as f64)),
-                ("reduced", num(reduced.len() as f64)),
-                ("remainder", num((reduced.len() % n) as f64)),
-            ]),
-        )?;
-        let mut levels = vec![self.qlevel(0, &self.chain[..n], &vals, &f0, None)?];
-        for (i, g) in reduced.chunks(n).enumerate() {
-            let lv = self.qlevel(i + 1, g, &vals, &f0, levels.last())?;
-            levels.push(lv);
-        }
-        // data type and codecs (spec/zarrify/qptiff.md §4.1
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#41-data-types-and-codecs>)
-        let mut env = rules::env([
-            ("bits", num(bits as f64)),
-            ("sample_format", num(sample_format as f64)),
-            ("spp", num(spp as f64)),
-            ("planar", num(planar as f64)),
-            ("compression", num(compression as f64)),
-            ("photometric", photometric.map(|p| num(p as f64)).unwrap_or(V::Absent)),
-        ]);
-        self.rules.check("image", &mut env)?;
-        // the tiles or strips of every IFD of every level: their tables, in one batch
-        let used: Vec<usize> = levels.iter().flat_map(|l| l.ifds.iter().copied()).collect();
-        for (k, m) in used.iter().copied().zip(self.load(&used, true, false)?) {
-            let d = vals.get(&k).and_then(|old| old.get(&270).cloned());
-            let mut m = m;
-            if let Some(d) = d {
-                m.insert(270, d);
-            }
-            vals.insert(k, m);
-        }
-        let contig = spp > 1 && planar == 1;
-        let samples = if spp > 1 && !contig { spp } else { 1 };
-        let jpeg = compression == 7;
-        let mut prefixes = HashMap::new();
-        for lv in &levels {
-            let per: u128 = if lv.strips {
-                lv.h.div_ceil(lv.th) as u128
-            } else {
-                lv.w.div_ceil(lv.tw) as u128 * lv.h.div_ceil(lv.th) as u128
-            };
-            for &k in &lv.ifds {
-                let m = &vals[&k];
-                let (ot, ct) = if lv.strips { (273, 279) } else { self.tile_tables(k) };
-                let offsets = self.reqs(k, m, ot)?;
-                let counts = self.reqs(k, m, ct)?;
-                let (prefix, has_tables, tables_ok) = jpeg_prefix(m, jpeg, spp, photometric);
-                self.rules.check(
-                    "plane",
-                    rules::env([
-                        ("offset", num(self.ifds[k].offset as f64)),
-                        ("jpeg", flag(jpeg)),
-                        ("has_tables", flag(has_tables)),
-                        ("tables_ok", flag(tables_ok)),
-                        ("tiles", num(offsets.len() as f64)),
-                        ("counts", num(counts.len() as f64)),
-                        ("expected", num((samples as u128 * per) as f64)),
-                    ]),
-                )?;
-                if prefixes.contains_key(&k) {
-                    continue;
-                }
-                for (j, (&o, &c)) in offsets.iter().zip(&counts).enumerate() {
-                    if c == 0 {
-                        continue;
-                    }
-                    let within = (o as u128 + c as u128) <= self.size as u128;
-                    self.rules.check(
-                        "tile",
-                        rules::env([
-                            ("k", num(j as f64)),
-                            ("offset", num(self.ifds[k].offset as f64)),
-                            ("within", flag(within)),
-                            ("count", num(c as f64)),
-                            ("jpeg", flag(jpeg)),
-                        ]),
-                    )?;
-                }
-                prefixes.insert(k, prefix);
-            }
-        }
-        let keep = self.pad_strips(&mut levels, &vals, bits, spp, planar, compression)?;
-        let levels: Vec<Level> = levels.into_iter().zip(keep).filter(|(_, k)| *k).map(|(l, _)| l).collect();
-        // pixel size (the TIFF convention's resolution tags) and position (spec/zarrify/qptiff.md §4.3
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#43-arrays>)
-        let per_unit = self
-            .rules
-            .table("resolution_units")
-            .get(first_int(m0, 296).unwrap_or(0).to_string())
-            .and_then(|x| x.as_f64());
-        let rational = |tag: u16| -> Option<(u64, u64)> {
-            let Some(Loaded::Pairs(p)) = m0.get(&tag) else { return None };
-            p.first().copied()
-        };
-        let physical = |tag: u16| -> Option<f64> {
-            let pu = per_unit?;
-            let (a, b) = rational(tag)?;
-            if a == 0 || b == 0 {
-                return None;
-            }
-            let pixel = pu / (a as f64 / b as f64);
-            (pixel < 25.4).then_some(pixel)
-        };
-        let (px, py) = (physical(282), physical(283));
-        let has_c = n > 1 || spp > 1;
-        let axes: Vec<&str> = if has_c { vec!["c", "y", "x"] } else { vec!["y", "x"] };
-        let mut units = serde_json::Map::new();
-        for (a, p) in [("x", px), ("y", py)] {
-            if p.is_some() {
-                units.insert(a.into(), json!("micrometer"));
-            }
-        }
-        let (w0, h0) = (levels[0].w, levels[0].h);
-        let scales: Vec<J> = levels
-            .iter()
-            .map(|lv| {
-                let sy = py.unwrap_or(1.0) * (h0 as f64 / lv.h as f64);
-                let sx = px.unwrap_or(1.0) * (w0 as f64 / lv.w as f64);
-                if has_c { json!([1, sy, sx]) } else { json!([sy, sx]) }
-            })
-            .collect();
-        let mut translation = J::Null;
-        if let (Some(_), Some(_), Some(pu)) = (px, py, per_unit) {
-            let position = |tag: u16| -> Option<f64> {
-                let (a, b) = rational(tag)?;
-                (b != 0).then(|| a as f64 / b as f64 * pu)
-            };
-            if let (Some(x), Some(y)) = (position(286), position(287)) {
-                self.rules.check("translation", rules::env([("x", num(x)), ("y", num(y))]))?;
-                translation = if has_c { json!([0, y, x]) } else { json!([y, x]) };
-            }
-        }
-        let channels: Vec<J> = kinds[..n]
-            .iter()
-            .map(|q| {
-                let q = q.as_ref().expect("a channel is a described FullResolution image");
-                json!({"name": q.name, "color": q.color})
-            })
-            .collect();
-        let name = kinds[0].as_ref().and_then(|q| q.slide_id.clone()).filter(|s| !s.is_empty());
-        let facts = json!({
-            "profile": "qptiff",
-            "little": self.le,
-            "bigtiff": self.big,
-            "ifds": self.chain.len(),
-            "bits": bits,
-            "spp": spp,
-            "sample_format": sample_format,
-            "planar": planar,
-            "compression": compression,
-            "predictor": predictor,
-            "photometric": photometric,
-            "channels": channels,
-            "axes": axes,
-            "units": units,
-            "scales": scales,
-            "translation": translation,
-            "name": name,
-        });
-        Ok(Layout { facts, prefixes, levels, planes: None, plan: None, expected: None, imagej: None })
-    }
 }
 
 impl crate::Parser for Tiff {
@@ -4542,6 +2868,17 @@ impl crate::run::FileProfile for Profile {
     fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
         crate::project::tiff::reads(ir, facts)
     }
+    /// The parser returns a description of the file (spec/zarrify/tiff.md §7.6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#76-the-description>).
+    fn described(&self) -> bool {
+        true
+    }
+    /// A store run of an image across files returns the named file's description with each other
+    /// file's (spec/zarrify/tiff.md §7.6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#76-the-description>).
+    fn store_described(&self) -> bool {
+        true
+    }
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
@@ -4552,6 +2889,7 @@ pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::plan::shard_strips;
 
     #[test]
     fn compressed_strips_shard_within_the_limits() {

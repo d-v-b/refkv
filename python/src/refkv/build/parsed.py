@@ -98,6 +98,7 @@ class Parsed:
         self._mirrored = run.mirrored  # what makes the IR mirror, kept past `close`
         self._fits: _core.Fits | None = getattr(run, "fits", None)  # a FITS file's IR and description
         self._hdf5: _core.Hdf5 | None = getattr(run, "hdf5", None)  # an HDF5 input's IR and description
+        self._image: _core.OmeImage | None = getattr(run, "image", None)  # a TIFF's (or IMS file's) IR and description
         self._netcdf3: _core.Netcdf3 | None = getattr(run, "netcdf3", None)  # a netCDF3 file's IR and description
         self._envi: _core.Envi | None = getattr(run, "envi", None)  # an ENVI raster's description
         self._zarr: _core.Zarr | None = getattr(run, "zarr", None)  # a Zarr store's IR and description
@@ -158,7 +159,16 @@ class Parsed:
           (spec/zarrify/zarr2.md §7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#73-the-description>).
         - Zarr v3, listed or zipped: each candidate's `zarr.json` as parsed, the documents the IR
           holds, and a zip file's objects and counts
-          (spec/zarrify/zarr3.md §7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#76-the-description>)."""
+          (spec/zarrify/zarr3.md §7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#76-the-description>).
+        - TIFF and QPTIFF: the header, the IFD tree with each IFD's tags
+          as the profile reads them, its tiles and strips structs, and the structures the file
+          holds (OME-XML, an ImageJ hyperstack, a Micro-Manager stack, an Aperio description, each
+          IFD's QPI description) and its short last LZW strips' tails; of an image across files,
+          with each other file's
+          (spec/zarrify/tiff.md §7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#76-the-description>).
+        - NDPI: the main chain's IFDs with NDPI's tags, and of each image its tile tables and
+          McuStarts with their high bytes, its focal offset, acquisition tags and stream header
+          (spec/zarrify/ndpi.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#71-the-description>)."""
         return None if self._description is None else json.loads(json.dumps(self._description))
 
     @property

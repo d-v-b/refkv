@@ -11,16 +11,17 @@
         "order": ["t", "y", "x"], "axes": [{"name": "t", "type": "time", "unit": "second"},
         {"name": "y", "type": "space"}, {"name": "x", "type": "space"}], "scale": [0.033, 1, 1]}]}))
 
-refkv's own output of a TIFF (`refkv.build.project`) is already an OME-Zarr 0.5 image, so its
-levels are copied to the same paths and 0.6 metadata written over them, each level's translation
-moved by half its pixel to the pixel's center on the axes refkv places by a corner. An HDF5
-file's images are its conventions' (NWB's, BigDataViewer's), not HDF5's, so the options name
-them: each is copied into time, channel, space order under a group of its own. With the option
-`source` (default true) the output keeps the IR mirror, `refkv_source/`, which an OME-Zarr reader
-skips as a group it does not know.
+refkv's convention writes an OME-Zarr 0.5 image at the root of a TIFF (`refkv.build.ome_image`,
+made from the parser's description through refkv's plan), so its levels are copied to the same
+paths and 0.6 metadata written over them, each level's translation moved by half its pixel to the
+pixel's center on the axes refkv places by a corner. An HDF5 file's images are its conventions'
+(NWB's, BigDataViewer's), not HDF5's, so the options name them: each is copied, from the HDF5
+convention's hierarchy (`refkv.build.hdf5_hierarchy`), into time, channel, space order under a
+group of its own. With the option `source` (default true) the output keeps the IR mirror,
+`refkv_source/` (`refkv.build.mirror`), which an OME-Zarr reader skips as a group it does not
+know.
 
-It asks for refkv's own output because it reads what the IR does not yet describe: the root's
-`ome` metadata, and the arrays it copies.
+It never asks for refkv's own output: the routines give the image, the arrays and the mirror.
 
 Its output has no `check` problems: every array is a `copy`, every document is written by
 `hierarchy.group` or `copy`, and the kept mirror is that of refkv's own output, entry for entry,
@@ -34,7 +35,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
-from refkv.build import Parsed, Projected, Value, Written, project
+from refkv.build import Hdf5Hierarchy, OmeImage, Parsed, Value, Written, hdf5_hierarchy, mirror, ome_image
 from refkv.zarrify import Rejected
 from refkv.zarrify.layouts import MIRROR
 from refkv.zarrify.layouts.hierarchy import copy, group, node_name
@@ -126,28 +127,27 @@ class OmeZarr06:
         """The image's entries, of refkv's own output of the input, after the IR mirror's when it
         is kept: a `Written`, so that the mirror's entries keep the placements they have there."""
         [parsed] = inputs
-        pr = project(parsed)
         out = Written()
         if options["source"]:
-            out |= pr.entries(f"{MIRROR}/")
-        if pr.profile == "hdf5":
-            out |= self._datasets(pr, options.get("images"))
+            out |= mirror(parsed)
+        if parsed.profile == "hdf5":
+            out |= self._datasets(hdf5_hierarchy(parsed), options.get("images"))
             return out
         if "images" in options:
-            raise Rejected(f"images name an HDF5 file's datasets; a {pr.profile} file's image is its own")
-        out |= self._image(pr)
+            raise Rejected(f"images name an HDF5 file's datasets; a {parsed.profile} file's image is its own")
+        out |= self._image(ome_image(parsed), parsed.profile)
         return out
 
-    def _image(self, pr: Projected) -> dict[str, bytes | Value]:
-        """The levels of refkv's own output, copied, under 0.6 metadata. refkv's translation
+    def _image(self, pr: OmeImage, profile: str) -> dict[str, bytes | Value]:
+        """The levels of refkv's convention's image, copied, under 0.6 metadata. refkv's translation
         places a level's upper-left corner in y and x (spec/conventions.md §5
         <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>), and an IMS
         image's in z too, while an NDPI file's z is a plane's own position; 0.6 places a pixel's
         center, so each level moves by half its own pixel on the axes placed by a corner."""
-        ome = pr.document("zarr.json")["attributes"].get("ome")
+        ome = pr.attributes("").get("ome")
         if not isinstance(ome, Mapping) or not ome.get("multiscales"):
-            raise Rejected(f"the root of refkv's own {pr.profile} output holds no OME-Zarr multiscales")
-        cornered = {"y", "x", *({"z"} if pr.profile == "ims" else ())}
+            raise Rejected(f"the root of refkv's own {profile} output holds no OME-Zarr multiscales")
+        cornered = {"y", "x", *({"z"} if profile == "ims" else ())}
         out: dict[str, bytes | Value] = {}
         images = []
         for ms in ome["multiscales"]:
@@ -171,7 +171,7 @@ class OmeZarr06:
         out["zarr.json"] = group({"ome": attrs})
         return out
 
-    def _datasets(self, pr: Projected, images: list[dict[str, Any]] | None) -> dict[str, bytes | Value]:
+    def _datasets(self, pr: Hdf5Hierarchy, images: list[dict[str, Any]] | None) -> dict[str, bytes | Value]:
         """The images the options name, each its array transposed into the image's axis order, at
         `<name>/0`, under a 0.6 group `<name>`."""
         if images is None:
