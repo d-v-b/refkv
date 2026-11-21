@@ -122,18 +122,31 @@ def test_the_description_is_pydicoms_reading(path: Path):
             # native frames end to end: pydicom's unit of them
             _, size, units = im.cut()
             assert (structure["frame_size"], structure["stored"]) == (size, units)
+            assert place.length is not None
+            assert px["end"] == place.value + place.length
+            # the bytes past the frames, but one zero byte that pads the value to an even length
             used = size * units
+            left = place.length - used
+            padding = left == 0 or (left == 1 and data[place.value + used] == 0)
             extra = structure["extra"]
+            assert (extra is None) == padding
             if extra is not None:
-                assert place.length is not None
-                assert (extra["offset"], extra["bytes"]) == (place.value + used, place.length - used)
+                assert (extra["offset"], extra["bytes"]) == (place.value + used, left)
         else:
             buffer = ds.PixelData
             assert structure["offset_table"] == (struct.unpack_from("<I", buffer, 4)[0] > 0)
             theirs = fragments(im)
+            # the sequence's delimiter, (FFFE,E0DD), and Pixel Data's end after it
+            delimiter = structure["delimiter"]
+            assert data[delimiter:delimiter + 4] == b"\xfe\xff\xdd\xe0"
+            assert px["end"] == delimiter + 8
             eot = structure["extended_offset_table"]
             if eot is not None:
                 assert [[s] for s in map(tuple, eot["frames"])] == theirs
+                # whether each frame's item header, (FFFE,E000) and its length, precedes its data
+                item = [data[o - 8:o - 4] == b"\xfe\xff\x00\xe0" and int.from_bytes(data[o - 4:o], "little") == n
+                        for o, n in eot["frames"]]
+                assert eot["headers"] == all(item)
             else:
                 items, bounds = structure["items"], structure["bounds"]
                 assert items[0][0] == place.value
