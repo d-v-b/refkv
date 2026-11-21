@@ -170,7 +170,6 @@ impl NiftiPair {
         ir.describe(arrays, chains, map)?;
         elements["extensions"] = json!(crate::nifti::extensions(&ir, header_file));
         elements["voxels"] = json!(voxels);
-        let h = crate::nifti::header(&self.head, self.version);
         let mut description = crate::nifti::describe(&h, self.version, extender_bytes.as_deref(), (self.vox, self.total), elements, None);
         description["header_key"] = json!(self.keys[0].0);
         description["data_key"] = json!(self.keys[1].0);
