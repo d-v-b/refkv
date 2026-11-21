@@ -38,22 +38,25 @@ fn every_accepted_fixtures_descriptions_are_keyed_by_their_chunks() {
         // the frame chunks the IR holds data of, by their numbers: `frames/<f>` with `pixels` (a
         // frame the loops count) or `data` (one past them)
         let frames_element = by_path("frames");
-        let held = |part: &str| -> std::collections::BTreeSet<u64> {
+        let held = |part: &str, has: bool| -> std::collections::BTreeSet<u64> {
             let mut out = std::collections::BTreeSet::new();
             for &c in ir.children(frames_element) {
-                if ir.children(c).iter().any(|&d| ir.name_of(d) == part) {
+                if ir.nidx[c as usize] != u64::MAX && ir.children(c).iter().any(|&d| ir.name_of(d) == part) == has {
                     let first = ir.nidx[c as usize];
                     out.extend((0..ir.run(c).map_or(1, |r| r.0)).map(|j| first + j));
                 }
             }
             out
         };
-        let (placed, past) = (held("pixels"), held("data"));
+        // past the loops: every frame chunk without pixels, with data or none (no readable head,
+        // no magic, or no data within the file), as each has an array
+        let (placed, past) = (held("pixels", true), held("pixels", false));
+        let with_data = held("data", true);
         let of = |k: usize| (0..s.map.len()).filter(move |&r| s.map.array[r] == k as u32);
         assert!(of(k).all(|r| ir.path(s.map.element[r].unwrap()).ends_with("/pixels")), "{name}");
         let frames: std::collections::BTreeSet<u64> = of(k).map(|r| s.map.coords_of(r)[0]).collect();
         assert_eq!(frames, placed, "{name}");
-        assert!(placed.iter().all(|&f| f < counted) && past.iter().all(|&f| f >= counted), "{name}");
+        assert!(placed.iter().all(|&f| f < counted) && with_data.iter().all(|&f| f >= counted), "{name}");
         rows += of(k).count();
         let beyond: Vec<usize> = (0..s.arrays.len()).filter(|&k| s.arrays[k].element == frames_element).collect();
         let indexes: Vec<Option<u64>> = beyond.iter().map(|&k| s.arrays[k].index).collect();
