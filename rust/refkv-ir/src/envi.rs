@@ -366,7 +366,8 @@ impl Envi {
     }
 
     /// The IR (spec/zarrify/envi.md §5.3
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#53-elements>) and the facts.
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#53-elements>) and the
+    /// description (§8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#87-the-description>).
     fn emit(&mut self) -> Res<J> {
         let h = self.header.clone().ok_or("internal: no header")?;
         let f = self.fields.clone().ok_or("internal: no fields")?;
@@ -417,17 +418,17 @@ impl Envi {
         let (arrays, chains, map) = stored::described(&reached)?;
         ir.describe(arrays, chains, map)?;
         self.ir = Some(ir);
+        let file = |k: usize| json!({"key": self.keys[k].0, "size": self.keys[k].1});
         Ok(json!({
-            "header_key": self.keys[0].0,
-            "data_key": self.keys[self.data].0,
-            "own": own(&h, &f, &self.keys[self.data].0),
-            "array": {
-                // `declared_by`: the header file's object, the key of the array's description
-                "declared_by": self.elems[0],
-                "data_type": f.data_type, "item": f.item, "endian": if f.big { "big" } else { "little" },
-                "interleave": f.interleave, "samples": f.samples, "lines": f.lines, "bands": f.bands,
-                "offset": f.offset, "gzip": f.gzip, "start": start, "length": length,
-            },
+            "header_file": file(0),
+            "data_file": file(self.data),
+            "fields": J::Object(h.fields.iter().map(|(k, v)| (k.clone(), text_json(v))).collect()),
+            "comments": J::Array(h.comments.iter().map(|c| text_json(c)).collect()),
+            "samples": f.samples, "lines": f.lines, "bands": f.bands,
+            "interleave": f.interleave, "data_type": f.code, "byte_order": u8::from(f.big),
+            "header_offset": f.offset, "file_compression": u8::from(f.gzip),
+            "data_range": [start, length],
+            "elements": {"header": self.elems[0], "data": data},
             "counts": {"batches": self.batches},
         }))
     }
@@ -489,22 +490,6 @@ impl Envi {
     }
 }
 
-/// The root's source metadata (spec/zarrify/envi.md §5.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#51-the-root>).
-fn own(h: &Header, f: &Fields, data_file: &str) -> J {
-    let mut m = Map::new();
-    m.insert("fields".into(), J::Object(h.fields.iter().map(|(k, v)| (k.clone(), text_json(v))).collect()));
-    m.insert("comments".into(), J::Array(h.comments.iter().map(|c| text_json(c)).collect()));
-    m.insert("data_type".into(), json!(f.data_type));
-    m.insert("interleave".into(), json!(f.interleave));
-    if f.item > 1 {
-        m.insert("byte_order".into(), json!(if f.big { "big" } else { "little" }));
-    }
-    m.insert("compression".into(), json!(if f.gzip { "gzip" } else { "none" }));
-    m.insert("data_file".into(), json!(data_file));
-    J::Object(m)
-}
-
 impl StoreParser for Envi {
     fn step(&mut self) -> Res<StoreStep> {
         self.advance()
@@ -561,6 +546,11 @@ impl crate::run::FileProfile for Profile {
     }
     fn project(&self, _: &Ir, _: &J, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
         Err("an ENVI input is zarrified as a store run".into())
+    }
+    /// The store run's parser returns a description of the raster (spec/zarrify/envi.md §8.7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#87-the-description>).
+    fn described(&self) -> bool {
+        true
     }
 }
 

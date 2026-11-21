@@ -95,6 +95,23 @@ impl StoreFormat {
     pub fn profile(self) -> &'static str {
         self.name()
     }
+
+    /// The profile's description of the input (the design of d-v-b/refkv#278, "The
+    /// description"), from what the run's parser returned beside the IR, `facts`, without the
+    /// run's own counts; None for a store format whose facts its document does not specify as a
+    /// description yet. ENVI's is (spec/zarrify/envi.md §8.7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#87-the-description>); an
+    /// HDF5 store's facts hold each file's description, in a form no document specifies yet.
+    pub fn description(self, facts: &J) -> Option<J> {
+        if self != StoreFormat::Envi {
+            return None;
+        }
+        let mut description = facts.clone();
+        if let Some(m) = description.as_object_mut() {
+            m.remove("counts");
+        }
+        Some(description)
+    }
 }
 
 /// One request: object `object` (its key `key`), the spans (start, end) to read of it.

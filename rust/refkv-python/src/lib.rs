@@ -980,6 +980,12 @@ impl PyStoreRun {
         }
         Ok(PyHdf5 { ir: Arc::clone(ir), facts: Arc::clone(facts), store: true })
     }
+    /// The profile's description of the input (JSON), of a run `parse` finished; None for a store
+    /// format whose run returns none yet (`StoreFormat::description`).
+    fn description(&mut self) -> PyResult<Option<String>> {
+        let (format, _, facts, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        Ok(format.description(facts).map(|d| d.to_string()))
+    }
     /// What makes the mirror of a run `parse` finished (`Mirror`): its IR and facts, shared
     /// with the run.
     fn mirror(&mut self) -> PyResult<PyMirror> {

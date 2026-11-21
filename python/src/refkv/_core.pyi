@@ -323,6 +323,9 @@ class StoreRun:
     def parse(self) -> Ir:
         """Finishes without an output: the IR, which the run keeps with its facts and counts, so
         that `project(...)` gives the built-in output of it, as often as the host likes."""
+    def description(self) -> str | None:
+        """The profile's description of the input (JSON), of a run `parse` finished; None for a
+        store format whose run returns none yet (ENVI's does)."""
     def mirror(self) -> Mirror:
         """What makes the mirror of a run `parse` finished: its IR and facts, shared with the
         run."""
