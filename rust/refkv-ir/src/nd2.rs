@@ -998,6 +998,13 @@ impl Nd2 {
                 })
                 .collect(),
         );
+        // the description's chunks: those the IR holds decoded for the source metadata
+        facts["description"]["chunks"] = serde_json::Value::Array(
+            self.decoded
+                .iter()
+                .map(|&(k, e, spent)| serde_json::json!({"name": crate::text::text_json(&self.chunks[k].0), "element": e, "records": spent}))
+                .collect(),
+        );
         facts["requests"] = serde_json::json!(self.requests);
         facts["requested"] = serde_json::json!(self.requested);
         Ok((self.ir, facts))
@@ -1060,5 +1067,10 @@ impl crate::run::FileProfile for Profile {
     }
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::nd2::project(ir, facts, url)
+    }
+    /// The parser's description of the file, beside its projection's facts
+    /// (spec/zarrify/nd2.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#75-the-description>).
+    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
+        facts.get("description").cloned()
     }
 }
