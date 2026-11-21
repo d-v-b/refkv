@@ -320,9 +320,12 @@ class StoreParse:
         self.hdf5: _core.Hdf5 | None = run.hdf5() if fmt == "hdf5" else None
         # a Zarr v2 or v3 store's IR and description, for the Zarr convention's routine
         self.zarr: _core.Zarr | None = run.zarr() if fmt in ("zarr2", "zarr3") else None
-        # the format's description of the store, where its parser returns one (Zarr v2's and v3's)
-        described = run.description()
-        self.description: dict[str, Any] | None = None if described is None else json.loads(described)
+        # an ENVI raster's description, for the ENVI convention's routine
+        self.envi: _core.Envi | None = run.envi() if fmt == "envi" else None
+        # the profile's description of the input, where its store run returns one (ENVI's, Zarr
+        # v2's and Zarr v3's)
+        text = run.description()
+        self.description: dict[str, Any] | None = None if text is None else json.loads(text)
         # the objects' sizes, from the IR: the listing's, and a VSI input's files probed into it
         self.sizes: dict[str, int] = {k: n for k, _, n in self.ir.object_bases()}
 

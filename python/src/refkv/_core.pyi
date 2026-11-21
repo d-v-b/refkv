@@ -326,6 +326,12 @@ class StoreRun:
     def parse(self) -> Ir:
         """Finishes without an output: the IR, which the run keeps with its facts and counts, so
         that `project(...)` gives the built-in output of it, as often as the host likes."""
+    def description(self) -> str | None:
+        """The profile's description of the input (JSON), of a run `parse` finished; None for a
+        store format whose run returns none yet (ENVI's, Zarr v2's and Zarr v3's do)."""
+    def envi(self) -> Envi:
+        """The ENVI raster a run `parse` finished read, its description shared with the run;
+        ValueError for a run of a store of another format."""
     def mirror(self) -> Mirror:
         """What makes the mirror of a run `parse` finished: its IR and facts, shared with the
         run."""
@@ -335,9 +341,6 @@ class StoreRun:
     def zarr(self) -> Zarr:
         """The Zarr v2 or v3 store a run `parse` finished read, its IR and description shared with
         the run; ValueError for a run of a store of another format."""
-    def description(self) -> str | None:
-        """The format's description of the store (JSON), of a run `parse` finished; None for a
-        format whose parser returns none yet."""
     def project(self, url: str, mirror: bool = True, checksums: bool = False) -> Out[StorePart]:
         """`output`, of a run `parse` finished: the output alone."""
 
@@ -452,6 +455,15 @@ class Hdf5:
         length, padding)` of the file; or Rejected."""
     def named_key(self) -> str | None:
         """The key of the file a store run was named by; None for a file run."""
+
+class Envi:
+    """An ENVI raster a store run parsed (`StoreRun.envi()`): its description, shared with the run
+    and never changed."""
+
+    def image(self) -> tuple[str, str, list[tuple[list[int], int, int]], str, str]:
+        """The ENVI convention's image: the root's source metadata (JSON), the array's document
+        (JSON, with no attributes), its chunks, each `(coords, offset, length)` of the data file,
+        and the header and data files' keys."""
 
 def gzip_frame(crc32: int, size: int) -> tuple[bytes, bytes]:
     """What frames a raw deflate stream as a gzip member, as the built-in projections write one:

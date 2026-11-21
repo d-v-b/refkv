@@ -6,8 +6,9 @@ attributes it expects. Its chunk references, chunk grids and codecs are those of
 and it writes none of refkv's declarations and no `refkv_source` mirror. A FITS file's are made from
 the parser's description and the IR with the FITS convention's routines (`refkv.build.fits_arrays`
 and `fits_cards`), an HDF5 input's from the parser's description with the HDF5 convention's
-routine (`refkv.build.hdf5_hierarchy`), and a Zarr v2 or v3 store's, listed or zipped, with the Zarr
-convention's routine (`refkv.build.zarr_hierarchy`), with no output of refkv's: for those the
+routine (`refkv.build.hdf5_hierarchy`), an ENVI raster's from the parser's description with the
+ENVI convention's routine (`refkv.build.envi_image`), and a Zarr v2 or v3 store's, listed or zipped,
+with the Zarr convention's routine (`refkv.build.zarr_hierarchy`), with no output of refkv's: for those the
 layout is that output's peer. Every other format's are still read from refkv's own output
 (`refkv.build.project`), until its parser returns a description too.
 It writes its documents with `dump`, so it runs without the `layouts` extra.
@@ -52,10 +53,11 @@ The reference is VirtualiZarr 2.8.0 (`virtualizarr/parsers/hdf/hdf.py`, `parsers
   attributes it presents with a float attribute's values as numbers, and a variable's fill value
   its `_FillValue` in its data type, else zarr-python's default, 0.
 - **ENVI** (`ENVIParser`): one array, named by the data file's name without its extension, in the
-  file's own axis order (refkv's transpose codec's order) with no transpose, its axes `band`, `y`
-  and `x` in that order, its chunks those of refkv's own output at the keys of that order, and fill
-  value 0. Its attributes are the header fields `ENVIParser` carries through (`description`,
-  `wavelength`, `map info`, ...), each named with `_` for its spaces, a braced value a list of its
+  file's own axis order (the ENVI convention's transpose codec's order) with no transpose, its axes
+  `band`, `y` and `x` in that order, its chunks the convention's (`refkv.build.envi_image`, made
+  from the parser's description: no output of refkv's) at the keys of that order, and fill value 0.
+  Its attributes are the header fields `ENVIParser` carries through (`description`, `wavelength`,
+  `map info`, ...), each named with `_` for its spaces, a braced value a list of its
   items as text, and `data ignore value` as its `_FillValue`, encoded as `FillValueCoder` encodes
   it (a complex number as two Base64 binary64s). The root has no attributes.
 
@@ -126,12 +128,14 @@ from typing import Any, ClassVar
 
 from refkv.build import (
     Array,
+    EnviImage,
     Hdf5Hierarchy,
     Parsed,
     Projected,
     Value,
     Written,
     ZarrHierarchy,
+    envi_image,
     filled,
     fits_arrays,
     fits_cards,
@@ -682,13 +686,14 @@ def _envi_fill(raw: object, data_type: str) -> object:
     return number if low <= number <= high else None
 
 
-def _envi(pr: Projected) -> Written:
-    metadata = pr.source_metadata("") or {}
-    fields: Mapping[str, object] = metadata.get("fields", {})
-    data_file = str(metadata.get("data_file", ""))
+def _envi(image: EnviImage) -> Written:
+    """An ENVI raster as ENVIParser presents it, from the ENVI convention's image (`envi_image`): no
+    output of refkv's is made."""
+    fields: Mapping[str, object] = image.source_metadata().get("fields", {})
+    data_file = image.data_key
     stem = data_file.rsplit(".", 1)[0] if "." in data_file.lstrip(".") else data_file
     name = stem if stem and _node_name(stem) else "data"  # ENVIParser's Path(data).stem, else data
-    doc, chunks = pr.array_entries("0")
+    doc = image.document()
     codecs = list(doc["codecs"])
     rank = len(doc["shape"])
     # the file's axis order, outermost first: refkv's transpose codec's order (envi.md §4.1
@@ -717,8 +722,7 @@ def _envi(pr: Projected) -> Written:
     }
     out = Written({"zarr.json": dump({"zarr_format": 3, "node_type": "group", "attributes": {}}),
                    f"{name}/zarr.json": dump(presented)})
-    for key, value in chunks.items():
-        coords = chunk_coords(key, doc)
+    for coords, value in image.chunks().items():
         out[f"{name}/{chunk_key([coords[i] for i in order], presented)}"] = value
     return out
 
@@ -832,13 +836,16 @@ class VirtualiZarr:
     def write(self, inputs: Sequence[Parsed], options: Mapping[str, object]) -> Written:
         """The input as VirtualiZarr's parser of its format presents it: a FITS file's from its
         description, its IR and the FITS convention's routines, an HDF5 input's from the HDF5
-        convention's hierarchy (`hdf5_hierarchy`), a Zarr store's from the Zarr convention's
-        (`zarr_hierarchy`), any other's built on refkv's own output of it."""
+        convention's hierarchy (`hdf5_hierarchy`), an ENVI raster's from the ENVI convention's image
+        (`envi_image`), a Zarr store's from the Zarr convention's hierarchy (`zarr_hierarchy`), any
+        other's built on refkv's own output of it."""
         [parsed] = inputs
         if parsed.profile == "fits":
             return _fits(parsed)
         if parsed.profile == "hdf5":
             return _hdf5(hdf5_hierarchy(parsed), options["nonfinite"] == "token")
+        if parsed.profile == "envi":
+            return _envi(envi_image(parsed))
         if parsed.profile == "zarr2":
             return _zarr2(zarr_hierarchy(parsed), options["nonfinite"] == "token")
         if parsed.profile == "zarr3":
@@ -846,6 +853,4 @@ class VirtualiZarr:
         pr = project(parsed)
         if parsed.profile == "netcdf3":
             return _netcdf3(pr, options["nonfinite"] == "token")
-        if parsed.profile == "envi":
-            return _envi(pr)
         raise ValueError(f"refkv.virtualizarr presents no {parsed.profile} input")
