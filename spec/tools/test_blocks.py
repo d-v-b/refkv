@@ -53,3 +53,9 @@ def test_a_missing_heading_is_an_error():
     tiff["store_run"] = {**tiff["store_run"], "section": "99-nowhere"}
     with pytest.raises(ValueError, match="no heading with the anchor '99-nowhere'"):
         blocks.beside_table(entries, blocks.linker("spec/zarrify.md"))
+
+
+def test_a_block_no_document_marks_is_an_error():
+    texts = profiles.documents()
+    texts["spec/zarrify.md"] = texts["spec/zarrify.md"].replace("<!-- profiles:spec-table -->\n", "")
+    assert blocks.check(texts) == ["no document marks the block 'spec-table'"]

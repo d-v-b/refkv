@@ -10,7 +10,7 @@ each heading the anchor GitHub gives it. As Sphinx reads each document (`read`, 
   registry (spec/zarrify/profiles/<name>.json) and each format's own files (spec/tools/blocks.py),
   so that no list of formats is committed;
 - points a link to a file the site does not render (code, a schema, a directory with no README)
-  at that file on GitHub;
+  at that file on GitHub, and leaves a link to a path that does not exist for MyST to report;
 - adds the navigation (`toctree`): the README lists the guides (docs/*.md), the specification
   (spec/*.md and its bindings) and each entry of the registry's document; a format's document
   lists its user's README and its stored arrays.
@@ -112,7 +112,8 @@ def page(text: str, here: str, docname: str, sources: set[str]) -> str:
         if not blocks.is_relative(target):
             return target
         path, hash_, anchor = blocks.resolve(target, here).partition("#")
-        if path in sources or path.startswith(".."):
+        # a rendered document, or a path that does not exist: as it is, which MyST reports
+        if path in sources or path.startswith("..") or not (ROOT / path).exists():
             return target
         if f"{path}/README.md" in sources:
             return link(f"{path}/README.md{hash_}{anchor}")

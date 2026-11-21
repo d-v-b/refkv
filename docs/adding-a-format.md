@@ -783,7 +783,7 @@ just lint
 just typecheck
 ```
 
-`just preflight` runs the last three together, with `just sections` against `origin/main`; run it before every push.
+`just preflight` runs the last three together, with `just sections` against `origin/main`, and builds the documentation site (`just docs`), which fails on any warning; run it before every push.
 
 ```bash
 just test

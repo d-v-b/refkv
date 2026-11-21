@@ -15,7 +15,8 @@ What the site writes in its place is made, at build time, from the profile regis
 (spec/zarrify/<name>.md), its stored arrays (spec/zarrify/<name>/stored-arrays.md) and its
 user's README (docs/zarrify/<name>/README.md). No list of formats is committed, so adding or
 changing a format edits only that format's files. `check` (and spec/tools/test_blocks.py) renders
-every block of every document, so that a block the site would fail on fails `just sections` too.
+every block of every document, so that a block the site would fail on fails `just sections` too,
+and fails on a renderer whose block no document marks.
 
 Each renderer takes `link`, which gives the relative link from the page being rendered to a path
 of the repository (with an anchor or not): a block renders the same wherever it is placed.
@@ -228,15 +229,20 @@ def rebase(target: str, source: str, link: Link) -> str:
     return link(resolve(target, source)) if is_relative(target) else target
 
 
-def check() -> list[str]:
-    """Each document whose blocks do not render, and why."""
+def check(texts: dict[str, str] | None = None) -> list[str]:
+    """Each document of `texts` (each document's path and Markdown; by default, every document
+    profiles.documents() names) whose blocks do not render, and why, and each renderer whose block
+    no document marks, as a marker that lost its form would leave it."""
     entries = profiles.load()
     out = []
-    for path, text in profiles.documents().items():
+    used: set[str] = set()
+    for path, text in (profiles.documents() if texts is None else texts).items():
+        used |= {m.group(2) for m in BLOCK.finditer(text)}
         try:
             render(text, path, entries)
         except (ValueError, OSError) as e:
             out.append(f"{path}: {e}")
+    out += [f"no document marks the block {name!r}" for name in RENDERERS if name not in used]
     return out
 
 
