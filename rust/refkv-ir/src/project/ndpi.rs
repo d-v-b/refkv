@@ -25,7 +25,8 @@ fn values(ir: &Ir, f: &J) -> Option<Vec<u64>> {
     Some(tag_values(ir, v, typ, f["high"].as_u64().map(|h| h as u32)))
 }
 
-pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    let facts = &crate::tiff::plan::plan("ndpi", description)?;
     let axes = strs(&facts["axes"]);
     let (data_type, samples) = (facts["data_type"].as_str().unwrap_or("uint8"), n(&facts["samples"]));
     let codec = facts["codec"].as_str().unwrap_or("imagecodecs_jpeg");

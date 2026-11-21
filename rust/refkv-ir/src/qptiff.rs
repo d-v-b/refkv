@@ -17,4 +17,9 @@ impl crate::run::FileProfile for Profile {
     fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
         crate::project::qptiff::reads(ir, facts)
     }
+    /// The parser returns a description of the file (spec/zarrify/tiff.md §7.6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#76-the-description>).
+    fn described(&self) -> bool {
+        true
+    }
 }
