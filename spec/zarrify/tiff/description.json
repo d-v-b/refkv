@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/tiff/description.json",
+  "title": "The description of a TIFF or QPTIFF file",
+  "description": "What refkv's TIFF parser found of a TIFF's or QPTIFF's known structures, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#76-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "byte_order": {"enum": ["little", "big"]},
+    "bigtiff": {"type": "boolean"},
+    "size": {"$ref": "#/$defs/uint"},
+    "ifds": {"type": "array", "items": {"$ref": "#/$defs/ifd"}},
+    "chain": {"type": "array", "items": {"$ref": "#/$defs/uint"}},
+    "ome": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/ome"}]},
+    "imagej": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/imagej"}]},
+    "micromanager": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "properties": {
+            "summary": {"type": "object"},
+            "index_map": {"type": "array", "items": {"type": "array", "items": {"$ref": "#/$defs/uint"}, "minItems": 5, "maxItems": 5}}
+          },
+          "required": ["summary", "index_map"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "aperio": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/strings"}]},
+    "lzw_tails": {"type": "array", "items": {"$ref": "#/$defs/lzw_tail"}}
+  },
+  "required": ["byte_order", "bigtiff", "size", "ifds", "chain", "lzw_tails"],
+  "additionalProperties": false,
+  "$defs": {
+    "uint": {"type": "integer", "minimum": 0},
+    "element": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/uint"}]},
+    "strings": {"type": "object", "additionalProperties": {"type": "string"}},
+    "text": {
+      "description": "A text value (https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json)",
+      "oneOf": [{"type": "string"}, {"type": "object", "properties": {"latin1": {"type": "string"}}, "required": ["latin1"], "additionalProperties": false}]
+    },
+    "tag": {
+      "type": "object",
+      "properties": {
+        "type": {"type": "integer", "minimum": 1},
+        "count": {"$ref": "#/$defs/uint"},
+        "value": {
+          "oneOf": [
+            {"type": "array", "items": {"$ref": "#/$defs/uint"}},
+            {"type": "array", "items": {"type": "array", "items": {"$ref": "#/$defs/uint"}, "minItems": 2, "maxItems": 2}},
+            {"$ref": "#/$defs/text"}
+          ]
+        }
+      },
+      "required": ["type", "count", "value"],
+      "additionalProperties": false
+    },
+    "ifd": {
+      "type": "object",
+      "properties": {
+        "offset": {"$ref": "#/$defs/uint"},
+        "element": {"$ref": "#/$defs/uint"},
+        "subifds": {"type": "array", "items": {"$ref": "#/$defs/uint"}},
+        "tags": {"type": "object", "patternProperties": {"^[0-9]+$": {"$ref": "#/$defs/tag"}}, "additionalProperties": false},
+        "tiles": {"$ref": "#/$defs/element"},
+        "strips": {"$ref": "#/$defs/element"},
+        "qpi": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "properties": {
+                "image_type": {"type": ["string", "null"]},
+                "name": {"type": ["string", "null"]},
+                "color": {"type": ["string", "null"]},
+                "slide_id": {"type": ["string", "null"]}
+              },
+              "required": ["image_type", "name", "color", "slide_id"],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": ["offset", "element", "subifds", "tags", "tiles", "strips"],
+      "additionalProperties": false
+    },
+    "ome": {
+      "type": "object",
+      "properties": {
+        "uuid": {"type": ["string", "null"]},
+        "name": {"type": ["string", "null"]},
+        "pixels": {"$ref": "#/$defs/strings"},
+        "tiff_data": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "attributes": {"$ref": "#/$defs/strings"},
+              "file": {"type": ["string", "null"]},
+              "uuid": {"type": ["string", "null"]}
+            },
+            "required": ["attributes", "file", "uuid"],
+            "additionalProperties": false
+          }
+        },
+        "plane": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/strings"}]},
+        "channels": {"type": "array", "items": {"$ref": "#/$defs/strings"}, "maxItems": 64}
+      },
+      "required": ["uuid", "name", "pixels", "tiff_data", "plane", "channels"],
+      "additionalProperties": false
+    },
+    "imagej": {
+      "type": "object",
+      "properties": {
+        "images": {"type": "integer", "minimum": 2},
+        "frames": {"$ref": "#/$defs/uint"},
+        "channels": {"$ref": "#/$defs/uint"},
+        "slices": {"$ref": "#/$defs/uint"},
+        "plane_bytes": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/uint"}]},
+        "planes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "element": {"$ref": "#/$defs/uint"},
+              "strips": {"$ref": "#/$defs/uint"},
+              "data": {"type": "array", "items": {"$ref": "#/$defs/uint"}}
+            },
+            "required": ["element", "strips", "data"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["images", "frames", "channels", "slices", "plane_bytes", "planes"],
+      "additionalProperties": false
+    },
+    "lzw_tail": {
+      "type": "object",
+      "properties": {
+        "ifd": {"$ref": "#/$defs/uint"},
+        "strip": {"$ref": "#/$defs/uint"},
+        "offset": {"$ref": "#/$defs/uint"},
+        "read": {"$ref": "#/$defs/uint"},
+        "prefix": {"$ref": "#/$defs/uint"},
+        "tail": {"type": "string", "contentEncoding": "base64"},
+        "problem": {"type": "string"}
+      },
+      "required": ["ifd", "strip", "offset", "read"],
+      "oneOf": [{"required": ["prefix", "tail"]}, {"required": ["problem"]}],
+      "additionalProperties": false
+    }
+  }
+}

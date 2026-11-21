@@ -57,6 +57,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[path = "tiff/stored.rs"]
 pub(crate) mod stored;
+#[path = "tiff/describe.rs"]
+mod describe;
 
 const TABLE: [u16; 24] = [
     256, 257, 258, 259, 262, 266, 270, 273, 277, 278, 279, 282, 283, 284, 296, 317, 322, 323, 324, 325, 330, 339, 347, 530,
@@ -445,6 +447,8 @@ pub struct Tiff {
     /// of an ImageJ stack in one IFD, each plane after the first: its `imagej/planes/<p>` element,
     /// which keys its description (`stored.rs`), and its strips' data elements in IFD 0's order
     imagej_planes: Vec<(u32, Vec<u32>)>,
+    /// of such a stack, each later plane's `strips` struct, in the planes' order
+    imagej_strips: Vec<u32>,
     /// IFD extents, for pointer targets: start -> end
     extents: BTreeMap<u64, u64>,
     tries: u64,
@@ -472,6 +476,9 @@ pub struct Tiff {
     /// what the layout read of each NDPI image's stream, by IFD, kept past the bytes it was read
     /// from, for the stored arrays (`stored.rs`)
     ndpi_streams: HashMap<usize, stored::ReadStream>,
+    /// the description of the file (`describe`), once the layout has read what it needs; the IR's
+    /// elements it names are added when the parse is done (`finished_description`)
+    description: Option<J>,
 }
 
 /// The bytes of a row of `w` pixels of `samples` samples of `bits` bits each, which a row of packed
@@ -614,6 +621,7 @@ impl Tiff {
             layout: None,
             strips0: Vec::new(),
             imagej_planes: Vec::new(),
+            imagej_strips: Vec::new(),
             extents: BTreeMap::new(),
             tries: 0,
             todo: Vec::new(),
@@ -629,6 +637,7 @@ impl Tiff {
             order_el: 0,
             units: HashMap::new(),
             ndpi_streams: HashMap::new(),
+            description: None,
         }
     }
 
@@ -850,6 +859,22 @@ impl Tiff {
                             return Ok(Step::Beside);
                         }
                         Ok(Some(l)) => {
+                            if self.set.role != Role::Sibling {
+                                match self.describe(l.imagej.as_ref()) {
+                                    Ok(d) => self.description = Some(d),
+                                    Err(Stop::Reject(m)) => return Err(m),
+                                    Err(Stop::Beside(_)) => return Err("internal: the description names siblings".into()),
+                                    Err(Stop::Need(mut r)) => {
+                                        r.sort_unstable();
+                                        r.dedup();
+                                        if r.is_empty() || r.iter().any(|x| self.heads.contains_key(x)) {
+                                            return Err("internal: the description asked again for bytes it has".into());
+                                        }
+                                        self.layout_asked = r.clone();
+                                        return Ok(self.ask(r));
+                                    }
+                                }
+                            }
                             self.layout = Some(l);
                             self.emit_data()?;
                             self.keep_tables();
@@ -2112,6 +2137,11 @@ impl Tiff {
     /// (all of them, or all but its tile tables), and IFD 0's ImageDescription.
     /// Asks for what was not read yet, for every IFD of `ks` at once.
     fn load(&self, ks: &[usize], tiles: bool, description: bool) -> Got<Vec<Vals>> {
+        self.load_as(ks, tiles, description, true)
+    }
+
+    /// `load`, with each integer tag's values checked (the `values` role) when `check`.
+    fn load_as(&self, ks: &[usize], tiles: bool, description: bool, check: bool) -> Got<Vec<Vals>> {
         let mut need = Vec::new();
         let mut out = Vec::new();
         for &k in ks {
@@ -2151,7 +2181,7 @@ impl Tiff {
                                 ("type", int(e.typ as i128)),
                                 ("largest", num(v.iter().copied().max().unwrap_or(0) as f64)),
                             ]);
-                            if need.is_empty() {
+                            if need.is_empty() && check {
                                 self.rules.check("values", &mut env)?;
                             }
                         }
@@ -3055,6 +3085,7 @@ impl Tiff {
                             data.push(self.ir.data(s, "", *j, 0, (o + p * bytes, *n), form)?);
                         }
                         self.imagej_planes.push((plane, data));
+                        self.imagej_strips.push(s);
                         structs.push((Some(s), Some(plane)));
                     }
                     // the level's planes in (t, c, z) order
@@ -3265,7 +3296,11 @@ impl Tiff {
     /// The finished IR, with the images its IFDs declare described (`stored.rs`), and the facts.
     pub fn finish(mut self) -> Result<(Ir, J), String> {
         let described = if self.phase == Phase::Done { Some(self.described()?) } else { None };
+        let description = self.finished_description();
         let mut facts = self.layout.take().map(|l| l.facts).unwrap_or(J::Null);
+        if !description.is_null() {
+            facts["description"] = description;
+        }
         self.asked.put(&mut facts);
         let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, facts)?;
         if let Some((arrays, chains, map)) = described {
@@ -4541,6 +4576,11 @@ impl crate::run::FileProfile for Profile {
     }
     fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
         crate::project::tiff::reads(ir, facts)
+    }
+    /// The parser's description of the file, beside its projection's facts
+    /// (spec/zarrify/tiff.md §7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#76-the-description>).
+    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
+        facts.get("description").cloned()
     }
 }
 

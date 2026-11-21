@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/ndpi/description.json",
+  "title": "The description of an NDPI file",
+  "description": "What refkv's TIFF parser found of an NDPI's known structures, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#71-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "byte_order": {"const": "little"},
+    "bigtiff": {"const": false},
+    "size": {"$ref": "#/$defs/uint"},
+    "ifds": {"type": "array", "items": {"$ref": "#/$defs/ifd"}}
+  },
+  "required": ["byte_order", "bigtiff", "size", "ifds"],
+  "additionalProperties": false,
+  "$defs": {
+    "uint": {"type": "integer", "minimum": 0},
+    "element": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/uint"}]},
+    "entry": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "properties": {"value": {"$ref": "#/$defs/element"}, "type": {"type": "integer"}, "high": {"$ref": "#/$defs/element"}},
+          "required": ["value", "type", "high"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "tag": {
+      "type": "object",
+      "properties": {
+        "type": {"type": "integer", "minimum": 1},
+        "count": {"$ref": "#/$defs/uint"},
+        "value": {"type": "array"}
+      },
+      "required": ["type", "count", "value"],
+      "additionalProperties": false
+    },
+    "ifd": {
+      "type": "object",
+      "properties": {
+        "offset": {"$ref": "#/$defs/uint"},
+        "element": {"$ref": "#/$defs/uint"},
+        "tags": {"type": "object", "patternProperties": {"^[0-9]+$": {"$ref": "#/$defs/tag"}}, "additionalProperties": false},
+        "tiles": {"$ref": "#/$defs/element"},
+        "tile_tables": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "properties": {
+                "offsets": {"type": "array", "items": {"$ref": "#/$defs/uint"}},
+                "byte_counts": {"type": "array", "items": {"$ref": "#/$defs/uint"}},
+                "high_tables_fit": {"type": "boolean"}
+              },
+              "required": ["offsets", "byte_counts", "high_tables_fit"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "mcu_starts": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "properties": {
+                "starts": {"type": "array", "items": {"$ref": "#/$defs/uint"}},
+                "same_length": {"type": "boolean"},
+                "high_word": {"type": "boolean"},
+                "high_added": {"type": "boolean"}
+              },
+              "required": ["starts", "same_length", "high_word", "high_added"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "elements": {
+          "type": "object",
+          "properties": {"mcu_starts": {"$ref": "#/$defs/entry"}, "mcu_starts_high": {"$ref": "#/$defs/entry"}},
+          "required": ["mcu_starts", "mcu_starts_high"],
+          "additionalProperties": false
+        },
+        "focal_offset": {"type": ["integer", "null"]},
+        "acquisition": {"type": "object"},
+        "jpegxr": {
+          "type": "object",
+          "properties": {
+            "first": {"oneOf": [{"type": "null"}, {"type": "array", "items": {"$ref": "#/$defs/uint"}, "minItems": 2, "maxItems": 2}]},
+            "header": {
+              "oneOf": [
+                {"type": "null"},
+                {
+                  "type": "object",
+                  "properties": {"pixel_format": {"type": "string"}, "width": {"$ref": "#/$defs/uint"}, "height": {"$ref": "#/$defs/uint"}},
+                  "required": ["pixel_format", "width", "height"],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": ["first", "header"],
+          "additionalProperties": false
+        },
+        "jpeg_header": {"type": ["string", "null"], "contentEncoding": "base64"},
+        "jpeg_frame": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "properties": {
+                "at": {"$ref": "#/$defs/uint"},
+                "height": {"$ref": "#/$defs/uint"},
+                "width": {"$ref": "#/$defs/uint"},
+                "mcu_width": {"$ref": "#/$defs/uint"},
+                "mcu_height": {"$ref": "#/$defs/uint"}
+              },
+              "required": ["at", "height", "width", "mcu_width", "mcu_height"],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": ["offset", "element", "tags", "tiles"],
+      "additionalProperties": false
+    }
+  }
+}
