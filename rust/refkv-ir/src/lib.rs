@@ -42,6 +42,7 @@ pub mod types;
 pub mod xlef;
 pub mod xml;
 pub mod zip;
+pub mod zarr_stored;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;

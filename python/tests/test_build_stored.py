@@ -3,6 +3,9 @@ stores, built with no output of refkv's (the design of d-v-b/refkv#278: a layout
 the IR). NumPy is the first format whose description a caller reads: its files are presented here
 from their stored arrays and headers, and read back against `numpy.load`."""
 
+import base64
+import math
+import zipfile
 import zlib
 from pathlib import Path
 from typing import Any, cast
@@ -11,9 +14,12 @@ import h5py
 import numpy as np
 import pytest
 import zarr
+import zarr.storage
 
 import refkv.zarr
-from refkv.build import Parsed, Written, read, seal, stored_array, zarr_codecs
+from refkv.build import Array, Parsed, Written, read, seal, stored_array, zarr_codecs
+from refkv.ir.stored import Codec, Each, ElementPlace, Source, StoredArray
+from refkv.ir.stored import Value as ParamValue
 from refkv.zarrify.coding import NoCodec, npy_array_type
 from refkv.zarrify.layouts import dump
 
@@ -165,13 +171,28 @@ def test_stored_array_refuses_a_unit_in_a_member_of_a_run():
 
 
 def test_stored_array_refuses_a_chain_it_has_no_codecs_for():
+    """HDF5's Fletcher-32 checksum, which numcodecs does not frame as HDF5 does."""
     with read(FIXTURES / "hdf5" / "hdf5_filters.h5") as parsed:
         stored = parsed.ir.stored_arrays()
         encoded = [k for k, a in enumerate(stored.arrays)
-                   if a.grid is not None and len(a.chains) == 1 and stored.chains[a.chains[0]]
-                   and a.item_bits and a.item_bits % 8 == 0]
-        with pytest.raises(ValueError, match="no Zarr codecs yet"):
-            stored_array(parsed, encoded[0], "uint8")
+                   if a.grid is not None and [c.name for c in stored.chains[a.chains[0]]] == ["h5_fletcher32"]]
+        with pytest.raises(ValueError, match="no Zarr codec yet for the IR's codec h5_fletcher32"):
+            stored_array(parsed, encoded[0], "uint32")
+
+
+def test_zarr_codecs_refuses_a_source_codec_that_takes_an_array():
+    """A Zarr v2 filter (numcodecs' Delta) takes the array's elements, not bytes: it cannot follow
+    `bytes`."""
+    delta = Codec("source", {"format": ParamValue("zarr2"), "id": ParamValue("delta"),
+                             "parameters": ParamValue({"dtype": "<i4"})})
+    with pytest.raises(ValueError, match="no Zarr codec after bytes for the source codec 'delta' of 'zarr2'"):
+        zarr_codecs([delta])
+
+
+def test_zarr_codecs_refuses_a_shuffle_whose_element_size_lies_in_the_source():
+    shuffle = Codec("shuffle", {"element_size": Source(ElementPlace(3, None, None))})
+    with pytest.raises(ValueError, match="no Zarr codec yet for the IR's codec shuffle"):
+        zarr_codecs([shuffle])
 
 
 def test_a_deflated_members_stream_is_the_bytes_its_elements_are_derived_from():
@@ -362,3 +383,129 @@ def test_a_parsed_hdf5_file_describes_every_object_and_no_decision():
         assert hidden
         assert all(o["kind"] == "dataset" and "storage" in o for o in hidden)
         assert not any("data_type" in o or "codecs" in o for o in description["objects"])
+
+
+ZARR = sorted(p for d in ("zarr2", "zarr3") for p in (FIXTURES / d).iterdir() if "reject" not in p.name)
+
+
+def zarr_node(path: Path, array: StoredArray) -> str:
+    """The node a Zarr store's stored array is keyed by: its document's directory, by the path of
+    the document's object, or, in the zip form, of the document's entry, by the entry's name."""
+    key = cast("str", array.path)
+    if path.suffix == ".zip":
+        with zipfile.ZipFile(path) as z:
+            key = z.infolist()[int(key.removeprefix("entries/"))].filename
+    return key.rpartition("/")[0]
+
+
+def grid_units(a: StoredArray) -> int:
+    """The units of a description's grid: along an `Each` axis as many as cover it, along a listed
+    axis as many as it lists."""
+    grid, shape = cast("Any", a.grid), cast("tuple[int, ...]", a.shape)
+    return math.prod(-(-n // axis.length) if isinstance(axis, Each)
+                     else sum(r[1] if isinstance(r, tuple) else 1 for r in axis.runs)
+                     for axis, n in zip(grid.axes, shape, strict=True))
+
+
+def has_empty_object(path: Path, node: str) -> bool:
+    """Whether a store, listed or zipped, has an object of no bytes below the node."""
+    prefix = f"{node}/" if node else ""
+    if path.suffix == ".zip":
+        with zipfile.ZipFile(path) as z:
+            return any(i.filename.startswith(prefix) and i.file_size == 0 and not i.is_dir() for i in z.infolist())
+    return any(f.is_file() and f.stat().st_size == 0 for f in (path / node).rglob("*"))
+
+
+def numpy_type(t: Any) -> Any:
+    """A Zarr v2 `dtype` as NumPy takes it: a type string, or a structure's fields, each a list."""
+    return t if isinstance(t, str) else [(f[0], numpy_type(f[1]), *f[2:]) for f in t]
+
+
+def stored_type(document: dict[str, Any]) -> np.dtype | None:
+    """The NumPy type of an array's elements as the store holds them, of its document: a Zarr v2
+    `dtype`; a Zarr v3 core data type in the byte order of its `bytes` codec. None for a type
+    of no fixed size."""
+    if "dtype" in document:
+        return None if document["dtype"] == "|O" else np.dtype(numpy_type(document["dtype"]))
+    if not isinstance(document["data_type"], str) or document["data_type"] == "string":
+        return None
+    serializer = next(c for c in document["codecs"] if c["name"] != "transpose")
+    if serializer["name"] == "sharding_indexed":
+        serializer = next(c for c in serializer["configuration"]["codecs"] if c["name"] != "transpose")
+    endian = serializer.get("configuration", {}).get("endian")
+    return np.dtype(document["data_type"]).newbyteorder(">" if endian == "big" else "<" if endian == "little" else "=")
+
+
+def test_zarr_stores_read_from_their_stored_arrays_as_zarr_python_reads_them(monkeypatch):
+    """Every accepted Zarr v2 and v3 fixture, listed and zipped: each stored array of an element
+    of whole bytes whose codecs Zarr can follow with `bytes`, written with `stored_array` as raw
+    bytes of the element's size (the description names no data type) and with the description's
+    fill value, reads back, byte for byte, what zarr-python reads of the store's own array in the
+    type the store holds, chunks it leaves out included. The description's fill value is the bytes
+    of zarr-python's. refkv's own output is never made."""
+    async def no_output(_self):
+        raise AssertionError("refkv's own output was built")
+
+    monkeypatch.setattr(Parsed, "_output_async", no_output)
+    seen = dict.fromkeys(("zarr2", "zarr3", "zip", "compressed", "fortran", "transposed", "missing", "fill",
+                          "not followed", "sharded", "no item_bits", "no grid", "zarr-python refuses",
+                          "empty chunk"), 0)
+    for path in ZARR:
+        fmt = 2 if path.parent.name == "zarr2" else 3
+        with read(path) as parsed:
+            stored = parsed.ir.stored_arrays()
+            built: dict[str, tuple[Array, bytes | None]] = {}
+            for k, a in enumerate(stored.arrays):
+                chain = stored.chains[a.chains[0]] if a.chains else ()
+                seen["sharded"] += any(c.parameters.get("id") == ParamValue("sharding_indexed") for c in chain)
+                seen["no grid"] += a.grid is None
+                seen["no item_bits"] += a.grid is not None and a.item_bits is None
+                if a.grid is None or a.item_bits is None:
+                    continue
+                try:
+                    zarr_codecs(chain)
+                except ValueError:  # a filter or a serializer: Zarr does not follow `bytes` with it
+                    seen["not followed"] += 1
+                    continue
+                fill = a.grid.sparse.fill if a.grid.sparse else None
+                given = base64.b64decode(cast("Any", fill).param.value) if fill is not None else None
+                n = a.item_bits // 8
+                raw = {"name": "raw_bytes", "configuration": {"length_bytes": n}}
+                array = stored_array(parsed, k, raw, fill_value=base64.b64encode(given or bytes(n)).decode())
+                built[zarr_node(path, a)] = (array, given)
+                seen["missing"] += len(parsed.ir.units(k)) < grid_units(a)
+                seen["compressed"] += bool(chain)
+                seen["fortran" if fmt == 2 else "transposed"] += a.axes is not None
+            out = Written({"zarr.json": dump({"zarr_format": 3, "node_type": "group", "attributes": {}})})
+            for node, (array, _) in built.items():
+                out |= array.entries(to=node)
+            ours = refkv.zarr.store(seal(out, [parsed]))
+        theirs: Any = (zarr.storage.ZipStore(path, mode="r") if path.suffix == ".zip"
+                       else zarr.storage.LocalStore(path, read_only=True))
+        for node, (_, given) in built.items():
+            at = f"{path.name}: /{node}"
+            if has_empty_object(path, node):
+                # which zarr-python decodes as a chunk of no bytes, and the description holds no
+                # unit of
+                seen["empty chunk"] += 1
+                continue
+            try:
+                original = zarr.open_array(theirs, path=node, mode="r", zarr_format=fmt)
+            except (KeyError, TypeError, ValueError):
+                # a document zarr-python does not read: a codec's member numcodecs does not take
+                # (lz4's `writer`), a data type it has not (a nested structure), no fill value
+                seen["zarr-python refuses"] += 1
+                continue
+            values = np.asarray(original[...])
+            held = stored_type(original.metadata.to_dict())
+            assert held is not None, at
+            got = zarr.open_array(ours, path=node, mode="r", zarr_format=3)
+            assert got.shape == original.shape, at
+            want = np.ascontiguousarray(values.astype(held)).tobytes()
+            assert np.ascontiguousarray(got[...]).tobytes() == want, at
+            if given is not None:
+                assert np.asarray(original.metadata.fill_value).astype(held).tobytes() == given, at
+            seen["fill"] += given is not None
+            seen["zip"] += path.suffix == ".zip"
+            seen[f"zarr{fmt}"] += 1
+    assert all(seen.values()), seen

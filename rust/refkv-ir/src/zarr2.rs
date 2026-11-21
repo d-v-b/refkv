@@ -239,7 +239,7 @@ struct Array {
 }
 
 /// A `.zarray`'s `dtype` as [`header::dtype`] reads a header's: a string, or a list of fields.
-fn descr(v: &Jv) -> Lit {
+pub(crate) fn descr(v: &Jv) -> Lit {
     fn part(v: &Jv) -> Lit {
         match v {
             Jv::Str(s) => Lit::Str(s.text.clone()),
@@ -792,6 +792,14 @@ impl StoreParser for Zarr2 {
         for p in &self.implicit {
             nodes.push(json!({"path": p, "kind": "implicit"}));
         }
+        // the stored arrays: every array node whose `.zarray` reads with a shape, presented or
+        // not (spec/stored-array.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>)
+        let layouts: Vec<(String, usize, crate::zarr_stored::Layout)> = self.nodes.iter().filter(|(_, a)| **a).filter_map(|(path, _)| {
+            let key = join(path, ".zarray");
+            let k = *self.index.get(&key)?;
+            let d = json::parse(self.got.get(&k)?).ok()?;
+            Some((path.clone(), k, crate::zarr_stored::zarr2(&d.value)?))
+        }).collect();
         let Zarr2 { mut ir, objects, keys, .. } = *self;
         // each document read is a held object: a value per top-level member, the rest gaps (a
         // document of no member is a gap, one of more than MAX_MEMBERS one value, `json`)
@@ -799,6 +807,7 @@ impl StoreParser for Zarr2 {
             json::hold(&mut ir, objects[*k], keys[*k].1, members)?;
         }
         crate::check::finish(&mut ir)?;
+        describe(&mut ir, &objects, &keys, &layouts)?;
         let documents: Vec<&str> = parsed.iter().map(|(k, _)| keys[*k].0.as_str()).collect();
         let mut facts = json!({"nodes": nodes, "documents": documents, "profile": if ome { "ome-zarr" } else { "zarr2" }});
         if !left_out.is_empty() {
@@ -813,6 +822,38 @@ impl StoreParser for Zarr2 {
         }
         Ok((ir, facts))
     }
+}
+
+/// Adds the stored arrays of a store whose arrays are `layouts` (each its path, its document's
+/// listing index and what the document says), from its finished IR (spec/stored-array.md §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>): each keyed by
+/// its document's object, its one declaration, and its units the objects of its chunk keys that
+/// are not empty, each the whole object, by its key.
+fn describe(ir: &mut Ir, objects: &[u32], keys: &[(String, u64)], layouts: &[(String, usize, crate::zarr_stored::Layout)]) -> Res<()> {
+    let at: HashMap<&str, usize> = layouts.iter().enumerate().map(|(i, (p, _, _))| (p.as_str(), i)).collect();
+    let mut units: Vec<Vec<(Vec<u64>, crate::array::Row)>> = vec![Vec::new(); layouts.len()];
+    for (key, n) in keys {
+        if *n == 0 {
+            continue;
+        }
+        // the array that is the key's nearest proper ancestor (no array is inside another)
+        let mut owner = at.get("").map(|&i| (key.as_str(), i));
+        for (cut, _) in key.match_indices('/') {
+            if let Some(&i) = at.get(&key[..cut]) {
+                owner = Some((&key[cut + 1..], i));
+            }
+        }
+        let Some((rest, i)) = owner else { continue };
+        if let Some(c) = layouts[i].2.storage.as_ref().and_then(|s| s.keys.coords(rest)) {
+            units[i].push((c, crate::array::Row { ranges: Some(vec![(Some(key.clone()), 0, *n)]), ..Default::default() }));
+        }
+    }
+    let mut d = crate::zarr_stored::Described::default();
+    for ((_, k, layout), units) in layouts.iter().zip(&units) {
+        let e = objects[*k];
+        layout.describe(e, vec![crate::array::Place::Element { element: e, member: None, range: None }], units, &mut d)?;
+    }
+    ir.describe(d.arrays, d.chains, d.map)
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
