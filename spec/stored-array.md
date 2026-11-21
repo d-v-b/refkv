@@ -1655,8 +1655,9 @@ the key: `info_value` is that element's id.
 **netCDF3** ([spec/zarrify/netcdf3.md](zarrify/netcdf3.md)). Every variable of the header is a
 stored array, whether or not the profile presents it, keyed by the file's `header` element, a kind
 of element that may declare several arrays: a variable's index is its position in the header's
-variable list. The facts give the key: `declared_by` is the id of the `header` element, and each
-presented variable's entry of the facts' `arrays` gives its position as `index`.
+variable list. The parser's description gives the key: its `elements` has the `header` element's
+id, and the variable at position `k` of its `variables` is the array of index `k`
+([zarrify/netcdf3.md §7.7](zarrify/netcdf3.md#77-the-description)).
 
 - **Declarations.** The range of the header that holds the variable's `nc_type`, 4 bytes, which
   names its type ([zarrify/netcdf3.md §3.1](zarrify/netcdf3.md#31-data-types)). The format fixes the byte order (big-endian) and the

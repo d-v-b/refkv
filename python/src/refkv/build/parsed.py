@@ -143,6 +143,10 @@ class Parsed:
           and decoded strings, references and records
           (spec/zarrify/hdf5.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#87-the-description>),
           of a file read as a file.
+        - netCDF3: the file's version, record count and size, header size, dimensions and global
+          attributes, and each variable in the header's order with its name, dimensions, type,
+          shape, `begin`, `vsize` and attributes, each attribute's value decoded
+          (spec/zarrify/netcdf3.md §7.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#77-the-description>).
         - ENVI: the header's fields as written and as the profile reads them (`samples`, `lines`,
           `bands`, `interleave`, the `data_type` code, `byte_order`, `header_offset`,
           `file_compression`), its comments, the header and data files' keys and sizes, the data's
