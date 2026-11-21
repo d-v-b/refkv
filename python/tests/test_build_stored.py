@@ -552,4 +552,9 @@ def test_a_parsed_zarr_stores_description_is_its_documents_as_json_reads_them():
             arrays = {n["path"] for n in description["nodes"] if n["kind"] == "array"}
             assert arrays == {str(z.parent.relative_to(path)) for z in path.rglob(".zarray")}, path.name
             seen["left out"] += 1
+        if path.name == "zarr3_left_out":  # every candidate is described, those left out and below them
+            paths = {c["path"] for c in description["candidates"]}
+            found = {"" if z.parent == path else str(z.parent.relative_to(path)) for z in path.rglob("zarr.json")}
+            assert paths == found, path.name
+            seen["left out"] += 1
     assert all(seen.values()), seen
