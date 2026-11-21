@@ -103,6 +103,9 @@ pub struct Hdf5 {
     facts: Option<J>,
     /// the walk's room in elements, when a test sets it (else the schema's)
     pub room: Option<u64>,
+    /// the strings counted toward the budget before the file's, when a test sets it (so that a
+    /// small file reaches the budget); else none
+    pub strings_before: u128,
 }
 
 impl Hdf5 {
@@ -136,6 +139,7 @@ impl Hdf5 {
             unread: HashMap::new(),
             facts: None,
             room: None,
+            strings_before: 0,
             names: BTreeSet::new(),
             link_keys: BTreeSet::new(),
             slots: HashMap::new(),
@@ -564,7 +568,7 @@ impl Hdf5 {
         let mut acc = Acc::default();
         // the strings decoded so far: a dataset past the budget is not read (spec/zarrify/hdf5.md
         // §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#83-checks>)
-        let mut strings = 0u128;
+        let mut strings = self.strings_before;
         for (at, _) in self.order.clone() {
             let r = (|| -> R<()> {
                 let h = self.h.header(at)?;
