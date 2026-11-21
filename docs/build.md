@@ -158,8 +158,9 @@ the profile's description of the input, where its parser returns one: NumPy's
 ([zarr3.md §7.6](../spec/zarrify/zarr3.md#76-the-description)), TIFF's and QPTIFF's
 ([tiff.md §7.6](../spec/zarrify/tiff.md#76-the-description)), NDPI's
 ([ndpi.md §7.1](../spec/zarrify/ndpi.md#71-the-description)), N5's
-([n5.md §8.3](../spec/zarrify/n5.md#83-the-description)) and Neuroglancer precomputed's
-([precomputed.md §11.4](../spec/zarrify/precomputed.md#114-the-description)) do, and the other profiles' is None
+([n5.md §8.3](../spec/zarrify/n5.md#83-the-description)), Neuroglancer precomputed's
+([precomputed.md §11.4](../spec/zarrify/precomputed.md#114-the-description)) and safetensors's
+([safetensors.md §8.5](../spec/zarrify/safetensors.md#85-the-description)) do, and the other profiles' is None
 until their projections read the descriptions too. `stored_array` raises `ValueError` for an array it
 cannot write so: one whose storage the IR does not model (a description with no grid, such as a
 NumPy `a<n>` array's, which the profile still presents from its header), whose elements are not

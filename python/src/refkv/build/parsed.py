@@ -173,7 +173,12 @@ class Parsed:
           parsed, and the documents the IR holds
           (spec/zarrify/n5.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#83-the-description>).
         - Neuroglancer precomputed: `info` as parsed, and the documents the IR holds
-          (spec/zarrify/precomputed.md §11.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#114-the-description>)."""
+          (spec/zarrify/precomputed.md §11.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#114-the-description>).
+        - safetensors: the header's length and `__metadata__`, each tensor's entry in the header's
+          order, and the IR's elements of the length, the header and each tensor's data
+          (spec/zarrify/safetensors.md §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#85-the-description>);
+          of a store, each shard's, or why its header fails, and each index and configuration as
+          parsed (§9.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#97-the-description>)."""
         return None if self._description is None else json.loads(json.dumps(self._description))
 
     @property

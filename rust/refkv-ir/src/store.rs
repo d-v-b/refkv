@@ -99,23 +99,27 @@ impl StoreFormat {
     /// The profile's description of the input (the design of d-v-b/refkv#278, "The
     /// description"), from what the run's parser returned beside the IR, `facts`, without the
     /// run's own counts; None for a store format whose profile's store run returns none
-    /// (`run::FileProfile::store_described`). ENVI's does (spec/zarrify/envi.md §8.7
+    /// (`run::FileProfile::store_description`). ENVI's does (spec/zarrify/envi.md §8.7
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#87-the-description>), and so
     /// do the store formats of Zarr v2 (and OME-Zarr, which it reads; spec/zarrify/zarr2.md §7.3
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#73-the-description>) and Zarr
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#73-the-description>), Zarr
     /// v3 (spec/zarrify/zarr3.md §7.6
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#76-the-description>), N5
     /// (spec/zarrify/n5.md §8.3
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#83-the-description>) and
     /// Neuroglancer precomputed (spec/zarrify/precomputed.md §11.4
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#114-the-description>), which
-    /// have no file profile of their own or whose file profile is the zip form's.
+    /// have no file profile of their own or whose file profile is the zip form's; and safetensors's
+    /// (spec/zarrify/safetensors.md §9.7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#97-the-description>),
+    /// which its store run returns beside its projection's facts.
     pub fn description(self, facts: &J) -> Option<J> {
         let own = matches!(self, StoreFormat::Zarr2 | StoreFormat::Zarr3 | StoreFormat::N5 | StoreFormat::Precomputed);
-        if !own && !crate::run::Format::from_name(self.name()).is_some_and(|f| f.profile().store_described()) {
-            return None;
-        }
-        let mut description = facts.clone();
+        let mut description = if own {
+            facts.clone()
+        } else {
+            crate::run::Format::from_name(self.name())?.profile().store_description(facts)?
+        };
         if let Some(m) = description.as_object_mut() {
             m.remove("counts");
             // the bytes a TIFF store run read for its projection's windows

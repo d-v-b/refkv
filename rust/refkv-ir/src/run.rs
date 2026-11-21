@@ -114,6 +114,13 @@ pub trait FileProfile: Sync {
     fn store_described(&self) -> bool {
         false
     }
+    /// The profile's description of a store of its format, from what the store run's parser
+    /// returned beside the IR, `facts`: those facts, of a profile whose store facts are its
+    /// description (`store_described`); None for a profile that has none. A profile whose store
+    /// parser returns a description beside its projection's facts says where it is.
+    fn store_description(&self, facts: &J) -> Option<J> {
+        self.store_described().then(|| facts.clone())
+    }
     /// What the output adds beside the mirror (`output`, when it mirrors).
     fn mirrored(&self, out: &mut Out, facts: &J) -> Result<(), String> {
         let _ = (out, facts);

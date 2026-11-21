@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/safetensors/description.json",
+  "title": "The description of a safetensors file",
+  "description": "What refkv's safetensors parser found of a file's header, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#85-the-description); its definition `store`, of a store of safetensors files (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#97-the-description). It holds none of an output's decisions.",
+  "$ref": "#/$defs/file",
+  "$defs": {
+    "uint": {"type": "integer", "minimum": 0},
+    "element": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/uint"}]},
+    "header": {
+      "type": "object",
+      "properties": {
+        "header_length": {"$ref": "#/$defs/uint"},
+        "metadata": {"oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": {"type": "string"}}]},
+        "tensors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {"type": "string"},
+              "dtype": {"type": "string"},
+              "shape": {"type": "array", "items": {"$ref": "#/$defs/uint"}},
+              "data_offsets": {"type": "array", "items": {"$ref": "#/$defs/uint"}, "minItems": 2, "maxItems": 2},
+              "extra": {"type": "object"}
+            },
+            "required": ["name", "dtype", "shape", "data_offsets"],
+            "additionalProperties": false
+          }
+        },
+        "elements": {
+          "type": "object",
+          "properties": {
+            "length": {"$ref": "#/$defs/uint"},
+            "header": {"$ref": "#/$defs/uint"},
+            "tensors": {"type": "array", "items": {"$ref": "#/$defs/element"}}
+          },
+          "required": ["length", "header", "tensors"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["header_length", "metadata", "tensors"],
+      "additionalProperties": false
+    },
+    "file": {"$ref": "#/$defs/header", "required": ["elements"]},
+    "store": {
+      "type": "object",
+      "properties": {
+        "shards": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": {"type": "string"},
+              "object": {"$ref": "#/$defs/uint"},
+              "header": {"$ref": "#/$defs/header"},
+              "error": {"type": "string"}
+            },
+            "required": ["key", "object"],
+            "oneOf": [{"required": ["header"]}, {"required": ["error"]}],
+            "additionalProperties": false
+          }
+        },
+        "documents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": {"type": "string"},
+              "object": {"$ref": "#/$defs/uint"},
+              "json": {"type": "string"},
+              "error": {"type": "string"}
+            },
+            "required": ["key", "object"],
+            "oneOf": [{"required": ["json"]}, {"required": ["error"]}],
+            "additionalProperties": false
+          }
+        },
+        "ignored": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["shards", "documents"],
+      "additionalProperties": false
+    }
+  }
+}
