@@ -154,7 +154,9 @@ the profile's description of the input, where its parser returns one: NumPy's
 until their projections read the descriptions too. `stored_array` raises `ValueError` for an array it
 cannot write so: one whose storage the IR does not model (a description with no grid, such as a
 NumPy `a<n>` array's, which the profile still presents from its header), whose elements are not
-whole bytes, whose units are encoded (`zarr_codecs` translates only the empty chain yet), whose
+whole bytes, whose units are encoded with a codec `zarr_codecs` has no Zarr codec after `bytes`
+for (it translates the codecs numcodecs decodes, and a Zarr store's own codecs that take bytes;
+not a Zarr filter, nor HDF5's own framings), whose
 units lie in the members of a run of elements (an ND2 file's frames), or whose units lie in a
 derived space: a deflated `.npz` member's data is a range of what its stream inflates to, which no
 range of the file holds. For such an array a caller references the stream itself,

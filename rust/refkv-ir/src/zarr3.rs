@@ -27,6 +27,8 @@ use crate::nd2::Step;
 use crate::project::zarr3::is_chunk;
 use crate::rules::{self, Rules, Vars};
 use crate::store::{StoreParser, StoreStep};
+use crate::array::Row;
+use crate::zarr_stored::Layout;
 use crate::zip::{self, DEFLATE_FORM};
 use serde_json::{json, Value as J};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -336,6 +338,60 @@ fn classify(cands: &[String], docs: &HashMap<String, Result<Vec<u8>, String>>) -
     Ok(c)
 }
 
+/// The arrays a store's documents declare (spec/stored-array.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): each candidate
+/// that is not below an array, whose document reads as a JSON object with `node_type` `array` and
+/// a shape, whether or not the profile presents it; by path, with what its document says.
+fn layouts(cands: &[String], docs: &HashMap<String, Result<Vec<u8>, String>>) -> BTreeMap<String, Layout> {
+    let mut out = BTreeMap::new();
+    for p in cands {
+        if ancestors(p).iter().any(|a| out.contains_key(*a)) {
+            continue;
+        }
+        let Some(Ok(b)) = docs.get(p) else { continue };
+        let Ok(d) = json::parse(b) else { continue };
+        if d.value.get("node_type").and_then(Jv::as_str) != Some("array") {
+            continue;
+        }
+        if let Some(l) = crate::zarr_stored::zarr3(&d.value) {
+            out.insert(p.clone(), l);
+        }
+    }
+    out
+}
+
+/// The array of `layouts` a key is below (the nearest), and the chunk indexes the key names, if
+/// it is one of its chunk keys.
+fn unit_of<'a>(layouts: &'a BTreeMap<String, Layout>, key: &str) -> Option<(&'a str, Vec<u64>)> {
+    let mut owner = layouts.get_key_value("").map(|(p, l)| (key, p, l));
+    for (at, _) in key.match_indices('/') {
+        if let Some((p, l)) = layouts.get_key_value(&key[..at]) {
+            owner = Some((&key[at + 1..], p, l));
+        }
+    }
+    let (rest, p, l) = owner?;
+    Some((p.as_str(), l.storage.as_ref()?.keys.coords(rest)?))
+}
+
+/// Adds the stored arrays `layouts` to a finished IR: each keyed by `element[path]`, its
+/// document's element `document[path]` its one declaration, and its units `units` (path,
+/// indexes, where its bytes are).
+fn describe(ir: &mut Ir, layouts: &BTreeMap<String, Layout>, element: &HashMap<String, u32>, document: &HashMap<String, u32>, units: Vec<(String, Vec<u64>, Row)>) -> Res<()> {
+    let mut by: HashMap<String, Vec<(Vec<u64>, Row)>> = HashMap::new();
+    for (p, c, e) in units {
+        by.entry(p).or_default().push((c, e));
+    }
+    let mut d = crate::zarr_stored::Described::default();
+    for (p, l) in layouts {
+        let (Some(&e), Some(&doc)) = (element.get(p), document.get(p)) else {
+            return Err(format!("internal: the array {p:?} has no document in the IR"));
+        };
+        let place = crate::array::Place::Element { element: doc, member: None, range: None };
+        l.describe(e, vec![place], by.get(p).map_or(&[][..], Vec::as_slice), &mut d)?;
+    }
+    ir.describe(d.arrays, d.chains, d.map)
+}
+
 impl Classified {
     /// The presented array a key is below (the nearest), and the rest of the key after it.
     fn owner<'k>(&self, key: &'k str) -> Option<(&'k str, &str, &ArrayInfo)> {
@@ -454,6 +510,7 @@ impl StoreParser for Zarr3Store {
         }
         let c = classify(&self.cands, &docs)?;
         let facts = c.facts("store");
+        let layouts = layouts(&self.cands, &docs);
         let Zarr3Store { mut ir, objects, keys, docs: read, .. } = *self;
         let index: HashMap<&str, usize> = read.iter().map(|(p, k)| (p.as_str(), *k)).collect();
         // each node's document read is a held object: a value per top-level member, the rest
@@ -463,6 +520,14 @@ impl StoreParser for Zarr3Store {
             json::hold(&mut ir, objects[k], keys[k].1, members)?;
         }
         crate::check::finish(&mut ir)?;
+        // the stored arrays: each keyed by its document's object, its units the objects of its
+        // chunk keys that are not empty, each the whole object, by its key
+        let element: HashMap<String, u32> = layouts.keys().filter_map(|p| Some((p.clone(), objects[*index.get(p.as_str())?]))).collect();
+        let units = keys.iter().filter(|(_, n)| *n > 0).filter_map(|(key, n)| {
+            let (p, c) = unit_of(&layouts, key)?;
+            Some((p.to_string(), c, Row { ranges: Some(vec![(Some(key.clone()), 0, *n)]), ..Row::default() }))
+        }).collect();
+        describe(&mut ir, &layouts, &element, &element, units)?;
         Ok((ir, facts))
     }
 }
@@ -758,14 +823,40 @@ impl Zarr3Zip {
         facts["objects"] = json!(objects);
         facts["ignored"] = json!(self.ignored);
         facts["counts"] = json!({"entries": self.entries.len(), "objects": self.objects.len(), "superseded": self.superseded, "emptyObjects": empty});
-        let ir = self.emit(&c)?;
+        let (mut ir, entries) = self.emit(&c)?;
+        // the stored arrays: each keyed by its document's entry, its declaration the entry's
+        // data, and its units the data of the entries of its chunk keys that are not empty; an
+        // array with a chunk compressed in the zip file has no grid, its units being no bytes of
+        // the file as the codecs take them
+        let mut layouts = layouts(&self.cands, &self.docs);
+        let mut units = Vec::new();
+        let mut deflated = HashSet::new();
+        for (key, &i) in &self.objects {
+            let e = &self.entries[i];
+            let Some((p, c)) = (e.us > 0).then(|| unit_of(&layouts, key)).flatten() else { continue };
+            match entries.get(key.as_str()) {
+                Some(&(_, Some(data))) if e.method == 0 => units.push((p.to_string(), c, Row { element: Some(data), ..Row::default() })),
+                _ => {
+                    deflated.insert(p.to_string());
+                }
+            }
+        }
+        for p in &deflated {
+            if let Some(l) = layouts.get_mut(p) {
+                l.storage = None;
+            }
+        }
+        units.retain(|(p, _, _)| !deflated.contains(p));
+        let element: HashMap<String, u32> = layouts.keys().filter_map(|p| Some((p.clone(), entries.get(doc_key(p).as_str())?.0))).collect();
+        let document: HashMap<String, u32> = layouts.keys().filter_map(|p| Some((p.clone(), entries.get(doc_key(p).as_str())?.1?))).collect();
+        describe(&mut ir, &layouts, &element, &document, units)?;
         Ok((ir, facts))
     }
 
     /// The file IR: the zip file's records, and each object that is not empty, its local header
     /// and data: a node's document read, as text (stored) or a derived element (deflated); any
     /// other object, its bytes as stored.
-    fn emit(&self, c: &Classified) -> Res<Ir> {
+    fn emit(&self, c: &Classified) -> Res<(Ir, HashMap<&str, (u32, Option<u32>)>)> {
         let mut ir = Ir::new(self.size);
         let raw = zip::Records {
             tail: self.raw.get("tail").map_or(&[][..], Vec::as_slice),
@@ -776,6 +867,8 @@ impl Zarr3Zip {
         zip::emit_records(&mut ir, self.size, &self.end, &self.entries, &raw)?;
         let mut live: Vec<(usize, &str)> = self.objects.iter().map(|(k, &i)| (i, k.as_str())).collect();
         live.sort_unstable();
+        // each object's entry and its data element, by key
+        let mut made = HashMap::new();
         for (i, key) in live {
             let e = &self.entries[i];
             if e.us == 0 {
@@ -784,25 +877,18 @@ impl Zarr3Zip {
             let s = zip::emit_local(&mut ir, i as u64, e, None)?;
             let held = if key == "zarr.json" { Some("") } else { key.strip_suffix("/zarr.json") }.filter(|p| c.held.contains_key(*p));
             let doc = held.and_then(|p| self.docs.get(p)).and_then(|r| r.as_ref().ok());
-            match doc {
-                Some(_) if e.method == 8 => {
-                    ir.derived(s, "data", 0, (e.ds, e.cs), DEFLATE_FORM)?;
-                }
-                Some(b) => {
-                    ir.value(s, "data", NO_INDEX, &format!("ascii[{}]", e.us), 0, (e.ds, e.us), Some(b))?;
-                }
-                None if e.method == 0 => {
-                    ir.value(s, "data", NO_INDEX, &format!("bytes[{}]", e.us), 0, (e.ds, e.us), None)?;
-                }
-                None if e.cs > 0 => {
-                    ir.value(s, "data", NO_INDEX, &format!("bytes[{}]", e.cs), 0, (e.ds, e.cs), None)?;
-                }
-                None => {}
-            }
+            let data = match doc {
+                Some(_) if e.method == 8 => Some(ir.derived(s, "data", 0, (e.ds, e.cs), DEFLATE_FORM)?),
+                Some(b) => Some(ir.value(s, "data", NO_INDEX, &format!("ascii[{}]", e.us), 0, (e.ds, e.us), Some(b))?),
+                None if e.method == 0 => Some(ir.value(s, "data", NO_INDEX, &format!("bytes[{}]", e.us), 0, (e.ds, e.us), None)?),
+                None if e.cs > 0 => Some(ir.value(s, "data", NO_INDEX, &format!("bytes[{}]", e.cs), 0, (e.ds, e.cs), None)?),
+                None => None,
+            };
+            made.insert(key, (s, data));
         }
         ir.sort_values();
         crate::check::finish(&mut ir)?;
-        Ok(ir)
+        Ok((ir, made))
     }
 }
 

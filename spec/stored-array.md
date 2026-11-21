@@ -521,8 +521,7 @@ neither, and compiles no Arrow code.
 
 ## 7. The formats
 
-The parsers of [MP3](zarrify/mp3.md), [N5](zarrify/n5.md), [OME-Zarr](zarrify/ome-zarr.md),
-[Precomputed](zarrify/precomputed.md), [Zarr v2](zarrify/zarr2.md) and [Zarr v3](zarrify/zarr3.md)
+The parsers of [MP3](zarrify/mp3.md), [N5](zarrify/n5.md) and [Precomputed](zarrify/precomputed.md)
 describe no array yet, and have no paragraph here. Every other profile but a layout has one
 (`spec/tools/stored_formats.py` checks it).
 
@@ -1675,3 +1674,106 @@ presented variable's entry of the facts' `arrays` gives its position as `index`.
   records it counts, so the grid has no fill value. A netCDF-C file written without fill holds
   bytes in every unit all the same, whatever they are.
 - **The chain** is empty: the format stores every value as it is.
+
+**Zarr v2** ([spec/zarrify/zarr2.md](zarrify/zarr2.md)). Every array node of the store
+([zarrify/zarr2.md §2](zarrify/zarr2.md#2-nodes)) whose `.zarray` the parser reads, as a JSON
+document whose `shape` is a list of at most 32 nonnegative integers, is a stored array, whether or
+not the profile presents it ([zarrify/zarr2.md §3.4](zarrify/zarr2.md#34-arrays-that-are-not-presented)):
+the store declares an array there, and nothing above it. It is keyed by the object of its
+`.zarray`, with no index, which a profile finds by the document's key. A store parser describes
+its own arrays, each in that object ([§6](#6-in-the-ir)). The same parser reads an
+[OME-Zarr](zarrify/ome-zarr.md) store, whose arrays it describes alike.
+
+- **Declarations.** The `.zarray` object, whole: its `dtype`, `fill_value`, `filters` and
+  `compressor` say what the elements are; the description reads them only as far as this
+  paragraph says.
+- **`shape`** is the document's `shape`, reversed for an `order` of `F` and two or more axes, whose
+  `axes` then give the document's order: Zarr v2 stores each chunk in its array's order, and its
+  chunk keys name the chunks in the document's order of the axes.
+- **`item_bits`** is eight times the size of an element of `dtype` as NumPy lays it out, read as a
+  NumPy header's `descr` is (the NumPy paragraph above), a structure's fields given as lists: absent
+  for `|O`, an object array's, and for any type of no size NumPy knows.
+- **The grid** is the document's `chunks`, each axis `Each` of its chunk length, under `full`: Zarr
+  v2 stores a chunk past an axis's end whole. A unit is a chunk object of the array that is not
+  empty, its row `ranges`, the whole object by its key: the key below the array's path, its
+  indexes canonical and below each axis's count of chunks, joined by `dimension_separator` (`.`
+  when absent or null), `0` for an array of no axes ([zarrify/zarr2.md §3.2](zarrify/zarr2.md#32-chunks)).
+  An empty object holds no unit: a reader cannot decode it, and the profile references none.
+- **The chain** is one: a codec for each filter, in order, then one for the compressor. A codec
+  whose encoding the list names is that entry: `zlib`, `gzip`, `bz2` (as `bzip2`), `zstd`,
+  `blosc`, `lzma` of `format` 1 or none (an `.xz` stream, as `xz`) and `shuffle`, its
+  `element_size` the filter's `elementsize`, a value. Any other is `source`, with `format`
+  `zarr2`, `id` the codec's `id`, and `parameters` its other members as written, where it has any
+  (numcodecs' `lz4`, which frames its block with its length, and the filters that take the array's
+  elements: `delta`, `fixedscaleoffset`, `quantize`, `vlen-utf8` and the rest). An array of no
+  `item_bits` has a grid only where its chain begins with `source`, which makes its elements
+  (`vlen-utf8`, of an object array's strings).
+- **The fill value.** The grid is sparse: a store may leave a chunk out. Its fill is absent for a
+  null `fill_value`, which Zarr v2 reads as none; otherwise it is `given`, a value, the bytes NumPy
+  makes of it in `dtype`, in its byte order: a boolean; an integer in the type's range; a float as
+  a number (rounded to the type, never past its largest), `NaN`, `Infinity` or `-Infinity`; a
+  complex number as a pair of those, or one, its imaginary part 0; a datetime or timedelta as an
+  integer or `NaT`; a `U` type's string as UTF-32, padded with zeros; and base64 of a bytes, void or
+  structured type's bytes, padded with zeros to the element. A value this does not read as the
+  type's gives no fill: the `.zarray` among the declarations holds it.
+- **No grid** for an array whose `.zarray` has no `order` of `C` or `F`, no `chunks` of positive
+  integers as many as its axes, a `dimension_separator` other than `.` or `/`, `filters` that are
+  not null or a list of objects with an `id`, or a `compressor` that is not null or one.
+- **Not described**: a node whose `.zarray` is empty, too large to read, not JSON, or has no shape
+  as above. A group declares no array.
+
+**OME-Zarr** ([spec/zarrify/ome-zarr.md](zarrify/ome-zarr.md)). The store's arrays are those of the
+Zarr v2 store it is, described as the Zarr v2 paragraph says, whether or not the profile takes
+them as levels of an image.
+
+**Zarr v3** ([spec/zarrify/zarr3.md](zarrify/zarr3.md)). Every candidate of the store
+([zarrify/zarr3.md §2](zarrify/zarr3.md#2-nodes)) that is below no other described array, and
+whose `zarr.json` the parser reads, as a JSON object whose `node_type` is `array` and whose
+`shape` is a list of at most 32 nonnegative integers, is a stored array, whether or not the
+profile presents it ([zarrify/zarr3.md §3.3](zarrify/zarr3.md#33-nodes-that-are-not-presented)).
+Listed, it is keyed by the object of its `zarr.json`; in the zip form
+([zarrify/zarr3.md §7.4](zarrify/zarr3.md#74-the-zip-form)) by the entry of its `zarr.json`
+(`entries/<i>`); with no index either way, which a profile finds by the document's key. A store
+parser describes its own arrays, each in that object ([§6](#6-in-the-ir)).
+
+- **Declarations.** The `zarr.json`: listed, its object, whole; zipped, its entry's `data` element
+  (of a deflated document, the stream, a derived element). Its `data_type`, `fill_value` and
+  `codecs` (the `bytes` codec's `endian`) say what the elements are.
+- **`shape`** is the document's `shape`, in the order its leading `transpose` codecs give, whose
+  `axes` then give the document's order: storage axis `j` is the document's axis `order[j]` after
+  each in turn. Any `transpose` after another codec is a codec of the chain.
+- **`item_bits`** is the bits of a data type of Zarr v3's core: 8 for `bool`, `int8` and `uint8`;
+  16, 32 and 64 for the integers and floats of those sizes; 64 and 128 for `complex64` and
+  `complex128`; `N` for `r<N>`. Any other data type (an extension's, such as `string`) gives none.
+- **The grid** is the document's `chunk_grid`, under `full`: `regular`, each axis `Each` of its
+  `chunk_shape`; `rectilinear` of the `inline` kind, an axis given as one size `Each` of it, and an
+  axis given as a list the chunks it needs to cover the axis (each run cut there), `Each` where
+  they are of one size and a `List` of them otherwise. A unit is a chunk object of the array that
+  is not empty, by the chunk key encoding ([zarrify/zarr3.md §3.1](zarrify/zarr3.md#31-chunk-grids-and-chunk-keys)):
+  listed, its row `ranges`, the whole object by its key; zipped, its row the `data` element of its
+  entry, which the zip file stores (method 0).
+- **The chain** is one: a codec for each of the document's codecs after the leading transposes,
+  but `bytes`, which lays the elements out as they are in the order its `endian` declares. `gzip`,
+  `zstd` and `blosc`, and the `numcodecs.` codecs whose encodings the list names (as for Zarr v2:
+  `numcodecs.zlib`, `numcodecs.gzip`, `numcodecs.bz2`, `numcodecs.zstd`, `numcodecs.blosc`,
+  `numcodecs.lzma` of `format` 1 or none, and `numcodecs.shuffle`), are those entries. Any other
+  is `source`, with `format` `zarr3`, `id` the codec's name, and `parameters` its configuration,
+  where it has one: `crc32c`, `vlen-utf8`, and `sharding_indexed`, whose units are its shards. An
+  array of no `item_bits` has a grid only where its chain begins with `source`.
+- **The fill value.** The grid is sparse: a store may leave a chunk out. Its fill is `given`, a
+  value, the bytes of the document's `fill_value` for a core data type: a boolean; an integer in
+  the type's range; a float as a number (rounded to the type, never past its largest), `NaN`,
+  `Infinity`, `-Infinity`, or `0x` and the hex digits of its bits; a complex number as a pair of
+  those; `r<N>`'s bytes as a list of byte values. An element of more than one byte takes the order
+  of the codec that lays the elements out: the `bytes` codec after the leading transposes, or the
+  first of a leading `sharding_indexed` codec's inner codecs, after their transposes. A value
+  this does not read, a data type outside the core, and an order no codec declares give no fill:
+  the document among the declarations holds it.
+- **No grid** for an array whose document has another chunk grid or one whose configuration is
+  not the grid's, a rectilinear axis whose chunks pass its end and are not all of one size (its
+  last chunk is stored whole, which a `List` does not say), a chunk key encoding other than
+  `default` and `v2` with a separator `.` or `/`, `storage_transformers`, or `codecs` that are not
+  a nonempty list of codecs each named; and, zipped, an array of which the zip file compresses a
+  chunk: its unit is no bytes of the file as its chain takes them.
+- **Not described**: a candidate whose `zarr.json` is empty, too large to read, not JSON, not an
+  array's, or has no shape as above, or is below a described array. A group declares no array.
