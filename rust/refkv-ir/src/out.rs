@@ -36,7 +36,9 @@ pub const MAX_PAYLOAD: usize = 65519;
 /// The largest reference payload of a chunk, past which a projection of contiguous values
 /// copies an edge chunk (conventions §7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>):
-/// MAX_PAYLOAD, but in tests (`set_copy_threshold`). Each run reads it once, into its facts.
+/// MAX_PAYLOAD, but in tests (`set_copy_threshold`). A run whose parser still writes facts reads it
+/// once, into them; a projection over a description reads it when it runs, in its `reads` and in
+/// its projection both, so a test changes it only between runs.
 static COPY_THRESHOLD: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(MAX_PAYLOAD);
 
 /// For tests: the payload past which an edge chunk is copied (None: MAX_PAYLOAD), so that

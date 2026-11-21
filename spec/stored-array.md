@@ -1378,8 +1378,7 @@ its position in the description's `tensors`.
   entry of the store's description holds its header's description with them, and its tensors are
   keyed by its own `header`. A shard whose header fails a check has no descriptions.
 - **Declarations.** One: the range of the header that holds the entry's `dtype` value, a JSON
-  string as the header writes it, with its quotes and any escapes (of a shard keyed by its
-  object, the same bytes as a range of the object). The format fixes the elements' byte order
+  string as the header writes it, with its quotes and any escapes. The format fixes the elements' byte order
   (little-endian) and their order (the last index varying fastest), which no place declares.
 - **`shape`** is the entry's `shape`, empty for a scalar. `axes` is absent: a tensor is stored in
   the order of its `shape`.
