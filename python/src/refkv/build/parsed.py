@@ -98,7 +98,8 @@ class Parsed:
         self._mirrored = run.mirrored  # what makes the IR mirror, kept past `close`
         self._fits: _core.Fits | None = getattr(run, "fits", None)  # a FITS file's IR and description
         self._hdf5: _core.Hdf5 | None = getattr(run, "hdf5", None)  # an HDF5 input's IR and description
-        self._description: dict[str, Any] | None = None if isinstance(run, StoreParse) else run.description
+        self._envi: _core.Envi | None = getattr(run, "envi", None)  # an ENVI raster's description
+        self._description: dict[str, Any] | None = run.description
         # the profile the run decided, and the version of its convention, as an output's root
         # declares them
         self.profile: str = parse.fmt
@@ -124,8 +125,9 @@ class Parsed:
     def description(self) -> dict[str, Any] | None:
         """The profile's description of the input: what its parser found of the source, as the
         profile's document specifies it (the design of d-v-b/refkv#278, "The description"), a
-        copy the caller may change. None for a profile that has none yet, and for a store. A
-        profile that has one:
+        copy the caller may change. None for a profile that has none yet, and for a store of a
+        format whose parser returns none yet (HDF5 files beside each other). A profile that has
+        one:
 
         - NumPy: `own`, the source metadata
           (spec/zarrify/npy.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#51-the-root>),
@@ -138,11 +140,23 @@ class Parsed:
         - HDF5: every object of the file in canonical order, with its attributes, a group's
           links, and a dataset's datatype, layout, filters, storage, dimension scale structures
           and decoded strings, references and records
-          (spec/zarrify/hdf5.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#87-the-description>).
+          (spec/zarrify/hdf5.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#87-the-description>),
+          of a file read as a file.
         - netCDF3: the file's version, record count and size, header size, dimensions and global
           attributes, and each variable in the header's order with its name, dimensions, type,
           shape, `begin`, `vsize` and attributes, each attribute's value decoded
-          (spec/zarrify/netcdf3.md §7.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#77-the-description>)."""
+          (spec/zarrify/netcdf3.md §7.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#77-the-description>).
+        - ENVI: the header's fields as written and as the profile reads them (`samples`, `lines`,
+          `bands`, `interleave`, the `data_type` code, `byte_order`, `header_offset`,
+          `file_compression`), its comments, the header and data files' keys and sizes, the data's
+          range in the data file and the IR elements of the header file and the data
+          (spec/zarrify/envi.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#87-the-description>).
+        - Zarr v2 (and OME-Zarr, whose stores it reads): each node, by path and kind, with its
+          documents as parsed, and the documents the IR holds
+          (spec/zarrify/zarr2.md §7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#73-the-description>).
+        - Zarr v3, listed or zipped: each candidate's `zarr.json` as parsed, the documents the IR
+          holds, and a zip file's objects and counts
+          (spec/zarrify/zarr3.md §7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#76-the-description>)."""
         return None if self._description is None else json.loads(json.dumps(self._description))
 
     @property

@@ -14,7 +14,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-from refkv.ir.stored import Each, StoredArray
+from refkv.ir.stored import Codec, Each, StoredArray
+from refkv.ir.stored import Value as ParamValue
 
 from .values import Array, Ref, Value, cut
 
@@ -26,17 +27,46 @@ if TYPE_CHECKING:
 __all__ = ["stored_array", "zarr_codecs"]
 
 
-def zarr_codecs(chain: Sequence[Any]) -> list[dict[str, Any]]:
+# the IR's codecs whose encoding a numcodecs codec decodes as it is, by the codec's id
+_NUMCODECS = {"zlib": "zlib", "gzip": "gzip", "bzip2": "bz2", "zstd": "zstd", "blosc": "blosc", "xz": "lzma"}
+# the numcodecs codecs that take bytes to bytes, which may follow `bytes`: compressors and checksums
+_BYTES_TO_BYTES = frozenset({"zlib", "gzip", "bz2", "lzma", "lz4", "zstd", "blosc", "shuffle", "crc32", "crc32c",
+                             "adler32", "fletcher32", "jenkins_lookup3"})
+
+
+def _zarr_codec(codec: Codec) -> dict[str, Any]:
+    """The Zarr v3 codec that undoes one codec of the IR's chain, or ValueError."""
+    params = codec.parameters
+    if codec.name in _NUMCODECS:
+        return {"name": f"numcodecs.{_NUMCODECS[codec.name]}", "configuration": {}}
+    size = params.get("element_size")
+    if codec.name == "shuffle" and isinstance(size, ParamValue):
+        return {"name": "numcodecs.shuffle", "configuration": {"elementsize": size.value}}
+    if codec.name == "source":
+        fmt, cid = (p.value if isinstance(p, ParamValue) else None for p in (params.get("format"), params.get("id")))
+        given = params.get("parameters")
+        conf = given.value if isinstance(given, ParamValue) and isinstance(given.value, dict) else {}
+        # a Zarr profile's codec the IR's list has no name for is the document's own
+        if fmt == "zarr2" and cid in _BYTES_TO_BYTES:
+            return {"name": f"numcodecs.{cid}", "configuration": conf}
+        if fmt == "zarr3" and isinstance(cid, str) and (
+                cid in ("crc32c", "gzip", "zstd", "blosc") or cid.removeprefix("numcodecs.") in _BYTES_TO_BYTES):
+            return {"name": cid, "configuration": conf} if isinstance(given, ParamValue) else {"name": cid}
+        raise ValueError(f"no Zarr codec after bytes for the source codec {cid!r} of {fmt!r}")
+    raise ValueError(f"no Zarr codec yet for the IR's codec {codec.name}")
+
+
+def zarr_codecs(chain: Sequence[Codec]) -> list[dict[str, Any]]:
     """The Zarr v3 bytes-to-bytes codecs that undo the IR's codec chain `chain`
     (spec/stored-array.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#3-codecs>),
     in Zarr's order: the codecs after `bytes` of an array whose units are encoded with it. A chain
-    is in decoding order, a unit's bytes first, so Zarr lists its codecs reversed. ValueError for
-    a codec this does not translate yet: only the empty chain (units stored as they are) is, until
-    the formats whose units are encoded come to read their descriptions."""
-    if chain:
-        names = ", ".join(str(c.name) for c in chain)
-        raise ValueError(f"no Zarr codecs yet for the IR's chain of {names}")
-    return []
+    lists the steps in encoding order, as Zarr lists its codecs. A codec of the list that numcodecs
+    decodes is its numcodecs codec (`zlib`, `gzip`, `bzip2`, `zstd`, `blosc`, `xz`, and `shuffle`
+    of an element size given as a value); a `source` codec of a Zarr profile, a codec of the
+    store's own that takes bytes to bytes, is that codec as the document configures it. ValueError
+    for any other: a Zarr filter or serializer (which takes an array, not bytes), and a codec
+    numcodecs does not have."""
+    return [_zarr_codec(c) for c in chain]
 
 
 def _lengths(axis: object, length: int, short: bool) -> int | list[Any]:

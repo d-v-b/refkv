@@ -556,7 +556,39 @@ something MUST hold and it does not. A node below the root that fails its rules 
 instead ([the convention §3.3](#33-nodes-that-are-not-presented)). The rejection messages of the
 roles are the source model's, [schema/zarr3.json](../../rust/refkv-ir/schema/zarr3.json).
 
-### 7.6 Summary
+### 7.6 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. The
+parser returns, beside the IR, a **description** of the store, listed or zipped: what it found of
+the source, for a projection to read with the IR and its stored arrays
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)), which give each array's chunks. It
+holds none of an output's decisions: which candidates are nodes, which nodes are presented and why
+the others are not ([the convention §3.3](#33-nodes-that-are-not-presented)), an array the zip
+file compresses a chunk of ([§7.4](#74-the-zip-form)), and what the hierarchy writes of each node
+(the attributes moved into the source metadata, [§4](#4-source-metadata)) are the projection's,
+which makes them from the description, and rejects the input where [§7.5](#75-rejection) says. It
+is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `form` | `store` (listed) or `zip` |
+| `profile` | `zarr3` |
+| `candidates` | each candidate ([the convention §2](#2-nodes)), the root first, then by depth and path: `path`, and one of `json`, its `zarr.json` as parsed, as text (its integers and strings as written, its members in order, a repeated key kept); `error`, why it does not parse; or `unread`, why it was not read (empty, too large, or, zipped, of a compression method the profile does not read) |
+| `documents` | the keys of the documents the IR holds ([the convention §4.1](#41-elements)): those of the candidates the classification of [the convention §2](#2-nodes) reaches, in the order of their paths |
+| `ignored` | the keys the listing, or the zip file's names, ignored ([the convention §5](#5-other-objects)); listed, where there are any |
+
+and, zipped, these:
+
+| member | value |
+|---|---|
+| `objects` | each object the zip file stores (method 0) but the documents held: `[key, offset, length]`, its data's offset in the file and its length |
+| `compressed` | each object of a length the zip file compresses: `[key, method]` |
+| `counts` | `entries`, the zip file's entries; `objects`, the store's objects; `superseded`, the entries a later one of the same name supersedes; `emptyObjects`, the objects of no bytes |
+
+Which documents the IR holds follows the classification, so the parser classifies the candidates
+as the projection does, and its mirror follows the profile's.
+
+### 7.7 Summary
 
 This section is informative. Both implementations print a one-line JSON summary, with these
 members:
