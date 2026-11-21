@@ -446,10 +446,9 @@ impl Vsi {
         let header = ir.value(vsi, "header", NO_INDEX, VSI_HEADER_TYPE, 0, (0, 8), Some(&file[..8]))?;
         let mut regions = Vec::new();
         tree::emit(rules, &mut ir, &file, &tree, vsi, "tree", &mut regions)?;
-        let mut strips_of: HashMap<usize, Vec<u32>> = HashMap::new();
         let mut made: HashMap<usize, tiff::Emitted> = HashMap::new();
         for r in &regions {
-            tiff::emit_region(&mut ir, &file, &self.ifds, r.start, r.end, r.parent, &mut strips_of, &mut made)?;
+            tiff::emit_region(&mut ir, &file, &self.ifds, r.start, r.end, r.parent, &mut made)?;
         }
         // each tile file's `ets` element, and its tiles' by index
         let mut tiles_of = Vec::with_capacity(self.files.len());

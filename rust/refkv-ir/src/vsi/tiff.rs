@@ -185,9 +185,9 @@ pub struct Emitted {
 }
 
 /// Emits the IFDs whose bytes lie in the region `[start, end)` under `parent`, and gaps for
-/// what the region has left: (the elements of each IFD's strips, by chain index), and, by chain
-/// index, what the IFD's description reads (`made`).
-pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, parent: u32, strips_of: &mut HashMap<usize, Vec<u32>>, made: &mut HashMap<usize, Emitted>) -> Res<()> {
+/// what the region has left; and, by chain index, what the IFD's description and its image's
+/// stored array read (`made`).
+pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, parent: u32, made: &mut HashMap<usize, Emitted>) -> Res<()> {
     let mut claimed: Vec<(u64, u64)> = Vec::new();
     for ifd in ifds.iter().filter(|f| start <= f.offset && f.end <= end) {
         let s = if ifd.exif {
@@ -266,7 +266,6 @@ pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, pa
                 });
                 let shared = if prefix.is_empty() { None } else { Some(ir.share(&prefix)) };
                 let (plain, framed) = tile_forms(&base, shared);
-                let mut els = Vec::with_capacity(segs.len());
                 for (k, &(so, sn)) in segs.iter().enumerate() {
                     if sn == 0 || so.checked_add(sn).is_none_or(|x| x > b.len() as u64) {
                         units.push(if sn > 0 { Unit::Outside } else if so == 0 { Unit::Absent } else { Unit::Unsized });
@@ -277,16 +276,12 @@ pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, pa
                         _ => plain.as_str(),
                     };
                     let d = ir.data(s, name, k as u64, 0, (so, sn), form)?;
-                    els.push(d);
                     units.push(Unit::Held(d, framed.is_some() && sn > 2));
                     if start <= so && so + sn <= end {
                         claimed.push((so, sn));
                     }
                 }
                 *(if ot == 273 { &mut read.strips } else { &mut read.tiles }) = Some(Some(units));
-                if ot == 273 || !els.is_empty() {
-                    strips_of.entry(ifd.index).or_default().extend(els);
-                }
             }
             made.entry(ifd.index).or_insert(read);
         }
