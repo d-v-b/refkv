@@ -577,7 +577,8 @@ A storage is null where no descriptor describes the element, else an object with
 | `external` | none |
 | `special` | `code`, the special element's code |
 
-Reading the chunk tables of every chunked dataset, whatever the projection makes of it, the parser
-rejects a file whose table's records are not a chunk's, that places more chunks than the budget, a
-chunk outside its grid or two at one place, or a chunk no descriptor describes, as [§9.3](#93-checks)
-says.
+The parser reads what the description gives of every object, whatever a projection makes of it:
+every Vdata's records' storage, following its linked blocks, and every chunked dataset's chunk table
+and chunks. So the checks of [§9.3](#93-checks) on linked blocks, compressed elements and chunk tables
+apply to each of them, and a broken one rejects the file even where the convention does not present
+the object it belongs to.

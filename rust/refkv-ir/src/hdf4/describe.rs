@@ -5,7 +5,7 @@
 //! with its number type, dimension record and how its data is stored, a chunked element's chunks
 //! listed. It holds none of an output's decisions.
 
-use super::{bad, text_json, vars_of, Acc, Fail, Pass, Rd, Special, Stored, Vg, Vh, ATTRIBUTE, NDG, NT, R, SD, SDD, VERSION, VS};
+use super::{bad, text_json, vars_of, Acc, ChunkedHeader, Fail, Pass, Rd, Special, Stored, Vg, Vh, ATTRIBUTE, NDG, NT, R, SD, SDD, VERSION, VS};
 use crate::hdf5::file::hex;
 use serde_json::{json, Value as J};
 use std::collections::{BTreeMap, HashSet};
@@ -22,7 +22,7 @@ pub(super) fn description(p: &mut Pass, vgs: &BTreeMap<u16, Vg>, vhs: &BTreeMap<
     let mut vdatas = Vec::with_capacity(vhs.len());
     let mut acc = Acc::default();
     for (&r, h) in vhs {
-        if let Some(d) = acc.take(vdata(p, r, h)) {
+        if let Some(d) = acc.take(vdata(p, r, h, vhs)) {
             vdatas.push(d);
         }
         if acc.stopped() {
@@ -52,7 +52,7 @@ pub(super) fn description(p: &mut Pass, vgs: &BTreeMap<u16, Vg>, vhs: &BTreeMap<
                 None => J::Null,
             };
             let data = match var.sd {
-                Some(r) => storage(p, SD, r)?,
+                Some(r) => storage(p, SD, r, vhs)?,
                 None => J::Null,
             };
             Ok(json!({
@@ -92,7 +92,7 @@ pub(super) fn description(p: &mut Pass, vgs: &BTreeMap<u16, Vg>, vhs: &BTreeMap<
 
 /// The Vdata of ref `r`, header `h`: its header's fields and its records' storage; of an attribute
 /// (class `Attr0.0`), the bytes of its value and the value decoded, where the profile reads them.
-fn vdata(p: &mut Pass, r: u16, h: &Vh) -> R<J> {
+fn vdata(p: &mut Pass, r: u16, h: &Vh, vhs: &BTreeMap<u16, Vh>) -> R<J> {
     let fields: Vec<J> = h.fields.iter().map(|(name, ty, isize, offset, order)| {
         json!({"name": text_json(name), "type": ty, "size": isize, "offset": offset, "order": order})
     }).collect();
@@ -100,7 +100,7 @@ fn vdata(p: &mut Pass, r: u16, h: &Vh) -> R<J> {
         "ref": r, "name": text_json(&h.name), "class": text_json(&h.class), "version": h.version,
         "interlace": h.interlace, "records": h.nvert, "record_size": h.ivsize, "fields": fields,
         "attributes": h.attrs.iter().map(|a| json!([a.0, a.1, a.2])).collect::<Vec<_>>(),
-        "data": storage(p, VS, r)?,
+        "data": storage(p, VS, r, vhs)?,
     });
     if h.class == ATTRIBUTE
         && let Some((bytes, value)) = attribute_value(p, r, h)?
@@ -141,20 +141,20 @@ fn attribute_value(p: &mut Pass, r: u16, h: &Vh) -> R<Option<(Vec<u8>, J)>> {
 
 /// How the element `tag` `rf` is stored, as the description gives it: null where no descriptor
 /// describes it.
-fn storage(p: &mut Pass, tag: u16, rf: u16) -> R<J> {
+fn storage(p: &mut Pass, tag: u16, rf: u16, vhs: &BTreeMap<u16, Vh>) -> R<J> {
     let plain = p.by.contains_key(&(tag, rf));
     let st = p.stored(tag, rf)?;
-    stored_json(p, st, !plain, true)
+    stored_json(p, st, !plain, true, vhs)
 }
 
-fn stored_json(p: &mut Pass, st: Stored, linked: bool, chunks: bool) -> R<J> {
+fn stored_json(p: &mut Pass, st: Stored, linked: bool, chunks: bool, vhs: &BTreeMap<u16, Vh>) -> R<J> {
     Ok(match st {
         Stored::None => J::Null,
         Stored::Plain(l) => json!({"kind": "plain", "length": l.len, "linked": linked, "segments": l.json()}),
         Stored::Compressed { length, method, model, data } => {
             json!({"kind": "compressed", "length": length, "method": method, "model": model, "segments": data.json()})
         }
-        Stored::Chunked(i) if chunks => chunked(p, i)?,
+        Stored::Chunked(i) if chunks => chunked(p, i, vhs)?,
         Stored::Chunked(_) => json!({"kind": "chunked"}),
         Stored::External => json!({"kind": "external"}),
         Stored::Other(code) => json!({"kind": "special", "code": code}),
@@ -162,18 +162,40 @@ fn stored_json(p: &mut Pass, st: Stored, linked: bool, chunks: bool) -> R<J> {
 }
 
 /// A chunked element `i`: its header (its length, chunk table, dimensions and fill value) and every
-/// chunk its table places, each its coordinates in the grid and how it is stored. A table whose
-/// records are not a chunk's, more than the budget, a chunk outside the grid or placed twice, or one
-/// no descriptor describes, rejects the file.
-fn chunked(p: &mut Pass, i: usize) -> R<J> {
+/// chunk its table places, each its coordinates in the grid and how it is stored.
+fn chunked(p: &mut Pass, i: usize, vhs: &BTreeMap<u16, Vh>) -> R<J> {
     let Special::Chunked(h) = p.special(i)? else { return Err(Fail::Bad("internal: a chunked element's header is not one".into())) };
     let what = p.what(i);
     let dims: Vec<J> = h.dims.iter().map(|d| json!({"flag": d.0, "length": d.1, "chunk": d.2})).collect();
+    let mut chunks = Vec::new();
+    let mut acc = Acc::default();
+    for (at, ct, cr) in chunk_rows(p, i, &h, vhs)? {
+        let plain = p.by.contains_key(&(ct, cr));
+        let Some(st) = acc.take(p.stored(ct, cr)) else {
+            if acc.stopped() {
+                break;
+            }
+            continue;
+        };
+        if matches!(st, Stored::None) {
+            return bad(format!("the chunk at {at:?} of {what} names tag {ct} ref {cr}, which no descriptor describes"));
+        }
+        chunks.push(json!({"at": at, "tag": ct, "ref": cr, "data": stored_json(p, st, !plain, false, vhs)?}));
+    }
+    acc.done()?;
+    Ok(json!({"kind": "chunked", "length": h.length, "table": h.table, "dimensions": dims, "fill": hex(&h.fill), "chunks": chunks}))
+}
+
+/// The rows of the chunk table of the chunked element `i` (header `h`): each chunk's coordinates in
+/// the grid and its element's tag and ref. A chunk length of 0, a table whose records are not a
+/// chunk's, more than the budget, a chunk outside the grid or placed twice rejects the file.
+pub(super) fn chunk_rows(p: &mut Pass, i: usize, h: &ChunkedHeader, vhs: &BTreeMap<u16, Vh>) -> R<Vec<(Vec<u64>, u16, u16)>> {
+    let what = p.what(i);
     if h.dims.iter().any(|d| d.2 == 0) {
         return bad(format!("the chunked element {what} has a chunk length of 0"));
     }
     let grid: Vec<u64> = h.dims.iter().map(|d| d.1.div_ceil(d.2)).collect();
-    let Some(vh) = p_vh(p, h.table)? else {
+    let Some(vh) = vhs.get(&h.table) else {
         return bad(format!("the chunk table ref {} of {what} has no Vdata header", h.table));
     };
     let rank = h.dims.len();
@@ -194,8 +216,7 @@ fn chunked(p: &mut Pass, i: usize) -> R<J> {
         _ => return bad(format!("the chunk table ref {} of {what} holds fewer than its {rows} records", h.table)),
     };
     let mut seen = HashSet::new();
-    let mut chunks = Vec::with_capacity(rows as usize);
-    let mut acc = Acc::default();
+    let mut out = Vec::with_capacity(rows as usize);
     for k in 0..rows as usize {
         let mut r = Rd::new(&table[k * record as usize..(k + 1) * record as usize]);
         let at: Vec<u64> = (0..rank).map(|_| r.u32().unwrap_or(0) as u64).collect();
@@ -206,25 +227,7 @@ fn chunked(p: &mut Pass, i: usize) -> R<J> {
         if !seen.insert(at.clone()) {
             return bad(format!("the chunk table of {what} places two chunks at {at:?}"));
         }
-        let plain = p.by.contains_key(&(ct, cr));
-        let Some(st) = acc.take(p.stored(ct, cr)) else {
-            if acc.stopped() {
-                break;
-            }
-            continue;
-        };
-        if matches!(st, Stored::None) {
-            return bad(format!("the chunk at {at:?} of {what} names tag {ct} ref {cr}, which no descriptor describes"));
-        }
-        chunks.push(json!({"at": at, "tag": ct, "ref": cr, "data": stored_json(p, st, !plain, false)?}));
+        out.push((at, ct, cr));
     }
-    acc.done()?;
-    Ok(json!({"kind": "chunked", "length": h.length, "table": h.table, "dimensions": dims, "fill": hex(&h.fill), "chunks": chunks}))
-}
-
-/// The Vdata header of ref `r`, parsed from its element, or None where no descriptor describes it.
-fn p_vh(p: &mut Pass, r: u16) -> R<Option<Vh>> {
-    let Some(&i) = p.by.get(&(super::VH, r)) else { return Ok(None) };
-    let b = p.header(i)?;
-    Ok(super::parse_vh(&b))
+    Ok(out)
 }

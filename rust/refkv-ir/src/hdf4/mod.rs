@@ -1589,50 +1589,16 @@ impl Hdf4 {
             return Ok(Err("dimensions"));
         }
         let chunk: Vec<u64> = h.dims.iter().map(|d| d.2).collect();
-        if chunk.contains(&0) {
-            return bad(format!("the chunked element {what} has a chunk length of 0"));
-        }
-        let grid: Vec<u64> = h.dims.iter().map(|d| d.1.div_ceil(d.2)).collect();
         let Some(chunk_bytes) = chunk.iter().try_fold(item, |a, &v| a.checked_mul(v)) else { return Ok(Err("size")) };
-        let Some(vh) = vhs.get(&h.table) else {
-            return bad(format!("the chunk table ref {} of {what} has no Vdata header", h.table));
-        };
-        let rank = shape.len();
-        let record = 4 * rank as u64 + 4;
-        if vh.ivsize as u64 != record {
-            return bad(format!("the chunk table ref {} of {what} has records of {} bytes, not {record}", h.table, vh.ivsize));
-        }
-        let rows = vh.nvert as u64;
-        if rows > p.limit("max_chunks") {
-            return bad(format!("budget: the chunk table ref {} of {what} has more than {} chunks", h.table, p.limit("max_chunks")));
-        }
-        if rows * record > p.limit("chunk_table_bytes") {
-            return bad(format!("budget: the chunk table ref {} of {what} is more than {} bytes", h.table, p.limit("chunk_table_bytes")));
-        }
-        let table = match p.stored(VS, h.table)? {
-            Stored::Plain(l) if l.len >= rows * record => p.read(&l.prefix(rows * record))?,
-            Stored::None if rows == 0 => Vec::new(),
-            _ => return bad(format!("the chunk table ref {} of {what} holds fewer than its {rows} records", h.table)),
-        };
-        let mut seen = HashSet::new();
         let mut chunks = Vec::new();
         let mut method: Option<Option<u16>> = None;
         let mut acc = Acc::default();
         let mut mixed = false;
         // the chunks the description places, and whether it places every one
         let (mut placed, mut every) = (Vec::new(), true);
-        for k in 0..rows as usize {
-            let mut r = Rd::new(&table[k * record as usize..(k + 1) * record as usize]);
-            let at: Vec<u64> = (0..rank).map(|_| r.u32().unwrap_or(0) as u64).collect();
+        for (at, ct, cr) in describe::chunk_rows(p, i, h, vhs)? {
             // a chunk of the unlimited axis past the records lies outside the array
             let outside = at.iter().zip(&chunk).zip(shape).any(|((a, c), s)| a * c >= *s);
-            let (ct, cr) = (r.u16().unwrap_or(0), r.u16().unwrap_or(0));
-            if at.iter().zip(&grid).any(|(a, g)| a >= g) {
-                return bad(format!("the chunk table of {what} places a chunk at {at:?}, outside its grid {grid:?}"));
-            }
-            if !seen.insert(at.clone()) {
-                return bad(format!("the chunk table of {what} places two chunks at {at:?}"));
-            }
             let Some(st) = acc.take(p.stored(ct, cr)) else {
                 if acc.stopped() {
                     break;
