@@ -457,7 +457,7 @@ impl Xlef {
             // `declared_by`: the key of each image's stored array, the LOF's XML, by its id in the
             // store (spec/stored-array.md §2.1
             // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>)
-            for im in description["images"].as_array_mut().into_iter().flatten() {
+            for im in description["images"].as_array_mut().into_iter().flatten().filter(|im| !im["declared_by"].is_null()) {
                 let key = im["declared_by"][0].as_u64().and_then(|k| at.get(k as usize));
                 im["declared_by"][0] = json!(key.ok_or("internal: a LOF's image names no element of its XML")?);
             }

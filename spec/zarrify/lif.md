@@ -869,7 +869,7 @@ An image is an object:
 | `dimensions`, `channels` | each `DimensionDescription`'s and each `ChannelDescription`'s attributes ([§2.4](#24-dimensions-and-channels)), in document order, as the XML writes them |
 | `tile_scan` | its first `Attachment` named `TileScanInfo` ([§4.4](#44-mosaics)): `attributes`, the attachment's, and `tiles`, each child `Tile`'s; null without one |
 | `block` | the first memory block of the ID its `MemoryBlockID` names (of a LOF, the file's one block), an index into `blocks`; null when the file holds none |
-| `declared_by` | the key of its stored array ([spec/stored-array.md §2.1](../stored-array.md#21-keys)): the IR element of the XML that declares it, and its index among the images |
+| `declared_by` | the key of its stored array ([spec/stored-array.md §2.1](../stored-array.md#21-keys)): the IR element of the XML that declares it, and its index among the images; null of an image that has none (below), which the plan rejects |
 
 Attribute values are text, with references decoded; of a repeated name, the first.
 

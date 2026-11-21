@@ -89,7 +89,12 @@
           ]
         },
         "block": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/uint"}]},
-        "declared_by": {"type": "array", "prefixItems": [{"$ref": "#/$defs/uint"}, {"$ref": "#/$defs/uint"}], "minItems": 2, "maxItems": 2}
+        "declared_by": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "array", "prefixItems": [{"$ref": "#/$defs/uint"}, {"$ref": "#/$defs/uint"}], "minItems": 2, "maxItems": 2}
+          ]
+        }
       },
       "required": ["name", "path", "parent", "attributes", "memory", "dimensions", "channels", "tile_scan", "block", "declared_by"],
       "additionalProperties": false

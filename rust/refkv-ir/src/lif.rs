@@ -765,8 +765,10 @@ impl Lif {
             return Ok((ir, facts));
         };
         let key = stored::declaring(&ir).ok_or("internal: no element holds the XML of the images")?;
+        // null of an image with no stored array, which refkv's plan rejects
+        let arrays: std::collections::HashSet<usize> = self.reached.iter().map(|r| r.0).collect();
         for (k, im) in images.iter_mut().enumerate() {
-            im["declared_by"] = json!([key, k]);
+            im["declared_by"] = if arrays.contains(&k) { json!([key, k]) } else { J::Null };
         }
         // the chunk map's limit, of the file (spec/stored-array.md §6
         // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>)

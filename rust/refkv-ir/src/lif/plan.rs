@@ -150,6 +150,13 @@ fn images(d: &J, offset: u64) -> Result<(Vec<J>, u64), String> {
     let size = n(&d["size"]);
     let blocks = arr(&d["blocks"]);
     let mut named: Vec<Option<usize>> = vec![None; blocks.len()];
+    // the blocks of each ID, in the file's order (a null ID names no block)
+    let mut by_id: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (i, b) in blocks.iter().enumerate() {
+        if let Some(id) = b["id"].as_str() {
+            by_id.entry(id).or_default().push(i);
+        }
+    }
     let mut out = Vec::new();
     let mut series = 0u64;
     for (k, j) in arr(&d["images"]).iter().enumerate() {
@@ -158,11 +165,7 @@ fn images(d: &J, offset: u64) -> Result<(Vec<J>, u64), String> {
         let mut f = image(rules, k, &shown, &im, lof, size)?;
         // a LOF's one block has no ID: its XML's MemoryBlockID, if it has one, names nothing
         let id = if lof { "of the LOF".to_string() } else { im.memory.clone().unwrap_or_default() };
-        let found: Vec<usize> = if lof {
-            vec![0]
-        } else {
-            blocks.iter().enumerate().filter(|(_, b)| b["id"].as_str() == Some(id.as_str())).map(|(i, _)| i).collect()
-        };
+        let found: &[usize] = if lof { &[0] } else { by_id.get(id.as_str()).map_or(&[], Vec::as_slice) };
         let block = found.first().copied();
         let other = block.and_then(|b| named[b]);
         let held = block.map_or(0, |b| n(&blocks[b]["size"]));
