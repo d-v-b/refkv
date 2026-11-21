@@ -538,13 +538,11 @@ fn data_file(rules: &Rules, d: &[u8], header_key: &str) -> Res<String> {
 /// Each axis's place in the image (spec/zarrify/nrrd.md §4.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#41-the-array>), in the header's
 /// axis order (fastest first): `x`, `y` and `z` for the spatial axes in that order, `t` and `c`.
-pub fn axes(rules: &Rules, f: &Fields) -> Res<Vec<&'static str>> {
-    let roles: Vec<&str> = (0..f.dimension)
-        .map(|i| match f.kinds.as_ref().and_then(|k| rules.entry("kinds", &k[i])).and_then(J::as_str).unwrap_or("unknown") {
-            "unknown" => match &f.directions {
-                Some(d) if d[i].is_none() => "channel",
-                _ => "space",
-            },
+pub fn axes(rules: &Rules, dimension: usize, kinds: Option<&[String]>, none_direction: impl Fn(usize) -> bool) -> Res<Vec<&'static str>> {
+    let roles: Vec<&str> = (0..dimension)
+        .map(|i| match kinds.and_then(|k| rules.entry("kinds", &k[i])).and_then(J::as_str).unwrap_or("unknown") {
+            "unknown" if none_direction(i) => "channel",
+            "unknown" => "space",
             k => k,
         })
         .collect();
@@ -581,7 +579,6 @@ pub struct Nrrd {
     head: Vec<u8>,
     header: Option<Header>,
     fields: Option<Fields>,
-    axes: Vec<&'static str>,
     /// the data's object (0: the header file), where the data may start in it (past the
     /// header and the lines line skip passes over), and the data's extent
     data: usize,
@@ -598,7 +595,6 @@ pub struct Nrrd {
     asked: Vec<(usize, u64, u64)>,
     got: std::collections::HashMap<(usize, u64, u64), Vec<u8>>,
     batches: u64,
-    copy_threshold: usize,
 }
 
 impl Nrrd {
@@ -616,7 +612,6 @@ impl Nrrd {
             head: Vec::new(),
             header: None,
             fields: None,
-            axes: Vec::new(),
             data: 0,
             base: 0,
             start: 0,
@@ -630,7 +625,6 @@ impl Nrrd {
             asked: Vec::new(),
             got: Default::default(),
             batches: 0,
-            copy_threshold: crate::out::copy_threshold(),
         })
     }
 
@@ -675,7 +669,9 @@ impl Nrrd {
         let blank = header_end(&self.head).is_some();
         self.rules.check("attached", rules::env([("detached", flag(h.field("data file").is_some())), ("blank", flag(blank))]))?;
         let f = fields(self.rules, &h, &self.keys[0].0)?;
-        self.axes = axes(self.rules, &f)?;
+        // the axes' roles are checked here; the projection names the axes (§4.1
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#41-the-array>)
+        axes(self.rules, f.dimension, f.kinds.as_deref(), |i| f.directions.as_ref().is_some_and(|d| d[i].is_none()))?;
         let probe = f.data_file.clone();
         self.base = if probe.is_some() { 0 } else { end as u64 };
         self.header = Some(h);
@@ -824,29 +820,12 @@ impl Nrrd {
             "data": {"offset": self.start, "bytes": self.length},
             "elements": {"header_file": self.elems[0], "lines": lines, "data_file": self.elems[self.data], "data": data},
         });
-        Ok(json!({
-            "description": description,
-            "header_key": self.keys[0].0,
-            "data_key": self.keys[self.data].0,
-            "own": own(&h, &f, &self.axes, (self.data != 0).then(|| self.keys[self.data].0.as_str())),
-            "array": {
-                // `declared_by`: the header file's object, the key of the array's description
-                "declared_by": self.elems[0],
-                "data_type": f.data_type, "item": f.item, "encoding": f.encoding, "byte_skip": f.byte_skip,
-                "endian": f.little.map(|l| if l { "little" } else { "big" }),
-                "sizes": f.sizes, "axes": self.axes, "start": self.start, "length": self.length,
-                "directions": f.directions.as_ref().map(|d| d.iter().map(|v| v.as_deref().map(finite)).collect::<Vec<_>>()),
-                "origin": f.origin.as_deref().map(finite),
-                "space_units": f.space_units.as_deref().map(texts),
-                "spacings": f.spacings.as_deref().map(finite),
-                "units": f.units.as_deref().map(texts),
-                "kinds": f.kinds,
-                "min": f.min.filter(|x| x.is_finite()), "max": f.max.filter(|x| x.is_finite()),
-            },
-            "copy_threshold": self.copy_threshold,
-            "copied": self.copied.iter().map(|(o, b)| json!([o, b])).collect::<Vec<_>>(),
-            "counts": {"batches": self.batches},
-        }))
+        // the description (§8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#87-the-description>),
+        // with the edge chunks the run read for the projection and the run's counts, which it leaves out
+        let mut facts = description;
+        facts["copied"] = self.copied.iter().map(|(o, b)| json!([o, b])).collect::<Vec<_>>().into();
+        facts["counts"] = json!({"batches": self.batches});
+        Ok(facts)
     }
 
     fn advance(&mut self) -> Res<StoreStep> {
@@ -907,7 +886,7 @@ impl Nrrd {
                         self.rules.check("gzip", rules::env([("ok", flag(b == [0x1f, 0x8b, 8])), ("start", num(self.start as f64)), ("key", text(&key))]))?;
                     } else {
                         let item = self.fields.as_ref().map_or(1, |f| f.item);
-                        let (_, chunks) = grid_chunks(self.start, &self.stored_shape(), item, CHUNK_BYTES, self.copy_threshold)
+                        let (_, chunks) = grid_chunks(self.start, &self.stored_shape(), item, CHUNK_BYTES, crate::out::copy_threshold())
                             .ok_or("internal: the data cannot be cut into chunks")?;
                         self.copies = chunks.iter().filter_map(|(_, c)| match c {
                             Chunk::Copy(o, n, _) => Some((*o, *n)),
@@ -951,27 +930,6 @@ fn key_values(h: &Header) -> J {
         pairs.entry(shown(k)).or_insert_with(|| text_json(v));
     }
     J::Object(pairs)
-}
-
-/// The root's source metadata (spec/zarrify/nrrd.md §5.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#51-the-root>), but `orientation`,
-/// which the projection adds.
-fn own(h: &Header, f: &Fields, axes: &[&str], data_file: Option<&str>) -> J {
-    let mut m = Map::new();
-    m.insert("magic".into(), json!(h.magic));
-    m.insert("fields".into(), J::Object(h.fields.iter().map(|(k, v)| (k.clone(), text_json(v))).collect()));
-    m.insert("key_values".into(), key_values(h));
-    m.insert("comments".into(), J::Array(h.comments.iter().map(|c| text_json(c)).collect()));
-    m.insert("data_type".into(), json!(f.data_type));
-    m.insert("encoding".into(), json!(f.encoding));
-    if let Some(l) = f.little {
-        m.insert("byte_order".into(), json!(if l { "little" } else { "big" }));
-    }
-    m.insert("axes".into(), json!(axes));
-    if let Some(k) = data_file {
-        m.insert("data_file".into(), json!(k));
-    }
-    J::Object(m)
 }
 
 impl StoreParser for Nrrd {
@@ -1031,10 +989,11 @@ impl crate::run::FileProfile for Profile {
     fn project(&self, _: &Ir, _: &J, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
         Err("a NRRD input is zarrified as a store run".into())
     }
-    /// The store run's description of the input, beside its projection's facts (§8.7
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#87-the-description>).
-    fn store_description(&self, facts: &J) -> Option<J> {
-        facts.get("description").cloned()
+    /// The store run returns the description of the input (§8.7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#87-the-description>), with the
+    /// edge chunks it read and its counts.
+    fn store_described(&self) -> bool {
+        true
     }
 }
 
