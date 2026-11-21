@@ -98,6 +98,7 @@ class Parsed:
         self._mirrored = run.mirrored  # what makes the IR mirror, kept past `close`
         self._fits: _core.Fits | None = getattr(run, "fits", None)  # a FITS file's IR and description
         self._hdf5: _core.Hdf5 | None = getattr(run, "hdf5", None)  # an HDF5 input's IR and description
+        self._envi: _core.Envi | None = getattr(run, "envi", None)  # an ENVI raster's description
         self._description: dict[str, Any] | None = run.description
         # the profile the run decided, and the version of its convention, as an output's root
         # declares them
