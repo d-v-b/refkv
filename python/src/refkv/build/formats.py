@@ -101,11 +101,22 @@ class Hdf5Hierarchy:
                 return Zeros(p[2]) if not held.strip(b"\0") else Shared(held)
             return Ref(parsed, 0, p[0], p[1])
 
-        self._chunks: dict[str, bytes | Value] = {k: v for k, v in entries if k.rpartition("/")[2] != "zarr.json"}
-        self._chunks.update({k: Value(tuple(part(p) for p in parts)) for k, parts in refs})
+        chunks: dict[str, bytes | Value] = {k: v for k, v in entries if k.rpartition("/")[2] != "zarr.json"}
+        chunks.update({k: Value(tuple(part(p) for p in parts)) for k, parts in refs})
         for key, offset, length, pad in copies:
             copied = Copy(Ref(parsed, 0, offset, length))
-            self._chunks[key] = Value((copied, Zeros(pad)) if pad else (copied,))
+            chunks[key] = Value((copied, Zeros(pad)) if pad else (copied,))
+        # each array's chunks, by key relative to it, filed once: a chunk's key is its array's path,
+        # then `c` (a node may be named `c` too, so the path is the one that names an array)
+        arrays = {path for path, node in self._nodes.items() if "array" in node}
+        self._chunks: dict[str, dict[str, bytes | Value]] = {path: {} for path in arrays}
+        for key, value in chunks.items():
+            segments = key.split("/")
+            for i, segment in enumerate(segments):
+                path = "/".join(segments[:i])
+                if segment == "c" and path in arrays:
+                    self._chunks[path]["/".join(segments[i:])] = value
+                    break
 
     def nodes(self) -> list[str]:
         """The paths of the nodes the convention presents, the root's `""` first: the file's in
@@ -164,10 +175,7 @@ class Hdf5Hierarchy:
         if self.node_type(path) != "array":
             raise KeyError(path)
         prefix = f"{path}/" if path else ""
-        doc = self.document(f"{prefix}zarr.json")
-        chunks = {k.removeprefix(prefix): v for k, v in self._chunks.items()
-                  if k.startswith(f"{prefix}c") and k.removeprefix(prefix).partition("/")[0] == "c"}
-        return doc, chunks
+        return self.document(f"{prefix}zarr.json"), dict(self._chunks[path])
 
 
 def hdf5_hierarchy(parsed: Parsed) -> Hdf5Hierarchy:

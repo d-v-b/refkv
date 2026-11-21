@@ -8,6 +8,7 @@ import json
 import re
 from pathlib import Path
 
+import h5py
 import numpy as np
 import pytest
 
@@ -197,3 +198,18 @@ def test_hdf5_hierarchy_refuses_a_path_that_is_no_array():
             hierarchy.element("")
         with pytest.raises(KeyError):
             hierarchy.array_entries("")
+
+
+def test_hdf5_hierarchy_files_each_chunk_under_its_array_whatever_its_nodes_are_named(tmp_path):
+    """A group and arrays named `c`, the segment a chunk key starts with: each array's chunks are
+    its own, as refkv's own output holds them."""
+    path = tmp_path / "c.h5"
+    with h5py.File(path, "w") as f:
+        f["c/c"] = np.arange(6, dtype="<i4")
+        f["c/x"] = np.arange(4, dtype="<i2")
+        f["x"] = np.arange(3, dtype="<i8")
+    with read(str(path)) as parsed:
+        hierarchy, pr = hdf5_hierarchy(parsed), project(parsed)
+        for node in ("c/c", "c/x", "x"):
+            chunks = hierarchy.array_entries(node)[1]
+            assert chunks.keys() == pr.array_entries(node)[1].keys() != set(), node
