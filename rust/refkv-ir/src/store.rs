@@ -105,17 +105,12 @@ impl StoreFormat {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#73-the-description>) and Zarr
     /// v3 (spec/zarrify/zarr3.md §7.6
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#76-the-description>), which
-    /// have no file profile of their own or whose file profile is the zip form's. A profile whose
-    /// store run returns its description beside its projection's facts says where it is
-    /// (`run::FileProfile::store_description`), as VSI's does (spec/zarrify/vsi.md §9.6
+    /// have no file profile of their own or whose file profile is the zip form's, and VSI's
+    /// (spec/zarrify/vsi.md §9.6
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#96-the-description>).
     pub fn description(self, facts: &J) -> Option<J> {
         let zarr = matches!(self, StoreFormat::Zarr2 | StoreFormat::Zarr3);
-        let profile = crate::run::Format::from_name(self.name()).map(|f| f.profile());
-        if let Some(d) = profile.and_then(|p| p.store_description(facts)) {
-            return Some(d);
-        }
-        if !zarr && !profile.is_some_and(|p| p.store_described()) {
+        if !zarr && !crate::run::Format::from_name(self.name()).is_some_and(|f| f.profile().store_described()) {
             return None;
         }
         let mut description = facts.clone();

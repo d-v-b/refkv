@@ -17,13 +17,13 @@
 
 mod describe;
 pub mod ets;
+pub mod plan;
 mod stored;
 pub mod tiff;
 pub mod tree;
 
 use crate::fed::Word;
 use crate::ir::{Ir, NO_INDEX, Res, key_name};
-use crate::out::{MAX_PAYLOAD, payload_size};
 use crate::rules::{self, Rules, flag, num, text};
 use crate::store::{StoreParser, StoreStep};
 use serde_json::{Value as J, json};
@@ -87,17 +87,6 @@ enum Phase {
     Done,
 }
 
-/// A channel of a stack (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#42-channels>).
-#[derive(Clone, Debug, Default)]
-struct Channel {
-    /// the dimension name (the dye), else the channel name (the optical path)
-    name: Option<String>,
-    channel_name: Option<String>,
-    color: Option<String>,
-    display: Option<(f64, f64)>,
-    wavelength: Option<f64>,
-}
-
 /// A dimension of a stack beyond x and y: its coordinate index in a tile record, and its
 /// meaning (`z`, `t`, `c`, or the code's name).
 #[derive(Clone, Debug)]
@@ -106,27 +95,17 @@ struct Dim {
     meaning: String,
 }
 
+/// A stack, as the parser checks it and describes its arrays (§2.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#22-stacks>); the rest of its fields
+/// are the description's (`described`).
 #[derive(Clone, Debug, Default)]
 struct Stack {
     id: u32,
     name: String,
-    stack_type: Option<i64>,
     external: bool,
     width: Option<u64>,
     height: Option<u64>,
-    dimension_sizes: Vec<i64>,
     dims: Vec<Dim>,
-    default_ifd: Option<usize>,
-    coarse_ifd: Option<usize>,
-    scale: Option<(f64, f64)>,
-    unit: Option<String>,
-    origin: Option<(f64, f64)>,
-    z_step: Option<f64>,
-    z_unit: Option<String>,
-    display: Option<(f64, f64)>,
-    channels: Vec<Channel>,
-    creation_time: Option<i64>,
-    magnification: Option<f64>,
     /// the tile file's directory key, and the index of its file in `ets` once found
     dir: String,
     file: Option<usize>,
@@ -252,7 +231,6 @@ impl Vsi {
         for f in coll.fields.iter().filter(|f| f.tag == MULTIDIM_IMAGE_VOLUME && f.kind == Kind::Volume) {
             let Some(sc) = f.child() else { continue };
             let mut s = Stack { id: f.tag2.unwrap_or(0), ..Default::default() };
-            s.dimension_sizes = tree::numbers_of(rules, b, sc, DIMENSION_SIZE).unwrap_or_default().iter().map(|v| *v as i64).collect();
             // the description's fields (`describe`): each the first value field of its tag, as read
             let value = |c: Option<&Container>, tag: u32| c.and_then(|c| tree::value_of(rules, b, c, tag)).unwrap_or(J::Null);
             let fc = sc.volume(IMAGE_FRAME_VOLUME);
@@ -271,37 +249,26 @@ impl Vsi {
                 "creation_time": value(pc, CREATION_TIME),
                 "magnification": pc.and_then(|pc| find_value(rules, b, pc, OBJECTIVE_MAG)),
             });
-            let mut described_dims = Vec::new();
-            let mut z_increment = J::Null;
-            let mut described_channels = Vec::new();
-            if let Some(fc) = fc {
-                if let Some(xp) = fc.volume(EXTERNAL_FILE_PROPERTIES) {
-                    if let Some(v) = tree::numbers_of(rules, b, xp, IMAGE_BOUNDARY).filter(|v| v.len() >= 4) {
-                        s.width = Some(v[2].max(0.0) as u64);
-                        s.height = Some(v[3].max(0.0) as u64);
-                    }
-                    s.external = tree::number_of(rules, b, xp, HAS_EXTERNAL_FILE).is_some_and(|v| v != 0.0);
+            if let Some(xp) = xp {
+                if let Some(v) = tree::numbers_of(rules, b, xp, IMAGE_BOUNDARY).filter(|v| v.len() >= 4) {
+                    s.width = Some(v[2].max(0.0) as u64);
+                    s.height = Some(v[3].max(0.0) as u64);
                 }
-                s.default_ifd = fc.fields.iter().find(|x| x.tag == DEFAULT_SAMPLE_IFD && x.kind == Kind::TiffIfd).and_then(|x| x.tag2).map(|x| x as usize);
-                s.coarse_ifd = fc.fields.iter().find(|x| x.tag == COARSE_FRAME_IFD && x.kind == Kind::TiffIfd).and_then(|x| x.tag2).map(|x| x as usize);
+                s.external = tree::number_of(rules, b, xp, HAS_EXTERNAL_FILE).is_some_and(|v| v != 0.0);
             }
-            if let Some(pc) = sc.volume(MULTIDIM_STACK_PROPERTIES) {
+            if let Some(pc) = pc {
                 s.name = tree::text_of(rules, b, pc, STACK_NAME).unwrap_or_default();
-                s.stack_type = tree::number_of(rules, b, pc, STACK_TYPE).map(|v| v as i64);
-                s.scale = tree::numbers_of(rules, b, pc, RWC_FRAME_SCALE).filter(|v| v.len() >= 2).map(|v| (v[0], v[1]));
-                s.origin = tree::numbers_of(rules, b, pc, RWC_FRAME_ORIGIN).filter(|v| v.len() >= 2).map(|v| (v[0], v[1]));
-                s.unit = tree::text_of(rules, b, pc, RWC_FRAME_UNIT);
-                s.display = tree::numbers_of(rules, b, pc, DISPLAY_LIMITS).filter(|v| v.len() >= 2).map(|v| (v[0], v[1]));
-                s.creation_time = tree::number_of(rules, b, pc, CREATION_TIME).map(|v| v as i64);
-                s.magnification = find_number(rules, b, pc, OBJECTIVE_MAG);
             }
             // the dimensions (§2.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#22-stacks>): the description volumes, by their second tag
+            let mut dims = Vec::new();
+            let mut z_increment = J::Null;
+            let mut channels = Vec::new();
             for d in sc.fields.iter().filter(|x| x.tag == DIMENSION_DESCRIPTION_VOLUME && x.kind == Kind::Volume) {
                 let Some(dc) = d.child() else { continue };
                 let index = d.tag2.unwrap_or(0) as usize;
                 let psets: Vec<&Container> = dc.fields.iter().filter(|x| x.tag == CHANNEL_PROPERTIES).filter_map(|x| x.child()).collect();
-                let code = psets.iter().find_map(|p| tree::number_of(rules, b, p, DIMENSION_MEANING));
-                let meaning = match code {
+                let code = psets.iter().find_map(|p| tree::value_of(rules, b, p, DIMENSION_MEANING).filter(J::is_number));
+                let meaning = match code.as_ref().and_then(J::as_f64) {
                     Some(c) => rules.table("dimension_meanings").get((c as i64).to_string()).and_then(|v| v.as_str()).map(str::to_string).unwrap_or_else(|| format!("meaning {}", c as i64)),
                     None if psets.iter().any(|p| p.field(Z_START).is_some()) => "z".into(),
                     None if psets.iter().any(|p| p.field(TIME_START).is_some() || p.field(DIMENSION_VALUE_ID).is_some()) => "t".into(),
@@ -311,33 +278,26 @@ impl Vsi {
                 if meaning == "z" {
                     for p in &psets {
                         if let Some((v, u)) = tree::mdim_value(rules, b, p, Z_INCREMENT) {
-                            s.z_step = v.as_f64();
-                            s.z_unit = u.clone();
                             z_increment = json!({"value": v, "unit": u});
                         }
                     }
                 }
                 if meaning == "c" {
                     for p in &psets {
-                        let mut ch = Channel { name: tree::text_of(rules, b, p, DIMENSION_NAME).or_else(|| tree::text_of(rules, b, p, CHANNEL_NAME)), channel_name: tree::text_of(rules, b, p, CHANNEL_NAME), ..Default::default() };
-                        ch.display = tree::numbers_of(rules, b, p, DISPLAY_LIMITS).filter(|v| v.len() >= 2).map(|v| (v[0], v[1]));
-                        ch.color = lut_color(rules, b, p);
-                        ch.wavelength = tree::mdim_value(rules, b, p, CHANNEL_WAVELENGTH).and_then(|(v, _)| v.as_f64());
-                        described_channels.push(json!({
-                            "dimension_name": tree::text_of(rules, b, p, DIMENSION_NAME), "channel_name": ch.channel_name,
-                            "lut_color": ch.color, "display_limits": value(Some(p), DISPLAY_LIMITS),
+                        channels.push(json!({
+                            "dimension_name": tree::text_of(rules, b, p, DIMENSION_NAME), "channel_name": tree::text_of(rules, b, p, CHANNEL_NAME),
+                            "lut_color": lut_color(rules, b, p), "display_limits": value(Some(p), DISPLAY_LIMITS),
                             "wavelength": tree::mdim_value(rules, b, p, CHANNEL_WAVELENGTH).map_or(J::Null, |(v, _)| v),
                         }));
-                        s.channels.push(ch);
                     }
                 }
-                described_dims.push(json!({"index": index, "meaning_code": psets.iter().find_map(|p| tree::value_of(rules, b, p, DIMENSION_MEANING).filter(J::is_number)), "meaning": meaning}));
+                dims.push(json!({"index": index, "meaning_code": code, "meaning": meaning}));
                 s.dims.push(Dim { coord: 2 + index, meaning });
             }
             s.dims.sort_by_key(|d| d.coord);
-            described["dimensions"] = J::Array(described_dims);
+            described["dimensions"] = J::Array(dims);
             described["z_increment"] = z_increment;
-            described["channels"] = J::Array(described_channels);
+            described["channels"] = J::Array(channels);
             s.described = described;
             self.rules.check(
                 "stack",
@@ -454,7 +414,7 @@ impl Vsi {
         Ok(())
     }
 
-    // ---- the IR and the facts
+    // ---- the IR and the description
 
     fn add_dirs(&mut self, key: &str) -> Res<u32> {
         let ir = self.ir.as_mut().ok_or("internal: no IR")?;
@@ -474,151 +434,6 @@ impl Vsi {
             from = at + 1;
         }
         Ok(parent)
-    }
-
-    /// The facts of the images (§4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#4-the-images>):
-    /// each stack with pixels (a tile file, or an IFD) in the tree's order, then the macro image;
-    /// and the IFD images that are not presented, in that order (§4.4
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#44-ifd-images-that-are-not-presented>).
-    /// Each image's `declared_by` is the key of its arrays' descriptions (`stored.rs`): its tile
-    /// file's `ets` element, whose arrays are the levels, or its IFD's struct.
-    fn images(&self, tiles_of: &[(u32, Vec<u32>)], strips_of: &HashMap<usize, Vec<u32>>, made: &HashMap<usize, tiff::Emitted>) -> Res<(Vec<J>, Vec<J>)> {
-        let declaring = |k: usize| made.get(&k).map(|m| m.el);
-        let mut out = Vec::new();
-        let mut left_out = Vec::new();
-        for s in &self.stacks {
-            let mut im = json!({
-                "kind": "stack", "id": s.id, "name": s.name, "type": s.stack_type,
-                "type_name": s.stack_type.and_then(|t| self.rules.table("stack_types").get(t.to_string()).cloned()),
-                "width": s.width, "height": s.height, "dimension_sizes": s.dimension_sizes,
-                "dimensions": s.dims.iter().map(|d| json!({"coordinate": d.coord, "meaning": d.meaning})).collect::<Vec<_>>(),
-                "scale": s.scale.map(|(x, y)| json!([x, y])), "unit": s.unit,
-                "unit_name": s.unit.as_ref().and_then(|u| self.rules.table("units").get(u).cloned()),
-                "origin": s.origin.map(|(x, y)| json!([x, y])),
-                "z_step": s.z_step, "z_unit": s.z_unit,
-                "z_unit_name": s.z_unit.as_ref().and_then(|u| self.rules.table("units").get(u).cloned()),
-                "display": s.display.map(|(a, z)| json!([a, z])),
-                "channels": s.channels.iter().map(|c| json!({"name": c.name, "channel_name": c.channel_name, "color": c.color, "display": c.display.map(|(a, z)| json!([a, z])), "wavelength": c.wavelength})).collect::<Vec<_>>(),
-                "creation_time": s.creation_time, "magnification": s.magnification,
-                "default_ifd": s.default_ifd, "coarse_ifd": s.coarse_ifd,
-            });
-            if let Some(f) = s.file {
-                let file = &self.files[f];
-                im["ets"] = self.ets_facts(file, &tiles_of[f].1)?;
-                im["declared_by"] = json!(tiles_of[f].0);
-            } else if let Some(k) = s.default_ifd {
-                match self.ifd_facts(k, &s.name, strips_of) {
-                    Ok(ifd) => {
-                        im["ifd"] = ifd;
-                        im["declared_by"] = json!(declaring(k));
-                    }
-                    Err(reason) => {
-                        left_out.push(json!({"id": s.id, "name": s.name, "ifd": k, "reason": reason}));
-                        continue;
-                    }
-                }
-            } else {
-                continue;
-            }
-            out.push(im);
-        }
-        // the macro image: the collection volume's default sample IFD
-        let root = self.tree.as_ref().ok_or("internal: no tree")?;
-        if let Some(coll) = root.volume(COLLECTION_VOLUME)
-            && let Some(k) = coll.fields.iter().find(|x| x.tag == DEFAULT_SAMPLE_IFD && x.kind == Kind::TiffIfd).and_then(|x| x.tag2)
-        {
-            match self.ifd_facts(k as usize, MACRO_NAME, strips_of) {
-                Ok(ifd) => out.push(json!({"kind": "macro", "name": MACRO_NAME, "ifd": ifd, "declared_by": declaring(k as usize)})),
-                Err(reason) => left_out.push(json!({"id": null, "name": MACRO_NAME, "ifd": k, "reason": reason})),
-            }
-        }
-        Ok((out, left_out))
-    }
-
-    /// The facts of IFD `k` as an image the layout can present, or the reason it cannot (§4.4
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#44-ifd-images-that-are-not-presented>).
-    fn ifd_facts(&self, k: usize, what: &str, strips_of: &HashMap<usize, Vec<u32>>) -> Res<J> {
-        let ifd = self.ifds.iter().find(|f| f.index == k && !f.exif).ok_or_else(|| format!("{what}: the .vsi file has no IFD {k}"))?;
-        let im = tiff::image(self.rules, &self.file, ifd, what)?;
-        let els = strips_of.get(&k).ok_or_else(|| format!("IFD {k} ({what}) is not inside the metadata tree"))?;
-        if els.len() != im.strips.len() {
-            return Err(format!("IFD {k} ({what}) has both strips and tiles"));
-        }
-        if im.compression != 7 && payload_size(&tiff::runs("", im.strips.iter().copied())) > MAX_PAYLOAD {
-            return Err(format!("IFD {k} ({what}): its strips do not fit in a reference of {MAX_PAYLOAD} bytes"));
-        }
-        Ok(json!({
-            "index": k, "width": im.width, "height": im.height, "samples": im.samples, "bits": im.bits,
-            "compression": im.compression, "photometric": im.photometric,
-            "strips": im.strips.iter().zip(els).map(|(&(o, n), &e)| json!([e, o, n])).collect::<Vec<_>>(),
-            "prefix": im.prefix,
-        }))
-    }
-
-    /// A tile file's facts: its headers, the level sizes (§4.1
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#41-the-pyramid>) and
-    /// every tile as `[element, x, y, level, t, c, z]`.
-    fn ets_facts(&self, file: &EtsFile, els: &[u32]) -> Res<J> {
-        let s = &self.stacks[file.stack];
-        let (sis, e) = (&file.sis, &file.ets);
-        let nc = sis.coordinates as usize;
-        let level_coord = e.use_pyramid.then_some(nc - 1);
-        let coord_of = |m: &str| s.dims.iter().find(|d| d.meaning == m && Some(d.coord) != level_coord && d.coord < nc).map(|d| d.coord);
-        let (tc, cc, zc) = (coord_of("t"), coord_of("c"), coord_of("z"));
-        let size_of = |c: Option<usize>| c.map_or(1, |c| coord_size(e, c).max(1));
-        let levels = if let Some(lc) = level_coord { file.tiles.iter().map(|t| t.coords[lc] as i64).max().unwrap_or(0) + 1 } else { 1 } as usize;
-        let (tw, th) = (e.tile_width as u64, e.tile_height as u64);
-        // the level sizes, as Bio-Formats computes them from the stack's size and the tiles
-        let (w0, h0) = (s.width.unwrap_or(0), s.height.unwrap_or(0));
-        let mut max_x = vec![0i64; levels];
-        let mut max_y = vec![0i64; levels];
-        for t in &file.tiles {
-            let l = level_coord.map_or(0, |lc| t.coords[lc] as usize);
-            max_x[l] = max_x[l].max(t.coords[0] as i64);
-            max_y[l] = max_y[l].max(t.coords[1] as i64);
-        }
-        let mut lv: Vec<(u64, u64)> = vec![(w0, h0)];
-        for l in 1..levels {
-            let (pw, ph) = lv[l - 1];
-            let (mx, my) = (tw * (max_x[l] as u64 + 1), th * (max_y[l] as u64 + 1));
-            let mut w = pw / 2;
-            if pw % 2 == 1 && w < mx {
-                w += 1;
-            } else if w > mx {
-                w = mx;
-            }
-            let mut h = ph / 2;
-            if ph % 2 == 1 && h < my {
-                h += 1;
-            } else if h > my {
-                h = my;
-            }
-            lv.push((w, h));
-        }
-        let mut tiles = Vec::with_capacity(file.tiles.len());
-        let mut outside = 0u64;
-        for (k, t) in file.tiles.iter().enumerate() {
-            let l = level_coord.map_or(0, |lc| t.coords[lc] as usize);
-            let (w, h) = lv[l];
-            let (x, y) = (t.coords[0] as u64, t.coords[1] as u64);
-            if x >= w.div_ceil(tw) || y >= h.div_ceil(th) {
-                outside += 1;
-                continue;
-            }
-            let at = |c: Option<usize>| c.map_or(0, |c| t.coords[c] as u64);
-            tiles.push(json!([els[k], x, y, l, at(tc), at(cc), at(zc)]));
-        }
-        let fill = fill_value(e);
-        Ok(json!({
-            "key": file.key, "object": file.object, "size": file.size,
-            "header": ets::header_json(&file.key, sis, e, file.size),
-            "data_type": e.data_type, "bytes": e.bytes, "samples": e.channels, "codec": e.codec,
-            "bgr": e.component_order == 1 && e.compression == ets::RAW,
-            "tile": [tw, th], "fill": fill, "levels": lv.iter().map(|&(w, h)| json!([w, h])).collect::<Vec<_>>(),
-            "sizes": {"t": size_of(tc), "c": size_of(cc), "z": size_of(zc)},
-            "coordinates": {"t": tc, "c": cc, "z": zc, "level": level_coord},
-            "tiles": tiles, "tiles_outside": outside,
-        }))
     }
 
     fn emit(&mut self) -> Res<J> {
@@ -644,34 +459,15 @@ impl Vsi {
         }
         self.file = file;
         self.tree = Some(tree);
-        let (images, not_presented) = self.images(&tiles_of, &strips_of, &made)?;
         ir.sort_values();
         crate::check::finish(&mut ir)?;
         // the arrays, described on the finished IR (`stored.rs`): the parser folds no run, and
         // names each unit by the element it made of it
         let (arrays, chains, map) = self.described(&ir, header, &made, &tiles_of)?;
-        // `declared_by`: the key of the description of the image of each IFD of the chain, by its
-        // index (as a stack's `coarse_ifd` and an entry of `not_presented` name an IFD), null for
-        // an IFD with none
-        let described: HashSet<u32> = arrays.iter().map(|a| a.element).collect();
-        let chain = self.ifds.iter().filter(|f| !f.exif).count();
-        let declared_by: Vec<Option<u32>> = (0..chain).map(|k| made.get(&k).map(|m| m.el).filter(|e| described.contains(e))).collect();
         ir.describe(arrays, chains, map)?;
-        let description = self.description(header, &made, &tiles_of);
-        let tree = self.tree.as_ref().unwrap();
-        let facts = json!({
-            "vsi": {"key": self.keys[self.vsi].0, "size": self.keys[self.vsi].1, "ifds": self.ifds.iter().filter(|f| !f.exif).count()},
-            "tree": tree::container_json(rules, &self.file, tree),
-            "images": images,
-            "not_presented": not_presented,
-            "declared_by": declared_by,
-            "stacks": self.stacks.iter().map(|s| json!({
-                "id": s.id, "name": s.name, "type": s.stack_type, "external": s.external, "width": s.width, "height": s.height,
-                "tile_file": s.file.map(|f| self.files[f].key.clone()),
-            })).collect::<Vec<_>>(),
-            "counts": {"ifds": self.ifds.len(), "tileFiles": self.files.len(), "tiles": self.files.iter().map(|f| f.tiles.len()).sum::<usize>(), "batches": self.batches},
-            "description": description,
-        });
+        // the description of the slide (`describe`), and the run's counts
+        let mut facts = self.description(header, &made, &tiles_of);
+        facts["counts"] = json!({"ifds": self.ifds.len(), "tileFiles": self.files.len(), "tiles": self.files.iter().map(|f| f.tiles.len()).sum::<usize>(), "batches": self.batches});
         self.ir = Some(ir);
         Ok(facts)
     }
@@ -781,31 +577,6 @@ fn coord_size(e: &ets::Ets, c: usize) -> i64 {
     if c < e.dimensions.clamp(0, 10) as usize { e.dimension_sizes[c].max(0) as i64 } else { 1 }
 }
 
-/// The fill value of a tile file's arrays (§4.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#41-the-pyramid>): the
-/// background color's first sample, as the pixel type reads it.
-fn fill_value(e: &ets::Ets) -> J {
-    let b = &e.background;
-    match e.data_type.as_str() {
-        "int8" => json!(b[0] as i8),
-        "uint8" => json!(b[0]),
-        "int16" => json!(i16::le_at(b, 0)),
-        "uint16" => json!(u16::le_at(b, 0)),
-        "int32" => json!(i32::le_at(b, 0)),
-        "uint32" => json!(u32::le_at(b, 0)),
-        "int64" => json!(i64::le_at(b, 0)),
-        "uint64" => json!(u64::le_at(b, 0)),
-        "float32" => {
-            let v = f32::le_at(b, 0);
-            if v.is_finite() { json!(v) } else { json!(0) }
-        }
-        _ => {
-            let v = f64::le_at(b, 0);
-            if v.is_finite() { json!(v) } else { json!(0) }
-        }
-    }
-}
-
 /// A channel's color (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#42-channels>):
 /// the last entry of its display LUT (a BGR array), as `RRGGBB`.
 fn lut_color(rules: &Rules, b: &[u8], p: &Container) -> Option<String> {
@@ -819,11 +590,6 @@ fn lut_color(rules: &Rules, b: &[u8], p: &Container) -> Option<String> {
     let last = &d[d.len() - 3..];
     let (r, g, bl) = if f.real == 269 { (last[0], last[1], last[2]) } else { (last[2], last[1], last[0]) };
     Some(format!("{r:02X}{g:02X}{bl:02X}"))
-}
-
-/// The first number of `tag` anywhere under `c` (depth first).
-fn find_number(rules: &Rules, b: &[u8], c: &Container, tag: u32) -> Option<f64> {
-    find_value(rules, b, c, tag)?.as_f64()
 }
 
 /// The first value of `tag` anywhere under `c` (depth first) that is a number.
@@ -852,10 +618,10 @@ impl crate::run::FileProfile for Profile {
     fn project(&self, _: &crate::ir::Ir, _: &serde_json::Value, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
         Err("a VSI input is zarrified as a store run".into())
     }
-    /// The store run's description of the slide, beside its projection's facts (spec/zarrify/vsi.md
-    /// §9.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#96-the-description>).
-    fn store_description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
-        facts.get("description").cloned()
+    /// The store run returns the description of the slide (spec/zarrify/vsi.md §9.6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#96-the-description>).
+    fn store_described(&self) -> bool {
+        true
     }
 }
 
