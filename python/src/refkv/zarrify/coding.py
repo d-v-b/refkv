@@ -27,7 +27,7 @@ from refkv import _core
 from refkv.ir.kind import Kind
 
 if TYPE_CHECKING:
-    from refkv.build import Parsed, Projected
+    from refkv.build import Hdf5Hierarchy, Parsed, Projected
     from refkv.ir import Value
 
 __all__ = ["NoCodec", "czi_codecs", "dicom_codecs", "gzip_codecs", "hdf5_attributes", "hdf5_value", "npy_array_type",
@@ -204,8 +204,9 @@ def hdf5_value(value: object, datatype: Mapping[str, Any] | None) -> object:
     return value
 
 
-def hdf5_attributes(base: Projected, path: str) -> dict[str, Any]:
-    """The HDF5 attributes of the node at `path`, as the source holds them (`base.attributes` with
+def hdf5_attributes(base: Projected | Hdf5Hierarchy, path: str) -> dict[str, Any]:
+    """The HDF5 attributes of the node at `path` of refkv's own output or of the HDF5 convention's
+    hierarchy (`refkv.build.hdf5_hierarchy`), as the source holds them (`base.attributes` with
     spec/zarrify/hdf5.md §6
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>'s encodings
     undone, by the node's source metadata, §7

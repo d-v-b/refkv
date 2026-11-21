@@ -5,9 +5,10 @@ parsers present it, so that code written against `HDFParser`, `FITSParser`, `Zar
 attributes it expects. Its chunk references, chunk grids and codecs are those of refkv's own output,
 and it writes none of refkv's declarations and no `refkv_source` mirror. A FITS file's are made from
 the parser's description and the IR with the FITS convention's routines (`refkv.build.fits_arrays`
-and `fits_cards`), with no output of refkv's: the layout is that output's peer. Every other
-format's are still read from refkv's own output (`refkv.build.project`), until its parser returns
-a description too.
+and `fits_cards`), and an HDF5 input's from the parser's description with the HDF5 convention's
+routine (`refkv.build.hdf5_hierarchy`), with no output of refkv's: for those the layout is that
+output's peer. Every other format's are still read from refkv's own output
+(`refkv.build.project`), until its parser returns a description too.
 It writes its documents with `dump`, so it runs without the `layouts` extra.
 
     python -m refkv.zarrify data.nc out.vzip --layout refkv.virtualizarr
@@ -15,7 +16,8 @@ It writes its documents with `dump`, so it runs without the `layouts` extra.
 The reference is VirtualiZarr 2.8.0 (`virtualizarr/parsers/hdf/hdf.py`, `parsers/fits.py`,
 `parsers/zarr/`, `parsers/netcdf3.py`, `parsers/envi.py`), read profile by profile:
 
-- **HDF5 and netCDF-4** (`HDFParser`): every group and dataset of refkv's own output at its path,
+- **HDF5 and netCDF-4** (`HDFParser`): every group and dataset the HDF5 convention presents at its
+  path (`refkv.build.hdf5_hierarchy`, made from the parser's description: no output of refkv's),
   with its `dimension_names` (its dimension scales, else the names netCDF-4 gives an axis without
   one), and `[]` for a scalar. Attributes are the source's, as `coding.hdf5_attributes` gives them, without the
   bookkeeping `HDFParser` hides (`CLASS`, `NAME`, `DIMENSION_LIST`, `REFERENCE_LIST`,
@@ -119,7 +121,19 @@ import struct
 from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
-from refkv.build import Array, Parsed, Projected, Value, Written, filled, fits_arrays, fits_cards, project
+from refkv.build import (
+    Array,
+    Hdf5Hierarchy,
+    Parsed,
+    Projected,
+    Value,
+    Written,
+    filled,
+    fits_arrays,
+    fits_cards,
+    hdf5_hierarchy,
+    project,
+)
 from refkv.zarrify import Rejected
 from refkv.zarrify.coding import hdf5_attributes, hdf5_value
 from refkv.zarrify.layouts import MIRROR, chunk_coords, chunk_key, dump
@@ -171,7 +185,7 @@ def _fill_value_coded(value: object, kind: str | None) -> object:
     return value
 
 
-def _presented(pr: Projected, path: str, kind: str | None) -> dict[str, Any]:
+def _presented(pr: Hdf5Hierarchy, path: str, kind: str | None) -> dict[str, Any]:
     """The attributes HDFParser presents for the node at `path`, `kind` its dataset's datatype
     class (None for a group), as Python values (NaN and the infinities as floats)."""
     metadata = pr.source_metadata(path) or {}
@@ -189,8 +203,8 @@ def _presented(pr: Projected, path: str, kind: str | None) -> dict[str, Any]:
     return out
 
 
-def _string_length(pr: Projected, path: str, doc: Mapping[str, Any]) -> int | None:
-    """The length of a fixed-length string dataset refkv's own output holds as uint8 with a
+def _string_length(pr: Hdf5Hierarchy, path: str, doc: Mapping[str, Any]) -> int | None:
+    """The length of a fixed-length string dataset the HDF5 convention holds as uint8 with a
     trailing axis of its bytes, or None for another array."""
     metadata = pr.source_metadata(path)
     datatype = metadata.get("datatype") if isinstance(metadata, dict) else None
@@ -225,7 +239,9 @@ def _without_byte_axis(doc: dict[str, Any], chunks: Mapping[str, bytes | Value],
     return doc, {chunk_key(chunk_coords(k, before)[:-1], doc): v for k, v in chunks.items()}
 
 
-def _hdf5(pr: Projected, token: bool) -> Written:
+def _hdf5(pr: Hdf5Hierarchy, token: bool) -> Written:
+    """An HDF5 input as `HDFParser` presents it, from the HDF5 convention's hierarchy, an edge
+    chunk the convention copies written as bytes."""
     out = Written()
     for path in pr.nodes():
         prefix = f"{path}/" if path else ""
@@ -249,7 +265,7 @@ def _hdf5(pr: Projected, token: bool) -> Written:
         doc["codecs"] = [VLEN_UTF8 if c == {"name": "vlen-utf8"} else c for c in doc["codecs"]]
         doc["attributes"] = _nonfinite(_presented(pr, path, kind), token)
         out[f"{prefix}zarr.json"] = dump(doc, allow_nan=token)
-        out.update({f"{prefix}{k}": v for k, v in chunks.items()})
+        out.update({f"{prefix}{k}": filled(v) for k, v in chunks.items()})
     return out
 
 
@@ -790,14 +806,14 @@ class VirtualiZarr:
 
     def write(self, inputs: Sequence[Parsed], options: Mapping[str, object]) -> Written:
         """The input as VirtualiZarr's parser of its format presents it: a FITS file's from its
-        description, its IR and the FITS convention's routines, any other's built on refkv's own
-        output of it."""
+        description, its IR and the FITS convention's routines, an HDF5 input's from the HDF5
+        convention's hierarchy (`hdf5_hierarchy`), any other's built on refkv's own output of it."""
         [parsed] = inputs
         if parsed.profile == "fits":
             return _fits(parsed)
-        pr = project(parsed)
         if parsed.profile == "hdf5":
-            return _hdf5(pr, options["nonfinite"] == "token")
+            return _hdf5(hdf5_hierarchy(parsed), options["nonfinite"] == "token")
+        pr = project(parsed)
         if parsed.profile == "netcdf3":
             return _netcdf3(pr, options["nonfinite"] == "token")
         if parsed.profile == "envi":

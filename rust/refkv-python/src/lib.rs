@@ -779,6 +779,16 @@ impl PyRun {
         let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
         Ok(PyFits { ir, description, heaps: std::sync::OnceLock::new() })
     }
+    /// The HDF5 file a run that is done parsed (`Hdf5`), its IR and description shared with the
+    /// run; ValueError for a run of another format.
+    fn hdf5(&mut self) -> PyResult<PyHdf5> {
+        let r = self.get()?;
+        if r.format.name() != "hdf5" {
+            return Err(PyValueError::new_err(format!("a run of {}, not of an HDF5 file", r.format.name())));
+        }
+        let (ir, facts) = r.shared().map_err(PyValueError::new_err)?;
+        Ok(PyHdf5 { ir, facts, store: false })
+    }
     /// What makes the mirror of a run that is done (`Mirror`): its IR and facts, shared with the
     /// run, which is kept and may be used while the mirror is made.
     fn mirror(&mut self) -> PyResult<PyMirror> {
@@ -827,6 +837,31 @@ impl PyMirror {
             }.map(|_| o)
         }).map_err(Rejected::new_err)?;
         out_py(py, &o)
+    }
+}
+
+/// An HDF5 input a run parsed (`Run.hdf5()`, `StoreRun.hdf5()`): its IR and its description (a
+/// store run's, of each file it read), shared with the run and never changed, so that a layout
+/// asks for the HDF5 convention's hierarchy from any thread, while the run is used for something
+/// else or after it is gone.
+#[pyclass(name = "Hdf5", module = "refkv._core", frozen)]
+pub struct PyHdf5 {
+    ir: Arc<Ir>,
+    facts: Arc<serde_json::Value>,
+    store: bool,
+}
+
+#[pymethods]
+impl PyHdf5 {
+    /// The HDF5 convention's hierarchy (`project::hdf5::hierarchy`): its nodes as JSON, its
+    /// documents and chunks in `out_py`'s form (the url empty) but for the edge chunks it copies,
+    /// and those, each `(key, offset, length, padding)` of the file; or Rejected.
+    #[allow(clippy::type_complexity)]
+    fn hierarchy<'py>(&self, py: Python<'py>) -> PyResult<(String, Bound<'py, PyAny>, Vec<(String, u64, u64, u64)>)> {
+        let (nodes, out, copies) = py
+            .detach(|| refkv_ir::project::hdf5::hierarchy(&self.ir, &self.facts, self.store))
+            .map_err(Rejected::new_err)?;
+        Ok((serde_json::Value::Array(nodes).to_string(), out_py(py, &out)?, copies))
     }
 }
 
@@ -930,6 +965,15 @@ impl PyStoreRun {
         let ir = Arc::new(ir);
         self.parsed = Some((format, Arc::clone(&ir), Arc::new(facts), stats));
         Ok(PyIr::of(ir))
+    }
+    /// The HDF5 files a run `parse` finished read (`Hdf5`), its IR and descriptions shared with the
+    /// run; ValueError for a run of another format.
+    fn hdf5(&mut self) -> PyResult<PyHdf5> {
+        let (format, ir, facts, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        if *format != refkv_ir::store::StoreFormat::Hdf5 {
+            return Err(PyValueError::new_err("a run of a store of another format, not of HDF5 files"));
+        }
+        Ok(PyHdf5 { ir: Arc::clone(ir), facts: Arc::clone(facts), store: true })
     }
     /// What makes the mirror of a run `parse` finished (`Mirror`): its IR and facts, shared
     /// with the run.
@@ -1322,6 +1366,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(grid_chunks, m)?)?;
     m.add_function(wrap_pyfunction!(gzip_frame, m)?)?;
     m.add_class::<PyFits>()?;
+    m.add_class::<PyHdf5>()?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;
     m.add_function(wrap_pyfunction!(view_problem, m)?)?;
     m.add_function(wrap_pyfunction!(synthetic, m)?)?;

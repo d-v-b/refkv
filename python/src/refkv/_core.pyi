@@ -263,6 +263,9 @@ class Run:
     def fits(self) -> Fits:
         """The FITS file a run that is done parsed, its IR and description shared with the run;
         ValueError for a run of another format."""
+    def hdf5(self) -> Hdf5:
+        """The HDF5 file a run that is done parsed, its IR and description shared with the run;
+        ValueError for a run of another format."""
     def mirror(self) -> Mirror:
         """What makes the mirror of a run that is done: its IR and facts, shared with the run,
         which is kept and may be used while the mirror is made."""
@@ -323,6 +326,9 @@ class StoreRun:
     def mirror(self) -> Mirror:
         """What makes the mirror of a run `parse` finished: its IR and facts, shared with the
         run."""
+    def hdf5(self) -> Hdf5:
+        """The HDF5 files a run `parse` finished read, its IR and descriptions shared with the
+        run; ValueError for a run of a store of another format."""
     def project(self, url: str, mirror: bool = True, checksums: bool = False) -> Out[StorePart]:
         """`output`, of a run `parse` finished: the output alone."""
 
@@ -417,6 +423,15 @@ class Fits:
     def cards(self, index: int) -> str:
         """The cards of HDU `index` as the FITS convention writes them: JSON, each `[keyword,
         value, comment]`. ValueError for no HDU `index`."""
+
+class Hdf5:
+    """An HDF5 input a run parsed (`Run.hdf5()`, `StoreRun.hdf5()`): its IR and its description,
+    shared with the run and never changed."""
+
+    def hierarchy(self) -> tuple[str, Out[FilePart | StorePart], list[tuple[str, int, int, int]]]:
+        """The HDF5 convention's hierarchy: its nodes as JSON, its documents and chunks (`out_py`'s
+        form, the url empty) but for the edge chunks it copies, and those, each `(key, offset,
+        length, padding)` of the file; or Rejected."""
 
 def gzip_frame(crc32: int, size: int) -> tuple[bytes, bytes]:
     """What frames a raw deflate stream as a gzip member, as the built-in projections write one:

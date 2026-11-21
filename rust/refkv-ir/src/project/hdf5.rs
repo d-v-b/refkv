@@ -203,7 +203,30 @@ fn run_of(chunk: &Chunk, item: u64) -> (u64, u64, u64) {
 pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
     let Nodes { nodes, mut summary } = nodes(facts)?;
     summary["rounds"] = facts["rounds"].clone();
-    build(ir, &nodes, summary, url, url, copied, copy_threshold())
+    build(ir, &nodes, summary, url, url, copied, copy_threshold(), None)
+}
+
+/// An edge chunk refkv's output holds as bytes, of a source range and its padding: its key, the
+/// range's offset and length, and the padding's length.
+pub type CopiedChunk = (String, u64, u64, u64);
+
+/// The HDF5 convention's hierarchy of a file run's facts (a description, spec/zarrify/hdf5.md
+/// §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#87-the-description>), or a
+/// store run's (`store`): its nodes, and its documents and chunks as the projection writes them,
+/// but for the edge chunks it copies, which it gives apart, as ranges to copy: it reads nothing. The
+/// routine a layout calls for the convention's hierarchy (`refkv.build.hdf5_hierarchy`).
+pub fn hierarchy(ir: &Ir, facts: &J, store: bool) -> Result<(Vec<J>, Out, Vec<CopiedChunk>), String> {
+    let mut copies = Vec::new();
+    let (nodes, out) = if store {
+        let (nodes, summary, named) = store_nodes(facts)?;
+        let out = build(ir, &nodes, summary, "", &named, &Copied::new(), usize::MAX, Some(&mut copies))?;
+        (nodes, out)
+    } else {
+        let Nodes { nodes, summary } = nodes(facts)?;
+        let out = build(ir, &nodes, summary, "", "", &Copied::new(), copy_threshold(), Some(&mut copies))?;
+        (nodes, out)
+    };
+    Ok((nodes, out, copies))
 }
 
 /// The reason a linked object is not presented: its links and references name paths of its own
@@ -269,8 +292,15 @@ fn linked_nodes(nodes: &[J], target: &str, at: &str) -> (Vec<J>, Vec<(String, Op
 /// `source.url` is the named file's object URL. A linked file whose hierarchy rejects it is not
 /// followed.
 pub fn project_store(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    let (nodes, summary, named_key) = store_nodes(facts)?;
+    let named = object_url(url, &named_key);
+    // no edge chunk is copied: the run's reads have ended, and its padding is the zero data source's
+    build(ir, &nodes, summary, url, &named, &Copied::new(), usize::MAX, None)
+}
+
+/// The nodes of a store run's hierarchy (`project_store`), its summary, and the named file's key.
+fn store_nodes(facts: &J) -> Result<(Vec<J>, J, String), String> {
     let named_key = facts["named_key"].as_str().unwrap_or("");
-    let named = object_url(url, named_key);
     let Nodes { nodes: mut named_nodes, mut summary } = nodes(&facts["files"][named_key])?;
     summary["rounds"] = facts["files"][named_key]["rounds"].clone();
     let mut files: HashMap<&str, Vec<J>> = HashMap::new();
@@ -322,8 +352,7 @@ pub fn project_store(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     name_axes(&mut named_nodes);
     summary["groups"] = json!(summary["groups"].as_u64().unwrap_or(0) + groups);
     summary["arrays"] = json!(summary["arrays"].as_u64().unwrap_or(0) + arrays);
-    // no edge chunk is copied: the run's reads have ended, and its padding is the zero data source's
-    build(ir, &named_nodes, summary, url, &named, &Copied::new(), usize::MAX)
+    Ok((named_nodes, summary, named_key.to_string()))
 }
 
 /// A range of the external data `ranges` (key, offset, length) lay out, as ranges of their files.
@@ -351,7 +380,11 @@ fn element(store: &J) -> Result<u32, String> {
     store["element"].as_u64().map(|e| e as u32).ok_or_else(|| format!("internal: the storage of the dataset at {} is not described", store["at"]))
 }
 
-fn build(ir: &Ir, nodes: &[J], mut summary: J, url: &str, source: &str, copied: &Copied, threshold: usize) -> Result<Out, String> {
+/// The output of `nodes`: `copied` the bytes of the edge chunks it copies, or, with `defer`, those
+/// chunks left out and given there.
+#[allow(clippy::too_many_arguments)]
+fn build(ir: &Ir, nodes: &[J], mut summary: J, url: &str, source: &str, copied: &Copied, threshold: usize,
+         mut defer: Option<&mut Vec<CopiedChunk>>) -> Result<Out, String> {
     let mut out = Out::new(url);
     // every array's chunk shape and contiguous chunks first: one zero data source for every
     // contiguous array's padding
@@ -460,7 +493,16 @@ fn build(ir: &Ir, nodes: &[J], mut summary: J, url: &str, source: &str, copied: 
                 }
             }
             Some("contiguous") => {
-                let Some((_, chunks)) = cut else { continue };
+                let Some((_, mut chunks)) = cut else { continue };
+                if let Some(d) = defer.as_deref_mut() {
+                    chunks.retain(|(c, chunk)| match chunk {
+                        Chunk::Copy(o, len, pad) => {
+                            d.push((chunk_key(path, c), *o, *len, *pad));
+                            false
+                        }
+                        _ => true,
+                    });
+                }
                 let el = element(store)?;
                 let (start, length) = (ir.start[el as usize], ir.len[el as usize]);
                 let form = ir.form_id(el).ok_or("internal: the data has no form")?;

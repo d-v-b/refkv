@@ -220,7 +220,7 @@ def rejected(path, chunks, match):
 
 @pytest.mark.parametrize("name", ["missing", "d1"])  # no node; a group
 def test_a_named_path_that_is_no_array_is_rejected(name):
-    rejected(HDF5 / "hdf5_numbers.h5", {name: [2]}, "no array of refkv's own output")
+    rejected(HDF5 / "hdf5_numbers.h5", {name: [2]}, "no array of the hierarchy")
 
 
 @pytest.mark.parametrize(("name", "storage"), [("fill7", "chunked"), ("compact_i2", "compact")])

@@ -1,7 +1,8 @@
 """Routines of a format's convention that a layout may share with refkv's own projection, each the
 binding of the function that projection calls (the design of d-v-b/refkv#278, "The routines"):
 `fits_arrays`, the arrays of a FITS HDU as the FITS convention writes them, and `fits_cards`, its
-header's cards as the convention writes them in JSON."""
+header's cards as the convention writes them in JSON; `hdf5_hierarchy`, the HDF5 convention's
+hierarchy of an HDF5 input, its groups and arrays as that convention presents them."""
 
 from __future__ import annotations
 
@@ -9,13 +10,14 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from refkv import _core
+from refkv.zarrify.common import Rejected
 
-from .values import MODELED, Array, Copy, Literal, Part, Ref, Value, Zeros
+from .values import MODELED, Array, Copy, Literal, Part, Ref, Shared, Value, Zeros
 
 if TYPE_CHECKING:
     from .parsed import Parsed
 
-__all__ = ["fits_arrays", "fits_cards"]
+__all__ = ["Hdf5Hierarchy", "fits_arrays", "fits_cards", "hdf5_hierarchy"]
 
 
 def _part(parsed: Parsed, piece: _core.FitsPiece) -> Part:
@@ -71,3 +73,115 @@ def fits_arrays(parsed: Parsed, index: int) -> dict[str, Array]:
             doc.get("chunk_key_encoding"), {k: v for k, v in doc.items() if k not in MODELED},
         )
     return out
+
+
+class Hdf5Hierarchy:
+    """The HDF5 convention's hierarchy of an HDF5 input (spec/zarrify/hdf5.md §2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#2-the-hierarchy>), as refkv's own
+    output presents it but for its declarations and its IR mirror: each node the convention
+    presents, its attributes and source metadata, and each array's document and chunks, as values of
+    the input. `hdf5_hierarchy` makes it."""
+
+    def __init__(self, parsed: Parsed, hdf5: _core.Hdf5) -> None:
+        try:
+            nodes, (_, entries, refs, data, _, _), copies = hdf5.hierarchy()
+        except _core.Rejected as e:
+            raise Rejected(str(e)) from None
+        self._nodes: dict[str, dict[str, Any]] = {n["path"]: n for n in json.loads(nodes)}
+        self._documents = {k: v for k, v in entries if k.rpartition("/")[2] == "zarr.json"}
+        objects = getattr(parsed, "_objects", None) or []
+
+        def part(p: Any) -> Part:  # noqa: ANN401 (a part in `out_py`'s form)
+            if isinstance(p, (bytes, bytearray)):
+                return Literal(bytes(p))
+            if p[0] == "object":
+                return Ref(parsed, objects.index(p[1]), p[2], p[3])
+            if len(p) == 3:
+                held = data[p[0] - 1][p[1]:p[1] + p[2]]
+                return Zeros(p[2]) if not held.strip(b"\0") else Shared(held)
+            return Ref(parsed, 0, p[0], p[1])
+
+        self._chunks: dict[str, bytes | Value] = {k: v for k, v in entries if k.rpartition("/")[2] != "zarr.json"}
+        self._chunks.update({k: Value(tuple(part(p) for p in parts)) for k, parts in refs})
+        for key, offset, length, pad in copies:
+            copied = Copy(Ref(parsed, 0, offset, length))
+            self._chunks[key] = Value((copied, Zeros(pad)) if pad else (copied,))
+
+    def nodes(self) -> list[str]:
+        """The paths of the nodes the convention presents, the root's `""` first: the file's in
+        canonical order (spec/zarrify/hdf5.md §2.2
+        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#22-paths>), then, for a
+        store, those its external links present (§8.6
+        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#86-external-files>)."""
+        return list(self._nodes)
+
+    def node_type(self, path: str) -> str | None:
+        """`"group"` or `"array"` for the node at `path`, or None where there is none."""
+        node = self._nodes.get(path)
+        return None if node is None else "array" if "array" in node else "group"
+
+    def attributes(self, path: str) -> dict[str, Any]:
+        """The attributes of the node at `path` as the convention presents them (spec/zarrify/hdf5.md
+        §6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>), without
+        refkv's declarations: a copy."""
+        return json.loads(json.dumps(self._nodes[path]["attributes"]))
+
+    def source_metadata(self, path: str) -> Any:  # noqa: ANN401 (JSON the convention specifies)
+        """The source metadata of the node at `path` (spec/zarrify/hdf5.md §7
+        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#7-source-metadata>): a copy,
+        or None where there is no node."""
+        node = self._nodes.get(path)
+        return None if node is None else json.loads(json.dumps(node["own"]))
+
+    def element(self, path: str) -> int | None:
+        """The IR element of the storage of the array at `path`: the struct of its chunks, or the
+        element of its contiguous data (spec/zarrify/hdf5.md §8.7
+        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#87-the-description>,
+        `storage.element`); None for an array the IR holds no such element of (compact, external,
+        unallocated, or of strings, references or records). KeyError for a path that is no
+        array."""
+        if self.node_type(path) != "array":
+            raise KeyError(path)
+        store = self._nodes[path]["array"]["store"]
+        if store.get("kind") not in ("contiguous", "chunked"):
+            return None
+        element = store.get("element")
+        return element if isinstance(element, int) else None
+
+    def document(self, key: str) -> dict[str, Any]:
+        """The Zarr document at `key` (`<path>/zarr.json`), parsed, its attributes the node's
+        without refkv's declarations: a copy. KeyError for a key of no node."""
+        path = key.removesuffix("zarr.json").removesuffix("/")
+        doc: dict[str, Any] = json.loads(self._documents[key])
+        doc["attributes"] = self.attributes(path)
+        return doc
+
+    def array_entries(self, path: str) -> tuple[dict[str, Any], dict[str, bytes | Value]]:
+        """The array at `path`: its document (`document`), and its chunk entries by key relative
+        to the array, each bytes or a value. An edge chunk refkv's own output copies, because its
+        padded reference would not fit in a payload, is a value of a `Copy`, which the caller writes
+        as bytes (`refkv.build.filled`). KeyError for a path that is no array."""
+        if self.node_type(path) != "array":
+            raise KeyError(path)
+        prefix = f"{path}/" if path else ""
+        doc = self.document(f"{prefix}zarr.json")
+        chunks = {k.removeprefix(prefix): v for k, v in self._chunks.items()
+                  if k.startswith(f"{prefix}c") and k.removeprefix(prefix).partition("/")[0] == "c"}
+        return doc, chunks
+
+
+def hdf5_hierarchy(parsed: Parsed) -> Hdf5Hierarchy:
+    """The HDF5 convention's hierarchy of an HDF5 input, a file or a store of one with the files it
+    names (spec/zarrify/hdf5.md §2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#2-the-hierarchy>, §8.6
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#86-external-files>): the
+    convention's decisions, which objects are nodes, their attributes, the arrays' data types,
+    codecs, fill values, dimension names and chunks, made from the parser's description (§8.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#87-the-description>) by the
+    function refkv's own projection calls. It reads nothing, and asks for no output of refkv's.
+    ValueError for an input that is not HDF5; `refkv.zarrify.Rejected` where the convention rejects
+    the input, as `zarrify` does."""
+    hdf5 = parsed._hdf5  # noqa: SLF001
+    if hdf5 is None:
+        raise ValueError(f"an HDF5 routine reads an HDF5 input, not a {parsed.profile} input")
+    return Hdf5Hierarchy(parsed, hdf5)
