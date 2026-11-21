@@ -171,7 +171,10 @@ class Parsed:
           (spec/zarrify/ndpi.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#71-the-description>).
         - MRC: the header's byte order and every field of it, the data's range, a gzipped file's
           stream and the ids of its IR elements
-          (spec/zarrify/mrc.md §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#85-the-description>)."""
+          (spec/zarrify/mrc.md §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#85-the-description>).
+        - SAFE, of either form: the level, the product and tile metadata as XML trees, the tile
+          geocoding, the band files with their codestreams, and the objects
+          (spec/zarrify/safe.md §8.11 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#811-the-description>)."""
         return None if self._description is None else json.loads(json.dumps(self._description))
 
     @property
