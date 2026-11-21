@@ -12,7 +12,7 @@ use refkv_ir::tiff::Tiff;
 // one test per case of conformance/zarrify/rejects/tiff.json (build.rs), each the message its check gives
 macro_rules! reject {
     ($name:ident, $input:literal, $msg:literal) => {
-        common::reject!($name, Tiff, concat!("tiff/", $input), $msg);
+        common::reject_tiff!($name, concat!("tiff/", $input), $msg);
     };
 }
 include!(concat!(env!("OUT_DIR"), "/rejects_tiff.rs"));
@@ -24,20 +24,21 @@ include!(concat!(env!("OUT_DIR"), "/rejects_tiff.rs"));
 fn the_tiff_parser_finds_ndpi() {
     for (file, ndpi) in [("ndpi/ndpi_levels.ndpi", true), ("ndpi/ndpi_pointers.ndpi", true), ("tiff/jpeg_gray.tif", false)] {
         let data = std::fs::read(fixtures().join(file)).unwrap();
-        let (_, facts) = parse_bytes::<Tiff>(&data).unwrap();
-        assert_eq!(facts["profile"] == "ndpi", ndpi, "{file}");
+        let (_, _, plan) = common::tiff_plan(&data).unwrap();
+        assert_eq!(plan["profile"] == "ndpi", ndpi, "{file}");
     }
 }
 
 /// A Micro-Manager file's summary is a JSON object whose numbers are finite (spec/zarrify/tiff.md
 /// §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#75-micro-manager-stacks>):
-/// its facts hold it, its numbers as written.
+/// its description holds it, its numbers as written.
 #[test]
 fn a_micromanager_summary_is_read() {
     let data = std::fs::read(fixtures().join("tiff/mm_single_MMStack_Pos0.ome.tif")).unwrap();
-    let (_, facts) = parse_bytes::<Tiff>(&data).unwrap();
-    assert_eq!(facts["micromanager"]["PixelSize_um"], serde_json::json!(0.5));
-    assert_eq!(facts["micromanager"]["Channels"], serde_json::json!(2));
+    let (_, description) = parse_bytes::<Tiff>(&data).unwrap();
+    let summary = &description["micromanager"]["summary"];
+    assert_eq!(summary["PixelSize_um"], serde_json::json!(0.5));
+    assert_eq!(summary["Channels"], serde_json::json!(2));
 }
 
 /// A summary with a number that is not finite in binary64 (1e400) is no Micro-Manager summary:
@@ -48,7 +49,7 @@ fn a_summary_with_a_number_not_finite_is_none() {
     let (old, new) = (br#""1.4.22""#, b"1e400   ");
     let at = data.windows(old.len()).position(|w| w == old).unwrap();
     data[at..at + old.len()].copy_from_slice(new);
-    let e = parse_bytes::<Tiff>(&data).err().unwrap();
+    let e = common::tiff_plan(&data).err().unwrap();
     assert!(e.contains("a stack of pages without OME-XML"), "{e}");
 }
 
@@ -100,7 +101,7 @@ fn image() -> (Vec<(u16, u16, u32, u32)>, Vec<u8>) {
 }
 
 fn rejects(data: &[u8], msg: &str) {
-    match parse_bytes::<Tiff>(data) {
+    match common::tiff_plan(data) {
         Err(m) => assert!(m.contains(msg), "{m}"),
         Ok(_) => panic!("accepted"),
     }
@@ -121,10 +122,10 @@ fn tiff_probes_parse() {
         tiff(&[[e.clone(), vec![(65000, 7, u32::MAX, 64)]].concat()], &blobs, &[None]),
     ];
     for data in cases {
-        let (ir, facts) = parse_bytes::<Tiff>(&data).unwrap();
+        let (ir, facts, plan) = common::tiff_plan(&data).unwrap();
         check::check(&ir).unwrap();
         assert_eq!(rebuilt(&ir, &data), data);
-        assert_eq!(facts["levels"][0]["w"], 32);
+        assert_eq!(plan["levels"][0]["w"], 32);
         assert!(facts["requested"].as_u64().unwrap() < 4 * data.len() as u64);
     }
 }
@@ -223,8 +224,8 @@ fn every_accepted_fixtures_planes_name_their_descriptions() {
             if name.contains("reject") || !p.is_file() {
                 continue;
             }
-            let (ir, facts) = match parse_bytes::<Tiff>(&std::fs::read(&p).unwrap()) {
-                Ok(parsed) => parsed,
+            let (ir, facts) = match common::tiff_plan(&std::fs::read(&p).unwrap()) {
+                Ok((ir, _, plan)) => (ir, plan),
                 // a file of a set, which a store run reads (the next test)
                 Err(e) if e.contains("names siblings") => continue,
                 Err(_) => {
@@ -267,7 +268,8 @@ fn a_sets_planes_name_their_descriptions_in_their_files() {
             run.complete(k, q.spans.iter().map(|&(a, b)| data[a as usize..b as usize].to_vec()).collect()).unwrap();
         }
     }
-    let (ir, facts, _) = run.finish().unwrap();
+    let (ir, description, _) = run.finish().unwrap();
+    let facts = refkv_ir::tiff::plan::plan("tiff", &description).unwrap();
     let (planes, unmodeled, holders) = planes_name_their_descriptions(&key, &ir, &facts);
     assert!(planes >= 2 && unmodeled == 0, "{planes} planes, {unmodeled} with no grid");
     assert!(holders.len() >= 2 && holders.iter().all(|&o| ir.kind[o as usize] == refkv_ir::ir::OBJECT), "planes in {holders:?}");
@@ -311,7 +313,7 @@ fn an_ifd_is_tiled_by_its_tile_size_and_read_by_its_tile_tables() {
     ];
     for (name, with, tiled, element) in cases {
         let data = units(&with);
-        let (ir, facts) = parse_bytes::<Tiff>(&data).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let (ir, _, facts) = common::tiff_plan(&data).unwrap_or_else(|e| panic!("{name}: {e}"));
         check::check(&ir).unwrap();
         assert_eq!(rebuilt(&ir, &data), data, "{name}");
         let lv = &facts["levels"][0];

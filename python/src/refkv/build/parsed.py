@@ -159,10 +159,11 @@ class Parsed:
         - Zarr v3, listed or zipped: each candidate's `zarr.json` as parsed, the documents the IR
           holds, and a zip file's objects and counts
           (spec/zarrify/zarr3.md §7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#76-the-description>).
-        - TIFF and QPTIFF, of a file read as a file: the header, the IFD tree with each IFD's tags
+        - TIFF and QPTIFF: the header, the IFD tree with each IFD's tags
           as the profile reads them, its tiles and strips structs, and the structures the file
           holds (OME-XML, an ImageJ hyperstack, a Micro-Manager stack, an Aperio description, each
-          IFD's QPI description) and its short last LZW strips' tails
+          IFD's QPI description) and its short last LZW strips' tails; of an image across files,
+          with each other file's
           (spec/zarrify/tiff.md §7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#76-the-description>).
         - NDPI: the main chain's IFDs with NDPI's tags, and of each image its tile tables and
           McuStarts with their high bytes, its focal offset, acquisition tags and stream header

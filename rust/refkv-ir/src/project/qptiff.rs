@@ -9,6 +9,7 @@
 use super::tiled::{self, MAX_NAME};
 use super::{arr, n, strs, window, Copied};
 use crate::ir::Ir;
+use crate::tiff::plan::plan;
 use crate::out::{omero_channel, omero_json, root_json, sample_channels, type_window, Out};
 use serde_json::{json, Value as J};
 
@@ -84,7 +85,8 @@ fn samples(facts: &J) -> Vec<window::Sample> {
 
 /// The source's ranges the windows sample (`samples`): their chunks' bytes, which the run
 /// reads after the parser.
-pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
+pub fn reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+    let facts = &plan("qptiff", description)?;
     tiled::reads(ir, facts, &samples(facts), arrays)
 }
 
@@ -123,7 +125,8 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
 
 /// The QPTIFF image: one array per level, its chunks the tiles or strips of each channel.
 /// `copied` holds the bytes of the chunks the windows sample (`reads`).
-pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+    let facts = &plan("qptiff", description)?;
     let channels = arr(&facts["channels"]);
     let axes = strs(&facts["axes"]);
     let data_type = tiled::data_type(facts)?;

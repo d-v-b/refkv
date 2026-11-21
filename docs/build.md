@@ -155,8 +155,8 @@ the profile's description of the input, where its parser returns one: NumPy's
 ([netcdf3.md §7.7](../spec/zarrify/netcdf3.md#77-the-description)), ENVI's
 ([envi.md §8.7](../spec/zarrify/envi.md#87-the-description)), Zarr v2's
 ([zarr2.md §7.3](../spec/zarrify/zarr2.md#73-the-description)), Zarr v3's
-([zarr3.md §7.6](../spec/zarrify/zarr3.md#76-the-description)), TIFF's and QPTIFF's, of a file read as a
-file ([tiff.md §7.6](../spec/zarrify/tiff.md#76-the-description)), and NDPI's
+([zarr3.md §7.6](../spec/zarrify/zarr3.md#76-the-description)), TIFF's and QPTIFF's
+([tiff.md §7.6](../spec/zarrify/tiff.md#76-the-description)), and NDPI's
 ([ndpi.md §7.1](../spec/zarrify/ndpi.md#71-the-description)) do, and the other profiles' is None
 until their projections read the descriptions too. `stored_array` raises `ValueError` for an array it
 cannot write so: one whose storage the IR does not model (a description with no grid, such as a

@@ -1,7 +1,7 @@
 {
   "source_model": "qptiff",
   "version": 1,
-  "about": "The source model of an Akoya (PerkinElmer) QPTIFF file (spec/zarrify/qptiff.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md>, spec/zarrify/qptiff.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#7-qptiff-profile>): a TIFF or BigTIFF whose main chain holds the channels as FullResolution images, a Thumbnail, the ReducedResolution images of each pyramid level, and an Overview and a Label, each IFD described by a PerkinElmer-QPI-ImageDescription XML in its ImageDescription. The TIFF parser reads it in its QPTIFF variant (rust/refkv-ir/src/tiff.rs) and checks this schema where the profile meets each role; projections read a valid IR and check nothing. The TIFF source model's elements (schema/tiff.json) are this one's.",
+  "about": "The source model of an Akoya (PerkinElmer) QPTIFF file (spec/zarrify/qptiff.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md>, spec/zarrify/qptiff.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#7-qptiff-profile>): a TIFF or BigTIFF whose main chain holds the channels as FullResolution images, a Thumbnail, the ReducedResolution images of each pyramid level, and an Overview and a Label, each IFD described by a PerkinElmer-QPI-ImageDescription XML in its ImageDescription. The TIFF parser reads it in its QPTIFF variant (rust/refkv-ir/src/tiff.rs) and checks the source model's roles where the profile meets each; refkv's plan of the image (rust/refkv-ir/src/tiff/plan.rs) checks the image's from the parser's description. The TIFF source model's elements (schema/tiff.json) are this one's.",
   "limits": {
     "max_safe": 9007199254740991,
     "max_ifds": 100000,
@@ -76,7 +76,7 @@
     "resolution_units": {"2": 25400.0, "3": 10000.0}
   },
   "elements": {
-    "about": "The IR of a QPTIFF file: the TIFF source model's (schema/tiff.json), without `ome/planes/<p>`. Names in angle brackets are variables; `run` marks where a parser folds consecutive identically shaped siblings into one run.",
+    "about": "The IR of a QPTIFF file: the TIFF source model's (schema/tiff.json). Names in angle brackets are variables; `run` marks where a parser folds consecutive identically shaped siblings into one run.",
     "header": {
       "kind": "struct",
       "children": {

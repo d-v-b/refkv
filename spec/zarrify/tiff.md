@@ -725,7 +725,6 @@ for BigTIFF) and `C` the entry-count type (`u2`, or `u8`).
 | `…/tiles/<j>`, `…/strips/<j>` | data | | tile or strip `j`, when its byte count is not 0 and it lies within the file; its form's geometry is `{"shape": [rows, columns], "samples": s, "bits": b}` (`rows`, `columns`: a tile's TileLength and TileWidth, which a member of `…/strips` has too in a tiled IFD ([§2](#2-the-source)) without `…/tiles`, the tiles its stored-array description takes them for ([stored-array §7](../stored-array.md#7-the-formats)); a strip's RowsPerStrip, or ImageLength without one, and ImageWidth, the same for a short last strip), its codec `{"compression": c}`, and its recipe the bytes (`[["src", 0, null]]`), or, when the IFD's JPEG prefix `P` (a [`TiffJpegPrefix`](#type-tiffjpegprefix): for JPEG (7), the Adobe marker for 3 samples, then the JPEGTables, when the IFD has them, without their SOI and EOI; empty for every other compression) is not empty and the tile or strip is more than 2 bytes, the first 2 bytes, `P` (shared data source `x`, [conventions §8.2](../conventions.md#82-the-table)), and the rest: `[["src", 0, 2], ["shared", x], ["src", 2, null]]` |
 | `…/subifds/<j>` | struct | | SubIFD `j` of the IFD (to depth 4), as an IFD |
 | `…/exif`, `…/gps`, `…/interoperability`, `…/ifd_<tag>` | struct | | the IFD a pointer tag ([§5.2](#52-which-ifds)) leads to (`…/<name>/<j>` when the tag has several values), as an IFD |
-| `ome/planes/<p>` | alias | | plane `p` of the OME-XML ([§4.1](#41-planes)): the main-chain IFD its `TiffData` names |
 | `imagej/planes/<p>` | alias, or struct | | plane `p` of an ImageJ hyperstack ([§4.1](#41-planes)): an alias of its main-chain IFD; of a stack in one IFD, plane 0 is an alias of IFD 0 and each later plane a struct |
 | `imagej/planes/<p>/strips/<j>` | data | | strip `j` of plane `p ≥ 1` of a stack in one IFD: the bytes of IFD 0's strip `j` shifted by `p × P` ([§4.1](#41-planes)), with that strip's form |
 | `gaps/<offset>` | gap | | bytes no other element claims (padding, unused space, image data of tables that do not lie within the file) |
@@ -1034,8 +1033,7 @@ An image across files, and a Micro-Manager stack in any number of files:
   supported`;
 - has one strip a chunk: strips are neither joined nor sharded ([§4.5](#45-strips)), and a level in
   strips whose last strip is short is rejected: `an image across files whose strips leave a short
-  last strip is not supported`;
-- has no `ome/planes` aliases in its mirror, as an alias stays within its object.
+  last strip is not supported`.
 
 Its `source.url` is the named file's object URL, whichever files hold the planes. Its `omero`
 windows are sampled as a single file's are ([§4.4](#44-arrays)), from the chunks in whichever files
@@ -1095,11 +1093,14 @@ in TIFF's own terms, for a projection to read with the IR and its stored arrays
 are the levels and planes ([§4.1](#41-planes), [§4.2](#42-pyramid-levels)), the axes, sizes, data
 type and codecs ([§4.3](#43-data-types-and-codecs), [§4.4](#44-arrays)), how strips are joined,
 padded and sharded ([§4.5](#45-strips)), the scales and position ([§4.4](#44-arrays)), the `omero`
-and the root's source metadata ([§5](#5-source-metadata)) are the projection's. A QPTIFF's description
+and the root's source metadata ([§5](#5-source-metadata)) are the projection's. Those decisions are refkv's
+**plan** of the file, made from the description alone by the function the convention's projection
+calls; a layout that wants another image makes its own from the description. A QPTIFF's description
 is a TIFF's, with each IFD's QPI description and without the structures of the first IFD's
 ImageDescription (spec/zarrify/qptiff.md [§7.1](qptiff.md#71-the-description)); an NDPI's is its own
-(spec/zarrify/ndpi.md [§7.1](ndpi.md#71-the-description)). A store run's input
-([§7.4](#74-several-files)) has none yet.
+(spec/zarrify/ndpi.md [§7.1](ndpi.md#71-the-description)). Of an image across files
+([§7.4](#74-several-files)), it is the named file's, with `named_key`, the named file's key, and
+`files`, each other file's `key` and `description`, every element of each the store IR's.
 
 It is a JSON object with these members:
 
@@ -1152,5 +1153,8 @@ What the projection makes from it, and the parser still decides:
 
 - The IR's planes of an ImageJ stack in one IFD (`imagej/planes/<p>`) follow the hyperstack the
   parser found, as the elements of the source model do.
-- The parser still makes the image's decisions and checks ([§7.2](#72-rejection)) beside the
-  description, for its projection.
+- The parser checks the source model (the header, the IFDs and their values, [§7.1](#71-reading)),
+  and the files an image across files names ([§7.4](#74-several-files)), whose sizes and formats
+  the plan checks. The checks of the image ([§7.2](#72-rejection)) are the plan's: an input the
+  parser accepts is rejected where the convention's projection makes its plan.
+- The IR holds no planes of the OME-XML: which IFD holds which plane is the plan's.

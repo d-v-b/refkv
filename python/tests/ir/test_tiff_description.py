@@ -326,21 +326,10 @@ def check_ndpi(e: dict, page: tifffile.TiffPage, data: bytes, said: list[str], s
                 said.append(f"IFD at {page.offset}: {name} {v!r}, tifffile's {theirs!r}")
 
 
-@cache
-def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
-    logging.getLogger("tifffile").setLevel(logging.CRITICAL)
-    said: list[str] = []
-    seen: Counter = Counter()
-    with read(path) as parsed:
-        d = parsed.description
-        profile = parsed.profile
-    if d is None:
-        seen["sets"] += 1
-        return (), seen
+def check_file(path: Path, d: dict, profile: str, said: list[str], seen: Counter) -> None:
+    """One file's description against tifffile's reading of it."""
     data = path.read_bytes()
     seen["files"] += 1
-    errors = sorted(e.message[:200] for e in jsonschema.Draft202012Validator(SCHEMAS[profile]).iter_errors(d))
-    said += [f"not of the schema: {e}" for e in errors]
     ndpi = profile == "ndpi"
     with tifffile.TiffFile(path) as tif:
         tif.pages.useframes = False
@@ -376,6 +365,26 @@ def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
             check_lzw_tails(d, data, said, seen)
             if profile == "tiff":
                 check_structures(d, tif, said, seen)
+
+
+@cache
+def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
+    logging.getLogger("tifffile").setLevel(logging.CRITICAL)
+    said: list[str] = []
+    seen: Counter = Counter()
+    with read(path) as parsed:
+        d = parsed.description
+        profile = parsed.profile
+    assert d is not None
+    errors = sorted(e.message[:200] for e in jsonschema.Draft202012Validator(SCHEMAS[profile]).iter_errors(d))
+    said += [f"not of the schema: {e}" for e in errors]
+    # of an image across files, the named file's and each other file's
+    if "files" in d:
+        seen["sets"] += 1
+        if d["named_key"] != path.name:
+            said.append(f"named key {d['named_key']!r}")
+    for at, described in [(path, d), *((path.parent / f["key"], f["description"]) for f in d.get("files", []))]:
+        check_file(at, described, profile, said, seen)
     return tuple(said), seen
 
 

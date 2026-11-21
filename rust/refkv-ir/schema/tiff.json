@@ -1,7 +1,7 @@
 {
   "source_model": "tiff",
   "version": 1,
-  "about": "The source model of a TIFF, BigTIFF or OME-TIFF file (TIFF 6.0, spec/zarrify/tiff.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#7-tiff-profile>): the elements a parser emits, the tags of the table it reads, and the roles an IFD, a value, an image or a tile plays, each with the constraints a file must meet to have the TIFF convention's layout. A parser checks this schema while it parses, at the point the profile meets each role; projections read a valid IR and check nothing.",
+  "about": "The source model of a TIFF, BigTIFF or OME-TIFF file (TIFF 6.0, spec/zarrify/tiff.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#7-tiff-profile>): the elements a parser emits, the tags of the table it reads, and the roles an IFD, a value, an image or a tile plays, each with the constraints a file must meet to have the TIFF convention's layout. The parser checks the roles of the source model (the header, the IFDs, their fields and values) while it parses; refkv's plan of the image (rust/refkv-ir/src/tiff/plan.rs) checks those of the image (its planes, levels, format, tiles and strips) from the parser's description, at the point the profile meets each, before the convention's projection reads it.",
   "limits": {
     "max_safe": 9007199254740991,
     "max_ifds": 100000,
@@ -125,10 +125,6 @@
         "tiles/<k>": "data (run): a tile of TileOffsets and TileByteCounts with a byte count above 0 within the file; geometry, codec and recipe (a JPEG tile's recipe puts the IFD's JPEG prefix, a shared data source, after its first 2 bytes); an IFD whose tile tables are an earlier IFD's names its tiles by alias",
         "strips/<k>": "data (run): the same, for StripOffsets and StripByteCounts, whose geometry is a tile's in an IFD with TileWidth and TileLength and no tiles/<k>, which lists its tiles there"
       }
-    },
-    "ome/planes/<p>": {
-      "kind": "alias",
-      "about": "an OME-TIFF's plane p (in t, c, z order), the main-chain IFD that holds it (OME-TIFF TiffData)"
     },
     "gaps/<offset>": {"kind": "gap"}
   },
