@@ -343,7 +343,9 @@ pub fn vectors(d: &[u8]) -> Option<Vec<Option<Vec<f64>>>> {
 #[derive(Debug, Clone)]
 pub struct Fields {
     pub dimension: usize,
-    /// the `type` field's canonical name, lowercase (`int16`, `float`, ...)
+    /// the `type` field's descriptor, trimmed, in lower case: one of the names of the table of §3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#3-data-types-and-encodings>,
+    /// an alias such as `short` or `signed short int` as written
     pub type_name: String,
     pub data_type: String,
     pub item: u64,
