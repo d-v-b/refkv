@@ -1,0 +1,52 @@
+# The documentation site (docs-site/conf.py; `just docs`): built on every pull request and push to
+# main, failing on any warning (a link to a heading or document that does not exist, a block with
+# no renderer), and deployed to GitHub Pages from main. Its cross-format pages are rendered from the
+# profile registry (spec/zarrify/profiles/) and each format's files as it builds (spec/tools/blocks.py).
+name: docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
+      # Sphinx, MyST and the theme (pyproject.toml's docs group); the site imports spec/tools, not refkv
+      - run: uv sync --only-group docs --locked
+      - run: UV_NO_SYNC=1 just docs
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs-site/_build
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
