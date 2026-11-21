@@ -53,7 +53,7 @@ an entry of `not_presented`) finds its image's.
   the file declares no extent for it.
 - **An IFD's image** ([vsi.md §2.3](../vsi.md#23-the-tiff-images)). Every IFD of the
   `.vsi` file's chain that lies in a TIFF region of the tree, and declares a size, is described
-  as a TIFF's, by the same code, keyed by its struct (`ifds/<j>`), with no index: the macro image,
+  as a TIFF's ([tiff/stored-arrays.md](../tiff/stored-arrays.md)), by the same code, keyed by its struct (`ifds/<j>`), with no index: the macro image,
   a stack's default sample IFD, and each stack's coarse thumbnail. The byte order's declaration
   is the first two bytes of the file's `header` element; a field's unsigned values are those of
   the types BYTE, SHORT, LONG and IFD; and `source` has `format` `vsi`. A JPEG strip whose

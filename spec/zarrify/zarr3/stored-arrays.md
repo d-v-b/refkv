@@ -33,7 +33,7 @@ parser describes its own arrays, each in that object ([stored-array.md §6](../.
   entry, which the zip file stores (method 0).
 - **The chain** is one: a codec for each of the document's codecs after the leading transposes,
   but `bytes`, which lays the elements out as they are in the order its `endian` declares. `gzip`,
-  `zstd` and `blosc`, and the `numcodecs.` codecs whose encodings the list names (as for Zarr v2:
+  `zstd` and `blosc`, and the `numcodecs.` codecs whose encodings the list names (as for Zarr v2, [zarr2/stored-arrays.md](../zarr2/stored-arrays.md):
   `numcodecs.zlib`, `numcodecs.gzip`, `numcodecs.bz2`, `numcodecs.zstd`, `numcodecs.blosc`,
   `numcodecs.lzma` of `format` 1 or none, and `numcodecs.shuffle`), are those entries. Any other
   is `source`, with `format` `zarr3`, `id` the codec's name, and `parameters` its configuration,

@@ -11,7 +11,8 @@ from pathlib import Path
 import pytest
 
 from refkv import _core
-from refkv.build import read
+from refkv.build import NoIrError, read
+from refkv.zarrify.common import Rejected
 
 ROOT = Path(__file__).parents[2]
 SPEC = ROOT / "spec" / "zarrify"
@@ -39,10 +40,15 @@ def described() -> set[str]:
             with read(str(path)) as p:
                 if p.description is not None:
                     out.add(p.profile)
-        except Exception:  # noqa: BLE001, S112 - a fixture its profile refuses, or no input at all
+        except (Rejected, NoIrError):  # a fixture its profile refuses, or an input with no IR
             continue
     return out
 
+
+
+def test_some_profile_returns_a_description():
+    """So that the test below cannot skip every profile unnoticed."""
+    assert described()
 
 
 @pytest.mark.parametrize("profile", PROFILES)

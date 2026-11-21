@@ -98,9 +98,9 @@ impl StoreFormat {
 
     /// The profile's description of the input (the design of d-v-b/refkv#278, "The
     /// description"), from what the run's parser returned beside the IR, `facts`, without the
-    /// run's own counts; None for a store format whose profile's store run returns none
-    /// (`run::FileProfile::store_described`), or, for a store format with no file profile of its
-    /// own, whose store run is described here. Each profile with a description specifies it in its
+    /// run's own counts: Some for a store format whose profile's store run is described
+    /// (`run::FileProfile::store_described`), and always for Zarr v2 and v3, which have no file
+    /// profile of their own; None otherwise. Each profile with a description specifies it in its
     /// document's section "The description" (`spec/zarrify/<profile>.md`).
     pub fn description(self, facts: &J) -> Option<J> {
         let zarr = matches!(self, StoreFormat::Zarr2 | StoreFormat::Zarr3);

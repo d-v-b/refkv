@@ -18,7 +18,7 @@ its own arrays, each in that object ([stored-array.md §6](../../stored-array.md
   `axes` then give the document's order: Zarr v2 stores each chunk in its array's order, and its
   chunk keys name the chunks in the document's order of the axes.
 - **`item_bits`** is eight times the size of an element of `dtype` as NumPy lays it out, read as a
-  NumPy header's `descr` is (the NumPy paragraph above), a structure's fields given as lists: absent
+  NumPy header's `descr` is (as [npy/stored-arrays.md](../npy/stored-arrays.md) says), a structure's fields given as lists: absent
   for `|O`, an object array's, and for any type of no size NumPy knows.
 - **The grid** is the document's `chunks`, each axis `Each` of its chunk length, under `full`: Zarr
   v2 stores a chunk past an axis's end whole. A unit is a chunk object of the array that is not

@@ -3,7 +3,7 @@
 What the NDPI parser describes as stored arrays ([stored-array.md](../../stored-array.md)), part of [the NDPI profile](../ndpi.md).
 
 An NDPI is read by the TIFF parser in NDPI's
-layout, and every IFD that declares a size is described as a TIFF's, keyed likewise, the macro
+layout, and every IFD that declares a size is described as a TIFF's ([tiff/stored-arrays.md](../tiff/stored-arrays.md)), keyed likewise, the macro
 image and the slide map too, with the differences below. The facts give the keys: each level's
 `declared_by` lists, in the order of its `planes`, the id of each plane's IFD.
 
