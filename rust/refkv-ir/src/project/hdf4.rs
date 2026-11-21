@@ -257,9 +257,11 @@ enum TableForm {
     Not(&'static str),
 }
 
-/// What the plan reads of a description: its Vgroups and Vdatas by ref, and the profile's budget.
+/// What the plan reads of a description: its Vgroups and Vdatas by ref, each Vgroup's members
+/// parsed once, and the profile's budget.
 struct Doc<'a> {
     vgs: BTreeMap<u16, &'a J>,
+    members: HashMap<u16, Vec<(u16, u16)>>,
     vds: BTreeMap<u16, &'a J>,
     rules: &'static Rules,
 }
@@ -338,6 +340,7 @@ const ATTRIBUTE_CLASS: &str = match std::str::from_utf8(ATTRIBUTE) {
 pub fn plan(d: &J) -> Result<J, String> {
     let doc = Doc {
         vgs: list(&d["vgroups"]).iter().map(|v| (r16(&v["ref"]), v)).collect(),
+        members: list(&d["vgroups"]).iter().map(|v| (r16(&v["ref"]), tagrefs(&v["members"]))).collect(),
         vds: list(&d["vdatas"]).iter().map(|v| (r16(&v["ref"]), v)).collect(),
         rules: crate::rules::of(PROFILE),
     };
@@ -347,7 +350,7 @@ pub fn plan(d: &J) -> Result<J, String> {
     let var_attrs: Vec<Vec<Attr>> = vars.iter().map(|v| doc.attributes(&list(&v["attributes"]).iter().map(r16).collect::<Vec<_>>())).collect();
     let file_attrs = match cdf {
         Some(c) => {
-            let refs: Vec<u16> = tagrefs(&doc.vgs[&c]["members"]).into_iter().filter(|m| m.0 == VH && doc.is_attribute(m.1)).map(|m| m.1).collect();
+            let refs: Vec<u16> = doc.members[&c].iter().copied().filter(|m| m.0 == VH && doc.is_attribute(m.1)).map(|m| m.1).collect();
             doc.attributes(&refs)
         }
         None => Vec::new(),
@@ -357,7 +360,7 @@ pub fn plan(d: &J) -> Result<J, String> {
     let mut group_attrs: HashMap<u16, Vec<Attr>> = HashMap::new();
     for &g in &writer {
         let v = doc.vgs[&g];
-        let refs: Vec<u16> = tagrefs(&v["members"]).into_iter().chain(tagrefs(&v["attributes"])).filter(|m| m.0 == VH && doc.is_attribute(m.1)).map(|m| m.1).collect();
+        let refs: Vec<u16> = doc.members[&g].iter().copied().chain(tagrefs(&v["attributes"])).filter(|m| m.0 == VH && doc.is_attribute(m.1)).map(|m| m.1).collect();
         group_attrs.insert(g, doc.attributes(&refs));
     }
     // the hierarchy: the writer's Vgroups no other writer's Vgroup holds, in ref order, then any
@@ -365,7 +368,7 @@ pub fn plan(d: &J) -> Result<J, String> {
     let by_ndg: HashMap<u16, usize> = vars.iter().enumerate().filter_map(|(k, v)| Some((v["ndg"].as_u64()? as u16, k))).collect();
     let by_vg: HashMap<u16, usize> = vars.iter().enumerate().map(|(k, v)| (r16(&v["vgroup"]), k)).collect();
     let writer_set: HashSet<u16> = writer.iter().copied().collect();
-    let held: HashSet<u16> = writer.iter().flat_map(|g| tagrefs(&doc.vgs[g]["members"]).into_iter().filter(|m| m.0 == VG).map(|m| m.1)).filter(|r| writer_set.contains(r)).collect();
+    let held: HashSet<u16> = writer.iter().flat_map(|g| doc.members[g].iter().filter(|m| m.0 == VG).map(|m| m.1)).filter(|r| writer_set.contains(r)).collect();
     let dataset_of = |t: u16, r: u16| -> Option<usize> {
         match t {
             NDG => by_ndg.get(&r).copied(),
@@ -373,7 +376,7 @@ pub fn plan(d: &J) -> Result<J, String> {
             _ => None,
         }
     };
-    let internal_members: HashSet<u16> = doc.vgs.values().filter(|v| internal_vg(&v["class"])).flat_map(|v| tagrefs(&v["members"]).into_iter().filter(|m| m.0 == VH).map(|m| m.1)).collect();
+    let internal_members: HashSet<u16> = doc.vgs.iter().filter(|(_, v)| internal_vg(&v["class"])).flat_map(|(r, _)| doc.members[r].iter().filter(|m| m.0 == VH).map(|m| m.1)).collect();
     // the writer's tables: the Vdatas of a class not the interfaces' own that no interface's
     // Vgroup holds
     let mut table_defs = BTreeMap::new();
@@ -481,7 +484,7 @@ impl Walk<'_> {
         }
         while let Some(top) = stack.last_mut() {
             let (node, g, k, depth) = *top;
-            let Some(&(t, r)) = tagrefs(&vgs[&g]["members"]).get(k) else {
+            let Some(&(t, r)) = self.doc.members[&g].get(k) else {
                 stack.pop();
                 continue;
             };
