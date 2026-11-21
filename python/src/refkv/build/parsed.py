@@ -168,7 +168,10 @@ class Parsed:
           (spec/zarrify/tiff.md §7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#76-the-description>).
         - NDPI: the main chain's IFDs with NDPI's tags, and of each image its tile tables and
           McuStarts with their high bytes, its focal offset, acquisition tags and stream header
-          (spec/zarrify/ndpi.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#71-the-description>)."""
+          (spec/zarrify/ndpi.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#71-the-description>).
+        - N5: each node, by path and kind (`dataset` or `group`), with its `attributes.json` as
+          parsed, and the documents the IR holds
+          (spec/zarrify/n5.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#83-the-description>)."""
         return None if self._description is None else json.loads(json.dumps(self._description))
 
     @property
