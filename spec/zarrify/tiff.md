@@ -1152,5 +1152,5 @@ What the projection makes from it, and the parser still decides:
 
 - The IR's planes of an ImageJ stack in one IFD (`imagej/planes/<p>`) follow the hyperstack the
   parser found, as the elements of the source model do.
-- The parser checks the source model (the header, the IFDs and their values, [§7.1](#71-reading));
-  the checks of the image ([§7.2](#72-rejection)) are the projection's.
+- The parser still makes the image's decisions and checks ([§7.2](#72-rejection)) beside the
+  description, for its projection.

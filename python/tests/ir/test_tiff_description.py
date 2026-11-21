@@ -12,6 +12,7 @@ cases the fixtures reached, and a third that the description holds none of the o
 import base64
 import json
 import logging
+import math
 import re
 import struct
 import xml.etree.ElementTree as ET
@@ -75,6 +76,21 @@ def _utf8(path: str, tag: tifffile.TiffTag) -> bool:
     except UnicodeDecodeError:
         return False
     return True
+
+
+def _same_field(mine: str | None, theirs: object) -> bool:
+    """An Aperio field's text, as tifffile converts it: an integer, a float, a boolean or text."""
+    if mine is None:
+        return False
+    if isinstance(theirs, bool):
+        return mine.strip().lower() == str(theirs).lower()
+    if isinstance(theirs, (int, float)):
+        try:
+            value = float(mine)
+        except ValueError:
+            return False
+        return (math.isnan(value) and math.isnan(theirs)) or value == theirs
+    return mine == theirs
 
 
 def local(name: str) -> str:
@@ -233,7 +249,7 @@ def check_structures(d: dict, tif: tifffile.TiffFile, said: list[str], seen: Cou
                 seen["aperio fields repeated"] += 1
                 continue
             # tifffile converts a number's text; the description keeps the text
-            same = v == ap.get(k) if isinstance(v, str) else ap.get(k) is not None and float(ap[k]) == v
+            same = _same_field(ap.get(k), v)
             if k != "Header" and not same:
                 said.append(f"Aperio field {k}: {ap.get(k)!r}, tifffile's {v!r}")
 
