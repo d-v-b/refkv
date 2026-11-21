@@ -440,7 +440,9 @@ def test_parsed(tmp_path):
         assert p.profile == "tiff"
         assert p.version == 0
         assert p.plain_file
-        assert p.description is None
+        d = p.description
+        assert d is not None
+        assert (d["chain"], d["ifds"][0]["offset"], d["ifds"][0]["tags"]["278"]["value"]) == ([0], page.offset, [16])
         assert p.sources[0].size == path.stat().st_size
         strip = p.ir.index("ifds/0/strips/1")
         assert p.reference(strip) == Value((Ref(p, 0, page.dataoffsets[1], page.databytecounts[1]),))
