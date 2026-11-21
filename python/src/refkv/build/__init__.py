@@ -18,7 +18,7 @@ routines that build on them come later.
 from refkv.zarrify.layouts import MAX_PAYLOAD
 
 from .convention import declaration, filled, grid, gzip_member, mirror
-from .formats import Hdf5Hierarchy, fits_arrays, fits_cards, hdf5_hierarchy
+from .formats import Hdf5Hierarchy, Netcdf3Hierarchy, fits_arrays, fits_cards, hdf5_hierarchy, netcdf3_hierarchy
 from .parsed import MAX_BYTES, NoIrError, Parsed, read, read_async
 from .plugin import apply
 from .project import Projected, project, project_async
@@ -53,6 +53,7 @@ __all__ = [
     "Data",
     "Hdf5Hierarchy",
     "Literal",
+    "Netcdf3Hierarchy",
     "NoIrError",
     "Parsed",
     "Part",
@@ -75,6 +76,7 @@ __all__ = [
     "gzip_member",
     "hdf5_hierarchy",
     "mirror",
+    "netcdf3_hierarchy",
     "payload_size",
     "project",
     "project_async",

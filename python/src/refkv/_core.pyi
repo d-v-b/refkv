@@ -266,6 +266,9 @@ class Run:
     def hdf5(self) -> Hdf5:
         """The HDF5 file a run that is done parsed, its IR and description shared with the run;
         ValueError for a run of another format."""
+    def netcdf3(self) -> Netcdf3:
+        """The netCDF3 file a run that is done parsed, its IR and description shared with the run;
+        ValueError for a run of another format."""
     def mirror(self) -> Mirror:
         """What makes the mirror of a run that is done: its IR and facts, shared with the run,
         which is kept and may be used while the mirror is made."""
@@ -434,6 +437,16 @@ class Hdf5:
         length, padding)` of the file; or Rejected."""
     def named_key(self) -> str | None:
         """The key of the file a store run was named by; None for a file run."""
+
+@final
+class Netcdf3:
+    """A netCDF3 file a run parsed (`Run.netcdf3()`): its IR and its description, shared with the
+    run and never changed."""
+
+    def hierarchy(self) -> tuple[str, Out[FilePart], list[tuple[str, int, int, int]]]:
+        """The netCDF3 convention's hierarchy: its nodes as JSON, its documents and chunks
+        (`out_py`'s form, the url empty) but for the edge chunks it copies, and those, each `(key,
+        offset, length, padding)` of the file; or Rejected."""
 
 def gzip_frame(crc32: int, size: int) -> tuple[bytes, bytes]:
     """What frames a raw deflate stream as a gzip member, as the built-in projections write one:

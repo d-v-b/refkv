@@ -789,6 +789,16 @@ impl PyRun {
         let (ir, facts) = r.shared().map_err(PyValueError::new_err)?;
         Ok(PyHdf5 { ir, facts, store: false })
     }
+    /// The netCDF3 file a run that is done parsed (`Netcdf3`), its IR and description shared with
+    /// the run; ValueError for a run of another format.
+    fn netcdf3(&mut self) -> PyResult<PyNetcdf3> {
+        let r = self.get()?;
+        if r.format.name() != "netcdf3" {
+            return Err(PyValueError::new_err(format!("a run of {}, not of a netCDF3 file", r.format.name())));
+        }
+        let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
+        Ok(PyNetcdf3 { ir, description })
+    }
     /// What makes the mirror of a run that is done (`Mirror`): its IR and facts, shared with the
     /// run, which is kept and may be used while the mirror is made.
     fn mirror(&mut self) -> PyResult<PyMirror> {
@@ -867,6 +877,29 @@ impl PyHdf5 {
     /// as its source; None for a file run.
     fn named_key(&self) -> Option<String> {
         self.facts["named_key"].as_str().filter(|_| self.store).map(str::to_string)
+    }
+}
+
+/// A netCDF3 file a run parsed (`Run.netcdf3()`): its IR and its description, shared with the run
+/// and never changed, so that a layout asks for the netCDF3 convention's hierarchy from any thread,
+/// while the run is used for something else or after it is gone.
+#[pyclass(name = "Netcdf3", module = "refkv._core", frozen)]
+pub struct PyNetcdf3 {
+    ir: Arc<Ir>,
+    description: Arc<serde_json::Value>,
+}
+
+#[pymethods]
+impl PyNetcdf3 {
+    /// The netCDF3 convention's hierarchy (`project::netcdf3::hierarchy`): its nodes as JSON, its
+    /// documents and chunks in `out_py`'s form (the url empty) but for the edge chunks it copies,
+    /// and those, each `(key, offset, length, padding)` of the file; or Rejected.
+    #[allow(clippy::type_complexity)]
+    fn hierarchy<'py>(&self, py: Python<'py>) -> PyResult<(String, Bound<'py, PyAny>, Vec<(String, u64, u64, u64)>)> {
+        let (nodes, out, copies) = py
+            .detach(|| refkv_ir::project::netcdf3::hierarchy(&self.ir, &self.description))
+            .map_err(Rejected::new_err)?;
+        Ok((serde_json::Value::Array(nodes).to_string(), out_py(py, &out)?, copies))
     }
 }
 
@@ -1372,6 +1405,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(gzip_frame, m)?)?;
     m.add_class::<PyFits>()?;
     m.add_class::<PyHdf5>()?;
+    m.add_class::<PyNetcdf3>()?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;
     m.add_function(wrap_pyfunction!(view_problem, m)?)?;
     m.add_function(wrap_pyfunction!(synthetic, m)?)?;
