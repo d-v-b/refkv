@@ -6,8 +6,9 @@ attributes it expects. Its chunk references, chunk grids and codecs are those of
 and it writes none of refkv's declarations and no `refkv_source` mirror. A FITS file's are made from
 the parser's description and the IR with the FITS convention's routines (`refkv.build.fits_arrays`
 and `fits_cards`), an HDF5 input's from the parser's description with the HDF5 convention's
-routine (`refkv.build.hdf5_hierarchy`), and an ENVI raster's from the parser's description with the
-ENVI convention's routine (`refkv.build.envi_image`), with no output of refkv's: for those the
+routine (`refkv.build.hdf5_hierarchy`), an ENVI raster's from the parser's description with the
+ENVI convention's routine (`refkv.build.envi_image`), and a Zarr v2 or v3 store's, listed or zipped,
+with the Zarr convention's routine (`refkv.build.zarr_hierarchy`), with no output of refkv's: for those the
 layout is that output's peer. Every other format's are still read from refkv's own output
 (`refkv.build.project`), until its parser returns a description too.
 It writes its documents with `dump`, so it runs without the `layouts` extra.
@@ -39,8 +40,9 @@ The reference is VirtualiZarr 2.8.0 (`virtualizarr/parsers/hdf/hdf.py`, `parsers
   integer image's `BLANK` its `_FillValue`, scaled. An ASCII table is a struct array read by
   VirtualiZarr's `virtualizarr.fits_ascii_table` codec, which a reader registers by importing
   `virtualizarr`. A primary HDU with no data gives the root its attributes; another is left out.
-- **Zipped Zarr v3** (`ZippedZarrParser`): the store's hierarchy as refkv's own output has it.
-- **Zarr v2** (`ZarrParser`): the nodes of refkv's own output, each with its `.zattrs` as
+- **Zarr v3**, zipped (`ZippedZarrParser`) or listed: the store's hierarchy as refkv's own output
+  has it, each node with the attributes it keeps in place.
+- **Zarr v2** (`ZarrParser`): the nodes refkv's own output presents, each with its `.zattrs` as
   attributes, and an array's xarray `_ARRAY_DIMENSIONS` its `dimension_names` rather than an
   attribute (where it names each axis with a string or null; another stays an attribute, on which
   `ZarrParser` fails). An array of `|S<n>` or `|V<n>`, which refkv's own output holds as uint8 with
@@ -117,6 +119,7 @@ variable whose fill value is `NetCDF3Parser`'s rather than that of refkv's own o
 """
 
 import base64
+import json
 import math
 import re
 import struct
@@ -131,16 +134,18 @@ from refkv.build import (
     Projected,
     Value,
     Written,
+    ZarrHierarchy,
     envi_image,
     filled,
     fits_arrays,
     fits_cards,
     hdf5_hierarchy,
     project,
+    zarr_hierarchy,
 )
 from refkv.zarrify import Rejected
 from refkv.zarrify.coding import hdf5_attributes, hdf5_value
-from refkv.zarrify.layouts import MIRROR, chunk_coords, chunk_key, dump
+from refkv.zarrify.layouts import chunk_coords, chunk_key, dump, undeclared
 
 # ---- HDF5 and netCDF-4
 
@@ -740,10 +745,10 @@ def _zarr2_bytes_fill(fill: object, kind: str, length: int) -> str:
     return base64.standard_b64encode(raw.rstrip(b"\0") if kind == "S" else raw).decode()
 
 
-def _zarr2(pr: Projected, token: bool) -> Written:
-    """Each node of refkv's own output with its `.zattrs` as attributes (refkv's source metadata, zarr2.md §4
-    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#4-source-metadata>), an array's
-    `_ARRAY_DIMENSIONS` its `dimension_names`, as `ZarrParser` promotes it."""
+def _zarr2(pr: ZarrHierarchy, token: bool) -> Written:
+    """Each node the Zarr v2 convention presents with its `.zattrs` as attributes (refkv's source
+    metadata, zarr2.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#4-source-metadata>),
+    an array's `_ARRAY_DIMENSIONS` its `dimension_names`, as `ZarrParser` promotes it."""
     out = Written()
     for path in pr.nodes():
         prefix = f"{path}/" if path else ""
@@ -755,9 +760,6 @@ def _zarr2(pr: Projected, token: bool) -> Written:
                                               "attributes": _nonfinite(attributes, token)}, allow_nan=token)
             continue
         doc, chunks = pr.array_entries(path)
-        doc = dict(doc)
-        if not path:  # a root array: its chunks, not the mirror's keys beside them
-            chunks = {k: v for k, v in chunks.items() if not k.startswith(f"{MIRROR}/")}
         found = metadata.get("metadata") if isinstance(metadata, dict) else None
         source: Mapping[str, Any] = found if isinstance(found, dict) else {}
         dtype = ZARR2_BYTES.fullmatch(str(source.get("dtype")))
@@ -788,6 +790,29 @@ def _zarr2(pr: Projected, token: bool) -> Written:
     return out
 
 
+# ---- Zarr v3
+
+
+def _zarr3(h: ZarrHierarchy) -> Written:
+    """Each node the Zarr v3 convention presents, with the attributes it keeps in place but refkv's
+    declarations, and each array's chunks. A document written as refkv's own output writes it (a
+    node refkv declares nothing on, whose `dump` is refkv's text) keeps that output's placement:
+    read at open."""
+    out = Written()
+    for path in h.nodes():
+        key = f"{path}/zarr.json" if path else "zarr.json"
+        written = h.document_bytes(key)
+        doc = json.loads(written)
+        doc["attributes"] = undeclared(doc.get("attributes", {}))
+        out[key] = dump(doc)
+        if path and h.source_metadata(path) is None and out[key] == written:
+            out.at_open[key] = True
+        if h.node_type(path) == "array":
+            prefix = f"{path}/" if path else ""
+            out.update({f"{prefix}{k}": v for k, v in h.array_entries(path)[1].items()})
+    return out
+
+
 # ---- the layout
 
 class VirtualiZarr:
@@ -812,7 +837,8 @@ class VirtualiZarr:
         """The input as VirtualiZarr's parser of its format presents it: a FITS file's from its
         description, its IR and the FITS convention's routines, an HDF5 input's from the HDF5
         convention's hierarchy (`hdf5_hierarchy`), an ENVI raster's from the ENVI convention's image
-        (`envi_image`), any other's built on refkv's own output of it."""
+        (`envi_image`), a Zarr store's from the Zarr convention's hierarchy (`zarr_hierarchy`), any
+        other's built on refkv's own output of it."""
         [parsed] = inputs
         if parsed.profile == "fits":
             return _fits(parsed)
@@ -820,9 +846,11 @@ class VirtualiZarr:
             return _hdf5(hdf5_hierarchy(parsed), options["nonfinite"] == "token")
         if parsed.profile == "envi":
             return _envi(envi_image(parsed))
+        if parsed.profile == "zarr2":
+            return _zarr2(zarr_hierarchy(parsed), options["nonfinite"] == "token")
+        if parsed.profile == "zarr3":
+            return _zarr3(zarr_hierarchy(parsed))
         pr = project(parsed)
         if parsed.profile == "netcdf3":
             return _netcdf3(pr, options["nonfinite"] == "token")
-        if parsed.profile == "zarr2":
-            return _zarr2(pr, options["nonfinite"] == "token")
-        return pr.entries(declarations=False, mirror=False, datasets=False)
+        raise ValueError(f"refkv.virtualizarr presents no {parsed.profile} input")

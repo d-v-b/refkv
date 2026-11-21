@@ -68,6 +68,25 @@ struct Keys {
 
 /// The hierarchy of a Zarr v3 store, listed (`form` "store") or zipped (`form` "zip").
 pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    build(ir, description, url, true, &mut Vec::new())
+}
+
+/// The convention's hierarchy of the store, of either form, as [`project`] writes it but for
+/// refkv's declarations and the objects under `refkv_source/`: each node's `zarr.json` with the
+/// attributes it keeps in place, and each chunk; with each node, by path, its kind (`array` or
+/// `group`) and its source metadata `S` as JSON text, or null (spec/zarrify/zarr3.md
+/// §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#4-source-metadata>). The
+/// decisions are [`super::zarr3_nodes::hierarchy`]'s, the function the projection calls; a
+/// layout that presents the store otherwise calls this (`refkv.build.zarr_hierarchy`).
+pub fn hierarchy(ir: &Ir, description: &J) -> Result<(Vec<J>, Out), String> {
+    let mut nodes = Vec::new();
+    let out = build(ir, description, "", false, &mut nodes)?;
+    Ok((nodes, out))
+}
+
+/// The hierarchy, with refkv's declarations and the other objects where `declared`; each node
+/// (its path, kind and source metadata) added to `nodes`.
+fn build(ir: &Ir, description: &J, url: &str, declared: bool, nodes_out: &mut Vec<J>) -> Result<Out, String> {
     // the convention's decisions, of the parser's description (`zarr3_nodes.rs`)
     let facts = &super::zarr3_nodes::hierarchy(description)?;
     let zip = facts["form"] == "zip";
@@ -84,11 +103,14 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
             None => None,
         };
         let url = path.is_empty().then_some(url);
+        let own = s.as_ref().map(Jv::text);
+        nodes_out.push(json!({"path": path, "kind": if n["kind"] == "array" { "array" } else { "group" }, "s": own}));
+        let attrs = |kept: Jv, s: Option<Jv>| if declared { attributes(kept, url, s) } else { kept };
         let doc = match n["kind"].as_str() {
             Some(kind @ ("array" | "group")) => {
                 let mut d = json::parse(n["doc"].as_str().unwrap_or("").as_bytes())?.value;
                 let kept = d.get("attributes").cloned().unwrap_or(Jv::obj(vec![]));
-                d.set("attributes", attributes(kept, url, s));
+                d.set("attributes", attrs(kept, s));
                 if kind == "array" {
                     narrays += 1;
                     sharded += u64::from(n["sharded"].as_bool().unwrap_or(false));
@@ -103,7 +125,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
             // an implicit group
             _ => {
                 groups += 1;
-                Jv::obj(vec![("zarr_format", Jv::Int("3".into())), ("node_type", Jv::str("group")), ("attributes", attributes(Jv::obj(vec![]), url, s))])
+                Jv::obj(vec![("zarr_format", Jv::Int("3".into())), ("node_type", Jv::str("group")), ("attributes", attrs(Jv::obj(vec![]), s))])
             }
         };
         let key = doc_key(path);
@@ -153,7 +175,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
                 chunks += 1;
                 check_key(&key)?;
                 out.refs(&key, vec![Part::Obj(key.clone(), 0, n)]);
-            } else if n > 0 {
+            } else if n > 0 && declared {
                 others += 1;
                 let k = object_key(&key);
                 check_key(&k)?;
