@@ -69,13 +69,16 @@ def grid(span: Ref, shape: Sequence[int], item_size: int, *,
     return list(chunk_shape), chunks
 
 
-def filled(v: Value | Part | Sequence[Part]) -> bytes | Value:
+def filled(v: Value | Part | Sequence[Part] | bytes) -> bytes | Value:
     """A value with a `Copy` as the bytes it stands for, which an output holds as a bytes entry:
     each `Copy` read through its input (`Parsed.bytes`, so against its `max_bytes`), and the
-    literals, zeros and data beside it written out. A value with no `Copy` is returned as it is.
+    literals, zeros and data beside it written out. A value with no `Copy`, and bytes (an `Array`'s
+    chunk may be either), are returned as they are.
 
     ValueError for a `Ref` beside a `Copy`: bytes of a source are copied only where a `Copy` says
     so."""
+    if isinstance(v, bytes):
+        return v
     val = value(v)
     if not any(isinstance(p, Copy) for p in val.parts):
         return val

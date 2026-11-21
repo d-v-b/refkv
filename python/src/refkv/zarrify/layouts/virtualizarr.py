@@ -2,8 +2,13 @@
 <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): a file presented as VirtualiZarr's own
 parsers present it, so that code written against `HDFParser`, `FITSParser`, `ZarrParser`,
 `ZippedZarrParser`, `NetCDF3Parser` or `ENVIParser` finds the arrays, dimension names and
-attributes it expects. Its chunk references, chunk grids and codecs are those of refkv's own output
-(`refkv.build.project`), and it writes none of refkv's declarations and no `refkv_source` mirror.
+attributes it expects. Its chunk references, chunk grids and codecs are those of refkv's own output,
+and it writes none of refkv's declarations and no `refkv_source` mirror. A FITS file's are made from
+the parser's description and the IR with the FITS convention's routines (`refkv.build.fits_arrays`
+and `fits_cards`), and an HDF5 input's from the parser's description with the HDF5 convention's
+routine (`refkv.build.hdf5_hierarchy`), with no output of refkv's: for those the layout is that
+output's peer. Every other format's are still read from refkv's own output
+(`refkv.build.project`), until its parser returns a description too.
 It writes its documents with `dump`, so it runs without the `layouts` extra.
 
     python -m refkv.zarrify data.nc out.vzip --layout refkv.virtualizarr
@@ -11,7 +16,8 @@ It writes its documents with `dump`, so it runs without the `layouts` extra.
 The reference is VirtualiZarr 2.8.0 (`virtualizarr/parsers/hdf/hdf.py`, `parsers/fits.py`,
 `parsers/zarr/`, `parsers/netcdf3.py`, `parsers/envi.py`), read profile by profile:
 
-- **HDF5 and netCDF-4** (`HDFParser`): every group and dataset of refkv's own output at its path,
+- **HDF5 and netCDF-4** (`HDFParser`): every group and dataset the HDF5 convention presents at its
+  path (`refkv.build.hdf5_hierarchy`, made from the parser's description: no output of refkv's),
   with its `dimension_names` (its dimension scales, else the names netCDF-4 gives an axis without
   one), and `[]` for a scalar. Attributes are the source's, as `coding.hdf5_attributes` gives them, without the
   bookkeeping `HDFParser` hides (`CLASS`, `NAME`, `DIMENSION_LIST`, `REFERENCE_LIST`,
@@ -115,7 +121,19 @@ import struct
 from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
-from refkv.build import Parsed, Projected, Value, Written, project
+from refkv.build import (
+    Array,
+    Hdf5Hierarchy,
+    Parsed,
+    Projected,
+    Value,
+    Written,
+    filled,
+    fits_arrays,
+    fits_cards,
+    hdf5_hierarchy,
+    project,
+)
 from refkv.zarrify import Rejected
 from refkv.zarrify.coding import hdf5_attributes, hdf5_value
 from refkv.zarrify.layouts import MIRROR, chunk_coords, chunk_key, dump
@@ -167,7 +185,7 @@ def _fill_value_coded(value: object, kind: str | None) -> object:
     return value
 
 
-def _presented(pr: Projected, path: str, kind: str | None) -> dict[str, Any]:
+def _presented(pr: Hdf5Hierarchy, path: str, kind: str | None) -> dict[str, Any]:
     """The attributes HDFParser presents for the node at `path`, `kind` its dataset's datatype
     class (None for a group), as Python values (NaN and the infinities as floats)."""
     metadata = pr.source_metadata(path) or {}
@@ -185,8 +203,8 @@ def _presented(pr: Projected, path: str, kind: str | None) -> dict[str, Any]:
     return out
 
 
-def _string_length(pr: Projected, path: str, doc: Mapping[str, Any]) -> int | None:
-    """The length of a fixed-length string dataset refkv's own output holds as uint8 with a
+def _string_length(pr: Hdf5Hierarchy, path: str, doc: Mapping[str, Any]) -> int | None:
+    """The length of a fixed-length string dataset the HDF5 convention holds as uint8 with a
     trailing axis of its bytes, or None for another array."""
     metadata = pr.source_metadata(path)
     datatype = metadata.get("datatype") if isinstance(metadata, dict) else None
@@ -221,7 +239,9 @@ def _without_byte_axis(doc: dict[str, Any], chunks: Mapping[str, bytes | Value],
     return doc, {chunk_key(chunk_coords(k, before)[:-1], doc): v for k, v in chunks.items()}
 
 
-def _hdf5(pr: Projected, token: bool) -> Written:
+def _hdf5(pr: Hdf5Hierarchy, token: bool) -> Written:
+    """An HDF5 input as `HDFParser` presents it, from the HDF5 convention's hierarchy, an edge
+    chunk the convention copies written as bytes."""
     out = Written()
     for path in pr.nodes():
         prefix = f"{path}/" if path else ""
@@ -245,7 +265,7 @@ def _hdf5(pr: Projected, token: bool) -> Written:
         doc["codecs"] = [VLEN_UTF8 if c == {"name": "vlen-utf8"} else c for c in doc["codecs"]]
         doc["attributes"] = _nonfinite(_presented(pr, path, kind), token)
         out[f"{prefix}zarr.json"] = dump(doc, allow_nan=token)
-        out.update({f"{prefix}{k}": v for k, v in chunks.items()})
+        out.update({f"{prefix}{k}": filled(v) for k, v in chunks.items()})
     return out
 
 
@@ -289,69 +309,6 @@ RECORD = re.compile(r"(?P<field>[a-zA-Z_]\w*(\.\d+)?(\.[a-zA-Z_]\w*(\.\d+)?)*): 
                     r"(?P<value>[+-]?(\.\d+|\d+(\.\d*)?)([DE][+-]?\d+)?)")
 RECORD_CARD = re.compile(r" *'(?P<raw>" + RECORD.pattern + r")' *(/.*)?$")
 STANDARD = re.compile(r"[A-Z0-9_-]{1,8}")  # a keyword that is no HIERARCH one
-INTEGER = re.compile(r"[+-]?[0-9]+")
-REAL = re.compile(r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[EeDd][+-]?[0-9]+)?")
-COMPLEX = re.compile(r"\(\s*(" + REAL.pattern + r")\s*,\s*(" + REAL.pattern + r")\s*\)")
-
-
-def _real(text: str) -> object:
-    value = float(text.replace("D", "E").replace("d", "e"))
-    return value if math.isfinite(value) else {"text": text}
-
-
-def _value_field(field: str) -> object:
-    """A card's value field (bytes 10-79) as spec/zarrify/fits.md §5.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards> reads it."""
-    text = field.lstrip()
-    if text.startswith("'"):
-        out: list[str] = []
-        i = 1
-        while i < len(text):
-            if text[i] == "'":
-                if text[i + 1:i + 2] == "'":
-                    out.append("'")
-                    i += 2
-                    continue
-                break
-            out.append(text[i])
-            i += 1
-        return "".join(out).rstrip()
-    text = text.partition("/")[0].strip()
-    if not text:
-        return None
-    if text in ("T", "F"):
-        return text == "T"
-    if INTEGER.fullmatch(text):
-        return int(text)
-    if REAL.fullmatch(text):
-        return _real(text)
-    if (pair := COMPLEX.fullmatch(text)) is not None:
-        return [_real(pair.group(1)), _real(pair.group(2))]
-    return {"text": text}
-
-
-def _parsed_cards(records: list[str]) -> list[list[Any]]:
-    """A header's cards from its 80-byte records, as the `cards` of refkv's own output holds them,
-    where it leaves them out (a header past its budget); comments are not read."""
-    out: list[list[Any]] = []
-    for record in records:
-        keyword = record[:8].rstrip()
-        if keyword == "END":
-            break
-        last = out[-1][1] if out else None
-        if keyword == "CONTINUE" and record[8:10] == "  " and isinstance(last, str) and last.endswith("&"):
-            piece = _value_field(record[10:])
-            if isinstance(piece, str):
-                out[-1][1] = last[:-1] + piece
-                continue
-        if keyword == "HIERARCH" and record[8:10] != "= " and "=" in record[8:]:
-            name, _, field = record[8:].partition("=")
-            out.append([name.strip(), _value_field(field), None])
-        elif record[8:10] == "= ":
-            out.append([keyword, _value_field(record[10:]), None])
-        else:
-            out.append([keyword, None, None])
-    return out
 
 
 def _records(records: list[str] | None) -> set[tuple[str, str]] | None:
@@ -475,20 +432,19 @@ def _scaled(doc: dict[str, Any], header: Mapping[str, Any], cards: Mapping[str, 
     return {**doc, "attributes": header}
 
 
-def _ascii_table(pr: Projected, path: str, name: str, cards: list[list[Any]],
+def _ascii_table(arrays: Mapping[str, Array], name: str, cards: list[list[Any]],
                  records: set[tuple[str, str]] | None) -> Written | None:
     """An ASCII table HDU as FITSParser presents it: a struct array of its columns, decoded by
     VirtualiZarr's codec from the table's one chunk; None for a table whose columns this cannot
-    read as astropy does (a TFORM without a width)."""
-    rows = f"{path}/rows"
-    if pr.node_type(rows) != "array":
+    read as astropy does (a TFORM without a width), or whose rows the FITS convention cuts into
+    several chunks."""
+    rows = arrays.get("rows")
+    if rows is None:
         return None
-    doc, chunks = pr.array_entries(rows)
     table = {k: v for k, v, _ in reversed(cards)}
     nrows, row_nbytes = int(table.get("NAXIS2", 0)), int(table.get("NAXIS1", 0))
     whole = [nrows, row_nbytes]
-    if doc.get("shape") != whole or doc["chunk_grid"]["configuration"]["chunk_shape"] != whole \
-            or doc["codecs"][0].get("name") != "bytes":
+    if rows.shape != whole or rows.chunk_shape != whole or rows.codecs[0].get("name") != "bytes":
         return None
     columns: list[list[object]] = []
     fields: list[dict[str, object]] = []
@@ -519,32 +475,31 @@ def _ascii_table(pr: Projected, path: str, name: str, cards: list[list[Any]],
         "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [nrows]}},
         "chunk_key_encoding": {"name": "default", "configuration": {"separator": "/"}},
         "fill_value": fills,
-        # the bytes-to-bytes codecs of refkv's own output after it: a FITS file compressed whole (gzip, bzip2)
+        # the bytes-to-bytes codecs of the convention's after it: a FITS file compressed whole (gzip, bzip2)
         "codecs": [{"name": ASCII_CODEC, "configuration": {"columns": columns, "row_nbytes": row_nbytes}},
-                   *doc["codecs"][1:]],
+                   *rows.codecs[1:]],
         "attributes": _header(cards, records),
         "dimension_names": _dimension_names(name, 1),
     }
     out = Written({f"{name}/zarr.json": dump(out_doc)})
-    for key, value in chunks.items():
-        out[f"{name}/{chunk_key(chunk_coords(key, doc)[:1], out_doc)}"] = value
+    for coords, value in rows.chunks.items():
+        out[f"{name}/{chunk_key(list(coords[:1]), out_doc)}"] = filled(value)
     return out
 
 
-def _fits(parsed: Parsed, pr: Projected) -> Written:
-    hdus = sorted((int(p), p) for p in pr.nodes() if p and "/" not in p and p.isdigit())
+def _fits(parsed: Parsed) -> Written:
+    """A FITS file as FITSParser presents it, from the parser's description, the headers' cards
+    and the arrays the FITS convention writes of each HDU (`fits_cards`, `fits_arrays`): no output
+    of refkv's is made."""
+    description: Any = parsed.description
     names: list[str] = []
     out = Written()
     root: dict[str, Any] = {}
-    for index, path in hdus:
-        metadata = pr.source_metadata(path) or {}
-        cards = metadata.get("cards") if isinstance(metadata, dict) else None
-        header = parsed.ir.at(f"hdus/{index}/header")
-        lines = parsed.ir.value(header) if header is not None else None
-        raw = [str(r["card"]) for r in lines if isinstance(r, dict)] if isinstance(lines, list) else None
-        if cards is None:  # past the budget of refkv's own output: the header's records, from the IR
-            cards = _parsed_cards(raw) if raw is not None else []
-        records = _records(raw)
+    for hdu in description["hdus"]:
+        index = int(hdu["index"])
+        cards = fits_cards(parsed, index)
+        lines = parsed.ir.value(int(hdu["elements"]["header"]))
+        records = _records([str(r["card"]) for r in lines if isinstance(r, dict)] if isinstance(lines, list) else None)
         table = {k: v for k, v, _ in reversed(cards)}
         compressed = table.get("XTENSION") == "BINTABLE" and table.get("ZIMAGE") is True
         name = _hdu_name(cards, index, compressed) or str(index)
@@ -558,30 +513,30 @@ def _fits(parsed: Parsed, pr: Projected) -> Written:
             if index == 0:
                 root = _header(cards, records)
             continue
+        arrays = fits_arrays(parsed, index)
         is_image = (table.get("SIMPLE") is True and not table.get("GROUPS")) or table.get("XTENSION") == "IMAGE" \
             or compressed
-        if is_image and pr.node_type(path) == "array":
-            doc, chunks = pr.array_entries(path)
+        if is_image and "" in arrays:
+            image = arrays[""]
             header = _header(_image_header(cards) if compressed else cards, records)
-            doc = _scaled(dict(doc), header, table)
+            doc = _scaled(image.document(), header, table)
             if str(doc["data_type"]).startswith("float") and type(doc.get("fill_value")) is int:
                 doc["fill_value"] = float(doc["fill_value"])  # as zarr-python writes a float's zero
             doc["dimension_names"] = _dimension_names(name, len(doc["shape"]))
             out[f"{name}/zarr.json"] = dump(doc)
-            out.update({f"{name}/{k}": v for k, v in chunks.items()})
+            for coords, value in image.chunks.items():
+                out[f"{name}/{chunk_key(list(coords), doc)}"] = filled(value)
             continue
-        ascii_table = _ascii_table(pr, path, name, cards, records) if table.get("XTENSION") == "TABLE" else None
+        ascii_table = _ascii_table(arrays, name, cards, records) if table.get("XTENSION") == "TABLE" else None
         if ascii_table is not None:
             out |= ascii_table
             continue
-        # an HDU FITSParser cannot present (a binary table): refkv's node for it, under its name, each
-        # entry kept as it is with its placement
-        kept = pr.entries(f"{path}/", declarations=False, mirror=False, datasets=False)
-        for key, value in kept.items():
-            under = f"{name}/{key[len(path) + 1:]}"
-            out[under] = value
-            if key in kept.at_open:
-                out.at_open[under] = kept.at_open[key]
+        # an HDU FITSParser cannot present (a binary table): its group as the FITS convention writes
+        # it, under its name, without refkv's declarations
+        out[f"{name}/zarr.json"] = dump({"zarr_format": 3, "node_type": "group", "attributes": {}})
+        for path, array in arrays.items():
+            for key, value in array.entries(to=f"{name}/{path}").items():
+                out[key] = value if isinstance(value, bytes) else filled(value)
     out["zarr.json"] = dump({"zarr_format": 3, "node_type": "group", "attributes": root})
     return out
 
@@ -850,14 +805,15 @@ class VirtualiZarr:
         return {"nonfinite": nonfinite}
 
     def write(self, inputs: Sequence[Parsed], options: Mapping[str, object]) -> Written:
-        """The input as VirtualiZarr's parser of its format presents it, built on refkv's own
-        output of it and, for a FITS header's 80-byte records, on its IR."""
+        """The input as VirtualiZarr's parser of its format presents it: a FITS file's from its
+        description, its IR and the FITS convention's routines, an HDF5 input's from the HDF5
+        convention's hierarchy (`hdf5_hierarchy`), any other's built on refkv's own output of it."""
         [parsed] = inputs
-        pr = project(parsed)
-        if parsed.profile == "hdf5":
-            return _hdf5(pr, options["nonfinite"] == "token")
         if parsed.profile == "fits":
-            return _fits(parsed, pr)
+            return _fits(parsed)
+        if parsed.profile == "hdf5":
+            return _hdf5(hdf5_hierarchy(parsed), options["nonfinite"] == "token")
+        pr = project(parsed)
         if parsed.profile == "netcdf3":
             return _netcdf3(pr, options["nonfinite"] == "token")
         if parsed.profile == "envi":

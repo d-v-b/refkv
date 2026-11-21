@@ -769,6 +769,26 @@ impl PyRun {
         let (ir, _) = self.get()?.parsed().map_err(PyValueError::new_err)?;
         Ok(PyIr::of(Arc::clone(ir)))
     }
+    /// The FITS file a run that is done parsed (`Fits`), its IR and description shared with the
+    /// run; ValueError for a run of another format.
+    fn fits(&mut self) -> PyResult<PyFits> {
+        let r = self.get()?;
+        if r.format.name() != "fits" {
+            return Err(PyValueError::new_err(format!("a run of {}, not of a FITS file", r.format.name())));
+        }
+        let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
+        Ok(PyFits { ir, description, heaps: std::sync::OnceLock::new() })
+    }
+    /// The HDF5 file a run that is done parsed (`Hdf5`), its IR and description shared with the
+    /// run; ValueError for a run of another format.
+    fn hdf5(&mut self) -> PyResult<PyHdf5> {
+        let r = self.get()?;
+        if r.format.name() != "hdf5" {
+            return Err(PyValueError::new_err(format!("a run of {}, not of an HDF5 file", r.format.name())));
+        }
+        let (ir, facts) = r.shared().map_err(PyValueError::new_err)?;
+        Ok(PyHdf5 { ir, facts, store: false })
+    }
     /// What makes the mirror of a run that is done (`Mirror`): its IR and facts, shared with the
     /// run, which is kept and may be used while the mirror is made.
     fn mirror(&mut self) -> PyResult<PyMirror> {
@@ -817,6 +837,31 @@ impl PyMirror {
             }.map(|_| o)
         }).map_err(Rejected::new_err)?;
         out_py(py, &o)
+    }
+}
+
+/// An HDF5 input a run parsed (`Run.hdf5()`, `StoreRun.hdf5()`): its IR and its description (a
+/// store run's, of each file it read), shared with the run and never changed, so that a layout
+/// asks for the HDF5 convention's hierarchy from any thread, while the run is used for something
+/// else or after it is gone.
+#[pyclass(name = "Hdf5", module = "refkv._core", frozen)]
+pub struct PyHdf5 {
+    ir: Arc<Ir>,
+    facts: Arc<serde_json::Value>,
+    store: bool,
+}
+
+#[pymethods]
+impl PyHdf5 {
+    /// The HDF5 convention's hierarchy (`project::hdf5::hierarchy`): its nodes as JSON, its
+    /// documents and chunks in `out_py`'s form (the url empty) but for the edge chunks it copies,
+    /// and those, each `(key, offset, length, padding)` of the file; or Rejected.
+    #[allow(clippy::type_complexity)]
+    fn hierarchy<'py>(&self, py: Python<'py>) -> PyResult<(String, Bound<'py, PyAny>, Vec<(String, u64, u64, u64)>)> {
+        let (nodes, out, copies) = py
+            .detach(|| refkv_ir::project::hdf5::hierarchy(&self.ir, &self.facts, self.store))
+            .map_err(Rejected::new_err)?;
+        Ok((serde_json::Value::Array(nodes).to_string(), out_py(py, &out)?, copies))
     }
 }
 
@@ -920,6 +965,15 @@ impl PyStoreRun {
         let ir = Arc::new(ir);
         self.parsed = Some((format, Arc::clone(&ir), Arc::new(facts), stats));
         Ok(PyIr::of(ir))
+    }
+    /// The HDF5 files a run `parse` finished read (`Hdf5`), its IR and descriptions shared with the
+    /// run; ValueError for a run of another format.
+    fn hdf5(&mut self) -> PyResult<PyHdf5> {
+        let (format, ir, facts, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        if *format != refkv_ir::store::StoreFormat::Hdf5 {
+            return Err(PyValueError::new_err("a run of a store of another format, not of HDF5 files"));
+        }
+        Ok(PyHdf5 { ir: Arc::clone(ir), facts: Arc::clone(facts), store: true })
     }
     /// What makes the mirror of a run `parse` finished (`Mirror`): its IR and facts, shared
     /// with the run.
@@ -1190,6 +1244,56 @@ fn grid_chunks(py: Python<'_>, offset: u64, shape: Vec<u64>, item: u64, limit: u
     })
 }
 
+/// A part of a chunk of `Fits.arrays`: `("src", offset, length)` of the file, `("lit", bytes)`,
+/// `("zeros", length)` of an edge chunk's padding, or `("copy", offset, length)` of the file, to
+/// be copied.
+fn piece_py<'py>(py: Python<'py>, piece: &refkv_ir::project::fits::Piece) -> PyResult<Bound<'py, PyAny>> {
+    use refkv_ir::project::fits::Piece;
+    Ok(match piece {
+        Piece::Src(o, n) => ("src", *o, *n).into_pyobject(py)?.into_any(),
+        Piece::Lit(b) => ("lit", PyBytes::new(py, b)).into_pyobject(py)?.into_any(),
+        Piece::Zeros(n) => ("zeros", *n).into_pyobject(py)?.into_any(),
+        Piece::Copy(o, n) => ("copy", *o, *n).into_pyobject(py)?.into_any(),
+    })
+}
+
+/// A FITS file a run parsed (`Run.fits()`): its IR and its description, shared with the run and
+/// never changed, and its heaps' elements, found once; so that a layout asks for each HDU's arrays
+/// and cards without the description going through JSON for each, from any thread.
+#[pyclass(name = "Fits", module = "refkv._core", frozen)]
+pub struct PyFits {
+    ir: Arc<Ir>,
+    description: Arc<serde_json::Value>,
+    heaps: std::sync::OnceLock<refkv_ir::project::fits::Heaps>,
+}
+
+#[pymethods]
+impl PyFits {
+    /// The arrays of HDU `index` as the FITS convention writes them, but for their declarations
+    /// (`project::fits::hdu_arrays`): each `(path, document JSON, chunks)`, `path` under the HDU's
+    /// node (`""`, `rows`, `heap`), each chunk `(coords, parts)` in `piece_py`'s form. ValueError
+    /// for no HDU `index`.
+    #[allow(clippy::type_complexity)]
+    fn arrays<'py>(&self, py: Python<'py>, index: u64) -> PyResult<Vec<(String, String, Vec<(Vec<u64>, Vec<Bound<'py, PyAny>>)>)>> {
+        let arrays = py.detach(|| {
+            let heaps = self.heaps.get_or_init(|| refkv_ir::project::fits::Heaps::of(&self.ir));
+            refkv_ir::project::fits::hdu_arrays(&self.ir, &self.description, index, heaps)
+        }).map_err(PyValueError::new_err)?;
+        arrays.into_iter().map(|a| {
+            let chunks = a.chunks.iter().map(|(coords, pieces)| {
+                Ok((coords.clone(), pieces.iter().map(|p| piece_py(py, p)).collect::<PyResult<Vec<_>>>()?))
+            }).collect::<PyResult<Vec<_>>>()?;
+            Ok((a.path, a.doc.to_string(), chunks))
+        }).collect()
+    }
+    /// The cards of HDU `index` as the FITS convention writes them (`project::fits::hdu_cards`):
+    /// JSON, each `[keyword, value, comment]`. ValueError for no HDU `index`.
+    fn cards(&self, py: Python<'_>, index: u64) -> PyResult<String> {
+        let cards = py.detach(|| refkv_ir::project::fits::hdu_cards(&self.ir, &self.description, index)).map_err(PyValueError::new_err)?;
+        Ok(refkv_ir::out::to_text(&cards))
+    }
+}
+
 /// What frames a raw deflate stream as a gzip member, as the built-in projections write one: the
 /// 10-byte header (`out::GZIP_HEADER`), and the trailer, the stream's CRC-32 and the size of what
 /// it inflates to, modulo 2^32.
@@ -1261,6 +1365,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMirror>()?;
     m.add_function(wrap_pyfunction!(grid_chunks, m)?)?;
     m.add_function(wrap_pyfunction!(gzip_frame, m)?)?;
+    m.add_class::<PyFits>()?;
+    m.add_class::<PyHdf5>()?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;
     m.add_function(wrap_pyfunction!(view_problem, m)?)?;
     m.add_function(wrap_pyfunction!(synthetic, m)?)?;

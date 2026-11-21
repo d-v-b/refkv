@@ -1,20 +1,17 @@
 //! An HDF5 file that names siblings, read as a store (spec/zarrify/hdf5.md §8.6
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#86-external-files>): the named
 //! file's parser, paused at `Step::Beside` while the run probes the keys it names, then a parser of
-//! each file an external link names. The hierarchy is the named file's, with what each link names
-//! at the link's path, one level deep, and the mirror each file's IR at its object.
+//! each file an external link names. The description is each file's, and the mirror each file's IR
+//! at its object; the projection presents the named file's hierarchy with what each link names at
+//! the link's path, one level deep.
 
-use super::file::{name_axes, node_name, Hdf5};
-use crate::beside::{written_key, Tree, Written};
+use super::file::Hdf5;
+use crate::beside::Tree;
 use crate::ir::{Ir, Res};
 use crate::nd2::Step;
 use crate::store::{StoreParser, StoreStep};
-use serde_json::{json, Value as J};
+use serde_json::{json, Map, Value as J};
 use std::collections::HashMap;
-
-/// The reason a linked object is not presented: its links and references name paths of its own
-/// file, which the hierarchy does not hold.
-const EXTERNAL_REFERENCE: &str = "external_reference";
 
 #[derive(PartialEq)]
 enum Stage {
@@ -86,71 +83,15 @@ impl Hdf5Store {
     }
 }
 
-/// Whether `v` holds an object reference (spec/zarrify/hdf5.md §5
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#5-object-references>).
-fn holds_reference(v: &J) -> bool {
-    match v {
-        J::Object(m) => m.contains_key("_REFERENCE") || m.values().any(holds_reference),
-        J::Array(a) => a.iter().any(holds_reference),
-        _ => false,
-    }
-}
-
-/// The nodes of a file at and below `target` (an HDF5 path) moved to the path `at`, without what
-/// names paths of their file; and the paths left out (`at` itself, or below it), each with the
-/// `axes` it counts among its group's members by.
-fn linked_nodes(nodes: &[J], target: &str, at: &str) -> (Vec<J>, Vec<(String, Option<J>)>) {
-    let target = target.trim_matches('/');
-    let (mut moved, mut left_out) = (Vec::new(), Vec::new());
-    for node in nodes {
-        let path = node["path"].as_str().unwrap_or("");
-        let suffix = if target.is_empty() {
-            path
-        } else if path == target {
-            ""
-        } else if let Some(s) = path.strip_prefix(target).and_then(|s| s.strip_prefix('/')) {
-            s
-        } else {
-            continue;
-        };
-        let new = if suffix.is_empty() { at.to_string() } else { format!("{at}/{suffix}") };
-        let references = node.get("array").is_some_and(|a| a["store"]["kind"] == "references")
-            || node["attributes"].get("_REFERENCE_FIELDS").is_some();
-        if references {
-            left_out.push((new, node.get("axes").cloned()));
-            continue;
+/// A file's description with its storage elements as `map` numbers them in the store IR, and each
+/// dataset's object `object`.
+fn placed(description: &mut J, map: &[u32], object: u32) {
+    for o in description["objects"].as_array_mut().into_iter().flatten() {
+        let Some(storage) = o.get_mut("storage") else { continue };
+        if let Some(e) = storage["element"].as_u64() {
+            storage["element"] = json!(map[e as usize]);
         }
-        let mut node = node.clone();
-        let names: Vec<String> = node["attributes"].as_object().into_iter().flatten()
-            .filter(|(k, v)| *k == "_LINKS" || holds_reference(v))
-            .map(|(k, _)| k.clone())
-            .collect();
-        for k in names {
-            if let Some(m) = node["attributes"].as_object_mut() {
-                m.remove(&k);
-            }
-            node["own"]["unpresented_attributes"][k] = json!(EXTERNAL_REFERENCE);
-        }
-        node["segments"] = json!(new.split('/').count());
-        node["path"] = json!(new);
-        moved.push(node);
-    }
-    (moved, left_out)
-}
-
-/// A file's facts with its storage elements and its descriptions' keys as `map` numbers them in the
-/// store IR, and each array's object `object`.
-fn placed(facts: &mut J, map: &[u32], object: u32) {
-    for node in facts["nodes"].as_array_mut().into_iter().flatten() {
-        let Some(a) = node.get_mut("array") else { continue };
-        if let Some(e) = a["declared_by"].as_u64() {
-            a["declared_by"] = json!(map[e as usize]);
-        }
-        let store = &mut a["store"];
-        if let Some(e) = store["element"].as_u64() {
-            store["element"] = json!(map[e as usize]);
-        }
-        store["object"] = json!(object);
+        storage["object"] = json!(object);
     }
 }
 
@@ -220,7 +161,7 @@ impl StoreParser for Hdf5Store {
         let map = ir.graft(&named_ir, elems[0])?;
         placed(&mut facts, &map, elems[0]);
         let mut files: HashMap<String, J> = HashMap::new();
-        files.insert(keys[0].0.clone(), facts.clone());
+        files.insert(keys[0].0.clone(), facts);
         for f in followers {
             let Some(parser) = f.parser.filter(|p| !p.is_ims()) else { continue };
             let Ok((file_ir, mut file)) = parser.finish() else { continue };
@@ -229,50 +170,13 @@ impl StoreParser for Hdf5Store {
             placed(&mut file, &map, elems[f.object]);
             files.insert(keys[f.object].0.clone(), file);
         }
-        let mut added = Vec::new();
-        for group in facts["nodes"].as_array_mut().into_iter().flatten() {
-            let links: Vec<J> = group["own"]["external_links"].as_array().cloned().unwrap_or_default();
-            let path = group["path"].as_str().unwrap_or("").to_string();
-            for link in links {
-                let (Some(name), Some(file), Some(target)) = (link["name"].as_str(), link["file"].as_str(), link["path"].as_str()) else { continue };
-                let Some(key) = written_key(file.as_bytes(), "", Written::default()).filter(|_| node_name(name)) else { continue };
-                let Some(source) = files.get(&key) else { continue };
-                let at = if path.is_empty() { name.to_string() } else { format!("{path}/{name}") };
-                let (mut moved, left_out) = linked_nodes(source["nodes"].as_array().map_or(&[], |n| n), target, &at);
-                for (out, axes) in left_out {
-                    let (parent, child) = out.rsplit_once('/').unwrap_or(("", &out));
-                    let holder = if out == at { Some(&mut *group) } else { moved.iter_mut().find(|n| n["path"] == parent) };
-                    if let Some(n) = holder {
-                        n["own"]["unpresented"][child] = json!(EXTERNAL_REFERENCE);
-                        // still a member of its group, as an unpresented dataset is
-                        if let Some(a) = axes {
-                            if !n["axes"].is_array() {
-                                n["axes"] = json!([]);
-                            }
-                            n["axes"].as_array_mut().unwrap().push(json!([child, a]));
-                        }
-                    }
-                }
-                if let Some(top) = moved.iter_mut().find(|n| n["path"] == at.as_str()) {
-                    top["own"]["external"] = json!({"file": key, "path": target});
-                }
-                added.extend(moved);
-            }
-        }
-        let (groups, arrays) = added.iter().fold((0u64, 0u64), |(g, a), n: &J| if n.get("array").is_some() { (g, a + 1) } else { (g + 1, a) });
-        if let Some(nodes) = facts["nodes"].as_array_mut() {
-            if let Some(root) = nodes.first_mut().filter(|_| keys.len() > 1) {
-                root["own"]["siblings"] = json!(keys[1..].iter().map(|k| &k.0).collect::<Vec<_>>());
-            }
-            nodes.extend(added);
-            // a linked object is a member of the group that links it
-            name_axes(nodes);
-        }
-        facts["named_key"] = json!(keys[0].0);
-        // no edge chunk is copied: the run's reads have ended, and its padding is the zero data source's
-        facts["copy_threshold"] = json!(1u64 << 40);
-        facts["summary"]["groups"] = json!(facts["summary"]["groups"].as_u64().unwrap_or(0) + groups);
-        facts["summary"]["arrays"] = json!(facts["summary"]["arrays"].as_u64().unwrap_or(0) + arrays);
+        // the projection presents the named file's hierarchy with what its links name
+        // (`crate::project::hdf5::project_store`)
+        let mut out = Map::new();
+        out.insert("named_key".into(), json!(keys[0].0));
+        out.insert("siblings".into(), json!(keys[1..].iter().map(|k| &k.0).collect::<Vec<_>>()));
+        out.insert("files".into(), J::Object(files.into_iter().collect()));
+        let facts = J::Object(out);
         ir.sort_values();
         crate::check::finish(&mut ir)?;
         Ok((ir, facts))

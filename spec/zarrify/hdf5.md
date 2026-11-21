@@ -443,9 +443,9 @@ bitfields); `order`, `ieee` (floats); `padding`, `charset` (strings); `tag` (opa
 whose elements are the IMS convention's ([ims.md §5.2](ims.md#52-elements)): the superblock,
 the objects in canonical order and then those no path reaches in ascending address order, and the
 global heap collections that attributes and datasets of strings and records name. The walk
-([§8.2](#82-reading)) reaches every object; the presented datasets' storage (their chunks and
-contiguous data) is described whatever the IR's room, `2^21 + floor(size / 8)` elements, and
-the other structures while it lasts. Every byte no element claims is a gap: the mirror rebuilds
+([§8.2](#82-reading)) reaches every object; every dataset's storage (its chunks and contiguous
+data) is described whatever the IR's room, `2^21 + floor(size / 8)` elements, presented or not,
+and the other structures while it lasts. Every byte no element claims is a gap: the mirror rebuilds
 the file.
 
 ### 7.4 What is not presented
@@ -567,8 +567,10 @@ chunk index, and the storage of a presented dataset of strings, references or re
 - **Budgets:** at most 131072 objects (`budget: more than 131072 objects`); no object more than
   64 links deep (`budget: objects more than 64 links deep`); a dataset of strings, references
   or records of at most 2^26 bytes (`budget: a dataset of strings or references of more than
-  67108864 bytes`); at most 2^20 strings presented in all (`budget: more than 1048576
-  strings`); the mirror's rows
+  67108864 bytes`); at most 2^20 strings presented in all, and a presented dataset of strings
+  within the first 2^20 strings of the string datasets whose elements the profile decodes, in
+  canonical order, presented or not ([§8.7](#87-the-description)), as the profile reads no more
+  (`budget: more than 1048576 strings`); the mirror's rows
   ([spec/zarrify.md §1.1](../zarrify.md#11-output-and-equivalence)); the references
   ([spec/zarrify.md §1.2](../zarrify.md#12-input)).
 
@@ -638,3 +640,58 @@ file, a size of 2^64 − 1 the rest of the data. The chunks are cut as a contigu
 ([§3.2](#32-chunks)), with the data numbered from 0 across the slots, so that a chunk across two
 slots is a reference of two ranges, and an edge chunk's padding is a range of the zero data source.
 
+### 8.7 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. The
+parser returns, beside the IR, a **description** of the file: what it found of the source, for a
+projection to read with the IR and its stored arrays
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)). It holds none of an output's
+decisions: which objects are nodes and why the others are not ([§7.4](#74-what-is-not-presented)),
+the arrays' Zarr data types, codecs, fill values and dimension names ([§3](#3-datasets)), and the
+attributes presented within their budget ([§6](#6-attributes)) are the projection's. It is a JSON
+object with these members:
+
+| member | value |
+|---|---|
+| `superblock` | the superblock's version |
+| `user_block` | the bytes before the superblock ([§8.2](#82-reading)), 0 for none |
+| `objects` | each object a path reaches, in canonical order ([§2.2](#22-paths)) |
+
+An entry of `objects` has these:
+
+| member | value |
+|---|---|
+| `address` | its object header's address |
+| `segments` | the link names of its canonical path, each a text value ([conventions §6](../conventions.md#6-source-metadata-as-json)) |
+| `kind` | `group` (it has a symbol table or a link info message), else `dataset` (a layout message), else `named_datatype` (a datatype message), else `object` |
+| `attributes` | each attribute, in ascending byte order of its name: `name`, then `shared`, true, for one whose datatype or dataspace is shared; or `datatype`, described as [§7.2](#72-datasets) describes one, `type`, its datatype message in hexadecimal, `dims`, null for a null dataspace, `value`, its JSON value ([§6](#6-attributes)), absent where its datatype has none, and, for one of one element, `data`, its bytes in hexadecimal; or `error`, why it does not read |
+| `links` | a group's links, in ascending byte order of their names: `name`, a text value, then `soft`, the path a soft link gives; `hard`, the address of a hard link's object; or `type`, `file` and `path`, another link's type and an external link's file name and path ([§8.6](#86-external-files)), else null |
+| `link_order` | a group that tracks its links' creation order: each link's place in it, by name |
+
+and a dataset has these besides:
+
+| member | value |
+|---|---|
+| `dims` | its dataspace's dimensions |
+| `error` | why its messages do not read; a dataset with one has none of the members below but `unread` |
+| `datatype`, `type` | its datatype, described, and its message in hexadecimal: a committed datatype's message where the dataset's is shared |
+| `maxdims` | its dataspace's maximum dimensions, when it has them, null for unlimited |
+| `layout` | `compact`, `contiguous`, `chunked`, `null` (a null dataspace) or `virtual` |
+| `filters` | its filter pipeline: each filter's `id` and client data `values` |
+| `fill` | its fill value message's value, when it defines one, in hexadecimal |
+| `chunk`, `grid`, `index`, `raw_edges` | a chunked dataset's chunk dimensions, the grid of its chunks, its chunk index ([§7.2](#72-datasets)'s names), and whether its edge chunks are unfiltered |
+| `external` | a dataset with an external data files message: its data's ranges in its files, `[key, offset, length]` each, in the data's order, or null unless every file is found and holds its range ([§8.6](#86-external-files)) |
+| `storage` | compact: the `offset` and `length` of the layout message's data. Contiguous: `address`, null for unallocated data, `offset`, its offset in the file, `length`, and `outside`, true for data past the file's end. Chunked: `count`, its allocated chunks, `shortest`, the size of the smallest one no filter skipped, and `masked`, each chunk a filter skipped (a filter mask other than 0): `index`, its grid coordinates in row-major order, `size`, `mask`, and `adler`, the Adler-32 of its bytes where deflate alone skipped it ([§3.2](#32-chunks)). And `element`, the IR element of its chunks or contiguous data, where the IR holds one, and in a store run `object`, its file's object |
+| `dimension_scale` | the dataset's `CLASS` and `NAME`, each where it is a fixed-length string attribute, to its first NUL |
+| `dimension_list` | its `DIMENSION_LIST` attribute: `counts`, the number of scales each entry attaches, null when its data is not whole entries, and `scales`, each axis's scales by address, an axis whose scales do not read null, itself null unless the attribute is one object reference sequence an axis; or `unread`, true, where the attribute does not read |
+| `values` | a dataset whose elements the parser decodes: one of variable-length strings, object references or a compound with string or reference members, with no external data files, in as many bytes as its elements, compact, contiguous, or chunked with only deflate, shuffle and Fletcher32 (last) and whole edge chunks. Strings: `spans`, each one's offset and length in the file in turn, `0, 0` for an empty one, and `count`; references: `paths`, each one's object's canonical path; records: `elements`, their bytes in hexadecimal, and `texts`, each string or reference member's texts in turn, a fixed-size member's none, in the order [§3.3](#33-compounds) takes the members. Or `invalid`, why a string does not read ([§8.3](#83-checks)) |
+| `unread` | why its elements, or the chunks deflate skipped, do not read |
+
+The projection rejects the input for an `error`, `unread` or `invalid` only of an object it
+presents, and for an attribute's `error` only of a node, as [§8.3](#83-checks) says. A store run's
+description ([§8.6](#86-external-files)) is `named_key`, the named file's key; `siblings`, the
+keys found beside it; and `files`, the description of each file read, by key.
+
+The parser still reads to the convention's needs: it decodes the elements of the datasets that
+[§3.1](#31-data-types) presents as strings, references and records, and reads the Adler-32 that
+[§3.2](#32-chunks)'s literals need.

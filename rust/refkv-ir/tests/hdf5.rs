@@ -1,5 +1,6 @@
 //! The HDF5 parser (src/hdf5/file.rs; spec/zarrify/hdf5.md): one test per rejected fixture, an
-//! Imaris file handed to the IMS parser, and the mirror's rebuild of each accepted fixture.
+//! Imaris file handed to the IMS parser, the mirror's rebuild of each accepted fixture, and the
+//! description's datasets and their stored arrays.
 
 mod common;
 
@@ -7,10 +8,19 @@ use common::{fixtures, rebuilt};
 use refkv_ir::hdf5::Hdf5;
 use refkv_ir::Parser;
 
-// one test per case of conformance/zarrify/rejects/hdf5.json (build.rs), each the message its check gives
+// one test per case of conformance/zarrify/rejects/hdf5.json (build.rs), each the message its check
+// gives: the parser's, or, for a dataset whose elements do not read, the hierarchy's that presents it
 macro_rules! reject {
     ($name:ident, $input:literal, $msg:literal) => {
-        common::reject!($name, Hdf5, concat!("hdf5/", $input), $msg);
+        #[test]
+        fn $name() {
+            let data = std::fs::read(common::fixtures().join(concat!("hdf5/", $input))).unwrap();
+            let got = refkv_ir::parse_bytes::<Hdf5>(&data).and_then(|(_, facts)| refkv_ir::project::hdf5_nodes::nodes(&facts).map(|_| ()));
+            match got {
+                Err(m) => assert!(m.starts_with($msg), "{m}"),
+                Ok(_) => panic!("{} was accepted", $input),
+            }
+        }
     };
 }
 include!(concat!(env!("OUT_DIR"), "/rejects_hdf5.rs"));
@@ -44,18 +54,19 @@ fn accepted_fixtures_rebuild() {
         }
         let data = std::fs::read(&p).unwrap();
         let (ir, facts) = alone(&data).unwrap_or_else(|e| panic!("{name}: {e}"));
-        assert!(facts["nodes"].as_array().is_some_and(|n| !n.is_empty()), "{name}");
+        assert!(facts["objects"].as_array().is_some_and(|n| !n.is_empty()), "{name}");
         assert_eq!(rebuilt(&ir, &data), data, "{name}");
         n += 1;
     }
     assert!(n >= 10, "{n} fixtures");
 }
 
-/// Every array of an accepted fixture's facts names its description by the description's key:
-/// the struct of the dataset's object, each object's its own.
+/// Every dataset of an accepted fixture's description has one stored-array description, keyed by
+/// the struct of its object (`objects/<i>`, `i` its position among the description's objects), and
+/// its storage element, where it has one, lies in that struct.
 #[test]
-fn every_accepted_fixtures_arrays_name_their_descriptions() {
-    let mut arrays = 0;
+fn every_accepted_fixtures_datasets_have_their_descriptions() {
+    let mut datasets = 0;
     for e in std::fs::read_dir(fixtures().join("hdf5")).unwrap() {
         let p = e.unwrap().path();
         let name = p.file_name().unwrap().to_str().unwrap().to_string();
@@ -64,28 +75,26 @@ fn every_accepted_fixtures_arrays_name_their_descriptions() {
         }
         let (ir, facts) = alone(&std::fs::read(&p).unwrap()).unwrap_or_else(|e| panic!("{name}: {e}"));
         let keys: Vec<u32> = ir.stored.arrays.iter().map(|d| d.element).collect();
-        let mut by_address = std::collections::HashMap::new();
-        for node in facts["nodes"].as_array().unwrap() {
-            let Some(a) = node.get("array") else { continue };
-            let at = format!("{name}: {}", node["path"]);
-            let key = a["declared_by"].as_u64().unwrap_or_else(|| panic!("{at}: no declared_by")) as u32;
-            assert_eq!(keys.iter().filter(|&&k| k == key).count(), 1, "{at}");
-            assert_eq!(ir.names.get(ir.name[ir.parent[key as usize] as usize]), "objects", "{at}");
-            by_address.insert(node["own"]["address"].as_u64().unwrap(), key);
-            arrays += 1;
+        for (i, o) in facts["objects"].as_array().unwrap().iter().enumerate() {
+            if o["kind"] != "dataset" {
+                continue;
+            }
+            let at = format!("{name}: {}", o["segments"]);
+            let found: Vec<u32> = keys.iter().copied().filter(|&k| ir.path(k) == format!("objects/{i}")).collect();
+            assert_eq!(found.len(), 1, "{at}");
+            if let Some(el) = o["storage"]["element"].as_u64() {
+                assert!(ir.path(el as u32).starts_with(&format!("objects/{i}/")), "{at}");
+            }
+            datasets += 1;
         }
-        let mut distinct: Vec<u32> = by_address.values().copied().collect();
-        distinct.sort_unstable();
-        distinct.dedup();
-        assert_eq!(distinct.len(), by_address.len(), "{name}: two objects name one description");
     }
-    assert!(arrays >= 100, "{arrays} arrays");
+    assert!(datasets >= 100, "{datasets} datasets");
 }
 
-/// In a store run, each array of the facts names its description as the store IR numbers it: an
-/// element of the array's object, the named file's or a linked file's.
+/// In a store run, the description of each file holds its datasets' storage elements as the store
+/// IR numbers them, each in the file's object.
 #[test]
-fn a_store_runs_arrays_name_their_descriptions_in_their_objects() {
+fn a_store_runs_datasets_name_their_storage_in_their_objects() {
     use refkv_ir::store::{StoreFormat, StoreRun};
     let dir = fixtures().join("hdf5");
     let key = "hdf5_external.h5".to_string();
@@ -106,19 +115,20 @@ fn a_store_runs_arrays_name_their_descriptions_in_their_objects() {
         }
     }
     let (ir, facts, _) = run.finish().unwrap();
-    let keys: Vec<u32> = ir.stored.arrays.iter().map(|d| d.element).collect();
     let mut objects = std::collections::BTreeSet::new();
-    for node in facts["nodes"].as_array().unwrap() {
-        let Some(a) = node.get("array") else { continue };
-        let at = node["path"].to_string();
-        let key = a["declared_by"].as_u64().unwrap_or_else(|| panic!("{at}: no declared_by")) as u32;
-        assert_eq!(keys.iter().filter(|&&k| k == key).count(), 1, "{at}");
-        let object = a["store"]["object"].as_u64().unwrap() as u32;
-        let objects_of = ir.parent[key as usize];
-        assert_eq!((ir.names.get(ir.name[objects_of as usize]), ir.parent[objects_of as usize]), ("objects", object), "{at}");
-        objects.insert(object);
+    for (key, d) in facts["files"].as_object().unwrap() {
+        for o in d["objects"].as_array().unwrap() {
+            let Some(el) = o["storage"]["element"].as_u64() else { continue };
+            let object = o["storage"]["object"].as_u64().unwrap() as u32;
+            let mut up = el as u32;
+            while up != 0 && up != object {
+                up = ir.parent[up as usize];
+            }
+            assert_eq!(up, object, "{key}: {}", o["segments"]);
+            objects.insert(object);
+        }
     }
-    assert_eq!(objects.len(), 2, "arrays of the named file and of a linked one");
+    assert_eq!(objects.len(), 2, "datasets of the named file and of a linked one");
 }
 
 /// An Imaris file is the IMS parser's: the HDF5 parser finds it and hands it over, and the IR

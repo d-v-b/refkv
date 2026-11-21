@@ -1,20 +1,24 @@
 //! The HDF5 projection (spec/zarrify/hdf5.md §2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#2-the-hierarchy>) from a valid
-//! IR: a group per HDF5 group and an array per presented dataset, at their canonical paths,
-//! with the attributes and storage the parser decided (the facts). The chunks are, by the
+//! IR and the parser's description of the file: a group per HDF5 group and an array per presented
+//! dataset, at their canonical paths, with the attributes and storage the convention decides
+//! (`super::hdf5_nodes`). The chunks are, by the
 //! dataset's storage: the IR's chunk elements (chunked), the contiguous data cut as conventions
 //! §7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>
 //! cuts contiguous values (contiguous), one range in the object header (compact), a `vlen-utf8`
 //! chunk of literal lengths and global heap ranges (strings), or the `vlen-utf8` bytes of
 //! canonical paths (references).
 
+use super::hdf5_nodes::{name_axes, node_name, nodes, Nodes};
 use super::vsi::object_url;
 use super::{arr, contiguous, key, Copied};
+use crate::beside::{written_key, Written};
 use crate::hdf5;
 use crate::ir::Ir;
-use crate::out::{declare, declared_group, grid_chunks, Chunk, Out, Part};
+use crate::out::{copy_threshold, declare, declared_group, grid_chunks, Chunk, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
+use std::collections::HashMap;
 
 const PROFILE: &str = "hdf5";
 /// The chunk limit of contiguous data (spec/zarrify/hdf5.md §3.2
@@ -62,9 +66,9 @@ fn contiguous_chunks(a: &J, threshold: usize) -> Result<Option<(Vec<u64>, Vec<(V
 
 /// The source's ranges of the contiguous edge chunks the projection copies.
 pub fn reads(_ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
-    let threshold = contiguous::threshold(facts);
+    let threshold = copy_threshold();
     let mut out = Vec::new();
-    for node in arr(&facts["nodes"]) {
+    for node in &nodes(facts)?.nodes {
         if let Some((_, chunks)) = contiguous_chunks(&node["array"], threshold)? {
             out.extend(contiguous::copy_reads(&chunks));
         }
@@ -197,15 +201,158 @@ fn run_of(chunk: &Chunk, item: u64) -> (u64, u64, u64) {
 }
 
 pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    build(ir, facts, url, url, copied)
+    let Nodes { nodes, mut summary } = nodes(facts)?;
+    summary["rounds"] = facts["rounds"].clone();
+    build(ir, &nodes, summary, url, url, copied, copy_threshold(), None)
+}
+
+/// An edge chunk refkv's output holds as bytes, of a source range and its padding: its key, the
+/// range's offset and length, and the padding's length.
+pub type CopiedChunk = (String, u64, u64, u64);
+
+/// The HDF5 convention's hierarchy of a file run's facts (a description, spec/zarrify/hdf5.md
+/// §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#87-the-description>), or a
+/// store run's (`store`): its nodes, and its documents and chunks as the projection writes them,
+/// but for the edge chunks it copies, which it gives apart, as ranges to copy: it reads nothing. The
+/// routine a layout calls for the convention's hierarchy (`refkv.build.hdf5_hierarchy`).
+pub fn hierarchy(ir: &Ir, facts: &J, store: bool) -> Result<(Vec<J>, Out, Vec<CopiedChunk>), String> {
+    let mut copies = Vec::new();
+    let (nodes, out) = if store {
+        let (nodes, summary, named) = store_nodes(facts)?;
+        let out = build(ir, &nodes, summary, "", &named, &Copied::new(), usize::MAX, Some(&mut copies))?;
+        (nodes, out)
+    } else {
+        let Nodes { nodes, summary } = nodes(facts)?;
+        let out = build(ir, &nodes, summary, "", "", &Copied::new(), copy_threshold(), Some(&mut copies))?;
+        (nodes, out)
+    };
+    Ok((nodes, out, copies))
+}
+
+/// The reason a linked object is not presented: its links and references name paths of its own
+/// file, which the hierarchy does not hold.
+const EXTERNAL_REFERENCE: &str = "external_reference";
+
+/// Whether `v` holds an object reference (spec/zarrify/hdf5.md §5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#5-object-references>).
+fn holds_reference(v: &J) -> bool {
+    match v {
+        J::Object(m) => m.contains_key("_REFERENCE") || m.values().any(holds_reference),
+        J::Array(a) => a.iter().any(holds_reference),
+        _ => false,
+    }
+}
+
+/// The nodes of a file at and below `target` (an HDF5 path) moved to the path `at`, without what
+/// names paths of their file; and the paths left out (`at` itself, or below it), each with the
+/// `axes` it counts among its group's members by.
+fn linked_nodes(nodes: &[J], target: &str, at: &str) -> (Vec<J>, Vec<(String, Option<J>)>) {
+    let target = target.trim_matches('/');
+    let (mut moved, mut left_out) = (Vec::new(), Vec::new());
+    for node in nodes {
+        let path = node["path"].as_str().unwrap_or("");
+        let suffix = if target.is_empty() {
+            path
+        } else if path == target {
+            ""
+        } else if let Some(s) = path.strip_prefix(target).and_then(|s| s.strip_prefix('/')) {
+            s
+        } else {
+            continue;
+        };
+        let new = if suffix.is_empty() { at.to_string() } else { format!("{at}/{suffix}") };
+        let references = node.get("array").is_some_and(|a| a["store"]["kind"] == "references")
+            || node["attributes"].get("_REFERENCE_FIELDS").is_some();
+        if references {
+            left_out.push((new, node.get("axes").cloned()));
+            continue;
+        }
+        let mut node = node.clone();
+        let names: Vec<String> = node["attributes"].as_object().into_iter().flatten()
+            .filter(|(k, v)| *k == "_LINKS" || holds_reference(v))
+            .map(|(k, _)| k.clone())
+            .collect();
+        for k in names {
+            if let Some(m) = node["attributes"].as_object_mut() {
+                m.remove(&k);
+            }
+            node["own"]["unpresented_attributes"][k] = json!(EXTERNAL_REFERENCE);
+        }
+        node["segments"] = json!(new.split('/').count());
+        node["path"] = json!(new);
+        moved.push(node);
+    }
+    (moved, left_out)
 }
 
 /// The output of a file read as a store (spec/zarrify/hdf5.md §8.6
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#86-external-files>), its store
-/// URL `url`: the root's `source.url` is the named file's object URL.
+/// URL `url`: the named file's hierarchy, with what each of its external links names at the link's
+/// path, one level deep, from the description of each file (`facts["files"]`, by key); the root's
+/// `source.url` is the named file's object URL. A linked file whose hierarchy rejects it is not
+/// followed.
 pub fn project_store(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    let named = object_url(url, facts["named_key"].as_str().unwrap_or(""));
-    build(ir, facts, url, &named, &Copied::new())
+    let (nodes, summary, named_key) = store_nodes(facts)?;
+    let named = object_url(url, &named_key);
+    // no edge chunk is copied: the run's reads have ended, and its padding is the zero data source's
+    build(ir, &nodes, summary, url, &named, &Copied::new(), usize::MAX, None)
+}
+
+/// The nodes of a store run's hierarchy (`project_store`), its summary, and the named file's key.
+fn store_nodes(facts: &J) -> Result<(Vec<J>, J, String), String> {
+    let named_key = facts["named_key"].as_str().unwrap_or("");
+    let Nodes { nodes: mut named_nodes, mut summary } = nodes(&facts["files"][named_key])?;
+    summary["rounds"] = facts["files"][named_key]["rounds"].clone();
+    let mut files: HashMap<&str, Vec<J>> = HashMap::new();
+    files.insert(named_key, named_nodes.clone());
+    for (key, d) in facts["files"].as_object().into_iter().flatten() {
+        if key != named_key {
+            if let Ok(n) = nodes(d) {
+                files.insert(key, n.nodes);
+            }
+        }
+    }
+    let mut added = Vec::new();
+    for group in named_nodes.iter_mut() {
+        let links: Vec<J> = group["own"]["external_links"].as_array().cloned().unwrap_or_default();
+        let path = group["path"].as_str().unwrap_or("").to_string();
+        for link in links {
+            let (Some(name), Some(file), Some(target)) = (link["name"].as_str(), link["file"].as_str(), link["path"].as_str()) else { continue };
+            let Some(key) = written_key(file.as_bytes(), "", Written::default()).filter(|_| node_name(name)) else { continue };
+            let Some(source) = files.get(key.as_str()) else { continue };
+            let at = if path.is_empty() { name.to_string() } else { format!("{path}/{name}") };
+            let (mut moved, left_out) = linked_nodes(source, target, &at);
+            for (out, axes) in left_out {
+                let (parent, child) = out.rsplit_once('/').unwrap_or(("", &out));
+                let holder = if out == at { Some(&mut *group) } else { moved.iter_mut().find(|n| n["path"] == parent) };
+                if let Some(n) = holder {
+                    n["own"]["unpresented"][child] = json!(EXTERNAL_REFERENCE);
+                    // still a member of its group, as an unpresented dataset is
+                    if let Some(a) = axes {
+                        if !n["axes"].is_array() {
+                            n["axes"] = json!([]);
+                        }
+                        n["axes"].as_array_mut().unwrap().push(json!([child, a]));
+                    }
+                }
+            }
+            if let Some(top) = moved.iter_mut().find(|n| n["path"] == at.as_str()) {
+                top["own"]["external"] = json!({"file": key, "path": target});
+            }
+            added.extend(moved);
+        }
+    }
+    let (groups, arrays) = added.iter().fold((0u64, 0u64), |(g, a), n: &J| if n.get("array").is_some() { (g, a + 1) } else { (g + 1, a) });
+    let siblings = arr(&facts["siblings"]);
+    if let Some(root) = named_nodes.first_mut().filter(|_| !siblings.is_empty()) {
+        root["own"]["siblings"] = json!(siblings);
+    }
+    named_nodes.extend(added);
+    // a linked object is a member of the group that links it
+    name_axes(&mut named_nodes);
+    summary["groups"] = json!(summary["groups"].as_u64().unwrap_or(0) + groups);
+    summary["arrays"] = json!(summary["arrays"].as_u64().unwrap_or(0) + arrays);
+    Ok((named_nodes, summary, named_key.to_string()))
 }
 
 /// A range of the external data `ranges` (key, offset, length) lay out, as ranges of their files.
@@ -228,9 +375,16 @@ fn external_parts(ranges: &[J], mut at: u64, mut left: u64) -> Result<Vec<Part>,
     Err("internal: a chunk lies past its external files".into())
 }
 
-fn build(ir: &Ir, facts: &J, url: &str, source: &str, copied: &Copied) -> Result<Out, String> {
-    let threshold = contiguous::threshold(facts);
-    let nodes = arr(&facts["nodes"]);
+/// The storage element of an array's store: the struct of its chunks, or its contiguous data.
+fn element(store: &J) -> Result<u32, String> {
+    store["element"].as_u64().map(|e| e as u32).ok_or_else(|| format!("internal: the storage of the dataset at {} is not described", store["at"]))
+}
+
+/// The output of `nodes`: `copied` the bytes of the edge chunks it copies, or, with `defer`, those
+/// chunks left out and given there.
+#[allow(clippy::too_many_arguments)]
+fn build(ir: &Ir, nodes: &[J], mut summary: J, url: &str, source: &str, copied: &Copied, threshold: usize,
+         mut defer: Option<&mut Vec<CopiedChunk>>) -> Result<Out, String> {
     let mut out = Out::new(url);
     // every array's chunk shape and contiguous chunks first: one zero data source for every
     // contiguous array's padding
@@ -313,7 +467,7 @@ fn build(ir: &Ir, facts: &J, url: &str, source: &str, copied: &Copied) -> Result
                 }
             }
             Some("chunked") => {
-                let el = n(&store["element"]) as u32;
+                let el = element(store)?;
                 let grid = shape_of(&store["grid"]);
                 let trailing = store["trailing"].as_bool().unwrap_or(false);
                 let trim = n(&store["trim"]);
@@ -339,8 +493,17 @@ fn build(ir: &Ir, facts: &J, url: &str, source: &str, copied: &Copied) -> Result
                 }
             }
             Some("contiguous") => {
-                let Some((_, chunks)) = cut else { continue };
-                let el = n(&store["element"]) as u32;
+                let Some((_, mut chunks)) = cut else { continue };
+                if let Some(d) = defer.as_deref_mut() {
+                    chunks.retain(|(c, chunk)| match chunk {
+                        Chunk::Copy(o, len, pad) => {
+                            d.push((chunk_key(path, c), *o, *len, *pad));
+                            false
+                        }
+                        _ => true,
+                    });
+                }
+                let el = element(store)?;
                 let (start, length) = (ir.start[el as usize], ir.len[el as usize]);
                 let form = ir.form_id(el).ok_or("internal: the data has no form")?;
                 count += chunks.len() as u64;
@@ -399,7 +562,6 @@ fn build(ir: &Ir, facts: &J, url: &str, source: &str, copied: &Copied) -> Result
         }
     }
     let mut out = refs.out;
-    let mut summary = facts["summary"].clone();
     summary["chunk_entries"] = json!(count);
     out.summary = summary;
     Ok(out)

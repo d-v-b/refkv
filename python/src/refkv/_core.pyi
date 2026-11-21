@@ -260,6 +260,12 @@ class Run:
         profile whose parser returns none yet."""
     def ir(self) -> Ir:
         """The IR of a run that is done, shared with the run, which is kept."""
+    def fits(self) -> Fits:
+        """The FITS file a run that is done parsed, its IR and description shared with the run;
+        ValueError for a run of another format."""
+    def hdf5(self) -> Hdf5:
+        """The HDF5 file a run that is done parsed, its IR and description shared with the run;
+        ValueError for a run of another format."""
     def mirror(self) -> Mirror:
         """What makes the mirror of a run that is done: its IR and facts, shared with the run,
         which is kept and may be used while the mirror is made."""
@@ -320,6 +326,9 @@ class StoreRun:
     def mirror(self) -> Mirror:
         """What makes the mirror of a run `parse` finished: its IR and facts, shared with the
         run."""
+    def hdf5(self) -> Hdf5:
+        """The HDF5 files a run `parse` finished read, its IR and descriptions shared with the
+        run; ValueError for a run of a store of another format."""
     def project(self, url: str, mirror: bool = True, checksums: bool = False) -> Out[StorePart]:
         """`output`, of a run `parse` finished: the output alone."""
 
@@ -397,6 +406,33 @@ def grid_chunks(offset: int, shape: list[int], item: int,
     shape, and each chunk's coordinates, its range (offset, length), the zero bytes that pad it,
     and whether the range is to be copied; None when an element is larger than `limit` or the
     sizes overflow."""
+type FitsPiece = (tuple[Literal["src"], int, int] | tuple[Literal["lit"], bytes] | tuple[Literal["zeros"], int]
+                 | tuple[Literal["copy"], int, int])
+
+@final
+class Fits:
+    """A FITS file a run parsed (`Run.fits()`): its IR and its description, shared with the run and
+    never changed, and its heaps' elements, found once."""
+
+    def arrays(self, index: int) -> list[tuple[str, str, list[tuple[list[int], list[FitsPiece]]]]]:
+        """The arrays of HDU `index` as the FITS convention writes them, but for their
+        declarations: each `(path, document JSON, chunks)`, `path` under the HDU's node (`""`,
+        `rows`, `heap`), each chunk `(coords, parts)`: `("src", offset, length)` of the file,
+        `("lit", bytes)`, `("zeros", length)` of an edge chunk's padding, or `("copy", offset,
+        length)` of the file, to be copied. ValueError for no HDU `index`."""
+    def cards(self, index: int) -> str:
+        """The cards of HDU `index` as the FITS convention writes them: JSON, each `[keyword,
+        value, comment]`. ValueError for no HDU `index`."""
+
+class Hdf5:
+    """An HDF5 input a run parsed (`Run.hdf5()`, `StoreRun.hdf5()`): its IR and its description,
+    shared with the run and never changed."""
+
+    def hierarchy(self) -> tuple[str, Out[FilePart | StorePart], list[tuple[str, int, int, int]]]:
+        """The HDF5 convention's hierarchy: its nodes as JSON, its documents and chunks (`out_py`'s
+        form, the url empty) but for the edge chunks it copies, and those, each `(key, offset,
+        length, padding)` of the file; or Rejected."""
+
 def gzip_frame(crc32: int, size: int) -> tuple[bytes, bytes]:
     """What frames a raw deflate stream as a gzip member, as the built-in projections write one:
     the 10-byte header, and the trailer, the stream's CRC-32 and the size of what it inflates to,

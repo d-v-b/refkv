@@ -677,9 +677,10 @@ the same file, and has no description of its own.
 **HDF5** ([spec/zarrify/hdf5.md](zarrify/hdf5.md)). Every object the parser reads whose header has
 a data layout message, and neither a symbol table nor a link info message, is a stored array,
 whether or not a path reaches it or the profile presents it: a dataset. It is keyed by its
-object's element (`objects/<i>`), with no index. The facts give the key: `array.declared_by` of
-each node that is an array is the id of its dataset's object, which the store's `placed()`
-renumbers with `store.element` ([§2.1](#21-keys)). An attribute's value is not described yet.
+object's element (`objects/<i>`), with no index: `i` is the dataset's position among the
+description's `objects` ([hdf5.md §8.7](zarrify/hdf5.md#87-the-description)), whose `storage`
+gives its storage element, which the store's `placed()` renumbers ([§2.1](#21-keys)). An
+attribute's value is not described yet.
 
 - **Declarations.** The first is the data of the dataset's datatype message, or, where that
   message is shared, of the committed datatype's datatype message it names; a header with no one

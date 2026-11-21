@@ -32,7 +32,7 @@ try:
 except ImportError as e:  # the extra is not installed
     raise ImportError("refkv.zarrify.layouts.hierarchy needs zarr-metadata: pip install refkv[layouts]") from e
 
-from refkv.build import Parsed, Projected, SealError, Written, project, seal
+from refkv.build import Hdf5Hierarchy, Parsed, Projected, SealError, Written, project, seal
 from refkv.build import Value as Reference
 from refkv.zarrify.common import Rejected
 from refkv.zarrify.layouts import (
@@ -77,11 +77,12 @@ def _with_transpose(codecs: list[dict[str, Any]], inverse: list[int]) -> list[di
     return [{"name": "transpose", "configuration": {"order": order}}, *rest]
 
 
-def copy(base: Projected, path: str, order: Sequence[int] | None = None,
+def copy(base: Projected | Hdf5Hierarchy, path: str, order: Sequence[int] | None = None,
          attributes: Mapping[str, object] | None = None,
          dimension_names: Sequence[str | None] | None = None, *, to: str | None = None) -> dict[str, Value]:
     """The entries of the array at `path` of `base`, refkv's own output of an input
-    (`refkv.build.project`), keys relative to the array, its `zarr.json`
+    (`refkv.build.project`) or an HDF5 input's hierarchy (`refkv.build.hdf5_hierarchy`), keys
+    relative to the array, its `zarr.json`
     among them: its document with `attributes` as given (`{}` by default) and `dimension_names`
     as given, in the copy's axis order (else the base's, permuted with the axes), and its chunks'
     values as they are. With `order`, a permutation of its axes as `numpy.transpose` takes one
