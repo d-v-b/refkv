@@ -9,9 +9,11 @@ older than its changelog, the pointer to the history.
     uv run python spec/tools/changelog.py check [--base REF]
 
 With `--base`, a format's document whose text outside its changelog (and outside the blocks
-generated from the registry) differs from REF's must have a change file that REF does not: a
-change to a profile's normative text records itself. One file per change, so that two PRs that
-change one document add two files rather than edit one paragraph.
+generated from the registry) differs from its text at the merge base of REF and HEAD must have a
+change file that the merge base does not: a change to a profile's normative text records itself.
+The merge base, not REF, so that a branch behind REF is not charged with REF's own changes. One
+file per change, so that two PRs that change one document add two files rather than edit one
+paragraph.
 """
 
 from __future__ import annotations
@@ -160,22 +162,33 @@ def changes_at(ref: str, name: str) -> set[str]:
     return set(r.stdout.split()) if r.returncode == 0 else set()
 
 
-def unrecorded(ref: str, path: Path, text: str) -> str | None:
-    """Why the document's change since `ref` is not recorded, or None."""
+def merge_base(ref: str) -> str:
+    """The merge base of `ref` and HEAD: where the branch left `ref`, so what changed since it is the
+    branch's own change."""
+    r = subprocess.run(["git", "merge-base", ref, "HEAD"], cwd=ROOT, capture_output=True, text=True, check=False)
+    if r.returncode != 0:
+        sys.exit(f"changelog: no merge base of {ref} and HEAD (is the history shallow?): {r.stderr.strip()}")
+    return r.stdout.strip()
+
+
+def unrecorded(ref: str, path: Path, text: str, label: str | None = None) -> str | None:
+    """Why the document's change since `ref` (named `label` in the message) is not recorded, or None."""
     old = at(ref, path)
     if old is None or outside(old) == outside(text):
         return None
     if set(changes(path.stem)) <= changes_at(ref, path.stem):
-        return f"{path.name}: its text changed since {ref}, and no file was added to changes/{path.stem}/"
+        return (f"{path.name}: its text changed since {label or ref}, and no file was added to "
+                f"changes/{path.stem}/")
     return None
 
 
 def check(base: str | None) -> list[str]:
     out = []
+    since = merge_base(base) if base is not None else None
     for path in sorted(DOCS.glob("*.md")):
         text = path.read_text(encoding="utf-8")
         out += problems_of(path.stem, text, changes(path.stem))
-        if base is not None and (why := unrecorded(base, path, text)):
+        if since is not None and (why := unrecorded(since, path, text, f"the merge base of {base} and HEAD")):
             out.append(why)
     for name, (path, version) in HUBS.items():
         out += hub_problems(name, path, version)
@@ -188,7 +201,8 @@ def check(base: str | None) -> list[str]:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("command", choices=["check"])
-    p.add_argument("--base", help="a git ref: each document whose text changed since it must record the change")
+    p.add_argument("--base", help="a git ref: each document whose text changed since the merge base of it and HEAD "
+                                  "must record the change")
     args = p.parse_args()
     found = check(args.base)
     for line in found:
