@@ -863,6 +863,11 @@ impl PyHdf5 {
             .map_err(Rejected::new_err)?;
         Ok((serde_json::Value::Array(nodes).to_string(), out_py(py, &out)?, copies))
     }
+    /// The key of the file a store run was named by, whose object URL the hierarchy's root names
+    /// as its source; None for a file run.
+    fn named_key(&self) -> Option<String> {
+        self.facts["named_key"].as_str().filter(|_| self.store).map(str::to_string)
+    }
 }
 
 /// A store run (src/store.rs): `StoreRun(format, listing, concurrency)` over the listing

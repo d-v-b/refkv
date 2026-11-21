@@ -138,12 +138,13 @@ def mirror(parsed: Parsed) -> Written:
 
 
 def declaration(parsed: Parsed, path: str = "", *, own: object = None,
-                attributes: Mapping[str, Any] | None = None) -> dict[str, Any]:
+                attributes: Mapping[str, Any] | None = None, url: str | None = None) -> dict[str, Any]:
     """The attributes of the node at `path` of an output that follows refkv's convention for
     `parsed`'s profile (spec/conventions.md §2
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>): `attributes`,
     and the declaration, `zarr_conventions` and `refkv_zarrified`. The root's (`path` `""`) names
-    the profile, its version and the source, by the URL the output names the input by; `own` is
+    the profile, its version and the source, by the URL the output names the input by (`url`,
+    `parsed.url` when None: an HDF5 store's root names its named file, `Hdf5Hierarchy.url`); `own` is
     the node's source metadata, as the profile's document specifies it (`parsed.description` holds
     it where the profile has one). A node that is not the root and has no source metadata declares
     nothing: its attributes are `attributes`.
@@ -153,5 +154,5 @@ def declaration(parsed: Parsed, path: str = "", *, own: object = None,
     if not isinstance(path, str):
         raise TypeError(f"a path is a str, not {type(path).__name__}")
     return dict(json.loads(_core.coding("declare", json.dumps({
-        "profile": parsed.profile, "url": None if path.strip("/") else parsed.url, "own": own,
+        "profile": parsed.profile, "url": None if path.strip("/") else (parsed.url if url is None else url), "own": own,
         "attributes": dict(attributes or {})}))))
