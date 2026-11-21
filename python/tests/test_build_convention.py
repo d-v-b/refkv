@@ -126,6 +126,7 @@ def test_filled_writes_out_what_stands_beside_a_copy():
         assert filled(value) == b"<" + head + b"cde\0\0"
         kept = Value((Ref(p, 0, 0, 6), Zeros(2)))
         assert filled(kept) is kept
+        assert filled(b"chunk") == b"chunk"
 
 
 def test_gzip_member_frames_a_deflate_stream_for_the_gzip_codec():

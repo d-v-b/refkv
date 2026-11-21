@@ -224,6 +224,8 @@ class FileParse:
         # what makes the IR mirror alone, with what the profile records beside it: the IR and the
         # facts, shared with the run and usable while the run makes an output, or after it
         self.mirrored: _core.Mirror = run.mirror()
+        # a FITS file's IR and description, for the FITS convention's routines (`refkv.build.fits_arrays`)
+        self.fits: _core.Fits | None = run.fits() if fmt == "fits" else None
         # the profile's description of the source, where its parser returns one
         text = run.description()
         self.description: dict[str, Any] | None = None if text is None else json.loads(text)

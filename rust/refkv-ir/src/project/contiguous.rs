@@ -71,7 +71,7 @@ fn padding_of(chunk: &Chunk) -> Option<u64> {
 }
 
 /// The bytes of a reference's zero literal after its one range, if it ends so.
-fn zero_tail(parts: &[Part]) -> Option<u64> {
+pub fn zero_tail(parts: &[Part]) -> Option<u64> {
     match parts {
         [Part::Src(..), Part::Lit(z)] if z.iter().all(|&b| b == 0) => Some(z.len() as u64),
         _ => None,
