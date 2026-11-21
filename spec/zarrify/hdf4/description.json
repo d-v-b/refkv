@@ -1,0 +1,231 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/hdf4/description.json",
+  "title": "The description of an HDF4 file",
+  "description": "What refkv's HDF4 parser found of an HDF4 file's known structures, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#96-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "descriptors": {"$ref": "#/$defs/uint"},
+    "version": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "properties": {
+            "major": {"$ref": "#/$defs/uint"},
+            "minor": {"$ref": "#/$defs/uint"},
+            "release": {"$ref": "#/$defs/uint"},
+            "text": {"$ref": "#/$defs/text"}
+          },
+          "required": ["major", "minor", "release", "text"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "vgroups": {"type": "array", "items": {"$ref": "#/$defs/vgroup"}},
+    "vdatas": {"type": "array", "items": {"$ref": "#/$defs/vdata"}},
+    "datasets": {"type": "array", "items": {"$ref": "#/$defs/dataset"}}
+  },
+  "required": ["descriptors", "version", "vgroups", "vdatas", "datasets"],
+  "additionalProperties": false,
+  "$defs": {
+    "uint": {"type": "integer", "minimum": 0},
+    "ref": {"type": "integer", "minimum": 0, "maximum": 65535},
+    "tagref": {"type": "array", "items": {"$ref": "#/$defs/ref"}, "minItems": 2, "maxItems": 2},
+    "text": {
+      "description": "A text value (https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json)",
+      "oneOf": [{"type": "string"}, {"type": "object", "properties": {"latin1": {"type": "string"}}, "required": ["latin1"], "additionalProperties": false}]
+    },
+    "segments": {
+      "description": "The bytes of a logical element, in order: each [offset, length] in the file, or [null, length] of zeros (a linked block never written)",
+      "type": "array",
+      "items": {
+        "type": "array",
+        "prefixItems": [{"oneOf": [{"type": "null"}, {"$ref": "#/$defs/uint"}]}, {"$ref": "#/$defs/uint"}],
+        "minItems": 2,
+        "maxItems": 2
+      }
+    },
+    "storage": {
+      "description": "How an element is stored; null where no descriptor describes it",
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "properties": {
+            "kind": {"const": "plain"},
+            "length": {"$ref": "#/$defs/uint"},
+            "linked": {"type": "boolean"},
+            "segments": {"$ref": "#/$defs/segments"}
+          },
+          "required": ["kind", "length", "linked", "segments"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {"const": "compressed"},
+            "length": {"$ref": "#/$defs/uint"},
+            "method": {"$ref": "#/$defs/ref"},
+            "model": {"$ref": "#/$defs/ref"},
+            "segments": {"$ref": "#/$defs/segments"}
+          },
+          "required": ["kind", "length", "method", "model", "segments"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {"const": "chunked"},
+            "length": {"$ref": "#/$defs/uint"},
+            "table": {"$ref": "#/$defs/ref"},
+            "dimensions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {"flag": {"$ref": "#/$defs/uint"}, "length": {"$ref": "#/$defs/uint"}, "chunk": {"$ref": "#/$defs/uint"}},
+                "required": ["flag", "length", "chunk"],
+                "additionalProperties": false
+              }
+            },
+            "fill": {"type": "string", "pattern": "^([0-9a-f]{2})*$"},
+            "chunks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "at": {"type": "array", "items": {"$ref": "#/$defs/uint"}},
+                  "tag": {"$ref": "#/$defs/ref"},
+                  "ref": {"$ref": "#/$defs/ref"},
+                  "data": {"$ref": "#/$defs/storage"}
+                },
+                "required": ["at", "tag", "ref", "data"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["kind", "length", "table", "dimensions", "fill", "chunks"],
+          "additionalProperties": false
+        },
+        {
+          "description": "a chunk stored as a chunked element, whose header the description does not follow",
+          "type": "object",
+          "properties": {"kind": {"const": "chunked"}},
+          "required": ["kind"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {"kind": {"const": "external"}},
+          "required": ["kind"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {"kind": {"const": "special"}, "code": {"$ref": "#/$defs/ref"}},
+          "required": ["kind", "code"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "vgroup": {
+      "type": "object",
+      "properties": {
+        "ref": {"$ref": "#/$defs/ref"},
+        "name": {"$ref": "#/$defs/text"},
+        "class": {"$ref": "#/$defs/text"},
+        "version": {"$ref": "#/$defs/ref"},
+        "members": {"type": "array", "items": {"$ref": "#/$defs/tagref"}},
+        "attributes": {"type": "array", "items": {"$ref": "#/$defs/tagref"}}
+      },
+      "required": ["ref", "name", "class", "version", "members", "attributes"],
+      "additionalProperties": false
+    },
+    "vdata": {
+      "type": "object",
+      "properties": {
+        "ref": {"$ref": "#/$defs/ref"},
+        "name": {"$ref": "#/$defs/text"},
+        "class": {"$ref": "#/$defs/text"},
+        "version": {"$ref": "#/$defs/ref"},
+        "interlace": {"$ref": "#/$defs/ref"},
+        "records": {"$ref": "#/$defs/uint"},
+        "record_size": {"$ref": "#/$defs/ref"},
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {"$ref": "#/$defs/text"},
+              "type": {"$ref": "#/$defs/ref"},
+              "size": {"$ref": "#/$defs/ref"},
+              "offset": {"$ref": "#/$defs/ref"},
+              "order": {"$ref": "#/$defs/ref"}
+            },
+            "required": ["name", "type", "size", "offset", "order"],
+            "additionalProperties": false
+          }
+        },
+        "attributes": {
+          "description": "a version 4 header's attributes, each [field index or -1 for the whole Vdata, tag, ref]",
+          "type": "array",
+          "items": {"type": "array", "prefixItems": [{"type": "integer"}, {"$ref": "#/$defs/ref"}, {"$ref": "#/$defs/ref"}], "minItems": 3, "maxItems": 3}
+        },
+        "data": {"$ref": "#/$defs/storage"},
+        "bytes": {"description": "an attribute's value's bytes, in hex", "type": "string", "pattern": "^([0-9a-f]{2})*$"},
+        "value": {
+          "description": "an attribute's value: a char8 field's text, a number type's numbers, or null for another type",
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/text"},
+            {"type": "array", "items": {"oneOf": [{"type": "number"}, {"enum": ["NaN", "Infinity", "-Infinity"]}]}}
+          ]
+        }
+      },
+      "required": ["ref", "name", "class", "version", "interlace", "records", "record_size", "fields", "attributes", "data"],
+      "dependentRequired": {"bytes": ["value"], "value": ["bytes"]},
+      "additionalProperties": false
+    },
+    "dataset": {
+      "type": "object",
+      "properties": {
+        "vgroup": {"$ref": "#/$defs/ref"},
+        "name": {"$ref": "#/$defs/text"},
+        "dimensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {"name": {"$ref": "#/$defs/text"}, "unlimited": {"type": "boolean"}},
+            "required": ["name", "unlimited"],
+            "additionalProperties": false
+          }
+        },
+        "attributes": {"type": "array", "items": {"$ref": "#/$defs/ref"}},
+        "ndg": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/ref"}]},
+        "sd": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/ref"}]},
+        "coordinate": {"type": ["boolean", "null"]},
+        "number_type": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "properties": {
+                "version": {"$ref": "#/$defs/uint"},
+                "type": {"$ref": "#/$defs/uint"},
+                "width": {"$ref": "#/$defs/uint"},
+                "class": {"$ref": "#/$defs/uint"}
+              },
+              "required": ["version", "type", "width", "class"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "dimension_sizes": {"oneOf": [{"type": "null"}, {"type": "array", "items": {"$ref": "#/$defs/uint"}}]},
+        "data": {"$ref": "#/$defs/storage"},
+        "element": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/uint"}]}
+      },
+      "required": ["vgroup", "name", "dimensions", "attributes", "ndg", "sd", "coordinate", "number_type", "dimension_sizes", "data", "element"],
+      "additionalProperties": false
+    }
+  }
+}

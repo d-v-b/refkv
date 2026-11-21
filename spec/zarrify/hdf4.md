@@ -501,11 +501,12 @@ A zarrifier MUST reject the input, with these messages, in this order:
   tables that loop (`the link tables of tag <t> ref <r> loop`); more than 2^20 blocks
   (`budget: tag <t> ref <r> needs more than 1048576 linked blocks`); a block that no descriptor
   describes, or shorter than the bytes it holds; blocks that hold less than the element's length.
-- **Chunks**, of each chunked dataset presented: a chunk length of 0; a chunk table whose Vdata
-  header is absent, whose records are not of `4 × rank + 4` bytes, which holds fewer records than
-  its header counts, or of more than 2^20 chunks or 2^26 bytes; a chunk placed outside the grid of the header's
-  lengths or placed twice (`the chunk table of tag <t> ref <r> places a chunk at <coords>, outside
-  its grid <grid>`, `… places two chunks at <coords>`); a chunk element that no descriptor describes,
+- **Chunks**, of every chunked dataset ([§9.6](#96-the-description)): a chunk length of 0; a chunk
+  table whose Vdata header is absent, whose records are not of `4 × rank + 4` bytes, which holds
+  fewer records than its header counts, or of more than 2^20 chunks or 2^26 bytes; a chunk placed
+  outside the grid of the header's lengths or placed twice (`the chunk table of tag <t> ref <r>
+  places a chunk at <coords>, outside its grid <grid>`, `… places two chunks at <coords>`); a chunk
+  element that no descriptor describes. Of each chunked dataset presented, a chunk element
   shorter than a chunk, that decodes to another length, or whose stream is empty, or shorter than a
   chunk for method 0 (`the chunk at <coords> of tag <t> ref <r> holds <n> bytes of its stream`).
 - **Rounds:** more than 4096 rounds of dependent reads (`more than 4096 rounds of dependent
@@ -527,3 +528,55 @@ padding of a contiguous array's edge chunk, are ranges of the zero data source
 Both implementations print `groups` and `arrays` (presented), `unpresented` (a count by reason),
 `chunks` (the chunks of the presented chunked datasets that the chunk tables list), `descriptors`,
 `chunk_entries` (the chunks written) and `rounds`.
+
+### 9.6 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a **description** of the file: what it found of the file's known structures,
+in HDF4's own terms, for a projection to read with the IR and its stored arrays
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)). Its JSON Schema is
+[hdf4/description.json](hdf4/description.json). It holds none of an output's decisions: which
+Vgroups are groups and which datasets and tables are arrays ([§2](#2-the-hierarchy),
+[§3](#3-datasets), [§4](#4-tables)), their paths ([§2.2](#22-paths)), data types, fill values,
+codecs and chunks ([§3.1](#31-data-types), [§3.2](#32-chunks), [§3.3](#33-text)), the attributes
+presented ([§7](#7-attributes)) and the source metadata ([§8](#8-source-metadata)) are the
+projection's. Text is a text value ([conventions §6](../conventions.md#6-source-metadata-as-json)).
+
+It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `descriptors` | the count of the file's descriptors, the null descriptors aside |
+| `version` | the library version element (tag 30): `major`, `minor`, `release` and `text`, its text up to its first NUL; null without one |
+| `vgroups` | every Vgroup (tag 1965), in ref order: `ref`, `name`, `class`, `version`, `members` (each `[tag, ref]`, in order) and `attributes` (a version 4 Vgroup's, each `[tag, ref]`) |
+| `vdatas` | every Vdata, by its header (tag 1962), in ref order: `ref`, `name`, `class`, `version`, `interlace`, `records`, `record_size`, `fields` (each its `name`, `type` (the number type's code, its byte-order bit 0x4000 included), `size`, `offset` and `order`), `attributes` (a version 4 header's, each `[field index or −1, tag, ref]`) and `data`, its records' storage (below); and of an attribute (class `Attr0.0`) that [§7](#7-attributes) reads, of one field, not interlaced, of at most the budget's `attribute_bytes`, its records stored as they are: `bytes`, its value's bytes in hex, and `value`, a `char8` field's text (all of it, NULs too), a number type's numbers in a list (a float's NaN and infinities as [conventions §6](../conventions.md#6-source-metadata-as-json) writes them), or null for another type |
+| `datasets` | the SD interface's datasets, the `Var0.0` members of the first `CDF0.0` Vgroup in their order, each below |
+
+A dataset is an object:
+
+| member | value |
+|---|---|
+| `vgroup`, `name` | its `Var0.0` Vgroup's ref and name |
+| `dimensions` | its dimension Vgroups (`Dim0.0` or `UDim0.0`), in order: `name`, and `unlimited`, whether it is a `UDim0.0` |
+| `attributes` | its attribute Vdatas' refs, in order |
+| `ndg`, `sd` | the refs of its NDG and its data element (tag 702); null without one |
+| `coordinate` | true where a `CoordVar` Vdata marks it a coordinate variable, false where an `SDSVar` does, null where neither |
+| `number_type` | its number type element (tag 106): `version`, `type`, `width` and `class`; null without one |
+| `dimension_sizes` | the sizes its dimension record (tag 701) gives; null without one |
+| `data` | its data's storage (below) |
+| `element` | the IR element that keys its stored array ([spec/stored-array.md §7](../stored-array.md#7-the-formats)), its `Var0.0` Vgroup's; null where the parse describes none |
+
+A storage is null where no descriptor describes the element, else an object with `kind`:
+
+| `kind` | members |
+|---|---|
+| `plain` | `length`; `linked`, whether its bytes are linked blocks; and `segments`, its bytes, each `[offset, length]` in the file or `[null, length]` of zeros, a block never written |
+| `compressed` | `length`, the bytes it decodes to; `method` and `model`, the compression's codes; and `segments`, its stream's bytes |
+| `chunked` | `length`; `table`, its chunk table's Vdata ref; `dimensions`, each axis's `flag`, `length` and `chunk` length; `fill`, the header's fill value's bytes in hex; and `chunks`, each chunk its table places, in the table's order: `at`, its coordinates in the grid, the `tag` and `ref` of its element, and `data`, that element's storage (a chunked one's `kind` alone) |
+| `external` | none |
+| `special` | `code`, the special element's code |
+
+Reading the chunk tables of every chunked dataset, whatever the projection makes of it, the parser
+rejects a file whose table's records are not a chunk's, that places more chunks than the budget, a
+chunk outside its grid or two at one place, or a chunk no descriptor describes, as [§9.3](#93-checks)
+says.

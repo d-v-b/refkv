@@ -171,7 +171,10 @@ class Parsed:
           (spec/zarrify/ndpi.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#71-the-description>).
         - MRC: the header's byte order and every field of it, the data's range, a gzipped file's
           stream and the ids of its IR elements
-          (spec/zarrify/mrc.md §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#85-the-description>)."""
+          (spec/zarrify/mrc.md §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#85-the-description>).
+        - HDF4: the library's version, the Vgroups and Vdatas (an attribute's value decoded), and
+          the SD interface's datasets with their number types, dimension records and storage
+          (spec/zarrify/hdf4.md §9.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#96-the-description>)."""
         return None if self._description is None else json.loads(json.dumps(self._description))
 
     @property

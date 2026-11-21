@@ -24,6 +24,7 @@ use crate::text::{text_json, utf8_or_latin1};
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+mod describe;
 mod stored;
 use stored::{Desc, DescFill, Layout, Method};
 
@@ -229,7 +230,7 @@ enum Special {
     Compressed { length: u64, data: u16, model: u16, method: u16 },
     Chunked(Box<ChunkedHeader>),
     /// another known code (4, 6, 7)
-    Other,
+    Other(u16),
 }
 
 #[derive(Clone, Debug)]
@@ -248,7 +249,7 @@ enum Stored {
     Compressed { length: u64, method: u16, model: u16, data: Logical },
     Chunked(usize),
     External,
-    Other,
+    Other(u16),
 }
 
 /// The Zarr data type and size of a numeric type code (hntdefs.h), and whether it is signed;
@@ -456,7 +457,7 @@ impl Pass<'_> {
                 let fill = r.bytes(fill_len as usize).ok_or_else(short)?.to_vec();
                 Special::Chunked(Box::new(ChunkedHeader { length: length as u64, table, dims, fill }))
             }
-            c if c <= SP_LAST && c > 0 => Special::Other,
+            c if c <= SP_LAST && c > 0 => Special::Other(c),
             c => return bad(format!("the special element {} has the unknown code {c}", self.what(i))),
         })
     }
@@ -569,7 +570,7 @@ impl Pass<'_> {
                 Stored::Compressed { length, method, model, data }
             }
             Special::Chunked(_) => Stored::Chunked(i),
-            Special::Other => Stored::Other,
+            Special::Other(c) => Stored::Other(c),
         })
     }
 
@@ -732,9 +733,11 @@ impl Hdf4 {
             }
         }
         let (facts, descs) = Self::facts_of(&mut p, &vgs, &vhs)?;
+        let description = describe::description(&mut p, &vgs, &vhs)?;
         let Pass { dds, held, .. } = p;
         self.found = Some(Found { blocks, dds, held, descs });
         self.facts = facts;
+        self.facts["description"] = description;
         Ok(())
     }
 }
@@ -819,6 +822,44 @@ pub fn parse_vh(b: &[u8]) -> Option<Vh> {
 fn node_name(b: &[u8]) -> Option<String> {
     let s = std::str::from_utf8(b).ok()?;
     (!s.is_empty() && s != "." && s != ".." && !s.starts_with("__") && !s.contains('/')).then(|| s.to_string())
+}
+
+/// The SD interface's datasets: the `Var0.0` members of the first `CDF0.0` Vgroup, whose ref is
+/// given too, each with its members sorted by what they are.
+fn vars_of(vgs: &BTreeMap<u16, Vg>, vhs: &BTreeMap<u16, Vh>) -> (Option<u16>, Vec<Var>) {
+    let class_of = |r: u16| vgs.get(&r).map(|v| v.class.as_slice());
+    let cdf = vgs.iter().find(|(_, v)| v.class == b"CDF0.0").map(|(&r, _)| r);
+    let mut vars: Vec<Var> = Vec::new();
+    if let Some(c) = cdf {
+        for &(t, r) in &vgs[&c].members {
+            if t != VG || class_of(r) != Some(b"Var0.0") {
+                continue;
+            }
+            let v = &vgs[&r];
+            let mut var = Var { vg: r, name: v.name.clone(), ..Default::default() };
+            for &(t, m) in &v.members {
+                match t {
+                    VG => match vgs.get(&m) {
+                        Some(d) if d.class == b"Dim0.0" || d.class == b"UDim0.0" => var.dims.push((d.name.clone(), d.class == b"UDim0.0")),
+                        _ => {}
+                    },
+                    VH => match vhs.get(&m) {
+                        Some(h) if h.class == ATTRIBUTE => var.attrs.push(m),
+                        Some(h) if h.class == b"SDSVar" => var.marked = Some(false),
+                        Some(h) if h.class == b"CoordVar" => var.marked = Some(true),
+                        _ => {}
+                    },
+                    NDG => var.ndg = Some(m),
+                    SD => var.sd = Some(m),
+                    NT => var.nt = Some(m),
+                    SDD => var.sdd = Some(m),
+                    _ => {}
+                }
+            }
+            vars.push(var);
+        }
+    }
+    (cdf, vars)
 }
 
 fn internal_vg(class: &[u8]) -> bool {
@@ -965,39 +1006,7 @@ impl Hdf4 {
 
     /// The facts: the hierarchy's nodes, as the projection writes them, and the summary.
     fn facts_of(p: &mut Pass, vgs: &BTreeMap<u16, Vg>, vhs: &BTreeMap<u16, Vh>) -> R<(J, Vec<Desc>)> {
-        let class_of = |r: u16| vgs.get(&r).map(|v| v.class.as_slice());
-        // the SD interface's datasets: the Var0.0 members of the first CDF0.0 Vgroup
-        let cdf = vgs.iter().find(|(_, v)| v.class == b"CDF0.0").map(|(&r, _)| r);
-        let mut vars: Vec<Var> = Vec::new();
-        if let Some(c) = cdf {
-            for &(t, r) in &vgs[&c].members {
-                if t != VG || class_of(r) != Some(b"Var0.0") {
-                    continue;
-                }
-                let v = &vgs[&r];
-                let mut var = Var { vg: r, name: v.name.clone(), ..Default::default() };
-                for &(t, m) in &v.members {
-                    match t {
-                        VG => match vgs.get(&m) {
-                            Some(d) if d.class == b"Dim0.0" || d.class == b"UDim0.0" => var.dims.push((d.name.clone(), d.class == b"UDim0.0")),
-                            _ => {}
-                        },
-                        VH => match vhs.get(&m) {
-                            Some(h) if h.class == ATTRIBUTE => var.attrs.push(m),
-                            Some(h) if h.class == b"SDSVar" => var.marked = Some(false),
-                            Some(h) if h.class == b"CoordVar" => var.marked = Some(true),
-                            _ => {}
-                        },
-                        NDG => var.ndg = Some(m),
-                        SD => var.sd = Some(m),
-                        NT => var.nt = Some(m),
-                        SDD => var.sdd = Some(m),
-                        _ => {}
-                    }
-                }
-                vars.push(var);
-            }
-        }
+        let (cdf, vars) = vars_of(vgs, vhs);
         // every attribute's records, in one round: what the datasets, the file and the groups read next
         let mut acc = Acc::default();
         for (&r, h) in vhs {
@@ -1395,7 +1404,7 @@ impl Hdf4 {
                 _ => (0, "chunked"),
             },
             Stored::External => return Ok(Decided::Not("external")),
-            Stored::Other => return Ok(Decided::Not("special")),
+            Stored::Other(_) => return Ok(Decided::Not("special")),
         };
         own.insert("layout".into(), json!(layout));
         if unlimited {
@@ -1483,7 +1492,7 @@ impl Hdf4 {
                     Err(why) => return Ok(Decided::Not(why)),
                 }
             }
-            Stored::External | Stored::Other => return Ok(Decided::Not("special")),
+            Stored::External | Stored::Other(_) => return Ok(Decided::Not("special")),
         };
         // the fill value: the chunk header's, else `_FillValue`'s, else netCDF's default
         let fill_attr = Self::attributes(p, vhs, &var.attrs)?.into_iter().find(|a| a.name == b"_FillValue").and_then(|a| a.raw);
@@ -1737,6 +1746,11 @@ impl Hdf4 {
                 node["array"]["declared_by"] = json!(e);
             }
         }
+        // each dataset's stored array, by the element that keys it (spec/zarrify/hdf4.md §9.6
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#96-the-description>)
+        for d in facts["description"]["datasets"].as_array_mut().into_iter().flatten() {
+            d["element"] = d["vgroup"].as_u64().and_then(|r| key_of.get(&r)).map_or(J::Null, |&e| json!(e));
+        }
         facts["copy_threshold"] = json!(crate::out::copy_threshold());
         self.asked.put(&mut facts);
         facts["summary"]["rounds"] = json!(self.asked.rounds);
@@ -1980,6 +1994,11 @@ impl crate::run::FileProfile for Profile {
     }
     fn project(&self, ir: &Ir, facts: &J, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::hdf4::project(ir, facts, url, copied)
+    }
+    /// The parser's description of the file, beside its projection's facts (spec/zarrify/hdf4.md
+    /// §9.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#96-the-description>).
+    fn description(&self, facts: &J) -> Option<J> {
+        facts.get("description").cloned()
     }
 }
 
