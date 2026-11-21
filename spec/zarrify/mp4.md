@@ -801,3 +801,55 @@ summary, with these members:
 | `brand` | the major brand, or `null` |
 | `tracks` | for each track zarrified, its `id`, `format`, `path`, `frames`, `chunkFrames` and `chunks` |
 | `skipped` | for each other, its `id`, `codec` and `reason` |
+
+### 8.5 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. The
+parser returns, beside the IR, a **description** of the file: what it found of the source, for a
+projection to read with the IR and its stored arrays
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)). It holds none of an output's
+decisions: which tracks are zarrified and each one's reason ([§8.2](#82-tracks)), and the arrays'
+data types, shapes, chunks and codecs ([§4](#4-the-layout)) are the projection's. Its JSON Schema
+is [`mp4/description.json`](mp4/description.json). It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `brand` | the `ftyp` box's brands, an [`Mp4Brand`](#type-mp4brand), or null without one |
+| `timescale`, `duration` | the `mvhd` box's |
+| `tracks` | each track, in the order of the `trak` boxes, as below |
+
+A track has these members:
+
+| member | value |
+|---|---|
+| `index` | its position among the `trak` boxes |
+| `id` | its `tkhd` box's track ID |
+| `handler` | its `hdlr` box's handler type, as text |
+| `timescale`, `duration` | its `mdhd` box's |
+| `edits` | its `elst` box's entries, each an [`Mp4Edit`](#type-mp4edit) |
+| `samples` | its samples: its tables', then its track fragments' ([§3](#3-tracks-and-samples)) |
+| `sizes` | its samples' distinct sizes, in bytes, in the order each first appears |
+| `bytes` | its samples' bytes |
+| `stz2` | whether its sample sizes are in an `stz2` box |
+| `stsz_sample_size` | its `stsz` box's `sample_size`, or null when the box has none or gives each sample's |
+| `sample_descriptions` | its `stsd` box's entry count |
+| `entries` | the sample entries the profile read |
+| `other_description` | whether an `stsc` entry or a track fragment names a sample description other than the first |
+| `entry` | its first sample entry, as below, or null without one |
+| `pts` | of a `vide` track, or one whose sample entry is a Motion JPEG one ([§8.2](#82-tracks)), each sample's presentation time in its timescale, in decode order (its `stts` and `ctts` boxes', then its fragments'), when its `stts` box and fragments count its samples; else null |
+| `sync` | of a track that has `pts`, its sync samples' indexes in decode order, from 0 (every sample when it has no `stss` box); else null |
+| `elements` | the ids of IR elements ([§5.3](#53-elements)) by name: `trak`, its `trak` box, which keys a `vide` or `soun` track's stored arrays ([spec/stored-array.md §7](../stored-array.md#7-the-formats)), and `first`, its first sample's `data` element, which the others follow, or null without samples |
+
+and a sample entry these:
+
+| member | value |
+|---|---|
+| `type` | its type, as text: `avc1`, `mp4a`, `sowt` and so on |
+| `width`, `height` | a visual sample entry's, else 0 |
+| `channels`, `sample_rate`, `sample_size`, `sound_version` | an audio sample entry's `channel_count`, sample rate (a version 2 QuickTime sound description's `audio_sample_rate`), `sample_size` (its `const_bits_per_channel`) and version, else 0 |
+| `lpcm_flags`, `lpcm_packet` | a version 2 QuickTime sound description's `format_specific_flags` and `const_bytes_per_audio_packet`, else 0 |
+| `video_config` | the configuration box its type names, `avcC` of `avc1`, `hvcC` of `hvc1` and `hev1`, `av1C` of `av01` and `vpcC` of `vp09`: `box`, its type; `data`, its payload in base64; and `fields`, what the profile reads of it (`profile`, `level`, `chroma`, the `chroma_format_idc`, and `luma_bits` and `chroma_bits`, the bit depths), or null when it cannot; null for another type, or without the box |
+| `esds` | its `esds` box's decoder configuration (in a QuickTime `wave` box or not): `object_type_indication`, `config`, the decoder specific information in base64, and `aac`, the AudioSpecificConfig's `object_type`, `sample_rate`, `channels`, `short_frames` (960-sample frames), `sbr_sample_rate` (null without SBR) and `parametric_stereo`, or null when it cannot be read; `object_type_indication`, `config` and `aac` each null when the box cannot be read; null without one |
+| `pcmC` | its `pcmC` box's `format_flags` and `sample_size`, or null |
+| `enda` | its `enda` box's flag, `true` for little-endian, or null |
+| `jpeg` | of a Motion JPEG sample entry, its track's first sample's JPEG frame header (ITU T.81 §B.2.2): `marker`, `precision`, `width`, `height` and `components`, or null |

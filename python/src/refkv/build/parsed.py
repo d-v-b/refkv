@@ -175,7 +175,11 @@ class Parsed:
         - FLAC: STREAMINFO's fields, the frames' count, block size and samples, each metadata
           block's type and size, the seek table, Vorbis comment, cue sheets, pictures and
           applications, and the ID3v2 and ID3v1 tags
-          (spec/zarrify/flac.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#84-the-description>)."""
+          (spec/zarrify/flac.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#84-the-description>).
+        - MP4 and QuickTime: the brands, and each track's sample entry with its codec
+          configuration as the codec lays it out, its samples' sizes, presentation times and sync
+          samples, and the IR elements of its `trak` box and first sample
+          (spec/zarrify/mp4.md §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#85-the-description>)."""
         return None if self._description is None else json.loads(json.dumps(self._description))
 
     @property

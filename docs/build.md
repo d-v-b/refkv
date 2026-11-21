@@ -158,8 +158,9 @@ the profile's description of the input, where its parser returns one: NumPy's
 ([zarr3.md §7.6](../spec/zarrify/zarr3.md#76-the-description)), TIFF's and QPTIFF's
 ([tiff.md §7.6](../spec/zarrify/tiff.md#76-the-description)), NDPI's
 ([ndpi.md §7.1](../spec/zarrify/ndpi.md#71-the-description)), MP3's
-([mp3.md §8.4](../spec/zarrify/mp3.md#84-the-description)) and FLAC's
-([flac.md §8.4](../spec/zarrify/flac.md#84-the-description)) do, and the other profiles' is None
+([mp3.md §8.4](../spec/zarrify/mp3.md#84-the-description)), FLAC's
+([flac.md §8.4](../spec/zarrify/flac.md#84-the-description)) and MP4's
+([mp4.md §8.5](../spec/zarrify/mp4.md#85-the-description)) do, and the other profiles' is None
 until their projections read the descriptions too. `stored_array` raises `ValueError` for an array it
 cannot write so: one whose storage the IR does not model (a description with no grid, such as a
 NumPy `a<n>` array's, which the profile still presents from its header), whose elements are not

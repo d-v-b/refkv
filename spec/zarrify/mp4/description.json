@@ -1,0 +1,481 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/mp4/description.json",
+  "title": "The description of an MP4 or QuickTime file",
+  "description": "What refkv's MP4 parser found of an MP4 or QuickTime file's tracks, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#85-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "brand": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "major": {
+              "type": "string"
+            },
+            "minor": {
+              "$ref": "#/$defs/uint"
+            },
+            "compatible": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "major",
+            "minor",
+            "compatible"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "timescale": {
+      "$ref": "#/$defs/uint"
+    },
+    "duration": {
+      "type": "integer"
+    },
+    "tracks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/track"
+      }
+    }
+  },
+  "required": [
+    "brand",
+    "timescale",
+    "duration",
+    "tracks"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "uint": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "track": {
+      "type": "object",
+      "properties": {
+        "index": {
+          "$ref": "#/$defs/uint"
+        },
+        "id": {
+          "$ref": "#/$defs/uint"
+        },
+        "handler": {
+          "type": "string"
+        },
+        "timescale": {
+          "$ref": "#/$defs/uint"
+        },
+        "duration": {
+          "type": "integer"
+        },
+        "edits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "duration": {
+                "type": "integer"
+              },
+              "media_time": {
+                "type": "integer"
+              },
+              "rate": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "duration",
+              "media_time",
+              "rate"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "samples": {
+          "$ref": "#/$defs/uint"
+        },
+        "sizes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uint"
+          }
+        },
+        "bytes": {
+          "$ref": "#/$defs/uint"
+        },
+        "stz2": {
+          "type": "boolean"
+        },
+        "stsz_sample_size": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/uint"
+            }
+          ]
+        },
+        "sample_descriptions": {
+          "$ref": "#/$defs/uint"
+        },
+        "entries": {
+          "$ref": "#/$defs/uint"
+        },
+        "other_description": {
+          "type": "boolean"
+        },
+        "entry": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "width": {
+                  "$ref": "#/$defs/uint"
+                },
+                "height": {
+                  "$ref": "#/$defs/uint"
+                },
+                "channels": {
+                  "$ref": "#/$defs/uint"
+                },
+                "sample_rate": {
+                  "$ref": "#/$defs/uint"
+                },
+                "sound_version": {
+                  "$ref": "#/$defs/uint"
+                },
+                "sample_size": {
+                  "$ref": "#/$defs/uint"
+                },
+                "lpcm_flags": {
+                  "$ref": "#/$defs/uint"
+                },
+                "lpcm_packet": {
+                  "$ref": "#/$defs/uint"
+                },
+                "video_config": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "box": {
+                          "enum": [
+                            "avcC",
+                            "hvcC",
+                            "av1C",
+                            "vpcC"
+                          ]
+                        },
+                        "data": {
+                          "type": "string",
+                          "contentEncoding": "base64"
+                        },
+                        "fields": {
+                          "oneOf": [
+                            {
+                              "type": "null"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "profile": {
+                                  "$ref": "#/$defs/uint"
+                                },
+                                "level": {
+                                  "$ref": "#/$defs/uint"
+                                },
+                                "chroma": {
+                                  "$ref": "#/$defs/uint"
+                                },
+                                "luma_bits": {
+                                  "$ref": "#/$defs/uint"
+                                },
+                                "chroma_bits": {
+                                  "$ref": "#/$defs/uint"
+                                }
+                              },
+                              "required": [
+                                "profile",
+                                "level",
+                                "chroma",
+                                "luma_bits",
+                                "chroma_bits"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "box",
+                        "data",
+                        "fields"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "esds": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "object_type_indication": {
+                          "oneOf": [
+                            {
+                              "type": "null"
+                            },
+                            {
+                              "$ref": "#/$defs/uint"
+                            }
+                          ]
+                        },
+                        "config": {
+                          "oneOf": [
+                            {
+                              "type": "null"
+                            },
+                            {
+                              "type": "string",
+                              "contentEncoding": "base64"
+                            }
+                          ]
+                        },
+                        "aac": {
+                          "oneOf": [
+                            {
+                              "type": "null"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "object_type": {
+                                  "$ref": "#/$defs/uint"
+                                },
+                                "sample_rate": {
+                                  "$ref": "#/$defs/uint"
+                                },
+                                "channels": {
+                                  "$ref": "#/$defs/uint"
+                                },
+                                "short_frames": {
+                                  "type": "boolean"
+                                },
+                                "sbr_sample_rate": {
+                                  "oneOf": [
+                                    {
+                                      "type": "null"
+                                    },
+                                    {
+                                      "$ref": "#/$defs/uint"
+                                    }
+                                  ]
+                                },
+                                "parametric_stereo": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "object_type",
+                                "sample_rate",
+                                "channels",
+                                "short_frames",
+                                "sbr_sample_rate",
+                                "parametric_stereo"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "object_type_indication",
+                        "config",
+                        "aac"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "pcmC": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "format_flags": {
+                          "$ref": "#/$defs/uint"
+                        },
+                        "sample_size": {
+                          "$ref": "#/$defs/uint"
+                        }
+                      },
+                      "required": [
+                        "format_flags",
+                        "sample_size"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "enda": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "jpeg": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "marker": {
+                          "$ref": "#/$defs/uint"
+                        },
+                        "precision": {
+                          "$ref": "#/$defs/uint"
+                        },
+                        "width": {
+                          "$ref": "#/$defs/uint"
+                        },
+                        "height": {
+                          "$ref": "#/$defs/uint"
+                        },
+                        "components": {
+                          "$ref": "#/$defs/uint"
+                        }
+                      },
+                      "required": [
+                        "marker",
+                        "precision",
+                        "width",
+                        "height",
+                        "components"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "type",
+                "width",
+                "height",
+                "channels",
+                "sample_rate",
+                "sound_version",
+                "sample_size",
+                "lpcm_flags",
+                "lpcm_packet",
+                "video_config",
+                "esds",
+                "pcmC",
+                "enda",
+                "jpeg"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "pts": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            }
+          ]
+        },
+        "sync": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/uint"
+              }
+            }
+          ]
+        },
+        "elements": {
+          "type": "object",
+          "properties": {
+            "trak": {
+              "$ref": "#/$defs/uint"
+            },
+            "first": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/uint"
+                }
+              ]
+            }
+          },
+          "required": [
+            "trak",
+            "first"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "index",
+        "id",
+        "handler",
+        "timescale",
+        "duration",
+        "edits",
+        "samples",
+        "sizes",
+        "bytes",
+        "stz2",
+        "stsz_sample_size",
+        "sample_descriptions",
+        "entries",
+        "other_description",
+        "entry",
+        "pts",
+        "sync",
+        "elements"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
