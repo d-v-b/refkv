@@ -1370,10 +1370,15 @@ fn every_derived_transform_holding_shown_values_can_be_derived_again() {
     use refkv_ir::transform::Transform;
     for (k, t) in Transform::ALL.into_iter().enumerate() {
         assert_eq!(t.index(), k, "{t:?} is not at its index in ALL");
-        let derivable = t.rederive(&[], &serde_json::Value::Null).is_some();
-        assert!(!t.may_hold_shown() || derivable, "{} may hold shown values, but a validator cannot derive it", t.name());
+        // with no `prefix`, and with one (which only `deflate` reads)
+        for form in [serde_json::Value::Null, serde_json::json!({"prefix": 0})] {
+            let derivable = t.rederive(&[], &form).is_some();
+            assert_eq!(t.may_hold_shown(&form), derivable, "{}, of form {form}: it may hold shown values only if a validator can derive it", t.name());
+        }
     }
+    assert!(!Transform::Deflate.may_hold_shown(&serde_json::json!({})) && Transform::Deflate.may_hold_shown(&serde_json::json!({"prefix": 138})));
     let mut seen = std::collections::HashSet::new();
+    let mut prefixed = 0;
     for (f, p) in fixtures() {
         let data = std::fs::read(&p).unwrap();
         let Ok((ir, _, _)) = run_bytes(f, &data) else { continue };
@@ -1385,11 +1390,17 @@ fn every_derived_transform_holding_shown_values_can_be_derived_again() {
             }
             let d = y.space[i];
             if d != 0 && shown(&y, f.name(), i as u32) {
-                assert!(Transform::of_form(y.form(d).unwrap()).unwrap().may_hold_shown(), "{p:?}: {}", y.path(i as u32));
+                let form: serde_json::Value = serde_json::from_str(y.form(d).unwrap()).unwrap();
+                assert!(Transform::of_form(y.form(d).unwrap()).unwrap().may_hold_shown(&form), "{p:?}: {}", y.path(i as u32));
+                // a prefix holds every value its space shows
+                if let Some(prefix) = Transform::prefix(&form) {
+                    assert!(y.start[i] + y.len[i] <= prefix, "{p:?}: {} ends past its space's prefix", y.path(i as u32));
+                    prefixed += 1;
+                }
             }
         }
     }
-    assert!(seen.len() >= 2, "{seen:?}");
+    assert!(seen.len() >= 2 && prefixed > 0, "{seen:?}, {prefixed} values in a space with a prefix");
 }
 
 /// The view's 65536 bytes are what the members of a document's children spend (conventions §8.7

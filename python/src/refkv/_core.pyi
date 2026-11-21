@@ -260,9 +260,23 @@ class Run:
         profile whose parser returns none yet."""
     def ir(self) -> Ir:
         """The IR of a run that is done, shared with the run, which is kept."""
+    def mirror(self) -> Mirror:
+        """What makes the mirror of a run that is done: its IR and facts, shared with the run,
+        which is kept and may be used while the mirror is made."""
     def project(self, url: str, mirror: bool = True, layouts: list[str] | None = None,
                 checksums: bool = False, written: bool = True) -> Out[FilePart]:
         """`output`, of a run that is kept: the output alone."""
+
+@final
+class Mirror:
+    """What makes the IR mirror of an input a run parsed: its IR and its facts, shared with the
+    run and never changed, so `entries()` may be called from any thread, as often as the host
+    likes, while the run is used for something else (its output) or after it is gone."""
+
+    def entries(self) -> Out[FilePart] | Out[StorePart]:
+        """The mirror under `refkv_source` (the url empty), with what the input's convention
+        records beside it from the run's facts, the keys and directories a listing ignored: what
+        the built-in output writes there, but for a store's objects; or Rejected."""
 
 class StoreRun:
     """A store run (src/store.rs): `StoreRun(format, listing, concurrency)` over the listing
@@ -303,6 +317,9 @@ class StoreRun:
     def parse(self) -> Ir:
         """Finishes without an output: the IR, which the run keeps with its facts and counts, so
         that `project(...)` gives the built-in output of it, as often as the host likes."""
+    def mirror(self) -> Mirror:
+        """What makes the mirror of a run `parse` finished: its IR and facts, shared with the
+        run."""
     def project(self, url: str, mirror: bool = True, checksums: bool = False) -> Out[StorePart]:
         """`output`, of a run `parse` finished: the output alone."""
 
@@ -373,6 +390,17 @@ def project(format: str, ir: Ir, facts: str, url: str) -> Out[FilePart]:  # noqa
     """The image projection of an IR (`format` a name of `Format::from_name`; facts as JSON) as
     Python objects (`out_py`), or Rejected. Raises ValueError for an unknown format, or facts
     that are not JSON."""
+def grid_chunks(offset: int, shape: list[int], item: int,
+                limit: int) -> tuple[list[int], list[tuple[list[int], int, int, int, bool]]] | None:
+    """The C-order array of `shape`, of `item`-byte elements contiguous at `offset`, cut as
+    spec/conventions.md §7 cuts contiguous values into chunks of at most `limit` bytes: its chunk
+    shape, and each chunk's coordinates, its range (offset, length), the zero bytes that pad it,
+    and whether the range is to be copied; None when an element is larger than `limit` or the
+    sizes overflow."""
+def gzip_frame(crc32: int, size: int) -> tuple[bytes, bytes]:
+    """What frames a raw deflate stream as a gzip member, as the built-in projections write one:
+    the 10-byte header, and the trailer, the stream's CRC-32 and the size of what it inflates to,
+    modulo 2^32."""
 def mirror(ir: Ir, profile: str) -> tuple[Out[FilePart], str]:
     """The mirror of an IR under `profile`'s convention (a name of spec/zarrify/profiles/): its
     entries and references under `refkv_source` (`out_py`'s form, the url empty), and what the

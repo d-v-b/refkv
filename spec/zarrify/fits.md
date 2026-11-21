@@ -842,3 +842,38 @@ summary, with these members:
 | `cards` | the headers' cards in all |
 | `tables` | the table HDUs |
 | `stream` | a compressed file's `method`, else `null` |
+
+### 9.6 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. A FITS
+parser returns, beside the IR, a **description** of the file: what it found of the source, for a
+projection to read with the IR and its stored arrays
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)). It holds none of an output's
+decisions: no Zarr data type, no struct of a table's rows, no chunk of a tile-compressed image.
+It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `hdus` | each HDU, in the file's order |
+| `stream` | a compressed file's ([§2.1](#21-a-compressed-file)) only: `method`, `gzip` or `bzip2`; `length`, the file's bytes; `size`, the bytes it decodes to |
+
+and an entry of `hdus` has these:
+
+| member | value |
+|---|---|
+| `index`, `type`, `kind`, `name`, `version`, `bitpix`, `naxis`, `pcount`, `gcount`, `offset`, `header_bytes`, `data_offset`, `data_bytes` | as the root's table of HDUs gives them ([§5.1](#51-the-root)); in a compressed file, offsets in what it decodes to |
+| `cards` | the number of its header's cards before `END` |
+| `pad` | the bytes of the fill after its data, to the end of its last 2880-byte block |
+| `table` | a table's (`TABLE`, `BINTABLE`, and a tile-compressed image's table), else null: `tfields`; `tform`, each column's `TFORMn`; `row_bytes` and `rows`, `NAXIS1` and `NAXIS2`; `theap`; `gap`, the bytes between the rows and the heap; `heap`, the heap's bytes |
+| `compression` | a tile-compressed image's ([§3.3](#33-tile-compressed-images)), else null: `type`, its `ZCMPTYPE`; `parameters`, its `BLOCKSIZE` and `BYTEPIX`; `zbitpix`; `shape` and `tile`, its `ZNAXISn` and `ZTILEn`, the slowest axis first; `quantize` and `dither_seed`; `zblank`, its `ZBLANK` card's value; `columns`, the offsets in a row of its `COMPRESSED_DATA` and `GZIP_COMPRESSED_DATA` descriptors (with `q`, whether a descriptor is 64-bit) and of its `ZSCALE`, `ZZERO` and `ZBLANK` columns; `row_bytes` and `rows`; `tiles`, the tiles its table describes, and `present`, those that hold data |
+| `elements` | the ids of its IR elements ([§6.1](#61-elements)) by name: `header`, and, as it has them, `data`, `table`, `gap`, `rows`, `heap` and `pad` |
+
+The `header` element keys the HDU's stored arrays where the HDU has an axis. The projection
+reads an image's data type from `bitpix` ([§3.1](#31-the-array)), a binary table's struct from
+its header's `TFORMn` and `TTYPEn` ([§4.1](#41-rows-as-a-struct)), and a tile-compressed image's
+data type and chunks from `zbitpix`, `shape` and `tile` ([§3.3](#33-tile-compressed-images),
+[§9.4](#94-chunks)).
+
+The parser still makes a decision of the output: the elements of a tile-compressed image's heap
+(`hdus/<i>/heap/<j>`) are its chunks ([§9.4](#94-chunks)), one per chunk that holds a tile, and
+the IR's `data` element's form names its Zarr data type ([§6.1](#61-elements)).

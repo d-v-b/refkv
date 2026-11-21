@@ -314,6 +314,8 @@ class StoreParse:
             self.ir: _core.Ir = run.parse()
         except _core.Rejected as e:
             raise Rejected(str(e), format=self.profile) from None
+        # what makes the IR mirror alone, with the keys and directories the listing ignored
+        self.mirrored: _core.Mirror = run.mirror()
         # the objects' sizes, from the IR: the listing's, and a VSI input's files probed into it
         self.sizes: dict[str, int] = {k: n for k, _, n in self.ir.object_bases()}
 

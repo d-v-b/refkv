@@ -20,7 +20,8 @@ include!(concat!(env!("OUT_DIR"), "/rejects_fits.rs"));
 /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): an image's
 /// one, a table's two and a tile-compressed image's three, indexed from 0, and none for an HDU of
 /// no axes. A tile's row is in an element of its HDU's heap, and every description is one an HDU
-/// names.
+/// names. The description holds none of the output's decisions: no data type, no row struct, no
+/// chunk of a tile-compressed image.
 #[test]
 fn every_accepted_fixtures_hdus_name_their_descriptions() {
     let (mut hdus, mut arrays, mut tiles) = (0, 0, 0);
@@ -43,11 +44,13 @@ fn every_accepted_fixtures_hdus_name_their_descriptions() {
                 _ => 1,
             };
             hdus += 1;
-            let Some(key) = h["declared_by"].as_u64() else {
-                assert_eq!(want, 0, "{at}");
+            // the key is the header, of an HDU that holds data; the description says nothing else of it
+            assert!(h.get("declared_by").is_none() && h.get("data_type").is_none(), "{at}");
+            let key = h["elements"]["header"].as_u64().unwrap();
+            if want == 0 {
+                assert!(s.arrays.iter().all(|a| a.element != key as u32), "{at}");
                 continue;
-            };
-            assert_eq!(Some(key), h["elements"]["header"].as_u64(), "{at}");
+            }
             assert!(ir.path(key as u32).ends_with(&format!("hdus/{i}/header")), "{at}: {}", ir.path(key as u32));
             let described: Vec<usize> = (0..s.arrays.len()).filter(|&k| s.arrays[k].element == key as u32).collect();
             let indexes: Vec<Option<u64>> = described.iter().map(|&k| s.arrays[k].index).collect();
@@ -55,7 +58,11 @@ fn every_accepted_fixtures_hdus_name_their_descriptions() {
             named += described.len();
             if tiled {
                 // each tile the table holds is a row, a range of its chunk of the heap
-                let chunks: Vec<u64> = h["compression"]["chunks"].as_array().unwrap().iter().filter_map(|c| c["element"].as_u64()).collect();
+                let node = ir.parent[key as usize];
+                let chunks: Vec<u64> = (0..ir.len()).filter(|&e| ir.parent[e] == node && ir.names.get(ir.name[e]) == "heap/").map(|e| e as u64).collect();
+                for k in ["data_type", "chunk_shape", "grid", "chunks"] {
+                    assert!(h["compression"].get(k).is_none(), "{at}: {k}");
+                }
                 let rows: Vec<usize> = (0..s.map.len()).filter(|&r| s.map.array[r] == described[0] as u32).collect();
                 assert_eq!(rows.len() as u64, h["compression"]["present"].as_u64().unwrap(), "{at}");
                 assert!(rows.iter().all(|&r| chunks.contains(&(s.map.element[r].unwrap() as u64))), "{at}");

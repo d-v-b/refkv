@@ -34,11 +34,15 @@ the parsed inputs, `write(inputs, options)`, its output sealed as the built-in
 ones are, the base gone from what it is given
 ([spec/layout.md](../../spec/layout.md)), though five of the six shipped
 plugins still ask for the built-in output (`project`), which their formats'
-descriptions will let them stop doing. Steps 2 to 4 (the
-plan's machine, and each format's description and plan) have not, though
+descriptions will let them stop doing. NumPy's projection reads its
+description and the IR's stored arrays, and NumPy has the first
+[rebuild test](#testing-that-the-tools-suffice) (`python/tests/test_rebuild_npy.py`), written with
+`grid`, `filled`, `gzip_member`, `mirror` and `declaration`, the first of
+[group 4](#4-building-and-writing)'s routines to be bound. Steps 2 to 4 (the
+plan's machine, and each format's description and plan) have not otherwise, though
 NumPy's arrays, MP4's tracks and the stored arrays of every format in the
 scope of [ir-format-descriptions.md](ir-format-descriptions.md) are described,
-but for NumPy's deflated `.npz` members; those of the store profiles, MP3 and
+NumPy's deflated `.npz` members among them; those of the store profiles, MP3 and
 FLAC are not.
 [The gap](#the-gap) describes main before step 1.
 [Open question 3](#open-questions) is settled: a reader follows symbolic links

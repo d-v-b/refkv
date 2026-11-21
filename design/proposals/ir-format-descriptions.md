@@ -1,6 +1,9 @@
 # Proposal: every format describes its stored arrays
 
-Status (2026-11-16): landed, but for NumPy's deflated `.npz` members. The describe-only PRs are
+Status (2026-11-20): landed. NumPy's deflated `.npz` members, the last, are described as
+[§Gzipped files](#gzipped-files) planned: the `deflate` form's `prefix`, and their `header` and
+`data` in the member's derived space. NIfTI and MRC did not take that section's derived element for
+their gzipped files, so `gunzip` has no prefix. The describe-only PRs are
 d-v-b/refkv#296 (HDF5 and IMS), #297 (TIFF and QPTIFF), #300 (NDPI), #303 (MP4), #305
 (safetensors), #306 (NRRD), #307 (NIfTI), #308 (MRC), #309 (ND2), #311 (FITS), #312 (SAFE), #313
 (CZI), #314 (VSI), #315 (LIF), #316 (DICOM) and #317 (GRIB), with the fallback at the

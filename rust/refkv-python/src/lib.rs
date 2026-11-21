@@ -769,12 +769,53 @@ impl PyRun {
         let (ir, _) = self.get()?.parsed().map_err(PyValueError::new_err)?;
         Ok(PyIr::of(Arc::clone(ir)))
     }
+    /// What makes the mirror of a run that is done (`Mirror`): its IR and facts, shared with the
+    /// run, which is kept and may be used while the mirror is made.
+    fn mirror(&mut self) -> PyResult<PyMirror> {
+        let r = self.get()?;
+        let (ir, facts) = r.shared().map_err(PyValueError::new_err)?;
+        Ok(PyMirror { of: MirrorOf::File(r.format), ir, facts })
+    }
     /// `output`, of a run that is kept (`Run::project`): the output alone, in `out_py`'s form.
     #[pyo3(signature = (url, mirror=true, layouts=None, checksums=false, written=true))]
     fn project<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, layouts: Option<Vec<String>>, checksums: bool,
                     written: bool) -> PyResult<Bound<'py, PyAny>> {
         let r = &*self.get()?;
         let o = py.detach(|| r.project(url, mirror, layouts.as_deref(), checksums, written)).map_err(refused)?;
+        out_py(py, &o)
+    }
+}
+
+/// Which run a `Mirror` is of.
+enum MirrorOf {
+    File(refkv_ir::run::Format),
+    Store(refkv_ir::store::StoreFormat),
+}
+
+/// What makes the IR mirror of an input a run parsed: its IR and its facts, shared with the run
+/// and never changed, so `entries()` may be called from any thread, as often as the host likes,
+/// while the run is used for something else (its output) or after it is gone.
+#[pyclass(name = "Mirror", module = "refkv._core", frozen)]
+pub struct PyMirror {
+    of: MirrorOf,
+    ir: Arc<Ir>,
+    facts: Arc<serde_json::Value>,
+}
+
+#[pymethods]
+impl PyMirror {
+    /// The mirror under `refkv_source` (`out_py`'s form, the url empty), with what the input's
+    /// convention records beside it from the run's facts, the keys and directories a listing
+    /// ignored (`run::mirrored`, `store::mirrored`: what the built-in output writes there, but
+    /// for a store's objects); or Rejected.
+    fn entries<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let o = py.detach(|| {
+            let mut o = refkv_ir::out::Out::new("");
+            match self.of {
+                MirrorOf::File(f) => refkv_ir::run::mirrored(f, &self.ir, &self.facts, &mut o),
+                MirrorOf::Store(f) => refkv_ir::store::mirrored(f, &self.ir, &self.facts, &mut o),
+            }.map(|_| o)
+        }).map_err(Rejected::new_err)?;
         out_py(py, &o)
     }
 }
@@ -788,7 +829,7 @@ impl PyRun {
 pub struct PyStoreRun {
     r: Option<refkv_ir::store::StoreRun>,
     /// the run finished without an output (`parse`): its format, IR, facts and counts, kept
-    parsed: Option<(refkv_ir::store::StoreFormat, Arc<Ir>, serde_json::Value, serde_json::Value)>,
+    parsed: Option<(refkv_ir::store::StoreFormat, Arc<Ir>, Arc<serde_json::Value>, serde_json::Value)>,
 }
 
 impl PyStoreRun {
@@ -877,8 +918,14 @@ impl PyStoreRun {
         let format = r.format;
         let (ir, facts, stats) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
         let ir = Arc::new(ir);
-        self.parsed = Some((format, Arc::clone(&ir), facts, stats));
+        self.parsed = Some((format, Arc::clone(&ir), Arc::new(facts), stats));
         Ok(PyIr::of(ir))
+    }
+    /// What makes the mirror of a run `parse` finished (`Mirror`): its IR and facts, shared
+    /// with the run.
+    fn mirror(&mut self) -> PyResult<PyMirror> {
+        let (format, ir, facts, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        Ok(PyMirror { of: MirrorOf::Store(*format), ir: Arc::clone(ir), facts: Arc::clone(facts) })
     }
     /// `output`, of a run `parse` finished: the output alone, in `out_py`'s form.
     #[pyo3(signature = (url, mirror=true, checksums=false))]
@@ -1115,6 +1162,44 @@ fn coding(name: &str, params: &str) -> PyResult<String> {
     }
 }
 
+/// A chunk of `grid_chunks`: its coordinates, its range of the source (offset, length), the zero
+/// bytes that pad it, and whether the range is to be copied (its padded reference would not fit).
+type GridChunk = (Vec<u64>, u64, u64, u64, bool);
+
+/// The C-order array of `shape`, of `item`-byte elements contiguous at `offset`, cut as
+/// conventions §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
+/// contiguous values into chunks of at most `limit` bytes (`out::grid_chunks`, with the copy
+/// threshold the built-in projections use): its chunk shape and its chunks, or None when an
+/// element is larger than `limit` or the sizes overflow.
+#[pyfunction]
+fn grid_chunks(py: Python<'_>, offset: u64, shape: Vec<u64>, item: u64, limit: u64) -> Option<(Vec<u64>, Vec<GridChunk>)> {
+    use refkv_ir::out::{Chunk, Part};
+    py.detach(|| {
+        let (grid, chunks) = refkv_ir::out::grid_chunks(offset, &shape, item, limit, refkv_ir::out::copy_threshold())?;
+        let chunks = chunks.into_iter().map(|(coords, chunk)| match chunk {
+            Chunk::Copy(o, n, pad) => Some((coords, o, n, pad, true)),
+            Chunk::Ranges(parts) => match parts.as_slice() {
+                [Part::Src(o, n)] => Some((coords, *o, *n, 0, false)),
+                [Part::Src(o, n), Part::Lit(z)] => Some((coords, *o, *n, z.len() as u64, false)),
+                _ => None,
+            },
+            Chunk::Bytes(_) => None,
+        }).collect::<Option<Vec<GridChunk>>>()?;
+        Some((grid, chunks))
+    })
+}
+
+/// What frames a raw deflate stream as a gzip member, as the built-in projections write one: the
+/// 10-byte header (`out::GZIP_HEADER`), and the trailer, the stream's CRC-32 and the size of what
+/// it inflates to, modulo 2^32.
+#[pyfunction]
+fn gzip_frame<'py>(py: Python<'py>, crc32: u32, size: u64) -> (Bound<'py, PyBytes>, Bound<'py, PyBytes>) {
+    let mut trailer = crc32.to_le_bytes().to_vec();
+    trailer.extend_from_slice(&(size as u32).to_le_bytes());
+    (PyBytes::new(py, &refkv_ir::out::GZIP_HEADER), PyBytes::new(py, &trailer))
+}
+
 /// For tests: the reference payload past which a NIfTI or MRC edge chunk is copied (None:
 /// the payload limit), so that small files reach the copy (spec/zarrify/nifti.md §7.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>,
@@ -1173,6 +1258,9 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_set_shard_frames, m)?)?;
     m.add_function(wrap_pyfunction!(project, m)?)?;
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
+    m.add_class::<PyMirror>()?;
+    m.add_function(wrap_pyfunction!(grid_chunks, m)?)?;
+    m.add_function(wrap_pyfunction!(gzip_frame, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;
     m.add_function(wrap_pyfunction!(view_problem, m)?)?;
     m.add_function(wrap_pyfunction!(synthetic, m)?)?;
