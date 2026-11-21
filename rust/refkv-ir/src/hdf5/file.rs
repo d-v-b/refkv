@@ -573,12 +573,18 @@ impl Hdf5 {
                 }
                 let ds = self.h.dataset(at, true)?;
                 let dt = types::parse(&self.h.datatype(&h)?.0)?;
-                let Some(p) = decodable(h.has(EXTERNAL_FILES), &ds, &dt) else { return self.read_skipped(at, &ds, dt.size) };
-                if self.storage.contains_key(&at) {
+                let p = decodable(h.has(EXTERNAL_FILES), &ds, &dt);
+                // every string dataset counts, in every round, whether it was read in an earlier
+                // one or not: the budget passes at the same dataset whatever the rounds
+                if p == Some(Present::Strings) {
+                    strings = strings.saturating_add(super::product(&ds.dims));
+                }
+                // a dataset read, or found not to read, in an earlier round is done
+                if self.storage.contains_key(&at) || self.unread.contains_key(&at) {
                     return Ok(());
                 }
+                let Some(p) = p else { return self.read_skipped(at, &ds, dt.size) };
                 if p == Present::Strings {
-                    strings = strings.saturating_add(super::product(&ds.dims));
                     self.check("strings", rules::env([("strings", num(strings as f64))]))?;
                 }
                 let b = self.elements(at, &ds, dt.size)?;
