@@ -41,9 +41,10 @@ def test_refkv_parser_example_runs(tmp_path, monkeypatch, capsys):
 
 def test_tiff_stack_example_runs(tmp_path, monkeypatch, capsys):
     """examples/tiff_stack.py writes its synthetic stack, saves the sidecar, and finds every
-    plane equal to its file, also after the directory moves (from a path with a space,
-    which a source URL percent-encodes)."""
-    tmp_path = tmp_path / "a b"
+    plane equal to its file, also after the directory moves (from a path with a space, which a
+    source URL percent-encodes, and parentheses, which it writes as they are and its policy's
+    `Path.as_uri()` prefix percent-encodes)."""
+    tmp_path = tmp_path / "a (b)"
     tmp_path.mkdir()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("sys.argv", ["tiff_stack.py"])

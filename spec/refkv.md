@@ -1,6 +1,6 @@
 # refkv: a reference value type for key-value stores
 
-Format version: 0 (**provisional**) · Specification revision: 11.8
+Format version: 0 (**provisional**) · Specification revision: 11.9
 
 ## 1. Introduction
 
@@ -1002,8 +1002,11 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
    them into a dot segment or a separator that the comparison did not see.
    Prefixes should be written as resolution produces URLs
    ([§5](#5-source-table)), with a lowercase scheme and host; a URL that is
-   spelled differently does not match, which fails closed. A prefix list
-   does not lift rule 3. A reader MUST also follow symbolic links, and on
+   spelled differently does not match, which fails closed. A reader MAY
+   also match a `file:` prefix in the spelling resolution gives its local
+   path's URI ([§5](#5-source-table)), so that a prefix whose path
+   percent-encodes a byte that spelling writes as it is, such as `(`, still
+   names the files under it. A prefix list does not lift rule 3. A reader MUST also follow symbolic links, and on
    Windows junctions, in the path of a file it will read and of a `file:`
    prefix, and refuse a file whose resolved path is not under a resolved prefix.
    It MUST resolve the path of the file it reads at each read, after opening
