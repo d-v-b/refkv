@@ -132,10 +132,13 @@ impl NiftiPair {
         let header = ir.value(header_file, "header", NO_INDEX, &h.record_type(), 0, (0, length), Some(h.raw))?;
         let mut end = length;
         let mut extended = false;
+        let mut elements = json!({"header": header});
+        let mut extender_bytes = None;
         if size >= length + 4 {
             let extender = &self.head[length as usize..length as usize + 4];
             extended = extender[0] != 0;
-            ir.value(header_file, "extender", NO_INDEX, "u1[4]", 0, (length, 4), Some(extender))?;
+            extender_bytes = Some(extender.to_vec());
+            elements["extender"] = json!(ir.value(header_file, "extender", NO_INDEX, "u1[4]", 0, (length, 4), Some(extender))?);
             end = length + 4;
             if extended {
                 let mut k = 0;
@@ -165,11 +168,17 @@ impl NiftiPair {
         let described = stored::Voxels { key: header, header: Some(header), data: voxels, dims: std::mem::take(&mut self.dims), bits: self.bits, skip: None };
         let (arrays, chains, map) = stored::described(&described)?;
         ir.describe(arrays, chains, map)?;
+        elements["extensions"] = json!(crate::nifti::extensions(&ir, header_file));
+        elements["voxels"] = json!(voxels);
+        let h = crate::nifti::header(&self.head, self.version);
+        let mut description = crate::nifti::describe(&h, self.version, extender_bytes.as_deref(), (self.vox, self.total), elements, None);
+        description["header_key"] = json!(self.keys[0].0);
+        description["data_key"] = json!(self.keys[1].0);
         self.ir = Some(ir);
         let copied: Vec<J> = self.copied.iter().map(|(o, n, b)| json!([o, n, b])).collect();
         Ok(json!({"version": self.version, "header": header, "voxels": voxels, "extended": extended, "declared_by": header,
                   "start": self.vox, "length": self.total, "header_key": self.keys[0].0, "data_key": self.keys[1].0,
-                  "copied": copied, "copy_threshold": self.copy_threshold}))
+                  "copied": copied, "copy_threshold": self.copy_threshold, "description": description}))
     }
 }
 

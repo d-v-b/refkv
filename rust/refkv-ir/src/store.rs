@@ -99,7 +99,7 @@ impl StoreFormat {
     /// The profile's description of the input (the design of d-v-b/refkv#278, "The
     /// description"), from what the run's parser returned beside the IR, `facts`, without the
     /// run's own counts; None for a store format whose profile's store run returns none
-    /// (`run::FileProfile::store_described`). ENVI's does (spec/zarrify/envi.md §8.7
+    /// (`run::FileProfile::store_description`). ENVI's does (spec/zarrify/envi.md §8.7
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#87-the-description>), and so
     /// do the store formats of Zarr v2 (and OME-Zarr, which it reads; spec/zarrify/zarr2.md §7.3
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#73-the-description>) and Zarr
@@ -108,8 +108,8 @@ impl StoreFormat {
     /// have no file profile of their own or whose file profile is the zip form's.
     pub fn description(self, facts: &J) -> Option<J> {
         let zarr = matches!(self, StoreFormat::Zarr2 | StoreFormat::Zarr3);
-        if !zarr && !crate::run::Format::from_name(self.name()).is_some_and(|f| f.profile().store_described()) {
-            return None;
+        if !zarr {
+            return crate::run::Format::from_name(self.name()).and_then(|f| f.profile().store_description(facts));
         }
         let mut description = facts.clone();
         if let Some(m) = description.as_object_mut() {

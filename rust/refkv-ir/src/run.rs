@@ -114,6 +114,22 @@ pub trait FileProfile: Sync {
     fn store_described(&self) -> bool {
         false
     }
+    /// The profile's description of a store run's input, from what its parser returned beside the
+    /// IR, `facts`: those facts without the run's own counts, of a profile whose store facts are its
+    /// description (`store_described`); None for one that has none. A profile whose store parser
+    /// returns a description beside its projection's facts says where it is.
+    fn store_description(&self, facts: &J) -> Option<J> {
+        if !self.store_described() {
+            return None;
+        }
+        let mut description = facts.clone();
+        if let Some(m) = description.as_object_mut() {
+            m.remove("counts");
+            // the bytes a TIFF store run read for its projection's windows
+            m.remove("set_bytes");
+        }
+        Some(description)
+    }
     /// What the output adds beside the mirror (`output`, when it mirrors).
     fn mirrored(&self, out: &mut Out, facts: &J) -> Result<(), String> {
         let _ = (out, facts);
