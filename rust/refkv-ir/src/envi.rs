@@ -548,8 +548,9 @@ impl crate::run::FileProfile for Profile {
         Err("an ENVI input is zarrified as a store run".into())
     }
     /// The store run's parser returns a description of the raster (spec/zarrify/envi.md §8.7
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#87-the-description>).
-    fn described(&self) -> bool {
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#87-the-description>); the
+    /// file run, which the profile refuses, returns none.
+    fn store_described(&self) -> bool {
         true
     }
 }
