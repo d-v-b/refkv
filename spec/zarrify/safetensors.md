@@ -447,7 +447,10 @@ JSON Schema is [safetensors/description.json](safetensors/description.json). It 
 output's decisions: which tensors are presented and why the others are not, their paths and the
 groups they make ([§4.1](#41-paths)), each array's data type, fill value, chunks and codecs
 ([§3](#3-data-types), [§4.2](#42-the-arrays), [§8.3](#83-chunks)) and the source metadata
-([§5](#5-source-metadata)) are the projection's. It is a JSON object with these members:
+([§5](#5-source-metadata)) are the projection's. Those decisions are refkv's **plan** of the file,
+made from the description alone by the function the convention's projection calls
+(`safetensors::plan::plan` in the Rust core); a layout that wants another hierarchy makes its own
+from the description. It is a JSON object with these members:
 
 | member | value |
 |---|---|
@@ -526,9 +529,10 @@ source follows them.
 
 ### 9.5 The IR mirror
 
-The store IR ([conventions §8.9](../conventions.md#89-stores)) lists every object. A presented
-shard is **described in place**: its elements are the file form's ([§5.3](#53-elements)), at its
-offsets, and its bytes stay at its URL. An index or configuration that is a JSON document is
+The store IR ([conventions §8.9](../conventions.md#89-stores)) lists every object. A shard whose
+header passes [§8.2](#82-checks)'s checks is **described in place**, whether or not it is
+presented: its elements are the file form's ([§5.3](#53-elements)), at its offsets, and its bytes
+stay at its URL. Which objects the IR describes does not depend on the hierarchy. An index or configuration that is a JSON document is
 **held**: its members' values are its elements ([spec/zarrify.md §1.6](../zarrify.md#16-json-documents)),
 and the mirror rebuilds it. Every other object is referenced.
 
@@ -546,10 +550,11 @@ IR, the store form's parser returns a **description** of the store, of the same 
 none of an output's decisions: which shards are presented and why the others are not
 ([§9.1](#91-the-hierarchy)), the groups their keys make, whether an index agrees with the shards
 ([§9.2](#92-source-metadata)), and which objects are referenced whole ([§9.4](#94-chunks-and-sources))
-are the projection's. It is a JSON object with these members:
+are refkv's plan of the store (`safetensors::plan::plan_store`), which the projection makes from the
+description and the listing. It is a JSON object with these members:
 
 | member | value |
 |---|---|
-| `shards` | each shard, in key order: `key`; `object`, its object's element; and `header`, its header's description as [§8.5](#85-the-description) gives a file's (with `elements` where the shard is described in place, [§9.5](#95-the-ir-mirror)), or `error`, the message of the first check of [§8.2](#82-checks) it fails |
+| `shards` | each shard, in key order: `key`; `object`, its object's element; and `header`, its header's description as [§8.5](#85-the-description) gives a file's, with its elements ([§9.5](#95-the-ir-mirror)), or `error`, the message of the first check of [§8.2](#82-checks) it fails |
 | `documents` | each index and configuration the store form reads ([§9.3](#93-reading-and-checks)), in key order: `key`; `object`, its object's element; and `json`, the document as parsed, as text (its integers and strings as written, its members in order), or `error`, why it is not a JSON document of [spec/zarrify.md §1.6](../zarrify.md#16-json-documents) |
 | `ignored` | the keys the listing ignored, where there are any |

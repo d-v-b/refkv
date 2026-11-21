@@ -1367,20 +1367,16 @@ image and the slide map too, with the differences below. The facts give the keys
 that passes the profile's checks ([zarrify/safetensors.md §8.2](zarrify/safetensors.md#82-checks))
 is a stored array, whether or not the profile presents it, keyed by the file's `header` element, a
 kind of element that may declare several arrays: a tensor's index is its position among the
-header's tensors, in the order the header writes them (`__metadata__` is none of them). The facts
-give the key: `declared_by` is the id of the `header` element, and a tensor's index is its position
-in the facts' `own.tensors`, which a presented tensor's entry of the facts' `arrays` gives as
-`index`.
+header's tensors, in the order the header writes them (`__metadata__` is none of them). The
+description gives the key: `elements.header`
+([zarrify/safetensors.md §8.5](zarrify/safetensors.md#85-the-description)), and a tensor's index is
+its position in the description's `tensors`.
 
 - **The store form** ([zarrify/safetensors.md §9](zarrify/safetensors.md#9-the-store-form))
-  describes each shard's tensors itself, not by graft. A presented shard, described in place, has a
-  file's elements and facts (its entry of the store's facts' `shards` holds them as `facts`), and
-  its tensors are keyed by its own `header`. A shard that is not presented for its key, whose
-  header passed the checks, has no element but its object: its tensors are keyed by that object,
-  also a kind of element that may declare several arrays, with the same indexes, and their places
-  are ranges of it. A shard whose header fails a check has no descriptions. The store's facts'
-  `declared_by` lists, in the order of `own.files`, the id of the element that keys each shard's
-  descriptions, null for a shard with none.
+  describes each shard's tensors itself, not by graft. Every shard whose header passed the checks
+  is described in place, whether or not the profile presents it: it has a file's elements, its
+  entry of the store's description holds its header's description with them, and its tensors are
+  keyed by its own `header`. A shard whose header fails a check has no descriptions.
 - **Declarations.** One: the range of the header that holds the entry's `dtype` value, a JSON
   string as the header writes it, with its quotes and any escapes (of a shard keyed by its
   object, the same bytes as a range of the object). The format fixes the elements' byte order
@@ -1392,8 +1388,7 @@ in the facts' `own.tensors`, which a presented tensor's entry of the facts' `arr
   number is one element. There is no `pad_from`: a tensor's elements pack unbroken into whole
   bytes.
 - **The grid.** A tensor is one unit: each axis is `Each` of its length, or an empty `List` for
-  an axis of length 0, under `short`. Its row is its data's element, `tensors/<i>`, or, of a
-  shard keyed by its object, the data's range of the object. A tensor with an axis of length 0
+  an axis of length 0, under `short`. Its row is its data's element, `tensors/<i>`. A tensor with an axis of length 0
   holds no bytes, and has no unit and no row.
 - **The chain** is empty for elements of whole bytes. Elements of 4 or 6 bits (`F4`, `F6_E2M3`
   and `F6_E3M2`) are in `lsb_first`, its `bits` their size: the buffer packs them from each
