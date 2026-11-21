@@ -7,6 +7,7 @@ import zlib
 from pathlib import Path
 from typing import Any, cast
 
+import h5py
 import numpy as np
 import pytest
 import zarr
@@ -18,6 +19,11 @@ from refkv.zarrify.layouts import dump
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 NPY = sorted(p for p in (FIXTURES / "npy").iterdir() if p.suffix in (".npy", ".npz") and "reject" not in p.name)
+HDF5 = sorted(p for p in (FIXTURES / "hdf5").iterdir() if p.suffix in (".h5", ".nwb") and "reject" not in p.name)
+# h5py's layout classes (H5D_COMPACT, H5D_CONTIGUOUS, H5D_CHUNKED, H5D_VIRTUAL) by the description's names
+LAYOUTS = {"compact": 0, "contiguous": 1, "chunked": 2, "virtual": 3}
+# h5py's link types (H5L_TYPE_HARD, H5L_TYPE_SOFT, H5L_TYPE_EXTERNAL; h5py.h5l, which has no stubs)
+HARD, SOFT, EXTERNAL = 0, 1, 64
 
 
 def as_stored(parsed: Parsed) -> Written:
@@ -234,3 +240,125 @@ def test_a_parsed_fits_file_describes_its_hdus_as_their_headers_declare_them():
             header = h["elements"]["header"]
             assert parsed.ir.path(header) == f"hdus/{i}/header"
             assert (header in keys) == (h["kind"] != "empty")
+
+
+def h5py_name(segment: Any) -> str:
+    """A link name of the description (a text value) as h5py gives it: a name that is not UTF-8,
+    `{"latin1": ...}`, decoded with its bytes kept as surrogates."""
+    if isinstance(segment, str):
+        return segment
+    return segment["latin1"].encode("latin-1").decode("utf-8", "surrogateescape")
+
+
+def h5py_objects(f: h5py.File) -> dict[str, Any]:
+    """Each object of an HDF5 file h5py reaches by hard links, once, at the path its visit gives
+    (in ascending order of link names, as the canonical path), by that path, a name that is not
+    UTF-8 with its bytes kept as surrogates; the root at the empty path."""
+    out: dict[str, Any] = {"": f}
+
+    def visit(name: str | bytes, obj: Any) -> None:
+        out.setdefault(name.decode("utf-8", "surrogateescape") if isinstance(name, bytes) else name, obj)
+
+    f.visititems(visit)
+    return out
+
+
+def test_an_hdf5_files_description_is_what_h5py_reads():
+    """Every accepted HDF5 fixture read as a file: the description's objects are those h5py
+    reaches, each of its kind; a group's links h5py's; an attribute's names and shapes h5py's; a
+    dataset's dataspace, layout, chunk shape, filters, fill value and dimension scales h5py's, and a
+    dataset of strings or references its elements, read from the spans and paths given."""
+    seen = dict.fromkeys(("described", "soft", "filters", "fill", "strings", "references", "scales"), 0)
+    for path in HDF5:
+        with read(path) as parsed:
+            description: Any = parsed.description
+        if description is None:
+            # a file that names siblings (its external links and data) is read as a store, whose
+            # description `read` does not give
+            continue
+        seen["described"] += 1
+        data = path.read_bytes()
+        with h5py.File(path, "r") as f:
+            objects = h5py_objects(f)
+            described = {"/".join(map(h5py_name, o["segments"])): o for o in description["objects"]}
+            assert described.keys() == objects.keys(), path.name
+            for key, o in described.items():
+                at = f"{path.name}: /{key}"
+                obj = objects[key]
+                kind = ("group" if isinstance(obj, h5py.Group) else
+                        "dataset" if isinstance(obj, h5py.Dataset) else "named_datatype")
+                assert o["kind"] == kind, at
+                attrs = {a["name"]: a for a in o["attributes"]}
+                assert sorted(attrs, key=str.encode) == [a["name"] for a in o["attributes"]], at
+                assert attrs.keys() == set(obj.attrs.keys()), at
+                for name, a in attrs.items():
+                    if "dims" in a:
+                        shape = obj.attrs.get_id(name).shape
+                        assert a["dims"] == (None if shape is None else list(shape)), f"{at} {name}"
+                if kind == "group":
+                    for link in o["links"]:
+                        # h5py's low-level links, which take a name that is not UTF-8
+                        name = h5py_name(link["name"]).encode("utf-8", "surrogateescape")
+                        kind = obj.id.links.get_info(name).type
+                        if "soft" in link:
+                            assert kind == SOFT, at
+                            assert obj.id.links.get_val(name).decode() == link["soft"], at
+                            seen["soft"] += 1
+                        elif "hard" in link:
+                            assert kind == HARD, at
+                        else:
+                            assert kind == link["type"] == EXTERNAL, at
+                            file, target = (v.decode() for v in obj.id.links.get_val(name))
+                            assert (file, target) == (link["file"], link["path"]), at
+                    continue
+                if kind != "dataset":
+                    continue
+                plist = obj.id.get_create_plist()
+                assert o["dims"] == (None if obj.shape is None else list(obj.shape)), at
+                if obj.shape is None:
+                    assert o["layout"] == "null", at
+                    continue
+                assert LAYOUTS[o["layout"]] == plist.get_layout(), at
+                assert o.get("chunk") == (None if obj.chunks is None else list(obj.chunks)), at
+                filters = [plist.get_filter(k)[:3:2] for k in range(plist.get_nfilters())]
+                assert [(f["id"], tuple(f["values"])) for f in o["filters"]] == filters, at
+                seen["filters"] += bool(filters)
+                if "fill" in o and obj.dtype.kind in "iufb" and not obj.dtype.fields:
+                    want = np.zeros((), obj.dtype)
+                    plist.get_fill_value(want)
+                    assert bytes.fromhex(o["fill"]) == want.tobytes(), at
+                    seen["fill"] += 1
+                if obj.attrs.get("CLASS") == b"DIMENSION_SCALE":
+                    assert o["dimension_scale"]["CLASS"] == "DIMENSION_SCALE", at
+                    seen["scales"] += 1
+                scales = o.get("dimension_list", {}).get("scales")
+                if scales is not None:
+                    assert [len(s) for s in scales] == [len(d) for d in obj.dims], at
+                values = o.get("values", {})
+                if "spans" in values:
+                    spans = values["spans"]
+                    texts = [data[a:a + n].decode() for a, n in zip(spans[::2], spans[1::2], strict=True)]
+                    elements = np.asarray(obj[()], dtype=object).reshape(-1)
+                    assert texts == [t.decode() if isinstance(t, bytes) else t for t in elements], at
+                    assert values["count"] == obj.size, at
+                    seen["strings"] += 1
+                if "paths" in values:
+                    want = [f[r].name if r else "" for r in np.asarray(obj[()], dtype=object).reshape(-1)]
+                    assert values["paths"] == want, at
+                    seen["references"] += 1
+    assert all(seen.values()), seen
+    assert seen["described"] >= 18, seen
+
+
+def test_a_parsed_hdf5_file_describes_every_object_and_no_decision():
+    """`Parsed.description` of an HDF5 file holds its objects and none of the hierarchy's
+    decisions: an object the hierarchy does not present is described as any other, and no array
+    has a Zarr data type."""
+    with read(FIXTURES / "hdf5" / "hdf5_netcdf4.h5") as parsed:
+        description: Any = parsed.description
+        assert set(description) == {"superblock", "user_block", "objects"}
+        hidden = [o for o in description["objects"]
+                  if o.get("dimension_scale", {}).get("NAME", "").startswith("This is a netCDF dimension")]
+        assert hidden
+        assert all(o["kind"] == "dataset" and "storage" in o for o in hidden)
+        assert not any("data_type" in o or "codecs" in o for o in description["objects"])

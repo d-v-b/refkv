@@ -60,7 +60,7 @@ struct Channel {
     reason: Option<String>,
 }
 
-/// The channels of an H5J file, read from the HDF5 parser's facts, and their MP4 files' parses.
+/// The channels of an H5J file, read from the HDF5 hierarchy's nodes, and their MP4 files' parses.
 pub struct Channels {
     list: Vec<Channel>,
     rules: &'static Rules,
@@ -68,7 +68,7 @@ pub struct Channels {
     pad: Result<(u64, u64), String>,
 }
 
-/// An integer attribute of one element, as the HDF5 facts hold it (a JSON array of one integer).
+/// An integer attribute of one element, as the HDF5 hierarchy presents it (a JSON array of one integer).
 fn one_integer(attributes: &J, name: &str) -> Option<Result<u64, String>> {
     let v = attributes.get(name)?;
     let x = v.as_array().filter(|a| a.len() == 1).and_then(|a| a[0].as_i64()).or_else(|| v.as_i64());
@@ -79,14 +79,13 @@ fn one_integer(attributes: &J, name: &str) -> Option<Result<u64, String>> {
 }
 
 impl Channels {
-    /// The channels the HDF5 facts `facts` hold, each a dataset `Channels/Channel_<n>`, in order
-    /// of `n` (spec/zarrify/h5j.md §8.2
+    /// The channels the HDF5 hierarchy's `nodes` hold (`crate::project::hdf5_nodes`), each a
+    /// dataset `Channels/Channel_<n>`, in order of `n` (spec/zarrify/h5j.md §8.2
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#82-channels>): a contiguous
     /// dataset of one dimension of `uint8` is read as an MP4 file; any other is recorded with the
     /// reason.
-    pub fn new(facts: &J) -> Result<Channels, String> {
+    pub fn new(nodes: &[J]) -> Result<Channels, String> {
         let rules = rules::of("h5j");
-        let nodes = facts["nodes"].as_array().map(Vec::as_slice).unwrap_or(&[]);
         let group = nodes.iter().find(|n| n["path"] == GROUP).map(|n| &n["attributes"]).unwrap_or(&J::Null);
         let pad = (|| {
             let right = one_integer(group, "pad_right").transpose()?.unwrap_or(0);

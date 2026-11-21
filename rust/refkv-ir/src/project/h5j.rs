@@ -37,14 +37,15 @@ pub fn scale(voxel_size: &J) -> Vec<f64> {
     }
 }
 
-/// A node's attributes, as the HDF5 facts hold them, by its path.
-fn attributes<'a>(facts: &'a J, path: &str) -> &'a J {
-    arr(&facts["nodes"]).iter().find(|n| n["path"] == path).map(|n| &n["attributes"]).unwrap_or(&J::Null)
+/// A node's attributes, as the HDF5 hierarchy presents them, by its path.
+fn attributes<'a>(nodes: &'a [J], path: &str) -> &'a J {
+    nodes.iter().find(|n| n["path"] == path).map(|n| &n["attributes"]).unwrap_or(&J::Null)
 }
 
 pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let h = &facts["h5j"];
-    let root = attributes(facts, "");
+    let nodes = super::hdf5_nodes::nodes(facts)?.nodes;
+    let root = attributes(&nodes, "");
     let channels = arr(&h["channels"]);
     let (pad_right, pad_bottom) = (n(&h["pad"][0]), n(&h["pad"][1]));
     // the root (§5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#51-the-root>)
@@ -52,7 +53,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         .iter()
         .map(|c| json!({"name": c["name"], "path": if c["reason"].is_null() { c["name"].clone() } else { J::Null }, "reason": c["reason"]}))
         .collect();
-    let own = json!({"attributes": root.clone(), "channels_attributes": attributes(facts, crate::h5j::GROUP).clone(), "channels": listed});
+    let own = json!({"attributes": root.clone(), "channels_attributes": attributes(&nodes, crate::h5j::GROUP).clone(), "channels": listed});
     let mut out = Out::new(url);
     out.json("zarr.json", &declared_group(Map::new(), "h5j", Some(url), Some(own)));
     let units: Map<String, J> = match root["unit"].as_str().and_then(length_unit) {
