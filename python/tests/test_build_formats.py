@@ -1,9 +1,9 @@
 """`refkv.build.fits_arrays` and `fits_cards`: a FITS HDU's arrays and cards as the FITS
 convention writes them; `refkv.build.hdf5_hierarchy`, an HDF5 input's hierarchy as the HDF5
-convention presents it; `refkv.build.zarr_hierarchy`, a Zarr store's as the Zarr convention presents
-it: each made from the parser's description and the IR, with no output of
-refkv's. Each is checked against refkv's own output of every accepted fixture of its format, and
-for each of its errors."""
+convention presents it; `refkv.build.envi_image`, an ENVI raster's image;
+`refkv.build.zarr_hierarchy`, a Zarr store's hierarchy as the Zarr convention presents it: each
+made from the parser's description and the IR, with no output of refkv's. Each is checked against
+refkv's own output of every accepted fixture of its format, and for each of its errors."""
 
 import json
 import re
@@ -255,6 +255,23 @@ def test_envi_layouts_ask_for_no_output_of_refkv_s(monkeypatch):
     """`refkv.virtualizarr` presents every accepted ENVI raster from the ENVI convention's image,
     with refkv's own output made to raise: it is its peer (the plan of d-v-b/refkv#278). That what
     it writes is unchanged, its own tests show."""
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("refkv's own output was asked for")
+
+    layout = VirtualiZarr()
+    for path in ENVI:
+        with read(str(path)) as parsed:
+            monkeypatch.setattr(Parsed, "_output_async", refuse)
+            monkeypatch.setattr(Parsed, "_output", refuse)
+            out = layout.write([parsed], layout.options({}))
+            assert "zarr.json" in out, path.name
+            seal(out, [parsed])
+            monkeypatch.undo()
+
+
+def test_envi_image_refuses_an_input_that_is_not_envi():
+    with read(str(FITS[0])) as parsed, pytest.raises(ValueError, match="an ENVI routine reads an ENVI raster"):
+        envi_image(parsed)
 
 
 ZARR = sorted(p for d in ("zarr2", "zarr3", "ome-zarr") for p in (FIXTURES / d).iterdir() if "reject" not in p.name)
@@ -298,14 +315,6 @@ def test_zarr_stores_are_presented_with_no_output_of_refkv_s(monkeypatch):
         raise AssertionError("refkv's own output was asked for")
 
     layout = VirtualiZarr()
-    for path in ENVI:
-        with read(str(path)) as parsed:
-            monkeypatch.setattr(Parsed, "_output_async", refuse)
-            monkeypatch.setattr(Parsed, "_output", refuse)
-            out = layout.write([parsed], layout.options({}))
-            assert "zarr.json" in out, path.name
-
-
     for name in ("zarr2/zarr2_hierarchy", "zarr3/zarr3_hierarchy", "zarr3/zarr3_hierarchy.zip"):
         with read(str(FIXTURES / name)) as parsed:
             monkeypatch.setattr(Parsed, "_output_async", refuse)
@@ -314,11 +323,6 @@ def test_zarr_stores_are_presented_with_no_output_of_refkv_s(monkeypatch):
             assert "zarr.json" in out, name
             seal(out, [parsed])
             monkeypatch.undo()
-
-
-def test_envi_image_refuses_an_input_that_is_not_envi():
-    with read(str(FITS[0])) as parsed, pytest.raises(ValueError, match="an ENVI routine reads an ENVI raster"):
-        envi_image(parsed)
 
 
 def test_zarr_hierarchy_refuses_an_input_that_is_not_zarr():
