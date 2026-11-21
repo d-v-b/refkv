@@ -171,7 +171,9 @@ class Parsed:
           (spec/zarrify/ndpi.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#71-the-description>).
         - MRC: the header's byte order and every field of it, the data's range, a gzipped file's
           stream and the ids of its IR elements
-          (spec/zarrify/mrc.md §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#85-the-description>)."""
+          (spec/zarrify/mrc.md §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#85-the-description>).
+        - GRIB: the messages, each field's identity, grid, product, packing and bitmap, and the grids
+          (spec/zarrify/grib.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#87-the-description>)."""
         return None if self._description is None else json.loads(json.dumps(self._description))
 
     @property
