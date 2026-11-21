@@ -1361,3 +1361,24 @@ store of theirs could hold.
   generated or checked it.
 - **The kit's descriptors** (conformance/vzip/pbref.py) build the two files
   and packages the same way.
+
+## Revision 11.9: a `file:` prefix in another spelling
+
+Format version 0, specification revision 11.9. **Status: provisional.** No
+store's values change, and every reader that conformed to revision 11.8
+still does, so the revision 11 conformance suite applies unchanged; stores
+still record revision 11.
+
+**What prompted it.** [§6.7](../../refkv.md#67-reader-policy) rule 2
+compares a URL with a prefix as strings, and resolution spells a local
+path's URI with `(`, `)` and the other sub-delims as they are
+([§5](../../refkv.md#5-source-table)). Python's `Path.as_uri()`, which the
+docs used to write a directory's prefix, percent-encodes them, so a prefix
+for a directory named `a (b)` matched none of its files. A review of the
+TIFF stack example found it.
+
+**The change.** Rule 2 lets a reader also match a `file:` prefix in the
+spelling resolution gives its path. The comparison is still exact, against
+that spelling, and the prefix's real path still binds the file read. refkv's
+Python reader does this: `refkv.Policy` matches a `file:` prefix as given and
+in `refkv.uri.file_uri`'s spelling.
