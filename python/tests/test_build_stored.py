@@ -527,7 +527,7 @@ def test_a_parsed_zarr_stores_description_is_its_documents_as_json_reads_them():
     as not parsed or not read, Python's `json` does not read either. The description holds none of
     the hierarchy's decisions (no `zarr.json` written, no source metadata, no chunk grid), and an
     array the profile leaves out is described as any other."""
-    seen = dict.fromkeys(("json", "error", "unread", "zip", "ome-zarr", "left out"), 0)
+    seen = dict.fromkeys(("json", "error", "unread", "zip", "ome-zarr", "zarr2 left out", "zarr3 left out"), 0)
     for path in [*ZARR, *sorted(p for p in (FIXTURES / "ome-zarr").iterdir() if "reject" not in p.name)]:
         with read(path) as parsed:
             description: Any = parsed.description
@@ -551,10 +551,10 @@ def test_a_parsed_zarr_stores_description_is_its_documents_as_json_reads_them():
         if path.name == "zarr2_left_out":  # every array is described, the ones left out among them
             arrays = {n["path"] for n in description["nodes"] if n["kind"] == "array"}
             assert arrays == {str(z.parent.relative_to(path)) for z in path.rglob(".zarray")}, path.name
-            seen["left out"] += 1
+            seen["zarr2 left out"] += 1
         if path.name == "zarr3_left_out":  # every candidate is described, those left out and below them
             paths = {c["path"] for c in description["candidates"]}
             found = {"" if z.parent == path else str(z.parent.relative_to(path)) for z in path.rglob("zarr.json")}
             assert paths == found, path.name
-            seen["left out"] += 1
+            seen["zarr3 left out"] += 1
     assert all(seen.values()), seen
