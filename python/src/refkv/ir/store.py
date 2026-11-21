@@ -318,6 +318,8 @@ class StoreParse:
         self.mirrored: _core.Mirror = run.mirror()
         # an HDF5 input's IR and descriptions, for the HDF5 convention's routine
         self.hdf5: _core.Hdf5 | None = run.hdf5() if fmt == "hdf5" else None
+        # an ENVI raster's description, for the ENVI convention's routine
+        self.envi: _core.Envi | None = run.envi() if fmt == "envi" else None
         # the profile's description of the input, where its store run returns one (ENVI's)
         text = run.description()
         self.description: dict[str, Any] | None = None if text is None else json.loads(text)
