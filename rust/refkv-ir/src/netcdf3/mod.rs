@@ -1,7 +1,7 @@
 //! The sans-IO netCDF3 parser (spec/zarrify/netcdf3.md
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md>): the classic (CDF-1),
-//! 64-bit offset (CDF-2) and 64-bit data (CDF-5) formats, their variables, dimensions and
-//! attributes, as a Zarr hierarchy.
+//! 64-bit offset (CDF-2) and 64-bit data (CDF-5) formats: their dimensions, attributes and
+//! variables, as the header gives them.
 //!
 //! The header is read from byte 0 in rounds (§7.2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#72-reading>): the first
@@ -11,7 +11,10 @@
 //!
 //! `finish` emits the IR: the header, the data of each fixed-size variable, and the records, and
 //! describes each variable as the file stores it (spec/stored-array.md §7
-//! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>; `stored.rs`).
+//! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>; `stored.rs`);
+//! beside it, the description of the file (spec/zarrify/netcdf3.md §7.7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#77-the-description>), from
+//! which the projection makes the hierarchy.
 
 use crate::fed::{Fed, Overlap};
 use crate::hdf5::types::{float_json, int_of};
@@ -20,9 +23,9 @@ use crate::nd2::Step;
 use crate::out::int_json;
 use crate::rules::{self, Rules};
 use crate::sans::Asked;
+use crate::hdf5::file::hex;
 use crate::text::{text_json, utf8_or_latin1};
-use serde_json::{json, Map, Value as J};
-use std::collections::{BTreeMap, HashSet};
+use serde_json::{json, Value as J};
 
 mod stored;
 
@@ -35,76 +38,64 @@ const NC_VARIABLE: u32 = 11;
 const NC_ATTRIBUTE: u32 = 12;
 const NC_CHAR: u32 = 2;
 
-/// The names a variable may not take, and the attribute names the hierarchy writes itself.
-const RESERVED: &[&str] = &["refkv_source"];
-const RESERVED_ATTRIBUTES: &[&str] = &["zarr_conventions", "refkv_zarrified"];
-
 /// Whether a file's first bytes are a netCDF3 file's: `CDF` and the version byte 1, 2 or 5.
 pub fn detect(head: &[u8]) -> bool {
     head.len() >= 4 && &head[..3] == b"CDF" && matches!(head[3], 1 | 2 | 5)
 }
 
 /// A type of the format (spec/zarrify/netcdf3.md §3.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#31-data-types>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#31-data-types>), in the
+/// format's terms: its name, its bytes, and how its values read.
 #[derive(Clone, Copy, Debug)]
-struct Ty {
-    name: &'static str,
-    /// the Zarr data type, but for `NC_CHAR`'s
-    zarr: &'static str,
-    bytes: u64,
-    signed: bool,
-    float: bool,
+pub struct Ty {
+    pub name: &'static str,
+    pub bytes: u64,
+    pub signed: bool,
+    pub float: bool,
     /// of CDF-5 alone
-    cdf5: bool,
-    /// netCDF-C's `NC_FILL_*`, its bits as the type's big-endian bytes
-    fill: u64,
+    pub cdf5: bool,
 }
 
+const TYPES: [Ty; 11] = {
+    const fn t(name: &'static str, bytes: u64, signed: bool, float: bool, cdf5: bool) -> Ty {
+        Ty { name, bytes, signed, float, cdf5 }
+    }
+    [
+        t("NC_BYTE", 1, true, false, false),
+        t("NC_CHAR", 1, false, false, false),
+        t("NC_SHORT", 2, true, false, false),
+        t("NC_INT", 4, true, false, false),
+        t("NC_FLOAT", 4, true, true, false),
+        t("NC_DOUBLE", 8, true, true, false),
+        t("NC_UBYTE", 1, false, false, true),
+        t("NC_USHORT", 2, false, false, true),
+        t("NC_UINT", 4, false, false, true),
+        t("NC_INT64", 8, true, false, true),
+        t("NC_UINT64", 8, false, false, true),
+    ]
+};
+
+/// The type of `nc_type` `code`.
 fn ty(code: u32) -> Option<Ty> {
-    let t = |name, zarr, bytes, signed, float, cdf5, fill| Ty { name, zarr, bytes, signed, float, cdf5, fill };
-    Some(match code {
-        1 => t("NC_BYTE", "int8", 1, true, false, false, 0x81),
-        2 => t("NC_CHAR", "", 1, false, false, false, 0),
-        3 => t("NC_SHORT", "int16", 2, true, false, false, 0x8001),
-        4 => t("NC_INT", "int32", 4, true, false, false, 0x8000_0001),
-        // 15 × 2^119, 9.9692099683868690e36, exact in both
-        5 => t("NC_FLOAT", "float32", 4, true, true, false, 0x7CF0_0000),
-        6 => t("NC_DOUBLE", "float64", 8, true, true, false, 0x479E_0000_0000_0000),
-        7 => t("NC_UBYTE", "uint8", 1, false, false, true, 0xFF),
-        8 => t("NC_USHORT", "uint16", 2, false, false, true, 0xFFFF),
-        9 => t("NC_UINT", "uint32", 4, false, false, true, 0xFFFF_FFFF),
-        10 => t("NC_INT64", "int64", 8, true, false, true, 0x8000_0000_0000_0002),
-        11 => t("NC_UINT64", "uint64", 8, false, false, true, 0xFFFF_FFFF_FFFF_FFFE),
-        _ => return None,
-    })
+    code.checked_sub(1).and_then(|i| TYPES.get(i as usize)).copied()
+}
+
+/// The type named `name` (`NC_BYTE` and so on).
+pub fn named(name: &str) -> Option<Ty> {
+    TYPES.iter().find(|t| t.name == name).copied()
 }
 
 impl Ty {
-    /// The Zarr data type.
-    fn data_type(&self) -> J {
-        if self.zarr.is_empty() {
-            json!({"name": "null_terminated_bytes", "configuration": {"length_bytes": 1}})
-        } else {
-            json!(self.zarr)
-        }
-    }
-
-    /// One value of the type in `b` (its bytes, big-endian), as a fill value or attribute value.
-    fn value(&self, b: &[u8]) -> J {
+    /// One value of the type in `b` (its bytes, big-endian), as an attribute's value is written
+    /// (spec/zarrify/netcdf3.md §5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#5-attributes>): an
+    /// integer exact, a float as a float value.
+    pub fn value(&self, b: &[u8]) -> J {
         if self.float {
             float_json(b, true)
         } else {
             int_json(int_of(b, true, self.signed))
         }
-    }
-
-    /// The default fill value, as Zarr writes it.
-    fn default_fill(&self) -> J {
-        if self.zarr.is_empty() {
-            return json!("");
-        }
-        let all = self.fill.to_be_bytes();
-        self.value(&all[8 - self.bytes as usize..])
     }
 }
 
@@ -412,21 +403,7 @@ fn place(h: &Header, size: u64) -> R<Placed> {
     Ok(Placed { layouts, records, recsize, begin_rec, span })
 }
 
-/// Why a name is not a node's (spec/zarrify/netcdf3.md §2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#2-the-hierarchy>), or the
-/// name.
-fn node_name(b: &[u8]) -> Result<String, &'static str> {
-    let s = std::str::from_utf8(b).map_err(|_| "name")?;
-    if s.is_empty() || s == "." || s == ".." || s == "zarr.json" || s.starts_with("__") || s.contains('/') {
-        return Err("name");
-    }
-    if RESERVED.contains(&s) {
-        return Err("reserved");
-    }
-    Ok(s.to_string())
-}
-
-/// An attribute's value as JSON (spec/zarrify/netcdf3.md §5
+/// An attribute's values as JSON (spec/zarrify/netcdf3.md §5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#5-attributes>).
 fn attribute_json(a: &Attr) -> J {
     let Some(t) = ty(a.code) else { return J::Null };
@@ -438,72 +415,20 @@ fn attribute_json(a: &Attr) -> J {
     if values.len() == 1 { values.into_iter().next().unwrap_or(J::Null) } else { J::Array(values) }
 }
 
-/// A variable's `_FillValue` in the form xarray's Zarr backend decodes for the variable's data type
-/// (spec/zarrify/netcdf3.md §5
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#5-attributes>): of a float
-/// variable, the base64 of the value as a little-endian binary64; of an integer variable, the
-/// integer; None for any other, which xarray's backend refuses.
-fn fill_attribute(a: &Attr, var: &Ty) -> Option<J> {
-    let t = ty(a.code).filter(|_| a.count == 1 && a.code != NC_CHAR && !var.zarr.is_empty())?;
-    let x = if t.float {
-        if t.bytes == 4 { f32::from_bits(int_of(&a.raw, true, false) as u32) as f64 } else { f64::from_bits(int_of(&a.raw, true, false) as u64) }
-    } else if var.float {
-        int_of(&a.raw, true, t.signed) as f64
-    } else {
-        return Some(int_json(int_of(&a.raw, true, t.signed)));
-    };
-    if var.float {
-        return Some(json!(crate::mirror::base64(&x.to_le_bytes())));
-    }
-    // a float `_FillValue` of an integer variable: the integer it is, where it is one
-    (x.is_finite() && x.fract() == 0.0 && x.abs() < 2f64.powi(63)).then(|| int_json(x as i128))
-}
-
-/// A node's attributes as presented, each one's type, and the reasons for those not presented.
-/// `var`: of a variable, its type, for `_FillValue`'s form.
-fn presented_attributes(attrs: &[Attr], var: Option<&Ty>) -> (Map<String, J>, Map<String, J>, Map<String, J>) {
-    let (mut presented, mut types, mut not) = (Map::new(), Map::new(), Map::new());
-    for a in attrs {
-        let name = utf8_or_latin1(&a.name);
-        if types.contains_key(&name) {
-            continue;
+/// An attribute list as the description gives it (spec/zarrify/netcdf3.md §7.7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#77-the-description>): each
+/// attribute's name, type, count and value, and the bytes of one of one value.
+fn attributes_json(attrs: &[Attr]) -> J {
+    J::Array(attrs.iter().map(|a| {
+        let mut o = json!({"name": text_json(&a.name), "type": ty(a.code).map_or("", |t| t.name), "count": a.count, "value": attribute_json(a)});
+        if a.count == 1 {
+            o["data"] = json!(hex(&a.raw));
         }
-        types.insert(name.clone(), json!({"type": ty(a.code).map_or("", |t| t.name), "count": a.count}));
-        if RESERVED_ATTRIBUTES.contains(&name.as_str()) {
-            not.insert(name, json!("reserved"));
-            continue;
-        }
-        let v = match var {
-            Some(t) if name == "_FillValue" => match fill_attribute(a, t) {
-                Some(v) => v,
-                None => {
-                    not.insert(name, json!("fill_value"));
-                    continue;
-                }
-            },
-            _ => attribute_json(a),
-        };
-        presented.insert(name, v);
-    }
-    (presented, types, not)
+        o
+    }).collect())
 }
 
-/// The fill value of a variable of type `t` with attributes `attrs` (spec/zarrify/netcdf3.md §3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#3-variables>).
-fn fill_of(t: &Ty, code: u32, attrs: &[Attr]) -> J {
-    let Some(a) = attrs.iter().find(|a| a.name == b"_FillValue") else { return t.default_fill() };
-    if a.code != code || a.count != 1 {
-        return t.default_fill();
-    }
-    let v = if code == NC_CHAR {
-        if a.raw.first() == Some(&0) { json!("") } else { json!(crate::mirror::base64(&a.raw)) }
-    } else {
-        t.value(&a.raw)
-    };
-    v
-}
-
-/// What a finished parse holds: the header, where its variables are, and the facts.
+/// What a finished parse holds: the header, and where its variables are.
 struct Found {
     header: Header,
     placed: Placed,
@@ -517,12 +442,11 @@ pub struct Netcdf3 {
     /// the bytes from 0 asked for so far
     read: u64,
     found: Option<Found>,
-    facts: J,
 }
 
 impl Netcdf3 {
     pub fn new(size: u64) -> Self {
-        Netcdf3 { size, fed: Fed::new(Overlap::MergeNew), rules: rules::of(PROFILE), asked: Asked::default(), read: 0, found: None, facts: J::Null }
+        Netcdf3 { size, fed: Fed::new(Overlap::MergeNew), rules: rules::of(PROFILE), asked: Asked::default(), read: 0, found: None }
     }
 
     pub fn feed(&mut self, offset: u64, data: Vec<u8>) {
@@ -545,8 +469,8 @@ impl Netcdf3 {
         }
         let b = self.fed.get(0, self.read).ok_or("internal: the header's bytes were not fed")?.to_vec();
         match header(&b, self.size, budget).and_then(|h| place(&h, self.size).map(|p| (h, p))) {
-            Ok((h, p)) => {
-                self.decide(h, p);
+            Ok((header, placed)) => {
+                self.found = Some(Found { header, placed });
                 Ok(Step::Done)
             }
             Err(Fail::Bad(m)) => Err(m),
@@ -562,93 +486,12 @@ impl Netcdf3 {
         }
     }
 
-    /// The facts the projection reads (spec/zarrify/netcdf3.md §3
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#3-variables>, §6
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#6-source-metadata>).
-    fn decide(&mut self, h: Header, p: Placed) {
-        let format = match h.version {
-            1 => "classic",
-            2 => "64-bit offset",
-            _ => "64-bit data",
-        };
-        let mut arrays = Vec::new();
-        let mut unpresented = Vec::new();
-        let mut reasons: BTreeMap<&str, u64> = BTreeMap::new();
-        let mut names = HashSet::new();
-        for (k, v) in h.vars.iter().enumerate() {
-            let Some(t) = ty(v.code) else { continue };
-            let fill = fill_of(&t, v.code, &v.attrs);
-            let name = node_name(&v.name).and_then(|n| if names.insert(n.clone()) { Ok(n) } else { Err("duplicate") });
-            let name = match name {
-                Ok(n) => n,
-                Err(why) => {
-                    unpresented.push(json!({"name": text_json(&v.name), "index": k, "reason": why}));
-                    *reasons.entry(why).or_default() += 1;
-                    continue;
-                }
-            };
-            let l = &p.layouts[k];
-            let (attributes, types, not) = presented_attributes(&v.attrs, Some(&t));
-            let mut own = Map::new();
-            own.insert("index".into(), json!(k));
-            own.insert("type".into(), json!(t.name));
-            own.insert("record".into(), json!(l.record));
-            own.insert("begin".into(), json!(v.begin));
-            own.insert("vsize".into(), json!(v.vsize));
-            if !types.is_empty() {
-                own.insert("attributes".into(), J::Object(types));
-            }
-            if !not.is_empty() {
-                own.insert("unpresented_attributes".into(), J::Object(not));
-            }
-            let store = if l.record {
-                json!({"kind": "records", "offset": v.begin, "stride": p.recsize, "length": l.bytes, "records": p.records})
-            } else {
-                json!({"kind": "fixed", "offset": v.begin, "item": t.bytes})
-            };
-            let dimension_names: Vec<String> = v.dims.iter().map(|&d| h.dims.get(d).map_or(String::new(), |d| utf8_or_latin1(&d.name))).collect();
-            arrays.push(json!({
-                "path": name, "index": k, "shape": l.shape, "data_type": t.data_type(), "fill_value": fill,
-                "codecs": [crate::out::bytes_codec(t.bytes, "big")], "dimension_names": dimension_names,
-                "attributes": attributes, "own": own, "store": store,
-            }));
-        }
-        let (attributes, types, not) = presented_attributes(&h.attrs, None);
-        let dims: Vec<J> = h.dims.iter().map(|d| {
-            let mut o = json!({"name": text_json(&d.name), "length": d.len});
-            if d.len == 0 {
-                o["unlimited"] = json!(true);
-            }
-            o
-        }).collect();
-        let mut own = Map::new();
-        own.insert("format".into(), json!(format));
-        own.insert("version".into(), json!(h.version));
-        own.insert("numrecs".into(), h.numrecs.map_or(json!("streaming"), |n| json!(n)));
-        own.insert("records".into(), json!(p.records));
-        own.insert("recsize".into(), json!(p.recsize));
-        own.insert("header".into(), json!(h.end));
-        own.insert("dimensions".into(), J::Array(dims));
-        if !types.is_empty() {
-            own.insert("attributes".into(), J::Object(types));
-        }
-        if !not.is_empty() {
-            own.insert("unpresented_attributes".into(), J::Object(not));
-        }
-        if !unpresented.is_empty() {
-            own.insert("unpresented".into(), J::Array(unpresented));
-        }
-        let summary = json!({
-            "format": format, "dimensions": h.dims.len(), "variables": arrays.len(), "unpresented": reasons,
-            "records": p.records, "header": h.end,
-        });
-        self.facts = json!({"root": {"attributes": attributes, "own": own}, "arrays": arrays, "summary": summary});
-        self.found = Some(Found { header: h, placed: p });
-    }
-
     /// The finished IR (spec/zarrify/netcdf3.md §6.3
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#63-the-ir-mirror>), with
-    /// each variable described (`stored.rs`), and the facts.
+    /// each variable described (`stored.rs`), and the description of the file (§7.7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#77-the-description>): its
+    /// dimensions, attributes and variables as the header gives them, with none of the output's
+    /// decisions (a node's name, a data type, a fill value, a chunk), which the projection makes.
     pub fn finish(self) -> Result<(Ir, J), String> {
         let Some(Found { header: h, placed: p }) = self.found else { return Err("internal: the parse is not done".into()) };
         let mut ir = Ir::new(self.size);
@@ -666,7 +509,7 @@ impl Netcdf3 {
             Some(span) => Some(ir.data(0, "records", NO_INDEX, 0, span, recipe)?),
             None => None,
         };
-        let (mut ir, mut facts) = crate::sans::finish(true, ir, self.facts)?;
+        let (mut ir, mut description) = crate::sans::finish(true, ir, description(&h, &p, header))?;
         let vars: Vec<stored::Var> = h.vars.iter().enumerate().map(|(k, v)| {
             let l = &p.layouts[k];
             stored::Var {
@@ -682,12 +525,25 @@ impl Netcdf3 {
         }).collect();
         let (arrays, chains, map) = stored::described(header, &vars)?;
         ir.describe(arrays, chains, map)?;
-        facts["declared_by"] = json!(header);
-        facts["copy_threshold"] = json!(crate::out::copy_threshold());
-        self.asked.put(&mut facts);
-        facts["summary"]["rounds"] = json!(self.asked.rounds);
-        Ok((ir, facts))
+        self.asked.put(&mut description);
+        Ok((ir, description))
     }
+}
+
+/// The description of a file whose header `h` the IR's element `header` holds, its variables
+/// placed as `p` (spec/zarrify/netcdf3.md §7.7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#77-the-description>).
+fn description(h: &Header, p: &Placed, header: u32) -> J {
+    let dimensions: Vec<J> = h.dims.iter().map(|d| json!({"name": text_json(&d.name), "length": d.len})).collect();
+    let variables: Vec<J> = h.vars.iter().zip(&p.layouts).map(|(v, l)| json!({
+        "name": text_json(&v.name), "dimensions": v.dims, "type": ty(v.code).map_or("", |t| t.name), "record": l.record,
+        "shape": l.shape, "begin": v.begin, "vsize": v.vsize, "attributes": attributes_json(&v.attrs),
+    })).collect();
+    json!({
+        "version": h.version, "numrecs": h.numrecs, "records": p.records, "recsize": p.recsize, "header": h.end,
+        "dimensions": dimensions, "attributes": attributes_json(&h.attrs), "variables": variables,
+        "elements": {"header": header},
+    })
 }
 
 crate::parser!(Netcdf3);
@@ -709,40 +565,20 @@ impl crate::run::FileProfile for Profile {
     fn reads(&self, ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
         crate::project::netcdf3::reads(ir, facts)
     }
+    fn described(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The default fill values are netCDF-C's `NC_FILL_*`, as Zarr writes them.
-    #[test]
-    fn default_fills_are_netcdfs() {
-        let fills: Vec<J> = (1..=11).map(|c| ty(c).unwrap().default_fill()).collect();
-        assert_eq!(
-            fills,
-            vec![
-                json!(-127), json!(""), json!(-32767), json!(-2147483647), json!(9.969209968386869e36), json!(9.969209968386869e36),
-                json!(255), json!(65535), json!(4294967295u64), json!(-9223372036854775806i64), json!(18446744073709551614u64),
-            ]
-        );
-    }
-
     /// A file of fewer than 4 bytes, empty included, is not a netCDF3 file.
     #[test]
     fn short_files_are_not_netcdf3() {
         for b in [&b""[..], b"C", b"CDF"] {
             assert_eq!(crate::parse_bytes::<Netcdf3>(b).err(), Some("not a netCDF3 file".to_string()), "{b:?}");
-        }
-    }
-
-    /// A name is a node's name when Zarr and the hierarchy allow it.
-    #[test]
-    fn node_names() {
-        assert_eq!(node_name(b"temp"), Ok("temp".into()));
-        assert_eq!(node_name(b"zarr.json.x"), Ok("zarr.json.x".into()));
-        for (b, why) in [(&b""[..], "name"), (b".", "name"), (b"..", "name"), (b"__x", "name"), (b"a/b", "name"), (b"zarr.json", "name"), (b"\xff", "name"), (b"refkv_source", "reserved")] {
-            assert_eq!(node_name(b), Err(why), "{b:?}");
         }
     }
 }

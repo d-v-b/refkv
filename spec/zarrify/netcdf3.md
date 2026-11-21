@@ -358,3 +358,55 @@ limit, the chunk's bytes, copied ([conventions §7](../conventions.md#7-source-v
 Both implementations print `format`, `dimensions`, `variables` (the arrays presented),
 `unpresented` (a count by reason), `records`, `header` (its bytes), `chunk_entries` (the chunks
 written) and `rounds`.
+
+### 7.7 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. The
+parser returns, beside the IR, a **description** of the file: what it found of the source, for a
+projection to read with the IR and its stored arrays
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)). It holds none of an output's
+decisions: which variables are nodes and why the others are not ([§2](#2-the-hierarchy)), the
+attributes presented and their forms ([§5](#5-attributes)), and the arrays' Zarr data types, fill
+values, codecs, dimension names and chunks ([§3](#3-variables)) are the projection's. It is a JSON
+object with these members:
+
+| member | value |
+|---|---|
+| `version` | the version byte, 1, 2 or 5 |
+| `numrecs` | the header's record count, or null for the all-ones value ([§7.3](#73-records)) |
+| `records` | the record count ([§7.3](#73-records)) |
+| `recsize` | the record size ([§7.3](#73-records)) |
+| `header` | the bytes of the header ([§7.2](#72-reading)) |
+| `dimensions` | each dimension, in the header's order: `name`, a text value ([conventions §6](../conventions.md#6-source-metadata-as-json)), and `length`, 0 for the unlimited one |
+| `attributes` | the global attributes, in the header's order, each as below |
+| `variables` | each variable, in the header's order, each as below |
+| `elements` | the ids of IR elements ([§6.3](#63-the-ir-mirror)) by name: `header`, which keys the variables' stored arrays ([spec/stored-array.md §7](../stored-array.md#7-the-formats)) |
+
+An attribute has these members:
+
+| member | value |
+|---|---|
+| `name` | its name, a text value |
+| `type` | its type's name ([§3.1](#31-data-types)), `NC_BYTE` and so on |
+| `count` | its count of values, `nelems` |
+| `value` | its values as JSON ([§5](#5-attributes)'s table): one value alone, none or several an array, `NC_CHAR` one text value without its trailing NUL bytes |
+| `data` | an attribute of one value only: its bytes, big-endian, in hexadecimal |
+
+and a variable these:
+
+| member | value |
+|---|---|
+| `name` | its name, a text value: a string where it is UTF-8 |
+| `dimensions` | the ids of its axes' dimensions, positions in `dimensions` |
+| `type` | its type's name |
+| `record` | `true` for a record variable |
+| `shape` | its dimensions' lengths, a record variable's first the record count |
+| `begin`, `vsize` | the header's `begin` and `vsize` |
+| `attributes` | its attributes, each as above |
+
+The variable at position `k` of `variables` is the stored array of index `k` keyed by the `header`
+element. The projection reads a node's name from a variable's `name`, its data type and default
+fill value from its `type` ([§3.1](#31-data-types)), its fill value and `_FillValue`'s form from
+the `data` of its first `_FillValue` ([§3](#3-variables), [§5](#5-attributes)), its chunks from its
+`shape`, `begin`, `type` and the file's `recsize` ([§3.2](#32-chunks)), and the source metadata
+of [§6](#6-source-metadata) from the description as it is.

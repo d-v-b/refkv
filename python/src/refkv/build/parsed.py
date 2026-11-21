@@ -138,7 +138,11 @@ class Parsed:
         - HDF5: every object of the file in canonical order, with its attributes, a group's
           links, and a dataset's datatype, layout, filters, storage, dimension scale structures
           and decoded strings, references and records
-          (spec/zarrify/hdf5.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#87-the-description>)."""
+          (spec/zarrify/hdf5.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#87-the-description>).
+        - netCDF3: the file's version, record count and size, header size, dimensions and global
+          attributes, and each variable in the header's order with its name, dimensions, type,
+          shape, `begin`, `vsize` and attributes, each attribute's value decoded
+          (spec/zarrify/netcdf3.md §7.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#77-the-description>)."""
         return None if self._description is None else json.loads(json.dumps(self._description))
 
     @property

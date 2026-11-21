@@ -3,13 +3,16 @@ stores, built with no output of refkv's (the design of d-v-b/refkv#278: a layout
 the IR). NumPy is the first format whose description a caller reads: its files are presented here
 from their stored arrays and headers, and read back against `numpy.load`."""
 
+import math
 import zlib
 from pathlib import Path
 from typing import Any, cast
 
 import h5py
+import netCDF4
 import numpy as np
 import pytest
+import scipy.io
 import zarr
 
 import refkv.zarr
@@ -19,6 +22,7 @@ from refkv.zarrify.layouts import dump
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 NPY = sorted(p for p in (FIXTURES / "npy").iterdir() if p.suffix in (".npy", ".npz") and "reject" not in p.name)
+NETCDF3 = sorted(p for p in (FIXTURES / "netcdf3").iterdir() if p.suffix == ".nc" and "reject" not in p.name)
 HDF5 = sorted(p for p in (FIXTURES / "hdf5").iterdir() if p.suffix in (".h5", ".nwb") and "reject" not in p.name)
 # h5py's layout classes (H5D_COMPACT, H5D_CONTIGUOUS, H5D_CHUNKED, H5D_VIRTUAL) by the description's names
 LAYOUTS = {"compact": 0, "contiguous": 1, "chunked": 2, "virtual": 3}
@@ -362,3 +366,124 @@ def test_a_parsed_hdf5_file_describes_every_object_and_no_decision():
         assert hidden
         assert all(o["kind"] == "dataset" and "storage" in o for o in hidden)
         assert not any("data_type" in o or "codecs" in o for o in description["objects"])
+
+
+# a netCDF3 type by the dtype netCDF4-python reads it as, and by scipy's typecode
+NC_DTYPES = {"|S1": "NC_CHAR", "int8": "NC_BYTE", "int16": "NC_SHORT", "int32": "NC_INT", "float32": "NC_FLOAT",
+             "float64": "NC_DOUBLE", "uint8": "NC_UBYTE", "uint16": "NC_USHORT", "uint32": "NC_UINT",
+             "int64": "NC_INT64", "uint64": "NC_UINT64"}
+NC_TYPECODES = {"c": "NC_CHAR", "b": "NC_BYTE", "h": "NC_SHORT", "i": "NC_INT", "f": "NC_FLOAT", "d": "NC_DOUBLE"}
+NC_VERSIONS = {"NETCDF3_CLASSIC": 1, "NETCDF3_64BIT_OFFSET": 2, "NETCDF3_64BIT_DATA": 5}
+
+
+class HeaderOrder(scipy.io.netcdf_file):
+    """scipy's reader, keeping each variable's name, typecode, `vsize` and `begin` in the header's
+    order, duplicates included (its `variables` keeps one per name, and not `begin`)."""
+
+    def _read_var(self) -> Any:
+        name, dimensions, shape, attributes, typecode, size, dtype, begin, vsize = cast("Any", super())._read_var()
+        self.__dict__.setdefault("in_order", []).append((name, typecode, vsize, begin))
+        return name, dimensions, shape, attributes, typecode, size, dtype, begin, vsize
+
+
+def latin1(text: Any) -> str:
+    """A description's text value as scipy reads a name: its bytes as ISO 8859-1."""
+    return text["latin1"] if isinstance(text, dict) else text.encode().decode("latin1")
+
+
+def as_netcdf4(value: Any) -> Any:
+    """A description's attribute value as netCDF4-python reads it: text that is not UTF-8 (a
+    `{"latin1": T}` text value) with what UTF-8 does not decode replaced."""
+    return value["latin1"].encode("latin1").decode(errors="replace") if isinstance(value, dict) else value
+
+
+def netcdf4_value(value: Any) -> Any:
+    """A netCDF4-python attribute's value as the description gives it: text as is, a number exact,
+    a float's NaN and infinities as the Zarr v3 fill value's text, one value alone."""
+    if isinstance(value, str):
+        return value
+    a = np.asarray(value)
+    out = ["NaN" if math.isnan(x) else "Infinity" if x == math.inf else "-Infinity" if x == -math.inf else x
+           for x in a.ravel().tolist()] if a.dtype.kind == "f" else a.ravel().tolist()
+    return out[0] if a.ndim == 0 or a.size == 1 else out
+
+
+def test_a_netcdf3_files_description_is_what_netcdf_c_and_scipy_read():
+    """Every accepted netCDF3 fixture: the description's version, dimensions and variables (their
+    names, dimensions, types, shapes, record or not) and attributes (their names, types and values)
+    are what netCDF-C reads through netCDF4-python, where it reads the file (not a name that is not
+    UTF-8, nor a streamed record count); and its record count, variables' names, types, `vsize` and
+    `begin` are what scipy reads, where it opens the file (CDF-1 and CDF-2, not streamed)."""
+    seen = dict.fromkeys(("netcdf4", "scipy", "records", "attributes"), 0)
+    for path in NETCDF3:
+        with read(path) as parsed:
+            description: Any = parsed.description
+        dims, variables = description["dimensions"], description["variables"]
+        # netCDF-C refuses a name that is not UTF-8, and cannot read a streamed record count, as
+        # python/tests/ir/test_netcdf3.py says
+        try:
+            ds = None if description["numrecs"] is None else netCDF4.Dataset(path)
+        except UnicodeDecodeError:
+            ds = None
+        if ds is not None:
+            with ds:
+                seen["netcdf4"] += 1
+                assert description["version"] == NC_VERSIONS[ds.data_model], path.name
+                assert [(d["name"], d["length"] == 0) for d in dims] == [
+                    (d.name, d.isunlimited()) for d in ds.dimensions.values()], path.name
+                for d in dims:
+                    if d["length"]:
+                        assert d["length"] == len(ds.dimensions[d["name"]]), path.name
+                    else:
+                        assert description["records"] == len(ds.dimensions[d["name"]]), path.name
+                        seen["records"] += description["records"] > 0
+                assert [v["name"] for v in variables] == list(ds.variables), path.name
+                assert [(a["name"], as_netcdf4(a["value"])) for a in description["attributes"]] == [
+                    (k, netcdf4_value(ds.getncattr(k))) for k in ds.ncattrs()], path.name
+                for v, theirs in zip(variables, ds.variables.values(), strict=True):
+                    at = f"{path.name}: {theirs.name}"
+                    assert [dims[d]["name"] for d in v["dimensions"]] == list(theirs.dimensions), at
+                    assert v["type"] == NC_DTYPES[str(theirs.dtype)], at
+                    assert v["shape"] == list(theirs.shape), at
+                    unlimited = bool(theirs.dimensions) and ds.dimensions[theirs.dimensions[0]].isunlimited()
+                    assert v["record"] == unlimited, at
+                    assert [(a["name"], as_netcdf4(a["value"])) for a in v["attributes"]] == [
+                        (k, netcdf4_value(theirs.getncattr(k))) for k in theirs.ncattrs()], at
+                    for a in v["attributes"]:
+                        value = theirs.getncattr(a["name"])
+                        text = isinstance(value, str)
+                        assert a["type"] == ("NC_CHAR" if text else NC_DTYPES[str(np.asarray(value).dtype)]), at
+                        assert a["count"] == (len(value.encode()) if text else np.asarray(value).size), at
+                        seen["attributes"] += 1
+        try:
+            f = HeaderOrder(path, "r", mmap=False)
+        except ValueError:  # CDF-5, or a streamed record count
+            continue
+        with f:
+            seen["scipy"] += 1
+            assert description["version"] == f.version_byte, path.name
+            assert description["numrecs"] == description["records"] == cast("Any", f)._recs, path.name
+            theirs = [(name, NC_TYPECODES[t], vsize, begin) for name, t, vsize, begin in getattr(f, "in_order", [])]
+            assert [(latin1(v["name"]), v["type"], v["vsize"], v["begin"]) for v in variables] == theirs, path.name
+    assert seen["netcdf4"] >= 6, seen
+    assert seen["scipy"] >= 6, seen
+    assert seen["records"], seen
+    assert seen["attributes"], seen
+
+
+def test_a_parsed_netcdf3_file_describes_every_variable_and_no_decision():
+    """`Parsed.description` of a netCDF3 file holds every variable and attribute, those the
+    hierarchy does not present among them, and none of the hierarchy's decisions: no node name, no
+    Zarr data type, fill value, codec or chunk."""
+    with read(FIXTURES / "netcdf3" / "netcdf3_unpresented.nc") as parsed:
+        description: Any = parsed.description
+        assert set(description) == {"version", "numrecs", "records", "recsize", "header", "dimensions", "attributes",
+                                    "variables", "elements"}
+        names = [v["name"] for v in description["variables"]]
+        assert {"latin1": "bad\xff"} in names
+        assert {"__hidden", "refkv_source", "a/b", "zarr.json"} <= {n for n in names if isinstance(n, str)}
+        assert names.count("v") == 2
+        assert [a["name"] for a in description["attributes"]] == ["zarr_conventions", "ok", "ok"]
+        decisions = {"path", "data_type", "fill_value", "codecs", "chunk_shape"}
+        assert not any(decisions & set(v) for v in description["variables"])
+        assert parsed.ir.path(description["elements"]["header"]) == "header"
