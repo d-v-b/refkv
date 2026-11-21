@@ -151,6 +151,10 @@ impl CziSet {
         }
         facts["named_key"] = json!(self.named_key);
         facts["files"] = J::Array(files);
+        // refkv's plan of the image, made here as the file run's `reads` makes it, so that an image
+        // its checks reject is rejected before the run is done (as the TIFF store run's sampled
+        // reads make TIFF's)
+        crate::czi::plan::plan(&facts)?;
         self.finished = Some(crate::sans::finish(true, ir, facts)?);
         Ok(())
     }
