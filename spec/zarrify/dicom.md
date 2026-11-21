@@ -1354,6 +1354,53 @@ A file whose preamble holds a TIFF header, as dual-personality files and
 some toolkits write it, is still read by this profile: [§1.2](../zarrify.md#12-input) tests for `DICM`
 first.
 
+### 7.8 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a **description** of the file: what it found of its image, in DICOM's own
+terms, for a projection to read with the IR and its stored arrays
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)). Its JSON Schema is
+[dicom/description.json](dicom/description.json). It holds none of an output's decisions: the axes,
+shape, chunks and data type ([§3](#3-the-image), [§4](#4-output)), the frames' axis, the scales and
+units, the omero window and a whole-slide image's arrangement are the projection's.
+
+It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `transfer_syntax` | the File Meta Information's Transfer Syntax UID, as text |
+| `explicit`, `little` | its encoding: whether the VR is explicit, and whether it is little endian |
+| `compression` | its pixel data's compression ([§2.1](#21-transfer-syntax)): `native`, `jpeg`, `ljpeg`, `jpegls`, `jpeg2k`, `htj2k` or `dicomrle` |
+| `attributes` | the attributes the profile reads of the image ([§2.2](#22-attributes)), each null when the dataset lacks it (below) |
+| `palette` | a `PALETTE COLOR` image's lookup tables ([§4.1](#41-the-palette)), else null (a segmented palette's included): `entries`, the descriptor's count (65536 for 0); `first_mapped`; `bits`; `cell`, an entry's bytes; and `tables`, where the red, green and blue tables' values start in the file |
+| `pixel_data` | the top-level Pixel Data: `vr` (null in implicit VR), `offset` and `length`, its value's (4294967295 when undefined), `end`, where it ends, `encapsulated`, and its `structure` (below) |
+| `elements` | the ids of its IR elements ([§5.4](#54-elements)) by name: `pixel_data` |
+
+`attributes` has one member per attribute, named by its keyword in snake case: `sop_class_uid`,
+`dimension_organization_type` and `photometric_interpretation` as text; `samples_per_pixel`,
+`planar_configuration`, `rows`, `columns`, `bits_allocated`, `bits_stored`, `high_bit`,
+`pixel_representation`, `total_pixel_matrix_columns`, `total_pixel_matrix_rows`,
+`number_of_optical_paths` and `total_pixel_matrix_focal_planes` as integers, their first value;
+`number_of_frames`, its first value as a number; `frame_increment_pointer`, the tag it names as eight
+uppercase hexadecimal digits; and `window_center`, `window_width`, `rescale_intercept`,
+`rescale_slope`, `frame_time`, `pixel_spacing` and `spacing_between_slices`, each value as a number,
+or null where it is no finite decimal. `pixel_spacing` and `spacing_between_slices` are the first
+item of the Shared Functional Groups Sequence's Pixel Measures Sequence's, when it has them, else
+the dataset's.
+
+The `structure` of native pixel data ([§7.5](#75-frames)) is `frame_size`, the bytes of a stored
+element (a frame, or every 1-bit frame together where a frame's bits do not end on a byte);
+`stored`, the stored elements; and `extra`, the bytes past them (`offset`, `bytes`), or null. Of
+encapsulated pixel data it is `items`, each item's offset, its data's offset and its data's length,
+the Basic Offset Table's first; `offset_table`, whether that table is not empty; `bounds`, where
+frame `f`'s fragments are, `bounds[f]` to `bounds[f + 1]` among the items after the table;
+`delimiter`, where the sequence's delimiter is; and `extended_offset_table`, the frames' data
+(offset, length) and whether their item headers precede them, or null.
+
+The parser still makes two decisions of the output: the root's source metadata ([§5](#5-source-metadata)),
+which it translates from bytes that the IR does not hold, and the elements of the frames that its
+IR names ([§5.4](#54-elements)).
+
 ## 9. The store form
 
 The store form zarrifies a store input ([spec/zarrify.md §1.4](../zarrify.md#14-store-inputs)) of

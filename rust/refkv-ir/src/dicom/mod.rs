@@ -308,6 +308,9 @@ pub struct Image {
     pub eot: Option<Vec<u64>>,
     pub eotl: Option<Vec<u64>>,
     pub palette: Option<Palette>,
+    /// the attributes the profile reads of the image, as it reads them (the description's
+    /// `attributes`)
+    pub read: J,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -739,6 +742,21 @@ impl Dicom {
             fg.push(in_item.or(at_top));
         }
 
+        // the attributes as the profile reads them (the description's `attributes`, spec/zarrify/dicom.md §7.8
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#78-the-description>)
+        let texts = |v: Option<&[u8]>| v.map(latin1);
+        let read = json!({
+            "sop_class_uid": texts(sop_class), "dimension_organization_type": texts(organization),
+            "samples_per_pixel": spp, "photometric_interpretation": texts(photometric), "planar_configuration": planar,
+            "number_of_frames": frames.map(|f| if f.fract() == 0.0 && f.abs() < 9e15 { json!(f as i64) } else { json!(f) }), "rows": rows, "columns": columns,
+            "bits_allocated": bits_allocated, "bits_stored": bits_stored, "high_bit": high_bit, "pixel_representation": representation,
+            "window_center": center, "window_width": width, "rescale_intercept": intercept, "rescale_slope": slope,
+            "total_pixel_matrix_columns": total_columns, "total_pixel_matrix_rows": total_rows,
+            "number_of_optical_paths": optical_paths, "total_pixel_matrix_focal_planes": focal_planes,
+            "frame_increment_pointer": increment.map(tag_key), "frame_time": frame_time,
+            "pixel_spacing": fg[0], "spacing_between_slices": fg[1],
+        });
+
         // spec/zarrify/dicom.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#3-the-image>
         let n = frames.unwrap_or(1.0);
         let key = format!("{codec}/{}", spp.map(|s| s.to_string()).unwrap_or_default());
@@ -872,6 +890,7 @@ impl Dicom {
             eot,
             eotl,
             palette,
+            read,
         })
     }
 
@@ -1382,6 +1401,46 @@ pub fn parts_of(ranges: &[(u64, u64)], adobe: Option<u8>) -> Vec<Part> {
     parts
 }
 
+/// The description of the file (spec/zarrify/dicom.md §7.8
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#78-the-description>): its transfer
+/// syntax, the attributes the profile reads of the image as it reads them, a palette's tables, the
+/// pixel data's structure, and the id of its element. It holds none of the output's decisions: no
+/// axes, shape, chunks, data type, scales, units or window.
+fn describe(img: &Image, lay: &Layout, pixel: u32) -> J {
+    let structure = if img.codec == "native" {
+        json!({
+            "frame_size": lay.frame_size, "stored": lay.stored,
+            "extra": lay.extra.map(|(o, n)| json!({"offset": o, "bytes": n})),
+        })
+    } else {
+        json!({
+            "items": lay.items.iter().map(|&(item, data, length)| json!([item, data, length])).collect::<Vec<_>>(),
+            "offset_table": lay.offset_table,
+            "bounds": lay.bounds,
+            "delimiter": lay.delimiter,
+            "extended_offset_table": lay.eot.as_ref().map(|(frames, headers, _)| json!({
+                "frames": frames.iter().map(|&(o, n)| json!([o, n])).collect::<Vec<_>>(), "headers": headers,
+            })),
+        })
+    };
+    json!({
+        "transfer_syntax": img.syntax,
+        "explicit": img.enc.explicit, "little": img.enc.little,
+        "compression": img.codec,
+        "attributes": img.read,
+        "palette": img.palette.as_ref().map(|p| json!({
+            "entries": p.entries, "first_mapped": p.first_mapped, "bits": p.bits, "cell": p.cell, "tables": p.tables,
+        })),
+        "pixel_data": {
+            "vr": img.pixel.vr.map(|v| vr_str(&v).to_string()),
+            "offset": img.pixel.value, "length": img.pixel.length, "end": lay.end,
+            "encapsulated": img.codec != "native",
+            "structure": structure,
+        },
+        "elements": {"pixel_data": pixel},
+    })
+}
+
 /// The facts the projection reads.
 fn facts(img: &Image, lay: &Layout, root: Map<String, J>, pixel: u32) -> J {
     let shape: Vec<u64> = img.axes.iter().map(|a| match *a { "c" => 3, "y" => img.height, "x" => img.width, _ => img.n }).collect();
@@ -1391,6 +1450,7 @@ fn facts(img: &Image, lay: &Layout, root: Map<String, J>, pixel: u32) -> J {
     let data_type = if img.bits_allocated == 1 { "bool".to_string() } else { format!("{}int{}", if img.signed { "" } else { "u" }, img.bits_allocated) };
     let layout = if img.codec == "native" { "native" } else if lay.eot.is_some() { "eot" } else { "fragments" };
     json!({
+        "description": describe(img, lay, pixel),
         "root": root,
         "axes": img.axes,
         "shape": shape,
@@ -1803,5 +1863,10 @@ impl crate::run::FileProfile for Profile {
     }
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::dicom::project(ir, facts, url)
+    }
+    /// The parser's description of the file, beside its projection's facts (§7.8
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#78-the-description>).
+    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
+        facts.get("description").cloned()
     }
 }
