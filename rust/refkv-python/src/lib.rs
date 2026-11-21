@@ -799,6 +799,16 @@ impl PyRun {
         let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
         Ok(PyNetcdf3 { ir, description })
     }
+    /// The zipped Zarr v3 store a run that is done parsed (`Zarr`), its IR and description shared
+    /// with the run; ValueError for a run of another format.
+    fn zarr(&mut self) -> PyResult<PyZarr> {
+        let r = self.get()?;
+        if r.format.name() != "zarr3" {
+            return Err(PyValueError::new_err(format!("a run of {}, not of a zipped Zarr v3 store", r.format.name())));
+        }
+        let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
+        Ok(PyZarr { ir, description, version: 3 })
+    }
     /// What makes the mirror of a run that is done (`Mirror`): its IR and facts, shared with the
     /// run, which is kept and may be used while the mirror is made.
     fn mirror(&mut self) -> PyResult<PyMirror> {
@@ -847,6 +857,35 @@ impl PyMirror {
             }.map(|_| o)
         }).map_err(Rejected::new_err)?;
         out_py(py, &o)
+    }
+}
+
+/// A Zarr v2 or v3 store a run parsed (`Run.zarr()` of a zipped Zarr v3 store, `StoreRun.zarr()`):
+/// its IR and its description, shared with the run and never changed, so that a layout asks for
+/// the Zarr convention's hierarchy from any thread.
+#[pyclass(name = "Zarr", module = "refkv._core", frozen)]
+pub struct PyZarr {
+    ir: Arc<Ir>,
+    description: Arc<serde_json::Value>,
+    /// 3 for a Zarr v3 store, else 2 (Zarr v2's, and OME-Zarr's, which it reads)
+    version: u8,
+}
+
+#[pymethods]
+impl PyZarr {
+    /// The Zarr convention's hierarchy but for refkv's declarations and its `refkv_source/`
+    /// objects (`project::zarr2::hierarchy`, `project::zarr3::hierarchy`): its nodes as JSON, each
+    /// its path, kind and source metadata `S` as JSON text, and its documents and chunks in
+    /// `out_py`'s form (the url empty); or Rejected.
+    fn hierarchy<'py>(&self, py: Python<'py>) -> PyResult<(String, Bound<'py, PyAny>)> {
+        let (nodes, out) = py
+            .detach(|| if self.version == 3 {
+                refkv_ir::project::zarr3::hierarchy(&self.ir, &self.description)
+            } else {
+                refkv_ir::project::zarr2::hierarchy(&self.ir, &self.description)
+            })
+            .map_err(Rejected::new_err)?;
+        Ok((serde_json::Value::Array(nodes).to_string(), out_py(py, &out)?))
     }
 }
 
@@ -1012,6 +1051,32 @@ impl PyStoreRun {
             return Err(PyValueError::new_err("a run of a store of another format, not of HDF5 files"));
         }
         Ok(PyHdf5 { ir: Arc::clone(ir), facts: Arc::clone(facts), store: true })
+    }
+    /// The Zarr v2 or v3 store a run `parse` finished read (`Zarr`), its IR and description shared
+    /// with the run; ValueError for a run of another format.
+    fn zarr(&mut self) -> PyResult<PyZarr> {
+        let (format, ir, facts, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        let version = match format {
+            refkv_ir::store::StoreFormat::Zarr2 => 2,
+            refkv_ir::store::StoreFormat::Zarr3 => 3,
+            _ => return Err(PyValueError::new_err(format!("a run of a store of {}, not of Zarr", format.name()))),
+        };
+        Ok(PyZarr { ir: Arc::clone(ir), description: Arc::clone(facts), version })
+    }
+    /// The profile's description of the input (JSON), of a run `parse` finished; None for a store
+    /// format whose run returns none yet (`StoreFormat::description`).
+    fn description(&mut self) -> PyResult<Option<String>> {
+        let (format, _, facts, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        Ok(format.description(facts).map(|d| d.to_string()))
+    }
+    /// The ENVI raster a run `parse` finished read (`Envi`), its description shared with the run;
+    /// ValueError for a run of another format.
+    fn envi(&mut self) -> PyResult<PyEnvi> {
+        let (format, _, facts, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        if *format != refkv_ir::store::StoreFormat::Envi {
+            return Err(PyValueError::new_err("a run of a store of another format, not of an ENVI raster"));
+        }
+        Ok(PyEnvi { description: Arc::clone(facts) })
     }
     /// What makes the mirror of a run `parse` finished (`Mirror`): its IR and facts, shared
     /// with the run.
@@ -1332,6 +1397,27 @@ impl PyFits {
     }
 }
 
+/// An ENVI raster a store run parsed (`StoreRun.envi()`): its description, shared with the run
+/// and never changed, so that a layout asks for the ENVI convention's image from any thread, while
+/// the run is used for something else or after it is gone.
+#[pyclass(name = "Envi", module = "refkv._core", frozen)]
+pub struct PyEnvi {
+    description: Arc<serde_json::Value>,
+}
+
+#[pymethods]
+impl PyEnvi {
+    /// The ENVI convention's image (`project::envi::image`): the root's source metadata (JSON),
+    /// the array's document (JSON, with no attributes), its chunks, each `(coords, offset, length)`
+    /// of the data file, and the header and data files' keys.
+    #[allow(clippy::type_complexity)]
+    fn image(&self) -> PyResult<(String, String, Vec<(Vec<u64>, u64, u64)>, String, String)> {
+        let img = refkv_ir::project::envi::image(&self.description).map_err(PyValueError::new_err)?;
+        let chunks = img.chunks.iter().map(|(coords, (offset, length))| (coords.to_vec(), *offset, *length)).collect();
+        Ok((refkv_ir::out::to_text(&img.own), refkv_ir::out::to_text(&img.array), chunks, img.header_key, img.data_key))
+    }
+}
+
 /// What frames a raw deflate stream as a gzip member, as the built-in projections write one: the
 /// 10-byte header (`out::GZIP_HEADER`), and the trailer, the stream's CRC-32 and the size of what
 /// it inflates to, modulo 2^32.
@@ -1406,6 +1492,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyFits>()?;
     m.add_class::<PyHdf5>()?;
     m.add_class::<PyNetcdf3>()?;
+    m.add_class::<PyZarr>()?;
+    m.add_class::<PyEnvi>()?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;
     m.add_function(wrap_pyfunction!(view_problem, m)?)?;
     m.add_function(wrap_pyfunction!(synthetic, m)?)?;

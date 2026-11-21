@@ -1,7 +1,7 @@
 {
   "source_model": "envi",
   "version": 1,
-  "about": "The source model of an ENVI raster (spec/zarrify/envi.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#53-elements>): the header file, held, and the data file beside it, described in place; the table of ENVI's data types; and the roles the header, its fields, the data file and the data play, with the constraints an input must meet to have the ENVI convention's layout (spec/zarrify/envi.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#8-envi-profile>). The parser checks them in this order; the projection reads a valid IR and its facts and checks nothing.",
+  "about": "The source model of an ENVI raster (spec/zarrify/envi.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#53-elements>): the header file, held, and the data file beside it, described in place; the table of ENVI's data types; and the roles the header, its fields, the data file and the data play, with the constraints an input must meet to have the ENVI convention's layout (spec/zarrify/envi.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#8-envi-profile>). The parser checks them in this order; the projection reads a valid IR and the parser's description of the raster (spec/zarrify/envi.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#87-the-description>) and checks nothing.",
   "limits": {
     "max_safe": 9007199254740991,
     "max_header": 16777216

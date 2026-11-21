@@ -91,6 +91,13 @@ pub trait FileProfile: Sync {
     fn described(&self) -> bool {
         false
     }
+    /// Whether what the profile's store run returns beside the IR is a description of the input
+    /// (`described`'s, for the run of a store format of the profile's name;
+    /// `store::StoreFormat::description`). A profile whose store facts no document specifies as a
+    /// description has none: an HDF5 store's hold each file's description, in a form of their own.
+    fn store_described(&self) -> bool {
+        false
+    }
     /// What the output adds beside the mirror (`output`, when it mirrors).
     fn mirrored(&self, out: &mut Out, facts: &J) -> Result<(), String> {
         let _ = (out, facts);

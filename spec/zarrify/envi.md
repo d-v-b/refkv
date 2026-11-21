@@ -457,3 +457,33 @@ members:
 | `objects` | the IR's objects |
 | `listingRequests` | the files opened beyond the header file |
 | the run's counts | the other members the run gives (`reads`, `folded`, ...) |
+
+### 8.7 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. The
+parser returns, beside the IR, a **description** of the raster: what it found of the two files, for
+a projection to read with the IR and its stored array
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)). It holds none of an output's
+decisions: the Zarr data type ([§3](#3-data-types)), the axes' names, the `transpose` order, the
+codecs, the chunk shape and the fill value ([§4.1](#41-the-array)) and the root's source metadata
+([§5.1](#51-the-root)) are the projection's. It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `header_file`, `data_file` | each file's `key` in the store and its `size` in bytes: the header file the input names, and the data file [§8.3](#83-the-data-file) found |
+| `fields` | every field of the header ([§2](#2-the-header)), in its order, by its name, its value as written, a text value ([conventions §6](../conventions.md#6-source-metadata-as-json)) |
+| `comments` | the comments, in order, each a text value |
+| `samples`, `lines`, `bands` | the fields' integers ([§8.2](#82-the-fields)) |
+| `interleave` | the field's value in lower case: `bsq`, `bil` or `bip` |
+| `data_type` | the `data type` field's code, an integer of [§3](#3-data-types)'s table |
+| `byte_order`, `header_offset`, `file_compression` | the fields' integers, each 0 where the header has no such field |
+| `data_range` | `[start, length]`, the data's range in the data file ([§8.4](#84-the-data)): `[o, B]` for a raw file, `[0, Z]` for a gzip file |
+| `elements` | the ids of IR elements ([§5.3](#53-elements)): `header`, the header file's object, which keys the stored array, and `data`, the data file's `data` element, its one unit |
+
+The projection reads the data type and its bytes from `data_type` by [§3](#3-data-types)'s
+table, the axes' stored order and the `transpose` order from `interleave`, the `bytes` codec's
+endianness from `byte_order`, the gzip codecs from `file_compression` and `header_offset`, and
+the chunks from the sizes and `data_range` ([§4.1](#41-the-array), [§8.5](#85-chunks)).
+
+The parser still makes one decision of the output: the IR's `data` element's form names the
+Zarr data type ([§5.3](#53-elements)).

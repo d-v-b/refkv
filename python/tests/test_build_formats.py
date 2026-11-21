@@ -1,8 +1,9 @@
 """`refkv.build.fits_arrays` and `fits_cards`: a FITS HDU's arrays and cards as the FITS
 convention writes them; `refkv.build.hdf5_hierarchy`, an HDF5 input's hierarchy as the HDF5
-convention presents it: each made from the parser's description and the IR, with no output of
-refkv's. Each is checked against refkv's own output of every accepted fixture of its format, and
-for each of its errors."""
+convention presents it; `refkv.build.envi_image`, an ENVI raster's image;
+`refkv.build.zarr_hierarchy`, a Zarr store's hierarchy as the Zarr convention presents it: each
+made from the parser's description and the IR, with no output of refkv's. Each is checked against
+refkv's own output of every accepted fixture of its format, and for each of its errors."""
 
 import json
 import re
@@ -16,6 +17,7 @@ import pytest
 from refkv import _core
 from refkv.build import (
     Parsed,
+    envi_image,
     filled,
     fits_arrays,
     fits_cards,
@@ -24,8 +26,10 @@ from refkv.build import (
     project,
     read,
     seal,
+    zarr_hierarchy,
 )
 from refkv.zarrify import Rejected
+from refkv.zarrify.layouts import chunk_key, undeclared
 from refkv.zarrify.layouts.examples.hdf5_rechunk import Hdf5Rechunk
 from refkv.zarrify.layouts.examples.xarray_v2 import XarrayV2
 from refkv.zarrify.layouts.virtualizarr import VirtualiZarr
@@ -304,3 +308,119 @@ def test_netcdf3_hierarchy_refuses_a_path_that_is_no_array():
         hierarchy = netcdf3_hierarchy(parsed)
         with pytest.raises(KeyError):
             hierarchy.array_entries("")
+
+
+# ---- ENVI
+
+ENVI = sorted(p for p in (FIXTURES / "envi").iterdir() if p.suffix.lower() == ".hdr" and "reject" not in p.name)
+
+
+def test_the_envi_image_is_the_one_refkv_s_own_output_presents():
+    """Every accepted ENVI raster, read as a store of its header and data files: the ENVI
+    convention's image has refkv's own output's source metadata, array document and chunks, each a
+    range of the data file, and names the header file as the root's source."""
+    for path in ENVI:
+        with read(str(path)) as parsed:
+            image = envi_image(parsed)
+            pr = project(parsed)
+            root = pr.document("zarr.json")["attributes"]["refkv_zarrified"]
+            assert image.url == root["source"]["url"], path.name
+            assert image.source_metadata() == pr.source_metadata(""), path.name
+            assert image.data_key == pr.source_metadata("")["data_file"], path.name
+            doc, chunks = pr.array_entries("0")
+            assert image.document() == doc, path.name
+            mine = {chunk_key(list(coords), doc): value for coords, value in image.chunks().items()}
+            assert mine == chunks, path.name
+
+
+def test_envi_layouts_ask_for_no_output_of_refkv_s(monkeypatch):
+    """`refkv.virtualizarr` presents every accepted ENVI raster from the ENVI convention's image,
+    with refkv's own output made to raise: it is its peer (the plan of d-v-b/refkv#278). That what
+    it writes is unchanged, its own tests show."""
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("refkv's own output was asked for")
+
+    layout = VirtualiZarr()
+    for path in ENVI:
+        with read(str(path)) as parsed:
+            monkeypatch.setattr(Parsed, "_output_async", refuse)
+            monkeypatch.setattr(Parsed, "_output", refuse)
+            out = layout.write([parsed], layout.options({}))
+            assert "zarr.json" in out, path.name
+            seal(out, [parsed])
+            monkeypatch.undo()
+
+
+def test_envi_image_refuses_an_input_that_is_not_envi():
+    with read(str(FITS[0])) as parsed, pytest.raises(ValueError, match="an ENVI routine reads an ENVI raster"):
+        envi_image(parsed)
+
+
+ZARR = sorted(p for d in ("zarr2", "zarr3", "ome-zarr") for p in (FIXTURES / d).iterdir() if "reject" not in p.name)
+
+
+def test_the_zarr_hierarchy_is_the_one_refkv_s_own_output_presents():
+    """Every accepted Zarr v2, OME-Zarr and Zarr v3 fixture, listed and zipped: the Zarr
+    convention's hierarchy has refkv's own output's nodes, source metadata, array documents and
+    chunks, each document's attributes, without refkv's declarations, the output's."""
+    seen = dict.fromkeys(("zarr2", "ome-zarr", "zarr3", "zip", "declared", "chunks"), 0)
+    for path in ZARR:
+        with read(str(path)) as parsed:
+            hierarchy = zarr_hierarchy(parsed)
+            pr = project(parsed)
+            assert sorted(hierarchy.nodes()) == sorted(pr.nodes()), path.name
+            seen[parsed.profile] += 1
+            seen["zip"] += path.suffix == ".zip"
+            for node in hierarchy.nodes():
+                at = f"{path.name}: /{node}"
+                key = f"{node}/zarr.json" if node else "zarr.json"
+                assert hierarchy.node_type(node) == pr.node_type(node), at
+                assert hierarchy.source_metadata(node) == pr.source_metadata(node), at
+                seen["declared"] += hierarchy.source_metadata(node) is not None
+                doc = hierarchy.document(key)
+                assert undeclared(doc.pop("attributes")) == pr.attributes(node), at
+                assert doc == {k: v for k, v in pr.document(key).items() if k != "attributes"}, at
+                if hierarchy.node_type(node) != "array":
+                    continue
+                chunks, theirs = hierarchy.array_entries(node)[1], pr.array_entries(node)[1]
+                # a root array's: not the mirror's keys beside its chunks
+                assert chunks == {k: v for k, v in theirs.items() if not k.startswith("refkv_source/")}, at
+                seen["chunks"] += len(chunks)
+    assert all(seen.values()), seen
+
+
+def test_zarr_stores_are_presented_with_no_output_of_refkv_s(monkeypatch):
+    """`refkv.virtualizarr` presents a Zarr v2 store and a Zarr v3 store, listed and zipped, from the
+    Zarr convention's hierarchy, with refkv's own output made to raise: it is its peer. That what it
+    writes is unchanged, its own tests show."""
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("refkv's own output was asked for")
+
+    layout = VirtualiZarr()
+    for name in ("zarr2/zarr2_hierarchy", "zarr3/zarr3_hierarchy", "zarr3/zarr3_hierarchy.zip"):
+        with read(str(FIXTURES / name)) as parsed:
+            monkeypatch.setattr(Parsed, "_output_async", refuse)
+            monkeypatch.setattr(Parsed, "_output", refuse)
+            out = layout.write([parsed], layout.options({}))
+            assert "zarr.json" in out, name
+            seal(out, [parsed])
+            monkeypatch.undo()
+
+
+def test_zarr_hierarchy_refuses_an_input_that_is_not_zarr():
+    with read(str(FITS[0])) as parsed, pytest.raises(ValueError, match="a Zarr routine reads a Zarr v2 or v3 store"):
+        zarr_hierarchy(parsed)
+
+
+def test_zarr_hierarchy_rejects_what_the_convention_rejects():
+    """A group's `.zgroup` of another `zarr_format`: the parse describes the store, and the
+    hierarchy rejects it, with `zarrify`'s message."""
+    with read(str(FIXTURES / "zarr2" / "zarr2_reject_zgroup_format")) as parsed, \
+            pytest.raises(Rejected, match="zarr_format"):
+        zarr_hierarchy(parsed)
+
+
+def test_zarr_hierarchy_refuses_a_path_that_is_no_array():
+    with read(str(FIXTURES / "zarr3" / "zarr3_hierarchy")) as parsed, pytest.raises(KeyError):
+        zarr_hierarchy(parsed).array_entries("")
+

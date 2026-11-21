@@ -269,6 +269,9 @@ class Run:
     def netcdf3(self) -> Netcdf3:
         """The netCDF3 file a run that is done parsed, its IR and description shared with the run;
         ValueError for a run of another format."""
+    def zarr(self) -> Zarr:
+        """The zipped Zarr v3 store a run that is done parsed, its IR and description shared with
+        the run; ValueError for a run of another format."""
     def mirror(self) -> Mirror:
         """What makes the mirror of a run that is done: its IR and facts, shared with the run,
         which is kept and may be used while the mirror is made."""
@@ -326,12 +329,21 @@ class StoreRun:
     def parse(self) -> Ir:
         """Finishes without an output: the IR, which the run keeps with its facts and counts, so
         that `project(...)` gives the built-in output of it, as often as the host likes."""
+    def description(self) -> str | None:
+        """The profile's description of the input (JSON), of a run `parse` finished; None for a
+        store format whose run returns none yet (ENVI's, Zarr v2's and Zarr v3's do)."""
+    def envi(self) -> Envi:
+        """The ENVI raster a run `parse` finished read, its description shared with the run;
+        ValueError for a run of a store of another format."""
     def mirror(self) -> Mirror:
         """What makes the mirror of a run `parse` finished: its IR and facts, shared with the
         run."""
     def hdf5(self) -> Hdf5:
         """The HDF5 files a run `parse` finished read, its IR and descriptions shared with the
         run; ValueError for a run of a store of another format."""
+    def zarr(self) -> Zarr:
+        """The Zarr v2 or v3 store a run `parse` finished read, its IR and description shared with
+        the run; ValueError for a run of a store of another format."""
     def project(self, url: str, mirror: bool = True, checksums: bool = False) -> Out[StorePart]:
         """`output`, of a run `parse` finished: the output alone."""
 
@@ -427,6 +439,15 @@ class Fits:
         """The cards of HDU `index` as the FITS convention writes them: JSON, each `[keyword,
         value, comment]`. ValueError for no HDU `index`."""
 
+class Zarr:
+    """A Zarr v2 or v3 store a run parsed (`Run.zarr()` of a zipped Zarr v3 store,
+    `StoreRun.zarr()`): its IR and its description, shared with the run and never changed."""
+
+    def hierarchy(self) -> tuple[str, Out[FilePart | StorePart]]:
+        """The Zarr convention's hierarchy but for refkv's declarations and its `refkv_source/`
+        objects: its nodes as JSON, each its path, kind and source metadata as JSON text, and its
+        documents and chunks (`out_py`'s form, the url empty); or Rejected."""
+
 class Hdf5:
     """An HDF5 input a run parsed (`Run.hdf5()`, `StoreRun.hdf5()`): its IR and its description,
     shared with the run and never changed."""
@@ -447,6 +468,15 @@ class Netcdf3:
         """The netCDF3 convention's hierarchy: its nodes as JSON, its documents and chunks
         (`out_py`'s form, the url empty) but for the edge chunks it copies, and those, each `(key,
         offset, length, padding)` of the file; or Rejected."""
+
+class Envi:
+    """An ENVI raster a store run parsed (`StoreRun.envi()`): its description, shared with the run
+    and never changed."""
+
+    def image(self) -> tuple[str, str, list[tuple[list[int], int, int]], str, str]:
+        """The ENVI convention's image: the root's source metadata (JSON), the array's document
+        (JSON, with no attributes), its chunks, each `(coords, offset, length)` of the data file,
+        and the header and data files' keys."""
 
 def gzip_frame(crc32: int, size: int) -> tuple[bytes, bytes]:
     """What frames a raw deflate stream as a gzip member, as the built-in projections write one:

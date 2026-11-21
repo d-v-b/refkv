@@ -228,6 +228,8 @@ class FileParse:
         self.fits: _core.Fits | None = run.fits() if fmt == "fits" else None
         self.hdf5: _core.Hdf5 | None = run.hdf5() if fmt == "hdf5" else None
         self.netcdf3: _core.Netcdf3 | None = run.netcdf3() if fmt == "netcdf3" else None
+        # a zipped Zarr v3 store's IR and description, for the Zarr convention's routine
+        self.zarr: _core.Zarr | None = run.zarr() if fmt == "zarr3" else None
         # the profile's description of the source, where its parser returns one
         text = run.description()
         self.description: dict[str, Any] | None = None if text is None else json.loads(text)
