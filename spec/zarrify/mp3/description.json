@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/mp3/description.json",
+  "title": "The description of an MP3 file",
+  "description": "What refkv's MP3 parser found of an MP3 file's frames and tags, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#84-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "version": {"enum": ["MPEG-1", "MPEG-2", "MPEG-2.5"]},
+    "layer": {"const": 3},
+    "sample_rate": {"$ref": "#/$defs/uint"},
+    "channels": {"enum": [1, 2]},
+    "channel_mode": {"enum": ["stereo", "joint_stereo", "dual_channel", "mono"]},
+    "samples_per_frame": {"enum": [576, 1152]},
+    "frames": {"type": "integer", "minimum": 1},
+    "kbps": {"type": "array", "items": {"$ref": "#/$defs/uint"}, "minItems": 1},
+    "crc_frames": {"$ref": "#/$defs/uint"},
+    "main_data": {"type": "array", "items": {"$ref": "#/$defs/uint"}, "minItems": 1},
+    "info": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "properties": {
+            "tag": {"enum": ["Xing", "Info", "VBRI"]},
+            "frames": {"$ref": "#/$defs/uint_or_null"},
+            "bytes": {"$ref": "#/$defs/uint_or_null"},
+            "quality": {"$ref": "#/$defs/uint_or_null"},
+            "encoder": {"type": ["string", "null"]},
+            "delay": {"$ref": "#/$defs/uint_or_null"},
+            "padding": {"$ref": "#/$defs/uint_or_null"}
+          },
+          "required": ["tag", "frames", "bytes", "quality", "encoder", "delay", "padding"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "id3v2": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "version": {"type": "array", "items": {"$ref": "#/$defs/byte"}, "minItems": 2, "maxItems": 2},
+          "flags": {"$ref": "#/$defs/byte"},
+          "size": {"$ref": "#/$defs/uint"},
+          "footer": {"type": "boolean"}
+        },
+        "required": ["version", "flags", "size", "footer"],
+        "additionalProperties": false
+      }
+    },
+    "id3v1": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "properties": {
+            "title": {"$ref": "#/$defs/text"},
+            "artist": {"$ref": "#/$defs/text"},
+            "album": {"$ref": "#/$defs/text"},
+            "year": {"$ref": "#/$defs/text"},
+            "comment": {"$ref": "#/$defs/text"},
+            "track": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/byte"}]},
+            "genre": {"$ref": "#/$defs/byte"}
+          },
+          "required": ["title", "artist", "album", "year", "comment", "track", "genre"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ape": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "properties": {"version": {"$ref": "#/$defs/uint"}, "size": {"$ref": "#/$defs/uint"}, "items": {"$ref": "#/$defs/uint"}},
+          "required": ["version", "size", "items"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "stray_bytes": {"$ref": "#/$defs/uint"},
+    "elements": {
+      "type": "object",
+      "properties": {
+        "frames": {"$ref": "#/$defs/uint"},
+        "info": {"$ref": "#/$defs/uint_or_null"},
+        "id3v1": {"$ref": "#/$defs/uint_or_null"}
+      },
+      "required": ["frames", "info", "id3v1"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["version", "layer", "sample_rate", "channels", "channel_mode", "samples_per_frame", "frames", "kbps",
+               "crc_frames", "main_data", "info", "id3v2", "id3v1", "ape", "stray_bytes", "elements"],
+  "additionalProperties": false,
+  "$defs": {
+    "uint": {"type": "integer", "minimum": 0},
+    "uint_or_null": {"oneOf": [{"type": "null"}, {"type": "integer", "minimum": 0}]},
+    "byte": {"type": "integer", "minimum": 0, "maximum": 255},
+    "text": {
+      "description": "a text value (https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json)",
+      "oneOf": [
+        {"type": "string"},
+        {"type": "object", "properties": {"latin1": {"type": "string"}}, "required": ["latin1"], "additionalProperties": false}
+      ]
+    }
+  }
+}

@@ -79,7 +79,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     }
     if let Some(i) = facts["id3v1"].as_u64() {
         let b = ir.value_bytes(i as u32).ok_or("internal: the ID3v1 tag is not held")?;
-        own.insert("id3v1".into(), super::mp3::id3v1_json(b));
+        own.insert("id3v1".into(), crate::mp3::id3v1_json(b));
     }
     let mut out = Out::new(url);
     out.json("zarr.json", &declared_group(Map::new(), "flac", Some(url), Some(J::Object(own))));
