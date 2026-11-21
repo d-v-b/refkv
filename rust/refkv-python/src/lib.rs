@@ -971,6 +971,13 @@ impl PyStoreRun {
         self.parsed = Some((format, Arc::clone(&ir), Arc::new(facts), stats));
         Ok(PyIr::of(ir))
     }
+    /// The format's description of the store (JSON), of a run `parse` finished; None for a format
+    /// whose parser returns none yet (`StoreFormat::described`). The ignored keys the host
+    /// recorded are in it, as `ignored`.
+    fn description(&self) -> PyResult<Option<String>> {
+        let (format, _, facts, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        Ok(format.described().then(|| facts.to_string()))
+    }
     /// The HDF5 files a run `parse` finished read (`Hdf5`), its IR and descriptions shared with the
     /// run; ValueError for a run of another format.
     fn hdf5(&mut self) -> PyResult<PyHdf5> {

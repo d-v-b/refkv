@@ -95,6 +95,14 @@ impl StoreFormat {
     pub fn profile(self) -> &'static str {
         self.name()
     }
+
+    /// Whether what the format's parser returns beside the IR is a description of the store
+    /// (the design of d-v-b/refkv#278, "The description"), as a file profile's is where
+    /// `FileProfile::described` says so: Zarr v2's (and OME-Zarr's, which it reads) and Zarr
+    /// v3's.
+    pub fn described(self) -> bool {
+        matches!(self, StoreFormat::Zarr2 | StoreFormat::Zarr3)
+    }
 }
 
 /// One request: object `object` (its key `key`), the spans (start, end) to read of it.

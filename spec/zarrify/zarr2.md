@@ -681,7 +681,32 @@ once; then the documents are checked in path order. So a document that cannot
 be read is a failure even when another document read in the same round would
 reject the input. No other object is read.
 
-### 7.3 Summary
+### 7.3 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. The
+parser returns, beside the IR, a **description** of the store: what it found of the source, for a
+projection to read with the IR and its stored arrays
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)), which give each array's chunks. It
+holds none of an output's decisions: which arrays are presented and why the others are not
+([the convention §3.4](#34-arrays-that-are-not-presented)), each array's `zarr.json` (its data
+type, codecs, fill value and chunk grid, [§3](#3-arrays)), the source metadata
+([§4](#4-source-metadata)), and the OME-Zarr profile's layer are the projection's, which makes them
+from the description, and rejects the input where [§7.1](#71-rejection) says. It is a JSON object
+with these members:
+
+| member | value |
+|---|---|
+| `profile` | `zarr2`, or `ome-zarr` where the root declares OME-NGFF 0.4 ([§1.4](../zarrify.md#14-store-inputs)) |
+| `nodes` | each node ([the convention §2](#2-nodes)) in ascending order of its path, then each implicit group: `path`, `kind` (`array`, `group` or `implicit`), and, for an explicit node, `document`, its `.zarray` or `.zgroup`, and `attributes`, its `.zattrs`, where the listing has one |
+| `documents` | the keys of the documents the parser read, which the IR holds ([the convention §4.1](#41-elements)), in the order it holds them: each node's, in the order of `nodes`, its own document first |
+| `ignored` | the keys the listing ignored, where there are any ([the convention §5](#5-other-objects)) |
+
+A document is `key`, its key, and one of: `json`, its JSON as parsed, as text (its integers and
+strings as written, its members in order, a repeated key kept); `error`, why it does not parse;
+or `unread`, why it was not read: an array's document that is empty or too large, whose array is
+left out (a group's or the root's rejects the input before the description).
+
+### 7.4 Summary
 
 This section is informative. Both implementations print a one-line JSON
 summary, with these members:

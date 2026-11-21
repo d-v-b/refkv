@@ -3,7 +3,8 @@
 //! §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#3-arrays>,
 //! §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>,
 //! §7.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#72-chunks-and-other-objects>):
-//! a valid store IR and the facts of `zarr2.rs` into the hierarchy. A `zarr.json` per node (the
+//! a valid store IR and the description of `zarr2.rs` into the hierarchy, the convention's
+//! decisions made of it by [`super::zarr2_nodes::hierarchy`]. A `zarr.json` per node (the
 //! convention declared on the root and on every node with source metadata), an entry per
 //! present chunk referencing its whole object, and every other object of a length referenced
 //! whole under `refkv_source/objects/`; the ignored keys the host recorded are the member
@@ -44,7 +45,9 @@ pub fn is_chunk(rest: &str, grid: &[u64], sep: &str) -> bool {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#8-source-metadata>): its
 /// groups' `ome`, its levels' `dimension_names` and its OME-XML at its own key, and the
 /// OME-Zarr convention declared in place of the Zarr v2 one.
-pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    // the convention's decisions, of the parser's description (`zarr2_nodes.rs`)
+    let facts = &super::zarr2_nodes::hierarchy(ir, description)?;
     let profile = facts["profile"].as_str().unwrap_or("zarr2");
     let mut out = Out::new(url);
     let xml: HashSet<&str> = facts["xml"].as_array().into_iter().flatten().filter_map(|x| x.as_str()).collect();

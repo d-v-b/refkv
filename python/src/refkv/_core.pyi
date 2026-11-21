@@ -329,6 +329,9 @@ class StoreRun:
     def hdf5(self) -> Hdf5:
         """The HDF5 files a run `parse` finished read, its IR and descriptions shared with the
         run; ValueError for a run of a store of another format."""
+    def description(self) -> str | None:
+        """The format's description of the store (JSON), of a run `parse` finished; None for a
+        format whose parser returns none yet."""
     def project(self, url: str, mirror: bool = True, checksums: bool = False) -> Out[StorePart]:
         """`output`, of a run `parse` finished: the output alone."""
 

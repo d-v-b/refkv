@@ -41,7 +41,7 @@ import threading
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from refkv import _core, _sync
 from refkv._files import replacing
@@ -318,6 +318,9 @@ class StoreParse:
         self.mirrored: _core.Mirror = run.mirror()
         # an HDF5 input's IR and descriptions, for the HDF5 convention's routine
         self.hdf5: _core.Hdf5 | None = run.hdf5() if fmt == "hdf5" else None
+        # the format's description of the store, where its parser returns one (Zarr v2's and v3's)
+        described = run.description()
+        self.description: dict[str, Any] | None = None if described is None else json.loads(described)
         # the objects' sizes, from the IR: the listing's, and a VSI input's files probed into it
         self.sizes: dict[str, int] = {k: n for k, _, n in self.ir.object_bases()}
 

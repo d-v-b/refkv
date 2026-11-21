@@ -708,5 +708,5 @@ summary, with these members:
 | `otherObjects` | the entries under `refkv_source/objects/` |
 | `listingRequests` | the listing's requests |
 
-and the Rust core's counts ([zarr2.md §7.3](zarr2.md#73-summary)).
+and the Rust core's counts ([zarr2.md §7.4](zarr2.md#74-summary)).
 

@@ -2,7 +2,8 @@
 //! §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#2-nodes>–§5
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#5-other-objects>, the
 //! profile's §7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#73-chunks-and-other-objects>):
-//! a valid IR and the facts of `zarr3.rs` into the hierarchy, of either form. A `zarr.json` per
+//! a valid IR and the description of `zarr3.rs` into the hierarchy, of either form, the
+//! convention's decisions made of it by [`super::zarr3_nodes::hierarchy`]. A `zarr.json` per
 //! node, the store's own with the convention declared on the root and on every node with source
 //! metadata; an entry per present chunk referencing its whole object (a shard whole, for a
 //! sharded array); and, in the store form, every other object of a length referenced whole
@@ -66,7 +67,9 @@ struct Keys {
 }
 
 /// The hierarchy of a Zarr v3 store, listed (`form` "store") or zipped (`form` "zip").
-pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    // the convention's decisions, of the parser's description (`zarr3_nodes.rs`)
+    let facts = &super::zarr3_nodes::hierarchy(description)?;
     let zip = facts["form"] == "zip";
     let mut out = Out::new(url);
     let nodes = facts["nodes"].as_array().cloned().unwrap_or_default();
