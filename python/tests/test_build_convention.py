@@ -204,8 +204,9 @@ def test_the_mirror_is_made_whatever_else_uses_the_input():
 
 
 def test_a_declaration_is_the_one_refkv_s_own_output_writes():
-    """The root's names the profile, its version and the source, with the source metadata; a node
-    below declares only where it has source metadata, and is otherwise left its attributes."""
+    """The root's names the profile, its version and the source (by the input's URL, or the one
+    given), with the source metadata; a node below declares only where it has source metadata, and
+    is otherwise left its attributes."""
     with read(NPY, "https://example.org/a.npy") as p:
         description = p.description
         assert description is not None
@@ -220,6 +221,11 @@ def test_a_declaration_is_the_one_refkv_s_own_output_writes():
         assert declaration(p, "array", attributes={"title": "kept"}) == {"title": "kept"}
         assert declaration(p) == {k: v for k, v in root.items() if k != "title"} | {
             "refkv_zarrified": {k: v for k, v in root["refkv_zarrified"].items() if k != "npy"}}
+        # the URL the root names the source by, where it is not the input's (an HDF5 store's
+        # named file); a node below names none
+        named = declaration(p, url="https://example.org/named.h5")
+        assert named["refkv_zarrified"]["source"] == {"url": "https://example.org/named.h5"}
+        assert declaration(p, "array", own={"note": 1}, url="https://example.org/named.h5") == below
 
 
 def test_a_declaration_refuses_a_path_that_is_not_a_string():

@@ -432,6 +432,8 @@ class Hdf5:
         """The HDF5 convention's hierarchy: its nodes as JSON, its documents and chunks (`out_py`'s
         form, the url empty) but for the edge chunks it copies, and those, each `(key, offset,
         length, padding)` of the file; or Rejected."""
+    def named_key(self) -> str | None:
+        """The key of the file a store run was named by; None for a file run."""
 
 def gzip_frame(crc32: int, size: int) -> tuple[bytes, bytes]:
     """What frames a raw deflate stream as a gzip member, as the built-in projections write one:

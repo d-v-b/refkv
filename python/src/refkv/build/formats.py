@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from refkv import _core
 from refkv.zarrify.common import Rejected
+from refkv.zarrify.store.urls import object_url
 
 from .values import MODELED, Array, Copy, Literal, Part, Ref, Shared, Value, Zeros
 
@@ -88,6 +89,11 @@ class Hdf5Hierarchy:
         except _core.Rejected as e:
             raise Rejected(str(e)) from None
         self._nodes: dict[str, dict[str, Any]] = {n["path"]: n for n in json.loads(nodes)}
+        named = hdf5.named_key()
+        self.url: str = parsed.url if named is None else object_url(parsed.url, named)
+        """The URL the root names the input by as its source: a store's named file's
+        (spec/zarrify/hdf5.md §8.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#86-external-files>),
+        else the input's (`Parsed.url`)."""
         self._documents = {k: v for k, v in entries if k.rpartition("/")[2] == "zarr.json"}
         objects = getattr(parsed, "_objects", None) or []
 
