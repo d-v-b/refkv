@@ -325,7 +325,7 @@ class StoreParse:
         # an ENVI raster's description, for the ENVI convention's routine
         self.envi: _core.Envi | None = run.envi() if fmt == "envi" else None
         # the profile's description of the input, where its store run returns one (ENVI's, Zarr
-        # v2's, Zarr v3's and N5's)
+        # v2's, Zarr v3's, N5's and precomputed's)
         text = run.description()
         self.description: dict[str, Any] | None = None if text is None else json.loads(text)
         # the objects' sizes, from the IR: the listing's, and a VSI input's files probed into it

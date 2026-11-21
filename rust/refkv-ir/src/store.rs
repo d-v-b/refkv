@@ -104,12 +104,14 @@ impl StoreFormat {
     /// do the store formats of Zarr v2 (and OME-Zarr, which it reads; spec/zarrify/zarr2.md §7.3
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#73-the-description>) and Zarr
     /// v3 (spec/zarrify/zarr3.md §7.6
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#76-the-description>) and N5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#76-the-description>), N5
     /// (spec/zarrify/n5.md §8.3
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#83-the-description>), which
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#83-the-description>) and
+    /// Neuroglancer precomputed (spec/zarrify/precomputed.md §11.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#114-the-description>), which
     /// have no file profile of their own or whose file profile is the zip form's.
     pub fn description(self, facts: &J) -> Option<J> {
-        let own = matches!(self, StoreFormat::Zarr2 | StoreFormat::Zarr3 | StoreFormat::N5);
+        let own = matches!(self, StoreFormat::Zarr2 | StoreFormat::Zarr3 | StoreFormat::N5 | StoreFormat::Precomputed);
         if !own && !crate::run::Format::from_name(self.name()).is_some_and(|f| f.profile().store_described()) {
             return None;
         }
@@ -614,7 +616,7 @@ mod tests {
     #[test]
     fn a_store_format_whose_profile_says_so_gives_its_facts_as_a_description() {
         let facts = json!({"samples": 1, "counts": {"batches": 2}});
-        for name in ["envi", "hdf5", "zarr2", "zarr3", "n5"] {
+        for name in ["envi", "hdf5", "zarr2", "zarr3", "n5", "precomputed"] {
             let want = (name != "hdf5").then(|| json!({"samples": 1}));
             assert_eq!(StoreFormat::from_name(name).unwrap().description(&facts), want, "{name}");
         }

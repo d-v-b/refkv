@@ -171,7 +171,9 @@ class Parsed:
           (spec/zarrify/ndpi.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#71-the-description>).
         - N5: each node, by path and kind (`dataset` or `group`), with its `attributes.json` as
           parsed, and the documents the IR holds
-          (spec/zarrify/n5.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#83-the-description>)."""
+          (spec/zarrify/n5.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#83-the-description>).
+        - Neuroglancer precomputed: `info` as parsed, and the documents the IR holds
+          (spec/zarrify/precomputed.md §11.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#114-the-description>)."""
         return None if self._description is None else json.loads(json.dumps(self._description))
 
     @property
