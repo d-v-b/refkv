@@ -605,13 +605,13 @@ mod tests {
     use super::*;
 
     /// A store run's description is its facts without the run's counts, of a store format whose
-    /// profile's store run returns one (ENVI's), and none of the others (an HDF5 store's facts,
-    /// Zarr v2's).
+    /// profile's store run returns one (ENVI's, Zarr v2's and Zarr v3's), and none of the others
+    /// (an HDF5 store's facts).
     #[test]
     fn a_store_format_whose_profile_says_so_gives_its_facts_as_a_description() {
         let facts = json!({"samples": 1, "counts": {"batches": 2}});
-        for name in ["envi", "hdf5", "zarr2"] {
-            let want = (name == "envi").then(|| json!({"samples": 1}));
+        for name in ["envi", "hdf5", "zarr2", "zarr3"] {
+            let want = (name != "hdf5").then(|| json!({"samples": 1}));
             assert_eq!(StoreFormat::from_name(name).unwrap().description(&facts), want, "{name}");
         }
     }
