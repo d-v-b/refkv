@@ -27,7 +27,18 @@
       ]
     },
     "aperio": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/strings"}]},
-    "lzw_tails": {"type": "array", "items": {"$ref": "#/$defs/lzw_tail"}}
+    "lzw_tails": {"type": "array", "items": {"$ref": "#/$defs/lzw_tail"}},
+    "named_key": {"type": "string", "description": "of an image across files: the named file's key"},
+    "files": {
+      "description": "of an image across files: each other file's key and description",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {"key": {"type": "string"}, "description": {"$ref": "#"}},
+        "required": ["key", "description"],
+        "additionalProperties": false
+      }
+    }
   },
   "required": ["byte_order", "bigtiff", "size", "ifds", "chain", "lzw_tails"],
   "additionalProperties": false,

@@ -1,13 +1,17 @@
 //! The TIFF image projection (spec/zarrify/tiff.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#4-the-image>) from a valid IR:
-//! each level's planes name the IR's tiles or strips (a short last strip padded to the chunk); the facts hold the format, sizes, scales,
-//! translation, and the OME-XML's channel names and colors (its `omero`); the windows of its
-//! `omero` are sampled from the coarsest level's chunks, which the run reads (`reads`).
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#4-the-image>) from a valid IR
+//! and the parser's description of the file (§7.6
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#76-the-description>), through
+//! refkv's plan of it (`tiff::plan::plan`): each level's planes name the IR's tiles or strips (a
+//! short last strip padded to the chunk); the plan holds the format, sizes, scales, translation,
+//! and the channels' names and colors (its `omero`); the windows of its `omero` are sampled from
+//! the coarsest level's chunks, which the run reads (`reads`).
 
 use super::tiled::{self, MAX_NAME};
 use super::{along, arr, n, strs, window, Copied};
 use crate::ir::Ir;
 use crate::out::{full_window, omero_channel, omero_json, root_json, sample_channels, type_window, Out, Part};
+use crate::tiff::plan::plan;
 use crate::tiff::MAX_OMERO;
 use serde_json::{json, Value as J};
 use std::collections::HashMap;
@@ -84,7 +88,8 @@ fn samples(facts: &J) -> Vec<window::Sample> {
 
 /// The source's ranges the windows sample (`samples`): their chunks' bytes, which the run
 /// reads after the parser.
-pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
+pub fn reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+    let facts = &plan("tiff", description)?;
     tiled::reads(ir, facts, &samples(facts), arrays)
 }
 
@@ -168,7 +173,8 @@ fn virtual_ranges(ir: &Ir, mut out: Out) -> Out {
 }
 
 /// The virtual offsets of the ranges the windows of a store run's image sample (`samples`).
-pub fn set_reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
+pub fn set_reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+    let facts = &plan("tiff", description)?;
     tiled::reads(ir, facts, &samples(facts), |ir, facts, url, only| {
         let (out, shapes) = arrays(ir, facts, url, only)?;
         Ok((virtual_ranges(ir, out), shapes))
@@ -179,11 +185,12 @@ pub fn set_reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#74-several-files>): as `project`,
 /// its references ranges of the files that hold the planes, the bytes its windows sample in the
 /// facts (`set_bytes`, by virtual offset).
-pub fn project_set(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+pub fn project_set(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    let facts = &plan("tiff", description)?;
     let axes = strs(&facts["axes"]);
     let data_type = tiled::data_type(facts)?;
     let (mut out, shapes) = arrays(ir, facts, url, None)?;
-    let copied: Copied = arr(&facts["set_bytes"]).iter().map(|e| {
+    let copied: Copied = arr(&description["set_bytes"]).iter().map(|e| {
         let b: Vec<u8> = arr(&e[1]).iter().map(|x| n(x) as u8).collect();
         ((n(&e[0]), b.len() as u64), b)
     }).collect();
@@ -204,7 +211,8 @@ pub fn project_set(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
 
 /// The TIFF image: one array per level, its chunks the tiles of each plane. `copied` holds the
 /// bytes of the chunks the windows sample (`reads`).
-pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+    let facts = &plan("tiff", description)?;
     let axes = strs(&facts["axes"]);
     let data_type = tiled::data_type(facts)?;
     let (mut out, shapes) = arrays(ir, facts, url, None)?;
@@ -219,8 +227,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    project_set(ir, facts, url)
+pub fn store_project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    project_set(ir, description, url)
 }
 
 #[cfg(test)]

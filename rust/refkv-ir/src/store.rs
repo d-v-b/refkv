@@ -114,6 +114,8 @@ impl StoreFormat {
         let mut description = facts.clone();
         if let Some(m) = description.as_object_mut() {
             m.remove("counts");
+            // the bytes a TIFF store run read for its projection's windows
+            m.remove("set_bytes");
         }
         Some(description)
     }

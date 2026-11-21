@@ -279,8 +279,7 @@ The root's source metadata `S` is a [`TiffRoot`](tiff.md#type-tiffroot)
 file holds is on `refkv_source`, which is the file's **IR mirror**
 ([conventions §11.3](../conventions.md#113-the-ir-mirror)).
 The QPTIFF **source model** is the [TIFF source model](tiff.md#5-source-metadata)
-(its elements, which IFDs, its values), without `ome/planes/<p>` (a QPTIFF
-has no OME-XML planes), and with the TIFF convention's named array rule
+(its elements, which IFDs, its values), and with the TIFF convention's named array rule
 ("layout tables", [conventions §8.8](../conventions.md#88-canonical-form)),
 so that a level's thousands of tiles fold into one row of the table, whose
 extents are read from the TIFF's own TileOffsets and TileByteCounts (or

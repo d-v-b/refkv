@@ -339,9 +339,9 @@ def stack(inputs):
 def test_a_stack_of_tiffs_built_from_the_ir(tmp_path, byteorder):
     """One TIFF of the pages of several, every tag but the pointers copied from the IR's bytes:
     its pages read back equal to the files', in both byte orders, across strips, tiles, zlib with
-    a predictor, RGB, floats, and an OME-TIFF of several pages. A file of pages with neither OME-XML nor an
-    ImageJ description is not among them: until TIFF's plan lands, `read` still raises the image layout's rejection
-    of it (the design of d-v-b/refkv#278, "What a caller writes")."""
+    a predictor, RGB, floats, an OME-TIFF of several pages, and a file of pages with neither OME-XML nor an
+    ImageJ description, which refkv's own image rejects and `read` reads (the design of d-v-b/refkv#278, "What a
+    caller writes")."""
     rng = np.random.default_rng(0)
     plane = rng.integers(0, 4000, (64, 96), dtype=np.uint16)
     inputs: dict[str, tuple[np.ndarray, dict[str, Any]]] = {
@@ -350,6 +350,7 @@ def test_a_stack_of_tiffs_built_from_the_ir(tmp_path, byteorder):
         "c": (plane, {"tile": (32, 32)}),
         "d": (rng.integers(0, 255, (64, 96, 3), dtype=np.uint8), {"photometric": "rgb", "compression": "zlib"}),
         "e": (rng.random((3, 64, 96), dtype=np.float32), {"ome": True}),  # three planes, as OME-XML maps them
+        "f": (rng.integers(0, 4000, (2, 64, 96), dtype=np.uint16), {"metadata": None}),  # two pages, nothing more
     }
     paths = []
     for name, (array, options) in inputs.items():
@@ -371,7 +372,7 @@ def test_a_stack_of_tiffs_built_from_the_ir(tmp_path, byteorder):
     with tifffile.TiffFile(io.BytesIO(data)) as tf:
         assert tf.byteorder == byteorder
         got = [page.asarray() for page in tf.pages]
-    assert len(got) == len(expected) == 7
+    assert len(got) == len(expected) == 9
     for g, e in zip(got, expected, strict=True):
         np.testing.assert_array_equal(g, e)
     assert len(store.sources) == len(paths) + 1  # each file, then the header's data source
