@@ -131,6 +131,45 @@ fn a_store_runs_datasets_name_their_storage_in_their_objects() {
     assert_eq!(objects.len(), 2, "datasets of the named file and of a linked one");
 }
 
+/// The parse of `data` with `strings_before` strings counted toward the budget, fed as it asks,
+/// round by round, or (`whole`) the file fed at once, before it asks.
+fn counted(data: &[u8], strings_before: u128, whole: bool) -> serde_json::Value {
+    let mut p = Hdf5::new(data.len() as u64);
+    p.resolve(Default::default());
+    p.strings_before = strings_before;
+    if whole {
+        p.feed(0, data.to_vec());
+    }
+    while let refkv_ir::nd2::Step::Read(r) = p.step().unwrap() {
+        for (o, n) in r {
+            p.feed(o, data[o as usize..(o + n) as usize].to_vec());
+        }
+    }
+    p.finish().unwrap().1
+}
+
+/// The string budget passes at the same dataset however the file is read: the datasets of strings
+/// past it are described as not read, with the budget's message, and those before it read, whether
+/// the parse takes its rounds or has the file at once.
+#[test]
+fn the_string_budget_passes_at_the_same_dataset_whatever_the_rounds() {
+    let data = std::fs::read(fixtures().join("hdf5/hdf5_strings.h5")).unwrap();
+    // the file's string datasets in canonical order: `ascii` (4), `chunked` (100), `grid` (6), ...
+    let before = 1_048_576 - 104;
+    let strings = |d: &serde_json::Value| -> Vec<(String, bool, Option<String>)> {
+        d["objects"].as_array().unwrap().iter()
+            .filter(|o| o["datatype"]["class"] == "vlen_string")
+            .map(|o| (o["segments"].to_string(), o["values"].get("spans").is_some(), o["unread"].as_str().map(str::to_string)))
+            .collect()
+    };
+    let (rounds, whole) = (strings(&counted(&data, before, false)), strings(&counted(&data, before, true)));
+    assert_eq!(rounds, whole);
+    let read: Vec<&str> = rounds.iter().filter(|s| s.1).map(|s| s.0.as_str()).collect();
+    assert_eq!(read, ["[\"ascii\"]", "[\"chunked\"]"]);
+    assert!(rounds.iter().filter(|s| !s.1).all(|s| s.2.as_deref() == Some("budget: more than 1048576 strings")), "{rounds:?}");
+    assert!(rounds.len() > 2, "{rounds:?}");
+}
+
 /// An Imaris file is the IMS parser's: the HDF5 parser finds it and hands it over, and the IR
 /// is the IMS parser's.
 #[test]
