@@ -367,3 +367,17 @@ fn tile_tables_without_a_tile_size_are_not_strips() {
         rejects(&units(&[size, &TILE_TABLES, &[ROWS_PER_STRIP]].concat()), "the image at 1064 has neither tiles nor strips");
     }
 }
+
+/// A short last LZW strip of a level that the parser left out of its reads, its budget spent on
+/// other strips (`lzw_tails`), is rejected with the `tails` message, counting what the parser's
+/// reads would have been, rather than an internal error.
+#[test]
+fn a_level_tail_the_parser_left_out_for_its_budget_is_rejected_with_the_tails_message() {
+    let data = std::fs::read(fixtures().join("tiff/strips_uint16_lzw_short.tif")).unwrap();
+    let (_, mut description) = parse_bytes::<Tiff>(&data).unwrap();
+    let size = description["size"].clone();
+    // the level's tail left out, and another range read to the file's size in its place
+    description["lzw_tails"] = serde_json::json!([{"ifd": 0, "strip": 999, "offset": 0, "read": size, "prefix": 0, "tail": ""}]);
+    let e = refkv_ir::tiff::plan::plan("tiff", &description).unwrap_err();
+    assert!(e.starts_with("the short last LZW strips would be read for their tails"), "{e}");
+}

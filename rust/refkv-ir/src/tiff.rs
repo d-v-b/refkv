@@ -475,8 +475,9 @@ pub struct Tiff {
 /// samples rounds up to a whole byte (spec/zarrify/tiff.md §4.5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>).
 fn row_size(w: u64, bits: u64, samples: u64) -> u128 {
-    // saturating: a row past u128 is more bytes than any check allows
-    (w as u128).saturating_mul(bits as u128).saturating_mul(samples as u128).div_ceil(8)
+    // at most u64::MAX, so that a row times a count of rows still fits in u128: a row of more
+    // bytes is more than any check allows
+    (w as u128).saturating_mul(bits as u128).saturating_mul(samples as u128).div_ceil(8).min(u64::MAX as u128)
 }
 
 /// Whether each strip of StripByteCounts `counts` holds exactly its rows' bytes, `row` bytes a

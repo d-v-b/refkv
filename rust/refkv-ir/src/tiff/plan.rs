@@ -154,6 +154,8 @@ pub(super) struct Src<'a> {
     /// named file's key, and each other file's key and description
     pub named: Option<String>,
     pub siblings: Vec<(String, Src<'a>)>,
+    /// the description's short last LZW strips, by (IFD, strip)
+    tails: HashMap<(usize, usize), &'a J>,
 }
 
 impl<'a> Src<'a> {
@@ -203,6 +205,7 @@ impl<'a> Src<'a> {
             d,
             named: d["named_key"].as_str().map(str::to_string),
             siblings,
+            tails: d["lzw_tails"].as_array().into_iter().flatten().map(|t| ((u(&t["ifd"]) as usize, u(&t["strip"]) as usize), t)).collect(),
         })
     }
 
@@ -339,7 +342,7 @@ impl<'a> Src<'a> {
     /// The tail of strip `j` of IFD `k` as the description holds it: Ok((prefix, tail)), or
     /// Err(why its stream does not reach its rows); None where it holds none.
     fn lzw_tail(&self, k: usize, j: usize) -> Option<Result<(u64, Vec<u8>), String>> {
-        let t = self.d["lzw_tails"].as_array()?.iter().find(|t| u(&t["ifd"]) as usize == k && u(&t["strip"]) as usize == j)?;
+        let t = self.tails.get(&(k, j))?;
         Some(match t["problem"].as_str() {
             Some(p) => Err(p.to_string()),
             None => Ok((u(&t["prefix"]), t["tail"].as_str().and_then(unbase64).unwrap_or_default())),
