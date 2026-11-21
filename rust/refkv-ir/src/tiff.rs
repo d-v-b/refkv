@@ -475,7 +475,8 @@ pub struct Tiff {
 /// samples rounds up to a whole byte (spec/zarrify/tiff.md §4.5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>).
 fn row_size(w: u64, bits: u64, samples: u64) -> u128 {
-    (w as u128 * bits as u128 * samples as u128).div_ceil(8)
+    // saturating: a row past u128 is more bytes than any check allows
+    (w as u128).saturating_mul(bits as u128).saturating_mul(samples as u128).div_ceil(8)
 }
 
 /// Whether each strip of StripByteCounts `counts` holds exactly its rows' bytes, `row` bytes a
@@ -1860,7 +1861,7 @@ impl Tiff {
             return Ok(Layout { imagej: None });
         }
         let i0 = self.chain[0];
-        let m0 = self.load_as(&[i0], false, true, false)?.pop().unwrap_or_default();
+        let m0 = self.load(&[i0], false, true)?.pop().unwrap_or_default();
         let description = match m0.get(&270) {
             Some(Loaded::Bytes(d)) if self.ifds[i0].field(270).is_some_and(|e| e.typ == 2) => {
                 std::str::from_utf8(d.split(|&c| c == 0).next().unwrap_or(&[])).ok().map(str::to_string)

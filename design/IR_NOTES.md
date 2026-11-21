@@ -133,9 +133,9 @@ count, and the offset when out of line) and its `value` (in line: the bytes
 of the value field it uses, the rest of the field is a gap; out of line: at
 its offset), and `next_ifd`; strips and tiles as `data` (`tiles/<k>`,
 `strips/<k>`) with geometry, codec and recipe, JPEG tiles framed with the
-Adobe marker and JPEGTables as a shared data source in the recipe; for an
-OME-TIFF, `ome/planes/<p>` as aliases of the main-chain IFDs (OME-TIFF's
-TiffData mapping). An IFD whose TileOffsets and TileByteCounts are the same
+Adobe marker and JPEGTables as a shared data source in the recipe (an
+OME-TIFF's TiffData mapping of planes to IFDs is refkv's plan's, not the IR's,
+since 2026-11-21). An IFD whose TileOffsets and TileByteCounts are the same
 values as an earlier IFD's (and whose codec and framing agree) names its
 `tiles` by alias. The parser rejects only a file whose header is not TIFF.
 

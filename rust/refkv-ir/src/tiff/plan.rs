@@ -111,27 +111,27 @@ fn u(v: &J) -> u64 {
 }
 
 /// An entry of an IFD, as the description holds it.
-pub(super) struct PEnt {
+pub(super) struct PEnt<'a> {
     pub typ: u16,
     pub count: u64,
-    pub value: J,
+    pub value: &'a J,
 }
 
 /// An IFD, as the description holds it.
-pub(super) struct PIfd {
+pub(super) struct PIfd<'a> {
     pub offset: u64,
     pub el: u32,
     pub subs: Vec<usize>,
     /// its tags, in the order of its entries
-    tags: Vec<(u16, PEnt)>,
+    tags: Vec<(u16, PEnt<'a>)>,
     pub tiles: Option<u32>,
     pub strips: Option<u32>,
     /// the description's object of it
-    pub d: J,
+    pub d: &'a J,
 }
 
-impl PIfd {
-    pub fn field(&self, tag: u16) -> Option<&PEnt> {
+impl<'a> PIfd<'a> {
+    pub fn field(&self, tag: u16) -> Option<&PEnt<'a>> {
         self.tags.iter().find(|(t, _)| *t == tag).map(|(_, e)| e)
     }
     pub fn has(&self, tag: u16) -> bool {
@@ -146,7 +146,7 @@ pub(super) struct Src<'a> {
     pub big: bool,
     pub size: u64,
     pub qptiff: bool,
-    pub ifds: Vec<PIfd>,
+    pub ifds: Vec<PIfd<'a>>,
     pub chain: Vec<usize>,
     pub d: &'a J,
     /// of an image across files (spec/zarrify/tiff.md §7.4
@@ -160,7 +160,7 @@ impl<'a> Src<'a> {
     /// The file `d` describes, of the profile `profile` (`tiff`, `qptiff` or `ndpi`).
     pub fn of(profile: &str, d: &'a J) -> Result<Src<'a>, String> {
         let ndpi = profile == "ndpi";
-        let ifds: Vec<PIfd> = d["ifds"]
+        let ifds: Vec<PIfd<'a>> = d["ifds"]
             .as_array()
             .ok_or("internal: a description without IFDs")?
             .iter()
@@ -174,12 +174,12 @@ impl<'a> Src<'a> {
                     .flatten()
                     .filter_map(|(k, e)| {
                         let tag = k.parse::<u16>().ok()?;
-                        Some((tag, PEnt { typ: u(&e["type"]) as u16, count: u(&e["count"]), value: e["value"].clone() }))
+                        Some((tag, PEnt { typ: u(&e["type"]) as u16, count: u(&e["count"]), value: &e["value"] }))
                     })
                     .collect(),
                 tiles: f["tiles"].as_u64().map(|x| x as u32),
                 strips: f["strips"].as_u64().map(|x| x as u32),
-                d: f.clone(),
+                d: f,
             })
             .collect();
         let chain = if ndpi {
@@ -454,6 +454,14 @@ impl<'a> Src<'a> {
     fn ent_facts(&self, k: usize, tag: u16) -> J {
         let name = if tag == 65426 { "mcu_starts" } else { "mcu_starts_high" };
         self.ifds[k].d.get("elements").map_or(J::Null, |e| e[name].clone())
+    }
+
+    /// The bytes the parser read of the short last LZW strips it describes, each distinct range
+    /// once.
+    fn described_tail_reads(&self) -> u128 {
+        let ranges: HashSet<(u64, u64)> =
+            self.d["lzw_tails"].as_array().into_iter().flatten().map(|t| (u(&t["offset"]), u(&t["read"]))).collect();
+        ranges.iter().map(|&(_, r)| r as u128).sum()
     }
 
     /// The element that holds IFD `k`'s chunks, of an image in strips or tiled (`units_element`).
@@ -1809,9 +1817,13 @@ impl Src<'_> {
                             if n == 0 {
                                 continue; // an absent strip: an absent chunk
                             }
-                            let tail = self
-                                .lzw_tail(k, j)
-                                .ok_or_else(|| Stop::Reject("internal: a short last LZW strip the description does not hold".into()))?;
+                            let Some(tail) = self.lzw_tail(k, j) else {
+                                // a strip the parser left out of its reads past the file's size
+                                // (`lzw_tails`): what its reads would have been, with this one
+                                let read = self.described_tail_reads() + read(n, bytes(short as u128 * rows)) as u128;
+                                self.rules.check("tails", rules::env([("read", num(read as f64)), ("size", num(self.size as f64))]))?;
+                                return Err(Stop::Reject("internal: a short last LZW strip the description does not hold".into()));
+                            };
                             let (ok, problem, pad) = match tail {
                                 Ok((prefix, tail)) => (true, String::new(), json!({"c": c, "k": j, "prefix": prefix, "tail": tail})),
                                 Err(e) => (false, e, J::Null),
