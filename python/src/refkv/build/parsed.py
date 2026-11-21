@@ -168,7 +168,11 @@ class Parsed:
           (spec/zarrify/tiff.md §7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#76-the-description>).
         - NDPI: the main chain's IFDs with NDPI's tags, and of each image its tile tables and
           McuStarts with their high bytes, its focal offset, acquisition tags and stream header
-          (spec/zarrify/ndpi.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#71-the-description>)."""
+          (spec/zarrify/ndpi.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#71-the-description>).
+        - VSI: the `.vsi` file's TIFF header and IFDs with the tags the profile reads, its metadata
+          tree, the fields of each stack the profile reads, and each tile file's SIS and ETS headers
+          and tile directory
+          (spec/zarrify/vsi.md §9.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#96-the-description>)."""
         return None if self._description is None else json.loads(json.dumps(self._description))
 
     @property
