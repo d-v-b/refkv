@@ -610,7 +610,7 @@ A field is an object:
 | `grid` | its grid's key: section 3 from octet 6, the scanning mode's bits 3 and 4 cleared, in hex ([§2.4](#24-grids)) |
 | `product`, `category`, `number` | section 4's template, and the parameter's category and number |
 | `surfaces` | the two surfaces' `[type, value]`, the value null where there is none ([§2.3](#23-dimensions)) |
-| `step`, `member`, `statistic`, `qualifier` | its step in seconds, its ensemble member's number, its statistic's `[process, length]`, and what else of section 4 names it, each null where it has none ([§2.3](#23-dimensions), [§3.2](#32-names)) |
+| `step`, `member`, `statistic`, `qualifier` | its step in seconds, its ensemble member's number, its statistic's `[process, length]` (the length in seconds, null where its unit has no fixed length, a month or a year), and what else of section 4 names it, each null where it has none ([§2.3](#23-dimensions), [§3.2](#32-names)) |
 | `packing`, `values` | section 5's template and number of values |
 | `bitmap` | section 6's indicator |
 | `single` | whether its message holds it alone |

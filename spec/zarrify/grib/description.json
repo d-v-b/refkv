@@ -43,7 +43,10 @@
         },
         "step": {"type": ["integer", "null"]},
         "member": {"type": ["integer", "null"]},
-        "statistic": {"oneOf": [{"type": "null"}, {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2}]},
+        "statistic": {
+          "description": "the statistic's process and length in seconds, null where its unit has no fixed length (a month, a year)",
+          "oneOf": [{"type": "null"}, {"type": "array", "prefixItems": [{"$ref": "#/$defs/uint"}, {"type": ["integer", "null"]}], "minItems": 2, "maxItems": 2}]
+        },
         "qualifier": {},
         "packing": {"$ref": "#/$defs/uint"},
         "bitmap": {"$ref": "#/$defs/uint"},
