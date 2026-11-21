@@ -570,10 +570,37 @@
       "properties": {
         "pixel_data": {
           "$ref": "#/$defs/uint"
+        },
+        "palette_tables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uint"
+          }
+        },
+        "nested": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "element": {
+                "$ref": "#/$defs/uint"
+              },
+              "count": {
+                "$ref": "#/$defs/uint"
+              }
+            },
+            "required": [
+              "element",
+              "count"
+            ],
+            "additionalProperties": false
+          }
         }
       },
       "required": [
-        "pixel_data"
+        "pixel_data",
+        "palette_tables",
+        "nested"
       ],
       "additionalProperties": false
     }
