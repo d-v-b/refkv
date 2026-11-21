@@ -447,6 +447,8 @@ pub struct Tiff {
     /// of an ImageJ stack in one IFD, each plane after the first: its `imagej/planes/<p>` element,
     /// which keys its description (`stored.rs`), and its strips' data elements in IFD 0's order
     imagej_planes: Vec<(u32, Vec<u32>)>,
+    /// of such a stack, each later plane's `strips` struct, in the planes' order
+    imagej_strips: Vec<u32>,
     /// IFD extents, for pointer targets: start -> end
     extents: BTreeMap<u64, u64>,
     tries: u64,
@@ -619,6 +621,7 @@ impl Tiff {
             layout: None,
             strips0: Vec::new(),
             imagej_planes: Vec::new(),
+            imagej_strips: Vec::new(),
             extents: BTreeMap::new(),
             tries: 0,
             todo: Vec::new(),
@@ -3082,6 +3085,7 @@ impl Tiff {
                             data.push(self.ir.data(s, "", *j, 0, (o + p * bytes, *n), form)?);
                         }
                         self.imagej_planes.push((plane, data));
+                        self.imagej_strips.push(s);
                         structs.push((Some(s), Some(plane)));
                     }
                     // the level's planes in (t, c, z) order

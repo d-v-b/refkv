@@ -1135,7 +1135,8 @@ attributes. Attribute values have their references decoded.
 `imagej` holds the description's `images`, `frames`, `channels` and `slices` (each 1 without its
 line), `plane_bytes`, the bytes of a plane of a stack in one IFD (null when its planes are the main
 chain's IFDs), and `planes`, of such a stack, each later plane's IR struct (`imagej/planes/<p>`,
-[§5.1](#51-elements)) with its strips' `data` elements in IFD 0's order.
+[§5.1](#51-elements)) as `element`, its `strips` struct, and its strips' `data` elements in IFD 0's
+order.
 
 A **short last LZW strip** is the last strip of a sample plane of an IFD in strips under compression
 5 whose rows are fewer than RowsPerStrip, at most `max_padding` bytes short of a strip of

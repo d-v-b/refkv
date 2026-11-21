@@ -76,7 +76,7 @@ impl Tiff {
         let mut need = Vec::new();
         let mut out = Vec::new();
         let mut read_total: u128 = 0;
-        let mut seen: HashSet<(u64, u64)> = HashSet::new();
+        let mut budget: HashMap<(u64, u64), bool> = HashMap::new();
         for (i, &k) in tree.iter().enumerate() {
             let m = &vals[&k];
             if first_int(m, 259).unwrap_or(1) != 5 || self.tiled(k) {
@@ -111,11 +111,16 @@ impl Tiff {
                 if c == 0 || missing > max_padding || r > eager || !self.within(o, r) {
                     continue;
                 }
-                if seen.insert((o, r)) {
-                    if read_total + r as u128 > self.size as u128 {
-                        continue;
+                // a range is counted once, and kept or left out wherever it recurs
+                let fits = *budget.entry((o, r)).or_insert_with(|| {
+                    let fits = read_total + r as u128 <= self.size as u128;
+                    if fits {
+                        read_total += r as u128;
                     }
-                    read_total += r as u128;
+                    fits
+                });
+                if !fits {
+                    continue;
                 }
                 let Some(b) = self.heads.get(&(o, r)) else {
                     need.push((o, r));
@@ -321,7 +326,12 @@ impl Tiff {
         if d["imagej"].is_object() {
             // plane 0 is IFD 0's image; in one IFD, each later plane is its own struct, whose
             // strips are IFD 0's shifted
-            let planes: Vec<J> = self.imagej_planes.iter().map(|(p, data)| json!({"element": p, "strips": data})).collect();
+            let planes: Vec<J> = self
+                .imagej_planes
+                .iter()
+                .zip(&self.imagej_strips)
+                .map(|((p, data), s)| json!({"element": p, "strips": s, "data": data}))
+                .collect();
             d["imagej"]["planes"] = J::Array(planes);
         }
         d

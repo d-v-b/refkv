@@ -196,7 +196,7 @@ def check_ome(d: dict, tif: tifffile.TiffFile, said: list[str], seen: Counter) -
     planes = [x for x in pixels if local(x.tag) == "Plane"]
     at_zero = [p for p in planes if all(p.get(k, "0").strip() == "0" for k in ("TheZ", "TheC", "TheT"))]
     zero = dict(at_zero[0].attrib) if at_zero else None
-    if o["plane"] != zero and o["plane"] is not None:
+    if o["plane"] != zero:
         said.append("OME Plane at (0, 0, 0) differs")
 
 
@@ -227,6 +227,15 @@ def check_structures(d: dict, tif: tifffile.TiffFile, said: list[str], seen: Cou
         theirs = tifffile.tifffile.svs_description_metadata(tif.pages.first.description)
         if not set(theirs) - {"Header"} <= set(ap) | {"Header"}:
             said.append(f"Aperio fields {sorted(ap)}, tifffile's {sorted(theirs)}")
+        names = [part.split("=", 1)[0].strip() for part in tif.pages.first.description.split("|") if "=" in part]
+        for k, v in theirs.items():
+            if names.count(k) > 1:  # the description keeps a repeated field's first value, tifffile its last
+                seen["aperio fields repeated"] += 1
+                continue
+            # tifffile converts a number's text; the description keeps the text
+            same = v == ap.get(k) if isinstance(v, str) else ap.get(k) is not None and float(ap[k]) == v
+            if k != "Header" and not same:
+                said.append(f"Aperio field {k}: {ap.get(k)!r}, tifffile's {v!r}")
 
 
 def check_qpi(e: dict, page: tifffile.TiffPage, said: list[str], seen: Counter) -> None:

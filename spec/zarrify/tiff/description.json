@@ -121,8 +121,12 @@
           "type": "array",
           "items": {
             "type": "object",
-            "properties": {"element": {"$ref": "#/$defs/uint"}, "strips": {"type": "array", "items": {"$ref": "#/$defs/uint"}}},
-            "required": ["element", "strips"],
+            "properties": {
+              "element": {"$ref": "#/$defs/uint"},
+              "strips": {"$ref": "#/$defs/uint"},
+              "data": {"type": "array", "items": {"$ref": "#/$defs/uint"}}
+            },
+            "required": ["element", "strips", "data"],
             "additionalProperties": false
           }
         }
