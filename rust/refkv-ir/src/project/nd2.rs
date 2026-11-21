@@ -4,12 +4,12 @@
 //! of §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>) from
 //! a valid IR: the IR holds what it needs.
 
-use super::{along, arr, image_axes, json_text, n, truthy};
+use super::{along, arr, image_axes, json_text, n};
 use crate::fed::Word;
 use crate::ir::{source_text, Ir, NO_INDEX, STRUCT};
 use crate::lv::{base64, well_formed};
 use crate::text::{is_decimal, utf8_or_latin1};
-use crate::out::{array_json, bioformats2raw, bytes_codec, full_window, group_json, image_ome, omero_channel, omero_json, payload_size, transpose_codec, Out, Part, MAX_PAYLOAD, RGBA};
+use crate::out::{array_json, bioformats2raw, bytes_codec, full_window, group_json, image_ome, omero_channel, omero_json, payload_size, transpose_codec, Out, Part, MAX_PAYLOAD};
 use crate::types::{self, Ty, Val};
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -207,6 +207,14 @@ impl Values<'_> {
     }
 }
 
+/// A chunk's name, of its text in the description: UTF-8, or each character a Latin-1 byte.
+fn name_bytes(text: &J) -> Vec<u8> {
+    match text {
+        J::String(s) => s.as_bytes().to_vec(),
+        other => other["latin1"].as_str().unwrap_or("").chars().map(|c| c as u32 as u8).collect(),
+    }
+}
+
 /// Chunks that grow with the frames: the events, and per-frame metadata after frame 0.
 fn frame_scaled(name: &[u8]) -> bool {
     if name == b"ImageEventsLV!" || name == b"CustomData|ExperimentEventsV1_0!" {
@@ -223,15 +231,17 @@ fn frame_scaled(name: &[u8]) -> bool {
 
 /// The root's `chunks` (spec/zarrify/nd2.md §5.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>): the decoded
-/// chunks that do not grow with the frames, have at most 16 KiB of JSON, and fit the root's budget.
-fn root_chunks(ir: &Ir, decoded: &[J]) -> Result<J, String> {
+/// chunks of the description (`chunks`, §7.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#75-the-description>) that do not grow
+/// with the frames, have at most 16 KiB of JSON, and fit the root's budget.
+fn root_chunks(ir: &Ir, chunks: &[J]) -> Result<J, String> {
     let mut vals = Values { ir, types: HashMap::new() };
     let mut names: Vec<Vec<u8>> = Vec::new();
     let mut values: Vec<J> = Vec::new();
     let mut sizes: Vec<usize> = Vec::new();
-    for d in decoded {
-        let name: Vec<u8> = arr(&d[0]).iter().map(|c| n(c) as u8).collect();
-        let (e, spent) = (n(&d[1]) as u32, n(&d[2]) as usize);
+    for d in chunks {
+        let name = name_bytes(&d["name"]);
+        let (e, spent) = (n(&d["element"]) as u32, n(&d["records"]) as usize);
         if frame_scaled(&name) || spent > MAX_ROOT_JSON {
             // bound for refkv_source: each LV record and array byte is at least a byte of JSON
             values.push(J::Null);
@@ -291,70 +301,18 @@ fn placed_frames(ir: &Ir) -> BTreeMap<u64, (u64, u64)> {
     out
 }
 
-/// A number of the facts as Python's int() of it.
-fn int(v: &J) -> i64 {
-    v.as_i64().unwrap_or_else(|| v.as_f64().unwrap_or(0.0) as i64)
-}
-
-/// Labels and colors (spec/zarrify/nd2.md §4.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#42-channels>).
-fn channels(planes: &J, comp: u64) -> (Vec<String>, Vec<String>) {
-    let count = int(&planes["uiCount"]);
-    let mut ps: BTreeMap<i64, (String, i64, i64)> = BTreeMap::new();
-    for (k, v) in planes["sPlaneNew"].as_object().into_iter().flatten() {
-        let Ok(k) = k.trim().parse::<i64>() else { continue };
-        let desc = match &v["sDescription"] {
-            J::String(s) => s.clone(),
-            other => other.to_string(),
-        };
-        ps.insert(k, (desc, int(&v["uiColor"]), int(&v["uiCompCount"])));
-    }
-    let (mut labels, mut colors) = (Vec::new(), Vec::new());
-    if count >= 1
-        && ps.len() as i64 == count
-        && ps.values().all(|p| p.2 == 1 || p.2 == 3)
-        && ps.values().map(|p| p.2).sum::<i64>() == comp as i64
-        && (0..count).all(|i| ps.contains_key(&i))
-    {
-        for (desc, abgr, k) in ps.values() {
-            if *k == 3 {
-                for (l, c) in &RGBA[..3] {
-                    labels.push(format!("{desc} {l}"));
-                    colors.push(c.to_string());
-                }
-            } else {
-                labels.push(desc.clone());
-                colors.push(format!("{:02X}{:02X}{:02X}", abgr & 255, (abgr >> 8) & 255, (abgr >> 16) & 255));
-            }
-        }
-        return (labels, colors);
-    }
-    ((0..comp).map(|k| format!("C{k}")).collect(), vec!["FFFFFF".to_string(); comp as usize])
-}
-
 /// The ranges of `count` rows of `length` bytes, `stride` bytes apart from `start`.
 fn rows(start: u64, stride: u64, length: u64, count: u64) -> Vec<Part> {
     (0..count).map(|r| Part::Src(start + r * stride, length)).collect()
 }
 
 /// The ND2 hierarchy: the root (with its source metadata), and an image per position
-/// whose chunks are the frames (or their row blocks).
-pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    let a = &facts["attributes"];
-    let (width, height, wb) = (n(&a["width"]), n(&a["height"]), n(&a["width_bytes"]));
-    let (comp, bpc, row) = (n(&a["components"]), n(&a["bits"]), n(&a["row"]));
-    let compressed = truthy(&a["compressed"]);
-    let significant = a["significant"].as_f64().unwrap_or(0.0);
-    let data_type = match bpc {
-        8 => "uint8",
-        16 => "uint16",
-        32 => "float32",
-        b => return Err(format!("internal: {b} bits")),
-    };
-    let loops = arr(&facts["loops"]);
-    let positions = n(&facts["positions"]);
-    let pic = &facts["picture"];
-    let (labels, colors) = channels(&pic["planes"], comp);
+/// whose chunks are the frames (or their row blocks), from the parser's description through
+/// refkv's plan (`nd2::plan::plan`).
+pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    let p = crate::nd2::plan::plan(description)?;
+    let (width, height, wb, comp, bpc, row) = (p.width, p.height, p.width_bytes, p.components, p.bits, p.row);
+    let (compressed, data_type) = (p.compressed, p.data_type);
     let present = placed_frames(ir);
     let mut h = height;
     if !compressed && wb != row && !present.is_empty() {
@@ -364,22 +322,22 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
             .find(|&d| height % d == 0 && payload_size(&rows(far + (height - d) * wb, wb, row, d)) <= MAX_PAYLOAD)
             .unwrap_or(1);
     }
-    let lp = |kind: &str| loops.iter().find(|l| l["kind"] == kind);
+    let lp = |kind: &str| p.loops.iter().find(|l| l.kind == kind);
     let (t, z) = (lp("t"), lp("z"));
     let axes = image_axes(t.is_some(), comp > 1, z.is_some());
-    let shape: Vec<u64> = axes
-        .iter()
-        .map(|ax| n(&along(ax, [t.map_or(json!(1), |l| l["count"].clone()), json!(comp), z.map_or(json!(1), |l| l["count"].clone()), json!(height), json!(width)])))
-        .collect();
-    let chunk_shape: Vec<u64> = axes.iter().map(|ax| n(&along(ax, [json!(1), json!(comp), json!(1), json!(h), json!(width)]))).collect();
-    let s = &pic["scales"];
-    let calibrated = truthy(&pic["calibrated"]);
-    let positive = |l: Option<&J>| l.is_some_and(|l| l["scale"].as_f64().is_some_and(|x| x > 0.0));
-    let (period, step) = (positive(t), positive(z));
+    let shape: Vec<u64> = axes.iter().map(|ax| along(ax, [t.map_or(1, |l| l.count), comp, z.map_or(1, |l| l.count), height, width])).collect();
+    let chunk_shape: Vec<u64> = axes.iter().map(|ax| along(ax, [1, comp, 1, h, width])).collect();
+    let [sx, sy, sz, st] = &p.scales;
+    // a loop's scale is the convention's where its period or step is positive (§4.3
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#43-output>)
+    let positive = |kind: &str| description["loops"].as_array().into_iter().flatten()
+        .find(|l| l["kind"] == kind)
+        .is_some_and(|l| l["period"].as_f64().or_else(|| l["step"].as_f64()).is_some_and(|x| x > 0.0));
+    let (period, step, calibrated) = (positive("t"), positive("z"), p.calibrated);
     let pick = |on: bool, v: &J| if on { v.clone() } else { json!(1) };
     let scale: Vec<J> = axes
         .iter()
-        .map(|ax| along(ax, [pick(period, &s["t"]), json!(1), pick(step, &s["z"]), pick(calibrated, &s["y"]), pick(calibrated, &s["x"])]))
+        .map(|ax| along(ax, [pick(period, st), json!(1), pick(step, sz), pick(calibrated, sy), pick(calibrated, sx)]))
         .collect();
     let mut units = Map::new();
     let unit = |on: bool, u: &str| if on { json!(u) } else { J::Null };
@@ -393,30 +351,30 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         codecs.push(json!({"name": "numcodecs.zlib", "configuration": {"level": 1}}));
     }
     let codecs = J::Array(codecs);
+    let significant = p.significant;
     let b = if significant == significant.trunc() && 1.0 <= significant && significant <= bpc as f64 { significant as u64 } else { bpc };
     let window = (data_type != "float32").then(|| {
         let top = (1u64 << b) - 1;
         full_window(json!(0), json!(top))
     });
-    let trs = arr(&pic["translations"]);
     let mut out = Out::new(url);
     let child = |i: u32, name: &str| ir.children(i).iter().copied().find(|&c| ir.name_of(c) == name);
     let sig = child(0, "signature")
         .and_then(|s| child(s, "data"))
         .and_then(|d| ir.value_bytes(d))
         .ok_or("internal: no signature")?;
-    let root_meta = json!({"signature": json_text(sig), "chunks": root_chunks(ir, arr(&facts["decoded"]))?});
+    let root_meta = json!({"signature": json_text(sig), "chunks": root_chunks(ir, arr(&description["chunks"]))?});
     // the layout, even of no positions
-    bioformats2raw(&mut out, "nd2", url, root_meta, positions as usize, true);
-    for pi in 0..positions {
-        let tr = if trs.is_empty() {
+    bioformats2raw(&mut out, "nd2", url, root_meta, p.positions as usize, true);
+    for pi in 0..p.positions {
+        let tr = if p.translations.is_empty() {
             None
         } else {
-            let p = trs.get(pi as usize).ok_or("internal: no translation of a position")?;
-            Some(vec![super::translation(&axes, [p["x"].clone(), p["y"].clone(), json!(0)])])
+            let at = p.translations.get(pi as usize).ok_or("internal: no translation of a position")?;
+            Some(vec![super::translation(&axes, [at["x"].clone(), at["y"].clone(), json!(0)])])
         };
         let mut ome = image_ome(&axes, &units, &[J::Array(scale.clone())], Some(&json!(format!("position {pi}"))), tr.as_deref())?;
-        let chans: Vec<J> = labels.iter().zip(&colors).map(|(label, c)| omero_channel(label, c.as_str(), window.as_ref())).collect();
+        let chans: Vec<J> = p.labels.iter().zip(&p.colors).map(|(label, c)| omero_channel(label, c.as_str(), window.as_ref())).collect();
         ome["omero"] = omero_json(chans);
         out.json(&format!("{pi}/zarr.json"), &group_json(ome));
         out.json(&format!("{pi}/0/zarr.json"), &array_json(&shape, data_type, json!(chunk_shape), codecs.clone(), &axes));
@@ -424,14 +382,13 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     for (&f, &(start, length)) in &present {
         let mut coords: HashMap<&str, u64> = HashMap::new();
         let mut rest = f;
-        for l in loops.iter().rev() {
-            let count = n(&l["count"]);
-            if count == 0 {
+        for l in p.loops.iter().rev() {
+            if l.count == 0 {
                 return Err("internal: a loop of no count".into());
             }
-            let c = rest % count;
-            coords.insert(l["kind"].as_str().unwrap_or(""), if truthy(&l["flip"]) { count - 1 - c } else { c });
-            rest /= count;
+            let c = rest % l.count;
+            coords.insert(l.kind.as_str(), if l.flip { l.count - 1 - c } else { c });
+            rest /= l.count;
         }
         let blocks: Vec<Vec<Part>> = if compressed || wb == row {
             vec![vec![Part::Src(start, if compressed { length } else { height * row })]]
@@ -449,20 +406,19 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         }
     }
     let mut sizes = Map::new();
-    for l in loops {
-        sizes.insert(l["kind"].as_str().unwrap_or("").to_string(), l["count"].clone());
+    for l in &p.loops {
+        sizes.insert(l.kind.clone(), json!(l.count));
     }
     sizes.insert("c".into(), json!(comp));
     sizes.insert("y".into(), json!(height));
     sizes.insert("x".into(), json!(width));
-    let frames = &facts["frames"];
     let placed = present.len();
-    let missing = match frames.as_i64() {
+    let missing = match p.frames.as_i64() {
         Some(f) => json!(f - placed as i64),
-        None => json!(frames.as_f64().unwrap_or(0.0) - placed as f64),
+        None => json!(p.frames.as_f64().unwrap_or(0.0) - placed as f64),
     };
-    out.summary = json!({"sizes": sizes, "dataType": data_type, "compressed": a["compressed"], "paddedRows": wb != row,
-                         "rowBlock": h, "positions": positions, "frames": frames, "missing": missing, "channels": labels});
+    out.summary = json!({"sizes": sizes, "dataType": data_type, "compressed": compressed, "paddedRows": wb != row,
+                         "rowBlock": h, "positions": p.positions, "frames": p.frames, "missing": missing, "channels": p.labels});
     Ok(out)
 }
 

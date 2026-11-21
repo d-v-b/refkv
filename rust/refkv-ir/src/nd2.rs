@@ -17,6 +17,8 @@ use crate::xml;
 use crate::fed::{Fed, Overlap, Word};
 use std::collections::HashMap;
 
+#[path = "nd2/plan.rs"]
+pub mod plan;
 #[path = "nd2/stored.rs"]
 mod stored;
 
@@ -957,8 +959,7 @@ impl Nd2 {
     }
 
     /// The IR, finished (aliases and gaps), with its frames described (`stored.rs`), and the
-    /// facts the projection reads: `declared_by` is the key of the description of the frames
-    /// the loops count, and `unplaced` that of the frame chunks past them, with their number.
+    /// parser's description of the file.
     pub fn finish(mut self) -> Result<(Ir, serde_json::Value), String> {
         if self.phase != Phase::Done {
             return Err("internal: the parse is not done".into());
@@ -977,29 +978,13 @@ impl Nd2 {
         let key = self.declaring[0].0.ok_or("internal: no ImageAttributesLV! chunk in the IR")?;
         // the chunks that say what a sample is: the attributes, and the picture's planes
         let declarations: Vec<u32> = [self.declaring[0].1, self.declaring[2].1].into_iter().flatten().collect();
-        let (arrays, chains, map, (frames, unplaced)) = stored::described(&self.ir, &frame, read.frames as u64, key, &declarations)?;
+        let (arrays, chains, map, _) = stored::described(&self.ir, &frame, read.frames as u64, key, &declarations)?;
         self.ir.describe(arrays, chains, map)?;
+        // the description (spec/zarrify/nd2.md §7.5
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#75-the-description>), with
+        // the chunks the IR holds decoded for the source metadata
         let mut facts = read.json;
-        facts["declared_by"] = serde_json::json!(key);
-        facts["unplaced"] = serde_json::json!({"declared_by": frames, "count": unplaced});
-        facts["decoded"] = serde_json::Value::Array(
-            self.decoded
-                .iter()
-                .map(|&(k, e, spent)| {
-                    serde_json::json!([
-                        self.chunks[k]
-                            .0
-                            .iter()
-                            .map(|&c| c as u64)
-                            .collect::<Vec<_>>(),
-                        e,
-                        spent
-                    ])
-                })
-                .collect(),
-        );
-        // the description's chunks: those the IR holds decoded for the source metadata
-        facts["description"]["chunks"] = serde_json::Value::Array(
+        facts["chunks"] = serde_json::Value::Array(
             self.decoded
                 .iter()
                 .map(|&(k, e, spent)| serde_json::json!({"name": crate::text::text_json(&self.chunks[k].0), "element": e, "records": spent}))
@@ -1068,9 +1053,9 @@ impl crate::run::FileProfile for Profile {
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::nd2::project(ir, facts, url)
     }
-    /// The parser's description of the file, beside its projection's facts
+    /// The parser returns its description of the file
     /// (spec/zarrify/nd2.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#75-the-description>).
-    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
-        facts.get("description").cloned()
+    fn described(&self) -> bool {
+        true
     }
 }
