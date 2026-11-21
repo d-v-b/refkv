@@ -24,9 +24,10 @@
     },
     "vgroups": {"type": "array", "items": {"$ref": "#/$defs/vgroup"}},
     "vdatas": {"type": "array", "items": {"$ref": "#/$defs/vdata"}},
-    "datasets": {"type": "array", "items": {"$ref": "#/$defs/dataset"}}
+    "datasets": {"type": "array", "items": {"$ref": "#/$defs/dataset"}},
+    "ndgs": {"description": "the refs of every NDG (tag 720), in the descriptors' order", "type": "array", "items": {"$ref": "#/$defs/ref"}}
   },
-  "required": ["descriptors", "version", "vgroups", "vdatas", "datasets"],
+  "required": ["descriptors", "version", "vgroups", "vdatas", "datasets", "ndgs"],
   "additionalProperties": false,
   "$defs": {
     "uint": {"type": "integer", "minimum": 0},

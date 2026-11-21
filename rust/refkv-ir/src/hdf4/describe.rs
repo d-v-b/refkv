@@ -5,7 +5,7 @@
 //! with its number type, dimension record and how its data is stored, a chunked element's chunks
 //! listed. It holds none of an output's decisions.
 
-use super::{bad, text_json, vars_of, Acc, Fail, Pass, Rd, Special, Stored, Vg, Vh, ATTRIBUTE, NT, R, SD, SDD, VERSION, VS};
+use super::{bad, text_json, vars_of, Acc, Fail, Pass, Rd, Special, Stored, Vg, Vh, ATTRIBUTE, NDG, NT, R, SD, SDD, VERSION, VS};
 use crate::hdf5::file::hex;
 use serde_json::{json, Value as J};
 use std::collections::{BTreeMap, HashSet};
@@ -85,7 +85,9 @@ pub(super) fn description(p: &mut Pass, vgs: &BTreeMap<u16, Vg>, vhs: &BTreeMap<
         }
         None => J::Null,
     };
-    Ok(json!({"descriptors": p.dds.len(), "version": version, "vgroups": vgroups, "vdatas": vdatas, "datasets": datasets}))
+    // the DFSD interface's datasets, which a file the SD interface did not write holds
+    let ndgs: Vec<u16> = p.dds.iter().filter(|d| d.tag == NDG).map(|d| d.rf).collect();
+    Ok(json!({"descriptors": p.dds.len(), "version": version, "vgroups": vgroups, "vdatas": vdatas, "datasets": datasets, "ndgs": ndgs}))
 }
 
 /// The Vdata of ref `r`, header `h`: its header's fields and its records' storage; of an attribute

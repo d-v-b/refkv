@@ -551,6 +551,7 @@ It is a JSON object with these members:
 | `vgroups` | every Vgroup (tag 1965), in ref order: `ref`, `name`, `class`, `version`, `members` (each `[tag, ref]`, in order) and `attributes` (a version 4 Vgroup's, each `[tag, ref]`) |
 | `vdatas` | every Vdata, by its header (tag 1962), in ref order: `ref`, `name`, `class`, `version`, `interlace`, `records`, `record_size`, `fields` (each its `name`, `type` (the number type's code, its byte-order bit 0x4000 included), `size`, `offset` and `order`), `attributes` (a version 4 header's, each `[field index or −1, tag, ref]`) and `data`, its records' storage (below); and of an attribute (class `Attr0.0`) that [§7](#7-attributes) reads, of one field, not interlaced, of at most the budget's `attribute_bytes`, its records stored as they are: `bytes`, its value's bytes in hex, and `value`, a `char8` field's text (all of it, NULs too), a number type's numbers in a list (a float's NaN and infinities as [conventions §6](../conventions.md#6-source-metadata-as-json) writes them), or null for another type |
 | `datasets` | the SD interface's datasets, the `Var0.0` members of the first `CDF0.0` Vgroup in their order, each below |
+| `ndgs` | the refs of every NDG (tag 720), the DFSD interface's datasets among them, in the descriptors' order |
 
 A dataset is an object:
 

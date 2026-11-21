@@ -140,6 +140,9 @@ def test_the_description_is_what_the_hdf4_library_reads(path: Path):
         h.close()
     # the datasets, by their NDGs' refs, and the file's attributes
     datasets = {d["ndg"]: d for d in description["datasets"]}
+    # the NDGs: each dataset's, which pyhdf's `ref()` gives, among them (pyhdf binds no listing of
+    # the descriptors)
+    assert len(set(description["ndgs"])) == len(description["ndgs"]), path.name
     sd = SD(str(path))
     try:
         for _, _, _, index in sd.datasets().values():
@@ -147,6 +150,7 @@ def test_the_description_is_what_the_hdf4_library_reads(path: Path):
             try:
                 name, rank, _, ty, _ = s.info()
                 d = datasets[s.ref()]
+                assert s.ref() in description["ndgs"], (path.name, name)
                 at = (path.name, name)
                 assert text(d["name"]) == name, at
                 assert [(text(x["name"]), x["unlimited"]) for x in d["dimensions"]] == [
