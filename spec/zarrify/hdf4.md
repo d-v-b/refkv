@@ -540,7 +540,9 @@ Vgroups are groups and which datasets and tables are arrays ([§2](#2-the-hierar
 [§3](#3-datasets), [§4](#4-tables)), their paths ([§2.2](#22-paths)), data types, fill values,
 codecs and chunks ([§3.1](#31-data-types), [§3.2](#32-chunks), [§3.3](#33-text)), the attributes
 presented ([§7](#7-attributes)) and the source metadata ([§8](#8-source-metadata)) are the
-projection's. Text is a text value ([conventions §6](../conventions.md#6-source-metadata-as-json)).
+projection's. Those decisions are refkv's **plan** of the file, made from the description alone by
+the function the convention's projection calls; a layout that wants another hierarchy makes its own
+from the description. Text is a text value ([conventions §6](../conventions.md#6-source-metadata-as-json)).
 
 It is a JSON object with these members:
 

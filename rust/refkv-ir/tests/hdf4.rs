@@ -28,36 +28,34 @@ fn accepted() -> Vec<(String, Vec<u8>)> {
 }
 
 /// Every accepted fixture parses, its IR rebuilds the file byte for byte, and every segment of
-/// every array's storage lies in the file.
+/// every storage the description gives lies in the file. Each dataset refkv's plan presents names,
+/// in the description, the stored array its Vgroup keys; a table names none.
 #[test]
 fn accepted_fixtures_rebuild() {
     let all = accepted();
     assert!(all.len() >= 3, "{} fixtures", all.len());
     for (name, data) in all {
-        let (ir, facts) = parse_bytes::<Hdf4>(&data).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let (ir, description) = parse_bytes::<Hdf4>(&data).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert_eq!(rebuilt(&ir, &data), data, "{name}");
-        let nodes = facts["nodes"].as_array().unwrap();
+        let plan = refkv_ir::project::hdf4::plan(&description).unwrap();
+        let nodes = plan["nodes"].as_array().unwrap();
         assert!(nodes.iter().any(|n| n.get("array").is_some()), "{name}: no array");
-        // each presented dataset names its description, keyed by its Vgroup; a table names none
         let keys: Vec<u32> = ir.stored.arrays.iter().map(|d| d.element).collect();
-        for node in nodes.iter().filter(|n| n.get("array").is_some()) {
+        let datasets = description["datasets"].as_array().unwrap();
+        for node in nodes.iter().filter(|n| n.get("array").is_some() && n["own"].get("number_type").is_some()) {
             let at = format!("{name}: {}", node["path"]);
-            let key = node["array"].get("declared_by").and_then(|k| k.as_u64());
-            if node["own"].get("number_type").is_none() {
-                assert_eq!(key, None, "{at}");
-                continue;
-            }
-            let key = key.unwrap_or_else(|| panic!("{at}: no declared_by")) as u32;
+            let d = datasets.iter().find(|d| d["vgroup"] == node["own"]["ref"]).unwrap_or_else(|| panic!("{at}: no dataset"));
+            let key = d["element"].as_u64().unwrap_or_else(|| panic!("{at}: no element")) as u32;
             assert_eq!(keys.iter().filter(|&&k| k == key).count(), 1, "{at}");
             assert_eq!(ir.path(key), format!("elements/1965/{}", node["own"]["ref"]), "{at}");
         }
-        for node in nodes {
-            let store = &node["array"]["store"];
-            let mut segs: Vec<&serde_json::Value> = vec![&store["segments"]];
-            segs.extend(store["chunks"].as_array().into_iter().flatten().map(|c| &c["segments"]));
-            for s in segs.iter().flat_map(|s| s.as_array().into_iter().flatten()) {
+        let mut storages: Vec<&serde_json::Value> = datasets.iter().map(|d| &d["data"]).collect();
+        storages.extend(description["vdatas"].as_array().unwrap().iter().map(|v| &v["data"]));
+        while let Some(st) = storages.pop() {
+            storages.extend(st["chunks"].as_array().into_iter().flatten().map(|c| &c["data"]));
+            for s in st["segments"].as_array().into_iter().flatten() {
                 if let Some(o) = s[0].as_u64() {
-                    assert!(o + s[1].as_u64().unwrap() <= data.len() as u64, "{name}: {} {s}", node["path"]);
+                    assert!(o + s[1].as_u64().unwrap() <= data.len() as u64, "{name}: {s}");
                 }
             }
         }
