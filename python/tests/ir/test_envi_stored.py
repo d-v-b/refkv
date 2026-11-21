@@ -13,7 +13,10 @@ reader, which reads the header beside the data file and the data. Of each accept
 - its row's bytes, decoded through the chain and read in the byte order the declarations give, in
   storage order, are GDAL's values.
 
-A second test asserts which cases the fixtures reached."""
+A second test asserts which cases the fixtures reached, and a third compares the parser's
+description (spec/zarrify/envi.md §8.7
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#87-the-description>) with GDAL's
+reading."""
 
 import gzip
 from collections import Counter
@@ -26,12 +29,20 @@ from described import Described, described
 from gdal_envi import gdal
 from ir_helpers import FIXTURES
 
+from refkv.build import read
 from refkv.ir.kind import Kind
 from refkv.ir.stored import Each, ElementPlace, Source, StoredArray, Value
 
 FILES = sorted(p for p in (FIXTURES / "envi").iterdir() if p.suffix in (".hdr", ".HDR") and "reject" not in p.name)
 # the data's axes, outermost first, by interleave, as indexes into (bands, lines, samples)
 ORDER = {"bsq": (0, 1, 2), "bil": (1, 0, 2), "bip": (1, 2, 0)}
+# the `data type` field's codes (envi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#3-data-types>)
+CODES = {1: "u1", 2: "i2", 3: "i4", 4: "f4", 5: "f8", 6: "c8", 9: "c16", 12: "u2", 13: "u4", 14: "i8", 15: "u8"}
+# the fields GDAL's ENVI driver reads into the georeferencing, not its `ENVI` metadata domain
+GEOREFERENCING = {"map_info", "projection_info", "coordinate_system_string"}
+# what the description leaves to the projection (envi.md §8.7
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#87-the-description>)
+DECISIONS = {"own", "array", "codecs", "chunks", "chunk_shape", "dimension_names", "fill_value", "endian"}
 
 
 def decoded(d: Described, a: StoredArray) -> bytes:
@@ -111,3 +122,42 @@ def test_the_fixtures_reach_every_case():
         problems(path, seen)
     assert seen == Counter({"bsq files": 7, "bil files": 7, "bip files": 6, "big-endian files": 7,
                             "gzip files with a header offset, skipped in the inflated bytes": 1})
+
+
+@pytest.mark.parametrize("path", FILES, ids=lambda p: p.name)
+def test_an_envi_rasters_description_is_what_gdal_reads(path):
+    """`Parsed.description` of an ENVI raster holds the header as GDAL's ENVI driver reads it, and
+    none of the output's decisions: its fields are GDAL's `ENVI` metadata domain, its sizes GDAL's
+    bands, lines and samples, its `data_type` code GDAL's data type, and its data's range in the data
+    file, read in its byte order, inflated and past its header offset for a gzip file, and laid out
+    by its interleave, GDAL's values. Its files are the header and the data file beside it, and its
+    elements the header file's object, which keys the stored array, and the data file's `data`."""
+    with read(path) as parsed:
+        d = parsed.description
+        assert d is not None
+        ir = parsed.ir
+        keys = [a.element for a in ir.stored_arrays().arrays]
+    assert not DECISIONS & d.keys()
+    data = path.parent / d["data_file"]["key"]
+    want, fields = gdal(data)
+    # GDAL joins a braced value's lines without their line ends, and reads the georeferencing
+    # fields into the dataset's transform and CRS instead of its `ENVI` domain
+    mine = {k.replace(" ", "_"): v.replace("\n", "") for k, v in d["fields"].items()}
+    assert {k: v for k, v in mine.items() if k not in GEOREFERENCING} == fields
+    assert (d["bands"], d["lines"], d["samples"]) == want.shape
+    assert d["interleave"] == fields["interleave"].lower()
+    assert np.dtype(CODES[d["data_type"]]) == want.dtype.newbyteorder("=")
+    for name in ("byte_order", "header_offset", "file_compression"):
+        assert d[name] == int(fields.get(name, "0")), name
+    assert d["header_file"] == {"key": path.name, "size": path.stat().st_size}
+    assert d["data_file"]["size"] == data.stat().st_size
+    start, length = d["data_range"]
+    b = data.read_bytes()[start:start + length]
+    if d["file_compression"]:
+        b = gzip.decompress(b)[d["header_offset"]:]
+    stored = want.transpose(ORDER[d["interleave"]])
+    values = np.frombuffer(b, want.dtype.newbyteorder(">" if d["byte_order"] else "<"))
+    assert np.array_equal(values.reshape(stored.shape), stored)
+    header, unit = d["elements"]["header"], d["elements"]["data"]
+    assert (ir.path(header), keys) == (path.name, [header])
+    assert ir.path(unit) == f"{data.name}/data"
