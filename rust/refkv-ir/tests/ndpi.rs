@@ -3,13 +3,12 @@
 
 mod common;
 
-use refkv_ir::tiff::Tiff;
 
 // one test per rejected fixture, each the message its check gives
 // one test per case of conformance/zarrify/rejects/ndpi.json (build.rs), each the message its check gives
 macro_rules! reject {
     ($name:ident, $input:literal, $msg:literal) => {
-        common::reject!($name, Tiff, concat!("ndpi/", $input), $msg);
+        common::reject_tiff!($name, concat!("ndpi/", $input), $msg);
     };
 }
 include!(concat!(env!("OUT_DIR"), "/rejects_ndpi.rs"));
@@ -27,7 +26,7 @@ fn every_accepted_fixtures_planes_name_their_descriptions() {
         if name.contains("reject") || !name.ends_with(".ndpi") {
             continue;
         }
-        let (ir, facts) = refkv_ir::parse_bytes::<Tiff>(&std::fs::read(&p).unwrap()).unwrap();
+        let (ir, _, facts) = common::tiff_plan(&std::fs::read(&p).unwrap()).unwrap();
         let s = &ir.stored;
         for (l, lv) in facts["levels"].as_array().unwrap().iter().enumerate() {
             let (units, keys) = (lv["planes"].as_array().unwrap(), lv["declared_by"].as_array().unwrap());

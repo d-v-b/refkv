@@ -1,7 +1,7 @@
 {
   "source_model": "ndpi",
   "version": 1,
-  "about": "The source model of a Hamamatsu NDPI slide (spec/zarrify/ndpi.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md>): a little-endian classic TIFF with 64-bit offsets (an 8-byte first-IFD offset, 8-byte next-IFD offsets, a high word per entry after each IFD) whose levels are single JPEG strips with restart markers, or JPEG XR tiles or strips. The TIFF parser reads it in its NDPI variant (rust/refkv-ir/src/tiff.rs) and checks this schema where the profile meets each role; the strip's JPEG header and its restart intervals are read by rust/refkv-ir/src/ndpi.rs. Projections read a valid IR and check nothing.",
+  "about": "The source model of a Hamamatsu NDPI slide (spec/zarrify/ndpi.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md>): a little-endian classic TIFF with 64-bit offsets (an 8-byte first-IFD offset, 8-byte next-IFD offsets, a high word per entry after each IFD) whose levels are single JPEG strips with restart markers, or JPEG XR tiles or strips. The TIFF parser reads it in its NDPI variant (rust/refkv-ir/src/tiff.rs) and checks the source model's roles where the profile meets each, and describes each image's stream header; refkv's plan of the image (rust/refkv-ir/src/tiff/plan.rs) checks the levels, the strips' JPEG headers and their restart intervals (rust/refkv-ir/src/ndpi.rs) from the parser's description.",
   "limits": {
     "max_safe": 9007199254740991,
     "max_ifds": 100000,

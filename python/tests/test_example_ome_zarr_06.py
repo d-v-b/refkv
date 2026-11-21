@@ -139,7 +139,10 @@ def test_the_output_is_an_ome_zarr_06_image_of_the_arrays_of_refkv_s_own_output(
     assert isinstance(entries, Written)
     kept = {k: v for k, v in mirror.items() if entries.get(k) == v}
     assert kept == (dict(mirror) if options["source"] else {})
-    assert entries.at_open == (mirror.at_open if options["source"] else {})
+    if options["source"]:  # each kept entry placed as refkv's own output places it
+        own = zarrify(str(FIXTURES / source), checksums=checksums)
+        opened = lambda s: {k for k in s.read_at_open if k.startswith(f"{MIRROR}/")}  # noqa: E731
+        assert opened(store) == opened(own)
     out = refkv.zarr.store(store)
 
     if b.profile == "hdf5":
@@ -300,3 +303,16 @@ def test_an_array_of_strings_is_rejected():
 def test_a_format_it_does_not_read_is_rejected():
     with pytest.raises(LayoutRejected, match="does not read the mrc profile"):
         zarrify(str(FIXTURES / "mrc/mrc_mode_int4_image.mrc"), layout=Layout(OmeZarr06()))
+
+
+@pytest.mark.parametrize(("source", "given", "checksums"), CASES, ids=[c[0] for c in CASES])
+def test_it_never_asks_for_refkv_s_own_output(monkeypatch, source, given, checksums):
+    """The layout builds from the parsed input and the routines alone (`ome_image`,
+    `hdf5_hierarchy`, `mirror`): refkv's own output is made to raise while it writes."""
+    async def no_output(_self):
+        raise AssertionError("refkv's own output was built")
+
+    plugin = OmeZarr06()
+    with read(str(FIXTURES / source), checksums=checksums) as parsed:
+        monkeypatch.setattr(type(parsed), "_output_async", no_output)
+        assert plugin.write([parsed], plugin.options(given))

@@ -56,6 +56,60 @@ pub fn reads(format: Format, ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, Stri
     format.profile().reads(ir, facts)
 }
 
+/// The source's ranges the OME image of `profile` (`tiff`, `qptiff`, `ndpi` or `ims`, `ome_image`)
+/// samples for its `omero` windows, which a host reads before it asks for the image; none of an
+/// image across files, whose store run read them, and none of an NDPI's or an IMS input's. An
+/// error where refkv's plan rejects the input.
+pub fn ome_image_reads(profile: &str, ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+    match profile {
+        "qptiff" => qptiff::reads(ir, description),
+        "ndpi" => crate::tiff::plan::plan("ndpi", description).map(|_| Vec::new()),
+        "ims" => Ok(Vec::new()),
+        _ if description.get("files").is_some() => Ok(Vec::new()),
+        _ => tiff::reads(ir, description),
+    }
+}
+
+/// The OME-Zarr 0.5 image refkv's convention writes at the root of a TIFF, QPTIFF, NDPI or IMS
+/// input (spec/zarrify/tiff.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#4-the-image>,
+/// spec/zarrify/qptiff.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#4-the-image>,
+/// spec/zarrify/ndpi.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>,
+/// spec/zarrify/ims.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#4-output>),
+/// as refkv's own output presents it but for the IR mirror; of the TIFF family, made from the
+/// parser's description through refkv's plan (`tiff::plan::plan`). Its nodes: the root group, with
+/// its attributes without refkv's declarations and its source metadata (`own`), then each level's
+/// array, by path; and its documents and chunks, the arrays sharded as the plan asks
+/// (`shard::apply_all`, ranges joined across inner chunks unless `checksums`). `copied` holds the
+/// bytes of the ranges `ome_image_reads` gives. The root's document is declared for the URL `""`; a
+/// caller declares it again for its own.
+pub fn ome_image(profile: &str, ir: &Ir, description: &J, copied: &Copied, checksums: bool) -> Result<(Vec<J>, Out), String> {
+    let mut out = match profile {
+        "ndpi" => ndpi::project(ir, description, "")?,
+        "qptiff" => qptiff::project(ir, description, "", copied)?,
+        "ims" => ims::project(ir, description, "")?,
+        "tiff" if description.get("files").is_some() => tiff::project_set(ir, description, "")?,
+        "tiff" => tiff::project(ir, description, "", copied)?,
+        other => return Err(format!("internal: no OME image of a {other} input")),
+    };
+    crate::shard::apply_all(&mut out, !checksums)?;
+    let mut nodes = Vec::new();
+    for (key, bytes) in &out.entries {
+        let Some(path) = key.strip_suffix("zarr.json").map(|p| p.trim_end_matches('/')) else { continue };
+        let doc: J = serde_json::from_slice(bytes).map_err(|e| format!("internal: {e}"))?;
+        let mut attributes = doc["attributes"].as_object().cloned().unwrap_or_default();
+        let own = attributes.remove(crate::out::CONVENTION_KEY).and_then(|v| v.get(profile).cloned()).unwrap_or(J::Null);
+        attributes.remove("zarr_conventions");
+        let mut node = serde_json::json!({"path": path, "attributes": attributes, "own": own});
+        if doc["node_type"] == "array" {
+            node["array"] = serde_json::json!({});
+        }
+        nodes.push(node);
+    }
+    // the root first, then the levels in order
+    nodes.sort_by_key(|n| n["path"].as_str().map(|p| (p.len(), p.to_string())));
+    Ok((nodes, out))
+}
+
 // ---- reading the facts (JSON the parsers wrote)
 
 /// A fixed-size character field: its bytes up to the first NUL, as a text value
