@@ -45,10 +45,9 @@ fn text(v: &J) -> String {
     v.as_str().or_else(|| v["latin1"].as_str()).unwrap_or("").to_string()
 }
 
-/// The bytes of a description's hexadecimal.
+/// The bytes of a description's hexadecimal (`hdf5::file::hex`, which the parser writes it with).
 fn unhex(v: &J) -> Vec<u8> {
-    let s = v.as_str().unwrap_or("").as_bytes();
-    s.chunks_exact(2).filter_map(|p| std::str::from_utf8(p).ok().and_then(|p| u8::from_str_radix(p, 16).ok())).collect()
+    crate::hdf5::file::unhex(v.as_str().unwrap_or(""))
 }
 
 /// The type named by `v` (`"NC_FLOAT"` and so on).
