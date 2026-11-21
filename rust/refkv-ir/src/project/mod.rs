@@ -16,6 +16,8 @@ mod audio;
 mod contiguous;
 pub mod hdf5_nodes;
 pub mod store;
+pub mod zarr2_nodes;
+pub mod zarr3_nodes;
 mod tiled;
 pub(crate) use tiled::MAX_NAME;
 mod window;

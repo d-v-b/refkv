@@ -151,8 +151,10 @@ header), and the caller gives them. Nothing here asks for refkv's own output. `p
 the profile's description of the input, where its parser returns one: NumPy's
 ([npy.md §8.6](../spec/zarrify/npy.md#86-the-description)), FITS's
 ([fits.md §9.6](../spec/zarrify/fits.md#96-the-description)), HDF5's, of a file read as a file
-([hdf5.md §8.7](../spec/zarrify/hdf5.md#87-the-description)), and ENVI's
-([envi.md §8.7](../spec/zarrify/envi.md#87-the-description)) do, and the other profiles' is None
+([hdf5.md §8.7](../spec/zarrify/hdf5.md#87-the-description)), ENVI's
+([envi.md §8.7](../spec/zarrify/envi.md#87-the-description)), Zarr v2's
+([zarr2.md §7.3](../spec/zarrify/zarr2.md#73-the-description)) and Zarr v3's
+([zarr3.md §7.6](../spec/zarrify/zarr3.md#76-the-description)) do, and the other profiles' is None
 until their projections read the descriptions too. `stored_array` raises `ValueError` for an array it
 cannot write so: one whose storage the IR does not model (a description with no grid, such as a
 NumPy `a<n>` array's, which the profile still presents from its header), whose elements are not

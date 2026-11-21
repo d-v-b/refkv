@@ -100,9 +100,15 @@ impl StoreFormat {
     /// description"), from what the run's parser returned beside the IR, `facts`, without the
     /// run's own counts; None for a store format whose profile's store run returns none
     /// (`run::FileProfile::store_described`). ENVI's does (spec/zarrify/envi.md §8.7
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#87-the-description>).
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#87-the-description>), and so
+    /// do the store formats of Zarr v2 (and OME-Zarr, which it reads; spec/zarrify/zarr2.md §7.3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#73-the-description>) and Zarr
+    /// v3 (spec/zarrify/zarr3.md §7.6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#76-the-description>), which
+    /// have no file profile of their own or whose file profile is the zip form's.
     pub fn description(self, facts: &J) -> Option<J> {
-        if !crate::run::Format::from_name(self.name()).is_some_and(|f| f.profile().store_described()) {
+        let zarr = matches!(self, StoreFormat::Zarr2 | StoreFormat::Zarr3);
+        if !zarr && !crate::run::Format::from_name(self.name()).is_some_and(|f| f.profile().store_described()) {
             return None;
         }
         let mut description = facts.clone();
@@ -599,13 +605,13 @@ mod tests {
     use super::*;
 
     /// A store run's description is its facts without the run's counts, of a store format whose
-    /// profile's store run returns one (ENVI's), and none of the others (an HDF5 store's facts,
-    /// Zarr v2's).
+    /// profile's store run returns one (ENVI's, Zarr v2's and Zarr v3's), and none of the others
+    /// (an HDF5 store's facts).
     #[test]
     fn a_store_format_whose_profile_says_so_gives_its_facts_as_a_description() {
         let facts = json!({"samples": 1, "counts": {"batches": 2}});
-        for name in ["envi", "hdf5", "zarr2"] {
-            let want = (name == "envi").then(|| json!({"samples": 1}));
+        for name in ["envi", "hdf5", "zarr2", "zarr3"] {
+            let want = (name != "hdf5").then(|| json!({"samples": 1}));
             assert_eq!(StoreFormat::from_name(name).unwrap().description(&facts), want, "{name}");
         }
     }

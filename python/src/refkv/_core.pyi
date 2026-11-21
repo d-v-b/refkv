@@ -325,7 +325,7 @@ class StoreRun:
         that `project(...)` gives the built-in output of it, as often as the host likes."""
     def description(self) -> str | None:
         """The profile's description of the input (JSON), of a run `parse` finished; None for a
-        store format whose run returns none yet (ENVI's does)."""
+        store format whose run returns none yet (ENVI's, Zarr v2's and Zarr v3's do)."""
     def envi(self) -> Envi:
         """The ENVI raster a run `parse` finished read, its description shared with the run;
         ValueError for a run of a store of another format."""

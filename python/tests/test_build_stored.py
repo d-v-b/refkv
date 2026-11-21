@@ -4,6 +4,8 @@ the IR). NumPy is the first format whose description a caller reads: its files a
 from their stored arrays and headers, and read back against `numpy.load`."""
 
 import base64
+import contextlib
+import json
 import math
 import zipfile
 import zlib
@@ -508,4 +510,51 @@ def test_zarr_stores_read_from_their_stored_arrays_as_zarr_python_reads_them(mon
             seen["fill"] += given is not None
             seen["zip"] += path.suffix == ".zip"
             seen[f"zarr{fmt}"] += 1
+    assert all(seen.values()), seen
+
+
+def documents_of(description: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Each document a Zarr store's description gives, by key: a Zarr v2 node's documents, or a
+    Zarr v3 candidate's `zarr.json`."""
+    if "nodes" in description:
+        return [(d["key"], d) for n in description["nodes"] for d in (n.get("document"), n.get("attributes")) if d]
+    return [(f"{c['path']}/zarr.json" if c["path"] else "zarr.json", c) for c in description["candidates"]]
+
+
+def test_a_parsed_zarr_stores_description_is_its_documents_as_json_reads_them():
+    """Every accepted Zarr v2, OME-Zarr and Zarr v3 fixture, listed and zipped: each document the
+    description gives as parsed is what Python's `json` reads of the store's object; one it gives
+    as not parsed or not read, Python's `json` does not read either. The description holds none of
+    the hierarchy's decisions (no `zarr.json` written, no source metadata, no chunk grid), and an
+    array the profile leaves out is described as any other."""
+    seen = dict.fromkeys(("json", "error", "unread", "zip", "ome-zarr", "zarr2 left out", "zarr3 left out"), 0)
+    for path in [*ZARR, *sorted(p for p in (FIXTURES / "ome-zarr").iterdir() if "reject" not in p.name)]:
+        with read(path) as parsed:
+            description: Any = parsed.description
+            assert description is not None, path.name
+            assert description["profile"] == parsed.profile, path.name
+            nodes = description.get("nodes", description.get("candidates"))
+            assert not any({"zarr", "s", "grid", "doc", "sep"} & set(n) for n in nodes), path.name
+        with zipfile.ZipFile(path) if path.suffix == ".zip" else contextlib.nullcontext() as z:
+            for key, d in documents_of(description):
+                raw = cast("Any", z).read(key) if z is not None else (path / key).read_bytes()
+                if "json" in d:
+                    assert json.loads(d["json"]) == json.loads(raw), f"{path.name}: {key}"
+                    seen["json"] += 1
+                    continue
+                if "error" in d:
+                    with pytest.raises(json.JSONDecodeError):
+                        json.loads(raw)
+                seen["error" if "error" in d else "unread"] += 1
+        seen["zip"] += path.suffix == ".zip"
+        seen["ome-zarr"] += parsed.profile == "ome-zarr"
+        if path.name == "zarr2_left_out":  # every array is described, the ones left out among them
+            arrays = {n["path"] for n in description["nodes"] if n["kind"] == "array"}
+            assert arrays == {str(z.parent.relative_to(path)) for z in path.rglob(".zarray")}, path.name
+            seen["zarr2 left out"] += 1
+        if path.name == "zarr3_left_out":  # every candidate is described, those left out and below them
+            paths = {c["path"] for c in description["candidates"]}
+            found = {"" if z.parent == path else str(z.parent.relative_to(path)) for z in path.rglob("zarr.json")}
+            assert paths == found, path.name
+            seen["zarr3 left out"] += 1
     assert all(seen.values()), seen
