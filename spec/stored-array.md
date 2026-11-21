@@ -1736,8 +1736,11 @@ Listed, it is keyed by the object of its `zarr.json`; in the zip form
 (`entries/<i>`); with no index either way, which a profile finds by the document's key. A store
 parser describes its own arrays, each in that object ([§6](#6-in-the-ir)).
 
-- **Declarations.** The `zarr.json`: listed, its object, whole; zipped, its entry's `data` element
-  (of a deflated document, the stream, a derived element). Its `data_type`, `fill_value` and
+- **Declarations.** The `zarr.json`: listed, its object, whole; zipped, its entry's `data` element,
+  as the IR holds it: the document's text, or, deflated, the stream, a derived element; but a
+  document the IR does not hold as a node's (one below a node the profile leaves out,
+  [zarrify/zarr3.md §3.3](zarrify/zarr3.md#33-nodes-that-are-not-presented)) is its bytes as the
+  zip file stores them, of a deflated one the stream as bytes. Its `data_type`, `fill_value` and
   `codecs` (the `bytes` codec's `endian`) say what the elements are.
 - **`shape`** is the document's `shape`, in the order its leading `transpose` codecs give, whose
   `axes` then give the document's order: storage axis `j` is the document's axis `order[j]` after
