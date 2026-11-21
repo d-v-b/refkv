@@ -820,6 +820,24 @@ impl Flac {
         for k in ["seek_table", "vorbis_comment"] {
             facts[k] = self.meta[k].clone();
         }
+        // the description (§8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#84-the-description>)
+        let pictures: Vec<J> = self.pictures.iter().map(|p| {
+            let mut p = p.clone();
+            if let Some(m) = p.as_object_mut() {
+                m.remove("element");
+            }
+            p
+        }).collect();
+        facts["description"] = json!({
+            "streaminfo": si.json(), "frames": self.frames.len(), "block_size": self.frames[0].2, "samples": samples,
+            "blocks": blocks, "seek_table": self.meta["seek_table"].clone(), "vorbis_comment": self.meta["vorbis_comment"].clone(),
+            "cuesheets": self.cuesheets, "pictures": pictures, "applications": self.applications, "id3v2": self.id3v2,
+            "id3v1": self.id3v1.as_ref().map_or(J::Null, |(_, b)| crate::mp3::id3v1_json(b)),
+            "elements": {
+                "frames": first, "streaminfo": self.info_value, "id3v1": id3v1,
+                "pictures": self.pictures.iter().map(|p| p["element"].clone()).collect::<Vec<_>>(),
+            },
+        });
         self.asked.put(&mut facts);
         self.facts = facts;
         Ok(())
@@ -864,5 +882,10 @@ impl crate::run::FileProfile for Profile {
     }
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::flac::project(ir, facts, url, copied)
+    }
+    /// The parser's description of the file, beside its projection's facts
+    /// (spec/zarrify/flac.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#84-the-description>).
+    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
+        facts.get("description").cloned()
     }
 }

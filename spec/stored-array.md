@@ -1635,8 +1635,9 @@ datasets' attributes are not described yet.
   `double` 9.9692099683868690e36), which a `_FillValue` of another type does not change.
 
 **FLAC** ([spec/zarrify/flac.md](zarrify/flac.md)). A FLAC file's samples are one stored array,
-keyed by its STREAMINFO block, the value `metadata/0/streaminfo`, with no index. The facts give
-the key: `info_value` is that element's id.
+keyed by its STREAMINFO block, the value `metadata/0/streaminfo`, with no index. The parser's
+description gives the key: its `elements` has that element's id as `streaminfo`
+([zarrify/flac.md §8.4](zarrify/flac.md#84-the-description)).
 
 - **Declarations.** One: the STREAMINFO block, whose fields give the sample rate, the channels,
   the bit depth, the samples in all and the MD5 of the decoded samples.

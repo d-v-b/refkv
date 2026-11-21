@@ -171,7 +171,11 @@ class Parsed:
           (spec/zarrify/ndpi.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#71-the-description>).
         - MP3: the stream's version, sample rate, channels and first channel mode, each audio
           frame's bitrate and main data, the info frame's fields, and the ID3v2, ID3v1 and APE
-          tags (spec/zarrify/mp3.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#84-the-description>)."""
+          tags (spec/zarrify/mp3.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#84-the-description>).
+        - FLAC: STREAMINFO's fields, the frames' count, block size and samples, each metadata
+          block's type and size, the seek table, Vorbis comment, cue sheets, pictures and
+          applications, and the ID3v2 and ID3v1 tags
+          (spec/zarrify/flac.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#84-the-description>)."""
         return None if self._description is None else json.loads(json.dumps(self._description))
 
     @property

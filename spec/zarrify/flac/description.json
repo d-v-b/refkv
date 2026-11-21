@@ -1,0 +1,456 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/flac/description.json",
+  "title": "The description of a FLAC file",
+  "description": "What refkv's FLAC parser found of a FLAC file's metadata blocks, frames and tags, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#84-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "streaminfo": {
+      "type": "object",
+      "properties": {
+        "min_block_size": {
+          "$ref": "#/$defs/uint"
+        },
+        "max_block_size": {
+          "$ref": "#/$defs/uint"
+        },
+        "min_frame_size": {
+          "$ref": "#/$defs/uint"
+        },
+        "max_frame_size": {
+          "$ref": "#/$defs/uint"
+        },
+        "sample_rate": {
+          "$ref": "#/$defs/uint"
+        },
+        "channels": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "bits_per_sample": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        },
+        "total_samples": {
+          "$ref": "#/$defs/uint"
+        },
+        "md5": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        }
+      },
+      "required": [
+        "min_block_size",
+        "max_block_size",
+        "min_frame_size",
+        "max_frame_size",
+        "sample_rate",
+        "channels",
+        "bits_per_sample",
+        "total_samples",
+        "md5"
+      ],
+      "additionalProperties": false
+    },
+    "frames": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "block_size": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "samples": {
+      "$ref": "#/$defs/uint"
+    },
+    "blocks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "size": {
+            "$ref": "#/$defs/uint"
+          }
+        },
+        "required": [
+          "type",
+          "size"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "seek_table": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "points": {
+              "$ref": "#/$defs/uint"
+            },
+            "placeholders": {
+              "$ref": "#/$defs/uint"
+            }
+          },
+          "required": [
+            "points",
+            "placeholders"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "vorbis_comment": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "vendor": {
+              "$ref": "#/$defs/text"
+            },
+            "comments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/text"
+              }
+            }
+          },
+          "required": [
+            "vendor",
+            "comments"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "cuesheets": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/cuesheet"
+      }
+    },
+    "pictures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "$ref": "#/$defs/uint"
+          },
+          "media_type": {
+            "$ref": "#/$defs/text"
+          },
+          "description": {
+            "$ref": "#/$defs/text"
+          },
+          "width": {
+            "$ref": "#/$defs/uint"
+          },
+          "height": {
+            "$ref": "#/$defs/uint"
+          },
+          "depth": {
+            "$ref": "#/$defs/uint"
+          },
+          "colors": {
+            "$ref": "#/$defs/uint"
+          },
+          "size": {
+            "$ref": "#/$defs/uint"
+          }
+        },
+        "required": [
+          "type",
+          "media_type",
+          "description",
+          "width",
+          "height",
+          "depth",
+          "colors",
+          "size"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "applications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/text"
+          },
+          "size": {
+            "$ref": "#/$defs/uint"
+          }
+        },
+        "required": [
+          "id",
+          "size"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "id3v2": {
+      "description": "each ID3v2 tag's header at the start, as the MP3 description gives it",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/byte"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "flags": {
+            "$ref": "#/$defs/byte"
+          },
+          "size": {
+            "$ref": "#/$defs/uint"
+          },
+          "footer": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "version",
+          "flags",
+          "size",
+          "footer"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "id3v1": {
+      "description": "the ID3v1 tag's fields, as the MP3 description gives them",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "title": {
+              "$ref": "#/$defs/text"
+            },
+            "artist": {
+              "$ref": "#/$defs/text"
+            },
+            "album": {
+              "$ref": "#/$defs/text"
+            },
+            "year": {
+              "$ref": "#/$defs/text"
+            },
+            "comment": {
+              "$ref": "#/$defs/text"
+            },
+            "track": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/byte"
+                }
+              ]
+            },
+            "genre": {
+              "$ref": "#/$defs/byte"
+            }
+          },
+          "required": [
+            "title",
+            "artist",
+            "album",
+            "year",
+            "comment",
+            "track",
+            "genre"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "elements": {
+      "type": "object",
+      "properties": {
+        "frames": {
+          "$ref": "#/$defs/uint"
+        },
+        "streaminfo": {
+          "$ref": "#/$defs/uint"
+        },
+        "id3v1": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/uint"
+            }
+          ]
+        },
+        "pictures": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/uint"
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "frames",
+        "streaminfo",
+        "id3v1",
+        "pictures"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "streaminfo",
+    "frames",
+    "block_size",
+    "samples",
+    "blocks",
+    "seek_table",
+    "vorbis_comment",
+    "cuesheets",
+    "pictures",
+    "applications",
+    "id3v2",
+    "id3v1",
+    "elements"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "uint": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "integer": {
+      "description": "an Integer (https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json): exact, whatever its magnitude",
+      "type": "integer"
+    },
+    "text": {
+      "description": "a text value (https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json)",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "latin1": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "latin1"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "cuesheet": {
+      "type": "object",
+      "properties": {
+        "catalog": {
+          "$ref": "#/$defs/text"
+        },
+        "lead_in": {
+          "$ref": "#/$defs/integer"
+        },
+        "cd": {
+          "type": "boolean"
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "offset": {
+                "$ref": "#/$defs/integer"
+              },
+              "number": {
+                "$ref": "#/$defs/uint"
+              },
+              "isrc": {
+                "$ref": "#/$defs/text"
+              },
+              "audio": {
+                "type": "boolean"
+              },
+              "pre_emphasis": {
+                "type": "boolean"
+              },
+              "indexes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "offset": {
+                      "$ref": "#/$defs/integer"
+                    },
+                    "number": {
+                      "$ref": "#/$defs/uint"
+                    }
+                  },
+                  "required": [
+                    "offset",
+                    "number"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "offset",
+              "number",
+              "isrc",
+              "audio",
+              "pre_emphasis",
+              "indexes"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "catalog",
+        "lead_in",
+        "cd",
+        "tracks"
+      ],
+      "additionalProperties": false
+    },
+    "byte": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    }
+  }
+}
