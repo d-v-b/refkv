@@ -82,6 +82,50 @@ def test_a_change_with_no_file_added(tmp_path, monkeypatch):
     assert changelog.unrecorded("HEAD", path, path.read_text(encoding="utf-8")) is None
 
 
+def branch_behind_main(tmp_path, monkeypatch):
+    """A repository whose branch `b` left `main` at a commit with document x.md; `main` has since
+    changed x.md's text and added its change file. Returns the document's path, with `b` checked out."""
+    docs = tmp_path / "spec" / "zarrify"
+    (docs / "changes" / "x").mkdir(parents=True)
+    path = docs / "x.md"
+    run = lambda *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *a], cwd=tmp_path,  # noqa: E731
+                                    check=True, capture_output=True)
+    run("init", "-q", "-b", "main")
+    for hub in ("zarrify.md", "conventions.md"):  # check reads them; their problems are not these tests'
+        (tmp_path / "spec" / hub).write_text("", encoding="utf-8")
+    path.write_text(doc(POINTER, ADDED), encoding="utf-8")
+    (docs / "changes" / "x" / "2026-10-31-x.md").write_text("Changed 2026-10-31: x.\n", encoding="utf-8")
+    run("add", ".")
+    run("commit", "-qm", "x")
+    run("branch", "b")
+    path.write_text(doc(POINTER, ADDED, body=BODY + "Main's text.\n"), encoding="utf-8")
+    (docs / "changes" / "x" / "2026-11-01-main.md").write_text("Changed 2026-11-01: main.\n", encoding="utf-8")
+    run("add", ".")
+    run("commit", "-qm", "main")
+    run("checkout", "-q", "b")
+    monkeypatch.setattr(changelog, "ROOT", tmp_path)
+    monkeypatch.setattr(changelog, "DOCS", docs)
+    return path
+
+
+def unrecorded_in(found: list[str]) -> list[str]:
+    return [p for p in found if "its text changed since" in p]
+
+
+def test_a_branch_behind_its_base(tmp_path, monkeypatch):
+    """The base's own recorded change to a document is not charged to a branch that lacks it."""
+    branch_behind_main(tmp_path, monkeypatch)
+    assert unrecorded_in(changelog.check("main")) == []
+
+
+def test_a_branch_behind_its_base_with_its_own_unrecorded_change(tmp_path, monkeypatch):
+    """A branch's own change with no change file fails, though the base added one of its own."""
+    path = branch_behind_main(tmp_path, monkeypatch)
+    path.write_text(doc(POINTER, ADDED, body=BODY + "The branch's text.\n"), encoding="utf-8")
+    assert unrecorded_in(changelog.check("main")) == [
+        "x.md: its text changed since the merge base of main and HEAD, and no file was added to changes/x/"]
+
+
 def test_a_hub_document_with_no_link(tmp_path, monkeypatch):
     (tmp_path / "spec" / "zarrify" / "changes").mkdir(parents=True)
     (tmp_path / "spec" / "conventions.md").write_text("# C\n\nNo link.\n", encoding="utf-8")
