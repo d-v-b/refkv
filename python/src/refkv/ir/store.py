@@ -318,6 +318,8 @@ class StoreParse:
         self.mirrored: _core.Mirror = run.mirror()
         # an HDF5 input's IR and descriptions, for the HDF5 convention's routine
         self.hdf5: _core.Hdf5 | None = run.hdf5() if fmt == "hdf5" else None
+        # a TIFF image across files' IR and description, for the OME image routine
+        self.image: _core.OmeImage | None = run.ome_image() if fmt == "tiff" else None
         # a Zarr v2 or v3 store's IR and description, for the Zarr convention's routine
         self.zarr: _core.Zarr | None = run.zarr() if fmt in ("zarr2", "zarr3") else None
         # an ENVI raster's description, for the ENVI convention's routine

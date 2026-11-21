@@ -98,6 +98,7 @@ class Parsed:
         self._mirrored = run.mirrored  # what makes the IR mirror, kept past `close`
         self._fits: _core.Fits | None = getattr(run, "fits", None)  # a FITS file's IR and description
         self._hdf5: _core.Hdf5 | None = getattr(run, "hdf5", None)  # an HDF5 input's IR and description
+        self._image: _core.OmeImage | None = getattr(run, "image", None)  # a TIFF's (or IMS file's) IR and description
         self._netcdf3: _core.Netcdf3 | None = getattr(run, "netcdf3", None)  # a netCDF3 file's IR and description
         self._envi: _core.Envi | None = getattr(run, "envi", None)  # an ENVI raster's description
         self._zarr: _core.Zarr | None = getattr(run, "zarr", None)  # a Zarr store's IR and description
