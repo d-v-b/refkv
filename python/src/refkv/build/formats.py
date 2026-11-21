@@ -406,7 +406,10 @@ class OmeImage(_Hierarchy):
 
     def __init__(self, parsed: Parsed, image: _core.OmeImage) -> None:
         try:
-            copied = [((offset, length), parsed.bytes((0, offset, length))) for offset, length in image.reads()]
+            ranges = image.reads()
+            # read together, so that the input's reader joins the ranges it can
+            got = parsed.bytes(*[(0, o, n) for o, n in ranges]) if ranges else []
+            copied = list(zip(ranges, [got] if isinstance(got, bytes) else got, strict=True))
             nodes, out = image.image(copied, checksums=parsed.checksums)
         except _core.Rejected as e:
             raise Rejected(str(e)) from None
