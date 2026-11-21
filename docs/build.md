@@ -149,11 +149,12 @@ A description stops at the bytes of an element: the data type, its byte order an
 are what the source declares, which a profile's routine reads (`npy_array_type` for an NPY
 header), and the caller gives them. Nothing here asks for refkv's own output. `p.description` is
 the profile's description of the input, where its parser returns one: NumPy's
-([npy.md §8.6](../spec/zarrify/npy.md#86-the-description)) and FITS's
-([fits.md §9.6](../spec/zarrify/fits.md#96-the-description)) do, and so do HDF5's
-([hdf5.md §8.7](../spec/zarrify/hdf5.md#87-the-description)), Zarr v2's
+([npy.md §8.6](../spec/zarrify/npy.md#86-the-description)), FITS's
+([fits.md §9.6](../spec/zarrify/fits.md#96-the-description)), HDF5's, of a file read as a file
+([hdf5.md §8.7](../spec/zarrify/hdf5.md#87-the-description)), ENVI's
+([envi.md §8.7](../spec/zarrify/envi.md#87-the-description)), Zarr v2's
 ([zarr2.md §7.3](../spec/zarrify/zarr2.md#73-the-description)) and Zarr v3's
-([zarr3.md §7.6](../spec/zarrify/zarr3.md#76-the-description)); the other profiles' is None
+([zarr3.md §7.6](../spec/zarrify/zarr3.md#76-the-description)) do, and the other profiles' is None
 until their projections read the descriptions too. `stored_array` raises `ValueError` for an array it
 cannot write so: one whose storage the IR does not model (a description with no grid, such as a
 NumPy `a<n>` array's, which the profile still presents from its header), whose elements are not
@@ -179,6 +180,7 @@ call, so that a caller's output can keep any piece of refkv's convention without
 | `mirror(parsed)` | the IR mirror's entries under `refkv_source` ([conventions §8](../spec/conventions.md#8-the-ir-mirror)), with their placement: the table, the view, and the keys a store's or an archive's listing ignored, which the convention records there. A store's objects under `refkv_source/objects` are its projection's to write |
 | `fits_arrays(parsed, index)`, `fits_cards(parsed, index)` | a FITS HDU's arrays as the FITS convention writes them (an image, a table's `rows` and `heap`, a tile-compressed image), but for refkv's declarations, and its header's cards as that convention writes them in JSON; the `refkv.virtualizarr` layout presents FITS files with them |
 | `hdf5_hierarchy(parsed)` | an HDF5 input's hierarchy as the HDF5 convention presents it, a file or a store of one with the files it names: its nodes, each node's attributes without refkv's declarations and its source metadata, each array's document and chunks (an edge chunk refkv copies a `Copy`, for `filled`), each array's storage element of the IR (`element`), and the URL the root names the source by (`url`, a store's named file), made from the parser's description by the function refkv's own projection calls; `refkv.virtualizarr`, `xarray-v2` and `hdf5-rechunk` present HDF5 files with it, and python/tests/test_rebuild_hdf5.py rebuilds refkv's own output with it |
+| `envi_image(parsed)` | an ENVI raster's image as the ENVI convention presents it, read as a store of its header and data files: the root's source metadata (`source_metadata()`), the array's document with no attributes (`document()`), its chunks by coordinates, each a value of its range of the data file (`chunks()`), the data file's key (`data_key`) and the URL the root names the source by (`url`, the header file's), made from the parser's description by the function refkv's own projection calls; `refkv.virtualizarr` presents ENVI rasters with it |
 | `declaration(parsed, path, own=, attributes=, url=)` | a node's attributes with refkv's convention declared ([conventions §2](../spec/conventions.md#2-attributes)): at the root, the profile, its version and the source, by `url` (the input's by default) |
 
 ```python
