@@ -4,10 +4,14 @@
 //! from a valid IR: a group per track the profile zarrifies, with the planes of an H.264 or
 //! HEVC track's pictures and their presentation times, or an audio track's samples, each chunk a
 //! `refkv.stream` chunk of the track's samples, or a PCM track's own bytes (spec/zarrify/mp4.md
-//! §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>).
+//! §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>); from the parser's
+//! description of the file (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#85-the-description>)
+//! and refkv's plan of it (`plan`), which decides which tracks it zarrifies and how.
 
 use super::{arr, audio, n, Copied};
 use crate::ir::Ir;
+use crate::mp4::{pcm_of_entry, PcmEntry};
+use crate::rules::{self, num, text};
 use crate::out::{array_json, bytes_codec, declared_group, group_doc, gzip_array, rectilinear_array_json, stream_parts, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
@@ -240,16 +244,322 @@ fn time_array(out: &mut Out, dir: &str, order: &[usize], pts: &[i64]) {
     });
 }
 
-pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, String> {
-    let limit = n(&facts["chunk_frames"]).max(1);
-    let tracks = arr(&facts["tracks"]);
+/// Whether a described sample entry stores each sample as a JPEG stream (spec/zarrify/mp4.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>): `jpeg`, `mjpa`,
+/// `dmb1`, or `mp4v` of object type indication 0x6C.
+fn is_mjpeg(e: &J) -> bool {
+    match e["type"].as_str() {
+        Some("jpeg" | "mjpa" | "dmb1") => true,
+        Some("mp4v") => e["esds"]["object_type_indication"] == 0x6C,
+        _ => false,
+    }
+}
+
+/// refkv's plan of a described track (spec/zarrify/mp4.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>): `reason`, null for a
+/// track the convention zarrifies, else why it does not; and of one it zarrifies, its `format`, its
+/// samples' `geometry` (with the arrays' data type), and what its arrays read: a video track's
+/// `setup`, `profile`, `level` and `bit_depth`, an audio track's `sample_rate`, `channels` and
+/// `spf` (samples a frame), and a PCM track's `endian`, `bytes` and `frames`.
+fn track_plan(t: &J) -> J {
+    let mut f = json!({"reason": null, "format": null, "geometry": null});
+    if let Err(r) = classify(t, &mut f) {
+        f = json!({"reason": r, "format": null, "geometry": null});
+    }
+    f
+}
+
+fn classify(t: &J, f: &mut J) -> Result<(), String> {
+    let handler = t["handler"].as_str().unwrap_or("");
+    let kind = match handler {
+        "vide" => "video",
+        "soun" => "audio",
+        h => return Err(format!("a {} track", h.trim())),
+    };
+    if t["stz2"] == true {
+        return Err("compact sample sizes (stz2) are not supported".into());
+    }
+    let count = n(&t["samples"]);
+    if count == 0 {
+        return Err("no samples".into());
+    }
+    if n(&t["sample_descriptions"]) != 1 || n(&t["entries"]) != 1 || t["other_description"] == true {
+        return Err("more than one sample description".into());
+    }
+    if n(&t["timescale"]) == 0 {
+        return Err("a media timescale of 0".into());
+    }
+    let e = &t["entry"];
+    let codec = e["type"].as_str().unwrap_or("");
+    let (width, height) = (n(&e["width"]), n(&e["height"]));
+    let pts: Vec<i64> = arr(&t["pts"]).iter().map(|v| v.as_i64().unwrap_or(0)).collect();
+    if is_mjpeg(e) {
+        let frame = &e["jpeg"];
+        if frame.is_null() {
+            return Err("a first sample without a JPEG frame header".into());
+        }
+        if width == 0 || height == 0 {
+            return Err("a sample entry of width or height 0".into());
+        }
+        let (marker, precision, components) = (n(&frame["marker"]), n(&frame["precision"]), n(&frame["components"]));
+        if !matches!(marker, 0xC0..=0xC2) || precision != 8 {
+            return Err(format!("JPEG of marker 0x{marker:02X} and {precision} bits is not supported: only 8-bit baseline, extended and progressive JPEG is"));
+        }
+        if !matches!(components, 1 | 3) {
+            return Err(format!("JPEG of {components} components is not supported: only 1 or 3 is"));
+        }
+        let (fw, fh) = (n(&frame["width"]), n(&frame["height"]));
+        if (fw, fh) != (width, height) {
+            return Err(format!("JPEG pictures of {fw}x{fh} in a sample entry of {width}x{height}, as an interlaced picture's fields are"));
+        }
+        let mut sorted = pts.clone();
+        sorted.sort_unstable();
+        if sorted.windows(2).any(|w| w[0] == w[1]) {
+            return Err("two samples share a presentation time".into());
+        }
+        f["format"] = json!("mjpeg");
+        f["geometry"] = json!({"width": width, "height": height, "channels": components, "data_type": "uint8"});
+        return Ok(());
+    }
+    if kind == "video" {
+        let config = &e["video_config"];
+        let fields = &config["fields"];
+        let (format, chroma, luma, chroma_bits) = (codec, n(&fields["chroma"]), n(&fields["luma_bits"]), n(&fields["chroma_bits"]));
+        let format = match format {
+            "avc1" => {
+                if config.is_null() {
+                    return Err("an avc1 sample entry without an avcC box".into());
+                }
+                if fields.is_null() {
+                    return Err("an avcC box without a parameter set the profile reads".into());
+                }
+                if chroma != 1 || luma != chroma_bits || !matches!(luma, 8 | 10) {
+                    return Err(format!("H.264 with chroma format {chroma} and bit depth {luma} is not supported: only 4:2:0 of 8 or 10 bits is"));
+                }
+                "h264"
+            }
+            "hvc1" | "hev1" => {
+                if config.is_null() {
+                    return Err(format!("an {} sample entry without an hvcC box", codec.trim()));
+                }
+                if fields.is_null() {
+                    return Err("an hvcC box without a VPS, SPS and PPS the profile reads".into());
+                }
+                // a 4:0:0 picture has no chroma, whatever bit depth the SPS gives it
+                let depths = chroma == 0 || luma == chroma_bits;
+                if !matches!(chroma, 0..=2) || !depths || !matches!(luma, 8 | 10 | 12) {
+                    let depth = if luma == chroma_bits { format!("bit depth {luma}") } else { format!("bit depths {luma} and {chroma_bits}") };
+                    return Err(format!("HEVC with chroma format {chroma} and {depth} is not supported: only 4:0:0, 4:2:0 or 4:2:2 of 8, 10 or 12 bits is"));
+                }
+                "hevc"
+            }
+            "av01" => {
+                if config.is_null() {
+                    return Err("an av01 sample entry without an av1C box".into());
+                }
+                if fields.is_null() {
+                    return Err("an av1C box the profile cannot read".into());
+                }
+                if chroma != 1 || !matches!(luma, 8 | 10) {
+                    return Err(format!("AV1 with chroma format {chroma} and bit depth {luma} is not supported: only 4:2:0 of 8 or 10 bits is"));
+                }
+                "av1"
+            }
+            "vp09" => {
+                if config.is_null() {
+                    return Err("a vp09 sample entry without a vpcC box".into());
+                }
+                if fields.is_null() {
+                    return Err("a vpcC box the profile cannot read".into());
+                }
+                if !matches!(chroma, 1 | 2) || !matches!(luma, 8 | 10 | 12) {
+                    return Err(format!("VP9 with chroma format {chroma} and bit depth {luma} is not supported: only 4:2:0 or 4:2:2 of 8, 10 or 12 bits is"));
+                }
+                "vp9"
+            }
+            _ => return Err(format!("{} video is not supported: only H.264 (avc1), HEVC (hvc1, hev1), AV1 (av01), VP9 (vp09) and Motion JPEG (jpeg, mjpa, dmb1) are", codec.trim())),
+        };
+        if width == 0 || height == 0 {
+            return Err("a sample entry of width or height 0".into());
+        }
+        let sync: Vec<u64> = arr(&t["sync"]).iter().map(n).collect();
+        crate::mp4::gops(&pts, &sync)?;
+        let data_type = if luma > 8 { "uint16" } else { "uint8" };
+        let (chroma, planes) = match chroma {
+            0 => ("4:0:0", 1),
+            2 => ("4:2:2", 3),
+            _ => ("4:2:0", 3),
+        };
+        f["format"] = json!(format);
+        f["geometry"] = json!({"width": width, "height": height, "planes": planes, "data_type": data_type, "chroma": chroma});
+        f["setup"] = config["data"].clone();
+        f["profile"] = fields["profile"].clone();
+        f["level"] = fields["level"].clone();
+        f["bit_depth"] = json!(luma);
+        return Ok(());
+    }
+    let (rate, channels, sound_version) = (n(&e["sample_rate"]), n(&e["channels"]), n(&e["sound_version"]));
+    if sound_version > 1 && codec != "lpcm" {
+        return Err(format!("a version {sound_version} QuickTime sound description"));
+    }
+    let pcmc = &e["pcmC"];
+    let entry = PcmEntry {
+        typ: codec.as_bytes(), bits: n(&e["sample_size"]), channels, sound_version, lpcm_flags: n(&e["lpcm_flags"]),
+        lpcm_packet: n(&e["lpcm_packet"]), pcmc: (!pcmc.is_null()).then(|| (n(&pcmc["format_flags"]) as u8, n(&pcmc["sample_size"]) as u8)),
+        enda: e["enda"] == true,
+    };
+    if let Some(pcm) = pcm_of_entry(&entry) {
+        let pcm = pcm?;
+        // a sample rate past 16 bits may be 0 in the sample entry; the media timescale is it
+        let rate = if rate > 0 { rate } else { n(&t["timescale"]) };
+        if rate == 0 || channels == 0 {
+            return Err("a sample rate or channel count of 0".into());
+        }
+        f["format"] = json!("pcm");
+        f["geometry"] = json!({"channels": channels, "data_type": pcm.data_type});
+        f["endian"] = json!(pcm.endian);
+        f["bytes"] = json!(pcm.bytes);
+        f["sample_rate"] = json!(rate);
+        f["channels"] = json!(channels);
+        f["spf"] = json!(1);
+        return Ok(());
+    }
+    let mp3_spf = if rate >= 32000 { 1152 } else { 576 };
+    let (format, setup, rate, channels, spf) = match codec {
+        "mp4a" => {
+            let esds = &e["esds"];
+            if esds.is_null() {
+                return Err("an mp4a sample entry without an esds box".into());
+            }
+            if esds["object_type_indication"].is_null() {
+                return Err("an esds box the profile cannot read".into());
+            }
+            match n(&esds["object_type_indication"]) {
+                0x40 | 0x66 | 0x67 | 0x68 => {
+                    let a = &esds["aac"];
+                    if a.is_null() {
+                        return Err("an AudioSpecificConfig the profile cannot read".into());
+                    }
+                    let aot = n(&a["object_type"]);
+                    if aot != 2 {
+                        return Err(format!("AAC object type {aot} is not supported: only AAC-LC (2), and HE-AAC of it (5 and 29), are"));
+                    }
+                    if a["short_frames"] == true {
+                        return Err("960-sample AAC frames are not supported".into());
+                    }
+                    let core = n(&a["sample_rate"]);
+                    let channels = if n(&a["channels"]) > 0 { n(&a["channels"]) } else { channels };
+                    match a["sbr_sample_rate"].as_u64() {
+                        None => ("aac", esds["config"].clone(), core, channels, 1024),
+                        Some(r) if r == 2 * core => ("aac", esds["config"].clone(), r, if a["parametric_stereo"] == true { 2 } else { channels }, 2048),
+                        Some(r) => return Err(format!("HE-AAC of SBR at {r} Hz over a core at {core} Hz is not supported: only at twice its rate is")),
+                    }
+                }
+                0x69 | 0x6B => ("mp3", J::Null, rate, channels, mp3_spf),
+                x => return Err(format!("audio of object type indication 0x{x:02x} is not supported")),
+            }
+        }
+        ".mp3" => ("mp3", J::Null, rate, channels, mp3_spf),
+        _ => return Err(format!("{} audio is not supported: only AAC, MP3 and PCM are", codec.trim())),
+    };
+    if rate == 0 || channels == 0 {
+        return Err("a sample rate or channel count of 0".into());
+    }
+    f["format"] = json!(format);
+    f["geometry"] = json!({"samples": spf, "channels": channels, "data_type": "float32"});
+    if !setup.is_null() {
+        f["setup"] = setup;
+    }
+    f["sample_rate"] = json!(rate);
+    f["channels"] = json!(channels);
+    f["spf"] = json!(spf);
+    Ok(())
+}
+
+/// The reason a PCM track's samples are not zarrified when one is not a whole number of its frames
+/// of `frame` bytes: its `stsz` box's one sample size, but 1, QuickTime's for one frame of any size,
+/// or else a sample's.
+fn ragged(t: &J, frame: u64) -> Option<String> {
+    let fixed = t["stsz_sample_size"].as_u64().filter(|&s| s != 1 && s % frame != 0);
+    let n = fixed.or(arr(&t["sizes"]).iter().map(n).find(|s| s % frame != 0))?;
+    Some(format!("PCM samples of {n} bytes, not a whole number of {frame}-byte frames"))
+}
+
+/// refkv's plan of the tracks a description describes, each as `track_plan` gives it, in the
+/// order of the `trak` boxes (spec/zarrify/mp4.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>): after the reasons of
+/// its own, a track whose ID an earlier zarrified track has is not zarrified, nor a PCM track a
+/// sample of which is not a whole number of its frames. Without the check that one track is.
+pub fn track_plans(description: &J) -> Vec<J> {
+    let mut ids = std::collections::HashSet::new();
+    arr(&description["tracks"])
+        .iter()
+        .map(|t| {
+            let mut f = track_plan(t);
+            // the last reasons: a zarrified track's group is named by its ID
+            if f["reason"].is_null() && !ids.insert(n(&t["id"])) {
+                f = json!({"reason": format!("its track ID {} is an earlier zarrified track's", t["id"]), "format": null, "geometry": null});
+            }
+            if f["format"] == "pcm" {
+                let frame = n(&f["channels"]) * n(&f["bytes"]);
+                match ragged(t, frame) {
+                    Some(r) => f = json!({"reason": r, "format": null, "geometry": null}),
+                    None => f["frames"] = json!(n(&t["bytes"]) / frame),
+                }
+            }
+            f
+        })
+        .collect()
+}
+
+/// refkv's plan of the file a description describes (spec/zarrify/mp4.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>, §8.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>): `tracks`, each
+/// track's plan (`track_plans`), and `chunk_frames`, the most frames of a chunk. An error, the
+/// profile's, when it zarrifies no track. The plan is public data that belongs to refkv's
+/// convention, not to the IR.
+pub fn plan(description: &J) -> Result<J, String> {
+    let tracks = track_plans(description);
+    let described = arr(&description["tracks"]);
+    let reasons: Vec<String> = described
+        .iter()
+        .zip(&tracks)
+        .filter(|(_, f)| !f["reason"].is_null())
+        .map(|(t, f)| {
+            let codec = t["entry"]["type"].as_str().unwrap_or("none");
+            format!("track {} ({}): {}", t["id"], codec.trim(), f["reason"].as_str().unwrap_or(""))
+        })
+        .collect();
+    let projected = tracks.len() - reasons.len();
+    rules::of("mp4").check("tracks", rules::env([("projected", num(projected as f64)), ("reasons", text(&reasons.join("; ")))]))?;
+    Ok(json!({"tracks": tracks, "chunk_frames": crate::mp3::chunk_frames()}))
+}
+
+/// A track as refkv's convention reads it: its description (`t`) and its plan (`f`) together, with
+/// the description's `samples` as `count`, its entry's type as `codec`, and its first sample's
+/// element as `first`.
+pub fn planned_track(t: &J, f: &J) -> J {
+    let mut m = f.as_object().cloned().unwrap_or_default();
+    for k in ["index", "id", "handler", "timescale", "duration", "edits", "pts", "sync"] {
+        m.insert(k.into(), t[k].clone());
+    }
+    m.insert("count".into(), t["samples"].clone());
+    m.insert("codec".into(), t["entry"]["type"].as_str().map_or(json!(""), |c| json!(c)));
+    m.insert("first".into(), t["elements"]["first"].clone());
+    J::Object(m)
+}
+
+pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied) -> Result<Out, String> {
+    let plan = plan(description)?;
+    let limit = n(&plan["chunk_frames"]).max(1);
+    let tracks: Vec<J> = arr(&description["tracks"]).iter().zip(arr(&plan["tracks"])).map(|(t, f)| planned_track(t, f)).collect();
     // the root (§5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#51-the-root>)
     let mut own = Map::new();
-    if !facts["brand"].is_null() {
-        own.insert("brand".into(), facts["brand"].clone());
+    if !description["brand"].is_null() {
+        own.insert("brand".into(), description["brand"].clone());
     }
-    own.insert("timescale".into(), facts["timescale"].clone());
-    own.insert("duration".into(), facts["duration"].clone());
+    own.insert("timescale".into(), description["timescale"].clone());
+    own.insert("duration".into(), description["duration"].clone());
     let listed: Vec<J> = tracks.iter().map(|t| {
         let projected = t["reason"].is_null();
         json!({"id": t["id"], "handler": t["handler"], "codec": t["codec"],
@@ -368,7 +678,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     let mut out = refs.out;
     let skipped: Vec<J> = tracks.iter().filter(|t| !t["reason"].is_null()).map(|t| json!({"id": t["id"], "codec": t["codec"], "reason": t["reason"]})).collect();
     out.summary = json!({
-        "brand": facts["brand"]["major"].clone(), "tracks": summary, "skipped": skipped,
+        "brand": description["brand"]["major"].clone(), "tracks": summary, "skipped": skipped,
     });
     Ok(out)
 }
@@ -462,5 +772,50 @@ mod tests {
         assert_eq!(audio_lead(80, "aac", 2048, &vec![0; 100]), 16);
         // 106 bytes of main data a frame at least: 5 frames hold 530
         assert_eq!(audio_lead(12, "mp3", 1152, &sizes), 5);
+    }
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::{plan, track_plans};
+    use serde_json::{json, Value as J};
+
+    /// A described track of `handler`, ID `id` and sample entry `entry`, of two samples, both sync
+    /// samples.
+    fn track(handler: &str, id: u64, entry: J) -> J {
+        json!({"handler": handler, "id": id, "stz2": false, "samples": 2, "sample_descriptions": 1, "entries": 1,
+               "other_description": false, "timescale": 1000, "entry": entry, "pts": [0, 1], "sync": [0, 1],
+               "sizes": [8], "stsz_sample_size": null, "bytes": 16})
+    }
+
+    fn avc1(chroma: u64, bits: u64) -> J {
+        json!({"type": "avc1", "width": 64, "height": 48, "video_config": {"box": "avcC", "data": "AA==",
+               "fields": {"profile": 100, "level": 30, "chroma": chroma, "luma_bits": bits, "chroma_bits": bits}}})
+    }
+
+    /// A 4:2:0 H.264 track of 10 bits is zarrified as 16-bit planes; a text track, a second track of
+    /// the first's ID, a 4:4:4 one, and 16-bit PCM in 6-byte samples are not, each for its reason.
+    #[test]
+    fn each_track_is_zarrified_or_has_its_reason() {
+        let sowt = json!({"type": "sowt", "channels": 2, "sample_rate": 8000, "sample_size": 16, "sound_version": 0,
+                          "lpcm_flags": 0, "lpcm_packet": 0, "pcmC": null, "enda": null, "esds": null});
+        let mut ragged = track("soun", 5, sowt.clone());
+        ragged["sizes"] = json!([8, 6]);
+        let d = json!({"tracks": [track("vide", 1, avc1(1, 10)), track("text", 2, J::Null), track("vide", 1, avc1(1, 8)),
+                                   track("vide", 3, avc1(3, 8)), track("soun", 4, sowt), ragged]});
+        let plans = track_plans(&d);
+        assert_eq!(plans[0]["format"], "h264");
+        assert_eq!(plans[0]["geometry"], json!({"width": 64, "height": 48, "planes": 3, "data_type": "uint16", "chroma": "4:2:0"}));
+        assert_eq!(plans[1]["reason"], "a text track");
+        assert_eq!(plans[2]["reason"], "its track ID 1 is an earlier zarrified track's");
+        assert!(plans[3]["reason"].as_str().unwrap().starts_with("H.264 with chroma format 3"));
+        assert_eq!((plans[4]["format"].clone(), plans[4]["frames"].clone()), (json!("pcm"), json!(4)));
+        assert_eq!(plans[5]["reason"], "PCM samples of 6 bytes, not a whole number of 4-byte frames");
+    }
+
+    #[test]
+    fn a_file_with_no_track_to_zarrify_has_no_plan() {
+        let d = json!({"tracks": [track("text", 2, json!({"type": "tx3g"}))]});
+        assert_eq!(plan(&d).unwrap_err(), "no track can be zarrified: track 2 (tx3g): a text track");
     }
 }
