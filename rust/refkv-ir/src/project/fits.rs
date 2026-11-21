@@ -8,10 +8,12 @@
 
 use super::{contiguous, key, Copied};
 use crate::fed::Word;
-use crate::fits::{card, parse_cards, Card, Value};
+use crate::fits::{card, parse_cards, row_struct, tile_cut, Card, Value};
 use crate::fits_tiles::{prefix, TileRecord};
 use crate::ir::Ir;
-use crate::out::{array_json, blob_chunks, bytes_codec, declare_array, declared_group, grid_chunks, int_json, item_size, json_size, Chunk, Out, Part};
+use crate::out::{array_json, blob_chunks, bytes_codec, copy_threshold, declare_array, declared_group, grid_chunks, int_json, item_size, json_size, Chunk, Out, Part};
+use crate::rules;
+use std::collections::HashMap;
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -91,6 +93,38 @@ fn string_or_number(cards: &[Card], keyword: &str) -> J {
     }
 }
 
+/// The Zarr data type of the values of `bitpix` (§3.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#31-the-array>), the profile's
+/// table of BITPIX.
+fn data_type(bitpix: &J) -> String {
+    let table = rules::of(PROFILE).table("data_types");
+    table[bitpix.as_i64().unwrap_or(8).to_string()]["dtype"].as_str().unwrap_or("uint8").to_string()
+}
+
+/// A binary table's rows as a struct, or why they stay bytes (§4.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#41-rows-as-a-struct>), from its
+/// header's `TFORMn` and `TTYPEn`; an ASCII table's stay bytes (`ascii`). None for an HDU that is
+/// no table, or a tile-compressed image's table.
+fn row_of(h: &J, cards: &[Card]) -> Option<Result<J, &'static str>> {
+    if h["kind"] != "table" {
+        return None;
+    }
+    if h["type"] != "bintable" {
+        return Some(Err("ascii"));
+    }
+    let t = &h["table"];
+    let forms: Vec<String> = t["tform"].as_array().into_iter().flatten().filter_map(|f| f.as_str().map(str::to_string)).collect();
+    let r = rules::of(PROFILE);
+    Some(row_struct(cards, &forms, t["row_bytes"].as_u64().unwrap_or(0), r.limit("max_row_fields") as u64, r.limit("max_row_bytes") as u64))
+}
+
+/// The elements of the tile-compressed images' heaps (`hdus/<i>/heap/<j>`), by their HDU's node
+/// and `j`, which the projection's chunks are: the parser makes one per chunk of [`tile_cut`] that
+/// holds a tile.
+fn heap_chunks(ir: &Ir) -> HashMap<(u32, u64), u32> {
+    (0..ir.len()).filter(|&i| ir.names.get(ir.name[i]) == "heap/").map(|i| ((ir.parent[i], ir.nidx[i]), i as u32)).collect()
+}
+
 /// The cards of HDU `h`, from its header element.
 fn cards_of(ir: &Ir, h: &J) -> Result<Vec<Card>, String> {
     let id = h["elements"]["header"].as_u64().ok_or("internal: an HDU without a header")? as u32;
@@ -101,7 +135,7 @@ fn cards_of(ir: &Ir, h: &J) -> Result<Vec<Card>, String> {
 /// An HDU node's source metadata (§5.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#52-an-hdus-node>): its index, its cards (null past the budget), an
 /// image's scaling members, a table's columns.
-fn own_json(h: &J, cards: &[Card]) -> J {
+fn own_json(h: &J, cards: &[Card], row: Option<&Result<J, &'static str>>) -> J {
     let mut own = Map::new();
     own.insert("index".into(), h["index"].clone());
     let cj = cards_json(cards);
@@ -115,7 +149,10 @@ fn own_json(h: &J, cards: &[Card]) -> J {
         }
         Some("table") => {
             let forms = h["table"]["tform"].as_array().cloned().unwrap_or_default();
-            let fields = &h["table"]["struct"]["fields"];
+            let fields = match row {
+                Some(Ok(r)) => r["fields"].clone(),
+                _ => J::Null,
+            };
             let columns: Vec<J> = forms
                 .iter()
                 .enumerate()
@@ -132,7 +169,10 @@ fn own_json(h: &J, cards: &[Card]) -> J {
                 })
                 .collect();
             own.insert("columns".into(), J::Array(columns));
-            own.insert("not_struct".into(), h["table"]["not_struct"].clone());
+            own.insert("not_struct".into(), match row {
+                Some(Err(reason)) => json!(reason),
+                _ => J::Null,
+            });
         }
         _ => {}
     }
@@ -143,8 +183,8 @@ fn own_json(h: &J, cards: &[Card]) -> J {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
 /// contiguous values; in a compressed file, each one chunk, the file's `length` bytes (§2.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#21-a-compressed-file>).
-fn arrays(ir: &Ir, h: &J, threshold: usize, stream: &J) -> Result<Vec<Node>, String> {
-    let mut out = cut_arrays(ir, h, threshold)?;
+fn arrays(ir: &Ir, h: &J, row: Option<&J>, threshold: usize, stream: &J) -> Result<Vec<Node>, String> {
+    let mut out = cut_arrays(ir, h, row, threshold)?;
     if let Some(length) = stream["length"].as_u64() {
         for a in &mut out {
             let (start, bytes) = a.element.map_or((0, 0), |e| (ir.start[e as usize], ir.len[e as usize]));
@@ -160,7 +200,7 @@ fn arrays(ir: &Ir, h: &J, threshold: usize, stream: &J) -> Result<Vec<Node>, Str
     Ok(out)
 }
 
-fn cut_arrays(ir: &Ir, h: &J, threshold: usize) -> Result<Vec<Node>, String> {
+fn cut_arrays(ir: &Ir, h: &J, row: Option<&J>, threshold: usize) -> Result<Vec<Node>, String> {
     let index = h["index"].as_u64().unwrap_or(0);
     let mut out = Vec::new();
     match h["kind"].as_str() {
@@ -171,7 +211,7 @@ fn cut_arrays(ir: &Ir, h: &J, threshold: usize) -> Result<Vec<Node>, String> {
             let element = h["elements"]["data"].as_u64().map(|v| v as u32);
             let offset = element.map_or(0, |e| ir.start[e as usize]);
             let (grid, chunks) = grid_chunks(offset, &shape, item, CHUNK_BYTES, threshold).ok_or("internal: the data cannot be cut into chunks")?;
-            out.push(Node { path: index.to_string(), data_type: h["data_type"].as_str().unwrap_or("uint8").to_string(), shape, dims, element, grid, chunks, within: None, row: None });
+            out.push(Node { path: index.to_string(), data_type: data_type(&h["bitpix"]), shape, dims, element, grid, chunks, within: None, row: None });
         }
         Some("table") => {
             let t = &h["table"];
@@ -179,7 +219,7 @@ fn cut_arrays(ir: &Ir, h: &J, threshold: usize) -> Result<Vec<Node>, String> {
             let element = h["elements"]["rows"].as_u64().map(|v| v as u32);
             let offset = element.map_or(0, |e| ir.start[e as usize]);
             let path = format!("{index}/rows");
-            let row = (!t["struct"].is_null()).then(|| t["struct"].clone());
+            let row = row.cloned();
             // a struct's element is a row; bytes' a byte of a row
             let (shape, item, dims, data_type): (Vec<u64>, u64, Vec<String>, &str) = match row {
                 Some(_) => (vec![rows], row_bytes, vec!["row".into()], "struct"),
@@ -199,21 +239,26 @@ fn cut_arrays(ir: &Ir, h: &J, threshold: usize) -> Result<Vec<Node>, String> {
 }
 
 /// The source's ranges of the edge chunks the projection copies.
-pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
-    let threshold = contiguous::threshold(facts);
+pub fn reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+    let threshold = copy_threshold();
     let mut out = Vec::new();
-    for h in facts["hdus"].as_array().into_iter().flatten() {
-        for a in arrays(ir, h, threshold, &facts["stream"])? {
+    for h in description["hdus"].as_array().into_iter().flatten() {
+        if !h["compression"].is_null() {
+            continue;
+        }
+        let cards = cards_of(ir, h)?;
+        let row = row_of(h, &cards).and_then(Result::ok);
+        for a in arrays(ir, h, row.as_ref(), threshold, &description["stream"])? {
             out.extend(contiguous::copy_reads(&a.chunks));
         }
     }
     Ok(out)
 }
 
-pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    let threshold = contiguous::threshold(facts);
-    let hdus = facts["hdus"].as_array().cloned().unwrap_or_default();
-    let stream = &facts["stream"];
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+    let threshold = copy_threshold();
+    let hdus = description["hdus"].as_array().cloned().unwrap_or_default();
+    let stream = &description["stream"];
     let mut out = Out::new(url);
     // the root: the table of HDUs and the primary header's cards (§5.1
     // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#51-the-root>)
@@ -243,13 +288,14 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
             "offset": h["offset"], "header_bytes": h["header_bytes"], "data_offset": h["data_offset"], "data_bytes": h["data_bytes"],
             "compression": compression_json(&h["compression"]),
         }));
-        let own = own_json(h, &cards);
+        let row = row_of(h, &cards);
+        let own = own_json(h, &cards, row.as_ref());
         let index = h["index"].as_u64().unwrap_or(0);
         if !h["compression"].is_null() {
             tiled.push((h.clone(), own));
             continue;
         }
-        let node_arrays = arrays(ir, h, threshold, stream)?;
+        let node_arrays = arrays(ir, h, row.and_then(Result::ok).as_ref(), threshold, stream)?;
         if kind == "image" {
             // the array is the node itself: its document gets the declaration
         } else {
@@ -305,35 +351,41 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>):
     // the array's chunks are a literal prefix of the tiles' records, then the heap element's
     // ranges; the `refkv.fits_tiles` codec decodes them
+    let heaps = if tiled.is_empty() { HashMap::new() } else { heap_chunks(ir) };
     for (h, own) in tiled {
         let c = &h["compression"];
         let index = h["index"].as_u64().unwrap_or(0);
         let path = index.to_string();
-        let shape: Vec<u64> = c["shape"].as_array().unwrap_or(&Vec::new()).iter().map(|v| v.as_u64().unwrap_or(0)).collect();
+        let ints = |v: &J| -> Vec<u64> { v.as_array().into_iter().flatten().map(|v| v.as_u64().unwrap_or(0)).collect() };
+        let (shape, tile) = (ints(&c["shape"]), ints(&c["tile"]));
         let dims: Vec<String> = (1..=shape.len()).rev().map(|n| format!("axis{n}")).collect();
         let dim_refs: Vec<&str> = dims.iter().map(|s| s.as_str()).collect();
-        let data_type = c["data_type"].as_str().unwrap_or("uint8").to_string();
+        let data_type = data_type(&c["zbitpix"]);
+        let item = c["zbitpix"].as_i64().unwrap_or(8).unsigned_abs() / 8;
+        let (chunk_shape, _, chunks) = tile_cut(&shape, &tile, item);
+        let node = h["elements"]["header"].as_u64().map(|e| ir.parent[e as usize]).ok_or("internal: an HDU without a header")?;
         let config = json!({
             "compression": c["type"], "parameters": c["parameters"], "zbitpix": c["zbitpix"],
             "shape": c["shape"], "tile_shape": c["tile"], "quantize": c["quantize"],
             "dither_seed": c["dither_seed"].as_i64().unwrap_or(0),
         });
         let codecs = json!([{"name": "refkv.fits_tiles", "configuration": config}]);
-        let mut doc = array_json(&shape, &data_type, c["chunk_shape"].clone(), codecs, &dim_refs);
+        let mut doc = array_json(&shape, &data_type, json!(chunk_shape), codecs, &dim_refs);
         declare_array(&mut doc, PROFILE, own);
         refs.out.json(&format!("{path}/zarr.json"), &doc);
-        summary_arrays.push(json!({"path": path, "shape": shape, "dataType": data_type, "chunkShape": c["chunk_shape"], "compression": c["type"]}));
+        summary_arrays.push(json!({"path": path, "shape": shape, "dataType": data_type, "chunkShape": chunk_shape, "compression": c["type"]}));
         let table = h["elements"]["table"].as_u64().and_then(|t| ir.value_bytes(t as u32)).unwrap_or(&[]);
         let records = tile_records(c, table)?;
-        for ch in c["chunks"].as_array().into_iter().flatten() {
-            let Some(e) = ch["element"].as_u64() else { continue };
-            let (first, n) = (ch["first"].as_u64().unwrap_or(0) as usize, ch["count"].as_u64().unwrap_or(0) as usize);
-            let (start, length, form) = (ir.start[e as usize], ir.len[e as usize], ir.form_id(e as u32).ok_or("internal: a heap chunk has no form")?);
+        for (j, ch) in chunks.iter().enumerate() {
+            // a chunk that holds no tile has no element, and is the fill value
+            let Some(&e) = heaps.get(&(node, j as u64)) else { continue };
+            let (first, n) = (ch.first as usize, ch.count as usize);
+            let (start, length, form) = (ir.start[e as usize], ir.len[e as usize], ir.form_id(e).ok_or("internal: a heap chunk has no form")?);
             let mut parts = refs.parts(start, length, form)?;
-            parts.insert(0, Part::Lit(prefix(first as u64, &records[first..first + n])));
-            let coords = ch["coords"].as_array().into_iter().flatten().map(super::n);
+            let tiles = records.get(first..first + n).ok_or("internal: a chunk past the tile table")?;
+            parts.insert(0, Part::Lit(prefix(first as u64, tiles)));
             count += 1;
-            refs.chunk(key(&format!("{path}/c/"), coords), start, length, form, Some(parts))?;
+            refs.chunk(key(&format!("{path}/c/"), ch.coords.iter().copied()), start, length, form, Some(parts))?;
         }
     }
     let mut out = refs.out;
@@ -427,7 +479,7 @@ mod tests {
             "TNULL5  = -1234567890123456789012345678901234567890",
         ]);
         let h = json!({"index": 1, "kind": "table", "table": {"tform": ["I8", "J", "K", "K", "K"]}});
-        let own = own_json(&h, &parse_cards(&raw, 5));
+        let own = own_json(&h, &parse_cards(&raw, 5), None);
         let columns = own["columns"].as_array().unwrap();
         assert_eq!(columns[0]["null"], json!("N/A"));
         assert_eq!(columns[1]["null"], json!(-99));

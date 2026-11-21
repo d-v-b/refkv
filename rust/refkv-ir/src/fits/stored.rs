@@ -268,8 +268,11 @@ impl Built {
 pub(super) fn described(ir: &Ir, hdus: &[J]) -> Res<(Vec<StoredArray>, Vec<Chain>, ChunkMap)> {
     let mut b = Built::default();
     for h in hdus {
-        // an HDU of no axes holds no array
-        let Some(key) = h["declared_by"].as_u64().map(|v| v as u32) else { continue };
+        // an HDU of no axes holds no array; the others' are keyed by their header
+        if h["kind"] == "empty" {
+            continue;
+        }
+        let Some(key) = element(h, "header") else { continue };
         let t = &h["table"];
         if t.is_null() {
             // an image: its values, NAXIS1 fastest; where the HDU's data is longer than they
