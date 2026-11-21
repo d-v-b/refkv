@@ -6,10 +6,12 @@
 //! (§8.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#82-shards>; the run
 //! shards the array as spec/zarrify.md §2.1
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards> says), and the
-//! pictures' data as arrays of bytes.
+//! pictures' data as arrays of bytes; from the parser's description of the file (§8.4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#84-the-description>) and refkv's
+//! plan of it (`plan`).
 
 use super::{arr, base64, n, Copied};
-use crate::flac::data_type;
+use crate::flac::{data_type, shard_frames};
 use crate::ir::Ir;
 use crate::out::{array_json, blob_chunks, bytes_codec, declared_group, group_doc, stream_parts, Chunk, Out};
 use crate::refs::Refs;
@@ -28,18 +30,35 @@ pub fn setup(streaminfo: &[u8]) -> Vec<u8> {
     b
 }
 
-pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, String> {
-    let first = n(&facts["frames"]) as usize;
-    let count = n(&facts["count"]) as usize;
-    let block = n(&facts["block"]);
-    let samples = n(&facts["samples"]);
-    let si = &facts["streaminfo"];
-    let (rate, channels, bits) = (n(&si["sample_rate"]), n(&si["channels"]), n(&si["bits_per_sample"]));
-    // a shard of `shard_frames` frames, or of every frame when there are fewer
-    let per = (n(&facts["shard_frames"]).max(1) as usize).min(count.max(1));
-    if count == 0 || first + count > ir.start.len() {
-        return Err("internal: the facts do not describe the frames".into());
+/// refkv's plan of the file a description describes (spec/zarrify/flac.md §4.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#41-the-array>, §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#82-shards>): `shard_frames`,
+/// the frames of a shard (512, or every frame when there are fewer), and `data_type`, the
+/// samples' Zarr data type, the smallest signed integer that holds STREAMINFO's bits. The plan is
+/// public data that belongs to refkv's convention, not to the IR.
+pub fn plan(description: &J) -> Result<J, String> {
+    let count = n(&description["frames"]) as usize;
+    if count == 0 {
+        return Err("internal: the description has no frames".into());
     }
+    let bits = n(&description["streaminfo"]["bits_per_sample"]);
+    Ok(json!({"shard_frames": shard_frames().max(1).min(count), "data_type": data_type(bits)}))
+}
+
+pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied) -> Result<Out, String> {
+    let d = description;
+    let plan = plan(d)?;
+    let per = n(&plan["shard_frames"]) as usize;
+    let first = n(&d["elements"]["frames"]) as usize;
+    let count = n(&d["frames"]) as usize;
+    let (block, samples) = (n(&d["block_size"]), n(&d["samples"]));
+    let si = &d["streaminfo"];
+    let (rate, channels, bits) = (n(&si["sample_rate"]), n(&si["channels"]), n(&si["bits_per_sample"]));
+    if first + count > ir.start.len() {
+        return Err("internal: the description does not describe the frames".into());
+    }
+    let pictures = arr(&d["pictures"]);
+    let elements = arr(&d["elements"]["pictures"]);
 
     // the root (§5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#51-the-root>)
     let mut own = Map::new();
@@ -51,42 +70,26 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     own.insert("samples".into(), json!(samples));
     own.insert("duration".into(), if rate > 0 { json!(samples as f64 / rate as f64) } else { J::Null });
     own.insert("streaminfo".into(), si.clone());
-    own.insert("blocks".into(), facts["blocks"].clone());
+    own.insert("blocks".into(), d["blocks"].clone());
     for k in ["seek_table", "vorbis_comment"] {
-        if !facts[k].is_null() {
-            own.insert(k.into(), facts[k].clone());
+        if !d[k].is_null() {
+            own.insert(k.into(), d[k].clone());
         }
     }
-    if !arr(&facts["cuesheets"]).is_empty() {
-        own.insert("cuesheets".into(), facts["cuesheets"].clone());
+    for k in ["cuesheets", "pictures", "applications", "id3v2"] {
+        if !arr(&d[k]).is_empty() {
+            own.insert(k.into(), d[k].clone());
+        }
     }
-    let pictures = arr(&facts["pictures"]);
-    if !pictures.is_empty() {
-        let p: Vec<J> = pictures.iter().map(|p| {
-            let mut p = p.clone();
-            if let Some(m) = p.as_object_mut() {
-                m.remove("element");
-            }
-            p
-        }).collect();
-        own.insert("pictures".into(), J::Array(p));
-    }
-    if !arr(&facts["applications"]).is_empty() {
-        own.insert("applications".into(), facts["applications"].clone());
-    }
-    if !arr(&facts["id3v2"]).is_empty() {
-        own.insert("id3v2".into(), facts["id3v2"].clone());
-    }
-    if let Some(i) = facts["id3v1"].as_u64() {
-        let b = ir.value_bytes(i as u32).ok_or("internal: the ID3v1 tag is not held")?;
-        own.insert("id3v1".into(), crate::mp3::id3v1_json(b));
+    if !d["id3v1"].is_null() {
+        own.insert("id3v1".into(), d["id3v1"].clone());
     }
     let mut out = Out::new(url);
     out.json("zarr.json", &declared_group(Map::new(), "flac", Some(url), Some(J::Object(own))));
 
     // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#41-the-array>)
-    let streaminfo = ir.value_bytes(n(&facts["info_value"]) as u32).ok_or("internal: STREAMINFO is not held")?;
-    let dtype = data_type(bits);
+    let streaminfo = ir.value_bytes(n(&d["elements"]["streaminfo"]) as u32).ok_or("internal: STREAMINFO is not held")?;
+    let dtype = plan["data_type"].as_str().unwrap_or("int32");
     let codecs = json!([{"name": "refkv.stream", "configuration": {"format": "flac", "setup": base64(&setup(streaminfo))}}]);
     let array = array_json(&[samples, channels], dtype, json!([block, channels]), codecs, &["time", "channel"]);
     out.json(&format!("{ARRAY}/zarr.json"), &array);
@@ -102,14 +105,14 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     let shards = count.div_ceil(per);
 
     // the pictures (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#42-the-pictures>)
-    if pictures.iter().any(|p| p["element"].is_u64()) {
+    if elements.iter().any(J::is_u64) {
         refs.out.json(&format!("{PICTURES}/zarr.json"), &group_doc(Map::new()));
     }
-    for (i, p) in pictures.iter().enumerate() {
+    for (i, e) in elements.iter().enumerate() {
         // a picture of no data has no array (conventions §7
         // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>:
         // bytes are at least 1)
-        let Some(e) = p["element"].as_u64() else { continue };
+        let Some(e) = e.as_u64() else { continue };
         let (start, size) = (ir.start[e as usize], ir.len[e as usize]);
         let (chunk, chunks) = blob_chunks(start, size);
         let path = format!("{PICTURES}/{i}");
@@ -123,10 +126,10 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     }
     let mut out = refs.out;
     let mut tags = Vec::new();
-    if !arr(&facts["id3v2"]).is_empty() {
+    if !arr(&d["id3v2"]).is_empty() {
         tags.push("id3v2");
     }
-    if !facts["id3v1"].is_null() {
+    if !d["id3v1"].is_null() {
         tags.push("id3v1");
     }
     out.summary = json!({
@@ -135,4 +138,30 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
         "shardFrames": per, "shards": shards, "pictures": pictures.len(), "tags": tags,
     });
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plan;
+    use crate::flac::{set_shard_frames, DEFAULT_SHARD_FRAMES};
+    use serde_json::json;
+
+    /// A shard holds 512 frames, or every frame when there are fewer; the data type is the smallest
+    /// signed integer that holds the samples' bits.
+    #[test]
+    fn the_plan_sizes_shards_and_picks_the_data_type() {
+        set_shard_frames(None);
+        let d = |frames, bits| json!({"frames": frames, "streaminfo": {"bits_per_sample": bits}});
+        let cases = [(1000, 16, DEFAULT_SHARD_FRAMES, "int16"), (7, 8, 7, "int8"), (600, 12, DEFAULT_SHARD_FRAMES, "int16"),
+                     (3, 24, 3, "int32"), (512, 32, 512, "int32")];
+        for (frames, bits, shard, dtype) in cases {
+            assert_eq!(plan(&d(frames, bits)).unwrap(), json!({"shard_frames": shard, "data_type": dtype}), "{frames} {bits}");
+        }
+    }
+
+    #[test]
+    fn a_description_of_no_frames_has_no_plan() {
+        let d = json!({"frames": 0, "streaminfo": {"bits_per_sample": 16}});
+        assert!(plan(&d).unwrap_err().contains("no frames"));
+    }
 }
