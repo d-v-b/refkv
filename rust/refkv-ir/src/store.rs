@@ -95,6 +95,22 @@ impl StoreFormat {
     pub fn profile(self) -> &'static str {
         self.name()
     }
+
+    /// The profile's description of the input (the design of d-v-b/refkv#278, "The
+    /// description"), from what the run's parser returned beside the IR, `facts`, without the
+    /// run's own counts; None for a store format whose profile's store run returns none
+    /// (`run::FileProfile::store_described`). ENVI's does (spec/zarrify/envi.md §8.7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#87-the-description>).
+    pub fn description(self, facts: &J) -> Option<J> {
+        if !crate::run::Format::from_name(self.name()).is_some_and(|f| f.profile().store_described()) {
+            return None;
+        }
+        let mut description = facts.clone();
+        if let Some(m) = description.as_object_mut() {
+            m.remove("counts");
+        }
+        Some(description)
+    }
 }
 
 /// One request: object `object` (its key `key`), the spans (start, end) to read of it.
@@ -581,6 +597,18 @@ pub fn run_store(format: StoreFormat, keys: Vec<(String, u64)>, read: &dyn Fn(us
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A store run's description is its facts without the run's counts, of a store format whose
+    /// profile's store run returns one (ENVI's), and none of the others (an HDF5 store's facts,
+    /// Zarr v2's).
+    #[test]
+    fn a_store_format_whose_profile_says_so_gives_its_facts_as_a_description() {
+        let facts = json!({"samples": 1, "counts": {"batches": 2}});
+        for name in ["envi", "hdf5", "zarr2"] {
+            let want = (name == "envi").then(|| json!({"samples": 1}));
+            assert_eq!(StoreFormat::from_name(name).unwrap().description(&facts), want, "{name}");
+        }
+    }
 
     /// A parser that probes `batch` new keys each step, forever, or for `until` steps (then done);
     /// the keys it calls optional are those `optional` holds.

@@ -13,8 +13,9 @@ import numpy as np
 import pytest
 
 from refkv import _core
-from refkv.build import Parsed, filled, fits_arrays, fits_cards, hdf5_hierarchy, project, read, seal
+from refkv.build import Parsed, envi_image, filled, fits_arrays, fits_cards, hdf5_hierarchy, project, read, seal
 from refkv.zarrify import Rejected
+from refkv.zarrify.layouts import chunk_key
 from refkv.zarrify.layouts.examples.hdf5_rechunk import Hdf5Rechunk
 from refkv.zarrify.layouts.examples.xarray_v2 import XarrayV2
 from refkv.zarrify.layouts.virtualizarr import VirtualiZarr
@@ -213,3 +214,49 @@ def test_hdf5_hierarchy_files_each_chunk_under_its_array_whatever_its_nodes_are_
         for node in ("c/c", "c/x", "x"):
             chunks = hierarchy.array_entries(node)[1]
             assert chunks.keys() == pr.array_entries(node)[1].keys() != set(), node
+
+
+# ---- ENVI
+
+ENVI = sorted(p for p in (FIXTURES / "envi").iterdir() if p.suffix.lower() == ".hdr" and "reject" not in p.name)
+
+
+def test_the_envi_image_is_the_one_refkv_s_own_output_presents():
+    """Every accepted ENVI raster, read as a store of its header and data files: the ENVI
+    convention's image has refkv's own output's source metadata, array document and chunks, each a
+    range of the data file, and names the header file as the root's source."""
+    for path in ENVI:
+        with read(str(path)) as parsed:
+            image = envi_image(parsed)
+            pr = project(parsed)
+            root = pr.document("zarr.json")["attributes"]["refkv_zarrified"]
+            assert image.url == root["source"]["url"], path.name
+            assert image.source_metadata() == pr.source_metadata(""), path.name
+            assert image.data_key == pr.source_metadata("")["data_file"], path.name
+            doc, chunks = pr.array_entries("0")
+            assert image.document() == doc, path.name
+            mine = {chunk_key(list(coords), doc): value for coords, value in image.chunks().items()}
+            assert mine == chunks, path.name
+
+
+def test_envi_layouts_ask_for_no_output_of_refkv_s(monkeypatch):
+    """`refkv.virtualizarr` presents every accepted ENVI raster from the ENVI convention's image,
+    with refkv's own output made to raise: it is its peer (the plan of d-v-b/refkv#278). That what
+    it writes is unchanged, its own tests show."""
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("refkv's own output was asked for")
+
+    layout = VirtualiZarr()
+    for path in ENVI:
+        with read(str(path)) as parsed:
+            monkeypatch.setattr(Parsed, "_output_async", refuse)
+            monkeypatch.setattr(Parsed, "_output", refuse)
+            out = layout.write([parsed], layout.options({}))
+            assert "zarr.json" in out, path.name
+            seal(out, [parsed])
+            monkeypatch.undo()
+
+
+def test_envi_image_refuses_an_input_that_is_not_envi():
+    with read(str(FITS[0])) as parsed, pytest.raises(ValueError, match="an ENVI routine reads an ENVI raster"):
+        envi_image(parsed)
