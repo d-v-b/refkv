@@ -267,7 +267,7 @@ and [§5](../spec/conventions.md#5-units).
 - Decide which structures of the format are its stored arrays: the ones the
   source itself declares as arrays. A CZI file's are its subblocks. Its scenes
   and pyramid levels are not, since the profile assembles those
-  ([stored-array §7](../spec/stored-array.md#7-the-formats)).
+  ([spec/zarrify/czi/stored-arrays.md](../spec/zarrify/czi/stored-arrays.md)).
 - For each, find its declarations: the bytes that say what its elements are.
 - A description holds the source, not the output: no data types, byte order
   names, output chunking, shards, padding, or bytes the source doesn't hold
@@ -360,12 +360,12 @@ Write the schema module, `spec/source_metadata/<p>.py`, alongside the
 document. `uv run python spec/generate_schemas.py` writes
 `spec/zarrify/<p>/schema.json` from it.
 
-Add the format's paragraph to
-[stored-array §7](../spec/stored-array.md#7-the-formats). It names the
+Write `spec/zarrify/<p>/stored-arrays.md`
+([stored-array §7](../spec/stored-array.md#7-the-formats)). It names the
 structures that are the format's stored arrays, how each is keyed and what its
 declarations are, and says what of the format is described and what is not
-yet. The parser of a format with no paragraph there describes nothing. MRC's
-paragraph is a short model.
+yet, or that the parser describes nothing yet.
+[MRC's](../spec/zarrify/mrc/stored-arrays.md) is a short model.
 
 ## 5. Implement it
 
