@@ -6,11 +6,11 @@ attributes it expects. Its chunk references, chunk grids and codecs are those of
 and it writes none of refkv's declarations and no `refkv_source` mirror. A FITS file's are made from
 the parser's description and the IR with the FITS convention's routines (`refkv.build.fits_arrays`
 and `fits_cards`), an HDF5 input's from the parser's description with the HDF5 convention's
-routine (`refkv.build.hdf5_hierarchy`), an ENVI raster's from the parser's description with the
-ENVI convention's routine (`refkv.build.envi_image`), and a Zarr v2 or v3 store's, listed or zipped,
-with the Zarr convention's routine (`refkv.build.zarr_hierarchy`), with no output of refkv's: for those the
-layout is that output's peer. Every other format's are still read from refkv's own output
-(`refkv.build.project`), until its parser returns a description too.
+routine (`refkv.build.hdf5_hierarchy`), a netCDF3 file's likewise with the netCDF3 convention's
+(`refkv.build.netcdf3_hierarchy`), an ENVI raster's from the parser's description with the ENVI
+convention's routine (`refkv.build.envi_image`), and a Zarr v2 or v3 store's, listed or zipped, with
+the Zarr convention's routine (`refkv.build.zarr_hierarchy`), with no output of refkv's: the layout
+is that output's peer for every format it presents.
 It writes its documents with `dump`, so it runs without the `layouts` extra.
 
     python -m refkv.zarrify data.nc out.vzip --layout refkv.virtualizarr
@@ -49,7 +49,8 @@ The reference is VirtualiZarr 2.8.0 (`virtualizarr/parsers/hdf/hdf.py`, `parsers
   a trailing axis of its bytes, is a `null_terminated_bytes` or `raw_bytes` array without that
   axis, blosc's `typesize` its length, as `ZarrParser` keeps the source's data type. A root array
   is its own chunks.
-- **netCDF3** (`NetCDF3Parser`): the variables and dimension names of refkv's own output, the
+- **netCDF3** (`NetCDF3Parser`): the variables and dimension names the netCDF3 convention presents
+  (`refkv.build.netcdf3_hierarchy`, made from the parser's description: no output of refkv's), the
   attributes it presents with a float attribute's values as numbers, and a variable's fill value
   its `_FillValue` in its data type, else zarr-python's default, 0.
 - **ENVI** (`ENVIParser`): one array, named by the data file's name without its extension, in the
@@ -130,8 +131,8 @@ from refkv.build import (
     Array,
     EnviImage,
     Hdf5Hierarchy,
+    Netcdf3Hierarchy,
     Parsed,
-    Projected,
     Value,
     Written,
     ZarrHierarchy,
@@ -140,7 +141,7 @@ from refkv.build import (
     fits_arrays,
     fits_cards,
     hdf5_hierarchy,
-    project,
+    netcdf3_hierarchy,
     zarr_hierarchy,
 )
 from refkv.zarrify import Rejected
@@ -572,7 +573,7 @@ def _float32(value: float) -> float:
         return math.copysign(math.inf, value)
 
 
-def _netcdf3_attributes(pr: Projected, path: str, token: bool) -> dict[str, Any]:
+def _netcdf3_attributes(pr: Netcdf3Hierarchy, path: str, token: bool) -> dict[str, Any]:
     """The netCDF3 attributes of the node at `path` as `NetCDF3Parser` presents them: a float
     attribute's float values (netcdf3.md §5
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#5-attributes> writes them as
@@ -614,7 +615,7 @@ def _netcdf3_fill(doc: Mapping[str, Any], attributes: Mapping[str, Any], unprese
     return fill if _int_range(data_type)[0] <= fill <= _int_range(data_type)[1] else doc.get("fill_value")
 
 
-def _netcdf3(pr: Projected, token: bool) -> Written:
+def _netcdf3(pr: Netcdf3Hierarchy, token: bool) -> Written:
     out = Written()
     for path in pr.nodes():
         prefix = f"{path}/" if path else ""
@@ -628,7 +629,7 @@ def _netcdf3(pr: Projected, token: bool) -> Written:
         unpresented = metadata.get("unpresented_attributes", {}) if isinstance(metadata, dict) else {}
         doc = {**doc, "attributes": attributes, "fill_value": _netcdf3_fill(doc, attributes, unpresented)}
         out[f"{prefix}zarr.json"] = dump(doc, allow_nan=token)
-        out.update({f"{prefix}{k}": v for k, v in chunks.items()})
+        out.update({f"{prefix}{k}": filled(v) for k, v in chunks.items()})
     return out
 
 
@@ -836,21 +837,21 @@ class VirtualiZarr:
     def write(self, inputs: Sequence[Parsed], options: Mapping[str, object]) -> Written:
         """The input as VirtualiZarr's parser of its format presents it: a FITS file's from its
         description, its IR and the FITS convention's routines, an HDF5 input's from the HDF5
-        convention's hierarchy (`hdf5_hierarchy`), an ENVI raster's from the ENVI convention's image
-        (`envi_image`), a Zarr store's from the Zarr convention's hierarchy (`zarr_hierarchy`), any
-        other's built on refkv's own output of it."""
+        convention's hierarchy (`hdf5_hierarchy`), a netCDF3 file's from the netCDF3 convention's
+        (`netcdf3_hierarchy`), an ENVI raster's from the ENVI convention's image (`envi_image`), and
+        a Zarr store's from the Zarr convention's hierarchy (`zarr_hierarchy`): none from refkv's
+        own output."""
         [parsed] = inputs
         if parsed.profile == "fits":
             return _fits(parsed)
         if parsed.profile == "hdf5":
             return _hdf5(hdf5_hierarchy(parsed), options["nonfinite"] == "token")
+        if parsed.profile == "netcdf3":
+            return _netcdf3(netcdf3_hierarchy(parsed), options["nonfinite"] == "token")
         if parsed.profile == "envi":
             return _envi(envi_image(parsed))
         if parsed.profile == "zarr2":
             return _zarr2(zarr_hierarchy(parsed), options["nonfinite"] == "token")
         if parsed.profile == "zarr3":
             return _zarr3(zarr_hierarchy(parsed))
-        pr = project(parsed)
-        if parsed.profile == "netcdf3":
-            return _netcdf3(pr, options["nonfinite"] == "token")
         raise ValueError(f"refkv.virtualizarr presents no {parsed.profile} input")

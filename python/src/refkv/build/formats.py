@@ -2,8 +2,10 @@
 binding of the function that projection calls (the design of d-v-b/refkv#278, "The routines"):
 `fits_arrays`, the arrays of a FITS HDU as the FITS convention writes them, and `fits_cards`, its
 header's cards as the convention writes them in JSON; `hdf5_hierarchy`, the HDF5 convention's
-hierarchy of an HDF5 input, its groups and arrays as that convention presents them; `envi_image`,
-the ENVI convention's image of an ENVI raster, its array and source metadata."""
+hierarchy of an HDF5 input, its groups and arrays as that convention presents them;
+`netcdf3_hierarchy`, the netCDF3 convention's hierarchy of a netCDF3 file, likewise; `envi_image`,
+the ENVI convention's image of an ENVI raster, its array and source metadata; and `zarr_hierarchy`,
+the Zarr convention's hierarchy of a Zarr v2 or v3 store."""
 
 from __future__ import annotations
 
@@ -19,8 +21,8 @@ from .values import MODELED, Array, Copy, Literal, Part, Ref, Shared, Value, Zer
 if TYPE_CHECKING:
     from .parsed import Parsed
 
-__all__ = ["EnviImage", "Hdf5Hierarchy", "ZarrHierarchy", "envi_image", "fits_arrays", "fits_cards", "hdf5_hierarchy",
-           "zarr_hierarchy"]
+__all__ = ["EnviImage", "Hdf5Hierarchy", "Netcdf3Hierarchy", "ZarrHierarchy", "envi_image", "fits_arrays",
+           "fits_cards", "hdf5_hierarchy", "netcdf3_hierarchy", "zarr_hierarchy"]
 
 
 def _part(parsed: Parsed, piece: _core.FitsPiece) -> Part:
@@ -78,24 +80,16 @@ def fits_arrays(parsed: Parsed, index: int) -> dict[str, Array]:
     return out
 
 
-class Hdf5Hierarchy:
-    """The HDF5 convention's hierarchy of an HDF5 input (spec/zarrify/hdf5.md §2
-    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#2-the-hierarchy>), as refkv's own
-    output presents it but for its declarations and its IR mirror: each node the convention
-    presents, its attributes and source metadata, and each array's document and chunks, as values of
-    the input. `hdf5_hierarchy` makes it."""
+class _Hierarchy:
+    """A convention's hierarchy of an input, as refkv's own output presents it but for its
+    declarations and its IR mirror: each node the convention presents, its attributes and source
+    metadata, and each array's document and chunks, as values of the input; made from what a
+    `hierarchy()` routine of `_core` gives (its nodes, its documents and chunks, and the edge chunks
+    it copies)."""
 
-    def __init__(self, parsed: Parsed, hdf5: _core.Hdf5) -> None:
-        try:
-            nodes, (_, entries, refs, data, _, _), copies = hdf5.hierarchy()
-        except _core.Rejected as e:
-            raise Rejected(str(e)) from None
+    def __init__(self, parsed: Parsed, given: tuple[str, Any, list[tuple[str, int, int, int]]]) -> None:
+        nodes, (_, entries, refs, data, _, _), copies = given
         self._nodes: dict[str, dict[str, Any]] = {n["path"]: n for n in json.loads(nodes)}
-        named = hdf5.named_key()
-        self.url: str = parsed.url if named is None else object_url(parsed.url, named)
-        """The URL the root names the input by as its source: a store's named file's
-        (spec/zarrify/hdf5.md §8.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#86-external-files>),
-        else the input's (`Parsed.url`)."""
         self._documents = {k: v for k, v in entries if k.rpartition("/")[2] == "zarr.json"}
         objects = getattr(parsed, "_objects", None) or []
 
@@ -127,11 +121,7 @@ class Hdf5Hierarchy:
                     break
 
     def nodes(self) -> list[str]:
-        """The paths of the nodes the convention presents, the root's `""` first: the file's in
-        canonical order (spec/zarrify/hdf5.md §2.2
-        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#22-paths>), then, for a
-        store, those its external links present (§8.6
-        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#86-external-files>)."""
+        """The paths of the nodes the convention presents, the root's `""` first."""
         return list(self._nodes)
 
     def node_type(self, path: str) -> str | None:
@@ -140,32 +130,15 @@ class Hdf5Hierarchy:
         return None if node is None else "array" if "array" in node else "group"
 
     def attributes(self, path: str) -> dict[str, Any]:
-        """The attributes of the node at `path` as the convention presents them (spec/zarrify/hdf5.md
-        §6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>), without
-        refkv's declarations: a copy."""
+        """The attributes of the node at `path` as the convention presents them, without refkv's
+        declarations: a copy."""
         return json.loads(json.dumps(self._nodes[path]["attributes"]))
 
     def source_metadata(self, path: str) -> Any:  # noqa: ANN401 (JSON the convention specifies)
-        """The source metadata of the node at `path` (spec/zarrify/hdf5.md §7
-        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#7-source-metadata>): a copy,
-        or None where there is no node."""
+        """The source metadata of the node at `path`, as the convention specifies it: a copy, or
+        None where there is no node."""
         node = self._nodes.get(path)
         return None if node is None else json.loads(json.dumps(node["own"]))
-
-    def element(self, path: str) -> int | None:
-        """The IR element of the storage of the array at `path`: the struct of its chunks, or the
-        element of its contiguous data (spec/zarrify/hdf5.md §8.7
-        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#87-the-description>,
-        `storage.element`); None for an array the IR holds no such element of (compact, external,
-        unallocated, or of strings, references or records). KeyError for a path that is no
-        array."""
-        if self.node_type(path) != "array":
-            raise KeyError(path)
-        store = self._nodes[path]["array"]["store"]
-        if store.get("kind") not in ("contiguous", "chunked"):
-            return None
-        element = store.get("element")
-        return element if isinstance(element, int) else None
 
     def document(self, key: str) -> dict[str, Any]:
         """The Zarr document at `key` (`<path>/zarr.json`), parsed, its attributes the node's
@@ -186,6 +159,47 @@ class Hdf5Hierarchy:
         return self.document(f"{prefix}zarr.json"), dict(self._chunks[path])
 
 
+class Hdf5Hierarchy(_Hierarchy):
+    """The HDF5 convention's hierarchy of an HDF5 input (spec/zarrify/hdf5.md §2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#2-the-hierarchy>), as refkv's own
+    output presents it but for its declarations and its IR mirror: each node the convention
+    presents (in canonical order, spec/zarrify/hdf5.md §2.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#22-paths>, then, for a store,
+    those its external links present, §8.6
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#86-external-files>), its
+    attributes (§6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>)
+    and source metadata (§7
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#7-source-metadata>), and each
+    array's document and chunks, as values of the input. `hdf5_hierarchy` makes it."""
+
+    def __init__(self, parsed: Parsed, hdf5: _core.Hdf5) -> None:
+        try:
+            given = hdf5.hierarchy()
+        except _core.Rejected as e:
+            raise Rejected(str(e)) from None
+        super().__init__(parsed, given)
+        named = hdf5.named_key()
+        self.url: str = parsed.url if named is None else object_url(parsed.url, named)
+        """The URL the root names the input by as its source: a store's named file's
+        (spec/zarrify/hdf5.md §8.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#86-external-files>),
+        else the input's (`Parsed.url`)."""
+
+    def element(self, path: str) -> int | None:
+        """The IR element of the storage of the array at `path`: the struct of its chunks, or the
+        element of its contiguous data (spec/zarrify/hdf5.md §8.7
+        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#87-the-description>,
+        `storage.element`); None for an array the IR holds no such element of (compact, external,
+        unallocated, or of strings, references or records). KeyError for a path that is no
+        array."""
+        if self.node_type(path) != "array":
+            raise KeyError(path)
+        store = self._nodes[path]["array"]["store"]
+        if store.get("kind") not in ("contiguous", "chunked"):
+            return None
+        element = store.get("element")
+        return element if isinstance(element, int) else None
+
+
 def hdf5_hierarchy(parsed: Parsed) -> Hdf5Hierarchy:
     """The HDF5 convention's hierarchy of an HDF5 input, a file or a store of one with the files it
     names (spec/zarrify/hdf5.md §2
@@ -201,6 +215,39 @@ def hdf5_hierarchy(parsed: Parsed) -> Hdf5Hierarchy:
     if hdf5 is None:
         raise ValueError(f"an HDF5 routine reads an HDF5 input, not a {parsed.profile} input")
     return Hdf5Hierarchy(parsed, hdf5)
+
+
+class Netcdf3Hierarchy(_Hierarchy):
+    """The netCDF3 convention's hierarchy of a netCDF3 file (spec/zarrify/netcdf3.md §2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#2-the-hierarchy>), as refkv's
+    own output presents it but for its declarations and its IR mirror: the root, then an array per
+    variable the convention presents, in the header's order, each node's attributes (§5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#5-attributes>) and source
+    metadata (§6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#6-source-metadata>),
+    and each array's document and chunks (§3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#3-variables>), as values of
+    the input. `netcdf3_hierarchy` makes it."""
+
+    def __init__(self, parsed: Parsed, netcdf3: _core.Netcdf3) -> None:
+        try:
+            given = netcdf3.hierarchy()
+        except _core.Rejected as e:
+            raise Rejected(str(e)) from None
+        super().__init__(parsed, given)
+
+
+def netcdf3_hierarchy(parsed: Parsed) -> Netcdf3Hierarchy:
+    """The netCDF3 convention's hierarchy of a netCDF3 file (spec/zarrify/netcdf3.md §2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#2-the-hierarchy>): the
+    convention's decisions, which variables are nodes, the attributes presented, the arrays' data
+    types, fill values, codecs, dimension names and chunks, made from the parser's description
+    (§7.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#77-the-description>) by
+    the function refkv's own projection calls. It reads nothing, and asks for no output of refkv's.
+    ValueError for an input that is not a netCDF3 file."""
+    netcdf3 = parsed._netcdf3  # noqa: SLF001
+    if netcdf3 is None:
+        raise ValueError(f"a netCDF3 routine reads a netCDF3 file, not a {parsed.profile} input")
+    return Netcdf3Hierarchy(parsed, netcdf3)
 
 
 class EnviImage:

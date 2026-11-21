@@ -9,7 +9,7 @@
 //! contiguous values; a record variable is one chunk per record (§3.2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#32-chunks>).
 
-use super::{contiguous, key, Copied};
+use super::{contiguous, key, Copied, CopiedChunk};
 use crate::ir::Ir;
 use crate::netcdf3::{named, Ty};
 use crate::out::{bytes_codec, copy_threshold, declare, declared_group, grid_chunks, Chunk, Out, Part};
@@ -310,10 +310,24 @@ pub fn reads(_ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
 pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
     let (nodes, mut summary) = nodes(description)?;
     summary["rounds"] = description["rounds"].clone();
-    build(ir, &nodes, summary, url, copied, copy_threshold())
+    build(ir, &nodes, summary, url, copied, copy_threshold(), None)
 }
 
-fn build(ir: &Ir, nodes: &[J], mut summary: J, url: &str, copied: &Copied, threshold: usize) -> Result<Out, String> {
+/// The netCDF3 convention's hierarchy of a file's description (spec/zarrify/netcdf3.md §7.7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#77-the-description>): its
+/// nodes (`nodes`), and its documents and chunks as the projection writes them, but for the edge
+/// chunks it copies, which it gives apart, as ranges to copy: it reads nothing. The routine a
+/// layout calls for the convention's hierarchy (`refkv.build.netcdf3_hierarchy`).
+pub fn hierarchy(ir: &Ir, description: &J) -> Result<(Vec<J>, Out, Vec<CopiedChunk>), String> {
+    let (nodes, summary) = nodes(description)?;
+    let mut copies = Vec::new();
+    let out = build(ir, &nodes, summary, "", &Copied::new(), copy_threshold(), Some(&mut copies))?;
+    Ok((nodes, out, copies))
+}
+
+/// The output of `nodes`; `defer`: the edge chunks to copy are given there, not written.
+fn build(ir: &Ir, nodes: &[J], mut summary: J, url: &str, copied: &Copied, threshold: usize,
+         mut defer: Option<&mut Vec<CopiedChunk>>) -> Result<Out, String> {
     let mut out = Out::new(url);
     let mut cuts = Vec::with_capacity(nodes.len());
     for node in nodes {
@@ -359,7 +373,16 @@ fn build(ir: &Ir, nodes: &[J], mut summary: J, url: &str, copied: &Copied, thres
         let shape = shape_of(&a["shape"]);
         let p = prefix(path, shape.len());
         match c {
-            Some((_, chunks)) => {
+            Some((_, mut chunks)) => {
+                if let Some(d) = defer.as_deref_mut() {
+                    chunks.retain(|(c, chunk)| match chunk {
+                        Chunk::Copy(o, len, pad) => {
+                            d.push((key(&p, c.iter().copied()), *o, *len, *pad));
+                            false
+                        }
+                        _ => true,
+                    });
+                }
                 count += chunks.len() as u64;
                 contiguous::emit(&mut refs, chunks, (0, 0, 0), copied, &[&p], |c| c, &mut zeros)?;
             }

@@ -37,6 +37,11 @@ use std::fmt::Write;
 /// The bytes of the source's ranges a projection copies into the archive, by (offset, length).
 pub type Copied = std::collections::HashMap<(u64, u64), Vec<u8>>;
 
+/// An edge chunk refkv's output holds as bytes, of a source range and its padding, which a
+/// convention's hierarchy routine gives apart rather than reading it: its key, the range's offset
+/// and length, and the padding's length.
+pub type CopiedChunk = (String, u64, u64, u64);
+
 /// The image projection of `format`: today's hierarchy, without `refkv_source`. `copied`
 /// holds the bytes of the ranges `reads` gives.
 pub fn project(format: Format, ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {

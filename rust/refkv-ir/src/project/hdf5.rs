@@ -11,7 +11,7 @@
 
 use super::hdf5_nodes::{name_axes, node_name, nodes, Nodes};
 use super::vsi::object_url;
-use super::{arr, contiguous, key, Copied};
+use super::{arr, contiguous, key, Copied, CopiedChunk};
 use crate::beside::{written_key, Written};
 use crate::hdf5;
 use crate::ir::Ir;
@@ -205,10 +205,6 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     summary["rounds"] = facts["rounds"].clone();
     build(ir, &nodes, summary, url, url, copied, copy_threshold(), None)
 }
-
-/// An edge chunk refkv's output holds as bytes, of a source range and its padding: its key, the
-/// range's offset and length, and the padding's length.
-pub type CopiedChunk = (String, u64, u64, u64);
 
 /// The HDF5 convention's hierarchy of a file run's facts (a description, spec/zarrify/hdf5.md
 /// §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#87-the-description>), or a

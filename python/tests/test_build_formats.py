@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 import h5py
+import netCDF4
 import numpy as np
 import pytest
 
@@ -21,6 +22,7 @@ from refkv.build import (
     fits_arrays,
     fits_cards,
     hdf5_hierarchy,
+    netcdf3_hierarchy,
     project,
     read,
     seal,
@@ -226,6 +228,86 @@ def test_hdf5_hierarchy_files_each_chunk_under_its_array_whatever_its_nodes_are_
         for node in ("c/c", "c/x", "x"):
             chunks = hierarchy.array_entries(node)[1]
             assert chunks.keys() == pr.array_entries(node)[1].keys() != set(), node
+
+
+# ---- netCDF3
+
+NETCDF3 = sorted(p for p in (FIXTURES / "netcdf3").iterdir() if p.suffix == ".nc" and "reject" not in p.name)
+
+
+def netcdf3_edged(tmp_path: Path) -> Path:
+    """A netCDF3 file with a fixed-size variable of more than a chunk's bytes whose rows do not
+    divide evenly into chunks, so that its last chunk is an edge chunk, padded or copied, beside a
+    record variable: no fixture has one."""
+    path = tmp_path / "edged.nc"
+    with netCDF4.Dataset(path, "w", format="NETCDF3_CLASSIC") as ds:
+        ds.createDimension("y", 1031)
+        ds.createDimension("x", 1100)
+        ds.createDimension("t", None)
+        ds.createVariable("img", "i1", ("y", "x"))[:] = np.arange(1031 * 1100).astype(np.int8).reshape(1031, 1100)
+        ds.createVariable("t", "f8", ("t",), fill_value=np.nan)[:] = [1, 2, 3]
+    return path
+
+
+def test_the_netcdf3_hierarchy_is_the_one_refkv_s_own_output_presents(tmp_path, copy_threshold):
+    """Every accepted netCDF3 fixture, and a file with an edge chunk: the netCDF3 convention's
+    hierarchy has refkv's own output's nodes, attributes without its declarations, source metadata,
+    array documents and chunks, an edge chunk refkv copies a `Copy` of the bytes it holds."""
+    seen = dict.fromkeys(("arrays", "records", "copied"), 0)
+    for path in [*NETCDF3, netcdf3_edged(tmp_path)]:
+        with read(str(path)) as parsed:
+            hierarchy, pr = netcdf3_hierarchy(parsed), project(parsed)
+            assert sorted(hierarchy.nodes()) == sorted(pr.nodes()), path.name
+            for node in hierarchy.nodes():
+                at = f"{path.name}: /{node}"
+                assert hierarchy.node_type(node) == pr.node_type(node), at
+                assert hierarchy.attributes(node) == pr.attributes(node), at
+                assert hierarchy.source_metadata(node) == pr.source_metadata(node), at
+                if hierarchy.node_type(node) != "array":
+                    continue
+                doc, chunks = hierarchy.array_entries(node)
+                theirs, their_chunks = pr.array_entries(node)
+                assert doc == {**theirs, "attributes": pr.attributes(node)}, at
+                assert chunks.keys() == their_chunks.keys(), at
+                for key, value in chunks.items():
+                    seen["copied"] += isinstance(their_chunks[key], bytes)
+                    assert filled(value) == their_chunks[key], f"{at} {key}"
+                seen["arrays"] += 1
+                seen["records"] += hierarchy.source_metadata(node)["record"] and bool(chunks)
+    assert seen["arrays"], seen
+    assert seen["records"], seen
+    assert seen["copied"] or copy_threshold is None, seen
+
+
+def test_the_netcdf3_layout_asks_for_no_output_of_refkv_s(monkeypatch):
+    """`refkv.virtualizarr` presents every accepted netCDF3 fixture from the netCDF3 convention's
+    hierarchy, with refkv's own output made to raise: it is its peer (the plan of d-v-b/refkv#278).
+    That what it writes is unchanged, its own tests show."""
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("refkv's own output was asked for")
+
+    layout = VirtualiZarr()
+    for path in NETCDF3:
+        for nonfinite in ("token", "text"):
+            with read(str(path)) as parsed:
+                monkeypatch.setattr(Parsed, "_output_async", refuse)
+                monkeypatch.setattr(Parsed, "_output", refuse)
+                out = layout.write([parsed], layout.options({"nonfinite": nonfinite}))
+                assert "zarr.json" in out, path.name
+                seal(out, [parsed])
+                monkeypatch.undo()
+
+
+def test_netcdf3_hierarchy_refuses_an_input_that_is_not_netcdf3():
+    with read(str(FITS[0])) as parsed, pytest.raises(ValueError, match="a netCDF3 routine reads a netCDF3 file"):
+        netcdf3_hierarchy(parsed)
+
+
+def test_netcdf3_hierarchy_refuses_a_path_that_is_no_array():
+    with read(str(FIXTURES / "netcdf3" / "netcdf3_classic.nc")) as parsed:
+        hierarchy = netcdf3_hierarchy(parsed)
+        with pytest.raises(KeyError):
+            hierarchy.array_entries("")
 
 
 # ---- ENVI

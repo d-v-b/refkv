@@ -21,11 +21,13 @@ from .convention import declaration, filled, grid, gzip_member, mirror
 from .formats import (
     EnviImage,
     Hdf5Hierarchy,
+    Netcdf3Hierarchy,
     ZarrHierarchy,
     envi_image,
     fits_arrays,
     fits_cards,
     hdf5_hierarchy,
+    netcdf3_hierarchy,
     zarr_hierarchy,
 )
 from .parsed import MAX_BYTES, NoIrError, Parsed, read, read_async
@@ -63,6 +65,7 @@ __all__ = [
     "EnviImage",
     "Hdf5Hierarchy",
     "Literal",
+    "Netcdf3Hierarchy",
     "NoIrError",
     "Parsed",
     "Part",
@@ -87,6 +90,7 @@ __all__ = [
     "gzip_member",
     "hdf5_hierarchy",
     "mirror",
+    "netcdf3_hierarchy",
     "payload_size",
     "project",
     "project_async",
