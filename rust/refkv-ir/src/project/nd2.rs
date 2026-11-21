@@ -328,12 +328,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
     let shape: Vec<u64> = axes.iter().map(|ax| along(ax, [t.map_or(1, |l| l.count), comp, z.map_or(1, |l| l.count), height, width])).collect();
     let chunk_shape: Vec<u64> = axes.iter().map(|ax| along(ax, [1, comp, 1, h, width])).collect();
     let [sx, sy, sz, st] = &p.scales;
-    // a loop's scale is the convention's where its period or step is positive (§4.3
-    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#43-output>)
-    let positive = |kind: &str| description["loops"].as_array().into_iter().flatten()
-        .find(|l| l["kind"] == kind)
-        .is_some_and(|l| l["period"].as_f64().or_else(|| l["step"].as_f64()).is_some_and(|x| x > 0.0));
-    let (period, step, calibrated) = (positive("t"), positive("z"), p.calibrated);
+    let (period, step, calibrated) = (p.timed, p.stepped, p.calibrated);
     let pick = |on: bool, v: &J| if on { v.clone() } else { json!(1) };
     let scale: Vec<J> = axes
         .iter()

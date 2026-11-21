@@ -978,7 +978,7 @@ impl Nd2 {
         let key = self.declaring[0].0.ok_or("internal: no ImageAttributesLV! chunk in the IR")?;
         // the chunks that say what a sample is: the attributes, and the picture's planes
         let declarations: Vec<u32> = [self.declaring[0].1, self.declaring[2].1].into_iter().flatten().collect();
-        let (arrays, chains, map, _) = stored::described(&self.ir, &frame, read.frames as u64, key, &declarations)?;
+        let (arrays, chains, map) = stored::described(&self.ir, &frame, read.frames as u64, key, &declarations)?;
         self.ir.describe(arrays, chains, map)?;
         // the description (spec/zarrify/nd2.md §7.5
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#75-the-description>), with

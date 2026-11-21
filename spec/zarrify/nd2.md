@@ -825,12 +825,14 @@ stored arrays ([spec/stored-array.md §7](../stored-array.md#7-the-formats)). It
 [nd2/description.json](nd2/description.json). It holds none of an output's decisions: the number of
 positions and frames, the axes, the data type and codecs, the row blocks, the calibration, scales,
 units and stage translations, the channels and their window ([§4](#4-the-image)), and which decoded
-chunks the root's source metadata holds ([§5.1](#51-decoded-chunks)) are the projection's. Those
-decisions are refkv's **plan** of the file, made from the description alone by the function the
-convention's projection calls, with the schema's own derived quantities (`schema/nd2.json`'s
-`derive`); a layout that wants another image makes its own from the description. The parser still
-checks the file with the same quantities ([§7.2](#72-rejection)), so a description it returns has a
-plan. It is a JSON object:
+chunks the root's source metadata holds ([§5.1](#51-decoded-chunks)) are the projection's. Of those,
+the frames' layout and data type, the loops' order, the positions and frames, the calibration,
+scales, units and stage translations, and the channels are refkv's **plan** of the file, made from
+the description alone by the function the convention's projection calls, with the schema's own
+derived quantities (`schema/nd2.json`'s `derive`); the projection makes the rest. A layout that
+wants another image makes its own from the description. The parser still checks the file with the
+same quantities ([§7.2](#72-rejection)), so a description it returns has a plan. The description is
+a JSON object:
 
 | member | value |
 |---|---|

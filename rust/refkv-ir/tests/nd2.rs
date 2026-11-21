@@ -19,7 +19,7 @@ include!(concat!(env!("OUT_DIR"), "/rejects_nd2.rs"));
 /// an array, indexed from 0, for each frame chunk past them, whose rows are of a frame's `data`.
 #[test]
 fn every_accepted_fixtures_descriptions_are_keyed_by_their_chunks() {
-    let (mut files, mut past, mut rows) = (0, 0, 0);
+    let (mut files, mut past_arrays, mut rows) = (0, 0, 0);
     for e in std::fs::read_dir(common::fixtures().join("nd2")).unwrap() {
         let p = e.unwrap().path();
         let name = p.file_name().unwrap().to_str().unwrap().to_string();
@@ -35,19 +35,35 @@ fn every_accepted_fixtures_descriptions_are_keyed_by_their_chunks() {
         assert!(s.arrays[k].index.is_none() && s.arrays[k].grid.is_some(), "{name}");
         let counted: u64 = description["loops"].as_array().unwrap().iter().map(|l| l["count"].as_u64().unwrap()).product();
         assert_eq!(s.arrays[k].shape.as_ref().unwrap()[0], counted, "{name}");
-        let of = |k: usize| (0..s.map.len()).filter(move |&r| s.map.array[r] == k as u32);
-        assert!(of(k).all(|r| ir.path(s.map.element[r].unwrap()).ends_with("/pixels") && s.map.coords_of(r)[0] < counted), "{name}");
-        rows += of(k).count();
+        // the frame chunks the IR holds data of, by their numbers: `frames/<f>` with `pixels` (a
+        // frame the loops count) or `data` (one past them)
         let frames_element = by_path("frames");
+        let held = |part: &str| -> std::collections::BTreeSet<u64> {
+            let mut out = std::collections::BTreeSet::new();
+            for &c in ir.children(frames_element) {
+                if ir.children(c).iter().any(|&d| ir.name_of(d) == part) {
+                    let first = ir.nidx[c as usize];
+                    out.extend((0..ir.run(c).map_or(1, |r| r.0)).map(|j| first + j));
+                }
+            }
+            out
+        };
+        let (placed, past) = (held("pixels"), held("data"));
+        let of = |k: usize| (0..s.map.len()).filter(move |&r| s.map.array[r] == k as u32);
+        assert!(of(k).all(|r| ir.path(s.map.element[r].unwrap()).ends_with("/pixels")), "{name}");
+        let frames: std::collections::BTreeSet<u64> = of(k).map(|r| s.map.coords_of(r)[0]).collect();
+        assert_eq!(frames, placed, "{name}");
+        assert!(placed.iter().all(|&f| f < counted) && past.iter().all(|&f| f >= counted), "{name}");
+        rows += of(k).count();
         let beyond: Vec<usize> = (0..s.arrays.len()).filter(|&k| s.arrays[k].element == frames_element).collect();
         let indexes: Vec<Option<u64>> = beyond.iter().map(|&k| s.arrays[k].index).collect();
-        assert_eq!(indexes, (0..beyond.len() as u64).map(Some).collect::<Vec<_>>(), "{name}");
+        assert_eq!(indexes, (0..past.len() as u64).map(Some).collect::<Vec<_>>(), "{name}");
         assert_eq!(1 + beyond.len(), s.arrays.len(), "{name}");
         for &k in &beyond {
             assert!(of(k).all(|r| ir.path(s.map.element[r].unwrap()).ends_with("/data") && s.map.range[r].is_some()), "{name}");
         }
         files += 1;
-        past += beyond.len();
+        past_arrays += beyond.len();
     }
-    assert!(files >= 30 && past >= 5 && rows >= 14000, "{files} files, {past} arrays past the count, {rows} rows");
+    assert!(files >= 30 && past_arrays >= 5 && rows >= 14000, "{files} files, {past_arrays} arrays past the count, {rows} rows");
 }

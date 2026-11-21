@@ -35,6 +35,11 @@ pub struct Plan {
     /// the frames the loops count, `N`, as the summary writes it
     pub frames: J,
     pub calibrated: bool,
+    /// whether the time loop has a positive period and the z loop a positive step: whether their
+    /// axes have a scale and a unit (§4.3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#43-output>)
+    pub timed: bool,
+    pub stepped: bool,
     /// the scales along `x`, `y`, `z` and `t` (s), each 1 where the convention gives none
     pub scales: [J; 4],
     /// each position's `{"x", "y"}` translation, or empty for none
@@ -110,6 +115,8 @@ pub fn plan(description: &J) -> Result<Plan, String> {
         positions: num("P") as u64,
         frames: get("N"),
         calibrated: env.get("calibrated").is_some_and(|v| v.truthy()),
+        timed: env.get("t_scale").and_then(|v| v.num()).is_some_and(|x| x > 0.0),
+        stepped: env.get("z_scale").and_then(|v| v.num()).is_some_and(|x| x > 0.0),
         scales: [get("scale_x"), get("scale_y"), get("scale_z"), get("scale_t")],
         translations: translations.as_array().cloned().unwrap_or_default(),
         labels,
@@ -169,10 +176,10 @@ mod tests {
         let p = plan(&d).unwrap();
         assert_eq!((p.row, p.compressed, p.data_type, p.positions, p.frames.as_f64()), (20, false, "uint16", 1, Some(12.0)));
         assert_eq!(p.scales, [json!(0.25), json!(0.5), json!(0.5), json!(2.5)]);
-        assert!(p.calibrated && p.translations.is_empty());
+        assert!(p.calibrated && p.timed && p.stepped && p.translations.is_empty());
         assert_eq!((p.labels, p.colors), (vec!["DAPI".to_string(), "GFP".into()], vec!["0000FF".to_string(), "00FF00".into()]));
         let none = json!({"attributes": d["attributes"], "loops": [], "picture": null, "chunks": []});
         let p = plan(&none).unwrap();
-        assert_eq!((p.calibrated, p.labels), (false, vec!["C0".to_string(), "C1".into()]));
+        assert_eq!((p.calibrated, p.timed, p.stepped, p.labels), (false, false, false, vec!["C0".to_string(), "C1".into()]));
     }
 }
