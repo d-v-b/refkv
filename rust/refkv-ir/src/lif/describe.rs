@@ -61,12 +61,15 @@ impl Lif {
             File::Lof => "lof",
             File::Lifext => "lifext",
         };
+        // an older writer's LOF XML, whose root is `Data` with no Version: the parser reads it as if
+        // it were in an `LMSDataContainerHeader` of Version 2 (`object_xml`), which the file is not
+        let (root, version) = if self.older { (json!("Data"), J::Null) } else { (json!(self.root), json!(self.version)) };
         json!({
             "file": file,
             "size": self.size,
             "xml_characters": self.chars,
-            "root": self.root,
-            "version": self.version,
+            "root": root,
+            "version": version,
             "unique_id": self.unique,
             "object": object,
             "blocks": blocks,

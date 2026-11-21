@@ -7,11 +7,13 @@ names, its sample count, and its `TileScanInfo` attachment as liffile reads it. 
 block, LOF parts and tail are checked against the file's bytes. A second test asserts which cases the
 fixtures reached, and a third that the description holds none of the output's decisions.
 
-liffile 2026.10.14 departs from what the file declares in three ways, each counted where it is met:
+liffile 2026.10.14 departs from what the file declares in four ways, each counted where it is met:
 it names a LOF's one memory block by its XML's `MemoryBlockID`, where the block itself has no ID field
-(the description's `id` is null); it names an image whose element has no `Name` by the file's stem;
-and it reads only the first `ChildrenOf` of a LIFEXT file, so the images of a second are compared with
-the XML alone. A LAS X project, a store run's input, has no description yet."""
+(the description's `id` is null); it reads an older writer's LOF XML, whose root is `Data`, as if it were
+in an `LMSDataContainerHeader` of `Version` 2 (the description's `root` is `Data` and its `version`
+null); it names an image whose element has no `Name` by the file's stem; and it reads only the first
+`ChildrenOf` of a LIFEXT file, so the images of a second are compared with the XML alone. A LAS X
+project, a store run's input, has no description yet."""
 
 import json
 import math
@@ -164,7 +166,14 @@ def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
     said += [f"not of the schema: {e}" for e in errors]
     check_header(d, path.read_bytes(), said, seen)
     with liffile.LifFile(path) as f:
-        if (LIFFILE_TYPE[d["file"]], d["version"], d["root"]) != (f.type, f.version, f.xml_element.tag):
+        version, root = d["version"], d["root"]
+        if d["object"] is not None and d["object"]["older"]:
+            # liffile reads an older writer's XML in a root of Version 2 it makes, as the parser does
+            seen["older lofs read in a root liffile makes"] += 1
+            if (version, root) != (None, "Data"):
+                said.append(f"an older writer's LOF of root {root} and version {version}")
+            version, root = 2, "LMSDataContainerHeader"
+        if (LIFFILE_TYPE[d["file"]], version, root) != (f.type, f.version, f.xml_element.tag):
             said.append(f"{d['file']} {d['version']} {d['root']}, liffile's {f.type} {f.version} {f.xml_element.tag}")
         if d["unique_id"] != f.uuid:
             said.append(f"UniqueID {d['unique_id']!r}, liffile's {f.uuid!r}")
@@ -197,7 +206,8 @@ def test_the_fixtures_reach_every_case_the_comparison_reads():
         seen += compared(path)[1]
     wanted = ["files", "sets", "lif", "lof", "lifext", "version 1", "version 2", "lofs", "older lofs", "blocks",
               "tails", "images", "images without a name", "parents", "dimensions", "channels", "tile scans", "tiles",
-              "lof blocks named by their xml", "images liffile does not read", "files without images"]
+              "lof blocks named by their xml", "images liffile does not read", "files without images",
+              "older lofs read in a root liffile makes"]
     assert [w for w in wanted if not seen[w]] == []
 
 

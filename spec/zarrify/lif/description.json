@@ -8,8 +8,8 @@
     "file": {"enum": ["lif", "lof", "lifext"]},
     "size": {"$ref": "#/$defs/uint"},
     "xml_characters": {"$ref": "#/$defs/uint"},
-    "root": {"enum": ["LMSDataContainerHeader", "LMSDataContainerEnhancedHeader"]},
-    "version": {"enum": [1, 2]},
+    "root": {"enum": ["LMSDataContainerHeader", "LMSDataContainerEnhancedHeader", "Data"]},
+    "version": {"enum": [1, 2, null]},
     "unique_id": {"type": ["string", "null"]},
     "object": {
       "oneOf": [

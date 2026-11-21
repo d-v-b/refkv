@@ -843,8 +843,8 @@ It is a JSON object with these members:
 | `file` | `lif`, `lof` ([§2.5](#25-leica-object-files)) or `lifext` ([§2.6](#26-lifext-files)) |
 | `size` | the file's size in bytes |
 | `xml_characters` | the header block's XML length in characters ([§2.1](#21-blocks)) |
-| `root` | the name of the XML's root element ([§2.2](#22-the-xml-header)), of a LOF its XML block's |
-| `version` | the root's `Version`, 1 or 2 |
+| `root` | the name of the XML's root element ([§2.2](#22-the-xml-header)), of a LOF its XML block's: `Data` of an older writer's LOF ([§2.5](#25-leica-object-files)) |
+| `version` | the root's `Version`, 1 or 2; null of an older writer's LOF, whose root has none |
 | `unique_id` | the `UniqueID` of the root's first `Element`; null without one |
 | `object` | of a LOF ([§2.5](#25-leica-object-files)): `versions`, its two version fields; `xml_at`, the offset of its XML block; `xml_characters`, that block's XML length in characters; and `older`, whether the XML is an older writer's, whose root is `Data`. Null for a LIF or LIFEXT file |
 | `blocks` | the memory blocks the walk found ([§7.2](#72-reading)), in the file's order, each an object below |
