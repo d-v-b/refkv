@@ -20,6 +20,8 @@ use crate::xml::{self, Ev, TagRef};
 use serde_json::{Map, Value as J, json};
 use std::collections::HashMap;
 
+#[path = "lif/describe.rs"]
+mod describe;
 #[path = "lif/stored.rs"]
 mod stored;
 
@@ -360,6 +362,10 @@ pub struct Lif {
     offset: u64,
     /// the `UniqueID` of the first `Element` of its XML
     unique: Option<String>,
+    /// the XML's root element's name, and whether it is a LOF's XML of an older writer, whose root
+    /// is `Data` (`object_xml`)
+    root: Option<String>,
+    older: bool,
     /// the root's Version: of a LIF file, the width of a block's data size
     version: u64,
     predicted: Vec<Predicted>,
@@ -389,6 +395,8 @@ impl Lif {
             object: Object::default(),
             offset: 0,
             unique: None,
+            root: None,
+            older: false,
             version: 2,
             predicted: Vec::new(),
             next_predicted: 0,
@@ -583,6 +591,7 @@ impl Lif {
             self.object.xml = xml.to_vec();
         }
         let x = String::from_utf16(&units).ok();
+        self.older = x.as_deref().is_some_and(|x| x.starts_with("<Data>"));
         let x = x.map(|x| {
             if x.starts_with("<Data>") {
                 format!("<LMSDataContainerHeader Version=\"2\"><Element>{x}</Element></LMSDataContainerHeader>")
@@ -608,6 +617,7 @@ impl Lif {
             ]),
         )?;
         self.version = integer(version.as_deref()).unwrap_or(2);
+        self.root = root.clone();
         if root.as_deref() == Some("LMSDataContainerEnhancedHeader") {
             self.file = File::Lifext;
         }
@@ -717,6 +727,7 @@ impl Lif {
         }
         let mut named: Vec<Option<usize>> = vec![None; self.blocks.len()];
         let mut facts = Vec::new();
+        let mut described = Vec::new();
         let mut series = 0u64;
         if self.file == File::Lof {
             self.rules.check("object_images", rules::env([("count", num(images.len() as f64))]))?;
@@ -754,11 +765,13 @@ impl Lif {
             series += f.fields.len() as u64;
             self.rules.check("series", rules::env([("count", num(series as f64))]))?;
             facts.push(image_facts(im, &f, k));
+            described.push(describe::image(im, Some(b)));
         }
         self.emit()?;
+        let description = self.describe(described);
         let held = self.blocks.first().map_or(0, |b| b.size);
         let mut facts = json!({"version": self.version, "file": self.file.name(), "blocks": self.blocks.len(), "images": facts, "series": series,
-                               "unique": self.unique, "held": held});
+                               "unique": self.unique, "held": held, "description": description});
         self.asked.put(&mut facts);
         self.facts = facts;
         Ok(())
@@ -891,6 +904,9 @@ impl Lif {
         }
         let key = stored::declaring(&ir).ok_or("internal: no element holds the XML of the images")?;
         for (k, im) in facts["images"].as_array_mut().into_iter().flatten().enumerate() {
+            im["declared_by"] = json!([key, k]);
+        }
+        for (k, im) in facts["description"]["images"].as_array_mut().into_iter().flatten().enumerate() {
             im["declared_by"] = json!([key, k]);
         }
         // the chunk map's limit, of the file (spec/stored-array.md §6
@@ -1237,6 +1253,11 @@ impl crate::run::FileProfile for Profile {
     }
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::lif::project(ir, facts, url)
+    }
+    /// The parser's description of the file, beside its projection's facts (spec/zarrify/lif.md §9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#9-the-description>).
+    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
+        facts.get("description").cloned()
     }
 }
 
