@@ -1185,7 +1185,12 @@ A tile file is an object:
 | `header` | the ETS header's IR element, `ets`, which keys the file's stored arrays |
 | `tiles` | the directory's records, in order, each `[element, offset, size, c0, c1, ...]`: the tile's `data` element, its offset and size, and its `coordinates` coordinates in the record's order |
 
-What the projection makes from it, and the parser still decides:
-
-- The parser still makes the images' decisions ([§4](#4-the-images)) beside the description, for its
-  projection, and checks the input as [§9.1](#91-the-vsi-file) to [§9.3](#93-tiles-and-levels) say.
+The parser returns the description alone beside the IR, and the IR's elements and stored arrays do
+not depend on what the layout presents. The projection makes refkv's **plan** from the description
+and nothing else: the images and their order and the IFD images not presented, with their reasons
+([§4](#4-the-images), [§4.4](#44-ifd-images-that-are-not-presented)); each pyramid's levels, its tiles
+inside them, data type, fill value and codec ([§4.1](#41-the-pyramid)); each IFD image's strips and
+JPEG prefix ([§4.3](#43-the-macro-image)); the channels' names, colors and display limits
+([§4.2](#42-channels)); and the units the table `units` names ([§5](#5-scales-units-and-position)). The
+plan is public data of refkv's convention, not of the IR. The parser still checks the input as
+[§9.1](#91-the-vsi-file) to [§9.3](#93-tiles-and-levels) say.
