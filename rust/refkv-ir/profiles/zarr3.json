@@ -4,7 +4,7 @@
   "uuid": "95203d0a-6586-426a-b920-3db2f4f1e97e",
   "version": 0,
   "kind": "both",
-  "store_run": {"form": "listed"},
+  "store_run": {"form": "listed", "described": true},
   "sniff": 78,
   "chosen_by": null,
   "suffixes": [

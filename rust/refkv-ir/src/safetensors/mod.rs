@@ -288,7 +288,7 @@ impl Header {
     /// `own.tensors`, which a presented tensor's entry of `arrays` gives as `index`.
     fn emit(&self, r: &Rules, ir: &mut Ir, parent: u32) -> Result<(J, stored::Tensors), String> {
         let (n, tensors) = (self.n, &self.tensors);
-        ir.value(parent, "length", NO_INDEX, "<u8", 0, (0, 8), Some(&n.to_le_bytes()))?;
+        let length = ir.value(parent, "length", NO_INDEX, "<u8", 0, (0, 8), Some(&n.to_le_bytes()))?;
         // a checked header is an object, of two bytes at least
         let header = ir.value(parent, "header", NO_INDEX, &format!("ascii[{n}]"), 0, (8, n), Some(&self.raw))?;
         let mut data = vec![None; tensors.len()];
@@ -340,12 +340,33 @@ impl Header {
             own.insert("metadata".into(), m.clone());
         }
         own.insert("tensors".into(), J::Array(listed));
+        let description = self.describe(Some(json!({"length": length, "header": header, "tensors": data})));
         let mut reached = self.reached(r)?;
         for (t, d) in reached.iter_mut().zip(data) {
             t.element = d;
         }
-        let facts = json!({"own": own, "arrays": arrays, "groups": groups, "declared_by": header});
+        let facts = json!({"own": own, "arrays": arrays, "groups": groups, "declared_by": header, "description": description});
         Ok((facts, stored::Tensors { key: header, header_at: 0, tensors: reached }))
+    }
+
+    /// The description of the header (spec/zarrify/safetensors.md §8.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#85-the-description>):
+    /// its length, its `__metadata__`, and each tensor in the header's order as its entry gives it,
+    /// with none of an output's decisions; with `elements`, the IR's elements of the length, the
+    /// header and each tensor's data, where the parser emitted them.
+    fn describe(&self, elements: Option<J>) -> J {
+        let tensors: Vec<J> = self.tensors.iter().map(|t| {
+            let mut j = json!({"name": t.name, "dtype": t.dtype, "shape": t.shape, "data_offsets": [t.offsets.0, t.offsets.1]});
+            if !t.extra.is_empty() {
+                j["extra"] = J::Object(t.extra.clone());
+            }
+            j
+        }).collect();
+        let mut d = json!({"header_length": self.n, "metadata": self.metadata, "tensors": tensors});
+        if let Some(e) = elements {
+            d["elements"] = e;
+        }
+        d
     }
 }
 
@@ -438,6 +459,18 @@ impl crate::run::FileProfile for Profile {
     }
     fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
         crate::project::safetensors::reads(ir, facts)
+    }
+    /// The parser's description of the file, beside its projection's facts
+    /// (spec/zarrify/safetensors.md §8.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#85-the-description>).
+    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
+        facts.get("description").cloned()
+    }
+    /// The store run's description of the store, beside its projection's facts
+    /// (spec/zarrify/safetensors.md §9.7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#97-the-description>).
+    fn store_description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
+        facts.get("description").cloned()
     }
 }
 

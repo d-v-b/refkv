@@ -107,28 +107,13 @@ pub trait FileProfile: Sync {
         }
         Some(description)
     }
-    /// Whether what the profile's store run returns beside the IR is a description of the input
-    /// (`described`'s, for the run of a store format of the profile's name;
-    /// `store::StoreFormat::description`). A profile whose store facts no document specifies as a
-    /// description has none: an HDF5 store's hold each file's description, in a form of their own.
-    fn store_described(&self) -> bool {
-        false
-    }
-    /// The profile's description of a store run's input, from what its parser returned beside the
-    /// IR, `facts`: those facts without the run's own counts, of a profile whose store facts are its
-    /// description (`store_described`); None for one that has none. A profile whose store parser
-    /// returns a description beside its projection's facts says where it is.
+    /// The profile's description of a store of its format whose store parser returns it beside its
+    /// projection's facts, where it is in `facts`; None for a profile whose store run returns no
+    /// description, or returns its facts as one (its registry entry's `described`,
+    /// `store::StoreFormat::description`).
     fn store_description(&self, facts: &J) -> Option<J> {
-        if !self.store_described() {
-            return None;
-        }
-        let mut description = facts.clone();
-        if let Some(m) = description.as_object_mut() {
-            m.remove("counts");
-            // the bytes a TIFF store run read for its projection's windows
-            m.remove("set_bytes");
-        }
-        Some(description)
+        let _ = facts;
+        None
     }
     /// What the output adds beside the mirror (`output`, when it mirrors).
     fn mirrored(&self, out: &mut Out, facts: &J) -> Result<(), String> {
