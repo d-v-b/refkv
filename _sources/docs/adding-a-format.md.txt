@@ -402,7 +402,8 @@ registry. Add:
 
 - `src/<m>.rs` (where `<m>` is the name with `-` as `_`):
   - a `pub struct Profile` implementing `FileProfile` (`src/run.rs`: `detect`,
-    `parser`, `project`, and optionally `reads`, `mirrored`, `whole`);
+    `parser`, `project` (from the IR and the parser's description), and optionally
+    `reads`, `mirrored`, `whole`, `summary_counts`);
   - a sans-IO parser with `new(size)`, `step`, `feed` and `finish`;
 - `src/project/<m>.rs`, the projection to the Zarr layout;
 - `src/<m>/stored.rs`, which builds the stored-array descriptions, their codec
@@ -464,16 +465,15 @@ The documentation site lists it in the table of [zarrify §1.8](../spec/zarrify.
 add two functions, which `build.rs` calls from the `StoreFormat` it generates:
 
 - `pub fn store_parser(ir, objects, keys)` in `src/<m>.rs`;
-- `pub fn store_project(ir, facts, url, copied)` in `src/project/<m>.rs`.
+- `pub fn store_project(ir, description, url, copied)` in `src/project/<m>.rs`.
 
 A parser that reads bytes for the projection apart from what it describes (edge chunks it copies,
 windows it samples) gives them through `StoreParser::copied`, by their offset and length, and its
 own counts through `StoreParser::counts`, which the summary holds; neither goes in the description.
 
-A store run whose parser returns the profile's description of the input beside the IR (its
-document's section "The description") says so in the same entry, `"described": true`, and
-`StoreFormat::description` gives it to the hosts; one whose parser returns no description yet
-leaves it out.
+A store run's parser returns the profile's description of the input beside the IR (its
+document's section "The description"), which the projection reads and the hosts get
+(`StoreRun.description()`).
 
 A format whose writers name files in another case than they have (LIF's XLEF documents) adds
 `"case": true`, and each host that can list a local directory then answers a probe with
@@ -649,7 +649,7 @@ probe test that passed when both sides rejected
 Follow the house style in `python/tests/ir/test_<p>.py`: one test over the
 valid inputs, comparing every value, and one test per error case.
 
-- **Test the projected chunk bytes, not only the parser's facts.** The NDPI
+- **Test the projected chunk bytes, not only the parser's description.** The NDPI
   fix that read in-line values said this would have caught its first finding.
 - **Compare the stored-array descriptions with the reference reader**, in
   `python/tests/ir/test_<p>_stored.py`, with the helpers of

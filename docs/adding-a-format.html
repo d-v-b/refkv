@@ -883,7 +883,8 @@ registry. Add:</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">src/&lt;m&gt;.rs</span></code> (where <code class="docutils literal notranslate"><span class="pre">&lt;m&gt;</span></code> is the name with <code class="docutils literal notranslate"><span class="pre">-</span></code> as <code class="docutils literal notranslate"><span class="pre">_</span></code>):</p>
 <ul>
 <li><p>a <code class="docutils literal notranslate"><span class="pre">pub</span> <span class="pre">struct</span> <span class="pre">Profile</span></code> implementing <code class="docutils literal notranslate"><span class="pre">FileProfile</span></code> (<code class="docutils literal notranslate"><span class="pre">src/run.rs</span></code>: <code class="docutils literal notranslate"><span class="pre">detect</span></code>,
-<code class="docutils literal notranslate"><span class="pre">parser</span></code>, <code class="docutils literal notranslate"><span class="pre">project</span></code>, and optionally <code class="docutils literal notranslate"><span class="pre">reads</span></code>, <code class="docutils literal notranslate"><span class="pre">mirrored</span></code>, <code class="docutils literal notranslate"><span class="pre">whole</span></code>);</p></li>
+<code class="docutils literal notranslate"><span class="pre">parser</span></code>, <code class="docutils literal notranslate"><span class="pre">project</span></code> (from the IR and the parser’s description), and optionally
+<code class="docutils literal notranslate"><span class="pre">reads</span></code>, <code class="docutils literal notranslate"><span class="pre">mirrored</span></code>, <code class="docutils literal notranslate"><span class="pre">whole</span></code>, <code class="docutils literal notranslate"><span class="pre">summary_counts</span></code>);</p></li>
 <li><p>a sans-IO parser with <code class="docutils literal notranslate"><span class="pre">new(size)</span></code>, <code class="docutils literal notranslate"><span class="pre">step</span></code>, <code class="docutils literal notranslate"><span class="pre">feed</span></code> and <code class="docutils literal notranslate"><span class="pre">finish</span></code>;</p></li>
 </ul>
 </li>
@@ -949,15 +950,14 @@ The documentation site lists it in the table of <a class="reference internal" hr
 add two functions, which <code class="docutils literal notranslate"><span class="pre">build.rs</span></code> calls from the <code class="docutils literal notranslate"><span class="pre">StoreFormat</span></code> it generates:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">pub</span> <span class="pre">fn</span> <span class="pre">store_parser(ir,</span> <span class="pre">objects,</span> <span class="pre">keys)</span></code> in <code class="docutils literal notranslate"><span class="pre">src/&lt;m&gt;.rs</span></code>;</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">pub</span> <span class="pre">fn</span> <span class="pre">store_project(ir,</span> <span class="pre">facts,</span> <span class="pre">url,</span> <span class="pre">copied)</span></code> in <code class="docutils literal notranslate"><span class="pre">src/project/&lt;m&gt;.rs</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pub</span> <span class="pre">fn</span> <span class="pre">store_project(ir,</span> <span class="pre">description,</span> <span class="pre">url,</span> <span class="pre">copied)</span></code> in <code class="docutils literal notranslate"><span class="pre">src/project/&lt;m&gt;.rs</span></code>.</p></li>
 </ul>
 <p>A parser that reads bytes for the projection apart from what it describes (edge chunks it copies,
 windows it samples) gives them through <code class="docutils literal notranslate"><span class="pre">StoreParser::copied</span></code>, by their offset and length, and its
 own counts through <code class="docutils literal notranslate"><span class="pre">StoreParser::counts</span></code>, which the summary holds; neither goes in the description.</p>
-<p>A store run whose parser returns the profile’s description of the input beside the IR (its
-document’s section “The description”) says so in the same entry, <code class="docutils literal notranslate"><span class="pre">&quot;described&quot;:</span> <span class="pre">true</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">StoreFormat::description</span></code> gives it to the hosts; one whose parser returns no description yet
-leaves it out.</p>
+<p>A store run’s parser returns the profile’s description of the input beside the IR (its
+document’s section “The description”), which the projection reads and the hosts get
+(<code class="docutils literal notranslate"><span class="pre">StoreRun.description()</span></code>).</p>
 <p>A format whose writers name files in another case than they have (LIF’s XLEF documents) adds
 <code class="docutils literal notranslate"><span class="pre">&quot;case&quot;:</span> <span class="pre">true</span></code>, and each host that can list a local directory then answers a probe with
 <code class="docutils literal notranslate"><span class="pre">StoreRun::found_as</span></code>.</p>
@@ -1125,7 +1125,7 @@ probe test that passed when both sides rejected
 <p>Follow the house style in <code class="docutils literal notranslate"><span class="pre">python/tests/ir/test_&lt;p&gt;.py</span></code>: one test over the
 valid inputs, comparing every value, and one test per error case.</p>
 <ul class="simple">
-<li><p><strong>Test the projected chunk bytes, not only the parser’s facts.</strong> The NDPI
+<li><p><strong>Test the projected chunk bytes, not only the parser’s description.</strong> The NDPI
 fix that read in-line values said this would have caught its first finding.</p></li>
 <li><p><strong>Compare the stored-array descriptions with the reference reader</strong>, in
 <code class="docutils literal notranslate"><span class="pre">python/tests/ir/test_&lt;p&gt;_stored.py</span></code>, with the helpers of
