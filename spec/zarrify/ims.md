@@ -1064,7 +1064,7 @@ It is a JSON object with these members:
 | `times`, `channels` | `T` and `C` |
 | `data` | each dataset `(r, t, c)`, in the order read: `level`, `time` and `channel`; `chunks`, the id of the IR element whose members are its chunks, null when it has none allocated; `grid`, its chunk grid's size (z, y, x); and `object`, the id of its object's IR element, which keys its stored array, null when the IR has none |
 | `info` | the metadata's attributes as [§3](#3-metadata) reads them: `image`, of `Image`, `ext_min` and `ext_max` (each axis's decimal or null), `unit` and `name` (text or null); `channels`, of each `Channel c` (none when `C` is more than 64): `name`, `color_mode`, `color_table_length` (text or null), `color` (3 decimals or null), `color_range` (2 decimals or null), and `color_table`, the color table's text, null when it is absent or was not read (the base color decides the color first, or `ColorTableLength` is not an integer); `time_points`, when `T > 1`, `first` and `last`, the texts of `TimePoint1` and `TimePoint<T>`, else null |
-| `objects` | the objects of the walk ([the convention §5.3](#53-the-walk)) |
+| `objects` | the number of objects the walk visited ([the convention §5.3](#53-the-walk)) |
 
 A text is the attribute's text by [§2.1](#21-attributes-as-text), at any length: the 256-byte
 limit on names and labels ([§4](#4-output)) is the projection's.

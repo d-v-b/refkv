@@ -45,6 +45,16 @@ def attr(group: Any, name: str) -> str | None:
     return text(group.attrs[name]) if group is not None and name in group.attrs else None
 
 
+def optional(group: Any, name: str) -> str | None:
+    """An attribute read as text that never rejects the input: None unless its datatype is a
+    string."""
+    if group is None or name not in group.attrs:
+        return None
+    if group.attrs.get_id(name).get_type().get_class() != h5py.h5t.STRING:
+        return None
+    return attr(group, name)
+
+
 def decimals(t: str | None, n: int) -> list[float] | None:
     """`n` decimals separated by whitespace, else None."""
     if t is None:
@@ -94,6 +104,10 @@ def test_the_description_is_h5pys_reading(path: Path):
         }
         assert sorted((e["level"], e["time"], e["channel"]) for e in d["data"]) == [
             (r, t, c) for r in range(len(d["levels"])) for t in range(times) for c in range(channels)]
+        for e in d["data"]:
+            ds = dataset[f"ResolutionLevel {e['level']}"][f"TimePoint {e['time']}"][f"Channel {e['channel']}"]["Data"]
+            assert e["grid"] == [-(-s // k) for s, k in zip(ds.shape, ds.chunks, strict=True)], e
+            assert (e["chunks"] is None) == (ds.id.get_num_chunks() == 0), e
         info = f.get("DataSetInfo")
         image = info.get("Image") if info is not None else None
         im = d["info"]["image"]
@@ -109,7 +123,8 @@ def test_the_description_is_h5pys_reading(path: Path):
                 assert ch["name"] == attr(g, "Name"), c
                 assert ch["color"] == decimals(attr(g, "Color"), 3), c
                 assert ch["color_range"] == decimals(attr(g, "ColorRange"), 2), c
-                assert ch["color_mode"] in (attr(g, "ColorMode"), None), c
+                assert ch["color_mode"] == optional(g, "ColorMode"), c
+                assert ch["color_table_length"] == optional(g, "ColorTableLength"), c
                 if ch["color_table"] is not None and g is not None and "ColorTable" in g.attrs:
                     assert ch["color_table"] == attr(g, "ColorTable"), c
         else:
