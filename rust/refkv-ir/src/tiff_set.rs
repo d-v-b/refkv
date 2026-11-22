@@ -273,10 +273,15 @@ impl StoreParser for TiffSet {
         if self.phase != Phase::Done {
             return Err("internal: the parse is not done".into());
         }
-        let (ir, mut facts) = self.finished.take().ok_or("internal: the files were not joined")?;
-        self.sampled.sort_unstable_by_key(|s| s.0);
-        facts["set_bytes"] = J::Array(self.sampled.iter().map(|(at, b)| json!([at, b])).collect());
-        Ok((ir, facts))
+        let (ir, description) = self.finished.take().ok_or("internal: the files were not joined")?;
+        Ok((ir, description))
+    }
+
+    /// The bytes the image's windows sample (spec/zarrify/tiff.md §7.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#74-several-files>), each by
+    /// its (virtual offset, length).
+    fn copied(&mut self) -> crate::project::Copied {
+        std::mem::take(&mut self.sampled).into_iter().map(|(at, b)| ((at, b.len() as u64), b)).collect()
     }
 }
 

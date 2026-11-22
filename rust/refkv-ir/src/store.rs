@@ -121,9 +121,8 @@ impl StoreFormat {
         let mut description = facts.clone();
         if let Some(m) = description.as_object_mut() {
             m.remove("counts");
-            // the bytes a store run read for its projection (windows it samples, edge chunks it
-            // copies), which describe no source
-            m.remove("set_bytes");
+            // the bytes a store run read for its projection (edge chunks it copies), which
+            // describe no source
             m.remove("copied");
         }
         Some(description)
