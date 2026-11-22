@@ -70,7 +70,7 @@ fn described(key: &str) -> Result<(refkv_ir::ir::Ir, serde_json::Value), String>
             run.complete(k, q.spans.iter().map(|&(a, b)| object[a as usize..b as usize].to_vec()).collect())?;
         }
     }
-    let (ir, facts, _) = run.finish()?;
+    let (ir, facts, _, _) = run.finish()?;
     Ok((ir, facts))
 }
 

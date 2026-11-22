@@ -214,6 +214,6 @@ fn images(ir: &Ir, plan: &J, refs: &mut Refs) -> Result<u64, String> {
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, facts: &J, url: &str, _copied: &super::Copied) -> Result<Out, String> {
     project_set(ir, facts, url)
 }

@@ -85,7 +85,7 @@ fn a_store_run_reads_each_batch_as_one_request_per_object() {
              ObjectRequest { object: 2, key: "b".into(), spans: vec![(0, 3)] }],
         vec![ObjectRequest { object: 1, key: "a/0".into(), spans: vec![(0, 116), (90_000, 90_008)] }],
     ]);
-    let (ir, facts, stats) = r.finish().unwrap();
+    let (ir, facts, stats, _) = r.finish().unwrap();
     assert_eq!(stats, json!({"objects": 3, "batches": 2, "ranges": 5, "asked": 53, "requests": 3, "spans": 4,
                              "bytes": 137, "listed": 3}));
     let fed = facts["fed"].as_array().unwrap();
@@ -102,7 +102,7 @@ fn a_batch_of_empty_ranges_alone_is_fed_without_a_request() {
     let mut r = run(vec![vec![(2, 0, 0), (0, 3, 0)], vec![(2, 0, 3)]], vec![]).unwrap();
     let seen = drive(&mut r).unwrap();
     assert_eq!(seen.iter().map(|b| b.len()).collect::<Vec<_>>(), vec![0, 1]);
-    let (_, facts, _) = r.finish().unwrap();
+    let (_, facts, _, _) = r.finish().unwrap();
     assert_eq!(facts["fed"], json!([[2, 0, []], [0, 3, []], [2, 0, bytes(2)]]));
 }
 
@@ -138,7 +138,7 @@ fn the_ignored_keys_reach_the_parser_and_the_facts() {
     let mut r = run(vec![vec![(2, 0, 3)]], vec![]).unwrap();
     r.ignore(vec!["z//".into(), "\u{e9}/.".into(), "a/../b".into()], vec!["d/".into()]).unwrap();
     drive(&mut r).unwrap();
-    let (_, facts, _) = r.finish().unwrap();
+    let (_, facts, _, _) = r.finish().unwrap();
     assert_eq!(facts["folders"], json!(["d/"]));
     assert_eq!(facts["ignored"], json!(["a/../b", "z//", "\u{e9}/."]));
 }
