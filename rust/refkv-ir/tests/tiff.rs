@@ -268,7 +268,7 @@ fn a_sets_planes_name_their_descriptions_in_their_files() {
             run.complete(k, q.spans.iter().map(|&(a, b)| data[a as usize..b as usize].to_vec()).collect()).unwrap();
         }
     }
-    let (ir, description, _) = run.finish().unwrap();
+    let (ir, description, _, _) = run.finish().unwrap();
     let facts = refkv_ir::tiff::plan::plan("tiff", &description).unwrap();
     let (planes, unmodeled, holders) = planes_name_their_descriptions(&key, &ir, &facts);
     assert!(planes >= 2 && unmodeled == 0, "{planes} planes, {unmodeled} with no grid");

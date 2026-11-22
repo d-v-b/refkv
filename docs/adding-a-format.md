@@ -464,7 +464,11 @@ The documentation site lists it in the table of [zarrify §1.8](../spec/zarrify.
 add two functions, which `build.rs` calls from the `StoreFormat` it generates:
 
 - `pub fn store_parser(ir, objects, keys)` in `src/<m>.rs`;
-- `pub fn store_project(ir, facts, url)` in `src/project/<m>.rs`.
+- `pub fn store_project(ir, facts, url, copied)` in `src/project/<m>.rs`.
+
+A parser that reads bytes for the projection apart from what it describes (edge chunks it copies,
+windows it samples) gives them through `StoreParser::copied`, by their offset and length, and its
+own counts through `StoreParser::counts`, which the summary holds; neither goes in the description.
 
 A store run whose parser returns the profile's description of the input beside the IR (its
 document's section "The description") says so in the same entry, `"described": true`, and

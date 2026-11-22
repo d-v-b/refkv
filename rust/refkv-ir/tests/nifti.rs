@@ -35,12 +35,13 @@ fn rejection(key: &str) -> String {
 
 /// A store run of the pair whose header file is `key`, the image file found by `beside`.
 fn run_pair(key: &str, data: &[u8], beside: impl Fn(&str) -> Option<Vec<u8>>) -> Result<refkv_ir::out::Out, String> {
-    let (ir, facts, stats) = parse_pair(key, data, beside)?;
-    refkv_ir::store::store_output(StoreFormat::Nifti, &ir, &facts, stats, &Default::default(), "https://example.org/nifti/", true, false).map_err(String::from)
+    let (ir, facts, stats, read) = parse_pair(key, data, beside)?;
+    refkv_ir::store::store_output(StoreFormat::Nifti, &ir, &facts, stats, &read, "https://example.org/nifti/", true, false).map_err(String::from)
 }
 
-/// The store IR, the facts and the run's counts of the pair whose header file is `key`, the image file found by `beside`.
-fn parse_pair(key: &str, data: &[u8], beside: impl Fn(&str) -> Option<Vec<u8>>) -> Result<(refkv_ir::ir::Ir, serde_json::Value, serde_json::Value), String> {
+/// The store IR, the description, the run's counts and what it read for the projection, of the
+/// pair whose header file is `key`, the image file found by `beside`.
+fn parse_pair(key: &str, data: &[u8], beside: impl Fn(&str) -> Option<Vec<u8>>) -> Result<(refkv_ir::ir::Ir, serde_json::Value, serde_json::Value, refkv_ir::store::Read), String> {
     let mut run = StoreRun::new(StoreFormat::Nifti, vec![(key.to_string(), data.len() as u64)], 4)?;
     while let Some(reqs) = run.poll()? {
         if reqs.is_empty() {
@@ -171,7 +172,7 @@ fn every_accepted_fixtures_description_names_its_stored_array() {
         let data = fixture(&key).unwrap();
         let (ir, facts, declaring) = if lower.ends_with(".hdr") {
             pairs += 1;
-            let (ir, facts, _) = parse_pair(&key, &data, fixture).unwrap();
+            let (ir, facts, _, _) = parse_pair(&key, &data, fixture).unwrap();
             (ir, facts, format!("{key}/header"))
         } else {
             let (ir, facts) = refkv_ir::parse_bytes::<Nifti>(&data).unwrap();

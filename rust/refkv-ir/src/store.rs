@@ -510,13 +510,9 @@ impl StoreRun {
         Ok(())
     }
 
-    /// The IR (its held objects holding their bytes), the facts, and the run's counts.
-    pub fn finish(self) -> Res<(Ir, J, J)> {
-        self.finish_read().map(|(ir, facts, stats, _)| (ir, facts, stats))
-    }
-
-    /// `finish`, with what the run read for the convention's projection ([`Read`]).
-    pub fn finish_read(mut self) -> Res<(Ir, J, J, Read)> {
+    /// The IR (its held objects holding their bytes), the facts, the run's counts, and what the
+    /// run read for the convention's projection ([`Read`]), which `store_output` takes with them.
+    pub fn finish(mut self) -> Res<(Ir, J, J, Read)> {
         if !self.done {
             return Err("the run is not done".into());
         }
@@ -560,7 +556,7 @@ impl StoreRun {
     /// `checksums`.
     pub fn into_output(self, url: &str, mirror: bool, checksums: bool) -> Result<crate::out::Out, crate::seal::Refusal> {
         let format = self.format;
-        let (ir, facts, stats, read) = self.finish_read()?;
+        let (ir, facts, stats, read) = self.finish()?;
         store_output(format, &ir, &facts, stats, &read, url, mirror, checksums)
     }
 }
@@ -620,7 +616,7 @@ pub fn mirrored(format: StoreFormat, ir: &Ir, facts: &J, out: &mut crate::out::O
 
 /// Runs a store format over objects in memory through a run (tests, tools): `read(k)` gives
 /// listed object `k`'s bytes.
-pub fn run_store(format: StoreFormat, keys: Vec<(String, u64)>, read: &dyn Fn(usize) -> Vec<u8>) -> Res<(Ir, J, J)> {
+pub fn run_store(format: StoreFormat, keys: Vec<(String, u64)>, read: &dyn Fn(usize) -> Vec<u8>) -> Res<(Ir, J, J, Read)> {
     let mut r = StoreRun::new(format, keys, 8)?;
     while let Some(reqs) = r.poll()? {
         for (k, q) in reqs.iter().enumerate() {

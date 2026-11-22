@@ -28,8 +28,8 @@ fn entry(out: &Out) -> impl Fn(&str) -> Option<Vec<u8>> + '_ {
 fn directory(files: &BTreeMap<String, Vec<u8>>) -> Result<(Out, Ir), String> {
     let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
-    let (ir, facts, stats) = run_store(StoreFormat::Safe, keys, &|k| bytes[k].clone())?;
-    Ok((store_output(StoreFormat::Safe, &ir, &facts, stats, &Default::default(), "https://example.org/p/", true, false)?, ir))
+    let (ir, facts, stats, read) = run_store(StoreFormat::Safe, keys, &|k| bytes[k].clone())?;
+    Ok((store_output(StoreFormat::Safe, &ir, &facts, stats, &read, "https://example.org/p/", true, false)?, ir))
 }
 
 /// The zip form's output (mirrored), its IR, or the rejection.
@@ -126,7 +126,7 @@ fn every_accepted_products_bands_name_their_descriptions() {
         let (ir, facts) = if path.is_dir() {
             let files = walk(&path);
             let bytes: Vec<&Vec<u8>> = files.values().collect();
-            let (ir, facts, _) = run_store(StoreFormat::Safe, listing(&files), &|k| bytes[k].clone()).unwrap();
+            let (ir, facts, _, _) = run_store(StoreFormat::Safe, listing(&files), &|k| bytes[k].clone()).unwrap();
             (ir, facts)
         } else {
             let (ir, facts, _) = run_bytes(Format::Safe, &std::fs::read(&path).unwrap()).unwrap();

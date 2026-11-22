@@ -28,8 +28,8 @@ fn fixtures() -> PathBuf {
 fn directory(files: &BTreeMap<String, Vec<u8>>) -> Result<Out, String> {
     let keys = listing(files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
-    let (ir, facts, stats) = run_store(StoreFormat::Zarr3, keys, &|k| bytes[k].clone())?;
-    store_output(StoreFormat::Zarr3, &ir, &facts, stats, &Default::default(), "https://data.test/s/", true, false).map_err(String::from)
+    let (ir, facts, stats, read) = run_store(StoreFormat::Zarr3, keys, &|k| bytes[k].clone())?;
+    store_output(StoreFormat::Zarr3, &ir, &facts, stats, &read, "https://data.test/s/", true, false).map_err(String::from)
 }
 
 /// The zip file's output, mirrored, and its IR.

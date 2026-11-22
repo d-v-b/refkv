@@ -1007,8 +1007,8 @@ impl PyOmeImage {
 #[pyclass(name = "StoreRun", module = "refkv._core")]
 pub struct PyStoreRun {
     r: Option<refkv_ir::store::StoreRun>,
-    /// the run finished without an output (`parse`): its format, IR, facts and counts, kept
-    /// the format, the IR, the facts, and the run's counts with what it read for the projection
+    /// the run finished without an output (`parse`): its format, IR, facts, and the run's counts
+    /// with what it read for the projection, kept
     parsed: Option<(refkv_ir::store::StoreFormat, Arc<Ir>, Arc<serde_json::Value>, (serde_json::Value, refkv_ir::store::Read))>,
 }
 
@@ -1080,7 +1080,7 @@ impl PyStoreRun {
         let format = r.format;
         let (o, ir) = py
             .detach(|| -> Result<_, refkv_ir::seal::Refusal> {
-                let (ir, facts, stats, read) = r.finish_read()?;
+                let (ir, facts, stats, read) = r.finish()?;
                 Ok((refkv_ir::store::store_output(format, &ir, &facts, stats, &read, url, mirror, checksums)?, ir))
             })
             .map_err(refused)?;
@@ -1088,7 +1088,7 @@ impl PyStoreRun {
     }
     fn finish(&mut self, py: Python<'_>) -> PyResult<(PyIr, String, String)> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
-        let (ir, facts, stats) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
+        let (ir, facts, stats, _) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
         Ok((PyIr::new(ir), facts.to_string(), stats.to_string()))
     }
     /// Finishes without an output: the IR, which the run keeps with its facts and counts, so
@@ -1096,7 +1096,7 @@ impl PyStoreRun {
     fn parse(&mut self, py: Python<'_>) -> PyResult<PyIr> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
         let format = r.format;
-        let (ir, facts, stats, read) = py.detach(|| r.finish_read()).map_err(Rejected::new_err)?;
+        let (ir, facts, stats, read) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
         let ir = Arc::new(ir);
         self.parsed = Some((format, Arc::clone(&ir), Arc::new(facts), (stats, read)));
         Ok(PyIr::of(ir))

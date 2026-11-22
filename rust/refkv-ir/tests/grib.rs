@@ -38,8 +38,8 @@ fn run_files(key: &str, mut files: BTreeMap<String, Vec<u8>>) -> Result<Ran, Str
             run.complete(k, q.spans.iter().map(|&(a, b)| data[a as usize..b as usize].to_vec()).collect())?;
         }
     }
-    let (ir, facts, stats) = run.finish()?;
-    let out = refkv_ir::store::store_output(StoreFormat::Grib, &ir, &facts, stats, &Default::default(), "https://example.org/grib/", true, false)?;
+    let (ir, facts, stats, read) = run.finish()?;
+    let out = refkv_ir::store::store_output(StoreFormat::Grib, &ir, &facts, stats, &read, "https://example.org/grib/", true, false)?;
     let objects: std::collections::HashSet<String> = ir.sources().objects.iter().map(|&o| ir.key(o)).collect();
     files.retain(|k, _| objects.contains(k));
     Ok((out, ir, files))
@@ -407,7 +407,7 @@ fn parsed(key: &str, files: &BTreeMap<String, Vec<u8>>) -> (Ir, J) {
             run.complete(k, q.spans.iter().map(|&(a, b)| data[a as usize..b as usize].to_vec()).collect()).unwrap();
         }
     }
-    let (ir, facts, _) = run.finish().unwrap();
+    let (ir, facts, _, _) = run.finish().unwrap();
     (ir, facts)
 }
 
