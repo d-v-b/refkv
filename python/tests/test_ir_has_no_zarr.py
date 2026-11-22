@@ -79,7 +79,6 @@ OFFENDERS: dict[str, str] = {
 
     "nd2": "ND2's frame forms give a Zarr data type (`geometry.dtype`) and a Zarr codec chain (`codec`)",
 
-    "nifti": "NIfTI's data forms give a Zarr data type (`geometry.data_type`)",
 
     "npy": "NPY's data forms give a Zarr data type (`geometry.data_type`)",
 
