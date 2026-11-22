@@ -183,20 +183,16 @@ pub fn set_reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
 
 /// The image of the TIFF store run (spec/zarrify/tiff.md §7.4
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#74-several-files>): as `project`,
-/// its references ranges of the files that hold the planes, the bytes its windows sample in the
-/// facts (`set_bytes`, by virtual offset).
-pub fn project_set(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+/// its references ranges of the files that hold the planes, `copied` the bytes its windows sample,
+/// which the store run read (by virtual offset and length).
+pub fn project_set(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
     let facts = &plan("tiff", description)?;
     let axes = strs(&facts["axes"]);
     let data_type = tiled::data_type(facts)?;
     let (mut out, shapes) = arrays(ir, facts, url, None)?;
-    let copied: Copied = arr(&description["set_bytes"]).iter().map(|e| {
-        let b: Vec<u8> = arr(&e[1]).iter().map(|x| n(x) as u8).collect();
-        ((n(&e[0]), b.len() as u64), b)
-    }).collect();
     let sample = samples(facts);
     let (last, _) = if sample.is_empty() { (Out::new(url), Vec::new()) } else { arrays(ir, facts, url, Some(arr(&facts["levels"]).len() - 1))? };
-    let sampled = tiled::sampled(&virtual_ranges(ir, last), facts, &sample, |lv| level_shape(facts, lv).2, &data_type, &copied);
+    let sampled = tiled::sampled(&virtual_ranges(ir, last), facts, &sample, |lv| level_shape(facts, lv).2, &data_type, copied);
     let mut ome = tiled::ome(facts, &axes, Some(&facts["name"]))?;
     if let Some(omero) = omero(facts, n(&facts["sizes"]["c"]), &data_type, &sampled) {
         ome["omero"] = omero;
@@ -227,8 +223,8 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<O
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied) -> Result<Out, String> {
-    project_set(ir, description, url)
+pub fn store_project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+    project_set(ir, description, url, copied)
 }
 
 #[cfg(test)]
