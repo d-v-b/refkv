@@ -267,7 +267,7 @@ and [§5](../spec/conventions.md#5-units).
 - Decide which structures of the format are its stored arrays: the ones the
   source itself declares as arrays. A CZI file's are its subblocks. Its scenes
   and pyramid levels are not, since the profile assembles those
-  ([stored-array §7](../spec/stored-array.md#7-the-formats)).
+  ([spec/zarrify/czi/stored-arrays.md](../spec/zarrify/czi/stored-arrays.md)).
 - For each, find its declarations: the bytes that say what its elements are.
 - A description holds the source, not the output: no data types, byte order
   names, output chunking, shards, padding, or bytes the source doesn't hold
@@ -360,12 +360,12 @@ Write the schema module, `spec/source_metadata/<p>.py`, alongside the
 document. `uv run python spec/generate_schemas.py` writes
 `spec/zarrify/<p>/schema.json` from it.
 
-Add the format's paragraph to
-[stored-array §7](../spec/stored-array.md#7-the-formats). It names the
+Write `spec/zarrify/<p>/stored-arrays.md`
+([stored-array §7](../spec/stored-array.md#7-the-formats)). It names the
 structures that are the format's stored arrays, how each is keyed and what its
 declarations are, and says what of the format is described and what is not
-yet. The parser of a format with no paragraph there describes nothing. MRC's
-paragraph is a short model.
+yet, or that the parser describes nothing yet.
+[MRC's](../spec/zarrify/mrc/stored-arrays.md) is a short model.
 
 ## 5. Implement it
 
@@ -380,12 +380,13 @@ Copy an existing entry, such as
 
 Then run `just profiles`. It regenerates:
 - the core's copy, `rust/refkv-ir/profiles/<p>.json`;
-- the profile tables of `spec/zarrify.md`, `spec/conventions.md` and
-  `docs/zarrify/README.md`;
 - `python/src/refkv/zarrify/profile_classes.py`.
 
-Commit them all. When two format PRs conflict in a generated block, rerun
-`just profiles` instead of merging by hand.
+Commit them. The profile tables of `spec/zarrify.md`, `spec/conventions.md` and
+`docs/zarrify/README.md`, the stored arrays of every format and the index of
+descriptions are not committed: the documentation site renders them from the
+registry and your format's own files when it is built (`just docs`,
+`spec/tools/blocks.py`).
 
 This registry exists because adding a format used to touch about fifteen
 shared files and renumber spec sections. FITS was renumbered twice
@@ -459,7 +460,7 @@ Either form, and a store input ([§5.6](#56-a-store-input)), is a member of the 
 `store_run`, which the hosts read: `{"form": "listed"}` for a store a listing finds, and for a file read as a
 store `{"form": "always" or "on_demand", "named": ..., "section": ...}`, where `named` is the named file as a
 rejection names it and `section` is the anchor of the section of the profile's document that specifies it.
-`just profiles` lists it in the table of [zarrify §1.8](../spec/zarrify.md#18-files-read-as-stores). Then
+The documentation site lists it in the table of [zarrify §1.8](../spec/zarrify.md#18-files-read-as-stores). Then
 add two functions, which `build.rs` calls from the `StoreFormat` it generates:
 
 - `pub fn store_parser(ir, objects, keys)` in `src/<m>.rs`;
@@ -782,7 +783,7 @@ just lint
 just typecheck
 ```
 
-`just preflight` runs the last three together, with `just sections` against `origin/main`; run it before every push.
+`just preflight` runs the last three together, with `just sections` against `origin/main`, and builds the documentation site (`just docs`), which fails on any warning; run it before every push.
 
 ```bash
 just test
