@@ -67,7 +67,7 @@ which most products use):
 annotations; files the older DFSD interface wrote, which have no SD dataset;
 tables of the oldest Vdata headers (version 2), and of fields of two byte
 orders. [spec/zarrify/hdf4.md §8.4](../../../spec/zarrify/hdf4.md#84-what-is-not-presented)
-lists them, and [design/plans/hdf4.md](../../../design/plans/hdf4.md) the
+lists them, and design/plans/hdf4.md ([#326](https://github.com/d-v-b/refkv/pull/326)) the
 order of the work.
 
 ## Try it
@@ -164,4 +164,4 @@ without a panic.
 - Convention and profile: [spec/zarrify/hdf4.md](../../../spec/zarrify/hdf4.md)
 - Rust core: [rust/refkv-ir/src/hdf4/](../../../rust/refkv-ir/src/hdf4/), the projection [rust/refkv-ir/src/project/hdf4.rs](../../../rust/refkv-ir/src/project/hdf4.rs)
 - Fixtures: [fixtures/hdf4/](../../../fixtures/hdf4/)
-- Design: [design/plans/hdf4.md](../../../design/plans/hdf4.md)
+- Design: design/plans/hdf4.md ([#326](https://github.com/d-v-b/refkv/pull/326))
