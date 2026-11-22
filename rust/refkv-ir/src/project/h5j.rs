@@ -42,9 +42,82 @@ fn attributes<'a>(nodes: &'a [J], path: &str) -> &'a J {
     nodes.iter().find(|n| n["path"] == path).map(|n| &n["attributes"]).unwrap_or(&J::Null)
 }
 
+/// An MP4 file as refkv's MP4 convention reads it, from the parser's description: its brand, movie
+/// timescale and duration, the most frames of a chunk, and each track's description and refkv's
+/// plan of it together (`project::mp4::planned_track`); an error, the convention's, when it
+/// zarrifies no track (spec/zarrify/mp4.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>).
+fn planned(description: &J) -> Result<J, String> {
+    use super::mp4::{plan, planned_track};
+    let p = plan(description)?;
+    let tracks: Vec<J> = arr(&description["tracks"]).iter().zip(arr(&p["tracks"])).map(|(t, f)| planned_track(t, f)).collect();
+    Ok(json!({
+        "brand": description["brand"], "timescale": description["timescale"], "duration": description["duration"],
+        "chunk_frames": p["chunk_frames"], "tracks": tracks,
+    }))
+}
+
+/// refkv's plan of each channel (spec/zarrify/h5j.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#82-channels>), from the
+/// description's channels and the padding `/Channels` gives: its `name`, `path`, `offset`, `length`
+/// and `attributes`; its `reason`, null for a channel the convention zarrifies; and of such a
+/// channel its MP4 file's `brand`, `timescale`, `duration` and `chunk_frames`, and its one track as
+/// refkv's MP4 plan reads it (`track`, null for another).
+pub fn channels(described: &[J], pad: &Result<(u64, u64), String>) -> Vec<J> {
+    described.iter().map(|c| {
+        let mut m = Map::new();
+        for k in ["name", "path", "offset", "length", "attributes"] {
+            m.insert(k.into(), c[k].clone());
+        }
+        let file = match (c["unread"].as_str(), &c["mp4"]) {
+            (Some(r), _) => Err(r.to_string()),
+            (None, d) => planned(d).map_err(|e| format!("its MP4 file: {e}")),
+        };
+        let reason = match &file {
+            Err(r) => Some(r.clone()),
+            Ok(f) => match arr(&f["tracks"]) {
+                [t] if !t["reason"].is_null() => Some(format!("its MP4 file's track {}: {}", t["id"], t["reason"].as_str().unwrap_or(""))),
+                [t] if !matches!(t["format"].as_str(), Some("h264" | "hevc" | "av1" | "vp9")) => {
+                    Some(format!("its MP4 file's track is {}, not video", t["format"].as_str().unwrap_or("none")))
+                }
+                [t] if t["geometry"]["chroma"] != "4:0:0" => {
+                    Some(format!("its pictures are {}, not 4:0:0 (monochrome)", t["geometry"]["chroma"].as_str().unwrap_or("")))
+                }
+                [t] => match pad {
+                    Err(m) => Some(m.clone()),
+                    Ok((right, bottom)) => {
+                        let (w, h) = (n(&t["geometry"]["width"]), n(&t["geometry"]["height"]));
+                        (*right >= w || *bottom >= h).then(|| format!("a padding of {right} by {bottom} of pictures of {w} by {h}"))
+                    }
+                },
+                tracks => Some(format!("its MP4 file has {} tracks, not one", tracks.len())),
+            },
+        };
+        let mut track = J::Null;
+        if let (None, Ok(f)) = (&reason, &file) {
+            for k in ["brand", "timescale", "duration", "chunk_frames"] {
+                m.insert(k.into(), f[k].clone());
+            }
+            track = arr(&f["tracks"])[0].clone();
+        }
+        m.insert("reason".into(), json!(reason));
+        m.insert("track".into(), track);
+        J::Object(m)
+    }).collect()
+}
+
+/// refkv's plan of the file: its channels (`channels`) and the padding (right, bottom), null when
+/// `/Channels`'s attributes give none that reads.
+pub fn plan(description: &J, nodes: &[J]) -> J {
+    let pad = crate::h5j::pad(attributes(nodes, crate::h5j::GROUP));
+    let pad_json = pad.as_ref().map_or(J::Null, |&(r, b)| json!([r, b]));
+    json!({"channels": channels(arr(&description["h5j"]["channels"]), &pad), "pad": pad_json})
+}
+
+/// The output of the file `description` describes, through refkv's plan of it (`plan`).
 pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    let h = &facts["h5j"];
     let nodes = super::hdf5_nodes::nodes(facts)?.nodes;
+    let h = &plan(facts, &nodes);
     let root = attributes(&nodes, "");
     let channels = arr(&h["channels"]);
     let (pad_right, pad_bottom) = (n(&h["pad"][0]), n(&h["pad"][1]));
