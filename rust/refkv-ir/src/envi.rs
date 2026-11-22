@@ -182,7 +182,6 @@ pub struct Fields {
     pub bands: u64,
     pub interleave: String,
     pub code: u64,
-    pub data_type: String,
     pub item: u64,
     pub big: bool,
     pub offset: u64,
@@ -251,7 +250,7 @@ pub fn fields(rules: &Rules, h: &Header) -> Res<Fields> {
     let spec = code.and_then(|c| rules.entry("types", &c.to_string()));
     check_value(rules, "data type", d, spec.is_none().then(|| "is not the code of an ENVI data type of a flat array (1 to 6, 9, or 12 to 15)".into()))?;
     let spec = spec.ok_or("internal: a data type the schema does not name")?;
-    let (data_type, item) = (spec["dtype"].as_str().unwrap_or("uint8").to_string(), spec["bytes"].as_u64().unwrap_or(1));
+    let item = spec["bytes"].as_u64().unwrap_or(1);
 
     let flag_field = |field: &str| -> Res<bool> {
         let Some(d) = h.field(field) else { return Ok(false) };
@@ -269,7 +268,7 @@ pub fn fields(rules: &Rules, h: &Header) -> Res<Fields> {
         None => 0,
     };
     let gzip = flag_field("file compression")?;
-    Ok(Fields { samples, lines, bands, interleave, code: code.unwrap_or(0) as u64, data_type, item, big, offset, gzip })
+    Ok(Fields { samples, lines, bands, interleave, code: code.unwrap_or(0) as u64, item, big, offset, gzip })
 }
 
 /// The keys the profile probes for the data file, in order (spec/zarrify/envi.md §8.3
@@ -391,7 +390,10 @@ impl Envi {
                 codec.insert("skip".into(), json!(f.offset));
             }
         }
-        let form = json!({"geometry": {"data_type": f.data_type, "shape": f.stored_shape()}, "codec": codec, "recipe": [["src", 0, null]]});
+        // its type as the header's `data type` code gives it, not an output's data type, which is
+        // its projection's (conventions §8.5
+        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)
+        let form = json!({"geometry": {"data_type": f.code, "shape": f.stored_shape()}, "codec": codec, "recipe": [["src", 0, null]]});
         let data = ir.data(o, "data", NO_INDEX, 0, (start, length), &form.to_string())?;
         let size = self.keys[self.data].1;
         if start > 0 {

@@ -240,7 +240,7 @@ children are the objects; the paths below are relative to each object. Types are
 | path | kind | type | extent: what |
 |---|---|---|---|
 | `lines/<i>` | value | `ascii[k]` | in the header file: line `i`, its line end included (`k` bytes), the magic first |
-| `data` | data | | in the data file: `(o, B)` for a raw file, `o` the header offset; `(0, Z)`, the whole file of `Z` bytes, for a gzip file; its form `{"geometry": {"data_type": T, "shape": S}, "codec": {"interleave": I, "endian": e, "compression": "gzip", "skip": o}, "recipe": [["src", 0, null]]}`, `S` the shape of `V` ([§4.1](#41-the-array)), `endian` present when the data type is larger than 1 byte, `compression` for a gzip file, and `skip` for a gzip file whose header offset is above 0 |
+| `data` | data | | in the data file: `(o, B)` for a raw file, `o` the header offset; `(0, Z)`, the whole file of `Z` bytes, for a gzip file; its form `{"geometry": {"data_type": T, "shape": S}, "codec": {"interleave": I, "endian": e, "compression": "gzip", "skip": o}, "recipe": [["src", 0, null]]}`, `T` the header's `data type` code (not a Zarr data type, which is the projection's, [conventions §8.5](../conventions.md#85-forms-and-recipes)), `S` the shape of `V` ([§4.1](#41-the-array)), `endian` present when the data type is larger than 1 byte, `compression` for a gzip file, and `skip` for a gzip file whose header offset is above 0 |
 | `gaps/<offset>` | gap | | in the data file: the header offset's bytes of a raw file |
 
 ### 5.4 Equivalence

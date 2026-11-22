@@ -35,7 +35,7 @@
   "elements": {
     "about": "The store IR of an ENVI input: the header file's object, held, and the data file's object, described in place. o is the header offset; B the array's bytes; Z the data file's size.",
     "lines/<i>": {"kind": "value", "type": "ascii[k]", "extent": "line i of the header file, its line end included: the magic first"},
-    "data": {"kind": "data", "form": "{geometry: {data_type, shape}, codec: {interleave, endian, compression, skip}, recipe: [[src, 0, null]]}", "extent": "(o, B) of the data file, or (0, Z) for a gzip file"},
+    "data": {"kind": "data", "form": "{geometry: {data_type: the header's data type code, shape}, codec: {interleave, endian, compression, skip}, recipe: [[src, 0, null]]}", "extent": "(o, B) of the data file, or (0, Z) for a gzip file"},
     "gaps/<offset>": {"kind": "gap", "about": "the header offset's bytes of a raw data file"}
   },
   "roles": {

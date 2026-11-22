@@ -67,7 +67,6 @@ OFFENDERS: dict[str, str] = {
 
     "dicom": "DICOM's frame forms give a Zarr codec (`codec.name` `bytes`, with its byte order)",
 
-    "envi": "ENVI's band forms give a Zarr data type (`geometry.data_type`)",
 
     "fits": "FITS's image forms give a Zarr data type (`geometry.data_type`)",
 
