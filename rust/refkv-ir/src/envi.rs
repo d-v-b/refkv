@@ -429,7 +429,6 @@ impl Envi {
             "header_offset": f.offset, "file_compression": u8::from(f.gzip),
             "data_range": [start, length],
             "elements": {"header": self.elems[0], "data": data},
-            "counts": {"batches": self.batches},
         }))
     }
 
@@ -520,12 +519,18 @@ impl StoreParser for Envi {
         true
     }
 
+    /// The read batches, the probes included: the summary's `batches` (spec/zarrify/envi.md §8.6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#86-summary>).
+    fn counts(&self) -> J {
+        json!({"batches": self.batches})
+    }
+
     fn finish(mut self: Box<Self>) -> Res<(Ir, J)> {
         if self.phase != Phase::Done {
             return Err("internal: the parse is not done".into());
         }
-        let facts = self.emit()?;
-        Ok((self.ir.take().ok_or("internal: no IR")?, facts))
+        let description = self.emit()?;
+        Ok((self.ir.take().ok_or("internal: no IR")?, description))
     }
 }
 
