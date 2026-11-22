@@ -1374,7 +1374,7 @@ It is a JSON object with these members:
 | `attributes` | the attributes the profile reads of the image ([§2.2](#22-attributes)), each null when the dataset lacks it (below) |
 | `palette` | a `PALETTE COLOR` image's lookup tables ([§4.1](#41-the-palette)), else null (a segmented palette's included): `entries`, the descriptor's count (65536 for 0); `first_mapped`; `bits`; `cell`, an entry's bytes; and `tables`, where the red, green and blue tables' values start in the file |
 | `pixel_data` | the top-level Pixel Data: `vr` (null in implicit VR), `offset` and `length`, its value's (4294967295 when undefined), `end`, where it ends, `encapsulated`, and its `structure` (below) |
-| `elements` | the ids of its IR elements ([§5.4](#54-elements)) by name: `pixel_data` |
+| `elements` | the ids of its IR elements ([§5.4](#54-elements)) that key its stored arrays ([spec/stored-array.md §7](../stored-array.md#7-the-formats)): `pixel_data`, the top-level Pixel Data's; `palette_tables`, the red, green and blue tables' (empty without a palette); and `nested`, each element that keys the Pixel Data of its items, with `count`, how many |
 
 `attributes` has one member per attribute, named by its keyword in snake case: `sop_class_uid`,
 `dimension_organization_type` and `photometric_interpretation` as text; `samples_per_pixel`,
@@ -1397,9 +1397,11 @@ frame `f`'s fragments are, `bounds[f]` to `bounds[f + 1]` among the items after 
 `delimiter`, where the sequence's delimiter is; and `extended_offset_table`, the frames' data
 (offset, length) and whether their item headers precede them, or null.
 
-The parser still makes two decisions of the output: the root's source metadata ([§5](#5-source-metadata)),
-which it translates from bytes that the IR does not hold, and the elements of the frames that its
-IR names ([§5.4](#54-elements)).
+refkv's projection makes every decision of [§3](#3-the-image) and [§4](#4-output) from the
+description, through its plan of the image. The parser still makes two decisions of the output: the
+root's source metadata ([§5](#5-source-metadata)), which it translates from bytes that the IR does
+not hold and returns beside the description, and the elements of the frames that its IR names
+([§5.4](#54-elements)).
 
 ## 9. The store form
 

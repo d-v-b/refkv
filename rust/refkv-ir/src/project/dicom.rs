@@ -1,11 +1,14 @@
 //! The DICOM image projection (spec/zarrify/dicom.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#4-output>) from a valid IR:
-//! each frame's chunk names the IR's data elements under the top-level Pixel Data (its
-//! fragments by `bounds`, or one per frame), made explicit about its color transform for a
-//! JPEG with three samples; the facts hold the array, its scales, the window and the root's
-//! source metadata.
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#4-output>) from a valid IR and
+//! the parser's description of the file (§7.8
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#78-the-description>), through
+//! refkv's plan of it (`dicom::plan::plan`): each frame's chunk names the IR's data elements under
+//! the top-level Pixel Data (its fragments by the plan's `bounds`, or one per frame), made explicit
+//! about its color transform for a JPEG with three samples; the plan holds the array, its scales
+//! and the window. The root's source metadata is the parser's (`root`, beside the description).
 
 use super::{arr, key, n, obj, strs};
+use crate::dicom::plan::plan;
 use crate::dicom::ADOBE;
 use crate::ir::Ir;
 use crate::out::{array_json, bytes_codec, image_ome, item_size, omero_channel, omero_json, root_json, transpose_codec, Out, Part, RGBA};
@@ -59,23 +62,29 @@ pub fn chain(codec: &str, data_type: &str, spp: u64, endian: &str) -> J {
     }
 }
 
-pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    let axes = strs(&facts["axes"]);
-    let shape: Vec<u64> = arr(&facts["shape"]).iter().map(n).collect();
-    let chunk: Vec<u64> = arr(&facts["chunk_shape"]).iter().map(n).collect();
-    let data_type = facts["data_type"].as_str().unwrap_or("");
-    let codec = facts["codec"].as_str().unwrap_or("native");
-    let (spp, planar, count, across) = (n(&facts["spp"]), facts["planar"].as_bool().unwrap_or(false), facts["stored"].as_u64().unwrap_or(n(&facts["n"])), n(&facts["across"]));
-    let whole_slide = facts["whole_slide"].as_bool().unwrap_or(false);
-    let fa = facts["frame_axis"].as_str().unwrap_or("z");
-    let little = facts["little"].as_bool().unwrap_or(true);
+/// The output of the file `description` describes; beside the description, `description` holds
+/// `root`, the root's source metadata the parser translated.
+pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    let d = description;
+    let plan = plan(d);
+    let attributes = &d["attributes"];
+    let axes = strs(&plan["axes"]);
+    let shape: Vec<u64> = arr(&plan["shape"]).iter().map(n).collect();
+    let chunk: Vec<u64> = arr(&plan["chunk_shape"]).iter().map(n).collect();
+    let data_type = plan["data_type"].as_str().unwrap_or("");
+    let codec = d["compression"].as_str().unwrap_or("native");
+    let spp = n(&attributes["samples_per_pixel"]);
+    let (planar, count, across) = (plan["planar"].as_bool().unwrap_or(false), n(&plan["count"]), n(&plan["across"]));
+    let whole_slide = plan["whole_slide"].as_bool().unwrap_or(false);
+    let fa = plan["frame_axis"].as_str().unwrap_or("z");
+    let little = d["little"].as_bool().unwrap_or(true);
     let endian = if little { "little" } else { "big" };
     // an RLE frame decodes to planar samples, all others to interleaved ones
     let mut codecs = if transposed(codec, spp, planar) { vec![transpose_codec(&axes)] } else { vec![] };
     codecs.push(chain(codec, data_type, spp, endian));
-    let mut ome = image_ome(&axes, &obj(&facts["units"]), &[facts["scale"].clone()], None, None)?;
-    let window = facts["window"].clone();
-    let photometric = facts["photometric"].as_str().unwrap_or("");
+    let mut ome = image_ome(&axes, &obj(&plan["units"]), &[plan["scale"].clone()], None, None)?;
+    let window = plan["window"].clone();
+    let photometric = attributes["photometric_interpretation"].as_str().unwrap_or("");
     let channels: Vec<J> = if spp == 1 {
         let mut c = omero_channel(if photometric == "PALETTE COLOR" { "index" } else { "gray" }, "FFFFFF", Some(&window));
         if photometric == "MONOCHROME1" {
@@ -91,8 +100,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     ome["omero"] = omero_json(channels);
 
     let mut refs = Refs::new(ir, Out::new(url));
-    let mut own = facts["root"].clone();
-    if let Some(p) = facts.get("palette").filter(|p| !p.is_null()) {
+    let mut own = d["root"].clone();
+    if let Some(p) = d.get("palette").filter(|p| !p.is_null()) {
         own["palette"] = json!({"path": "palette", "first_mapped": p["first_mapped"], "bits": p["bits"]});
     }
     refs.out.json("zarr.json", &root_json(ome, "dicom", url, Some(own)));
@@ -102,10 +111,10 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     }
     refs.out.json("0/zarr.json", &array);
     // the data elements under Pixel Data, by name index: frames, or fragments
-    let mut members = ir.members(n(&facts["pixel"]) as u32);
+    let mut members = ir.members(n(&d["elements"]["pixel_data"]) as u32);
     members.sort_unstable();
-    let bounds: Vec<u64> = arr(&facts["bounds"]).iter().map(n).collect();
-    let adobe = facts["adobe"].as_u64().map(|t| t as u8);
+    let bounds: Vec<u64> = arr(&plan["bounds"]).iter().map(n).collect();
+    let adobe = plan["adobe"].as_u64().map(|t| t as u8);
     let mut at = 0usize;
     for f in 0..count {
         // this frame's data elements: (name index, start, length, form)
@@ -147,7 +156,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
             refs.chunk(key("0/c/", coords), start, length, form, Some(parts))?;
         }
     }
-    if let Some(p) = facts.get("palette").filter(|p| !p.is_null()) {
+    if let Some(p) = d.get("palette").filter(|p| !p.is_null()) {
         palette(&mut refs, p, endian)?;
     }
     let mut out = refs.out;
@@ -156,9 +165,9 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         "axes": axes,
         "shape": shape,
         "dataType": data_type,
-        "transferSyntax": facts["syntax"],
+        "transferSyntax": d["transfer_syntax"],
         "photometric": photometric,
-        "frames": n(&facts["n"]),
+        "frames": attributes["number_of_frames"].as_f64().map_or(1, |f| f as u64),
         "wholeSlide": whole_slide,
         "references": references,
     });
