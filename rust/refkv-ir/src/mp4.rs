@@ -23,6 +23,8 @@ use serde_json::{json, Value as J};
 
 #[path = "mp4/stored.rs"]
 mod stored;
+#[path = "mp4/describe.rs"]
+mod describe;
 
 /// The first read, and the most bytes of a moov box (the schema's `max_moov`).
 const HEAD: u64 = 1 << 16;
@@ -941,6 +943,7 @@ impl Mp4 {
         let tracks = std::mem::take(&mut self.tracks);
         let mut samples_struct = None;
         let mut facts = Vec::new();
+        let mut described = Vec::new();
         let mut reasons = Vec::new();
         let mut projected = 0;
         let mut ids = std::collections::HashSet::new();
@@ -988,6 +991,7 @@ impl Mp4 {
                 }
                 f["first"] = json!(elements.first());
             }
+            described.push(describe::track(k, t, &offsets, &sizes, &elements));
             // a video or audio track's samples are described, by its trak box: `declared_by`
             if matches!(&t.handler, b"vide" | b"soun") {
                 let entry = t.entries.first();
@@ -1012,9 +1016,13 @@ impl Mp4 {
                 "compatible": body[8..].chunks_exact(4).map(latin1).collect::<Vec<_>>(),
             })
         });
+        // the description (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#85-the-description>)
+        let description = json!({
+            "brand": brand, "timescale": self.movie.0, "duration": int_json(self.movie.1 as i128), "tracks": described,
+        });
         self.facts = json!({
             "brand": brand, "timescale": self.movie.0, "duration": int_json(self.movie.1 as i128), "tracks": facts,
-            "chunk_frames": crate::mp3::chunk_frames(),
+            "chunk_frames": crate::mp3::chunk_frames(), "description": description,
         });
         Ok(())
     }
@@ -1801,6 +1809,11 @@ impl crate::run::FileProfile for Profile {
     }
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::mp4::project(ir, facts, url, copied)
+    }
+    /// The parser's description of the file, beside its projection's facts
+    /// (spec/zarrify/mp4.md §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#85-the-description>).
+    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
+        facts.get("description").cloned()
     }
 }
 

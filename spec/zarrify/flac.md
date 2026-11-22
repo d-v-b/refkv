@@ -735,3 +735,6 @@ The root's source metadata of [§5.1](#51-the-root) follows from the description
 `channels` and `bits_per_sample` from `streaminfo`, `duration` from `samples` and the sample rate,
 and the other members as the description gives them, each optional one absent when it is null or
 empty; and the `refkv.stream` setup from the bytes of the `streaminfo` element ([§4.1](#41-the-array)).
+The projection reads them so, and makes **refkv's plan** of the file from the description alone:
+`shard_frames`, `F` ([§8.2](#82-shards)), and `data_type`, the array's data type, from
+`bits_per_sample` ([§4.1](#41-the-array)). The plan belongs to refkv's convention, not to the IR.

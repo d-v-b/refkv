@@ -48,7 +48,7 @@ pub const ID3V1_TYPE: &str = crate::mp3::ID3V1_TYPE;
 
 /// The frames of a shard (spec/zarrify/flac.md §4.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#41-the-array>), but in tests
-/// (`set_shard_frames`). Each run reads it once, into its facts.
+/// (`set_shard_frames`). refkv's plan of a file reads it (`project::flac::plan`).
 pub const DEFAULT_SHARD_FRAMES: usize = 512;
 static SHARD_FRAMES: AtomicUsize = AtomicUsize::new(DEFAULT_SHARD_FRAMES);
 
@@ -782,7 +782,7 @@ impl Flac {
         Ok(None)
     }
 
-    /// The elements of the frames and the tags after them, and the facts.
+    /// The elements of the frames and the tags after them, and the description.
     fn finish_frames(&mut self) -> Res<()> {
         let si = self.info.ok_or("internal: no STREAMINFO")?;
         let samples: u64 = self.frames.iter().map(|f| f.2).sum();
@@ -810,16 +810,6 @@ impl Flac {
         let blocks: Vec<J> = self.blocks.iter().map(|b| {
             json!({"type": BLOCKS.get(b.kind as usize).map_or(json!(b.kind), |n| json!(n)), "size": b.len})
         }).collect();
-        let mut facts = json!({
-            "frames": first, "count": self.frames.len(), "block": self.frames[0].2, "samples": samples,
-            "streaminfo": si.json(), "info_value": self.info_value, "blocks": blocks, "cuesheets": self.cuesheets,
-            "pictures": self.pictures,
-            "applications": self.applications, "id3v2": self.id3v2, "id3v1": id3v1, "shard_frames": shard_frames(),
-            "frame_bytes": self.frames.iter().map(|f| f.1).sum::<u64>(),
-        });
-        for k in ["seek_table", "vorbis_comment"] {
-            facts[k] = self.meta[k].clone();
-        }
         // the description (§8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#84-the-description>)
         let pictures: Vec<J> = self.pictures.iter().map(|p| {
             let mut p = p.clone();
@@ -828,7 +818,7 @@ impl Flac {
             }
             p
         }).collect();
-        facts["description"] = json!({
+        let mut description = json!({
             "streaminfo": si.json(), "frames": self.frames.len(), "block_size": self.frames[0].2, "samples": samples,
             "blocks": blocks, "seek_table": self.meta["seek_table"].clone(), "vorbis_comment": self.meta["vorbis_comment"].clone(),
             "cuesheets": self.cuesheets, "pictures": pictures, "applications": self.applications, "id3v2": self.id3v2,
@@ -838,12 +828,12 @@ impl Flac {
                 "pictures": self.pictures.iter().map(|p| p["element"].clone()).collect::<Vec<_>>(),
             },
         });
-        self.asked.put(&mut facts);
-        self.facts = facts;
+        self.asked.put(&mut description);
+        self.facts = description;
         Ok(())
     }
 
-    /// The finished IR, with its samples described (`stored.rs`), and the facts.
+    /// The finished IR, with its samples described (`stored.rs`), and the description.
     pub fn finish(self) -> Result<(Ir, J), String> {
         let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
         if let Some(si) = self.info {
@@ -883,9 +873,9 @@ impl crate::run::FileProfile for Profile {
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::flac::project(ir, facts, url, copied)
     }
-    /// The parser's description of the file, beside its projection's facts
-    /// (spec/zarrify/flac.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#84-the-description>).
-    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
-        facts.get("description").cloned()
+    /// The parser returns its description of the file (spec/zarrify/flac.md §8.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#84-the-description>).
+    fn described(&self) -> bool {
+        true
     }
 }
