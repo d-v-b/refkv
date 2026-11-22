@@ -120,8 +120,8 @@ impl NiftiPair {
 
     /// The IR (spec/zarrify/nifti.md §7.5
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#75-header-and-image-pairs>), and the
-    /// pair's description (§7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#76-the-description>)
-    /// with the edge chunks the run read.
+    /// pair's description (§7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#76-the-description>);
+    /// the edge chunks the run read go to the projection through `StoreParser::copied`.
     fn emit(&mut self) -> Res<J> {
         let mut ir = self.ir.take().ok_or("internal: no IR")?;
         let (header_file, image_file) = (self.elems[0], self.elems[1]);
