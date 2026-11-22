@@ -81,6 +81,11 @@ bench = [
     "kerchunk>=0.2.10",
     "pyarrow>=25.0.1",
 ]
+docs = [
+    "furo>=2025.7",
+    "myst-parser>=4",
+    "sphinx>=8.2",
+]
 
 [tool.uv]
 # the root is a workspace, not a package: nothing to build here

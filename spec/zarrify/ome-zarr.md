@@ -710,3 +710,8 @@ summary, with these members:
 
 and the Rust core's counts ([zarr2.md §7.4](zarr2.md#74-summary)).
 
+### 11.4 The description
+
+This section is not part of the convention. The parser of an OME-Zarr 0.4 store is the Zarr v2
+store run's, and its description is that run's
+([zarr2.md §7.3](zarr2.md#73-the-description)), with `profile` `ome-zarr`.

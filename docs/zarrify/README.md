@@ -17,38 +17,7 @@ who each one is for, what you get, and how to run it.
 ## Formats
 
 <!-- profiles:docs-table -->
-| format | for | README | profile |
-|---|---|---|---|
-| CZI | Zeiss CZI files | [czi](czi/README.md) | [czi.md §7](../../spec/zarrify/czi.md#7-czi-profile) |
-| DICOM | DICOM files, including whole-slide images | [dicom](dicom/README.md) | [dicom.md §7](../../spec/zarrify/dicom.md#7-dicom-profile) |
-| ENVI | ENVI Standard rasters, BSQ, BIL or BIP, raw or gzip (`.hdr` with its data file) | [envi](envi/README.md) | [envi.md §8](../../spec/zarrify/envi.md#8-envi-profile) |
-| FITS | FITS images and tables (`.fits`, `.fz`) | [fits](fits/README.md) | [fits.md §9](../../spec/zarrify/fits.md#9-fits-profile) |
-| FLAC | FLAC audio files, as a sharded array of samples (`.flac`) | [flac](flac/README.md) | [flac.md §8](../../spec/zarrify/flac.md#8-flac-profile) |
-| GRIB | GRIB2 files of gridded weather and climate fields (`.grib2`), as labeled arrays with CF coordinates | [grib](grib/README.md) | [grib.md §8](../../spec/zarrify/grib.md#8-grib-profile) |
-| H5J | Janelia's H5J confocal stacks (`.h5j`), as FlyLight and the Janelia Workstation publish them | [h5j](h5j/README.md) | [h5j.md §8](../../spec/zarrify/h5j.md#8-h5j-profile) |
-| HDF4 | HDF4 and HDF-EOS2 files (`.hdf`) of NASA's EOS-era archives, such as MODIS, SeaWiFS and AIRS products, as labeled arrays | [hdf4](hdf4/README.md) | [hdf4.md §9](../../spec/zarrify/hdf4.md#9-hdf4-profile) |
-| HDF5 | HDF5 files (`.h5`, `.hdf5`), and NWB files (`.nwb`), which pynwb's `NWBZarrIO` opens | [hdf5](hdf5/README.md) | [hdf5.md §8](../../spec/zarrify/hdf5.md#8-hdf5-profile) |
-| IMS | Imaris `.ims` files | [ims](ims/README.md) | [ims.md §7](../../spec/zarrify/ims.md#7-ims-profile) |
-| LIF | Leica LIF, LOF and LIFEXT files, and LAS X projects (`.lif`, `.lof`, `.lifext`, `.xlef`, `.xlcf`, `.xlif`, `.xllf`) | [lif](lif/README.md) | [lif.md §7](../../spec/zarrify/lif.md#7-lif-profile) |
-| MP3 | MP3 audio files, as an array of samples (`.mp3`) | [mp3](mp3/README.md) | [mp3.md §8](../../spec/zarrify/mp3.md#8-mp3-profile) |
-| MP4 | MP4 and QuickTime video and audio, as arrays of planes and samples (`.mp4`, `.m4a`, `.m4v`, `.mov`) | [mp4](mp4/README.md) | [mp4.md §8](../../spec/zarrify/mp4.md#8-mp4-profile) |
-| MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`, gzipped or not) | [mrc](mrc/README.md) | [mrc.md §8](../../spec/zarrify/mrc.md#8-mrc-profile) |
-| N5 | N5 containers on S3 | [n5](n5/README.md) | [n5.md §8](../../spec/zarrify/n5.md#8-n5-profile) |
-| ND2 | Nikon NIS-Elements ND2 files | [nd2](nd2/README.md) | [nd2.md §7](../../spec/zarrify/nd2.md#7-nd2-profile) |
-| NDPI | Hamamatsu NDPI whole-slide images | [ndpi](ndpi/README.md) | [ndpi.md §7](../../spec/zarrify/ndpi.md#7-ndpi-profile) |
-| netCDF3 | netCDF3 files (`.nc`) of the classic, 64-bit offset and 64-bit data formats, as labeled arrays that xarray opens | [netcdf3](netcdf3/README.md) | [netcdf3.md §7](../../spec/zarrify/netcdf3.md#7-netcdf3-profile) |
-| NIfTI | NIfTI-1 and NIfTI-2 volumes (`.nii`, `.nii.gz`, `.hdr` and `.img`) | [nifti](nifti/README.md) | [nifti.md §7](../../spec/zarrify/nifti.md#7-nifti-profile) |
-| NumPy | NumPy arrays: `.npy` files, and the arrays of `.npz` archives, stored or deflated | [npy](npy/README.md) | [npy.md §8](../../spec/zarrify/npy.md#8-numpy-profile) |
-| NRRD | NRRD volumes, attached or detached, raw or gzip (`.nrrd`, `.nhdr`) | [nrrd](nrrd/README.md) | [nrrd.md §8](../../spec/zarrify/nrrd.md#8-nrrd-profile) |
-| OME-Zarr | OME-Zarr 0.4 hierarchies, migrated to OME-Zarr 0.5 in place | [ome-zarr](ome-zarr/README.md) | [ome-zarr.md §11](../../spec/zarrify/ome-zarr.md#11-ome-zarr-profile) |
-| Neuroglancer precomputed | connectomics volumes in Neuroglancer's precomputed format, including shards too many to scan | [precomputed](precomputed/README.md) | [precomputed.md §11](../../spec/zarrify/precomputed.md#11-neuroglancer-precomputed-profile) |
-| QPTIFF | Akoya (PerkinElmer) Vectra multiplex scans and inForm component data | [qptiff](qptiff/README.md) | [qptiff.md §7](../../spec/zarrify/qptiff.md#7-qptiff-profile) |
-| Sentinel-2 SAFE | Sentinel-2 Level-1C and Level-2A products, as a `.SAFE` directory or a `.SAFE.zip` | [safe](safe/README.md) | [safe.md §8](../../spec/zarrify/safe.md#8-safe-profile) |
-| safetensors | machine learning model weights in safetensors files (`.safetensors`), each tensor an array, and a model's shards as one group | [safetensors](safetensors/README.md) | [safetensors.md §8](../../spec/zarrify/safetensors.md#8-safetensors-profile) |
-| TIFF | OME-TIFF, plain TIFF (tiled or in strips), and JPEG-tiled slides such as Aperio SVS | [tiff](tiff/README.md) | [tiff.md §7](../../spec/zarrify/tiff.md#7-tiff-profile) |
-| VSI | Olympus cellSens whole-slide images (`.vsi` with its tile files) | [vsi](vsi/README.md) | [vsi.md §9](../../spec/zarrify/vsi.md#9-vsi-profile) |
-| Zarr v2 | Zarr v2 hierarchies on S3 | [zarr2](zarr2/README.md) | [zarr2.md §7](../../spec/zarrify/zarr2.md#7-zarr-v2-profile) |
-| Zarr v3 | Zarr v3 hierarchies, listed or zipped, as references to their own chunks | [zarr3](zarr3/README.md) | [zarr3.md §7](../../spec/zarrify/zarr3.md#7-zarr-v3-profile) |
+The table is rendered from the registry, [../../spec/zarrify/profiles/](../../spec/zarrify/profiles/), when the documentation site is built: see it on [the site](https://d-v-b.github.io/refkv/docs/zarrify/README.html#formats).
 <!-- /profiles -->
 
 A format that reads a file takes a URL, or a local path. One that reads a
