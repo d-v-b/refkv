@@ -164,7 +164,7 @@ fn header_value(h: &Header, at: usize, kind: &str) -> J {
 
 /// Every field of a header, in its table's order: `header` of the root's source metadata
 /// (texts as text, opaque bytes as base64, labels as a list of texts).
-fn header_json(h: &Header) -> J {
+pub(crate) fn header_json(h: &Header) -> J {
     let mut out = Map::new();
     for &(name, at, kind, count) in h.fields {
         let v = match kind {

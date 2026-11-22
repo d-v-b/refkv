@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/mrc/description.json",
+  "title": "The description of an MRC file",
+  "description": "What refkv's MRC parser found of the file, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#85-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "byte_order": {
+      "enum": [
+        "little",
+        "big"
+      ]
+    },
+    "header": {
+      "description": "every field of the header, as the root's source metadata gives it (MrcHeader, https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#type-mrcheader)",
+      "type": "object",
+      "required": [
+        "nx",
+        "ny",
+        "nz",
+        "mode",
+        "nxstart",
+        "nystart",
+        "nzstart",
+        "mx",
+        "my",
+        "mz",
+        "cella",
+        "cellb",
+        "mapc",
+        "mapr",
+        "maps",
+        "dmin",
+        "dmax",
+        "dmean",
+        "ispg",
+        "nsymbt",
+        "extra1",
+        "exttyp",
+        "nversion",
+        "extra2",
+        "origin",
+        "map",
+        "machst",
+        "rms",
+        "nlabl",
+        "label"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "nx": {},
+        "ny": {},
+        "nz": {},
+        "mode": {},
+        "nxstart": {},
+        "nystart": {},
+        "nzstart": {},
+        "mx": {},
+        "my": {},
+        "mz": {},
+        "cella": {},
+        "cellb": {},
+        "mapc": {},
+        "mapr": {},
+        "maps": {},
+        "dmin": {},
+        "dmax": {},
+        "dmean": {},
+        "ispg": {},
+        "nsymbt": {},
+        "extra1": {},
+        "exttyp": {},
+        "nversion": {},
+        "extra2": {},
+        "origin": {},
+        "map": {},
+        "machst": {},
+        "rms": {},
+        "nlabl": {},
+        "label": {}
+      }
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "$ref": "#/$defs/uint"
+        },
+        "bytes": {
+          "$ref": "#/$defs/uint"
+        }
+      },
+      "required": [
+        "offset",
+        "bytes"
+      ],
+      "additionalProperties": false
+    },
+    "gzip": {
+      "type": "object",
+      "properties": {
+        "skip": {
+          "$ref": "#/$defs/uint"
+        },
+        "head": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{2048}$"
+        }
+      },
+      "required": [
+        "skip",
+        "head"
+      ],
+      "additionalProperties": false
+    },
+    "elements": {
+      "type": "object",
+      "properties": {
+        "header": {
+          "$ref": "#/$defs/uint"
+        },
+        "extended": {
+          "$ref": "#/$defs/uint"
+        },
+        "data": {
+          "$ref": "#/$defs/uint"
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "byte_order",
+    "header",
+    "data",
+    "elements"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "uint": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}
