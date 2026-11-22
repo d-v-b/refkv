@@ -14,8 +14,9 @@ Where this document and those differ, they are right.
 them only in [§3.1](#31-two-stages-instead-of-one):
 - stored arrays, the IR's description of each array a source stores, which
   [spec/stored-array.md](../spec/stored-array.md) specifies;
-- each format's description, its known structures in the source's own terms,
-  specified in its document in [spec/zarrify/](../spec/zarrify/);
+- format descriptions, a format's known structures in the source's own terms,
+  specified in its document in [spec/zarrify/](../spec/zarrify/) (all but IMS's
+  and H5J's, files the HDF5 parser reads);
 - every output as a peer projection of the parsed input (d-v-b/refkv#378):
   `refkv.build` and the core's `seal` ([docs/build.md](../docs/build.md)), and
   layout plugins ([spec/layout.md](../spec/layout.md)), which are given the parsed

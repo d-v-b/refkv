@@ -31,10 +31,11 @@ A run parses without projecting: `read` makes no output, and `project` makes
 the built-in one only when asked (d-v-b/refkv#354). A plugin is given the parsed
 inputs, `write(inputs, options)`, its output sealed as the built-in ones are,
 and the base is gone ([spec/layout.md](../../spec/layout.md), d-v-b/refkv#356).
-Every format has a description, specified in its document under
-[spec/zarrify/](../../spec/zarrify/) and checked against its reference reader,
-and its projection builds from the description, the stored arrays, the chunk
-map and refkv's plan; no shipped plugin but `bare` asks for the built-in output.
+Every format document under [spec/zarrify/](../../spec/zarrify/) but those of
+IMS and H5J, files the HDF5 parser reads, specifies a description, checked
+against the format's reference reader; the projections build from the
+descriptions, the stored arrays, the chunk map and refkv's plan; and no
+shipped plugin but `bare` asks for the built-in output.
 The [rebuild test](#testing-that-the-tools-suffice) passes for NumPy, HDF5 and
 TIFF (d-v-b/refkv#359, d-v-b/refkv#368, d-v-b/refkv#382). Where the code departs from this note: a
 format's plan is computed in the core from its description and is not public
