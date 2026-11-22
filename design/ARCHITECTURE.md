@@ -10,12 +10,16 @@ source model by its document in [spec/zarrify/](../spec/zarrify/), and the rest
 by [spec/zarrify.md](../spec/zarrify.md) and [spec/refkv.md](../spec/refkv.md).
 Where this document and those differ, they are right.
 
-**Since this review.** Four things on main are later than it, and it does not
-describe them:
+**Since this review.** These things on main are later than it, and it describes
+them only in [§3.1](#31-two-stages-instead-of-one):
 - stored arrays, the IR's description of each array a source stores, which
   [spec/stored-array.md](../spec/stored-array.md) specifies;
-- `refkv.build` and the core's `seal` ([docs/build.md](../docs/build.md));
-- layout plugins ([spec/layout.md](../spec/layout.md));
+- each format's description, its known structures in the source's own terms,
+  specified in its document in [spec/zarrify/](../spec/zarrify/);
+- every output as a peer projection of the parsed input (d-v-b/refkv#378):
+  `refkv.build` and the core's `seal` ([docs/build.md](../docs/build.md)), and
+  layout plugins ([spec/layout.md](../spec/layout.md)), which are given the parsed
+  inputs and not refkv's output;
 - the Zarr v3 profile.
 
 **Which IR document is which.**
@@ -150,6 +154,19 @@ Before the IR, each profile went from bytes to Zarr in one step. The core splits
 2. **Projections** turn an IR into a Zarr hierarchy. A projection does no
    I/O: it names the source ranges it needs (an edge chunk it copies, the
    chunks a display window samples), and the run reads them for it.
+
+Since d-v-b/refkv#378, a run parses without projecting (`refkv.build.read`
+gives a `Parsed`), and what a parser gives every projection alike is the IR,
+its stored arrays and chunk map, and the format's description. refkv's own
+convention is one projection among peers: its decisions (which arrays it
+presents, phony dimension names, how TIFF strips join and shard) are its
+**plan**, computed from the description in the core, and its projection
+builds the hierarchy from the description, the stored arrays, the chunk map
+and that plan. A layout plugin (`write(inputs, options)`) reads the same
+parsed inputs, with the public routines of `refkv.build`, and neither refkv's
+output nor its plan; what it writes is sealed as refkv's own output is. Some
+projections in the core still take the facts a parser returns beside the
+IR, which d-v-b/refkv#378's Phase D removes.
 
 The same TIFF IR can then feed an OME-NGFF image, a raw per-IFD view, a
 GeoZarr layout or a sharded layout. Shared machinery (the mirror, the reference
