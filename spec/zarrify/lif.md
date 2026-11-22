@@ -822,3 +822,56 @@ file for each plane at worst.
 
 The references of an image are ranges of its LOF's object, named by object URL
 ([zarrify §1.8](../zarrify.md#18-files-read-as-stores)).
+
+## 9. The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser of a LIF, LOF or LIFEXT file returns a **description** of the file: what it found of
+the file's known structures, in Leica's own terms, for a projection to read with the IR and its
+stored arrays ([spec/stored-array.md §7](../stored-array.md#7-the-formats)). Its JSON Schema is
+[lif/description.json](lif/description.json). It holds none of an output's decisions: the data type
+([§3.1](#31-data-types)), the channels' order and colors ([§3.2](#32-channels), [§4.3](#43-image-arrays)),
+the axes and fields ([§3.3](#33-axes-and-fields)), the bands ([§3.4](#34-rows-and-bands)), the scales
+and units ([§4.3](#43-image-arrays)), the mosaic's tiles ([§4.4](#44-mosaics)), the series and the
+root's source metadata ([§5](#5-source-metadata)) are the projection's. A LAS X project's input
+([§8](#8-las-x-documents)), a store run's, has none yet.
+
+It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `file` | `lif`, `lof` ([§2.5](#25-leica-object-files)) or `lifext` ([§2.6](#26-lifext-files)) |
+| `size` | the file's size in bytes |
+| `xml_characters` | the header block's XML length in characters ([§2.1](#21-blocks)) |
+| `root` | the name of the XML's root element ([§2.2](#22-the-xml-header)), of a LOF its XML block's: `Data` of an older writer's LOF ([§2.5](#25-leica-object-files)) |
+| `version` | the root's `Version`, 1 or 2; null of an older writer's LOF, whose root has none |
+| `unique_id` | the `UniqueID` of the root's first `Element`; null without one |
+| `object` | of a LOF ([§2.5](#25-leica-object-files)): `versions`, its two version fields; `xml_at`, the offset of its XML block; `xml_characters`, that block's XML length in characters; and `older`, whether the XML is an older writer's, whose root is `Data`. Null for a LIF or LIFEXT file |
+| `blocks` | the memory blocks the walk found ([§7.2](#72-reading)), in the file's order, each an object below |
+| `tail` | the bytes after the last block (of a LOF, after its XML block): `offset` and `length`; null when there are none |
+| `images` | each image element of the XML ([§2.3](#23-images)), in document order, each an object below |
+
+A memory block is an object: `offset`, where it starts; `id`, its ID's text (null when it is not
+well-formed UTF-16, and for a LOF's one block, which has no ID field); `size`, `D`, its data's size;
+and `data`, the offset of its data. Its IR struct is `blocks/<i>`, `i` its index in `blocks`
+([§5.4](#54-elements)).
+
+An image is an object:
+
+| member | value |
+|---|---|
+| `name` | the element's `Name`; null without one |
+| `path` | its path ([§2.3](#23-images)) |
+| `parent` | of a LIFEXT file, the `MemoryBlockID` of the `ChildrenOf` that holds it ([§2.6](#26-lifext-files)); else null |
+| `attributes`, `memory` | the element's attributes and its `Memory`'s ([§5.2](#52-the-images)); `memory` null without one |
+| `dimensions`, `channels` | each `DimensionDescription`'s and each `ChannelDescription`'s attributes ([§2.4](#24-dimensions-and-channels)), in document order, as the XML writes them |
+| `tile_scan` | its first `Attachment` named `TileScanInfo` ([§4.4](#44-mosaics)): `attributes`, the attachment's, and `tiles`, each child `Tile`'s; null without one |
+| `block` | the memory block its `MemoryBlockID` names (of a LOF, the file's one block), an index into `blocks` |
+| `declared_by` | the key of its stored array ([spec/stored-array.md §2.1](../stored-array.md#21-keys)): the IR element of the XML that declares it, and its index among the images |
+
+Attribute values are text, with references decoded; of a repeated name, the first.
+
+What the projection makes from it, and the parser still decides:
+
+- The parser still makes each image's layout and checks ([§7.3](#73-rejection)) beside the
+  description, for its projection.
