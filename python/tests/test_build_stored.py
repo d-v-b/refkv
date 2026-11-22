@@ -107,7 +107,7 @@ def test_numpy_files_read_from_their_stored_arrays_as_numpy_reads_them(monkeypat
 
 def test_a_parsed_numpy_file_describes_what_its_parser_found():
     """`Parsed.description` is the NumPy parser's: the source metadata, and each presented array's
-    path, header text and stored array's key; a copy, and None for a profile that has none yet."""
+    path, header text and stored array's key; a copy."""
     with read(FIXTURES / "npy" / "npy_c_float64.npy") as parsed:
         description: Any = parsed.description
         [entry] = description["arrays"]
@@ -118,8 +118,6 @@ def test_a_parsed_numpy_file_describes_what_its_parser_found():
         description["arrays"].clear()
         again: Any = parsed.description
         assert len(again["arrays"]) == 1
-    with read(FIXTURES / "nrrd" / "nrrd_byte_skip.nrrd") as other:
-        assert other.description is None
 
 
 def test_the_empty_chain_has_no_codecs():

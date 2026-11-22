@@ -152,13 +152,15 @@ fn a_gzipped_file_is_read_at_its_start_and_its_trailer() {
     assert_eq!(facts["gzip"]["skip"], 352);
 }
 
-/// Every accepted fixture's facts name its voxels' description by its key (spec/stored-array.md §7
-/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): `declared_by` is
-/// the id of the `header` element of a single file, or of a pair's header file, and of a gzipped
-/// file's one element, its stream. The IR's one description is keyed by it, with no index, and its
-/// one row's element is the facts' `voxels`.
+/// Every accepted fixture's description (spec/zarrify/nifti.md §7.6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#76-the-description>) names its
+/// voxels' stored description by its key (spec/stored-array.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): the `header`
+/// element of a single file, or of a pair's header file, and of a gzipped file its one element, its
+/// stream. The IR's one stored description is keyed by it, with no index, and its one row's element
+/// is the description's `voxels`. It holds none of the output's decisions.
 #[test]
-fn every_accepted_fixtures_facts_name_its_description() {
+fn every_accepted_fixtures_description_names_its_stored_array() {
     let (mut single, mut gzipped, mut pairs) = (0, 0, 0);
     for entry in std::fs::read_dir(common::fixtures().join("nifti")).unwrap() {
         let key = entry.unwrap().file_name().into_string().unwrap();
@@ -179,14 +181,18 @@ fn every_accepted_fixtures_facts_name_its_description() {
             single += !stream as u32;
             (ir, facts, if stream { "voxels" } else { "header" }.to_string())
         };
-        let declared = facts["declared_by"].as_u64().unwrap_or_else(|| panic!("{key}: no declared_by")) as u32;
+        for decision in ["declared_by", "copy_threshold", "data_type", "axes", "start", "length"] {
+            assert!(facts.get(decision).is_none(), "{key}: {decision}");
+        }
+        let elements = &facts["elements"];
+        let declared = elements[if declaring == "voxels" { "voxels" } else { "header" }].as_u64().unwrap() as u32;
         assert_eq!(ir.path(declared), declaring, "{key}");
         let s = &ir.stored;
         assert_eq!(s.arrays.len(), 1, "{key}");
         assert_eq!((s.arrays[0].element, s.arrays[0].index), (declared, None), "{key}");
         assert!(s.arrays[0].grid.is_some(), "{key}");
         assert_eq!(s.map.len(), 1, "{key}");
-        assert_eq!(s.map.element[0].map(u64::from), facts["voxels"].as_u64(), "{key}");
+        assert_eq!(s.map.element[0].map(u64::from), elements["voxels"].as_u64(), "{key}");
     }
     assert_eq!((single, gzipped, pairs), (70, 5, 9));
 }

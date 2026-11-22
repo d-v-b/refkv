@@ -7,19 +7,23 @@
 //! at a time, at the offsets the XML's `Memory` elements predict, so that blocks written in the
 //! document's order take one round. A LOF, whose one memory block comes first and whose XML comes
 //! after it, reads the XML block at the end of the data instead of a walk. The XML is read into a
-//! tree of its tags; the images, their checks (`schema/lif.json`) and their layout are derived
-//! after the walk, and the IR is emitted then. No byte of a block's data is read.
+//! tree of its tags; after the walk the IR is emitted, with each image's stored array, and the
+//! description (`describe.rs`). No byte of a block's data is read. The images' checks
+//! (`schema/lif.json`) and their layout are refkv's plan's (`plan.rs`), made from the description.
 
 use crate::fed::{Fed, Word};
 use crate::ir::*;
 use crate::nd2::Step;
-use crate::out::MAX_PAYLOAD;
 use crate::rules::{self, Rules, flag, num, text};
 use crate::sans;
 use crate::xml::{self, Ev, TagRef};
 use serde_json::{Map, Value as J, json};
 use std::collections::HashMap;
 
+#[path = "lif/describe.rs"]
+mod describe;
+#[path = "lif/plan.rs"]
+pub mod plan;
 #[path = "lif/stored.rs"]
 mod stored;
 
@@ -50,9 +54,8 @@ const OBJECT_XML: u64 = 1 << 20;
 /// The block headers a walk round asks for, and the ID bytes it reads with a header it guesses.
 const PREDICT: usize = 4096;
 const ID_GUESS: u64 = 256;
-/// The bytes of a band of rows, and the blocks the walk reads at most (spec/zarrify/lif.md §7.3
+/// The blocks the walk reads at most (spec/zarrify/lif.md §7.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#73-rejection>).
-const BAND: u64 = 1 << 24;
 const MAX_BLOCKS: usize = 1 << 20;
 /// The longest value the mirror's view shows.
 const SHOWN: u64 = 1024;
@@ -196,58 +199,12 @@ pub fn integer(v: Option<&str>) -> Option<u64> {
     t.parse::<u64>().ok().filter(|&x| x <= MAX_SAFE)
 }
 
-/// An attribute's decimal (whitespace trimmed), when finite.
-fn decimal(v: Option<&str>) -> Option<f64> {
-    xml::decimal_value(v?.trim_matches([' ', '\t', '\r', '\n']), false)
-}
-
 /// An integer attribute as a role's given: its value, its text when not an integer, else absent.
 pub fn given(v: &Option<String>) -> crate::expr::V {
     match (v, integer(v.as_deref())) {
         (_, Some(x)) => num(x as f64),
         (Some(t), None) => text(t),
         (None, None) => crate::expr::V::Absent,
-    }
-}
-
-/// A unit symbol (conventions §5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>):
-/// its unit and, for a length, its size in meters.
-fn unit(s: &str) -> Option<(&'static str, Option<f64>)> {
-    Some(match s {
-        "\u{b5}m" | "\u{3bc}m" | "um" => ("micrometer", Some(1e-6)),
-        "nm" => ("nanometer", Some(1e-9)),
-        "mm" => ("millimeter", Some(1e-3)),
-        "cm" => ("centimeter", Some(1e-2)),
-        "m" => ("meter", Some(1.0)),
-        "\u{c5}" | "\u{212b}" => ("angstrom", Some(1e-10)),
-        "pm" => ("picometer", Some(1e-12)),
-        "in" => ("inch", Some(0.0254)),
-        "ft" => ("foot", Some(0.3048)),
-        "s" => ("second", None),
-        "ms" => ("millisecond", None),
-        "min" => ("minute", None),
-        "h" => ("hour", None),
-        _ => return None,
-    })
-}
-
-/// A channel's color from its ChannelTag (1, 2, 3: red, green, blue) or its LUTName
-/// (spec/zarrify/lif.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#43-image-arrays>).
-fn color(tag: Option<u64>, lut: Option<&str>) -> &'static str {
-    match tag {
-        Some(1) => return "FF0000",
-        Some(2) => return "00FF00",
-        Some(3) => return "0000FF",
-        _ => {}
-    }
-    match lut.map(|l| l.to_ascii_lowercase()).as_deref() {
-        Some("red") => "FF0000",
-        Some("green") => "00FF00",
-        Some("blue") => "0000FF",
-        Some("cyan") => "00FFFF",
-        Some("magenta") => "FF00FF",
-        Some("yellow") => "FFFF00",
-        _ => "FFFFFF",
     }
 }
 
@@ -278,8 +235,8 @@ struct Predicted {
     size: u64,
 }
 
-/// One image element, read from the XML: what its checks and layout use, and its source
-/// metadata (spec/zarrify/lif.md §5.2
+/// One image element, read from the XML: what its stored array uses, and what the description
+/// holds of it (spec/zarrify/lif.md §5.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#52-the-images>).
 struct Image {
     name: Option<String>,
@@ -318,17 +275,6 @@ enum File {
     Lifext,
 }
 
-impl File {
-    /// The root's member `file`, when it is not a LIF file.
-    fn name(self) -> Option<&'static str> {
-        match self {
-            File::Lif => None,
-            File::Lof => Some("lof"),
-            File::Lifext => Some("lifext"),
-        }
-    }
-}
-
 /// A LOF's parts that a LIF file does not have (spec/zarrify/lif.md §2.5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#25-leica-object-files>): its
 /// version fields, and its XML block, at `at`.
@@ -360,6 +306,10 @@ pub struct Lif {
     offset: u64,
     /// the `UniqueID` of the first `Element` of its XML
     unique: Option<String>,
+    /// the XML's root element's name, and whether it is a LOF's XML of an older writer, whose root
+    /// is `Data` (`object_xml`)
+    root: Option<String>,
+    older: bool,
     /// the root's Version: of a LIF file, the width of a block's data size
     version: u64,
     predicted: Vec<Predicted>,
@@ -368,8 +318,9 @@ pub struct Lif {
     at: u64,
     tail: Option<(u64, u64)>,
     facts: J,
-    /// what each image's description needs (`stored.rs`), in the images' order
-    reached: Vec<stored::Reached>,
+    /// what each image's stored array needs (`stored.rs`), with the image's index, in the images'
+    /// order: of each image that has one (`reached`)
+    reached: Vec<(usize, stored::Reached)>,
     pub asked: sans::Asked,
 }
 
@@ -389,6 +340,8 @@ impl Lif {
             object: Object::default(),
             offset: 0,
             unique: None,
+            root: None,
+            older: false,
             version: 2,
             predicted: Vec::new(),
             next_predicted: 0,
@@ -583,6 +536,7 @@ impl Lif {
             self.object.xml = xml.to_vec();
         }
         let x = String::from_utf16(&units).ok();
+        self.older = x.as_deref().is_some_and(|x| x.starts_with("<Data>"));
         let x = x.map(|x| {
             if x.starts_with("<Data>") {
                 format!("<LMSDataContainerHeader Version=\"2\"><Element>{x}</Element></LMSDataContainerHeader>")
@@ -608,6 +562,7 @@ impl Lif {
             ]),
         )?;
         self.version = integer(version.as_deref()).unwrap_or(2);
+        self.root = root.clone();
         if root.as_deref() == Some("LMSDataContainerEnhancedHeader") {
             self.file = File::Lifext;
         }
@@ -707,122 +662,42 @@ impl Lif {
         out
     }
 
-    /// The images, their checks and their layout (spec/zarrify/lif.md §3
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#3-placement>), then the IR.
+    /// The images, the memory block each names, and what each one's stored array needs, then the
+    /// IR and the description. The images' checks and layout are refkv's plan's (`plan.rs`).
     fn layout(&mut self) -> Res<()> {
         let images = std::mem::take(&mut self.images);
-        let mut by_id: HashMap<Vec<u8>, Vec<usize>> = HashMap::new();
+        let mut by_id: HashMap<Vec<u8>, usize> = HashMap::new();
         for (i, b) in self.blocks.iter().enumerate() {
-            by_id.entry(b.id.clone()).or_default().push(i);
+            by_id.entry(b.id.clone()).or_insert(i);
         }
-        let mut named: Vec<Option<usize>> = vec![None; self.blocks.len()];
-        let mut facts = Vec::new();
-        let mut series = 0u64;
         if self.file == File::Lof {
             self.rules.check("object_images", rules::env([("count", num(images.len() as f64))]))?;
         }
+        let mut described = Vec::with_capacity(images.len());
         for (k, im) in images.iter().enumerate() {
-            let shown = im.name.clone().unwrap_or_default();
-            let mut f = self.image(k, &shown, im)?;
             // a LOF's one block has no ID: its XML's MemoryBlockID, if it has one, names nothing
-            let lof = self.file == File::Lof;
-            let id = if lof { "of the LOF".to_string() } else { im.memory.clone().unwrap_or_default() };
-            let key: Vec<u8> = id.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
-            let found = if lof { vec![0] } else { by_id.get(key.as_slice()).cloned().unwrap_or_default() };
-            let block = found.first().copied();
-            let other = block.and_then(|b| named[b]);
-            let held = block.map_or(0, |b| self.blocks[b].size);
-            let need = f.end + self.offset as u128;
-            self.rules.check(
-                "memory",
-                rules::env([
-                    ("k", num(k as f64)),
-                    ("name", text(&shown)),
-                    ("id", text(&id)),
-                    ("found", num(found.len() as f64)),
-                    ("other", other.map_or(crate::expr::V::Absent, |o| num(o as f64))),
-                    ("need", num(need as f64)),
-                    ("need_shown", text(&need.to_string())),
-                    ("held", num(held as f64)),
-                ]),
-            )?;
-            let b = block.ok_or("internal: no block")?;
-            named[b] = Some(k);
-            self.blocks[b].image = Some(k);
-            f.place(self.blocks[b].data() + self.offset, b);
-            self.reached.push(stored::Reached { dims: f.strides.clone(), offsets: f.offsets.clone(), item: f.item, block: b, start: self.offset });
-            series += f.fields.len() as u64;
-            self.rules.check("series", rules::env([("count", num(series as f64))]))?;
-            facts.push(image_facts(im, &f, k));
+            let block = if self.file == File::Lof {
+                Some(0)
+            } else {
+                im.memory.as_ref().and_then(|id| {
+                    let key: Vec<u8> = id.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+                    by_id.get(&key).copied()
+                })
+            };
+            // the block's data is that of the first image that names it
+            if let Some(b) = block.filter(|&b| self.blocks[b].image.is_none()) {
+                self.blocks[b].image = Some(k);
+                if let Some(r) = reached(im, b, self.offset) {
+                    self.reached.push((k, r));
+                }
+            }
+            described.push(describe::image(im, block));
         }
         self.emit()?;
-        let held = self.blocks.first().map_or(0, |b| b.size);
-        let mut facts = json!({"version": self.version, "file": self.file.name(), "blocks": self.blocks.len(), "images": facts, "series": series,
-                               "unique": self.unique, "held": held});
+        let mut facts = self.describe(described);
         self.asked.put(&mut facts);
         self.facts = facts;
         Ok(())
-    }
-
-    /// An image's checks and layout (spec/zarrify/lif.md §3
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#3-placement>).
-    fn image(&self, k: usize, name: &str, im: &Image) -> Res<Layout> {
-        let base = |extra: Vec<(&'static str, crate::expr::V)>| {
-            let mut v = rules::env([("k", num(k as f64)), ("name", text(name))]);
-            for (a, b) in extra {
-                v.insert(a, b);
-            }
-            v
-        };
-        self.rules.check(
-            "image",
-            base(vec![
-                ("memory", flag(im.memory.is_some() || self.file == File::Lof)),
-                ("dimensions", num(im.dims.len() as f64)),
-                ("channels", num(im.channels.len() as f64)),
-            ]),
-        )?;
-        // (DimID, NumberOfElements, BytesInc)
-        let mut dims: Vec<(u64, u64, u64)> = Vec::new();
-        for (j, d) in im.dims.iter().enumerate() {
-            self.rules.check(
-                "dimension",
-                base(vec![
-                    ("j", num(j as f64)),
-                    ("dim_id", given(&d[0])),
-                    ("elements", given(&d[1])),
-                    ("bytes_inc", given(&d[2])),
-                    ("bit_inc", given(&d[6])),
-                ]),
-            )?;
-            dims.push((integer(d[0].as_deref()).unwrap(), integer(d[1].as_deref()).unwrap(), integer(d[2].as_deref()).unwrap()));
-        }
-        let mut channels: Vec<(u64, u64, u64)> = Vec::new(); // (DataType, item size, BytesInc)
-        let mut resolutions = Vec::new();
-        for (j, c) in im.channels.iter().enumerate() {
-            self.rules.check(
-                "channel",
-                base(vec![
-                    ("j", num(j as f64)),
-                    ("data_type", given(&c[0])),
-                    ("resolution", given(&c[1])),
-                    ("bytes_inc", given(&c[2])),
-                    ("bit_inc", given(&c[5])),
-                ]),
-            )?;
-            let (dt, res) = (integer(c[0].as_deref()).unwrap(), integer(c[1].as_deref()).unwrap());
-            let item = match res {
-                1..=8 => 1,
-                9..=16 => 2,
-                17..=32 => 4,
-                _ => 8,
-            };
-            channels.push((dt, item, integer(c[2].as_deref()).unwrap()));
-            resolutions.push(res);
-        }
-        // the references a run may make (refs.rs), which bound the planes before they are listed
-        let references = (1u128 << 22) + 4 * self.size as u128;
-        Layout::of(self.rules, base(vec![("references", num(references as f64))]), &dims, &channels, &resolutions, im)
     }
 
     /// The IR (spec/zarrify/lif.md §5.4
@@ -881,17 +756,19 @@ impl Lif {
         Ok(())
     }
 
-    /// The finished IR, with its images described (`stored.rs`), and the facts, each image's with
-    /// `declared_by`, the key of its description: the element of the XML that declares it, and its
-    /// index among the images that XML declares.
+    /// The finished IR, with its images described (`stored.rs`), and the description, each image's
+    /// with `declared_by`, the key of its stored array: the element of the XML that declares it, and
+    /// its index among the images that XML declares.
     pub fn finish(self) -> Result<(Ir, J), String> {
         let (mut ir, mut facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
-        if self.reached.is_empty() {
+        let Some(images) = facts["images"].as_array_mut().filter(|i| !i.is_empty()) else {
             return Ok((ir, facts));
-        }
+        };
         let key = stored::declaring(&ir).ok_or("internal: no element holds the XML of the images")?;
-        for (k, im) in facts["images"].as_array_mut().into_iter().flatten().enumerate() {
-            im["declared_by"] = json!([key, k]);
+        // null of an image with no stored array, which refkv's plan rejects
+        let arrays: std::collections::HashSet<usize> = self.reached.iter().map(|r| r.0).collect();
+        for (k, im) in images.iter_mut().enumerate() {
+            im["declared_by"] = if arrays.contains(&k) { json!([key, k]) } else { J::Null };
         }
         // the chunk map's limit, of the file (spec/stored-array.md §6
         // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>)
@@ -903,6 +780,30 @@ impl Lif {
 }
 
 crate::parser!(Lif);
+
+/// What an image's stored array needs (`stored::Reached`), of an image whose dimensions'
+/// `NumberOfElements` (each at least 1) and `BytesInc`, and channels' `Resolution` (1 to 64 bits)
+/// and `BytesInc`, are integers, with at least one of each; its sample is the first channel's
+/// size. None of another, which has no stored array, and which refkv's plan rejects.
+fn reached(im: &Image, block: usize, start: u64) -> Option<stored::Reached> {
+    let dims: Vec<(u64, u64)> = im
+        .dims
+        .iter()
+        .map(|d| Some((integer(d[1].as_deref()).filter(|&n| n >= 1)?, integer(d[2].as_deref())?)))
+        .collect::<Option<_>>()?;
+    let channels: Vec<(u64, u64)> = im
+        .channels
+        .iter()
+        .map(|c| Some((integer(c[1].as_deref()).filter(|r| (1..=64).contains(r))?, integer(c[2].as_deref())?)))
+        .collect::<Option<_>>()?;
+    let resolution = channels.first()?.0;
+    if dims.is_empty() {
+        return None;
+    }
+    let mut offsets: Vec<u64> = channels.iter().map(|c| c.1).collect();
+    offsets.sort_unstable();
+    Some(stored::Reached { dims, offsets, item: plan::item(resolution), block, start })
+}
 
 /// An image element's attributes the layout reads (spec/zarrify/lif.md §2.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#23-images>).
@@ -952,277 +853,6 @@ fn read_image(t: &Tree, n: u32) -> Image {
     }
 }
 
-/// An image's layout (spec/zarrify/lif.md §3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#3-placement>).
-struct Layout {
-    data_type: &'static str,
-    item: u64,
-    /// the channels' BytesInc, ascending, and each one's index in the XML
-    offsets: Vec<u64>,
-    order: Vec<usize>,
-    interleaved: bool,
-    axes: Vec<&'static str>,
-    shape: Vec<u64>,
-    chunk_shape: Vec<u64>,
-    /// (count, stride) of t and z (count 1 without the axis)
-    t: (u64, u64),
-    z: (u64, u64),
-    rows: u64,
-    row: u64,
-    y_stride: u64,
-    band: u64,
-    /// the field dimensions (index in the list, DimID, count, stride), and each field's
-    /// indexes and offset
-    field_dims: Vec<(usize, u64, u64, u64)>,
-    fields: Vec<(Vec<u64>, u64)>,
-    scale: Vec<J>,
-    units: Map<String, J>,
-    resolution: Vec<u64>,
-    /// each dimension's NumberOfElements and BytesInc, in the XML's order
-    strides: Vec<(u64, u64)>,
-    /// the bytes of the block the image needs
-    end: u128,
-    base: u64,
-    block: usize,
-}
-
-impl Layout {
-    fn of(rules: &Rules, mut env: rules::Vars<'static>, dims: &[(u64, u64, u64)], channels: &[(u64, u64, u64)],
-          resolutions: &[u64], im: &Image) -> Res<Layout> {
-        let used: Vec<usize> = (0..dims.len()).filter(|&j| dims[j].1 > 1).collect();
-        let x = used.iter().copied().find(|&j| dims[j].0 == 1).or_else(|| dims.iter().position(|d| d.0 == 1));
-        let mut seen: HashMap<u64, usize> = HashMap::new();
-        let repeated = used.iter().find_map(|&j| seen.insert(dims[j].0, j).map(|_| dims[j].0));
-        let types: Vec<(u64, u64)> = {
-            let mut v: Vec<(u64, u64)> = channels.iter().map(|c| (c.0, c.1)).collect();
-            v.sort_unstable();
-            v.dedup();
-            v
-        };
-        let (dt, item) = (channels[0].0, channels[0].1);
-        let mut order: Vec<usize> = (0..channels.len()).collect();
-        order.sort_by_key(|&j| (channels[j].2, j));
-        let offsets: Vec<u64> = order.iter().map(|&j| channels[j].2).collect();
-        let distinct = offsets.windows(2).all(|w| w[0] < w[1]);
-        let m = channels.len() as u64;
-        let sx = x.map_or(0, |j| dims[j].2);
-        let nx = x.map_or(1, |j| dims[j].1);
-        let interleaved = m > 1 && sx == m * item && offsets.iter().enumerate().all(|(j, &o)| o == j as u64 * item);
-        let planar = sx == item;
-        let y = used.iter().copied().find(|&j| dims[j].0 == 2);
-        let (ny, sy) = y.map_or((1, 0), |j| (dims[j].1, dims[j].2));
-        let row = nx.saturating_mul(sx);
-        let rows_overlap = ny > 1 && sy < row;
-        let find = |id: u64| used.iter().copied().find(|&j| dims[j].0 == id).map(|j| (dims[j].1, dims[j].2));
-        let (t, z) = (find(4), find(3));
-        let mut axes = Vec::new();
-        let mut shape = Vec::new();
-        let mut chunk = Vec::new();
-        if let Some((n, _)) = t {
-            axes.push("t");
-            shape.push(n);
-            chunk.push(1);
-        }
-        if m > 1 {
-            axes.push("c");
-            shape.push(m);
-            chunk.push(if interleaved { m } else { 1 });
-        }
-        if let Some((n, _)) = z {
-            axes.push("z");
-            shape.push(n);
-            chunk.push(1);
-        }
-        axes.extend(["y", "x"]);
-        shape.extend([ny, nx]);
-        chunk.extend([1, nx]);
-        let biggest = shape.iter().copied().max().unwrap_or(1);
-        let end: u128 = offsets.last().copied().unwrap_or(0) as u128
-            + dims.iter().map(|d| (d.1.saturating_sub(1)) as u128 * d.2 as u128).sum::<u128>()
-            + item as u128;
-        let field_dims: Vec<(usize, u64, u64, u64)> =
-            used.iter().copied().filter(|&j| !(1..=4).contains(&dims[j].0)).map(|j| (j, dims[j].0, dims[j].1, dims[j].2)).collect();
-        let field_count: u128 = field_dims.iter().map(|d| d.2 as u128).product();
-        env.insert("x", flag(x.is_some()));
-        env.insert("repeated", repeated.map_or(crate::expr::V::Absent, |r| num(r as f64)));
-        env.insert("types", num(types.len() as f64));
-        env.insert("distinct", flag(distinct));
-        env.insert("offsets", text(&format!("{offsets:?}")));
-        env.insert("x_bytes_inc", num(sx as f64));
-        env.insert("arranged", flag(interleaved || planar));
-        env.insert("rows_overlap", flag(rows_overlap));
-        env.insert("row", num(row as f64));
-        env.insert("y_bytes_inc", num(sy as f64));
-        env.insert("extent", num(biggest as f64));
-        env.insert("fields", num(field_count as f64));
-        let chunked = if interleaved { 1 } else { m as u128 };
-        let planes = t.map_or(1, |p| p.0 as u128) * chunked * z.map_or(1, |p| p.0 as u128) * field_count;
-        env.insert("planes", num(planes as f64));
-        rules.check("layout", env)?;
-        let data_type = match (dt, item) {
-            (0, 1) => "uint8",
-            (0, 2) => "uint16",
-            (0, 4) => "uint32",
-            (0, _) => "uint64",
-            (_, 2) => "float16",
-            (_, 4) => "float32",
-            _ => "float64",
-        };
-        // scales and units (spec/zarrify/lif.md §4.3
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#43-image-arrays>)
-        let mut units = Map::new();
-        let scale = axes
-            .iter()
-            .map(|&a| {
-                let id = match a {
-                    "t" => 4,
-                    "z" => 3,
-                    "y" => 2,
-                    "x" => 1,
-                    _ => return json!(1),
-                };
-                let Some(j) = used.iter().copied().find(|&j| dims[j].0 == id) else { return json!(1) };
-                let d = &im.dims[j];
-                let step = decimal(d[4].as_deref()).map(|l| (l / (dims[j].1 - 1) as f64).abs());
-                let Some(step) = step.filter(|s| s.is_finite() && *s > 0.0) else { return json!(1) };
-                match (unit(d[5].as_deref().unwrap_or("")), a) {
-                    (Some((_, Some(m))), "x" | "y" | "z") => {
-                        let v = step * (m / 1e-6);
-                        if !v.is_finite() || v <= 0.0 {
-                            return json!(1);
-                        }
-                        units.insert(a.into(), json!("micrometer"));
-                        json!(v)
-                    }
-                    (Some((u, None)), "t") => {
-                        units.insert(a.into(), json!(u));
-                        json!(step)
-                    }
-                    _ => json!(step),
-                }
-            })
-            .collect();
-        let mut resolution = vec![0; channels.len()];
-        for (c, &j) in order.iter().enumerate() {
-            resolution[c] = resolutions[j];
-        }
-        Ok(Layout {
-            data_type,
-            item,
-            offsets,
-            order,
-            interleaved,
-            axes,
-            shape,
-            chunk_shape: chunk,
-            t: t.unwrap_or((1, 0)),
-            z: z.unwrap_or((1, 0)),
-            rows: ny,
-            row,
-            y_stride: if ny == 1 { row } else { sy },
-            band: 1,
-            field_dims,
-            fields: Vec::new(),
-            scale,
-            units,
-            resolution,
-            strides: dims.iter().map(|d| (d.1, d.2)).collect(),
-            end,
-            base: 0,
-            block: 0,
-        })
-    }
-
-    /// The fields' offsets and the band height (spec/zarrify/lif.md §3.4
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#34-rows-and-bands>), once
-    /// the image is known to lie within its block, whose data starts at `base`.
-    fn place(&mut self, base: u64, block: usize) {
-        self.base = base;
-        self.block = block;
-        let count: u64 = self.field_dims.iter().map(|d| d.2).product();
-        self.fields = (0..count)
-            .map(|f| {
-                let mut rest = f;
-                let mut idx = Vec::new();
-                let mut off = 0;
-                for d in &self.field_dims {
-                    idx.push(rest % d.2);
-                    off += rest % d.2 * d.3;
-                    rest /= d.2;
-                }
-                (idx, off)
-            })
-            .collect();
-        let (ny, row, sy) = (self.rows, self.row, self.y_stride);
-        // the farthest plane: its last time, channel, depth and field
-        let far = base
-            + if self.interleaved { 0 } else { self.offsets.last().copied().unwrap_or(0) }
-            + (self.t.0 - 1) * self.t.1
-            + (self.z.0 - 1) * self.z.1
-            + self.fields.last().map_or(0, |f| f.1);
-        let most = (BAND / row.max(1)).clamp(1, ny);
-        self.band = (1..=most)
-            .rev()
-            .find(|&b| ny % b == 0 && (sy == row || rows_payload(far + (ny - b) * sy, sy, row, b) <= MAX_PAYLOAD as u64))
-            .unwrap_or(1);
-        let n = self.chunk_shape.len();
-        self.chunk_shape[n - 2] = self.band;
-    }
-}
-
-/// The size of a varint (spec/zarrify.md §1.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
-fn varint_size(v: u64) -> u64 {
-    (64 - v.leading_zeros() as u64).div_ceil(7).max(1)
-}
-
-/// The reference payload of `count` ranges of `length` bytes, `stride` bytes apart from `start`
-/// (each offset and length above 0, `stride` too), as `out::payload_size` gives it, counted by
-/// the offsets' varint sizes rather than built.
-fn rows_payload(start: u64, stride: u64, length: u64, count: u64) -> u64 {
-    if count == 1 {
-        return 2 + varint_size(start) + varint_size(length);
-    }
-    // each range a Concat entry: tag, its length (one byte), then 0x18 varint(o) 0x20 varint(n)
-    let mut offsets = 0;
-    let mut below = 0;
-    for k in 1..=9u64 {
-        let limit = 1u64 << (7 * k);
-        let n = if start >= limit { 0 } else { count.min((limit - start).div_ceil(stride)) };
-        offsets += (n - below) * k;
-        below = n;
-    }
-    offsets += (count - below) * 10;
-    count * (4 + varint_size(length)) + offsets
-}
-
-/// An image's facts: its source metadata and its layout, for the projection.
-fn image_facts(im: &Image, f: &Layout, k: usize) -> J {
-    // a mosaic's tiles: when its one field dimension is the mosaic's (DimID 10)
-    let tiles: &[J] = match &im.scan {
-        Some((_, tiles)) if f.field_dims.len() == 1 && f.field_dims[0].1 == 10 => tiles,
-        _ => &[],
-    };
-    let colors: Vec<&str> = f.order.iter().map(|&j| color(integer(im.channels[j][3].as_deref()), im.channels[j][4].as_deref())).collect();
-    let mut meta = Map::new();
-    meta.insert("image".into(), json!(k));
-    meta.extend(im.meta.clone());
-    if let Some((scan, _)) = im.scan.as_ref().filter(|_| !tiles.is_empty()) {
-        meta.insert("tile_scan".into(), J::Object(scan.clone()));
-    }
-    json!({
-        "name": im.name, "meta": meta, "data_type": f.data_type, "item": f.item,
-        "interleaved": f.interleaved, "axes": f.axes, "shape": f.shape, "chunk_shape": f.chunk_shape,
-        "offsets": f.offsets, "order": f.order, "colors": colors, "resolution": f.resolution,
-        "t": [f.t.0, f.t.1], "z": [f.z.0, f.z.1], "rows": f.rows, "row": f.row, "y_stride": f.y_stride,
-        "band": f.band, "base": f.base, "block": f.block, "end": f.end as u64,
-        "field_dims": f.field_dims.iter().map(|d| d.1).collect::<Vec<_>>(),
-        "fields": f.fields.iter().map(|(i, o)| json!([i, o])).collect::<Vec<_>>(),
-        "tiles": tiles,
-        "scale": f.scale, "units": f.units,
-    })
-}
-
 /// The LIF profile's file run (spec/zarrify/lif.md).
 pub struct Profile;
 
@@ -1238,23 +868,19 @@ impl crate::run::FileProfile for Profile {
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::lif::project(ir, facts, url)
     }
+    /// The projection reads nothing; refkv's plan is made here, so that a run rejects an input the
+    /// plan rejects before it is done (`plan::plan`).
+    fn reads(&self, _ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+        plan::plan(facts).map(|_| Vec::new())
+    }
+    /// The parser returns a description of the file (spec/zarrify/lif.md §9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#9-the-description>).
+    fn described(&self) -> bool {
+        true
+    }
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
 pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
     Ok(Box::new(crate::xlef::Xlef::new(ir, objects, keys)?))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::out::{payload_size, Part};
-
-    #[test]
-    fn rows_payload_is_the_references() {
-        for (start, stride, length, count) in [(1, 9, 6, 1), (100, 9, 6, 50), (16000, 9, 6, 200), (73728, 9, 6, 8192), (1 << 40, 1 << 20, 3, 7), (5, 300, 200, 4096)] {
-            let parts: Vec<Part> = (0..count).map(|r| Part::Src(start + r * stride, length)).collect();
-            assert_eq!(rows_payload(start, stride, length, count), payload_size(&parts) as u64, "{start} {stride} {count}");
-        }
-    }
 }

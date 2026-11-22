@@ -27,7 +27,7 @@ from refkv.zarrify.layouts.hierarchy import check
 project_module = importlib.import_module("refkv.build.project")
 
 TIFF = Path(__file__).resolve().parents[2] / "fixtures" / "tiff"
-ALLOWED = frozenset({"copy"})  # the check codes the module's docstring names
+ALLOWED: frozenset[str] = frozenset()  # the check codes the module's docstring names
 
 # (fixture, options, the IFDs left out): several IFDs, SubIFDs, tiles and strips, compressed and not
 CASES = [

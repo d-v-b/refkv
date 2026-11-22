@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/grib/description.json",
+  "title": "The description of a GRIB file",
+  "description": "What refkv's GRIB parser found of a GRIB edition 2 file, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#87-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "file_key": {"type": "string"},
+    "index_key": {"type": ["string", "null"]},
+    "messages": {"type": "array", "items": {"type": "array", "items": {"$ref": "#/$defs/uint"}, "minItems": 2, "maxItems": 2}},
+    "fields": {"type": "array", "items": {"$ref": "#/$defs/field"}},
+    "grids": {"type": "object", "additionalProperties": {"$ref": "#/$defs/grid"}},
+    "reads": {
+      "type": "object",
+      "properties": {"batches": {"$ref": "#/$defs/uint"}},
+      "required": ["batches"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["file_key", "index_key", "messages", "fields", "grids", "reads"],
+  "additionalProperties": false,
+  "$defs": {
+    "uint": {"type": "integer", "minimum": 0},
+    "hex": {"type": "string", "pattern": "^([0-9a-f]{2})*$"},
+    "field": {
+      "type": "object",
+      "properties": {
+        "message": {"$ref": "#/$defs/uint"},
+        "field": {"$ref": "#/$defs/uint"},
+        "reference": {"type": "integer"},
+        "centre": {"$ref": "#/$defs/uint"},
+        "discipline": {"$ref": "#/$defs/uint"},
+        "identity": {"type": "string", "pattern": "^[0-9a-f]{2}\\.([0-9a-f]{2})*\\.([0-9a-f]{2})*$"},
+        "grid": {"$ref": "#/$defs/hex"},
+        "product": {"$ref": "#/$defs/uint"},
+        "category": {"$ref": "#/$defs/uint"},
+        "number": {"$ref": "#/$defs/uint"},
+        "surfaces": {
+          "type": "array",
+          "items": {"type": "array", "prefixItems": [{"$ref": "#/$defs/uint"}, {"type": ["number", "null"]}], "minItems": 2, "maxItems": 2},
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "step": {"type": ["integer", "null"]},
+        "member": {"type": ["integer", "null"]},
+        "statistic": {
+          "description": "the statistic's process and length in seconds, null where its unit has no fixed length (a month, a year)",
+          "oneOf": [{"type": "null"}, {"type": "array", "prefixItems": [{"$ref": "#/$defs/uint"}, {"type": ["integer", "null"]}], "minItems": 2, "maxItems": 2}]
+        },
+        "qualifier": {},
+        "packing": {"$ref": "#/$defs/uint"},
+        "bitmap": {"$ref": "#/$defs/uint"},
+        "single": {"type": "boolean"},
+        "parts": {"type": "array", "items": {"type": "array", "items": {"$ref": "#/$defs/uint"}, "minItems": 2, "maxItems": 2}},
+        "element": {"$ref": "#/$defs/uint"},
+        "array": {"$ref": "#/$defs/uint"},
+        "mask": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/uint"}]},
+        "values": {"$ref": "#/$defs/uint"},
+        "unread": {"oneOf": [{"type": "null"}, {"enum": ["grid_source", "reduced", "grid", "grid_size", "gaussian", "earth", "projection", "product", "statistic", "time"]}]}
+      },
+      "required": ["message", "field", "reference", "centre", "discipline", "identity", "grid", "product", "category", "number", "surfaces",
+                   "step", "member", "statistic", "qualifier", "packing", "bitmap", "single", "parts", "element", "array", "mask", "values", "unread"],
+      "additionalProperties": false
+    },
+    "grid": {
+      "type": "object",
+      "properties": {
+        "template": {"$ref": "#/$defs/uint"},
+        "points": {"$ref": "#/$defs/uint"},
+        "nx": {"$ref": "#/$defs/uint"},
+        "ny": {"$ref": "#/$defs/uint"},
+        "scan": {"$ref": "#/$defs/uint"},
+        "earth": {"type": ["object", "null"]},
+        "projection": {"type": ["object", "null"], "properties": {"kind": {"enum": ["latlon", "rotated", "gaussian", "polar", "mercator", "reduced", "unstructured", "lambert"]}}}
+      },
+      "required": ["template", "points", "nx", "ny", "scan", "earth", "projection"],
+      "additionalProperties": false
+    }
+  }
+}

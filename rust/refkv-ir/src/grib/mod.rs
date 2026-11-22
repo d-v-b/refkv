@@ -189,7 +189,7 @@ struct Field {
     mask: Option<u64>,
 }
 
-/// The fields of message `m` (its index `i`), each with the reason it is not presented, if any
+/// The fields of message `m` (its index `i`), each with what of it the parser does not interpret, if any
 /// (spec/zarrify/grib.md §2.6
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#26-what-is-not-presented>).
 fn fields_of(rules: &Rules, i: usize, m: &Message) -> Res<Vec<Field>> {
@@ -198,7 +198,6 @@ fn fields_of(rules: &Rules, i: usize, m: &Message) -> Res<Vec<Field>> {
         &m.bytes[k]
     };
     let mut out = Vec::new();
-    let mut had_bitmap = false;
     let mut last_bitmap: Option<Section> = None;
     let all = sections::fields(&m.sections)?;
     let single = all.len() == 1;
@@ -217,18 +216,9 @@ fn fields_of(rules: &Rules, i: usize, m: &Message) -> Res<Vec<Field>> {
             rules.check("order", rules::env([("at", num(m.start as f64)), ("problem", text(p))]))?;
         }
         let product = product?;
-        let reason = grid.reason.or(product.reason).or_else(|| {
-            if !meta::DECODED.contains(&packing.template) {
-                Some("packing")
-            } else if (1..=253).contains(&bitmap) || (bitmap == 254 && !had_bitmap) {
-                Some("bitmap")
-            } else if bitmap == 255 && packing.values != grid.points {
-                Some("values")
-            } else {
-                None
-            }
-        });
-        had_bitmap |= bitmap == 0;
+        // what of the field's grid and product the parser does not interpret, if anything; the
+        // convention's own reasons are its plan's (`project::grib::plan`)
+        let reason = grid.reason.or(product.reason);
         if bitmap == 0 {
             last_bitmap = f.s6;
         }
@@ -467,9 +457,6 @@ impl Grib {
             (Some(_), Some(k)) => json!(self.keys[k].0),
             _ => J::Null,
         };
-        let presented = fields.iter().filter(|f| f.reason.is_none()).count();
-        let reasons: Vec<String> = fields.iter().filter_map(|f| f.reason).collect::<std::collections::BTreeSet<_>>().into_iter().map(str::to_string).collect();
-        self.rules.check("fields", rules::env([("count", num(presented as f64)), ("fields", num(fields.len() as f64)), ("reasons", text(&reasons.join(", ")))]))?;
         ir.sort_values();
         crate::check::finish(&mut ir)?;
         // the bitmaps and the fields, described from the finished IR (`stored.rs`)
@@ -479,26 +466,24 @@ impl Grib {
         let messages: Vec<J> = self.messages.values().map(|m| json!([m.start, m.length])).collect();
         // each grid once: a reduced grid's list of rows may be long, and so may the list of fields
         let mut grids = Map::new();
-        for f in fields.iter().filter(|f| f.reason.is_none()) {
+        for f in &fields {
             let key = f.grid.key.iter().map(|x| format!("{x:02x}")).collect::<String>();
             grids.entry(key).or_insert_with(|| grid_json(&f.grid));
         }
         let fields: Vec<J> = fields.iter().map(field_json).collect();
-        let unpresented: Vec<J> = fields.iter().filter(|f| f.get("reason").is_some())
-            .map(|f| json!({"message": f["message"], "field": f["field"], "reason": f["reason"]})).collect();
         Ok(json!({
             "file_key": self.keys[0].0,
             "index_key": index,
-            "own": {"messages": messages.len(), "fields": fields.len(), "index": index, "unpresented": unpresented},
             "messages": messages,
             "fields": fields,
             "grids": grids,
-            "counts": {"batches": self.batches},
+            "reads": {"batches": self.batches},
         }))
     }
 }
 
-/// A field's facts: what the projection groups, names and places it by.
+/// A field as the description gives it (spec/zarrify/grib.md §8.7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#87-the-description>).
 fn field_json(f: &Field) -> J {
     let discipline = f.discipline;
     let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
@@ -525,16 +510,15 @@ fn field_json(f: &Field) -> J {
     // the key of the description of its values (`declared_by`, the element of its message, and
     // `array`, its index among the arrays the message declares), and the index of the bitmap
     // that places them, if any
-    m.insert("declared_by".into(), json!(f.declared_by.0));
+    m.insert("element".into(), json!(f.declared_by.0));
     m.insert("array".into(), json!(f.declared_by.1));
     m.insert("mask".into(), json!(f.mask));
-    if let Some(r) = f.reason {
-        m.insert("reason".into(), json!(r));
-    }
+    m.insert("values".into(), json!(f.packing.values));
+    m.insert("unread".into(), json!(f.reason));
     J::Object(m)
 }
 
-/// A grid's facts: its template, shape, scanning mode, Earth and projection.
+/// A grid as the description gives it: its template, shape, scanning mode, Earth and projection.
 fn grid_json(g: &Grid) -> J {
     let earth = match g.earth {
         Some(meta::Earth::Sphere(r)) => json!({"radius": r}),

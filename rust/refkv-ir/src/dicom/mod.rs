@@ -18,6 +18,7 @@
 
 pub mod elements;
 pub mod json;
+pub mod plan;
 mod stored;
 
 use crate::fed::Word;
@@ -295,19 +296,12 @@ pub struct Image {
     pub bits_stored: u64,
     pub signed: bool,
     pub photometric: String,
-    pub whole_slide: bool,
-    pub width: u64,
-    pub height: u64,
-    pub across: u64,
-    pub frame_axis: &'static str,
-    pub scale: Vec<f64>,
-    pub units: Map<String, J>,
-    pub axes: Vec<&'static str>,
-    pub window: J,
-    pub window_finite: bool,
     pub eot: Option<Vec<u64>>,
     pub eotl: Option<Vec<u64>>,
     pub palette: Option<Palette>,
+    /// the attributes the profile reads of the image, as it reads them (the description's
+    /// `attributes`)
+    pub read: J,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -739,6 +733,21 @@ impl Dicom {
             fg.push(in_item.or(at_top));
         }
 
+        // the attributes as the profile reads them (the description's `attributes`, spec/zarrify/dicom.md §7.8
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#78-the-description>)
+        let texts = |v: Option<&[u8]>| v.map(latin1);
+        let read = json!({
+            "sop_class_uid": texts(sop_class), "dimension_organization_type": texts(organization),
+            "samples_per_pixel": spp, "photometric_interpretation": texts(photometric), "planar_configuration": planar,
+            "number_of_frames": frames.map(|f| if f.fract() == 0.0 && f.abs() < 9e15 { json!(f as i64) } else { json!(f) }), "rows": rows, "columns": columns,
+            "bits_allocated": bits_allocated, "bits_stored": bits_stored, "high_bit": high_bit, "pixel_representation": representation,
+            "window_center": center, "window_width": width, "rescale_intercept": intercept, "rescale_slope": slope,
+            "total_pixel_matrix_columns": total_columns, "total_pixel_matrix_rows": total_rows,
+            "number_of_optical_paths": optical_paths, "total_pixel_matrix_focal_planes": focal_planes,
+            "frame_increment_pointer": increment.map(tag_key), "frame_time": frame_time,
+            "pixel_spacing": fg[0], "spacing_between_slices": fg[1],
+        });
+
         // spec/zarrify/dicom.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#3-the-image>
         let n = frames.unwrap_or(1.0);
         let key = format!("{codec}/{}", spp.map(|s| s.to_string()).unwrap_or_default());
@@ -763,7 +772,7 @@ impl Dicom {
         let photometric = latin1(photometric.unwrap());
         let n = n as u64;
         let whole_slide = sop_class.is_some_and(|s| s == self.rules.table("whole_slide").as_str().unwrap().as_bytes());
-        let (width_px, height_px, across) = if whole_slide {
+        if whole_slide {
             let across = total_columns.map(|w| w.div_ceil(columns));
             let down = total_rows.map(|h| h.div_ceil(rows));
             let tiles = across.zip(down).is_some_and(|(a, d)| (a as u128) * (d as u128) == n as u128);
@@ -780,69 +789,8 @@ impl Dicom {
                 ("bits_allocated", num(bits_allocated as f64)),
             ]);
             check(r, "whole_slide", &mut env)?;
-            (total_columns.unwrap(), total_rows.unwrap(), across.unwrap())
-        } else {
-            (columns, rows, 1)
-        };
+        }
 
-        // spec/zarrify/dicom.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#4-output>
-        let fa = if matches!(increment, Some(0x0018_1063 | 0x0018_1065)) { "t" } else { "z" };
-        let mut axes = Vec::new();
-        if spp == 3 {
-            axes.push("c");
-        }
-        if !whole_slide && n > 1 {
-            axes.push(fa);
-        }
-        axes.extend(["y", "x"]);
-        let spacing = &fg[0];
-        let usable = spacing.as_ref().is_some_and(|s| s.len() == 2 && s.iter().all(|x| x.is_some_and(|x| x > 0.0)));
-        let step = fg[1].as_ref().and_then(|b| b[0]).filter(|x| *x > 0.0);
-        let period = if increment == Some(0x0018_1063) { frame_time.as_ref().and_then(|t| t[0]).filter(|x| *x > 0.0).map(|x| x / 1000.0) } else { None };
-        let scale_of = |a: &str| -> f64 {
-            match a {
-                "z" => step.unwrap_or(1.0),
-                "t" => period.unwrap_or(1.0),
-                "y" if usable => spacing.as_ref().unwrap()[0].unwrap(),
-                "x" if usable => spacing.as_ref().unwrap()[1].unwrap(),
-                _ => 1.0,
-            }
-        };
-        let scale = axes.iter().map(|a| scale_of(a)).collect();
-        let mut units = Map::new();
-        for a in &axes {
-            let u = match *a {
-                "z" if step.is_some() => "millimeter",
-                "t" if period.is_some() => "second",
-                "y" | "x" if usable => "millimeter",
-                _ => continue,
-            };
-            units.insert(a.to_string(), json!(u));
-        }
-        let (low, high): (i64, i64) = if representation == 0 {
-            (0, (1i64 << bits_stored) - 1)
-        } else {
-            (-(1i64 << (bits_stored - 1)), (1i64 << (bits_stored - 1)) - 1)
-        };
-        let mut window_finite = true;
-        let mut window = json!({"min": low, "max": high, "start": low, "end": high});
-        if spp == 1 {
-            if let (Some(c), Some(w)) = (center.as_ref().and_then(|c| c[0]), width.as_ref().and_then(|w| w[0])) {
-                let k = match &intercept { None => Some(0.0), Some(i) => i[0] };
-                let s = match &slope { None => Some(1.0), Some(s) => s[0] };
-                if let (true, Some(k), Some(s)) = (w >= 1.0, k, s) {
-                    if s != 0.0 {
-                        let (mut a, mut e) = ((c - w / 2.0 - k) / s, (c + w / 2.0 - k) / s);
-                        if s < 0.0 {
-                            std::mem::swap(&mut a, &mut e);
-                        }
-                        window_finite = a.is_finite() && e.is_finite();
-                        window["start"] = json!(a);
-                        window["end"] = json!(e);
-                    }
-                }
-            }
-        }
         Ok(Image {
             start,
             enc,
@@ -859,19 +807,10 @@ impl Dicom {
             bits_stored,
             signed: representation == 1,
             photometric,
-            whole_slide,
-            width: width_px,
-            height: height_px,
-            across,
-            frame_axis: fa,
-            scale,
-            units,
-            axes,
-            window,
-            window_finite,
             eot,
             eotl,
             palette,
+            read,
         })
     }
 
@@ -1039,7 +978,7 @@ impl Dicom {
     fn frames_check(&mut self, img: &Image, lay: &Layout) -> R<()> {
         let r = self.rules;
         if img.codec == "native" {
-            return check(r, "window", &mut rules::env([("finite", flag(img.window_finite))]));
+            return check(r, "window", &mut rules::env([("finite", flag(plan::window(&img.read).1))]));
         }
         let adobe = img.codec == "jpeg" && img.spp == 3;
         let frames = frame_ranges(img, lay);
@@ -1061,7 +1000,7 @@ impl Dicom {
             ]);
             check(r, "frame", &mut env)?;
         }
-        check(r, "window", &mut rules::env([("finite", flag(img.window_finite))]))?;
+        check(r, "window", &mut rules::env([("finite", flag(plan::window(&img.read).1))]))?;
         for (f, ranges) in frames.iter().enumerate() {
             let parts = parts_of(ranges, adobe.then(|| adobe_marker(&img.photometric)));
             for p in &parts {
@@ -1180,10 +1119,10 @@ impl Dicom {
         Ok(())
     }
 
-    /// The finished IR, with its arrays described (`stored.rs`), and the facts, which give the
-    /// descriptions' keys: `declared_by`, the top-level Pixel Data's element; `palette.declared_by`,
-    /// the lookup tables' elements; and `nested`, each element that keys the Pixel Data of its
-    /// items, with how many.
+    /// The finished IR, with its arrays described (`stored.rs`), and the description, whose
+    /// `elements` give the stored arrays' keys: `pixel_data`, the top-level Pixel Data's element;
+    /// `palette_tables`, the lookup tables' elements; and `nested`, each element that keys the
+    /// Pixel Data of its items, with how many; with the root's source metadata (`facts`).
     pub fn finish(self) -> Result<(Ir, J), String> {
         let mut facts = self.facts.unwrap_or(J::Null);
         self.counts.put(&mut facts);
@@ -1191,11 +1130,11 @@ impl Dicom {
         let (mut ir, mut facts) = sans::finish(self.phase == Phase::Done, self.ir, facts)?;
         if let (Some(img), Some(lay)) = (&self.image, &self.layout) {
             let d = stored::described(&ir, img, lay)?;
-            facts["declared_by"] = json!(d.pixel);
-            if let Some(tables) = d.palette {
-                facts["palette"]["declared_by"] = json!(tables);
+            if d.pixel as u64 != facts["elements"]["pixel_data"].as_u64().unwrap_or(u64::MAX) {
+                return Err("internal: the Pixel Data's stored array is keyed by another element".into());
             }
-            facts["nested"] = d.nested.iter().map(|&(element, count)| json!({"declared_by": element, "count": count})).collect();
+            facts["elements"]["palette_tables"] = json!(d.palette.unwrap_or_default());
+            facts["elements"]["nested"] = d.nested.iter().map(|&(element, count)| json!({"element": element, "count": count})).collect();
             ir.describe(d.arrays, d.chains, d.map)?;
         }
         Ok((ir, facts))
@@ -1382,42 +1321,53 @@ pub fn parts_of(ranges: &[(u64, u64)], adobe: Option<u8>) -> Vec<Part> {
     parts
 }
 
-/// The facts the projection reads.
-fn facts(img: &Image, lay: &Layout, root: Map<String, J>, pixel: u32) -> J {
-    let shape: Vec<u64> = img.axes.iter().map(|a| match *a { "c" => 3, "y" => img.height, "x" => img.width, _ => img.n }).collect();
-    // for frames that are one stored element, the frame axis's whole size
-    let frames_per_chunk = if lay.stored == 1 { img.n } else { 1 };
-    let chunk: Vec<u64> = img.axes.iter().map(|a| match *a { "c" => if img.planar_native { 1 } else { 3 }, "y" => img.rows, "x" => img.columns, _ => frames_per_chunk }).collect();
-    let data_type = if img.bits_allocated == 1 { "bool".to_string() } else { format!("{}int{}", if img.signed { "" } else { "u" }, img.bits_allocated) };
-    let layout = if img.codec == "native" { "native" } else if lay.eot.is_some() { "eot" } else { "fragments" };
+/// The description of the file (spec/zarrify/dicom.md §7.8
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#78-the-description>): its transfer
+/// syntax, the attributes the profile reads of the image as it reads them, a palette's tables, the
+/// pixel data's structure, and the id of its element. It holds none of the output's decisions: no
+/// axes, shape, chunks, data type, scales, units or window.
+fn describe(img: &Image, lay: &Layout, pixel: u32) -> J {
+    let structure = if img.codec == "native" {
+        json!({
+            "frame_size": lay.frame_size, "stored": lay.stored,
+            "extra": lay.extra.map(|(o, n)| json!({"offset": o, "bytes": n})),
+        })
+    } else {
+        json!({
+            "items": lay.items.iter().map(|&(item, data, length)| json!([item, data, length])).collect::<Vec<_>>(),
+            "offset_table": lay.offset_table,
+            "bounds": lay.bounds,
+            "delimiter": lay.delimiter,
+            "extended_offset_table": lay.eot.as_ref().map(|(frames, headers, _)| json!({
+                "frames": frames.iter().map(|&(o, n)| json!([o, n])).collect::<Vec<_>>(), "headers": headers,
+            })),
+        })
+    };
     json!({
-        "root": root,
-        "axes": img.axes,
-        "shape": shape,
-        "chunk_shape": chunk,
-        "data_type": data_type,
-        "codec": img.codec,
-        "little": img.enc.little,
-        "planar": img.planar_native,
-        "spp": img.spp,
-        "n": img.n,
-        "stored": lay.stored,
-        "whole_slide": img.whole_slide,
-        "across": img.across,
-        "frame_axis": img.frame_axis,
-        "scale": img.scale,
-        "units": img.units,
-        "window": img.window,
-        "photometric": img.photometric,
-        "syntax": img.syntax,
-        "pixel": pixel,
-        "layout": layout,
-        "bounds": lay.bounds,
+        "transfer_syntax": img.syntax,
+        "explicit": img.enc.explicit, "little": img.enc.little,
+        "compression": img.codec,
+        "attributes": img.read,
         "palette": img.palette.as_ref().map(|p| json!({
             "entries": p.entries, "first_mapped": p.first_mapped, "bits": p.bits, "cell": p.cell, "tables": p.tables,
         })),
-        "adobe": (img.codec == "jpeg" && img.spp == 3).then(|| adobe_marker(&img.photometric)),
+        "pixel_data": {
+            "vr": img.pixel.vr.map(|v| vr_str(&v).to_string()),
+            "offset": img.pixel.value, "length": img.pixel.length, "end": lay.end,
+            "encapsulated": img.codec != "native",
+            "structure": structure,
+        },
+        "elements": {"pixel_data": pixel},
     })
+}
+
+/// What the parser returns beside the IR: the description, and the root's source metadata
+/// (spec/zarrify/dicom.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#51-the-root>),
+/// which it translates from bytes the IR does not hold, and the description leaves out.
+fn facts(img: &Image, lay: &Layout, root: Map<String, J>, pixel: u32) -> J {
+    let mut facts = describe(img, lay, pixel);
+    facts["root"] = J::Object(root);
+    facts
 }
 
 // ---- the IR (spec/zarrify/dicom.md §5
@@ -1803,5 +1753,20 @@ impl crate::run::FileProfile for Profile {
     }
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::dicom::project(ir, facts, url)
+    }
+    fn described(&self) -> bool {
+        true
+    }
+    /// The parser's description of the file (§7.8
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#78-the-description>): what it
+    /// returns without the root's source metadata and the run's counts.
+    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
+        let mut description = facts.clone();
+        if let Some(m) = description.as_object_mut() {
+            for k in ["root", "held_max", "requests", "requested", "rounds"] {
+                m.remove(k);
+            }
+        }
+        Some(description)
     }
 }

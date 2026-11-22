@@ -5,8 +5,11 @@
 //! top-level member. It reads no chunk and no shard: the layout comes from `info` and the
 //! listing's keys alone, which is what makes a volume of a billion chunks a few hundred
 //! thousand references. Each scale is read into a [`Scale`], or a reason it is not presented
-//! (the roles `scale` and `sharding`, and the rules of [`read_scale`]); the projection
-//! (`project/precomputed.rs`) reads the document back from the IR.
+//! (the roles `scale` and `sharding`, and the rules of [`read_scale`]), which the projection
+//! (`project/precomputed.rs`) calls. Beside the IR, the parser returns a description of the store
+//! (spec/zarrify/precomputed.md §11.4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#114-the-description>):
+//! `info` as parsed, from which the projection makes the hierarchy.
 
 use crate::expr::V;
 use crate::ir::{Ir, Res};
@@ -285,7 +288,7 @@ impl StoreParser for Precomputed {
         let n = ir.len[o as usize];
         json::hold(&mut ir, o, n, &doc.members)?;
         crate::check::finish(&mut ir)?;
-        Ok((ir, json!({})))
+        Ok((ir, json!({"info": doc.value.text(), "documents": [DOCUMENT]})))
     }
 }
 

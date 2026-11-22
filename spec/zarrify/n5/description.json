@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/n5/description.json",
+  "title": "The description of an N5 store",
+  "description": "What refkv's N5 parser found of a store's nodes, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#83-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string", "description": "the node's path from the store's root, empty for the root"},
+          "kind": {"enum": ["dataset", "group"]},
+          "json": {"type": "string", "description": "its attributes.json as parsed, as JSON text"}
+        },
+        "required": ["path", "kind", "json"],
+        "additionalProperties": false
+      }
+    },
+    "documents": {"type": "array", "items": {"type": "string"}},
+    "ignored": {"type": "array", "items": {"type": "string"}}
+  },
+  "required": ["nodes", "documents"],
+  "additionalProperties": false
+}

@@ -8,8 +8,12 @@ by hand, and `check`, which a plugin's tests call on its output. It needs the `l
     from refkv.zarrify.layouts.hierarchy import check, copy, group
 
     with read("image.ome.tif") as p:
-        out = {"zarr.json": group(), **copy(project(p), "0", to="0")}
-        assert check(out, [p]) == []
+        base = project(p)
+        out = {"zarr.json": group(), **copy(base, "0", to="0")}
+        assert check(out, [p], bases=[base]) == []
+
+The module never runs refkv's own projection: a caller that copies arrays of refkv's own output,
+or keeps its declarations, gives `check` what it copied from.
 """
 
 from __future__ import annotations
@@ -32,7 +36,7 @@ try:
 except ImportError as e:  # the extra is not installed
     raise ImportError("refkv.zarrify.layouts.hierarchy needs zarr-metadata: pip install refkv[layouts]") from e
 
-from refkv.build import Hdf5Hierarchy, OmeImage, Parsed, Projected, SealError, Written, project, seal
+from refkv.build import Hdf5Hierarchy, OmeImage, Parsed, Projected, SealError, Written, mirror, seal
 from refkv.build import Value as Reference
 from refkv.zarrify.common import Rejected
 from refkv.zarrify.layouts import (
@@ -463,23 +467,32 @@ def _lenient(value: bytes) -> object:
     return json.loads(value.decode("utf-8", errors="replace"))
 
 
-def check(written: Mapping[str, object] | Written, inputs: Sequence[Parsed]) -> list[Problem]:
+def check(written: Mapping[str, object] | Written, inputs: Sequence[Parsed],
+          bases: Sequence[Projected] = ()) -> list[Problem]:
     """The problems of an output built of `inputs` (spec/layout.md), a plugin's among them. First
     what `refkv.build.seal` refuses, which `zarrify` refuses too, under `seal`'s code (`key`,
     `value`, `range`, `payload`, `checksums`, `inputs`, `open`, `archive`, and `copy` for a `Copy`
     left unfilled): the first such problem. Then what a Zarr reader would trip on, which a
     plugin's tests may allow where they expect it: `document`, `orphan`, `chunk`, `json`, `zarr`,
-    `consolidated`, `parent`, `size`; `copy`, an array whose references are all refkv's own
-    output's (`refkv.build.project` of an input) without being a `copy` of an array of it; and
-    `refkv`, refkv's declarations on a node that is not refkv's own output's.
-    `check(project(p).entries(), [p])` finds nothing. The inputs are open: their built-in
-    outputs are made to compare with, for the last two codes; an input refkv's own projection
-    rejects has none, and nothing of the output is compared with it. Raises TypeError for
-    arguments that are not a mapping or `Written` and a sequence of `Parsed`."""
+    `consolidated`, `parent`, `size`; `copy`, an array whose references are all one of `bases`'
+    without being a `copy` of an array of it; and `refkv`, refkv's declarations on a node that is
+    not, entry for entry, one of `bases`' or an input's IR mirror (`refkv.build.mirror`, made of the
+    IR alone). `bases` are refkv's own outputs the caller built the output from
+    (`refkv.build.project` of an input), which `check` never makes itself: an output that copies no
+    array of refkv's own output and keeps no declarations but the mirror's needs none, and one that
+    keeps them is checked against those given. `check(base.entries(), [p], bases=[base])`
+    finds nothing. The inputs are open. Raises TypeError for arguments that are not a mapping or
+    `Written`, a sequence of `Parsed` and a sequence of `Projected`."""
     if not isinstance(written, (Mapping, Written)):
         raise TypeError(f"check takes the output's entries or a Written, not {type(written).__name__}")
     if isinstance(inputs, Parsed) or not isinstance(inputs, Sequence) or not all(isinstance(p, Parsed) for p in inputs):
         raise TypeError("check takes the inputs the output was built of, a sequence of what refkv.build.read returns")
+    if isinstance(bases, Projected) or not isinstance(bases, Sequence) \
+            or not all(isinstance(b, Projected) for b in bases):
+        raise TypeError("check takes as bases refkv's own outputs the output was built from, a sequence of what "
+                        "refkv.build.project returns")
+    # what refkv's declarations an output keeps may be: those of a base, or of an input's mirror
+    kept: list[Mapping[str, Value]] = [b.written for b in bases]
     problems: list[Problem] = []
     try:
         seal(written, inputs)
@@ -492,7 +505,8 @@ def check(written: Mapping[str, object] | Written, inputs: Sequence[Parsed]) -> 
         return problems
     if any(not isinstance(k, str) for k in values):
         return problems
-    bases = _own_outputs(inputs)
+    if any(k.startswith(f"{MIRROR}/") for k in values):
+        kept += _mirrors(inputs)
     docs: dict[str, Any] = {}
     for k in sorted(values):
         v = values[k]
@@ -572,7 +586,7 @@ def check(written: Mapping[str, object] | Written, inputs: Sequence[Parsed]) -> 
         while holder not in nodes and holder:
             holder = _dir(holder)
         if nodes.get(holder) != "array":
-            if k.startswith(f"{MIRROR}/") and any(b.written.get(k) == values[k] for b in bases):
+            if k.startswith(f"{MIRROR}/") and any(w.get(k) == values[k] for w in kept):
                 # the mirror's objects, as the base holds them (spec/conventions.md §8.9
                 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>)
                 continue
@@ -616,7 +630,7 @@ def check(written: Mapping[str, object] | Written, inputs: Sequence[Parsed]) -> 
             if base is not None and not _copy_of(base, v3, chunks, references, copies.setdefault(id(base), {})):  # type: ignore[arg-type] (is_v3: v3 is a dict)
                 problems.append(Problem(holder or "zarr.json", "copy", "its references are not a copy of an array "
                                         "of refkv's own output, each at the key copy() gives it"))
-    problems += _refkv_problems(bases, values, docs)
+    problems += _refkv_problems(kept, values, docs)
     return problems
 
 
@@ -640,22 +654,24 @@ def _consolidated(key: str, doc: Mapping[str, Any], docs: Mapping[str, Any]) -> 
     return out
 
 
-def _own_outputs(inputs: Sequence[Parsed]) -> list[Projected]:
-    """refkv's own output of each input that has one: an input its projection rejects has none
-    to compare with, which is no problem of an output built without it."""
+def _mirrors(inputs: Sequence[Parsed]) -> list[Written]:
+    """The IR mirror of each input that has one (an input whose mirror would pass its budget has
+    none): refkv's declarations an output keeps under `refkv_source` without any other output of
+    refkv's."""
     out = []
     for p in inputs:
         try:
-            out.append(project(p))
+            out.append(mirror(p))
         except Rejected:
             continue
     return out
 
 
-def _refkv_problems(bases: Sequence[Projected], values: Mapping[str, Value],
+def _refkv_problems(kept: Sequence[Mapping[str, Value]], values: Mapping[str, Value],
                     docs: Mapping[str, Any]) -> list[Problem]:
-    """refkv's declarations an output holds other than those of refkv's own output of an input,
-    or whose subtree is not that output's, entry for entry."""
+    """refkv's declarations an output holds other than those of `kept` (refkv's own outputs given
+    as bases, and the inputs' IR mirrors), or whose subtree is not one of theirs, entry for
+    entry."""
     out: list[Problem] = []
     for k, doc in sorted(docs.items()):
         last = k.rpartition("/")[2]
@@ -673,14 +689,14 @@ def _refkv_problems(bases: Sequence[Projected], values: Mapping[str, Value],
         for at, attrs in found:
             if not _refkv_declared(attrs):
                 continue
-            declared = [b for b in bases if at == k and b.written.get(at) == values.get(at)]
+            declared = [w for w in kept if at == k and w.get(at) == values.get(at)]
             if not declared:
                 out.append(Problem(at, "refkv", "refkv's declarations, other than refkv's own output's at this key"))
                 continue
             node = _dir(at)
             prefix = f"{node}/" if node else ""
             mine = {x: v for x, v in values.items() if x.startswith(prefix)}
-            if not any(mine == {x: v for x, v in b.written.items() if x.startswith(prefix)} for b in declared):
+            if not any(mine == {x: v for x, v in w.items() if x.startswith(prefix)} for w in declared):
                 out.append(Problem(at, "refkv", "a node that keeps refkv's declarations, whose subtree is not "
                                                 "refkv's own output's, entry for entry"))
     return out

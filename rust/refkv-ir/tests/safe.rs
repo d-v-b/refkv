@@ -108,11 +108,11 @@ fn accepted_products_are_valid_irs_whose_mirrors_rebuild_them() {
     assert_eq!((dirs, zips), (10, 4));
 }
 
-/// Each band of an accepted product's facts names its image's description by the description's
+/// Each band of an accepted product's description names its image's description by the description's
 /// key, the band file's `codestream` struct (spec/stored-array.md §7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>), in both forms:
 /// a description with a grid, whose rows are the struct's `tiles/<k>`, one for each tile-part the
-/// facts hold.
+/// description gives.
 #[test]
 fn every_accepted_products_bands_name_their_descriptions() {
     let (mut bands, mut tiles) = (0, 0);
@@ -137,7 +137,7 @@ fn every_accepted_products_bands_name_their_descriptions() {
         assert_eq!(s.arrays.len(), listed.len(), "{name}");
         for b in listed {
             let at = format!("{name} {}", b["key"]);
-            let key = b["declared_by"].as_u64().unwrap() as u32;
+            let key = b["element"].as_u64().unwrap() as u32;
             let described: Vec<usize> = (0..s.arrays.len()).filter(|&k| s.arrays[k].element == key).collect();
             let [k] = described[..] else { panic!("{at}: {} descriptions", described.len()) };
             assert!(s.arrays[k].grid.is_some() && s.arrays[k].index.is_none(), "{at}");

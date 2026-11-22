@@ -437,21 +437,18 @@ fn implicit_groups(nodes: &BTreeSet<String>) -> BTreeSet<String> {
     out
 }
 
-/// The N5 hierarchy of a valid store IR, its facts (`nodes`, from the parser; `ignored`, the
-/// recorded ignored keys, from the host), outside `refkv_source`, and its references.
-pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+/// The N5 hierarchy of a valid store IR and its description (`nodes`, from the parser; `ignored`,
+/// the recorded ignored keys, from the host), outside `refkv_source`, and its references.
+pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
     let src = ir.sources();
     let listing: Vec<(String, u64, u32)> = src.objects.iter().map(|&o| (ir.key(o), ir.len[o as usize], o)).collect();
-    let at: HashMap<&str, u32> = listing.iter().map(|(k, _, o)| (k.as_str(), *o)).collect();
     let mut kinds: BTreeMap<String, bool> = BTreeMap::new();
     let mut docs: HashMap<String, Jv> = HashMap::new();
-    for n in facts["nodes"].as_array().map(Vec::as_slice).unwrap_or(&[]) {
-        let path = n[0].as_str().unwrap_or("").to_string();
-        let key = document_key(&path);
-        let o = *at.get(key.as_str()).ok_or(format!("internal: no object {key}"))?;
-        let b = ir.value_bytes(o).ok_or(format!("internal: {key} is not held"))?;
-        docs.insert(path.clone(), json::parse(b).map_err(|e| format!("internal: {key}: {e}"))?.value);
-        kinds.insert(path, n[1] == "array");
+    for n in description["nodes"].as_array().map(Vec::as_slice).unwrap_or(&[]) {
+        let path = n["path"].as_str().unwrap_or("").to_string();
+        let text = n["json"].as_str().ok_or_else(|| format!("internal: {} has no document", document_key(&path)))?;
+        docs.insert(path.clone(), json::parse(text.as_bytes()).map_err(|e| format!("internal: {}: {e}", document_key(&path)))?.value);
+        kinds.insert(path, n["kind"] == "dataset");
     }
     let nodes: BTreeSet<String> = kinds.keys().cloned().collect();
     let implicit = implicit_groups(&nodes);
@@ -603,6 +600,6 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    project(ir, facts, url)
+pub fn store_project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    project(ir, description, url)
 }
