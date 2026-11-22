@@ -801,7 +801,7 @@ impl PyRun {
             other => return Err(PyValueError::new_err(format!("a run of {other}, not of a TIFF, QPTIFF, NDPI or IMS file"))),
         };
         let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
-        Ok(PyOmeImage { ir, description, profile })
+        Ok(PyOmeImage { ir, description, profile, held: Arc::default() })
     }
     /// The netCDF3 file a run that is done parsed (`Netcdf3`), its IR and description shared with
     /// the run; ValueError for a run of another format.
@@ -965,6 +965,9 @@ pub struct PyOmeImage {
     ir: Arc<Ir>,
     description: Arc<serde_json::Value>,
     profile: &'static str,
+    /// the bytes a store run read for the image (`store::Read::copied`), which `image` adds to
+    /// those the caller read; empty of a file run
+    held: Arc<refkv_ir::project::Copied>,
 }
 
 #[pymethods]
@@ -986,7 +989,8 @@ impl PyOmeImage {
     /// `((offset, length), bytes)`. Rejected where refkv's plan rejects the input.
     #[pyo3(signature = (copied, checksums=false))]
     fn image<'py>(&self, py: Python<'py>, copied: Vec<((u64, u64), Vec<u8>)>, checksums: bool) -> PyResult<(String, Bound<'py, PyAny>)> {
-        let copied: refkv_ir::project::Copied = copied.into_iter().collect();
+        let mut copied: refkv_ir::project::Copied = copied.into_iter().collect();
+        copied.extend(self.held.iter().map(|(k, v)| (*k, v.clone())));
         let (nodes, out) = py
             .detach(|| refkv_ir::project::ome_image(self.profile, &self.ir, &self.description, &copied, checksums))
             .map_err(Rejected::new_err)?;
@@ -1111,13 +1115,14 @@ impl PyStoreRun {
         Ok(PyHdf5 { ir: Arc::clone(ir), facts: Arc::clone(facts), store: true })
     }
     /// The image across files a TIFF store run `parse` finished read (`OmeImage`), its IR and
-    /// description shared with the run; ValueError for a run of another format.
+    /// description shared with the run, with the bytes its windows sample, which the run read;
+    /// ValueError for a run of another format.
     fn ome_image(&mut self) -> PyResult<PyOmeImage> {
-        let (format, ir, facts, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        let (format, ir, facts, (_, read)) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
         if *format != refkv_ir::store::StoreFormat::Tiff {
             return Err(PyValueError::new_err("a run of a store of another format, not of TIFF files"));
         }
-        Ok(PyOmeImage { ir: Arc::clone(ir), description: Arc::clone(facts), profile: "tiff" })
+        Ok(PyOmeImage { ir: Arc::clone(ir), description: Arc::clone(facts), profile: "tiff", held: Arc::new(read.copied.clone()) })
     }
     /// The Zarr v2 or v3 store a run `parse` finished read (`Zarr`), its IR and description shared
     /// with the run; ValueError for a run of another format.
