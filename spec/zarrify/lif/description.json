@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/lif/description.json",
+  "title": "The description of a LIF, LOF or LIFEXT file",
+  "description": "What refkv's LIF parser found of a LIF's, LOF's or LIFEXT file's known structures, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#9-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "file": {"enum": ["lif", "lof", "lifext"]},
+    "size": {"$ref": "#/$defs/uint"},
+    "xml_characters": {"$ref": "#/$defs/uint"},
+    "root": {"enum": ["LMSDataContainerHeader", "LMSDataContainerEnhancedHeader", "Data"]},
+    "version": {"enum": [1, 2, null]},
+    "unique_id": {"type": ["string", "null"]},
+    "object": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "properties": {
+            "versions": {"type": "array", "items": {"$ref": "#/$defs/uint"}, "minItems": 2, "maxItems": 2},
+            "xml_at": {"$ref": "#/$defs/uint"},
+            "xml_characters": {"$ref": "#/$defs/uint"},
+            "older": {"type": "boolean"}
+          },
+          "required": ["versions", "xml_at", "xml_characters", "older"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "blocks": {"type": "array", "items": {"$ref": "#/$defs/block"}},
+    "tail": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "properties": {"offset": {"$ref": "#/$defs/uint"}, "length": {"$ref": "#/$defs/uint"}},
+          "required": ["offset", "length"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "images": {"type": "array", "items": {"$ref": "#/$defs/image"}}
+  },
+  "required": ["file", "size", "xml_characters", "root", "version", "unique_id", "object", "blocks", "tail", "images"],
+  "additionalProperties": false,
+  "$defs": {
+    "uint": {"type": "integer", "minimum": 0},
+    "attributes": {
+      "description": "An element's attributes, as text with references decoded; of a repeated name, the first (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#type-lifattributes)",
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "block": {
+      "type": "object",
+      "properties": {
+        "offset": {"$ref": "#/$defs/uint"},
+        "id": {"type": ["string", "null"]},
+        "size": {"$ref": "#/$defs/uint"},
+        "data": {"$ref": "#/$defs/uint"}
+      },
+      "required": ["offset", "id", "size", "data"],
+      "additionalProperties": false
+    },
+    "image": {
+      "type": "object",
+      "properties": {
+        "name": {"type": ["string", "null"]},
+        "path": {"type": "array", "items": {"type": ["string", "null"]}},
+        "parent": {"type": ["string", "null"]},
+        "attributes": {"$ref": "#/$defs/attributes"},
+        "memory": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/attributes"}]},
+        "dimensions": {"type": "array", "items": {"$ref": "#/$defs/attributes"}},
+        "channels": {"type": "array", "items": {"$ref": "#/$defs/attributes"}},
+        "tile_scan": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "properties": {
+                "attributes": {"$ref": "#/$defs/attributes"},
+                "tiles": {"type": "array", "items": {"$ref": "#/$defs/attributes"}}
+              },
+              "required": ["attributes", "tiles"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "block": {"$ref": "#/$defs/uint"},
+        "declared_by": {"type": "array", "prefixItems": [{"$ref": "#/$defs/uint"}, {"$ref": "#/$defs/uint"}], "minItems": 2, "maxItems": 2}
+      },
+      "required": ["name", "path", "parent", "attributes", "memory", "dimensions", "channels", "tile_scan", "block", "declared_by"],
+      "additionalProperties": false
+    }
+  }
+}
