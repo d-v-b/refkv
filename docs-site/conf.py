@@ -41,7 +41,8 @@ ANCHOR = re.compile(r"""<a\s+(?:id|name)=["']([^"']+)["']>\s*</a>""")
 project = "refkv"
 author = "the refkv authors"
 copyright = "the refkv authors"  # noqa: A001 (Sphinx's name)
-extensions = ["myst_parser"]
+# githubpages: the .nojekyll file, so that GitHub Pages, serving the gh-pages branch, serves _static/
+extensions = ["myst_parser", "sphinx.ext.githubpages"]
 source_suffix = {".md": "markdown"}
 root_doc = "README"
 # the Markdown the site renders: the README, and every document of docs/ and spec/
