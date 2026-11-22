@@ -3,14 +3,19 @@
 //! metadata of §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#51-the-root>,
 //! and the chunks of the profile's §8.5
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#85-chunks>) from a valid store
-//! IR and its facts: one image at the root, whose array's chunks are ranges of the data's object.
+//! IR and the parser's description of the input (§8.7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#87-the-description>): one image
+//! at the root, whose array's chunks are ranges of the data's object. The projection makes every
+//! decision of the output itself: the Zarr data type, the axes, the scales, units, position and
+//! orientation, the channels, the chunks and the root's source metadata.
 
 use super::{arr, contiguous, image_axes, key, n, translation, with_counts};
 use super::vsi::object_url;
 use crate::ir::Ir;
 use crate::nrrd::CHUNK_BYTES;
-use crate::out::{array_json, bytes_codec, full_window, grid_chunks, gzip_codecs, image_ome, omero_channel, omero_json, root_json, Chunk, Out, Part, RGBA};
+use crate::out::{array_json, bytes_codec, copy_threshold, full_window, grid_chunks, gzip_codecs, image_ome, omero_channel, omero_json, root_json, Chunk, Out, Part, RGBA};
 use crate::refs::Refs;
+use crate::rules;
 use serde_json::{json, Map, Value as J};
 
 /// The most channels given display windows, as NIfTI's (spec/zarrify/nrrd.md §4.4
@@ -51,12 +56,12 @@ fn valid(v: Option<f64>) -> Option<f64> {
     v.filter(|x| x.is_finite() && *x > 0.0)
 }
 
-/// Item `i` of an array of the facts as a number (None: null or absent).
+/// Item `i` of an array of the description as a number (None: null or absent).
 fn num_at(v: &J, i: usize) -> Option<f64> {
     v.get(i).and_then(J::as_f64)
 }
 
-/// Item `i` of an array of texts of the facts.
+/// Item `i` of an array of texts of the description.
 fn str_at(v: &J, i: usize) -> Option<&str> {
     v.get(i).and_then(J::as_str)
 }
@@ -66,8 +71,7 @@ fn str_at(v: &J, i: usize) -> Option<&str> {
 /// (scale by axis, unit by axis, the translation's `x`, `y`, `z` when the orientation is applied,
 /// and whether it is, when the header has space directions).
 #[allow(clippy::type_complexity)]
-fn placement(a: &J) -> (Map<String, J>, Map<String, J>, Option<[f64; 3]>, Option<bool>) {
-    let axes: Vec<&str> = arr(&a["axes"]).iter().filter_map(J::as_str).collect();
+fn placement(a: &J, axes: &[&str]) -> (Map<String, J>, Map<String, J>, Option<[f64; 3]>, Option<bool>) {
     let (dirs, spacings, units, space_units) = (&a["directions"], &a["spacings"], &a["units"], &a["space_units"]);
     let spatial: Vec<(usize, usize)> = axes.iter().enumerate().filter_map(|(i, x)| ["x", "y", "z"].iter().position(|s| s == x).map(|j| (i, j))).collect();
     let vector = |i: usize| -> Option<Vec<Option<f64>>> {
@@ -119,14 +123,47 @@ fn placement(a: &J) -> (Map<String, J>, Map<String, J>, Option<[f64; 3]>, Option
     (scale, unit, translation, (!dirs.is_null()).then_some(representable))
 }
 
-pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    let a = &facts["array"];
-    let nrrd_axes: Vec<&str> = arr(&a["axes"]).iter().filter_map(J::as_str).collect();
+/// Each header axis's image axis (§4.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#41-the-array>), in the header's
+/// order: its role from its kind, or, of an unknown kind, from whether its space direction is `none`.
+fn header_axes(d: &J) -> Result<Vec<&'static str>, String> {
+    let kinds: Option<Vec<String>> = d["kinds"].as_array().map(|k| k.iter().map(|v| v.as_str().unwrap_or("").to_string()).collect());
+    let none = |i: usize| d["directions"].as_array().is_some_and(|v| v.get(i).is_some_and(J::is_null));
+    crate::nrrd::axes(rules::of("nrrd"), n(&d["dimension"]) as usize, kinds.as_deref(), none)
+}
+
+/// The root's source metadata (§5.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#51-the-root>), but `orientation`.
+fn own(d: &J, data_type: &str, axes: &[&str]) -> Map<String, J> {
+    let mut m = Map::new();
+    for k in ["magic", "fields", "key_values", "comments"] {
+        m.insert(k.into(), d[k].clone());
+    }
+    m.insert("data_type".into(), json!(data_type));
+    m.insert("encoding".into(), d["encoding"].clone());
+    if !d["endian"].is_null() {
+        m.insert("byte_order".into(), d["endian"].clone());
+    }
+    m.insert("axes".into(), json!(axes));
+    if d["data_key"] != d["header_key"] {
+        m.insert("data_file".into(), d["data_key"].clone());
+    }
+    m
+}
+
+/// The output of the input `description` describes; `description` also holds the edge chunks the
+/// store run read (`copied`) and its counts.
+pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    let a = description;
+    let nrrd_axes = header_axes(a)?;
     let sizes: Vec<u64> = arr(&a["sizes"]).iter().map(n).collect();
-    let (data_type, item, encoding) = (a["data_type"].as_str().unwrap_or("uint8"), n(&a["item"]), a["encoding"].as_str().unwrap_or("raw"));
+    // the Zarr data type of the type (§3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#3-data-types-and-encodings>)
+    let types = rules::of("nrrd").entry("types", a["type"].as_str().unwrap_or("")).ok_or("internal: a type the schema does not name")?;
+    let data_type = types["dtype"].as_str().unwrap_or("uint8");
+    let (item, encoding) = (n(&a["item"]), a["encoding"].as_str().unwrap_or("raw"));
     let endian = a["endian"].as_str().unwrap_or("little");
-    let (start, length) = (n(&a["start"]), n(&a["length"]));
-    let data_key = facts["data_key"].as_str().unwrap_or("").to_string();
+    let (start, length) = (n(&a["data"]["offset"]), n(&a["data"]["bytes"]));
+    let data_key = a["data_key"].as_str().unwrap_or("").to_string();
     let size_of = |x: &str| nrrd_axes.iter().position(|y| *y == x).map(|i| sizes[i]);
 
     // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#41-the-array>):
@@ -137,7 +174,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let shape: Vec<u64> = axes.iter().map(|x| size_of(x).unwrap_or(1)).collect();
     let pos = |x: &str| stored.iter().position(|s| *s == x).unwrap_or(0);
 
-    let (scale, units, origin, applied) = placement(a);
+    let (scale, units, origin, applied) = placement(a, &nrrd_axes);
     let scales = J::Array(axes.iter().map(|x| scale[*x].clone()).collect());
     let tr = origin.map(|o| translation(&axes, o.map(|v| json!(v))));
     let mut ome = image_ome(&axes, &units, &[scales], None, tr.clone().map(|t| vec![t]).as_deref())?;
@@ -161,11 +198,11 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         ome["omero"] = omero_json((0..c).map(|k| omero_channel(&format!("C{k}"), "FFFFFF", Some(&window))).collect());
     }
 
-    let mut own = facts["own"].as_object().cloned().unwrap_or_default();
+    let mut own = own(a, data_type, &nrrd_axes);
     if let Some(applied) = applied {
         own.insert("orientation".into(), json!({"applied": applied}));
     }
-    let header_url = object_url(url, facts["header_key"].as_str().unwrap_or(""));
+    let header_url = object_url(url, a["header_key"].as_str().unwrap_or(""));
     let mut out = Out::new(url);
     out.json("zarr.json", &root_json(ome, "nrrd", &header_url, Some(J::Object(own))));
 
@@ -182,8 +219,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let (grid, chunks) = if gzip {
         contiguous::whole_stream(&stored_shape, (start, length))
     } else {
-        let threshold = facts["copy_threshold"].as_u64().map_or(crate::out::MAX_PAYLOAD, |t| t as usize);
-        grid_chunks(start, &stored_shape, item, CHUNK_BYTES, threshold).ok_or("internal: the data cannot be cut into chunks")?
+        grid_chunks(start, &stored_shape, item, CHUNK_BYTES, copy_threshold()).ok_or("internal: the data cannot be cut into chunks")?
     };
     let chunk_shape: Vec<u64> = axes.iter().map(|x| grid[pos(x)]).collect();
     out.json("0/zarr.json", &array_json(&shape, data_type, json!(chunk_shape), J::Array(codecs), &axes));
@@ -191,7 +227,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     // the chunks (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#85-chunks>):
     // ranges of the data's object, an edge chunk's padding a range of the zero data source, or
     // copied with it
-    let copied: Vec<(u64, Vec<u8>)> = arr(&facts["copied"]).iter()
+    let copied: Vec<(u64, Vec<u8>)> = arr(&a["copied"]).iter()
         .map(|c| (n(&c[0]), arr(&c[1]).iter().map(|b| n(b) as u8).collect()))
         .collect();
     let count = chunks.len();
@@ -210,7 +246,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
             }
             Chunk::Copy(o, len, pad) => {
                 let mut b = copied.iter().find(|c| c.0 == o && c.1.len() as u64 == len)
-                    .ok_or("internal: a copied chunk's bytes are not in the facts")?.1.clone();
+                    .ok_or("internal: a copied chunk's bytes were not read")?.1.clone();
                 b.resize(b.len() + pad as usize, 0);
                 refs.out.bytes(&k, b);
             }
@@ -223,13 +259,13 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     }
     let sizes_by: Map<String, J> = axes.iter().zip(&shape).map(|(x, s)| (x.to_string(), json!(s))).collect();
     out.summary = with_counts(json!({
-        "sizes": sizes_by, "dataType": data_type, "encoding": encoding, "detached": facts["data_key"] != facts["header_key"],
+        "sizes": sizes_by, "dataType": data_type, "encoding": encoding, "detached": a["data_key"] != a["header_key"],
         "dataFile": data_key, "chunkShape": chunk_shape, "chunks": count, "orientation": applied, "translation": tr.is_some(),
-    }), facts);
+    }), a);
     Ok(out)
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    project(ir, facts, url)
+pub fn store_project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    project(ir, description, url)
 }

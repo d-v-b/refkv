@@ -113,10 +113,12 @@ Where VirtualiZarr's presentation is a defect rather than a contract, this layou
 
 `check` finds no problem on its output but `json` at a document that holds a `NaN` or `Infinity`
 token (only where a source attribute is not finite and `nonfinite` is `"token"`: zarr-python
-writes those tokens, and VirtualiZarr's metadata is written by zarr-python), and `copy` at a
-fixed-length string dataset, a Zarr v2 array of bytes or an ASCII table, whose chunks are those of
-refkv's own output at the keys of a grid without its trailing axis of bytes, and at a netCDF3
-variable whose fill value is `NetCDF3Parser`'s rather than that of refkv's own output.
+writes those tokens, and VirtualiZarr's metadata is written by zarr-python). It copies nothing of
+refkv's own output, so it is checked with no bases; given that output as a base, `check` would
+report `copy` at a fixed-length string dataset, a Zarr v2 array of bytes or an ASCII table, whose
+chunks are those of refkv's own output at the keys of a grid without its trailing axis of bytes,
+and at a netCDF3 variable whose fill value is `NetCDF3Parser`'s rather than that of refkv's own
+output.
 """
 
 import base64

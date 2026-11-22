@@ -12,5 +12,6 @@
 {"checksums": "plain", "input": "hdf4/hdf4_reject_link_loop.hdf", "plain": {"error": "Rejected", "message": "the link tables of tag 18347 ref 6 loop"}}
 {"checksums": "plain", "input": "hdf4/hdf4_reject_magic.hdf", "plain": {"error": "Rejected", "message": "not a file of any supported format"}}
 {"checksums": "plain", "input": "hdf4/hdf4_reject_special_code.hdf", "plain": {"error": "Rejected", "message": "the special element tag 17086 ref 5 has the unknown code 9"}}
+{"checksums": "plain", "input": "hdf4/hdf4_reject_unpresented_chunk_outside.hdf", "plain": {"error": "Rejected", "message": "the chunk table of tag 17086 ref 5 places a chunk at [9, 0], outside its grid [2, 2]"}}
 {"checksums": {"layout": "67bb328d08fe"}, "input": "hdf4/hdf4_small.hdf", "plain": {"entries": 20, "layout": "64c2c9c061e4", "mirror": "fcaffea752c8", "order": "cc81479952c6", "placement": "052fbbe5a620", "profile": "hdf4", "sources": "9f62dd0063cb", "summary": "d02698e9fb55"}}
 {"checksums": {"layout": "57b75348f15e"}, "input": "hdf4/hdf4_tables.hdf", "plain": {"entries": 31, "layout": "67a576e9da3d", "mirror": "73aab322ca29", "order": "c949d444f566", "placement": "e653de02fdc4", "profile": "hdf4", "sources": "1df58ec238d3", "summary": "bcdcf495b3da"}}

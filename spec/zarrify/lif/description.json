@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/lif/description.json",
+  "title": "The description of a LIF, LOF or LIFEXT file, or of a LAS X project",
+  "description": "What refkv's LIF parser found of a LIF's, LOF's or LIFEXT file's known structures, or its store run of a LAS X project's documents and LOFs, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#9-the-description). It holds none of an output's decisions.",
+  "oneOf": [{"$ref": "#/$defs/file"}, {"$ref": "#/$defs/set"}],
+  "$defs": {
+    "uint": {"type": "integer", "minimum": 0},
+    "attributes": {
+      "description": "An element's attributes, as text with references decoded; of a repeated name, the first (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#type-lifattributes)",
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "file": {
+      "type": "object",
+      "properties": {
+        "file": {"enum": ["lif", "lof", "lifext"]},
+        "size": {"$ref": "#/$defs/uint"},
+        "xml_characters": {"$ref": "#/$defs/uint"},
+        "root": {"enum": ["LMSDataContainerHeader", "LMSDataContainerEnhancedHeader", "Data"]},
+        "version": {"enum": [1, 2, null]},
+        "unique_id": {"type": ["string", "null"]},
+        "object": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "properties": {
+                "versions": {"type": "array", "items": {"$ref": "#/$defs/uint"}, "minItems": 2, "maxItems": 2},
+                "xml_at": {"$ref": "#/$defs/uint"},
+                "xml_characters": {"$ref": "#/$defs/uint"},
+                "older": {"type": "boolean"}
+              },
+              "required": ["versions", "xml_at", "xml_characters", "older"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "blocks": {"type": "array", "items": {"$ref": "#/$defs/block"}},
+        "tail": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "properties": {"offset": {"$ref": "#/$defs/uint"}, "length": {"$ref": "#/$defs/uint"}},
+              "required": ["offset", "length"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "images": {"type": "array", "items": {"$ref": "#/$defs/image"}}
+      },
+      "required": ["file", "size", "xml_characters", "root", "version", "unique_id", "object", "blocks", "tail", "images"],
+      "additionalProperties": false
+    },
+    "block": {
+      "type": "object",
+      "properties": {
+        "offset": {"$ref": "#/$defs/uint"},
+        "id": {"type": ["string", "null"]},
+        "size": {"$ref": "#/$defs/uint"},
+        "data": {"$ref": "#/$defs/uint"}
+      },
+      "required": ["offset", "id", "size", "data"],
+      "additionalProperties": false
+    },
+    "image": {
+      "type": "object",
+      "properties": {
+        "name": {"type": ["string", "null"]},
+        "path": {"type": "array", "items": {"type": ["string", "null"]}},
+        "parent": {"type": ["string", "null"]},
+        "attributes": {"$ref": "#/$defs/attributes"},
+        "memory": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/attributes"}]},
+        "dimensions": {"type": "array", "items": {"$ref": "#/$defs/attributes"}},
+        "channels": {"type": "array", "items": {"$ref": "#/$defs/attributes"}},
+        "tile_scan": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "properties": {
+                "attributes": {"$ref": "#/$defs/attributes"},
+                "tiles": {"type": "array", "items": {"$ref": "#/$defs/attributes"}}
+              },
+              "required": ["attributes", "tiles"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "block": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/uint"}]},
+        "declared_by": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "array", "prefixItems": [{"$ref": "#/$defs/uint"}, {"$ref": "#/$defs/uint"}], "minItems": 2, "maxItems": 2}
+          ]
+        }
+      },
+      "required": ["name", "path", "parent", "attributes", "memory", "dimensions", "channels", "tile_scan", "block", "declared_by"],
+      "additionalProperties": false
+    },
+    "set": {
+      "type": "object",
+      "properties": {
+        "version": {"enum": [1, 2]},
+        "named_key": {"type": "string"},
+        "files": {"type": "array", "items": {"type": "string"}},
+        "documents": {"type": "array", "items": {"$ref": "#/$defs/document"}, "minItems": 1},
+        "lofs": {"type": "array", "items": {"$ref": "#/$defs/lof"}}
+      },
+      "required": ["version", "named_key", "files", "documents", "lofs"],
+      "additionalProperties": false
+    },
+    "document": {
+      "type": "object",
+      "properties": {
+        "key": {"type": "string"},
+        "name": {"type": ["string", "null"]},
+        "attributes": {"$ref": "#/$defs/attributes"},
+        "image": {"type": "boolean"},
+        "memory": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/attributes"}]},
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tag": {"type": "string"},
+              "file": {"type": "string"},
+              "offset": {"type": ["string", "null"]},
+              "size": {"type": ["string", "null"]}
+            },
+            "required": ["tag", "file", "offset", "size"],
+            "additionalProperties": false
+          }
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": {"type": "string"},
+              "uuid": {"type": ["string", "null"]},
+              "document": {"$ref": "#/$defs/uint"}
+            },
+            "required": ["key", "uuid", "document"],
+            "additionalProperties": false
+          }
+        },
+        "lof": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/uint"}]}
+      },
+      "required": ["key", "name", "attributes", "image", "memory", "entries", "references", "lof"],
+      "additionalProperties": false
+    },
+    "lof": {
+      "type": "object",
+      "properties": {
+        "key": {"type": "string"},
+        "size": {"$ref": "#/$defs/uint"},
+        "object": {"$ref": "#/$defs/uint"},
+        "document": {"$ref": "#/$defs/uint"},
+        "description": {"$ref": "#/$defs/file"}
+      },
+      "required": ["key", "size", "object", "document", "description"],
+      "additionalProperties": false
+    }
+  }
+}

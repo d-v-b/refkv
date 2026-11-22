@@ -129,7 +129,8 @@ def test_hdf5_rechunk_re_tiles_contiguous_datasets(generated, source, given, che
     with read(str(path), checksums=checksums) as parsed:
         pr = project(parsed)
         out = plugin.write([parsed], options)
-        assert check(out, [parsed]) == []
+        # every array the layout does not re-tile is a copy of one of refkv's own output
+        assert check(out, [parsed], bases=[pr]) == []
         mirror = {k for k in pr.keys() if k.startswith(MIRROR)}  # noqa: SIM118 (a Projected is no mapping)
         grids = {p: pr.document(f"{p}/zarr.json")["chunk_grid"] for p in pr.nodes() if pr.node_type(p) == "array"}
     assert mirror == {k for k in out if k.startswith(MIRROR)}

@@ -5,7 +5,7 @@ writes of a file's frames, read off their description by the profile's rules
 and §7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#73-frames>), is what the
 profile wrote.
 
-The frames' description is the one the facts' `declared_by` keys. Of it the test derives each
+The frames' description is the one the `ImageAttributesLV!` chunk keys. Of it the test derives each
 position's array document (its shape, its chunk shape, its codecs and the size of its data type)
 and every chunk's parts: a frame's chunk is the frame's one unit, the rows together or the zlib
 stream, and a row block's the units of its rows, one part a row, in order. A frame the description
@@ -14,7 +14,7 @@ has no row for has no chunk.
 Four things are taken from elsewhere, since no description holds them:
 
 - the loops (their kinds, their counts and whether the z loop is flipped), from the parser's
-  facts: the description has their product, its first axis, and the test checks that it is; where
+  description of the file: the stored array's has their product, its first axis, and the test checks that it is; where
   a frame's number places it among the output's axes and positions is the profile's reading of
   the experiment;
 - the rows of a row block, from the output: the profile chooses them, and the test checks that
@@ -51,12 +51,15 @@ def lengths(a: StoredArray) -> tuple[int, ...]:
 
 
 def loops_of(path: Path) -> tuple[list[tuple[str, int, bool]], int]:
-    """The loops the parser's facts give, each (kind, count, whether its index is flipped), and
-    the element that keys the frames' description."""
-    _, facts, _ = parse("nd2", FileTransport(str(path)), 4)
+    """The loops the parser's description gives, each (kind, count, whether its index is flipped),
+    and the element that keys the frames' description, the `ImageAttributesLV!` chunk."""
+    ir, description, _ = parse("nd2", FileTransport(str(path)), 4)
     loops = [(string(at(x, "kind")), integer(at(x, "count")), "flip" in mapping(x) and boolean(at(x, "flip")))
-             for x in sequence(facts["loops"])]
-    return loops, integer(facts["declared_by"])
+             for x in sequence(description["loops"])]
+    chunks = ir.child(0, "chunks")
+    key = None if chunks is None else ir.child(chunks, "ImageAttributesLV!")
+    assert key is not None
+    return loops, key
 
 
 def derived(d: Described, a: StoredArray, rows: list[dict], loops: list[tuple[str, int, bool]], block: int,
@@ -148,7 +151,7 @@ def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
     loops, key = loops_of(path)
     found = [k for k, a in enumerate(d.stored.arrays) if a.element == key]
     if len(found) != 1:
-        return (f"{len(found)} descriptions keyed by the facts' declared_by",), seen
+        return (f"{len(found)} descriptions keyed by ImageAttributesLV!",), seen
     (k,) = found
     seen["files"] += 1
     seen["descriptions the profile writes no array of"] += len(d.stored.arrays) - 1

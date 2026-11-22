@@ -14,7 +14,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#74-gzipped-files>) takes
 //! other rounds: the start of the stream, inflated as far as the header (and as much of the
 //! chain as `SCAN` holds), and its trailer. Its IR is one `data` element, the whole file; what the
-//! stream's start holds is in the facts, as the file's bytes do not show it.
+//! stream's start holds is in the description, as the file's bytes do not show it.
 //!
 //! The parser describes the voxels as the source stores them (spec/stored-array.md §7
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>; `nifti/stored.rs`):
@@ -356,29 +356,26 @@ impl Nifti {
             let extensions = if extender[0] != 0 { extensions_in(got, length as usize + 4, vox, h.little) } else { Vec::new() };
             // `declared_by`, the key of the voxels' description: the stream, which holds the header
             self.stored = Some(stored::Voxels { key: voxels, header: None, data: voxels, dims, bits, skip: Some(vox) });
-            self.facts = json!({"version": version, "voxels": voxels, "extended": extender[0] != 0, "declared_by": voxels,
-                                "gzip": {"skip": vox, "head": gz::head(&got[..length as usize]), "extender": extender, "extensions": extensions},
-                                "copy_threshold": crate::out::copy_threshold()});
+            let stream = json!({"skip": vox, "head": gz::head(&got[..length as usize]), "extensions": extensions});
+            self.facts = describe(&h, version, Some(&extender), (vox, total as u64), json!({"voxels": voxels}), Some(&stream));
             return Ok(());
         }
         // the extender lies within the file, before the voxel data (vox >= L + 4)
         let ext = got[length as usize..length as usize + 4].to_vec();
         let header = self.ir.value(0, "header", NO_INDEX, &h.record_type(), 0, (0, length), Some(h.raw))?;
-        self.ir.value(0, "extender", NO_INDEX, "u1[4]", 0, (length, 4), Some(&ext))?;
+        let extender = self.ir.value(0, "extender", NO_INDEX, "u1[4]", 0, (length, 4), Some(&ext))?;
         let endian = if h.little { "little" } else { "big" };
         let form = json!({"geometry": {"data_type": dtype, "samples": samples}, "codec": {"endian": endian},
                           "recipe": [["src", 0, null]]});
         let voxels = self.ir.data(0, "voxels", NO_INDEX, 0, (vox, total as u64), &form.to_string())?;
+        let description = describe(&h, version, Some(&ext), (vox, total as u64), json!({"header": header, "extender": extender, "voxels": voxels}), None);
         self.little = h.little;
         self.vox = vox;
         self.q = length + 4;
         self.chaining = ext[0] != 0;
-        // the payload past which the projection copies an edge chunk, read once per run
-        let copy_threshold = crate::out::copy_threshold();
         // `declared_by`, the key of the voxels' description: the header
         self.stored = Some(stored::Voxels { key: header, header: Some(header), data: voxels, dims, bits, skip: None });
-        self.facts = json!({"version": version, "header": header, "voxels": voxels, "extended": ext[0] != 0,
-                            "declared_by": header, "copy_threshold": copy_threshold});
+        self.facts = description;
         Ok(())
     }
 
@@ -390,9 +387,13 @@ impl Nifti {
         Ok(())
     }
 
-    /// The finished IR, with its voxels described (`stored.rs`), and the facts.
+    /// The finished IR, with its voxels described (`stored.rs`), and the description of the file
+    /// (§7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#76-the-description>).
     pub fn finish(self) -> Result<(Ir, J), String> {
-        let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
+        let (mut ir, mut facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
+        if facts["elements"].get("header").is_some() {
+            facts["elements"]["extensions"] = json!(extensions(&ir, 0));
+        }
         if let Some(voxels) = &self.stored {
             let (arrays, chains, map) = stored::described(voxels)?;
             ir.describe(arrays, chains, map)?;
@@ -453,6 +454,36 @@ fn py_float(v: f64) -> String {
 
 crate::parser!(Nifti);
 
+/// The description of a file or a pair (spec/zarrify/nifti.md §7.6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#76-the-description>): its
+/// version, byte order and every field of its header as the root's source metadata gives them,
+/// its extender's bytes (None for a pair's header file too short to hold one), the voxel data's
+/// range (in what a gzipped file's stream inflates to), a gzipped file's stream, and the ids of
+/// its IR elements. It holds none of the output's decisions: no data type, axes, scales, affine or
+/// chunks.
+pub(crate) fn describe(h: &Header, version: u8, extender: Option<&[u8]>, (vox, total): (u64, u64), elements: J, gzip: Option<&J>) -> J {
+    let mut d = json!({
+        "version": version,
+        "byte_order": if h.little { "little" } else { "big" },
+        "header": crate::project::header_json(h),
+        "extender": extender,
+        "voxels": {"offset": vox, "bytes": total},
+        "elements": elements,
+    });
+    if let Some(g) = gzip {
+        d["gzip"] = g.clone();
+    }
+    d
+}
+
+/// The ids of the extensions of the chain under `parent` (`extensions/<k>`), in the chain's order.
+pub(crate) fn extensions(ir: &Ir, parent: u32) -> Vec<u32> {
+    let mut found: Vec<(u64, u32)> =
+        (0..ir.len()).filter(|&i| ir.parent[i] == parent && ir.names.get(ir.name[i]) == "extensions/").map(|i| (ir.nidx[i], i as u32)).collect();
+    found.sort_unstable();
+    found.into_iter().map(|(_, i)| i).collect()
+}
+
 /// The NIfTI profile's file run (spec/zarrify/nifti.md).
 pub struct Profile;
 
@@ -474,6 +505,9 @@ impl crate::run::FileProfile for Profile {
     }
     fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
         crate::project::nifti::reads(ir, facts)
+    }
+    fn described(&self) -> bool {
+        true
     }
 }
 

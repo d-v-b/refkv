@@ -6,8 +6,8 @@ Each band file of a Sentinel-2 product, a JP2
 file, holds one image, a stored array, in both forms of the product: in the directory form's
 store IR, whose parser describes its objects' arrays itself ([stored-array.md §6](../../stored-array.md#6-in-the-ir)), and in the zip
 form's file IR. It is keyed by the band file's `codestream` struct (`boxes/<i>/codestream`, under
-the band file's object or under its zip entry's `data`), with no index. The facts give the key:
-each band's `declared_by` is the id of that struct. The profile presents every band file. The
+the band file's object or under its zip entry's `data`), with no index. The description gives the key ([safe.md §8.11](../safe.md#811-the-description)):
+each band's `element` is the id of that struct. The profile presents every band file. The
 product's other images (the quality masks, the preview image, the cloud and snow probabilities,
 a mirror's quicklook) are in objects the parser does not read
 ([safe.md §2.1](../safe.md#21-objects)), and have no description.

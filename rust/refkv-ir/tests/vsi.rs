@@ -395,16 +395,16 @@ fn a_slide_that_leaves_nothing_out_records_nothing() {
     assert_eq!(out.summary["notPresented"], 0);
 }
 
-/// Each image of an accepted fixture's facts names its arrays' descriptions by their key
-/// (spec/stored-array.md §7
+/// Each image of an accepted fixture's plan (`vsi::plan`, made from its description) finds its
+/// arrays' descriptions by the elements the description names (spec/stored-array.md §7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): a pyramid, by
-/// its tile file's `ets` element, whose descriptions are its levels, indexed from 0, each tile
-/// the facts list a row of its level's, the tile's element; an IFD image, by its IFD's struct,
-/// whose description has no index and a row for each strip the facts list. The facts'
-/// `declared_by` gives the key of each described IFD of the chain by its index, the IFDs the
-/// facts name by index among them: an image's, a stack's thumbnail, an image left out.
+/// its tile file's `ets` element (the description's `header`), whose descriptions are its levels,
+/// indexed from 0, each tile the plan lists a row of its level's, the tile's element; an IFD image,
+/// by its IFD's struct (the description's `element`), whose description has no index and a row for
+/// each strip the plan lists. The IFDs the plan names by index are among them: an image's, a
+/// stack's thumbnail, an image left out.
 #[test]
-fn every_accepted_fixtures_facts_name_their_descriptions() {
+fn every_accepted_fixtures_plan_finds_its_descriptions() {
     let (mut pyramids, mut levels, mut ifd_images, mut thumbnails, mut left_out, mut unkeyed) = (0, 0, 0, 0, 0, 0);
     for e in std::fs::read_dir(fixtures()).unwrap() {
         let path = e.unwrap().path();
@@ -412,13 +412,21 @@ fn every_accepted_fixtures_facts_name_their_descriptions() {
         if !name.ends_with(".vsi") || name.starts_with("vsi_reject") {
             continue;
         }
-        let (ir, facts, _, _) = parsed(&path).unwrap_or_else(|m| panic!("{name}: {m}"));
+        let (ir, description, _, _) = parsed(&path).unwrap_or_else(|m| panic!("{name}: {m}"));
+        let plan = refkv_ir::vsi::plan::plan(&description).unwrap_or_else(|m| panic!("{name}: {m}"));
         let s = &ir.stored;
         assert!(s.undescribed_keys.is_empty(), "{name}");
         let described = |key: u32| -> Vec<usize> { (0..s.arrays.len()).filter(|&k| s.arrays[k].element == key).collect() };
         let rows = |k: usize| -> Vec<u32> { (0..s.map.len()).filter(|&r| s.map.array[r] == k as u32).map(|r| s.map.element[r].unwrap()).collect() };
-        let by_index: Vec<Option<u32>> = facts["declared_by"].as_array().unwrap().iter().map(|v| v.as_u64().map(|x| x as u32)).collect();
-        assert_eq!(by_index.len() as u64, facts["vsi"]["ifds"].as_u64().unwrap(), "{name}");
+        // each main-chain IFD's struct, where its image is described there, by its index
+        let by_index: Vec<Option<u32>> = description["ifds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|f| f["exif"] == false)
+            .map(|f| f["element"].as_u64().map(|x| x as u32).filter(|&e| !described(e).is_empty()))
+            .collect();
+        assert_eq!(by_index.len() as u64, plan["file"]["ifds"].as_u64().unwrap(), "{name}");
         // an IFD's key: its struct, whose one description has no index
         let ifd = |index: &serde_json::Value, at: &str| -> Option<usize> {
             let key = by_index[index.as_u64().unwrap() as usize]?;
@@ -427,15 +435,19 @@ fn every_accepted_fixtures_facts_name_their_descriptions() {
             assert_eq!(s.arrays[k].index, None, "{at}");
             Some(k)
         };
-        for (i, im) in facts["images"].as_array().unwrap().iter().enumerate() {
+        for (i, im) in plan["images"].as_array().unwrap().iter().enumerate() {
             let at = format!("{name} image {i}");
-            let key = im["declared_by"].as_u64().unwrap_or_else(|| panic!("{at}: no declared_by")) as u32;
+            let key = match im.get("ets") {
+                Some(ets) => description["tile_files"].as_array().unwrap().iter().find(|f| f["key"] == ets["key"]).and_then(|f| f["header"].as_u64()),
+                None => by_index[im["ifd"]["index"].as_u64().unwrap() as usize].map(u64::from),
+            }
+            .unwrap_or_else(|| panic!("{at}: no key")) as u32;
             if let Some(ets) = im.get("ets") {
                 assert_eq!(ir.path(key), format!("{}/ets", ets["key"].as_str().unwrap()), "{at}");
                 let found = described(key);
                 let indexes: Vec<Option<u64>> = found.iter().map(|&k| s.arrays[k].index).collect();
                 assert_eq!(indexes, (0..ets["levels"].as_array().unwrap().len() as u64).map(Some).collect::<Vec<_>>(), "{at}");
-                // each tile the facts list is a row of its level's description
+                // each tile the plan lists is a row of its level's description
                 let held: Vec<Vec<u32>> = found.iter().map(|&k| rows(k)).collect();
                 for t in ets["tiles"].as_array().unwrap() {
                     let (element, level) = (t[0].as_u64().unwrap() as u32, t[3].as_u64().unwrap() as usize);
@@ -458,7 +470,7 @@ fn every_accepted_fixtures_facts_name_their_descriptions() {
             }
         }
         // an image left out is described where its IFD has elements
-        for (i, im) in facts["not_presented"].as_array().unwrap().iter().enumerate() {
+        for (i, im) in plan["not_presented"].as_array().unwrap().iter().enumerate() {
             let index = im["ifd"].as_u64().unwrap() as usize;
             match by_index.get(index).copied().flatten() {
                 Some(_) => assert!(ifd(&im["ifd"], &format!("{name} left out {i}")).is_some()),

@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/vsi/description.json",
+  "title": "The description of a VSI slide",
+  "description": "What refkv's VSI parser found of a slide's known structures, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#96-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "key": {"type": "string"},
+    "size": {"$ref": "#/$defs/uint"},
+    "element": {"$ref": "#/$defs/uint"},
+    "header": {
+      "type": "object",
+      "properties": {
+        "byte_order": {"type": "string"},
+        "magic": {"$ref": "#/$defs/uint"},
+        "first_ifd": {"$ref": "#/$defs/uint"},
+        "element": {"$ref": "#/$defs/uint"}
+      },
+      "required": ["byte_order", "magic", "first_ifd", "element"],
+      "additionalProperties": false
+    },
+    "ifds": {"type": "array", "items": {"$ref": "#/$defs/ifd"}},
+    "tree": {"$ref": "#/$defs/container"},
+    "macro_ifd": {"$ref": "#/$defs/index"},
+    "stacks": {"type": "array", "items": {"$ref": "#/$defs/stack"}},
+    "tile_files": {"type": "array", "items": {"$ref": "#/$defs/tile_file"}}
+  },
+  "required": ["key", "size", "element", "header", "ifds", "tree", "macro_ifd", "stacks", "tile_files"],
+  "additionalProperties": false,
+  "$defs": {
+    "uint": {"type": "integer", "minimum": 0},
+    "int": {"type": "integer"},
+    "index": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/uint"}]},
+    "elements": {
+      "oneOf": [{"type": "null"}, {"type": "array", "items": {"$ref": "#/$defs/index"}}]
+    },
+    "value": {
+      "description": "A field's value as the root's tree gives it (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#61-the-root), or null without the field"
+    },
+    "container": {
+      "description": "The metadata tree's root container, a VsiContainer (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#61-the-root)",
+      "type": "object",
+      "properties": {"fields": {"type": "array", "items": {"type": "object"}}},
+      "required": ["fields"]
+    },
+    "tag": {
+      "type": "object",
+      "properties": {
+        "type": {"$ref": "#/$defs/uint"},
+        "count": {"$ref": "#/$defs/uint"},
+        "value": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "array", "items": {"$ref": "#/$defs/uint"}},
+            {"type": "string", "description": "JPEGTables, in base64"}
+          ]
+        }
+      },
+      "required": ["type", "count", "value"],
+      "additionalProperties": false
+    },
+    "ifd": {
+      "type": "object",
+      "properties": {
+        "index": {"$ref": "#/$defs/uint"},
+        "exif": {"type": "boolean"},
+        "offset": {"$ref": "#/$defs/uint"},
+        "next": {"$ref": "#/$defs/uint"},
+        "tags": {"type": "object", "patternProperties": {"^[0-9]+$": {"$ref": "#/$defs/tag"}}, "additionalProperties": false},
+        "element": {"$ref": "#/$defs/index"},
+        "strips": {"$ref": "#/$defs/elements"},
+        "tiles": {"$ref": "#/$defs/elements"}
+      },
+      "required": ["index", "exif", "offset", "next", "tags", "element", "strips", "tiles"],
+      "additionalProperties": false
+    },
+    "dimension": {
+      "type": "object",
+      "properties": {
+        "index": {"$ref": "#/$defs/uint"},
+        "meaning_code": {"oneOf": [{"type": "null"}, {"type": "number"}]},
+        "meaning": {"type": "string"}
+      },
+      "required": ["index", "meaning_code", "meaning"],
+      "additionalProperties": false
+    },
+    "channel": {
+      "type": "object",
+      "properties": {
+        "dimension_name": {"type": ["string", "null"]},
+        "channel_name": {"type": ["string", "null"]},
+        "lut_color": {"oneOf": [{"type": "null"}, {"type": "string", "pattern": "^[0-9A-F]{6}$"}]},
+        "display_limits": {"$ref": "#/$defs/value"},
+        "wavelength": {"$ref": "#/$defs/value"}
+      },
+      "required": ["dimension_name", "channel_name", "lut_color", "display_limits", "wavelength"],
+      "additionalProperties": false
+    },
+    "stack": {
+      "type": "object",
+      "properties": {
+        "id": {"$ref": "#/$defs/uint"},
+        "name": {"$ref": "#/$defs/value"},
+        "type": {"$ref": "#/$defs/value"},
+        "type_name": {"type": ["string", "null"]},
+        "has_external_file": {"$ref": "#/$defs/value"},
+        "image_boundary": {"$ref": "#/$defs/value"},
+        "dimension_sizes": {"$ref": "#/$defs/value"},
+        "default_ifd": {"$ref": "#/$defs/index"},
+        "coarse_ifd": {"$ref": "#/$defs/index"},
+        "frame_scale": {"$ref": "#/$defs/value"},
+        "frame_origin": {"$ref": "#/$defs/value"},
+        "frame_unit": {"$ref": "#/$defs/value"},
+        "display_limits": {"$ref": "#/$defs/value"},
+        "creation_time": {"$ref": "#/$defs/value"},
+        "magnification": {"oneOf": [{"type": "null"}, {"type": "number"}]},
+        "dimensions": {"type": "array", "items": {"$ref": "#/$defs/dimension"}},
+        "z_increment": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "properties": {"value": {"$ref": "#/$defs/value"}, "unit": {"type": ["string", "null"]}},
+              "required": ["value", "unit"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "channels": {"type": "array", "items": {"$ref": "#/$defs/channel"}},
+        "tile_file": {"$ref": "#/$defs/index"}
+      },
+      "required": ["id", "name", "type", "type_name", "has_external_file", "image_boundary", "dimension_sizes",
+                   "default_ifd", "coarse_ifd", "frame_scale", "frame_origin", "frame_unit", "display_limits",
+                   "creation_time", "magnification", "dimensions", "z_increment", "channels", "tile_file"],
+      "additionalProperties": false
+    },
+    "tile_file": {
+      "type": "object",
+      "properties": {
+        "key": {"type": "string"},
+        "size": {"$ref": "#/$defs/uint"},
+        "element": {"$ref": "#/$defs/uint"},
+        "stack": {"$ref": "#/$defs/uint"},
+        "sis": {
+          "type": "object",
+          "properties": {
+            "header_size": {"$ref": "#/$defs/int"},
+            "version": {"$ref": "#/$defs/int"},
+            "coordinates": {"$ref": "#/$defs/int"},
+            "ets_offset": {"$ref": "#/$defs/int"},
+            "ets_size": {"$ref": "#/$defs/int"},
+            "tiles_offset": {"$ref": "#/$defs/int"},
+            "tiles": {"$ref": "#/$defs/int"},
+            "size": {"$ref": "#/$defs/int"}
+          },
+          "required": ["header_size", "version", "coordinates", "ets_offset", "ets_size", "tiles_offset", "tiles", "size"],
+          "additionalProperties": false
+        },
+        "ets": {
+          "type": "object",
+          "properties": {
+            "version": {"$ref": "#/$defs/int"},
+            "pixel_type": {"$ref": "#/$defs/int"},
+            "channels": {"$ref": "#/$defs/int"},
+            "colorspace": {"$ref": "#/$defs/int"},
+            "compression": {"$ref": "#/$defs/int"},
+            "quality": {"$ref": "#/$defs/int"},
+            "tile_width": {"$ref": "#/$defs/int"},
+            "tile_height": {"$ref": "#/$defs/int"},
+            "tile_depth": {"$ref": "#/$defs/int"},
+            "background": {"type": "string", "description": "the 40 bytes of the background color, in base64"},
+            "component_order": {"$ref": "#/$defs/int"},
+            "use_pyramid": {"type": "boolean"},
+            "dimensions": {"$ref": "#/$defs/int"},
+            "dimension_sizes": {"type": "array", "items": {"$ref": "#/$defs/int"}, "maxItems": 10}
+          },
+          "required": ["version", "pixel_type", "channels", "colorspace", "compression", "quality", "tile_width",
+                       "tile_height", "tile_depth", "background", "component_order", "use_pyramid", "dimensions",
+                       "dimension_sizes"],
+          "additionalProperties": false
+        },
+        "header": {"$ref": "#/$defs/uint"},
+        "tiles": {
+          "type": "array",
+          "items": {
+            "description": "[element, offset, size, c0, c1, ...]: the tile's data element, where it is, and its coordinates in the record's order",
+            "type": "array",
+            "prefixItems": [{"$ref": "#/$defs/uint"}, {"$ref": "#/$defs/uint"}, {"$ref": "#/$defs/uint"}],
+            "items": {"$ref": "#/$defs/int"},
+            "minItems": 5
+          }
+        }
+      },
+      "required": ["key", "size", "element", "stack", "sis", "ets", "header", "tiles"],
+      "additionalProperties": false
+    }
+  }
+}

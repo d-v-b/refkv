@@ -1,7 +1,7 @@
 //! The stored arrays of an HDF4 file (spec/stored-array.md §7
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): every dataset
 //! of the SD interface the parser reaches, keyed by its `Var0.0` Vgroup. The parse records what
-//! each description needs by descriptor ([`Desc`]), as it decides the dataset's facts; `finish`
+//! each description needs by descriptor ([`Desc`]), as it reads the dataset; `finish`
 //! turns the descriptors into the elements it makes of them.
 
 use super::{Dd, Logical};

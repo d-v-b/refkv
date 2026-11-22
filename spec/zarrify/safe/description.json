@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/safe/description.json",
+  "title": "The description of a SAFE product",
+  "description": "What refkv's SAFE parser found of a Sentinel-2 SAFE product, of either form, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#811-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "level": {"enum": ["L1C", "L2A"]},
+    "form": {"enum": ["store", "zip"]},
+    "product_metadata": {"$ref": "#/$defs/document"},
+    "tile_metadata": {"$ref": "#/$defs/document"},
+    "geocoding": {
+      "type": "object",
+      "properties": {
+        "code": {"type": "string"},
+        "sizes": {"type": "array", "items": {"type": "array", "items": {"$ref": "#/$defs/uint"}, "minItems": 3, "maxItems": 3}},
+        "positions": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [{"$ref": "#/$defs/uint"}, {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4}],
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "cs_name": {"type": ["string", "null"]},
+        "cs_code": {"type": ["string", "null"]}
+      },
+      "required": ["code", "sizes", "positions", "cs_name", "cs_code"],
+      "additionalProperties": false
+    },
+    "bands": {"type": "array", "items": {"$ref": "#/$defs/band"}, "minItems": 1},
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {"type": "string"},
+          "size": {"$ref": "#/$defs/uint"},
+          "marker": {"type": "boolean"},
+          "held": {"type": "boolean"}
+        },
+        "required": ["key", "size", "marker", "held"],
+        "additionalProperties": false
+      }
+    },
+    "empty_dirs": {"type": "array", "items": {"type": "string"}},
+    "ignored": {"type": "array", "items": {"type": "string"}},
+    "reads": {
+      "type": "object",
+      "properties": {"batches": {"$ref": "#/$defs/uint"}, "band_reads": {"$ref": "#/$defs/uint"}},
+      "required": ["batches", "band_reads"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["level", "form", "product_metadata", "tile_metadata", "geocoding", "bands", "objects", "empty_dirs", "ignored", "reads"],
+  "additionalProperties": false,
+  "$defs": {
+    "uint": {"type": "integer", "minimum": 0},
+    "hex": {"type": "string", "pattern": "^([0-9a-f]{2})*$"},
+    "element": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "attributes": {"type": "array", "items": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 2}},
+        "text": {"type": "array", "items": {"type": "string"}},
+        "children": {"type": "array", "items": {"$ref": "#/$defs/element"}}
+      },
+      "required": ["name", "attributes", "text", "children"],
+      "additionalProperties": false
+    },
+    "document": {
+      "type": "object",
+      "properties": {"key": {"type": "string"}, "document": {"$ref": "#/$defs/element"}},
+      "required": ["key", "document"],
+      "additionalProperties": false
+    },
+    "band": {
+      "type": "object",
+      "properties": {
+        "image_file": {"type": "string"},
+        "key": {"type": "string"},
+        "basename": {"type": "string"},
+        "resolution": {"$ref": "#/$defs/uint"},
+        "name": {"type": "string"},
+        "base": {"$ref": "#/$defs/uint"},
+        "element": {"$ref": "#/$defs/uint"},
+        "codestream": {
+          "type": "object",
+          "properties": {
+            "n": {"$ref": "#/$defs/uint"},
+            "c0": {"$ref": "#/$defs/uint"},
+            "siz": {"$ref": "#/$defs/hex"},
+            "rest": {"$ref": "#/$defs/hex"},
+            "width": {"$ref": "#/$defs/uint"},
+            "height": {"$ref": "#/$defs/uint"},
+            "tile_w": {"$ref": "#/$defs/uint"},
+            "tile_h": {"$ref": "#/$defs/uint"},
+            "components": {"enum": [1, 3]},
+            "precision": {"type": "integer", "minimum": 1, "maximum": 16},
+            "layers": {"$ref": "#/$defs/uint"},
+            "coding": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "prefixItems": [
+                  {"$ref": "#/$defs/uint"},
+                  {"type": "array", "items": {"type": "array", "items": {"$ref": "#/$defs/uint"}, "minItems": 2, "maxItems": 2}}
+                ],
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "tiles": {"type": "array", "items": {"type": "array", "items": {"$ref": "#/$defs/uint"}, "minItems": 2, "maxItems": 2}}
+          },
+          "required": ["n", "c0", "siz", "rest", "width", "height", "tile_w", "tile_h", "components", "precision", "layers", "coding", "tiles"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["image_file", "key", "basename", "resolution", "name", "base", "element", "codestream"],
+      "additionalProperties": false
+    }
+  }
+}

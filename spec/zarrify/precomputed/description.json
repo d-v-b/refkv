@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/precomputed/description.json",
+  "title": "The description of a Neuroglancer precomputed store",
+  "description": "What refkv's precomputed parser found of a store, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#114-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "info": {"type": "string", "description": "the info document as parsed, as JSON text"},
+    "documents": {"const": ["info"]},
+    "ignored": {"type": "array", "items": {"type": "string"}}
+  },
+  "required": ["info", "documents"],
+  "additionalProperties": false
+}

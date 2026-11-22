@@ -135,24 +135,6 @@ pub fn chain(rules: &Rules, b: &[u8], first: u64) -> Res<Vec<Ifd>> {
     Ok(out)
 }
 
-/// What the projection reads of an IFD image (§4.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#43-the-macro-image>): its
-/// size, samples, bits, compression, and its strips (offset, length) with the JPEG prefix.
-#[derive(Clone, Debug)]
-pub struct Image {
-    pub index: usize,
-    pub width: u64,
-    pub height: u64,
-    pub samples: u64,
-    pub bits: u64,
-    pub compression: u64,
-    pub photometric: u64,
-    pub strips: Vec<(u64, u64)>,
-    /// the shared JPEG prefix (the Adobe marker for 3 samples, then the tables' body), when the
-    /// IFD has JPEGTables
-    pub prefix: Vec<u8>,
-}
-
 /// The segments (offset, length) of `offsets`/`counts` tags, in order.
 fn segments(ifd: &Ifd, b: &[u8], ot: u16, ct: u16) -> Option<Vec<(u64, u64)>> {
     let o = ifd.ints(b, ot)?;
@@ -188,42 +170,6 @@ pub fn runs(key: &str, strips: impl IntoIterator<Item = (u64, u64)>) -> Vec<Part
     parts
 }
 
-/// IFD `index` of the chain as an image the layout projects, checked (`ifd_image`): `what` names
-/// it in the error, which is the reason the image is not presented (§4.4
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#44-ifd-images-that-are-not-presented>).
-pub fn image(rules: &Rules, b: &[u8], ifd: &Ifd, what: &str) -> Res<Image> {
-    let g = |t: u16| ifd.int(b, t);
-    let (width, height) = (g(256).unwrap_or(0), g(257).unwrap_or(0));
-    let compression = g(259).unwrap_or(1);
-    let samples = g(277).unwrap_or(1);
-    let bits = ifd.ints(b, 258).and_then(|v| v.first().copied()).unwrap_or(1);
-    let planar = g(284).unwrap_or(1);
-    let format = ifd.ints(b, 339).and_then(|v| v.first().copied()).unwrap_or(1);
-    let photometric = g(262).unwrap_or(if samples == 3 { 2 } else { 1 });
-    let strips = segments(ifd, b, 273, 279).or_else(|| segments(ifd, b, 324, 325)).unwrap_or_default();
-    rules.check(
-        "ifd_image",
-        &mut rules::env([
-            ("ifd", num(ifd.index as f64)),
-            ("what", rules::text(what)),
-            ("width", num(width as f64)),
-            ("height", num(height as f64)),
-            ("compression", num(compression as f64)),
-            ("samples", num(samples as f64)),
-            ("bits", num(bits as f64)),
-            ("planar", num(planar as f64)),
-            ("strips", num(strips.len() as f64)),
-            ("format", num(format as f64)),
-        ]),
-    )?;
-    for &(o, n) in &strips {
-        if n == 0 || o.checked_add(n).is_none_or(|e| e > b.len() as u64) {
-            return Err(format!("IFD {} ({what}): a strip ({n} bytes at {o}) is outside the {}-byte .vsi file", ifd.index, b.len()));
-        }
-    }
-    Ok(Image { index: ifd.index, width, height, samples, bits, compression, photometric, strips, prefix: jpeg_prefix(ifd, b, samples, photometric) })
-}
-
 /// What `emit_region` made of an IFD of the chain, which the description of its image reads
 /// (`stored.rs`).
 pub struct Emitted {
@@ -239,9 +185,9 @@ pub struct Emitted {
 }
 
 /// Emits the IFDs whose bytes lie in the region `[start, end)` under `parent`, and gaps for
-/// what the region has left: (the elements of each IFD's strips, by chain index), and, by chain
-/// index, what the IFD's description reads (`made`).
-pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, parent: u32, strips_of: &mut HashMap<usize, Vec<u32>>, made: &mut HashMap<usize, Emitted>) -> Res<()> {
+/// what the region has left; and, by chain index, what the IFD's description and its image's
+/// stored array read (`made`).
+pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, parent: u32, made: &mut HashMap<usize, Emitted>) -> Res<()> {
     let mut claimed: Vec<(u64, u64)> = Vec::new();
     for ifd in ifds.iter().filter(|f| start <= f.offset && f.end <= end) {
         let s = if ifd.exif {
@@ -320,7 +266,6 @@ pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, pa
                 });
                 let shared = if prefix.is_empty() { None } else { Some(ir.share(&prefix)) };
                 let (plain, framed) = tile_forms(&base, shared);
-                let mut els = Vec::with_capacity(segs.len());
                 for (k, &(so, sn)) in segs.iter().enumerate() {
                     if sn == 0 || so.checked_add(sn).is_none_or(|x| x > b.len() as u64) {
                         units.push(if sn > 0 { Unit::Outside } else if so == 0 { Unit::Absent } else { Unit::Unsized });
@@ -331,16 +276,12 @@ pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, pa
                         _ => plain.as_str(),
                     };
                     let d = ir.data(s, name, k as u64, 0, (so, sn), form)?;
-                    els.push(d);
                     units.push(Unit::Held(d, framed.is_some() && sn > 2));
                     if start <= so && so + sn <= end {
                         claimed.push((so, sn));
                     }
                 }
                 *(if ot == 273 { &mut read.strips } else { &mut read.tiles }) = Some(Some(units));
-                if ot == 273 || !els.is_empty() {
-                    strips_of.entry(ifd.index).or_default().extend(els);
-                }
             }
             made.entry(ifd.index).or_insert(read);
         }

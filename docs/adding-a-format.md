@@ -466,6 +466,11 @@ add two functions, which `build.rs` calls from the `StoreFormat` it generates:
 - `pub fn store_parser(ir, objects, keys)` in `src/<m>.rs`;
 - `pub fn store_project(ir, facts, url)` in `src/project/<m>.rs`.
 
+A store run whose parser returns the profile's description of the input beside the IR (its
+document's section "The description") says so in the same entry, `"described": true`, and
+`StoreFormat::description` gives it to the hosts; one whose parser returns no description yet
+leaves it out.
+
 A format whose writers name files in another case than they have (LIF's XLEF documents) adds
 `"case": true`, and each host that can list a local directory then answers a probe with
 `StoreRun::found_as`.

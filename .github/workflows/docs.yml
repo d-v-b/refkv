@@ -20,8 +20,11 @@ on:
 permissions:
   contents: read
 
+# a newer run of the same pull request, or of main, supersedes the one in progress. A pull request
+# is keyed by its number, not github.ref: a merged pull request's `closed` run has the base branch's
+# ref, refs/heads/main, and would cancel main's deploy
 concurrency:
-  group: docs-${{ github.ref }}
+  group: docs-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

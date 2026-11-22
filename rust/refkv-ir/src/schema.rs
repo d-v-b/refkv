@@ -426,6 +426,114 @@ pub fn flatten(root: &V) -> Vec<Loop> {
     loops
 }
 
+/// The picture metadata's members of a file without it: every member at its default
+/// (spec/zarrify/nd2.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#3-metadata>).
+pub fn picture_defaults() -> Res<Vec<(String, V)>> {
+    let empty: Vec<(String, Node)> = Vec::new();
+    read_members(&empty, &nd2()["objects"]["picture"]["members"], &[])
+}
+
+/// What the loops give the schema's expressions: whether their kinds are distinct, their counts'
+/// product, the position loop's count and the time and z loops' period and step, where present.
+pub fn loop_env(env: &mut Env, loops: &[Loop]) {
+    let mut kinds: Vec<&str> = loops.iter().map(|l| l.kind.as_str()).collect();
+    kinds.sort();
+    env.insert("loops_distinct".into(), V::Bool(kinds.windows(2).all(|w| w[0] != w[1])));
+    env.insert("loops_product".into(), V::Num(loops.iter().map(|l| l.count).product()));
+    let find = |k: &str| loops.iter().find(|l| l.kind == k);
+    env.insert("p_count".into(), find("p").map(|l| V::Num(l.count)).unwrap_or(V::Absent));
+    env.insert("t_scale".into(), find("t").map(|l| V::Num(l.scale)).unwrap_or(V::Absent));
+    env.insert("z_scale".into(), find("z").map(|l| V::Num(l.scale)).unwrap_or(V::Absent));
+}
+
+/// The schema's derived quantities (its `derive`, in order), each added to `env`.
+pub fn derive(env: &mut Env) -> Res<()> {
+    for (k, x) in nd2()["derive"].as_object().unwrap() {
+        let v = eval_str(x.as_str().unwrap(), env)?;
+        env.insert(k.clone(), v);
+    }
+    Ok(())
+}
+
+/// The positions' stage translations (spec/zarrify/nd2.md §4.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#43-output>), of `env` derived:
+/// each position's `{"x", "y"}`, the stage position through the camera matrix's inverse less half
+/// the image, or null where the image is not calibrated, the matrix is singular, a stage coordinate
+/// is absent or a translation is not finite; and whether none computed is not finite.
+pub fn translations(env: &Env, loops: &[Loop]) -> (J, bool) {
+    let num = |k: &str| env.get(k).and_then(|v| v.num()).unwrap_or(f64::NAN);
+    let calibrated = env.get("calibrated").is_some_and(|v| v.truthy());
+    let det = num("det");
+    let stages: Vec<(Option<f64>, Option<f64>)> = match loops.iter().find(|l| l.kind == "p") {
+        Some(l) => l.stage.clone(),
+        None => vec![(env.get("dXPos").and_then(|v| v.num()), env.get("dYPos").and_then(|v| v.num()))],
+    };
+    if !(calibrated && det != 0.0 && stages.iter().all(|(x, y)| x.is_some() && y.is_some())) {
+        return (J::Null, true);
+    }
+    let (m11, m12, m21, m22) = (num("dStgLgCT11"), num("dStgLgCT12"), num("dStgLgCT21"), num("dStgLgCT22"));
+    let (width, height) = (num("uiWidth"), num("uiHeight"));
+    let (sx_scale, sy_scale) = (num("scale_x"), num("scale_y"));
+    let mut out = Vec::new();
+    let mut finite = true;
+    for (sx, sy) in &stages {
+        let (sx, sy) = (sx.unwrap(), sy.unwrap());
+        let u = (m22 * sx - m12 * sy) / det;
+        let v = (m11 * sy - m21 * sx) / det;
+        let x = u - width * sx_scale / 2.0;
+        let y = v - height * sy_scale / 2.0;
+        finite &= x.is_finite() && y.is_finite();
+        out.push(serde_json::json!({"x": x, "y": y}));
+    }
+    (if finite { J::Array(out) } else { J::Null }, finite)
+}
+
+/// The environment of the schema's expressions: its limits, then `members`.
+pub fn env(members: &[(String, V)]) -> Env {
+    env_of(members)
+}
+
+/// A member's value as the description writes it (spec/zarrify/nd2.md §7.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#75-the-description>), by its
+/// spec: an integer or a color exactly, a number as a number, a flag, a string, an object by its
+/// members in the schema's order (plane `i` of an indexed object by its source name, the prefix
+/// and `i`); null where absent.
+fn described(v: &V, spec: &J) -> J {
+    match (v, spec["kind"].as_str().unwrap_or("")) {
+        (V::Absent, _) => J::Null,
+        // integers and colors are checked from 0 to 2^53 - 1 and 2^32 - 1: exact as u64
+        (V::Num(x), "integer" | "color") => J::from(*x as u64),
+        (V::Obj(m), "object") => {
+            let indexed = spec.get("indexed");
+            J::Object(
+                m.iter()
+                    .map(|(name, x)| match indexed {
+                        Some(ix) => (format!("{}{name}", ix["prefix"].as_str().unwrap_or("")), described(x, ix)),
+                        None => (name.clone(), described(x, &spec["members"][name])),
+                    })
+                    .collect(),
+            )
+        }
+        _ => v.to_json(),
+    }
+}
+
+/// A loop as the description writes it: its kind, count and depth, and its period (ms) of a time
+/// loop, its step (µm) and whether `dZStep` is negative of a z loop, or its stage positions of a
+/// position loop, each `[x, y]`, a coordinate absent null.
+fn described_loop(l: &Loop) -> J {
+    let mut o = serde_json::json!({"kind": l.kind, "count": l.count as u64, "depth": l.depth});
+    match l.kind.as_str() {
+        "t" => o["period"] = serde_json::json!(l.scale),
+        "z" => {
+            o["step"] = serde_json::json!(l.scale);
+            o["flip"] = J::Bool(l.flip);
+        }
+        _ => o["stage"] = J::Array(l.stage.iter().map(|(x, y)| serde_json::json!([x, y])).collect()),
+    }
+    o
+}
+
 /// A placed frame's header as read: (offset, magic, name length, data length), or
 /// None when its 16 bytes are not within the file.
 #[derive(Clone, Copy, Debug)]
@@ -435,6 +543,8 @@ pub struct FrameHead {
     pub head: Option<(u32, u32, u64)>,
 }
 
+/// What the check gives the parser: the description of the file's attributes, loops and picture
+/// metadata (`json`), and what the frames' reading takes of them.
 pub struct Facts {
     pub json: J,
     pub loops: Vec<Loop>,
@@ -501,28 +611,11 @@ pub fn check_nd2(
         None => V::Absent,
     };
     let loops = flatten(&root);
-    let mut kinds: Vec<&str> = loops.iter().map(|l| l.kind.as_str()).collect();
-    kinds.sort();
-    let distinct = kinds.windows(2).all(|w| w[0] != w[1]);
-    env.insert("loops_distinct".into(), V::Bool(distinct));
-    let product: f64 = loops.iter().map(|l| l.count).product();
-    env.insert("loops_product".into(), V::Num(product));
-    let find = |k: &str| loops.iter().find(|l| l.kind == k);
-    env.insert(
-        "p_count".into(),
-        find("p").map(|l| V::Num(l.count)).unwrap_or(V::Absent),
-    );
-    env.insert(
-        "t_scale".into(),
-        find("t").map(|l| V::Num(l.scale)).unwrap_or(V::Absent),
-    );
-    env.insert(
-        "z_scale".into(),
-        find("z").map(|l| V::Num(l.scale)).unwrap_or(V::Absent),
-    );
+    loop_env(&mut env, &loops);
     // picture metadata
     let p = &objs["picture"];
-    let pic = match chunk_member(picture, p["member"].as_str().unwrap()) {
+    let picture_member = chunk_member(picture, p["member"].as_str().unwrap());
+    let pic = match picture_member {
         Some(item) => read(
             Some(item),
             &serde_json::json!({"kind": "object", "members": p["members"]}),
@@ -530,21 +623,13 @@ pub fn check_nd2(
             &[],
             &[],
         )?,
-        None => {
-            // no picture metadata: every member at its default
-            let empty: Vec<(String, Node)> = Vec::new();
-            V::Obj(read_members(&empty, &p["members"], &[])?)
-        }
+        None => V::Obj(picture_defaults()?),
     };
     let V::Obj(pm) = &pic else { unreachable!() };
     for (k, v) in pm {
         env.insert(k.clone(), v.clone());
     }
-    // derived
-    for (k, x) in s["derive"].as_object().unwrap() {
-        let v = eval_str(x.as_str().unwrap(), &env)?;
-        env.insert(k.clone(), v);
-    }
+    derive(&mut env)?;
     let num = |env: &Env, k: &str| env.get(k).and_then(|v| v.num()).unwrap_or(f64::NAN);
     let n_frames = num(&env, "N");
     // placed frames: their headers
@@ -590,90 +675,28 @@ pub fn check_nd2(
         ("max_pixels_end".into(), V::Num(placed.5 as f64)),
     ]);
     env.insert("placed".into(), pl);
-    // stage translations (spec/zarrify/nd2.md §4.3
-    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#43-output>)
-    let calibrated = env.get("calibrated").is_some_and(|v| v.truthy());
-    let det = num(&env, "det");
-    let stages: Vec<(Option<f64>, Option<f64>)> = match find("p") {
-        Some(l) => l.stage.clone(),
-        None => vec![(
-            env.get("dXPos").and_then(|v| v.num()),
-            env.get("dYPos").and_then(|v| v.num()),
-        )],
-    };
-    let width = num(&env, "uiWidth");
-    let (sx_scale, sy_scale) = (num(&env, "scale_x"), num(&env, "scale_y"));
-    let mut translations = J::Null;
-    let mut finite = true;
-    if calibrated && det != 0.0 && stages.iter().all(|(x, y)| x.is_some() && y.is_some()) {
-        let (m11, m12, m21, m22) = (
-            num(&env, "dStgLgCT11"),
-            num(&env, "dStgLgCT12"),
-            num(&env, "dStgLgCT21"),
-            num(&env, "dStgLgCT22"),
-        );
-        let mut out = Vec::new();
-        for (sx, sy) in &stages {
-            let (sx, sy) = (sx.unwrap(), sy.unwrap());
-            let u = (m22 * sx - m12 * sy) / det;
-            let v = (m11 * sy - m21 * sx) / det;
-            let x = u - width * sx_scale / 2.0;
-            let y = v - height * sy_scale / 2.0;
-            finite &= x.is_finite() && y.is_finite();
-            out.push(serde_json::json!({"x": x, "y": y}));
-        }
-        if finite {
-            translations = J::Array(out);
-        }
-    }
+    let (_, finite) = translations(&env, &loops);
     env.insert("finite_translations".into(), V::Bool(finite));
     for c in s["constraints"].as_array().unwrap() {
         if !eval_str(c["require"].as_str().unwrap(), &env)?.truthy() {
             return Err(c["message"].as_str().unwrap().to_string());
         }
     }
-    let loops_json: Vec<J> = loops
-        .iter()
-        .map(|l| {
-            let mut o =
-                serde_json::json!({"kind": l.kind, "count": l.count as u64, "depth": l.depth});
-            match l.kind.as_str() {
-                "p" => {
-                    o["stage"] = J::Array(
-                        l.stage
-                            .iter()
-                            .map(|(x, y)| serde_json::json!([x, y]))
-                            .collect(),
-                    )
-                }
-                "z" => {
-                    o["scale"] = serde_json::json!(l.scale);
-                    o["flip"] = J::Bool(l.flip);
-                }
-                _ => o["scale"] = serde_json::json!(l.scale),
-            }
-            o
-        })
-        .collect();
-    let get = |k: &str| env.get(k).map(|v| v.to_json()).unwrap_or(J::Null);
+    // the description (spec/zarrify/nd2.md §7.5
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#75-the-description>): the
+    // members as read, the loops as flattened, and no derived quantity
+    let picture_spec = serde_json::json!({"kind": "object", "members": p["members"]});
     let json = serde_json::json!({
-        "attributes": {"width": get("uiWidth"), "height": get("uiHeight"), "width_bytes": get("uiWidthBytes"),
-                       "components": get("uiComp"), "bits": get("uiBpcInMemory"), "significant": get("uiBpcSignificant"),
-                       "compression": get("eCompression"), "row": get("R"), "compressed": compressed},
-        "loops": loops_json,
-        "positions": get("P"),
-        "frames": get("N"),
-        "picture": {"calibrated": get("calibrated"), "planes": get("sPicturePlanes"),
-                    "scales": {"x": get("scale_x"), "y": get("scale_y"), "z": get("scale_z"), "t": get("scale_t"), "c": 1.0},
-                    "translations": translations},
-        "placed": placed.0,
+        "attributes": described(&attrs, &serde_json::json!({"kind": "object", "members": a["members"]})),
+        "loops": loops.iter().map(described_loop).collect::<Vec<J>>(),
+        "picture": if picture_member.is_some() { described(&pic, &picture_spec) } else { J::Null },
     });
     Ok(Facts {
         json,
         frames: n_frames,
         compressed,
         height: height as u64,
-        width: width as u64,
+        width: num(&env, "uiWidth") as u64,
         width_bytes: wb as u64,
         row: r as u64,
         comp: num(&env, "uiComp") as u64,

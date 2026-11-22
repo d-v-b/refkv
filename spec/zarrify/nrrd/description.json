@@ -1,0 +1,307 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/nrrd/description.json",
+  "title": "The description of a NRRD input",
+  "description": "What refkv's NRRD parser found of the header and its data, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#87-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "magic": {
+      "type": "string",
+      "pattern": "^NRRD000[1-5]$"
+    },
+    "fields": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/text"
+      }
+    },
+    "key_values": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/text"
+      }
+    },
+    "comments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/text"
+      }
+    },
+    "dimension": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "type": {
+      "type": "string"
+    },
+    "item": {
+      "enum": [
+        1,
+        2,
+        4,
+        8
+      ]
+    },
+    "encoding": {
+      "enum": [
+        "raw",
+        "gzip"
+      ]
+    },
+    "endian": {
+      "enum": [
+        null,
+        "little",
+        "big"
+      ]
+    },
+    "sizes": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "line_skip": {
+      "$ref": "#/$defs/uint"
+    },
+    "byte_skip": {
+      "type": "integer",
+      "minimum": -1
+    },
+    "directions": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "origin": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "space_units": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      ]
+    },
+    "spacings": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "units": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      ]
+    },
+    "kinds": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "min": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "number"
+        }
+      ]
+    },
+    "max": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "number"
+        }
+      ]
+    },
+    "header_key": {
+      "type": "string"
+    },
+    "header_size": {
+      "$ref": "#/$defs/uint"
+    },
+    "data_key": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "$ref": "#/$defs/uint"
+        },
+        "bytes": {
+          "$ref": "#/$defs/uint"
+        }
+      },
+      "required": [
+        "offset",
+        "bytes"
+      ],
+      "additionalProperties": false
+    },
+    "elements": {
+      "type": "object",
+      "properties": {
+        "header_file": {
+          "$ref": "#/$defs/uint"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uint"
+          }
+        },
+        "data_file": {
+          "$ref": "#/$defs/uint"
+        },
+        "data": {
+          "$ref": "#/$defs/uint"
+        }
+      },
+      "required": [
+        "header_file",
+        "lines",
+        "data_file",
+        "data"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "uint": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "latin1": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "latin1"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": [
+    "magic",
+    "fields",
+    "key_values",
+    "comments",
+    "dimension",
+    "type",
+    "item",
+    "encoding",
+    "endian",
+    "sizes",
+    "line_skip",
+    "byte_skip",
+    "directions",
+    "origin",
+    "space_units",
+    "spacings",
+    "units",
+    "kinds",
+    "min",
+    "max",
+    "header_key",
+    "header_size",
+    "data_key",
+    "data",
+    "elements"
+  ]
+}

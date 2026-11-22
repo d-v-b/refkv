@@ -53,7 +53,7 @@ imagecodecs.numcodecs.register_codecs(verbose=False)  # VirtualiZarr's lzf array
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 NAME = "refkv.virtualizarr"
 PHONY = re.compile(r"phony_dim_[0-9]+")
-ALLOWED = frozenset({"json", "copy"})  # the check codes the module's docstring names
+ALLOWED = frozenset({"json"})  # the check codes the module's docstring names
 
 Json = dict[str, Any]
 
