@@ -139,6 +139,21 @@ fn attribute_value(p: &mut Pass, r: u16, h: &Vh) -> R<Option<(Vec<u8>, J)>> {
     Ok(Some((b, value)))
 }
 
+/// An attribute's number type code (its base), byte order and bytes, where the profile reads them
+/// and they are text or one number: what a `_FillValue` gives.
+pub(super) fn attribute_raw(p: &mut Pass, r: u16, h: &Vh) -> R<Option<(u8, bool, Vec<u8>)>> {
+    let Some((b, _)) = attribute_value(p, r, h)? else { return Ok(None) };
+    let [(_, ty, isize, _, order)] = h.fields[..] else { return Ok(None) };
+    let (code, big) = ((ty & 0xff) as u8, ty & 0x4000 == 0);
+    Ok(match code {
+        4 => Some((4, true, b)),
+        c => match super::numeric(c) {
+            Some((_, item, _)) if isize as u64 == item * order as u64 && b.chunks(item as usize).count() == 1 => Some((c, big, b)),
+            _ => None,
+        },
+    })
+}
+
 /// How the element `tag` `rf` is stored, as the description gives it: null where no descriptor
 /// describes it.
 fn storage(p: &mut Pass, tag: u16, rf: u16, vhs: &BTreeMap<u16, Vh>) -> R<J> {
