@@ -735,7 +735,30 @@ The documents under `refkv_source/` (the mirror's, [the convention §5.1](#51-th
 are deflated and, like the chunks, not among the documents a reader fetches
 when it opens the archive ([conventions §2](../conventions.md#2-attributes)).
 
-### 8.3 Summary
+### 8.3 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a **description** of the store: what it found of the source, in N5's own
+terms, for a projection to read with the IR. Its JSON Schema is
+[n5/description.json](n5/description.json). The parser describes no stored array
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)): a dataset's chunks are the listing's
+objects at the keys of its grid, which its document gives. The description holds none of an
+output's decisions: each dataset's `zarr.json` (its data type, codecs and chunk grid,
+[the convention §3](#3-datasets)), the multiscale images recognized and their `ome`
+([§4](#4-multiscale-images)), the source metadata ([§5](#5-source-metadata)) and which objects are
+chunks ([§6](#6-other-objects)) are the projection's, which makes them from the description and the
+listing. It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `nodes` | each node ([the convention §2](#2-nodes)), in the order the parser read them (by depth, then path): `path`, `kind` (`dataset`, a document with a member `dimensions`, or `group`), and `json`, its `attributes.json` as parsed, as text (its integers and strings as written, its members in order) |
+| `documents` | the keys of the documents the IR holds ([the convention §5.2](#52-elements)), in the order of `nodes` |
+| `ignored` | the keys the listing ignored ([the convention §6](#6-other-objects)), where there are any |
+
+A candidate inside a dataset is no node, and is not described: its document is never read
+([§8](#8-n5-profile)).
+
+### 8.4 Summary
 
 This section is informative. Both implementations print a one-line JSON
 summary, with these members:

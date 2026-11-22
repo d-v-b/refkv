@@ -1262,3 +1262,43 @@ directory form (5–12% more than revision 25's: the held XML documents and the
 mirror's table) and 1.01–1.06 MB in the zip form (1% more). Level-1C products
 take longest: their true-color image's 1849 tile-part headers are read one
 after another.
+
+### 8.11 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns, of either form, a **description** of the product: what it found of the
+product's known structures, in the terms of [§2](#2-the-source), for a projection to read with the
+IR and its stored arrays ([spec/stored-array.md §7](../stored-array.md#7-the-formats)). Its JSON
+Schema is [safe/description.json](safe/description.json). It holds none of an output's decisions:
+the root's and each band's source metadata ([§6.2](#62-band-arrays), [§6.3](#63-the-source-metadata-node)),
+which objects the mirror keeps whole ([§8.7](#87-other-objects)) and the summary's counts
+([§8.9](#89-summary)) are the projection's. Those decisions are refkv's **plan** of the product,
+made from the description alone by the function the convention's projection calls; a layout that
+wants another hierarchy makes its own from the description.
+
+It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `level`, `form` | `L1C` or `L2A` ([§2.2](#22-the-product-metadata)), and `store` or `zip` |
+| `product_metadata`, `tile_metadata` | the product metadata and the tile metadata ([§2.2](#22-the-product-metadata), [§2.3](#23-image-files)): `key`, the object's key, and `document`, its root element as a tree |
+| `geocoding` | the tile geocoding ([§2.4](#24-the-tile-geocoding)): `code`, the CRS code; `sizes`, each `Size`'s `[r, NROWS, NCOLS]` in document order; `positions`, each `[r, [ULX, ULY, XDIM, YDIM]]`; `cs_name` and `cs_code`, the texts of `Tile_Geocoding`'s one `HORIZONTAL_CS_NAME` and `HORIZONTAL_CS_CODE`, null where there is not one |
+| `bands` | the band files ([§2.5](#25-band-files)), in the order of their image files: below |
+| `objects` | every object of the listing or the central directory, in their order: `key`, `size`, `marker` (whether it is a folder marker, [§2.1](#21-objects)) and `held` (whether the directory form's IR holds it, an XML document, [§8.2](#82-objects-and-reading)) |
+| `empty_dirs` | the empty directories ([§2.1](#21-objects)) |
+| `ignored` | the keys recorded as not the product's ([§8.2](#82-objects-and-reading), [§8.4](#84-the-zip-form)) |
+| `reads` | the parser's own counts: `batches`, its rounds of reads, and `band_reads`, its reads of band files |
+
+An element of a tree is an object: `name`, its name as written; `attributes`, each `[name, value]`
+in document order, references replaced; `text`, its character data in pieces, references replaced;
+and `children`, its child elements in order. Comments are not kept.
+
+A band is an object:
+
+| member | value |
+|---|---|
+| `image_file`, `key`, `basename` | its image file's text `F`, its band file's key `F.jp2`, and the basename `b` ([§2.3](#23-image-files)) |
+| `resolution`, `name` | its resolution `r` and band name ([§2.5](#25-band-files)) |
+| `base` | where its band file's bytes start: 0 in the directory form, its zip entry's data offset in the zip form |
+| `element` | the IR element that keys its stored array, its `codestream` struct ([spec/stored-array.md §7](../stored-array.md#7-the-formats)) |
+| `codestream` | what the profile read of its codestream ([§8.3](#83-band-files)): `n`, the band file's size; `c0`, where the codestream starts; `siz`, its SIZ marker segment, and `rest`, its main header after SIZ, in hex; `width`, `height`, `tile_w`, `tile_h`, `components`, `precision` and `layers`; `coding`, each component's decomposition levels with each level's precinct exponents `[PPx, PPy]`; and `tiles`, each tile-part's `[offset, Psot]`, in order |

@@ -2841,6 +2841,134 @@ rejected as an input, its message naming the master from its own name:
 parentheses the message says <code class="docutils literal notranslate"><span class="pre">of</span> <span class="pre">another</span> <span class="pre">file</span></code>. A negative FilePart is rejected: <code class="docutils literal notranslate"><span class="pre">FilePart</span> <span class="pre">-1</span> <span class="pre">is</span> <span class="pre">negative</span></code>.</p>
 <p><strong>Bounds.</strong> An entry naming a part above 2^16 is rejected before anything is probed: <code class="docutils literal notranslate"><span class="pre">budget:</span> <span class="pre">the</span> <span class="pre">input</span> <span class="pre">names</span> <span class="pre">more</span> <span class="pre">than</span> <span class="pre">65536</span> <span class="pre">files</span></code>. A part with no directory stops being walked at the limit of
 <a class="reference internal" href="#rejection">§7.3</a>.</p>
+</section>
+<section id="the-description">
+<span id="710-the-description"></span><h3>7.10 The description<a class="headerlink" href="#the-description" title="Link to this heading">¶</a></h3>
+<p>This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a <strong>description</strong> of the file: what it found of the file’s known structures,
+in CZI’s own terms, for a projection to read with the IR and its stored arrays
+(<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>). Its JSON Schema is
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi/description.json">czi/description.json</a>. It holds none of an output’s decisions: which subblocks
+are placed (<a class="reference internal" href="#conforming-and-unplaced-subblocks">§3.2</a>), the series, layers and levels
+(<a class="reference internal" href="#series">§3.3</a>–<a class="reference internal" href="#regular-levels">§3.5</a>), the images and tile arrays with their axes, data
+types, codecs, chunks and row bands (<a class="reference internal" href="#output">§4</a>), the scales, units and position, the <code class="docutils literal notranslate"><span class="pre">omero</span></code>
+and the root’s source metadata (<a class="reference internal" href="#source-metadata">§5</a>) are the projection’s, which makes them,
+and the image’s checks (<a class="reference internal" href="#rejection">§7.3</a>: the levels, images, translation and extent limits),
+from the description as refkv’s plan of the image. Of an image across files
+(<a class="reference internal" href="#several-files">§7.9</a>), the description is the named file’s, with <code class="docutils literal notranslate"><span class="pre">named_key</span></code> and <code class="docutils literal notranslate"><span class="pre">files</span></code>.</p>
+<p>It is a JSON object with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">size</span></code></p></td>
+<td><p>the file’s size in bytes</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">given</span></code></p></td>
+<td><p>of a part (<a class="reference internal" href="#several-files">§7.9</a>), how many of <code class="docutils literal notranslate"><span class="pre">entries</span></code>, first, are the named file’s entries of the part’s subblocks; else 0</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">named_key</span></code></p></td>
+<td><p>of an image across files, the named file’s key</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">files</span></code></p></td>
+<td><p>of an image across files, each part’s <code class="docutils literal notranslate"><span class="pre">key</span></code> and <code class="docutils literal notranslate"><span class="pre">description</span></code> (a description of this form), in order; their elements are the store IR’s</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">file_header</span></code></p></td>
+<td><p>the file header’s fields (<a class="reference internal" href="#the-file-header">§2.2</a>): <code class="docutils literal notranslate"><span class="pre">major</span></code>, <code class="docutils literal notranslate"><span class="pre">minor</span></code>, <code class="docutils literal notranslate"><span class="pre">primary_file_guid</span></code> and <code class="docutils literal notranslate"><span class="pre">file_guid</span></code> (as text, in the form of <a class="reference internal" href="#the-file-header">§2.2</a>), <code class="docutils literal notranslate"><span class="pre">file_part</span></code>, <code class="docutils literal notranslate"><span class="pre">directory_position</span></code>, <code class="docutils literal notranslate"><span class="pre">metadata_position</span></code>, <code class="docutils literal notranslate"><span class="pre">update_pending</span></code> and <code class="docutils literal notranslate"><span class="pre">attachment_directory_position</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">segments</span></code></p></td>
+<td><p>the segments the profile read (<a class="reference internal" href="#segments">§2.1</a>), in file order, each <code class="docutils literal notranslate"><span class="pre">offset</span></code>, <code class="docutils literal notranslate"><span class="pre">id</span></code> (its bytes up to the first NUL when the rest are NUL, else all 16 escaped), <code class="docutils literal notranslate"><span class="pre">allocated_size</span></code>, <code class="docutils literal notranslate"><span class="pre">used_size</span></code> (the field, 0 kept) and <code class="docutils literal notranslate"><span class="pre">referenced</span></code> (false of one the walk found, <a class="reference internal" href="#structures-and-the-walk">§7.2</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">directory</span></code></p></td>
+<td><p>the subblock directory’s <code class="docutils literal notranslate"><span class="pre">position</span></code> and <code class="docutils literal notranslate"><span class="pre">entry_count</span></code> (<a class="reference internal" href="#the-subblock-directory">§2.3</a>); null without one</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">entries</span></code></p></td>
+<td><p>the directory’s entries, in order (of a part, after the named file’s entries of its subblocks; of a part with no directory, the subblocks its walk finds, each copy of its entry taken as the entry), each an object below</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metadata</span></code></p></td>
+<td><p>the metadata segment (<a class="reference internal" href="#the-metadata-segment">§2.5</a>): <code class="docutils literal notranslate"><span class="pre">position</span></code>, <code class="docutils literal notranslate"><span class="pre">xml_size</span></code>, <code class="docutils literal notranslate"><span class="pre">attachment_size</span></code>, <code class="docutils literal notranslate"><span class="pre">xml</span></code> (the XML’s IR element, null when it has none) and <code class="docutils literal notranslate"><span class="pre">values</span></code>, below; null without one</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">attachments</span></code></p></td>
+<td><p>the attachment directory (<a class="reference internal" href="#attachments">§2.6</a>): <code class="docutils literal notranslate"><span class="pre">position</span></code>, <code class="docutils literal notranslate"><span class="pre">entry_count</span></code> and <code class="docutils literal notranslate"><span class="pre">entries</span></code>, each an object below; null without one</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An entry is an object:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">element</span></code></p></td>
+<td><p>its IR value (<code class="docutils literal notranslate"><span class="pre">directory/entries/&lt;i&gt;</span></code>, <a class="reference internal" href="#elements">§5.3</a>); null of an entry the file’s IR holds no value of (one the named file gives a part, or a copy a part’s walk finds)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">schema</span></code>, <code class="docutils literal notranslate"><span class="pre">pixel_type</span></code>, <code class="docutils literal notranslate"><span class="pre">file_position</span></code>, <code class="docutils literal notranslate"><span class="pre">file_part</span></code>, <code class="docutils literal notranslate"><span class="pre">compression</span></code>, <code class="docutils literal notranslate"><span class="pre">pyramid_type</span></code></p></td>
+<td><p>its fields (<a class="reference internal" href="#the-subblock-directory">§2.3</a>), the pyramid type its byte 22</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dimensions</span></code></p></td>
+<td><p>its dimension entries, in order, each <code class="docutils literal notranslate"><span class="pre">dimension</span></code> (the letter), <code class="docutils literal notranslate"><span class="pre">start</span></code>, <code class="docutils literal notranslate"><span class="pre">size</span></code>, <code class="docutils literal notranslate"><span class="pre">start_coordinate</span></code> and <code class="docutils literal notranslate"><span class="pre">stored_size</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">subblock</span></code></p></td>
+<td><p>its subblock (<a class="reference internal" href="#subblocks">§2.4</a>), below; null of an entry of the named file whose subblock is in a part</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A subblock is an object:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">element</span></code></p></td>
+<td><p>its segment’s IR struct, the key of its stored array (<a class="reference internal" href="#elements">§5.3</a>): one struct for every entry that names the segment</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metadata_size</span></code>, <code class="docutils literal notranslate"><span class="pre">attachment_size</span></code>, <code class="docutils literal notranslate"><span class="pre">data_size</span></code></p></td>
+<td><p>its sizes</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">header_length</span></code></p></td>
+<td><p>its header length <code class="docutils literal notranslate"><span class="pre">L</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">agrees</span></code></p></td>
+<td><p>whether its copy of its entry agrees with the entry; null of an entry that names a segment an earlier entry named, whose copy is not compared</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">stream</span></code></p></td>
+<td><p>where its copy agrees and its data is what the entry says (<a class="reference internal" href="#codec-headers">§7.4</a>), the image the data holds: <code class="docutils literal notranslate"><span class="pre">width</span></code> and <code class="docutils literal notranslate"><span class="pre">height</span></code>, as its codec header gives them (an uncompressed, LZW or Zstd0 stream’s are the entry’s stored size), with, of a JpgFile stream, <code class="docutils literal notranslate"><span class="pre">lossless</span></code>, whether its frame is lossless, and, of a Zstd1 stream, <code class="docutils literal notranslate"><span class="pre">hilo</span></code>, whether its header says hi-lo packing, and <code class="docutils literal notranslate"><span class="pre">header_size</span></code>, its header’s bytes; else null</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data</span></code></p></td>
+<td><p>the IR element of its pixels (<a class="reference internal" href="#elements">§5.3</a>); null without a <code class="docutils literal notranslate"><span class="pre">stream</span></code>, and of an entry that names a segment an earlier entry named</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">values</span></code> holds the values <a class="reference internal" href="#the-metadata-xml">§2.7</a> reads, as it reads them, before any
+conversion: <code class="docutils literal notranslate"><span class="pre">px</span></code>, <code class="docutils literal notranslate"><span class="pre">py</span></code> and <code class="docutils literal notranslate"><span class="pre">pz</span></code> (in meters), <code class="docutils literal notranslate"><span class="pre">inc</span></code> (in seconds) and <code class="docutils literal notranslate"><span class="pre">bits</span></code>; <code class="docutils literal notranslate"><span class="pre">info</span></code> and <code class="docutils literal notranslate"><span class="pre">display</span></code>,
+the info and display channels, in order, each <code class="docutils literal notranslate"><span class="pre">name</span></code>, <code class="docutils literal notranslate"><span class="pre">color</span></code>, <code class="docutils literal notranslate"><span class="pre">bits</span></code>, <code class="docutils literal notranslate"><span class="pre">low</span></code> and <code class="docutils literal notranslate"><span class="pre">high</span></code> (null where
+the channel has none); <code class="docutils literal notranslate"><span class="pre">scenes</span></code>, each scene’s <code class="docutils literal notranslate"><span class="pre">index</span></code> and <code class="docutils literal notranslate"><span class="pre">name</span></code>, in the order first found; <code class="docutils literal notranslate"><span class="pre">sizes</span></code>,
+the first <code class="docutils literal notranslate"><span class="pre">Information/Image/Size&lt;letter&gt;</span></code> that is an integer of each letter <a class="reference internal" href="#several-files">§7.9</a>
+reads, by its letter; and <code class="docutils literal notranslate"><span class="pre">document</span></code>, the <code class="docutils literal notranslate"><span class="pre">Name</span></code> and <code class="docutils literal notranslate"><span class="pre">CreationDate</span></code> of <code class="docutils literal notranslate"><span class="pre">Information/Document</span></code>, as
+<code class="docutils literal notranslate"><span class="pre">name</span></code> and <code class="docutils literal notranslate"><span class="pre">creation_date</span></code>. A value of no element is null, or an empty list or object; every value is
+so of an XML <a class="reference internal" href="#the-metadata-xml">§2.7</a> does not read.</p>
+<p>An attachment entry is its <code class="docutils literal notranslate"><span class="pre">schema</span></code> and, of an <code class="docutils literal notranslate"><span class="pre">A1</span></code> entry, its <code class="docutils literal notranslate"><span class="pre">file_position</span></code>, <code class="docutils literal notranslate"><span class="pre">file_part</span></code>,
+<code class="docutils literal notranslate"><span class="pre">content_guid</span></code> (as text), <code class="docutils literal notranslate"><span class="pre">content_file_type</span></code> and <code class="docutils literal notranslate"><span class="pre">name</span></code>, these two without their trailing NULs as
+text values (<a class="reference internal" href="../conventions.html#source-metadata-as-json"><span class="std std-ref">conventions §6</span></a>), bytes after an earlier
+NUL kept.</p>
+<p>What the projection makes from it, as refkv’s plan: the placed subblocks are those of the entries,
+the named file’s and then each part’s, whose <code class="docutils literal notranslate"><span class="pre">subblock</span></code> has <code class="docutils literal notranslate"><span class="pre">agrees</span></code> true and a <code class="docutils literal notranslate"><span class="pre">stream</span></code> and a
+<code class="docutils literal notranslate"><span class="pre">data</span></code>, each a cell of its <code class="docutils literal notranslate"><span class="pre">stream</span></code>’s coded size; the root’s <code class="docutils literal notranslate"><span class="pre">version</span></code>, GUIDs, <code class="docutils literal notranslate"><span class="pre">file_part</span></code> and
+<code class="docutils literal notranslate"><span class="pre">update_pending</span></code> are the named file’s <code class="docutils literal notranslate"><span class="pre">file_header</span></code>’s, and its <code class="docutils literal notranslate"><span class="pre">parts</span></code> the keys of <code class="docutils literal notranslate"><span class="pre">files</span></code>; the
+summary’s <code class="docutils literal notranslate"><span class="pre">subblocks</span></code> counts the entries with a <code class="docutils literal notranslate"><span class="pre">subblock</span></code>.</p>
 <div class="toctree-wrapper compound">
 </div>
 </section>

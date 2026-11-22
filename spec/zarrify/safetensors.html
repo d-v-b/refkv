@@ -1221,6 +1221,46 @@ members:</p>
 </table>
 </div>
 </section>
+<section id="the-description">
+<span id="85-the-description"></span><h3>8.5 The description<a class="headerlink" href="#the-description" title="Link to this heading">¶</a></h3>
+<p>This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a <strong>description</strong> of the file: what it found of the header, in the format’s
+own terms, for a projection to read with the IR and its stored arrays
+(<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>), which give each tensor’s bytes. Its
+JSON Schema is <a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors/description.json">safetensors/description.json</a>. It holds none of an
+output’s decisions: which tensors are presented and why the others are not, their paths and the
+groups they make (<a class="reference internal" href="#paths">§4.1</a>), each array’s data type, fill value, chunks and codecs
+(<a class="reference internal" href="#data-types">§3</a>, <a class="reference internal" href="#the-arrays">§4.2</a>, <a class="reference internal" href="#chunks">§8.3</a>) and the source metadata
+(<a class="reference internal" href="#source-metadata">§5</a>) are the projection’s. Those decisions are refkv’s <strong>plan</strong> of the file,
+made from the description alone by the function the convention’s projection calls
+(<code class="docutils literal notranslate"><span class="pre">safetensors::plan::plan</span></code> in the Rust core); a layout that wants another hierarchy makes its own
+from the description. It is a JSON object with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">header_length</span></code></p></td>
+<td><p>the header’s length <code class="docutils literal notranslate"><span class="pre">N</span></code>, the file’s first 8 bytes (<a class="reference internal" href="#the-safetensors-format">§2</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metadata</span></code></p></td>
+<td><p>the header’s <code class="docutils literal notranslate"><span class="pre">__metadata__</span></code>, its strings as written; null without one</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tensors</span></code></p></td>
+<td><p>each tensor in the order the header writes them: <code class="docutils literal notranslate"><span class="pre">name</span></code>, its member’s name; <code class="docutils literal notranslate"><span class="pre">dtype</span></code>, <code class="docutils literal notranslate"><span class="pre">shape</span></code> and <code class="docutils literal notranslate"><span class="pre">data_offsets</span></code>, its entry’s; and <code class="docutils literal notranslate"><span class="pre">extra</span></code>, its entry’s other members, where it has any</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">elements</span></code></p></td>
+<td><p>the IR’s elements: <code class="docutils literal notranslate"><span class="pre">length</span></code>, <code class="docutils literal notranslate"><span class="pre">header</span></code>, and <code class="docutils literal notranslate"><span class="pre">tensors</span></code>, each tensor’s data element in the order of <code class="docutils literal notranslate"><span class="pre">tensors</span></code>, null for a tensor of no bytes</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Every tensor of the header is there, those <a class="reference internal" href="#paths">§4.1</a> does not present among them: a header
+that fails a check of <a class="reference internal" href="#checks">§8.2</a> rejects the file before the description.</p>
+</section>
 </section>
 <section id="the-store-form">
 <span id="9-the-store-form"></span><h2>9. The store form<a class="headerlink" href="#the-store-form" title="Link to this heading">¶</a></h2>
@@ -1308,9 +1348,10 @@ source follows them.</p>
 </section>
 <section id="id3">
 <span id="95-the-ir-mirror"></span><h3>9.5 The IR mirror<a class="headerlink" href="#id3" title="Link to this heading">¶</a></h3>
-<p>The store IR (<a class="reference internal" href="../conventions.html#stores"><span class="std std-ref">conventions §8.9</span></a>) lists every object. A presented
-shard is <strong>described in place</strong>: its elements are the file form’s (<a class="reference internal" href="#elements">§5.3</a>), at its
-offsets, and its bytes stay at its URL. An index or configuration that is a JSON document is
+<p>The store IR (<a class="reference internal" href="../conventions.html#stores"><span class="std std-ref">conventions §8.9</span></a>) lists every object. A shard whose
+header passes <a class="reference internal" href="#checks">§8.2</a>’s checks is <strong>described in place</strong>, whether or not it is
+presented: its elements are the file form’s (<a class="reference internal" href="#elements">§5.3</a>), at its offsets, and its bytes
+stay at its URL. Which objects the IR describes does not depend on the hierarchy. An index or configuration that is a JSON document is
 <strong>held</strong>: its members’ values are its elements (<a class="reference internal" href="../zarrify.html#json-documents"><span class="std std-ref">spec/zarrify.md §1.6</span></a>),
 and the mirror rebuilds it. Every other object is referenced.</p>
 </section>
@@ -1318,6 +1359,37 @@ and the mirror rebuilds it. Every other object is referenced.</p>
 <span id="96-summary"></span><h3>9.6 Summary<a class="headerlink" href="#id4" title="Link to this heading">¶</a></h3>
 <p>This section is informative. The summary has <code class="docutils literal notranslate"><span class="pre">shards</span></code> (each presented shard’s <code class="docutils literal notranslate"><span class="pre">{&quot;key&quot;,</span> <span class="pre">&quot;tensors&quot;}</span></code>), <code class="docutils literal notranslate"><span class="pre">unpresented</span></code> (the shards not presented), <code class="docutils literal notranslate"><span class="pre">chunks</span></code> and <code class="docutils literal notranslate"><span class="pre">others</span></code> (the objects
 referenced whole).</p>
+</section>
+<section id="id5">
+<span id="97-the-description"></span><h3>9.7 The description<a class="headerlink" href="#id5" title="Link to this heading">¶</a></h3>
+<p>This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the store form’s parser returns a <strong>description</strong> of the store, of the same JSON Schema
+(<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors/description.json">safetensors/description.json</a>, its definition <code class="docutils literal notranslate"><span class="pre">store</span></code>). It holds
+none of an output’s decisions: which shards are presented and why the others are not
+(<a class="reference internal" href="#id1">§9.1</a>), the groups their keys make, whether an index agrees with the shards
+(<a class="reference internal" href="#id2">§9.2</a>), and which objects are referenced whole (<a class="reference internal" href="#chunks-and-sources">§9.4</a>)
+are refkv’s plan of the store (<code class="docutils literal notranslate"><span class="pre">safetensors::plan::plan_store</span></code>), which the projection makes from the
+description and the listing. It is a JSON object with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">shards</span></code></p></td>
+<td><p>each shard, in key order: <code class="docutils literal notranslate"><span class="pre">key</span></code>; <code class="docutils literal notranslate"><span class="pre">object</span></code>, its object’s element; and <code class="docutils literal notranslate"><span class="pre">header</span></code>, its header’s description as <a class="reference internal" href="#the-description">§8.5</a> gives a file’s, with its elements (<a class="reference internal" href="#id3">§9.5</a>), or <code class="docutils literal notranslate"><span class="pre">error</span></code>, the message of the first check of <a class="reference internal" href="#checks">§8.2</a> it fails</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">documents</span></code></p></td>
+<td><p>each index and configuration the store form reads (<a class="reference internal" href="#reading-and-checks">§9.3</a>), in key order: <code class="docutils literal notranslate"><span class="pre">key</span></code>; <code class="docutils literal notranslate"><span class="pre">object</span></code>, its object’s element; and <code class="docutils literal notranslate"><span class="pre">json</span></code>, the document as parsed, as text (its integers and strings as written, its members in order), or <code class="docutils literal notranslate"><span class="pre">error</span></code>, why it is not a JSON document of <a class="reference internal" href="../zarrify.html#json-documents"><span class="std std-ref">spec/zarrify.md §1.6</span></a></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ignored</span></code></p></td>
+<td><p>the keys the listing ignored, where there are any</p></td>
+</tr>
+</tbody>
+</table>
+</div>
 <div class="toctree-wrapper compound">
 </div>
 </section>

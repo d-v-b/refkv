@@ -587,3 +587,37 @@ summary, with these members:
 | `info` | the info frame's tag, or `null` |
 | `tags` | those of `"id3v2"`, `"id3v1"` and `"ape"` the file has, in that order |
 | `strayBytes` | the stray bytes |
+
+### 8.4 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. The
+parser returns, beside the IR, a **description** of the file: what it found of the source, for a
+projection to read with the IR and its stored arrays
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)). It holds none of an output's
+decisions: the frames of a chunk and the lead-ins ([§8.2](#82-chunks)), and the array's data type,
+shape, chunks and codecs ([§4.1](#41-the-array)) are the projection's. Its JSON Schema is
+[`mp3/description.json`](mp3/description.json). It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `version` | the stream's version, `"MPEG-1"`, `"MPEG-2"` or `"MPEG-2.5"` ([§2](#2-frames)) |
+| `layer` | 3 |
+| `sample_rate` | the stream's, in Hz |
+| `channels` | `C` |
+| `channel_mode` | the first audio frame's: `"stereo"`, `"joint_stereo"`, `"dual_channel"` or `"mono"` |
+| `samples_per_frame` | `S` |
+| `frames` | `N`, the audio frames, the info frame not among them |
+| `kbps` | each audio frame's bitrate in kbps, in order |
+| `crc_frames` | how many audio frames have the protection bit 0 (a CRC) |
+| `main_data` | each audio frame's main data, `M`, in bytes ([§2](#2-frames)), in order |
+| `info` | the info frame's fields, an [`Mp3Info`](#type-mp3info), or null when the stream starts with none |
+| `id3v2` | each ID3v2 tag's header at the start, an [`Mp3Id3v2`](#type-mp3id3v2), in order |
+| `id3v1` | the ID3v1 tag's fields, an [`Mp3Id3v1`](#type-mp3id3v1), or null |
+| `ape` | the APE tag's, an [`Mp3Ape`](#type-mp3ape), or null |
+| `stray_bytes` | the bytes between the ID3v2 tags and the trailing tags that are in no frame |
+| `elements` | the ids of IR elements ([§5.3](#53-elements)) by name: `frames`, the first audio frame's `data` element, which the others follow; `info`, the info frame's value, and `id3v1`, the ID3v1 tag's, each null when the file has none |
+
+The root's source metadata of [§5.1](#51-the-root) follows from the description: `bitrate_mode`
+and `bitrate_kbps` from `kbps`, `samples` and `duration` from `frames`, `samples_per_frame` and
+`sample_rate`, and the other members as the description gives them; and each chunk's lead-in from
+`main_data` and `version` ([§8.2](#82-chunks)).

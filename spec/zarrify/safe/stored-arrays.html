@@ -480,8 +480,8 @@
 file, holds one image, a stored array, in both forms of the product: in the directory form’s
 store IR, whose parser describes its objects’ arrays itself (<a class="reference internal" href="../../stored-array.html#in-the-ir"><span class="std std-ref">stored-array.md §6</span></a>), and in the zip
 form’s file IR. It is keyed by the band file’s <code class="docutils literal notranslate"><span class="pre">codestream</span></code> struct (<code class="docutils literal notranslate"><span class="pre">boxes/&lt;i&gt;/codestream</span></code>, under
-the band file’s object or under its zip entry’s <code class="docutils literal notranslate"><span class="pre">data</span></code>), with no index. The facts give the key:
-each band’s <code class="docutils literal notranslate"><span class="pre">declared_by</span></code> is the id of that struct. The profile presents every band file. The
+the band file’s object or under its zip entry’s <code class="docutils literal notranslate"><span class="pre">data</span></code>), with no index. The description gives the key (<a class="reference internal" href="../safe.html#the-description"><span class="std std-ref">safe.md §8.11</span></a>):
+each band’s <code class="docutils literal notranslate"><span class="pre">element</span></code> is the id of that struct. The profile presents every band file. The
 product’s other images (the quality masks, the preview image, the cloud and snow probabilities,
 a mirror’s quicklook) are in objects the parser does not read
 (<a class="reference internal" href="../safe.html#objects"><span class="std std-ref">safe.md §2.1</span></a>), and have no description.</p>

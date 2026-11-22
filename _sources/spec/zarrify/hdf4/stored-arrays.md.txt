@@ -5,8 +5,9 @@ What the HDF4 parser describes as stored arrays ([stored-array.md](../../stored-
 Every dataset of the SD interface the parser
 reaches is a stored array, whether or not the profile presents it: each `Var0.0` Vgroup of the
 file's `CDF0.0` Vgroup ([hdf4.md §3](../hdf4.md#3-datasets)). It is keyed by that
-Vgroup's element (`elements/1965/<ref>`), with no index. The facts give the key: each presented
-dataset's `array.declared_by` is that element's id. The writer's Vdatas (tables) and the
+Vgroup's element (`elements/1965/<ref>`), with no index. The description gives the key: each
+dataset's `element` ([hdf4.md §9.6](../hdf4.md#96-the-description)) is that element's id, of every
+dataset with a stored array, presented or not. The writer's Vdatas (tables) and the
 datasets' attributes are not described yet.
 
 - **Declarations.** The number type's element (`elements/106/<ref>`), whose type code and width
