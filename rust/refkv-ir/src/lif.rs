@@ -878,11 +878,6 @@ impl crate::run::FileProfile for Profile {
     fn described(&self) -> bool {
         true
     }
-    /// A LAS X project's store run returns a description of its documents and LOFs
-    /// (spec/zarrify/lif.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#9-the-description>).
-    fn store_described(&self) -> bool {
-        true
-    }
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
