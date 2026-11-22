@@ -32,7 +32,7 @@ fn alone(data: &[u8]) -> Result<(refkv_ir::ir::Ir, serde_json::Value), String> {
     p.resolve(Default::default());
     loop {
         match p.step()? {
-            refkv_ir::nd2::Step::Read(r) => {
+            refkv_ir::step::Step::Read(r) => {
                 for (o, n) in r {
                     p.feed(o, data[o as usize..(o + n) as usize].to_vec());
                 }
@@ -140,7 +140,7 @@ fn counted(data: &[u8], strings_before: u128, whole: bool) -> serde_json::Value 
     if whole {
         p.feed(0, data.to_vec());
     }
-    while let refkv_ir::nd2::Step::Read(r) = p.step().unwrap() {
+    while let refkv_ir::step::Step::Read(r) = p.step().unwrap() {
         for (o, n) in r {
             p.feed(o, data[o as usize..(o + n) as usize].to_vec());
         }
@@ -178,13 +178,13 @@ fn an_imaris_file_is_found_to_be_ims() {
     let mut p = Hdf5::new(data.len() as u64);
     loop {
         match p.step().unwrap() {
-            refkv_ir::nd2::Step::Read(r) => {
+            refkv_ir::step::Step::Read(r) => {
                 for (o, n) in r {
                     p.feed(o, data[o as usize..(o + n) as usize].to_vec());
                 }
             }
-            refkv_ir::nd2::Step::Beside => panic!("the file names siblings"),
-            refkv_ir::nd2::Step::Done => break,
+            refkv_ir::step::Step::Beside => panic!("the file names siblings"),
+            refkv_ir::step::Step::Done => break,
         }
     }
     assert_eq!(Parser::found(&p), Some("ims"));

@@ -75,7 +75,7 @@ pub(crate) use reject;
 /// The TIFF parser's IR and description of a file, and refkv's plan of it (`tiff::plan::plan`),
 /// of the profile the parser found: Err with the parser's rejection, or the plan's.
 pub fn tiff_plan(data: &[u8]) -> Result<(refkv_ir::ir::Ir, serde_json::Value, serde_json::Value), String> {
-    use refkv_ir::nd2::Step;
+    use refkv_ir::step::Step;
     let mut p = refkv_ir::tiff::Tiff::new(data.len() as u64);
     loop {
         match p.step()? {

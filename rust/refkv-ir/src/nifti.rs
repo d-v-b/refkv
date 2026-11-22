@@ -26,7 +26,7 @@ pub(crate) mod stored;
 use crate::fed::{Fed, Word};
 use crate::gz;
 use crate::ir::*;
-use crate::nd2::Step;
+use crate::step::Step;
 use crate::record::{Field, Header, Num};
 use crate::rules::{self, Rules, flag, num, text};
 use crate::sans;

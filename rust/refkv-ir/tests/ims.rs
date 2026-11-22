@@ -22,13 +22,13 @@ fn ims_with_room(data: &[u8], room: Option<u64>) -> (refkv_ir::ir::Ir, serde_jso
     p.room = room;
     loop {
         match p.step().unwrap() {
-            refkv_ir::nd2::Step::Read(r) => {
+            refkv_ir::step::Step::Read(r) => {
                 for (o, n) in r {
                     p.feed(o, data[o as usize..(o + n) as usize].to_vec());
                 }
             }
-            refkv_ir::nd2::Step::Beside => panic!("the file names siblings"),
-            refkv_ir::nd2::Step::Done => break,
+            refkv_ir::step::Step::Beside => panic!("the file names siblings"),
+            refkv_ir::step::Step::Done => break,
         }
     }
     p.finish().unwrap()

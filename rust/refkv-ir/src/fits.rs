@@ -17,7 +17,7 @@
 use crate::expr::V;
 use crate::fed::{Fed, Overlap, Word};
 use crate::ir::*;
-use crate::nd2::Step;
+use crate::step::Step;
 use crate::rules::{self, Rules, flag, num, text};
 use crate::sans;
 use crate::text::latin1;

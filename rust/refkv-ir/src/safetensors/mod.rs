@@ -19,7 +19,7 @@ mod stored;
 
 use crate::fed::{Fed, Overlap, uint};
 use crate::ir::*;
-use crate::nd2::Step;
+use crate::step::Step;
 use crate::rules::{self, Rules, flag, num, text};
 use crate::sans::{self, Asked};
 use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};

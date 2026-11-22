@@ -16,7 +16,7 @@ include!(concat!(env!("OUT_DIR"), "/rejects_flac.rs"));
 fn reads(data: &[u8]) -> (Vec<(u64, u64)>, refkv_ir::ir::Ir) {
     let mut p = Flac::new(data.len() as u64);
     let mut asked = Vec::new();
-    while let refkv_ir::nd2::Step::Read(r) = p.step().unwrap() {
+    while let refkv_ir::step::Step::Read(r) = p.step().unwrap() {
         for (o, n) in r {
             asked.push((o, n));
             p.feed(o, data[o as usize..(o + n) as usize].to_vec());
@@ -82,7 +82,7 @@ fn the_host_says_whether_it_records_checksums() {
 fn windowed(data: &[u8], window: u64) -> (refkv_ir::ir::Ir, serde_json::Value, u64) {
     let mut p = Flac::with_window(data.len() as u64, window);
     let mut rounds = 0;
-    while let refkv_ir::nd2::Step::Read(r) = p.step().unwrap() {
+    while let refkv_ir::step::Step::Read(r) = p.step().unwrap() {
         rounds += 1;
         for (o, n) in r {
             p.feed(o, data[o as usize..(o + n) as usize].to_vec());

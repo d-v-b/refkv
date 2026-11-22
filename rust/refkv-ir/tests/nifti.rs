@@ -2,7 +2,7 @@
 
 mod common;
 
-use refkv_ir::nd2::Step;
+use refkv_ir::step::Step;
 use refkv_ir::nifti::Nifti;
 use refkv_ir::out::Part;
 use refkv_ir::run::Format;

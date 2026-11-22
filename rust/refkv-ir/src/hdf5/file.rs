@@ -26,7 +26,7 @@ use super::walk::{lenient, visit, Emit, Visit};
 use super::{le, Acc, Collection, Dataset, Fail, Index, Layout, Target, CHECKSUM, DEFLATE, FLETCHER32, H5, R, SHUFFLE, UNDEFINED};
 use crate::beside::{written_key, Written};
 use crate::ir::{Ir, NO_INDEX};
-use crate::nd2::Step;
+use crate::step::Step;
 use crate::project::hdf5_nodes::{chunk_parts, ChunkPart};
 use crate::rules::{self, num, Rules, Vars};
 use crate::text::{text_json, utf8_or_latin1};

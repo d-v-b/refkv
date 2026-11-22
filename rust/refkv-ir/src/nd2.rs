@@ -16,6 +16,7 @@ use crate::text::utf8_or_latin1;
 use crate::xml;
 use crate::fed::{Fed, Overlap, Word};
 use std::collections::HashMap;
+use crate::step::Step;
 
 #[path = "nd2/plan.rs"]
 pub mod plan;
@@ -42,15 +43,6 @@ const STREAMS: [&str; 8] = [
     "AcqFramesCache",
 ];
 const HEADER: &str = "{magic:<u4,name_length:<u4,data_length:<u8}";
-
-pub enum Step {
-    Read(Vec<(u64, u64)>),
-    /// The file names siblings (spec/zarrify.md §1.9
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>), so
-    /// that it is a file read as a store: the host starts over with a store run of its format.
-    Beside,
-    Done,
-}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Phase {

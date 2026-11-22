@@ -33,6 +33,7 @@ pub mod routines;
 pub mod rules;
 pub mod run;
 pub mod sans;
+pub mod step;
 pub mod seal;
 pub mod schema;
 pub mod shard;
@@ -55,7 +56,7 @@ include!(concat!(env!("OUT_DIR"), "/modules.rs"));
 /// `feed` gives one range's bytes, `finish` the IR and the facts its projection reads.
 pub trait Parser {
     fn new(size: u64) -> Self;
-    fn step(&mut self) -> Result<nd2::Step, String>;
+    fn step(&mut self) -> Result<step::Step, String>;
     fn feed(&mut self, offset: u64, data: Vec<u8>);
     fn finish(self) -> Result<(ir::Ir, serde_json::Value), String>;
     /// The profile the parser found the file to be, when the parser decides it (the TIFF
@@ -73,7 +74,7 @@ macro_rules! parser {
             fn new(size: u64) -> Self {
                 <$t>::new(size)
             }
-            fn step(&mut self) -> Result<$crate::nd2::Step, String> {
+            fn step(&mut self) -> Result<$crate::step::Step, String> {
                 <$t>::step(self)
             }
             fn feed(&mut self, offset: u64, data: Vec<u8>) {
@@ -92,13 +93,13 @@ pub fn parse_bytes<P: Parser>(data: &[u8]) -> Result<(ir::Ir, serde_json::Value)
     let mut p = P::new(data.len() as u64);
     loop {
         match p.step()? {
-            nd2::Step::Read(r) => {
+            step::Step::Read(r) => {
                 for (o, n) in r {
                     p.feed(o, data[o as usize..(o + n) as usize].to_vec());
                 }
             }
-            nd2::Step::Beside => return Err("the file names siblings, which its bytes alone cannot give".into()),
-            nd2::Step::Done => break,
+            step::Step::Beside => return Err("the file names siblings, which its bytes alone cannot give".into()),
+            step::Step::Done => break,
         }
     }
     p.finish()
