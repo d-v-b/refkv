@@ -1119,3 +1119,78 @@ IFD image ([the convention §4.3](#43-the-macro-image)); an IFD image's has no `
 | `grids` | `[columns, rows]` per level | absent |
 | `chunks` | the number of its chunks | 1 |
 | `tilesOutside` | its tiles outside their levels | absent |
+
+### 9.6 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a **description** of the slide: what it found of the `.vsi` file's and the
+tile files' known structures, in Olympus's own terms, for a projection to read with the IR and its
+stored arrays ([spec/stored-array.md §7](../stored-array.md#7-the-formats)). Its JSON Schema is
+[vsi/description.json](vsi/description.json). It holds none of an output's decisions: which stacks
+and IFDs are images and in what order ([§4](#4-the-images)), and which IFD images are not presented
+([§4.4](#44-ifd-images-that-are-not-presented)); the levels, axes, data types, fill values and codecs
+([§4.1](#41-the-pyramid), [§4.3](#43-the-macro-image)); the channels' labels, colors and windows
+([§4.2](#42-channels)); the units, scales and translations ([§5](#5-scales-units-and-position)); and the
+source metadata ([§6](#6-source-metadata)) are the projection's.
+
+It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `key`, `size`, `element` | the `.vsi` file's key, its size in bytes, and its object's IR element |
+| `header` | the TIFF header ([§2](#2-the-vsi-file)): `byte_order` (its first two bytes as text), `magic`, `first_ifd`, and `element`, its IR element |
+| `ifds` | the IFDs of the chain ([§2.3](#23-the-tiff-images)), each followed by its EXIF IFD, in the order read, each an object below |
+| `tree` | the metadata tree ([§2.1](#21-containers-and-fields)) as the root's `tree` gives it ([§6.1](#61-the-root)) |
+| `macro_ifd` | the second tag of the collection volume's `Default sample IFD` field (2016), an IFD's index; null without one |
+| `stacks` | the stacks of the tree ([§2.2](#22-stacks)), in its order, each an object below |
+| `tile_files` | the tile files read ([§9.2](#92-the-tile-files)), in the stacks' order, each an object below |
+
+An IFD is an object:
+
+| member | value |
+|---|---|
+| `index` | its index in the main chain, or, of an EXIF IFD, its IFD's |
+| `exif` | whether it is an EXIF IFD |
+| `offset`, `next` | its offset, and its next-IFD word |
+| `tags` | each tag it has of those the profile reads (256, 257, 258, 259, 262, 273, 277, 278, 279, 284, 322, 323, 324, 325, 339, 347 and 34665; the first entry of a tag), by its number: `type`, its field type; `count`, its count; and `value`, its values as unsigned integers for the types BYTE, SHORT, LONG and IFD, JPEGTables' bytes in base64, or null for another type or a value outside the file |
+| `element` | of a main-chain IFD in a TIFF region ([§2.3](#23-the-tiff-images)), its IR struct ([§6.3](#63-elements)); else null |
+| `strips`, `tiles` | of such an IFD with both fields of its strips' (273 and 279) or tiles' (324 and 325) table, of one length, the `data` element of each entry, or null for an entry of no bytes or outside the file; else null |
+
+A stack is an object. Each value it takes from the tree is the value of the first field of its tag
+as the root's `tree` gives it (a number, a list of numbers, a text), or null without that field:
+
+| member | value |
+|---|---|
+| `id` | the stack's id, its volume field's second tag |
+| `name`, `type` | its `Stack name` (2030) and `Stack type` (2074), of its properties (2005) |
+| `type_name` | the type's entry in the table `stack_types` (Bio-Formats' name); null without one |
+| `has_external_file`, `image_boundary` | `Has external file` (20005) and `Image boundary` (2053), of its frame volume's (2002) external file properties (2018) |
+| `dimension_sizes` | its own `Dimension size` (2003) |
+| `default_ifd`, `coarse_ifd` | the second tags of its frame volume's `Default sample IFD` (2016) and `Coarse frame IFD` (2019) fields; null without them |
+| `frame_scale`, `frame_origin`, `frame_unit`, `display_limits`, `creation_time` | `RWC frame scale` (2019), `RWC frame origin` (2018), `RWC frame unit` (2020), `Display limits` (2003) and `Creation time` (2015), of its properties |
+| `magnification` | the first number of an `Objective magnification` field (120060) under its properties, depth first; null without one |
+| `dimensions` | its dimension description volumes (2007), in the tree's order: `index`, the volume's second tag (its coordinate is `2 + index`); `meaning_code`, the first number of a `Dimension meaning` field (2023) among its property sets (2008); and `meaning`, as [§2.2](#22-stacks) reads it |
+| `z_increment` | of the `z` dimension, the last of its property sets' `Z increment` mdim volumes (2013): `value`, its `Value` (268435458), and `unit`, its `Units` (268435456) text; null without one |
+| `channels` | of the `c` dimension, one per property set: `dimension_name` (2021) and `channel_name` (2419), texts; `lut_color`, the last entry of its `Stack display LUT` (2004) as `RRGGBB` ([§4.2](#42-channels)); `display_limits` (2003); and `wavelength`, its `Channel wavelength` mdim volume's (2417) `Value` |
+| `tile_file` | its tile file, an index into `tile_files`; null without one |
+
+A tile file is an object:
+
+| member | value |
+|---|---|
+| `key`, `size`, `element` | its key, its size in bytes, and its object's IR element |
+| `stack` | its stack, an index into `stacks` |
+| `sis` | the SIS header's `header_size`, `version`, `coordinates`, `ets_offset`, `ets_size`, `tiles_offset`, `tiles` and `size` ([§3](#3-the-tile-files)) |
+| `ets` | the ETS header's `version`, `pixel_type`, `channels`, `colorspace`, `compression`, `quality`, `tile_width`, `tile_height`, `tile_depth`, `background` (its 40 bytes in base64), `component_order`, `use_pyramid` (whether it is not 0), `dimensions`, and `dimension_sizes`, its first `dimensions` sizes (at most 10) |
+| `header` | the ETS header's IR element, `ets`, which keys the file's stored arrays |
+| `tiles` | the directory's records, in order, each `[element, offset, size, c0, c1, ...]`: the tile's `data` element, its offset and size, and its `coordinates` coordinates in the record's order |
+
+The parser returns the description alone beside the IR, and the IR's elements and stored arrays do
+not depend on what the layout presents. The projection makes refkv's **plan** from the description
+and nothing else: the images and their order and the IFD images not presented, with their reasons
+([§4](#4-the-images), [§4.4](#44-ifd-images-that-are-not-presented)); each pyramid's levels, its tiles
+inside them, data type, fill value and codec ([§4.1](#41-the-pyramid)); each IFD image's strips and
+JPEG prefix ([§4.3](#43-the-macro-image)); the channels' names, colors and display limits
+([§4.2](#42-channels)); and the units the table `units` names ([§5](#5-scales-units-and-position)). The
+plan is public data of refkv's convention, not of the IR. The parser still checks the input as
+[§9.1](#91-the-vsi-file) to [§9.3](#93-tiles-and-levels) say.

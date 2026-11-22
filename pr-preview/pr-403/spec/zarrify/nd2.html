@@ -1865,6 +1865,46 @@ entry <code class="docutils literal notranslate"><span class="pre">&lt;p&gt;/0/c
 <a class="reference internal" href="#type-nd2framechunk"><code class="docutils literal notranslate"><span class="pre">Nd2FrameChunk</span></code></a>); coords are its <code class="docutils literal notranslate"><span class="pre">t</span></code>, 0 for
 <code class="docutils literal notranslate"><span class="pre">c</span></code>, its <code class="docutils literal notranslate"><span class="pre">z</span></code> (each only when its axis is present), then 0, 0. With row
 blocks, block <code class="docutils literal notranslate"><span class="pre">j</span></code> is the entry with coords …, <code class="docutils literal notranslate"><span class="pre">j</span></code>, 0.</p>
+</section>
+<section id="the-description">
+<span id="75-the-description"></span><h3>7.5 The description<a class="headerlink" href="#the-description" title="Link to this heading">¶</a></h3>
+<p>This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a <strong>description</strong> of the file, for a projection to read with the IR and its
+stored arrays (<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>). Its JSON Schema is
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2/description.json">nd2/description.json</a>. It holds none of an output’s decisions: the number of
+positions and frames, the axes, the data type and codecs, the row blocks, the calibration, scales,
+units and stage translations, the channels and their window (<a class="reference internal" href="#the-image">§4</a>), and which decoded
+chunks the root’s source metadata holds (<a class="reference internal" href="#decoded-chunks">§5.1</a>) are the projection’s. Of those,
+the frames’ layout and data type, the loops’ order, the positions and frames, the calibration,
+scales, units and stage translations, and the channels are refkv’s <strong>plan</strong> of the file, made from
+the description alone by the function the convention’s projection calls, with the schema’s own
+derived quantities (<code class="docutils literal notranslate"><span class="pre">schema/nd2.json</span></code>’s <code class="docutils literal notranslate"><span class="pre">derive</span></code>); the projection makes the rest. A layout that
+wants another image makes its own from the description. The parser still checks the file with the
+same quantities (<a class="reference internal" href="#rejection">§7.2</a>), so a description it returns has a plan. The description is
+a JSON object:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">attributes</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">SLxImageAttributes</span></code>’s members as <a class="reference internal" href="#metadata">§3</a> reads them (<code class="docutils literal notranslate"><span class="pre">uiWidth</span></code>, <code class="docutils literal notranslate"><span class="pre">uiHeight</span></code>, <code class="docutils literal notranslate"><span class="pre">uiWidthBytes</span></code>, <code class="docutils literal notranslate"><span class="pre">uiComp</span></code>, <code class="docutils literal notranslate"><span class="pre">uiBpcInMemory</span></code>, <code class="docutils literal notranslate"><span class="pre">uiBpcSignificant</span></code>, <code class="docutils literal notranslate"><span class="pre">eCompression</span></code>, <code class="docutils literal notranslate"><span class="pre">uiTileWidth</span></code>, <code class="docutils literal notranslate"><span class="pre">uiTileHeight</span></code>), an absent member at its default; an integer exactly, a number as a number</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">loops</span></code></p></td>
+<td><p>the experiment’s loops, flattened by <a class="reference internal" href="#metadata">§3</a>’s rules (none without <code class="docutils literal notranslate"><span class="pre">SLxExperiment</span></code>): each <code class="docutils literal notranslate"><span class="pre">kind</span></code> (<code class="docutils literal notranslate"><span class="pre">t</span></code>, <code class="docutils literal notranslate"><span class="pre">z</span></code> or <code class="docutils literal notranslate"><span class="pre">p</span></code>), <code class="docutils literal notranslate"><span class="pre">count</span></code> and <code class="docutils literal notranslate"><span class="pre">depth</span></code>, and a time loop’s <code class="docutils literal notranslate"><span class="pre">period</span></code> (ms), a z loop’s <code class="docutils literal notranslate"><span class="pre">step</span></code> (µm) and <code class="docutils literal notranslate"><span class="pre">flip</span></code> (whether <code class="docutils literal notranslate"><span class="pre">dZStep</span></code> is negative), or a position loop’s <code class="docutils literal notranslate"><span class="pre">stage</span></code>, each valid point’s <code class="docutils literal notranslate"><span class="pre">[dPosX,</span> <span class="pre">dPosY]</span></code> (µm), an absent coordinate null</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">picture</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">SLxPictureMetadata</span></code>’s members as <a class="reference internal" href="#metadata">§3</a> reads them (<code class="docutils literal notranslate"><span class="pre">bCalibrated</span></code>, <code class="docutils literal notranslate"><span class="pre">dCalibration</span></code>, <code class="docutils literal notranslate"><span class="pre">dAspect</span></code>, <code class="docutils literal notranslate"><span class="pre">dStgLgCT11</span></code> to <code class="docutils literal notranslate"><span class="pre">dStgLgCT22</span></code>, <code class="docutils literal notranslate"><span class="pre">dXPos</span></code>, <code class="docutils literal notranslate"><span class="pre">dYPos</span></code>, <code class="docutils literal notranslate"><span class="pre">sPicturePlanes</span></code>), an absent member at its default or null without one, <code class="docutils literal notranslate"><span class="pre">sPicturePlanes</span></code> <code class="docutils literal notranslate"><span class="pre">{}</span></code> where absent; of its planes, <code class="docutils literal notranslate"><span class="pre">uiCount</span></code> and <code class="docutils literal notranslate"><span class="pre">sPlaneNew</span></code>, plane <code class="docutils literal notranslate"><span class="pre">a&lt;i&gt;</span></code> for each <code class="docutils literal notranslate"><span class="pre">i</span></code> below <code class="docutils literal notranslate"><span class="pre">uiCount</span></code> the file has, with <code class="docutils literal notranslate"><span class="pre">sDescription</span></code>, <code class="docutils literal notranslate"><span class="pre">uiColor</span></code> (modulo 2^32) and <code class="docutils literal notranslate"><span class="pre">uiCompCount</span></code>; null where the chunk or the member is absent</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">chunks</span></code></p></td>
+<td><p>the chunks the IR holds decoded for the source metadata (<a class="reference internal" href="#decoded-chunks">§5.1</a>), in the chunk map’s order: each <code class="docutils literal notranslate"><span class="pre">name</span></code> (text, <a class="reference internal" href="../conventions.html#source-metadata-as-json"><span class="std std-ref">conventions §6</span></a>), <code class="docutils literal notranslate"><span class="pre">element</span></code>, the IR element of its decoding (<code class="docutils literal notranslate"><span class="pre">lv</span></code> or <code class="docutils literal notranslate"><span class="pre">xml</span></code>, <a class="reference internal" href="#elements">§5.3</a>), and <code class="docutils literal notranslate"><span class="pre">records</span></code>, the LV records and byte-array bytes its decoding spent (0 for an XML variant)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
 <div class="toctree-wrapper compound">
 </div>
 </section>

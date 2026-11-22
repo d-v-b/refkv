@@ -1968,6 +1968,61 @@ offset, is a position in the image file, so it is an integer from 0 to 2^53 − 
 <p><strong>The array and its chunks</strong> are the single file’s (<a class="reference internal" href="#the-array">§4.1</a>, <a class="reference internal" href="#type-niftichunk"><code class="docutils literal notranslate"><span class="pre">NiftiChunk</span></code></a>), source 0
 being the image file. The root’s <code class="docutils literal notranslate"><span class="pre">source.url</span></code> is the header file’s object URL
 (<a class="reference internal" href="../zarrify.html#store-inputs"><span class="std std-ref">spec/zarrify.md §1.4</span></a>), and its <code class="docutils literal notranslate"><span class="pre">data_file</span></code> the image file’s key.</p>
+</section>
+<section id="the-description">
+<span id="76-the-description"></span><h3>7.6 The description<a class="headerlink" href="#the-description" title="Link to this heading">¶</a></h3>
+<p>This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a <strong>description</strong> of the input: what it found of the file’s known structures,
+in NIfTI’s own terms, for a projection to read with the IR and its stored arrays
+(<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>). Its JSON Schema is
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti/description.json">nifti/description.json</a>. It holds none of an output’s decisions: the data
+type of a datatype code (<a class="reference internal" href="#data-types">§3</a>), the axes and their order, the scaling, the scales,
+units, affine and position (<a class="reference internal" href="#the-image">§4</a>), the chunks (<a class="reference internal" href="#chunks">§7.2</a>) and the root’s
+source metadata (<a class="reference internal" href="#source-metadata">§5</a>) are the projection’s.</p>
+<p>It is a JSON object with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">version</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1</span></code> or <code class="docutils literal notranslate"><span class="pre">2</span></code>, as the signature selects it (<a class="reference internal" href="#header">§7.1</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">byte_order</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">little</span></code> or <code class="docutils literal notranslate"><span class="pre">big</span></code>: the order in which the header’s first field is its length</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">header</span></code></p></td>
+<td><p>every field of the header of the version, as the root’s <code class="docutils literal notranslate"><span class="pre">header</span></code> gives it (<a class="reference internal" href="#the-root">§5.1</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">extender</span></code></p></td>
+<td><p>the 4 bytes after the header, as integers; null for a pair’s header file that ends at its header (<a class="reference internal" href="#header-and-image-pairs">§7.5</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">voxels</span></code></p></td>
+<td><p>the voxel data’s range: <code class="docutils literal notranslate"><span class="pre">offset</span></code>, <code class="docutils literal notranslate"><span class="pre">v</span></code>, and <code class="docutils literal notranslate"><span class="pre">bytes</span></code>, its size <code class="docutils literal notranslate"><span class="pre">B</span></code> (<a class="reference internal" href="#header">§7.1</a>); of a gzipped file (<a class="reference internal" href="#gzipped-files">§7.4</a>), in the stream; of a pair, in the image file</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">gzip</span></code></p></td>
+<td><p>of a gzipped file only: <code class="docutils literal notranslate"><span class="pre">skip</span></code>, <code class="docutils literal notranslate"><span class="pre">v</span></code>; <code class="docutils literal notranslate"><span class="pre">head</span></code>, the header’s bytes in the stream, as lowercase hexadecimal; and <code class="docutils literal notranslate"><span class="pre">extensions</span></code>, each extension of the chain the stream’s start holds, its <code class="docutils literal notranslate"><span class="pre">esize</span></code> and <code class="docutils literal notranslate"><span class="pre">ecode</span></code>, and the <code class="docutils literal notranslate"><span class="pre">data</span></code> of a text code’s of at most 1024 bytes as a text value (<a class="reference internal" href="../conventions.html#source-metadata-as-json"><span class="std std-ref">conventions §6</span></a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">elements</span></code></p></td>
+<td><p>the ids of its IR elements (<a class="reference internal" href="#elements">§5.3</a>) by name: <code class="docutils literal notranslate"><span class="pre">voxels</span></code>, and of a file that is not gzipped, <code class="docutils literal notranslate"><span class="pre">header</span></code>, <code class="docutils literal notranslate"><span class="pre">extender</span></code> (when there is one) and <code class="docutils literal notranslate"><span class="pre">extensions</span></code>, the chain’s in its order</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">header_key</span></code>, <code class="docutils literal notranslate"><span class="pre">data_key</span></code></p></td>
+<td><p>of a pair only: the header file’s and the image file’s keys</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The voxels’ stored description is keyed by <code class="docutils literal notranslate"><span class="pre">header</span></code>, or of a gzipped file by <code class="docutils literal notranslate"><span class="pre">voxels</span></code>, the stream
+(<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>). The projection reads the header
+from the IR’s <code class="docutils literal notranslate"><span class="pre">header</span></code> value, or a gzipped file’s from <code class="docutils literal notranslate"><span class="pre">gzip.head</span></code>, and makes every decision of
+<a class="reference internal" href="#data-types">§3</a>, <a class="reference internal" href="#the-image">§4</a>, <a class="reference internal" href="#source-metadata">§5</a> and <a class="reference internal" href="#chunks">§7.2</a> from it. A
+pair’s store run also reads the edge chunks the projection copies (<a class="reference internal" href="#header-and-image-pairs">§7.5</a>),
+which it returns beside the description.</p>
+<p>The parser still makes one decision of the output: the <code class="docutils literal notranslate"><span class="pre">voxels</span></code> element’s form names the data type
+of <a class="reference internal" href="#data-types">§3</a> (<a class="reference internal" href="#elements">§5.3</a>).</p>
 <div class="toctree-wrapper compound">
 </div>
 </section>

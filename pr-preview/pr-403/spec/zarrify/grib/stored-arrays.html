@@ -483,8 +483,8 @@ sections 6 holds (indicator 0) and each of its fields (a section 7, with the sec
 in effect at it) is an array, indexed in the order of their sections, a bitmap before its field.
 The file’s store parser describes them itself (<a class="reference internal" href="../../stored-array.html#in-the-ir"><span class="std std-ref">stored-array.md §6</span></a>). A field’s array is the values
 its section 7 codes, in the file’s order: how fields stack into a variable, where on its grid a
-bitmap puts a field’s values, and which way a grid’s rows run are the profile’s. The facts give
-the keys: each entry of <code class="docutils literal notranslate"><span class="pre">fields</span></code> has <code class="docutils literal notranslate"><span class="pre">declared_by</span></code>, the id of its message’s element, <code class="docutils literal notranslate"><span class="pre">array</span></code>, the
+bitmap puts a field’s values, and which way a grid’s rows run are the profile’s. The description
+(<a class="reference internal" href="../grib.html#the-description"><span class="std std-ref">grib.md §8.7</span></a>) gives the keys: each entry of <code class="docutils literal notranslate"><span class="pre">fields</span></code> has <code class="docutils literal notranslate"><span class="pre">element</span></code>, the id of its message’s element, <code class="docutils literal notranslate"><span class="pre">array</span></code>, the
 index of its values’ array, and <code class="docutils literal notranslate"><span class="pre">mask</span></code>, the index of the bitmap that says which points its values
 are (its own, or, under indicator 254, the message’s last one before it), or null. Below, an octet
 is numbered from 1 in its section, a section is the element <code class="docutils literal notranslate"><span class="pre">messages/&lt;i&gt;/sections/&lt;j&gt;</span></code>, and <code class="docutils literal notranslate"><span class="pre">n</span></code>
