@@ -138,9 +138,10 @@ preflight:
 
 # Build the documentation site into docs-site/_build (docs-site/conf.py: the repository's Markdown,
 # its cross-format blocks rendered from the profile registry), failing on any warning, such as a
-# link to a heading that does not exist
+# link to a heading that does not exist; from scratch (-E), as CI builds it, since an incremental
+# build does not read again the documents that did not change
 docs:
-    uv run sphinx-build -q -W --keep-going -j auto -c docs-site . docs-site/_build
+    uv run sphinx-build -q -E -W --keep-going -j auto -c docs-site . docs-site/_build
 
 # Build the documentation site and serve it at http://localhost:8000
 docs-serve: docs
