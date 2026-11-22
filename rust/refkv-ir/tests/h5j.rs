@@ -25,7 +25,19 @@ fn a_channel_s_mp4_file_takes_the_place_of_its_data() {
         let (ir, facts) = refkv_ir::parse_bytes::<H5jParser>(&data).unwrap();
         check::check(&ir).unwrap();
         assert_eq!(rebuilt(&ir, &data), data, "{name}");
-        let channels = facts["h5j"]["channels"].as_array().unwrap();
+        // every channel whose MP4 file reads is grafted, presented or not: its track's first sample
+        // is an element of the channel's dataset
+        for c in facts["h5j"]["channels"].as_array().unwrap().iter().filter(|c| !c["mp4"].is_null()) {
+            let (offset, length) = (c["offset"].as_u64().unwrap(), c["length"].as_u64().unwrap());
+            for t in c["mp4"]["tracks"].as_array().unwrap() {
+                let first = t["elements"]["first"].as_u64().unwrap() as usize;
+                assert!(ir.path(first as u32).ends_with("/data/samples/0/0"), "{name}: {}", ir.path(first as u32));
+                assert!(ir.start[first] >= offset && ir.start[first] < offset + length, "{name}: a sample outside its channel");
+            }
+        }
+        let nodes = refkv_ir::project::hdf5_nodes::nodes(&facts).unwrap().nodes;
+        let planned = refkv_ir::project::h5j::plan(&facts, &nodes);
+        let channels = planned["channels"].as_array().unwrap();
         let got: Vec<&str> = channels.iter().filter(|c| c["reason"].is_null()).map(|c| c["name"].as_str().unwrap()).collect();
         assert_eq!(got, presented, "{name}");
         for c in channels.iter().filter(|c| c["reason"].is_null()) {

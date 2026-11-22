@@ -13,7 +13,7 @@ use crate::ir::Ir;
 use crate::mp4::Mp4;
 use crate::nd2::Step;
 use crate::rules::{self, num, text, Rules};
-use serde_json::{json, Map, Value as J};
+use serde_json::{json, Value as J};
 use std::collections::HashMap;
 
 /// The group of the channels, and the prefix of a channel's name.
@@ -43,25 +43,6 @@ pub fn is_h5j(h: &mut H5, root: u64) -> R<bool> {
     Ok(!channels.list.is_empty() && channels.list.iter().all(|(name, _)| channel_number(name).is_some()))
 }
 
-/// An MP4 file as refkv's MP4 convention reads it, from the parser's description: its brand, movie
-/// timescale and duration, the most frames of a chunk, and each track's description and refkv's
-/// plan of it together (`project::mp4::planned_track`); an error, the convention's, when it
-/// zarrifies no track (spec/zarrify/mp4.md §8.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>).
-fn planned(description: &J) -> Result<J, String> {
-    use crate::project::mp4::{plan, planned_track};
-    let p = plan(description)?;
-    let empty = Vec::new();
-    let tracks: Vec<J> = description["tracks"].as_array().unwrap_or(&empty).iter()
-        .zip(p["tracks"].as_array().unwrap_or(&empty))
-        .map(|(t, f)| planned_track(t, f))
-        .collect();
-    Ok(json!({
-        "brand": description["brand"], "timescale": description["timescale"], "duration": description["duration"],
-        "chunk_frames": p["chunk_frames"], "tracks": tracks,
-    }))
-}
-
 /// A channel's dataset, and its MP4 file's parse.
 struct Channel {
     /// its name and number, its dataset header's address, and where its bytes are in the file
@@ -74,10 +55,10 @@ struct Channel {
     parser: Option<Mp4>,
     /// the reads the parser asked for, in its file's offsets, not yet fed
     pending: Vec<(u64, u64)>,
-    /// the parse, once done, with refkv's plan of its MP4 file (`planned`), or why the channel
-    /// isn't presented
+    /// the parse of its MP4 file, once done: its IR and description; or why its bytes don't read
+    /// as an MP4 file
     parsed: Option<(Ir, J)>,
-    reason: Option<String>,
+    unread: Option<String>,
 }
 
 /// The channels of an H5J file, read from the HDF5 hierarchy's nodes, and their MP4 files' parses.
@@ -86,6 +67,15 @@ pub struct Channels {
     rules: &'static Rules,
     /// the padding `/Channels` gives (right, bottom), when its attributes give it
     pad: Result<(u64, u64), String>,
+}
+
+/// The padding (right, bottom) the attributes of `/Channels`, as the HDF5 hierarchy presents them,
+/// give: 0 for one it lacks; Err when one is not one integer of at least 0 (spec/zarrify/h5j.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#82-channels>).
+pub fn pad(group: &J) -> Result<(u64, u64), String> {
+    let right = one_integer(group, "pad_right").transpose()?.unwrap_or(0);
+    let bottom = one_integer(group, "pad_bottom").transpose()?.unwrap_or(0);
+    Ok((right, bottom))
 }
 
 /// An integer attribute of one element, as the HDF5 hierarchy presents it (a JSON array of one integer).
@@ -107,18 +97,14 @@ impl Channels {
     pub fn new(nodes: &[J]) -> Result<Channels, String> {
         let rules = rules::of("h5j");
         let group = nodes.iter().find(|n| n["path"] == GROUP).map(|n| &n["attributes"]).unwrap_or(&J::Null);
-        let pad = (|| {
-            let right = one_integer(group, "pad_right").transpose()?.unwrap_or(0);
-            let bottom = one_integer(group, "pad_bottom").transpose()?.unwrap_or(0);
-            Ok((right, bottom))
-        })();
+        let pad = pad(group);
         let mut list = Vec::new();
         for n in nodes {
             let Some(name) = n["path"].as_str().and_then(|p| p.strip_prefix(GROUP)).and_then(|p| p.strip_prefix('/')) else { continue };
             let Some(number) = channel_number(name.as_bytes()) else { continue };
             let a = &n["array"];
             let store = &a["store"];
-            let reason = if a.is_null() {
+            let unread = if a.is_null() {
                 Some("not a dataset of bytes".to_string())
             } else if a["data_type"] != "uint8" || a["shape"].as_array().is_none_or(|s| s.len() != 1) {
                 Some(format!("a dataset of {} of shape {}, not bytes of one dimension", a["data_type"].as_str().unwrap_or("records"), a["shape"]))
@@ -128,10 +114,10 @@ impl Channels {
                 None
             };
             let (offset, length) = (store["offset"].as_u64().unwrap_or(0), store["length"].as_u64().unwrap_or(0));
-            let parser = reason.is_none().then(|| Mp4::new(length));
+            let parser = unread.is_none().then(|| Mp4::new(length));
             list.push(Channel {
                 name: name.to_string(), number, header: store["at"].as_u64().unwrap_or(0), offset, length,
-                attributes: n["attributes"].clone(), parser, pending: Vec::new(), parsed: None, reason,
+                attributes: n["attributes"].clone(), parser, pending: Vec::new(), parsed: None, unread,
             });
         }
         list.sort_by_key(|c| c.number);
@@ -141,7 +127,7 @@ impl Channels {
 
     /// Feeds each channel's parser the bytes it asked for that `store` holds, and steps it, until
     /// every parse is done (true) or waits for bytes, which `want` gets as ranges of the file.
-    /// A parse that rejects its file records the message as the channel's reason.
+    /// A parse that rejects its file records the message as why the channel doesn't read.
     pub fn advance(&mut self, store: &Fed, want: &mut Vec<(u64, u64)>) -> bool {
         let mut done = true;
         for c in self.list.iter_mut() {
@@ -164,62 +150,33 @@ impl Channels {
                     Ok(Step::Read(r)) if !r.is_empty() => c.pending = r,
                     Ok(Step::Read(_) | Step::Done) => {
                         let parser = c.parser.take().expect("a parse in progress");
-                        match parser.finish().and_then(|(ir, d)| Ok((ir, planned(&d)?))) {
+                        match parser.finish() {
                             Ok(p) => c.parsed = Some(p),
-                            Err(m) => c.reason = Some(format!("its MP4 file: {m}")),
+                            Err(m) => c.unread = Some(format!("its MP4 file: {m}")),
                         }
                         break;
                     }
                     Ok(Step::Beside) => {
                         c.parser = None;
-                        c.reason = Some("its MP4 file names other files".into());
+                        c.unread = Some("its MP4 file names other files".into());
                         break;
                     }
                     Err(m) => {
                         c.parser = None;
-                        c.reason = Some(format!("its MP4 file: {m}"));
+                        c.unread = Some(format!("its MP4 file: {m}"));
                         break;
                     }
                 }
             }
         }
-        if done {
-            self.classify();
-        }
         done
     }
 
-    /// Each parsed channel's track, or why it isn't presented (spec/zarrify/h5j.md §8.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#82-channels>).
-    fn classify(&mut self) {
-        for c in self.list.iter_mut().filter(|c| c.reason.is_none()) {
-            let Some((_, f)) = &c.parsed else { continue };
-            let tracks = f["tracks"].as_array().map(Vec::as_slice).unwrap_or(&[]);
-            let reason = match tracks {
-                [t] if !t["reason"].is_null() => Some(format!("its MP4 file's track {}: {}", t["id"], t["reason"].as_str().unwrap_or(""))),
-                [t] if !matches!(t["format"].as_str(), Some("h264" | "hevc" | "av1" | "vp9")) => {
-                    Some(format!("its MP4 file's track is {}, not video", t["format"].as_str().unwrap_or("none")))
-                }
-                [t] if t["geometry"]["chroma"] != "4:0:0" => {
-                    Some(format!("its pictures are {}, not 4:0:0 (monochrome)", t["geometry"]["chroma"].as_str().unwrap_or("")))
-                }
-                [t] => match &self.pad {
-                    Err(m) => Some(m.clone()),
-                    Ok((right, bottom)) => {
-                        let (w, h) = (t["geometry"]["width"].as_u64().unwrap_or(0), t["geometry"]["height"].as_u64().unwrap_or(0));
-                        (*right >= w || *bottom >= h).then(|| format!("a padding of {right} by {bottom} of pictures of {w} by {h}"))
-                    }
-                },
-                _ => Some(format!("its MP4 file has {} tracks, not one", tracks.len())),
-            };
-            c.reason = reason;
-        }
-    }
-
-    /// The MP4 IR to graft in place of each presented channel's data, by its dataset header's
-    /// address; a channel not presented keeps its data.
+    /// The MP4 IR to graft in place of each channel's data whose MP4 file reads, by its dataset
+    /// header's address, whatever the output presents; a channel whose bytes don't read keeps its
+    /// data.
     pub fn inner(&self) -> HashMap<u64, &Ir> {
-        self.list.iter().filter(|c| c.reason.is_none()).filter_map(|c| Some((c.header, &c.parsed.as_ref()?.0))).collect()
+        self.list.iter().filter_map(|c| Some((c.header, &c.parsed.as_ref()?.0))).collect()
     }
 
     /// The stored arrays of each grafted IR, the ids the graft gave it and its offset.
@@ -230,47 +187,58 @@ impl Channels {
             .collect()
     }
 
-    /// With no channel to present, once every parse is done, the rejection that names each
-    /// channel's reason (spec/zarrify/h5j.md §8.3
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#83-checks>); else None.
+    /// The channels as the description gives them, with each MP4 description's element ids
+    /// those `remap` gives.
+    fn described(&self, remap: impl Fn(&Channel, u64) -> Result<u64, String>) -> Result<Vec<J>, String> {
+        let mut out = Vec::new();
+        for c in &self.list {
+            let mp4 = match &c.parsed {
+                Some((_, d)) => {
+                    let mut d = d.clone();
+                    for t in d["tracks"].as_array_mut().into_iter().flatten() {
+                        for k in ["trak", "first"] {
+                            if let Some(e) = t["elements"][k].as_u64() {
+                                t["elements"][k] = json!(remap(c, e)?);
+                            }
+                        }
+                    }
+                    d
+                }
+                None => J::Null,
+            };
+            out.push(json!({
+                "name": c.name, "path": format!("{GROUP}/{}", c.name), "offset": c.offset, "length": c.length,
+                "attributes": c.attributes, "unread": c.unread, "mp4": mp4,
+            }));
+        }
+        Ok(out)
+    }
+
+    /// With no channel that refkv's plan presents (`crate::project::h5j::channels`), once every
+    /// parse is done, the rejection that names each channel's reason (spec/zarrify/h5j.md §8.3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#83-checks>), which chooses
+    /// the profile (spec/zarrify/h5j.md §8.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#81-choosing-the-profile>); else
+    /// None.
     pub fn none_presented(&self) -> Option<String> {
-        let presented = self.list.iter().filter(|c| c.reason.is_none()).count();
-        let reasons: Vec<String> = self.list.iter().filter_map(|c| Some(format!("{}: {}", c.name, c.reason.as_ref()?))).collect();
+        let described = self.described(|_, e| Ok(e)).ok()?;
+        let planned = crate::project::h5j::channels(&described, &self.pad);
+        let presented = planned.iter().filter(|c| c["reason"].is_null()).count();
+        let reasons: Vec<String> = planned.iter().filter_map(|c| Some(format!("{}: {}", c["name"].as_str()?, c["reason"].as_str()?))).collect();
         self.rules.check("presented", rules::env([("presented", num(presented as f64)), ("reasons", text(&reasons.join("; ")))])).err()
     }
 
-    /// The facts the projection reads (`facts["h5j"]`): each channel's name, dataset, attributes,
-    /// track (its first sample's element renumbered as `grafted` gives it) or reason, and the
-    /// padding.
-    pub fn facts(&self, grafted: &HashMap<u64, Vec<u32>>) -> Result<J, String> {
-        let mut channels = Vec::new();
-        for c in &self.list {
-            let mut m = Map::new();
-            m.insert("name".into(), json!(c.name));
-            m.insert("path".into(), json!(format!("{GROUP}/{}", c.name)));
-            m.insert("offset".into(), json!(c.offset));
-            m.insert("length".into(), json!(c.length));
-            m.insert("attributes".into(), c.attributes.clone());
-            m.insert("reason".into(), json!(c.reason));
-            let track = match (&c.reason, &c.parsed, grafted.get(&c.header)) {
-                (None, Some((_, f)), Some(map)) => {
-                    let mut t = f["tracks"][0].clone();
-                    let first = t["first"].as_u64().and_then(|i| map.get(i as usize)).ok_or("internal: a channel's samples were not grafted")?;
-                    t["first"] = json!(first);
-                    m.insert("brand".into(), f["brand"].clone());
-                    m.insert("timescale".into(), f["timescale"].clone());
-                    m.insert("duration".into(), f["duration"].clone());
-                    m.insert("chunk_frames".into(), f["chunk_frames"].clone());
-                    t
-                }
-                (None, _, _) => return Err("internal: a channel to present was not parsed".into()),
-                _ => J::Null,
-            };
-            m.insert("track".into(), track);
-            channels.push(J::Object(m));
-        }
-        let pad = self.pad.as_ref().map_or(J::Null, |&(r, b)| json!([r, b]));
-        Ok(json!({"channels": channels, "pad": pad}))
+    /// The description's `h5j` member (spec/zarrify/h5j.md §8.6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#86-the-description>): each
+    /// channel's name, dataset path, offset, length and attributes, and its MP4 file's description,
+    /// its element ids the H5J IR's (`grafted` maps each MP4 IR's), or `unread`, why its bytes don't
+    /// read as an MP4 file.
+    pub fn description(&self, grafted: &HashMap<u64, Vec<u32>>) -> Result<J, String> {
+        let channels = self.described(|c, e| {
+            let map = grafted.get(&c.header).ok_or("internal: a channel's MP4 IR was not grafted")?;
+            map.get(e as usize).map(|&x| x as u64).ok_or_else(|| "internal: a channel's element was not grafted".into())
+        })?;
+        Ok(json!({"channels": channels}))
     }
 }
 
@@ -284,6 +252,11 @@ impl crate::run::FileProfile for Profile {
     }
     fn project(&self, ir: &Ir, facts: &J, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::h5j::project(ir, facts, url)
+    }
+    /// The parser returns the description of the file (spec/zarrify/h5j.md §8.6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#86-the-description>).
+    fn described(&self) -> bool {
+        true
     }
 }
 
