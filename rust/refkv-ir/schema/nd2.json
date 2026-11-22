@@ -61,7 +61,7 @@
         "header": "{magic:<u4,name_length:<u4,data_length:<u8}",
         "name": "bytes[n]",
         "timestamp": "<f8 (placed frames)",
-        "pixels": "data (placed frames): geometry, codec, recipe (src, or rows for padded rows)",
+        "pixels": "data (placed frames): geometry (shape, bits), codec (compression, of a compressed frame), recipe (src, or rows for padded rows)",
         "trailing": "bytes (placed uncompressed frames with more data than their pixels)",
         "data": "bytes[d] (frames the image does not place)"
       }

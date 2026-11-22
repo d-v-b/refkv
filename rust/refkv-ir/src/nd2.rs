@@ -862,22 +862,21 @@ impl Nd2 {
             facts.compressed,
             facts.frames,
         );
-        let dtype = match facts.bpc {
-            8 => "uint8",
-            16 => "uint16",
-            _ => "float32",
-        };
+        // in the file's terms: its bits per component in memory, and a compressed frame's
+        // compression; the data type and codecs are an output's (conventions §8.5
+        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)
+        let bits = facts.bpc;
         let (width, comp) = (facts.width, facts.comp);
         let pixels_form = if compressed {
             None
         } else if wb == r {
             Some(format!(
-                "{{\"geometry\":{{\"shape\":[{h},{width},{comp}],\"dtype\":\"{dtype}\"}},\"codec\":[\"bytes\"],\"recipe\":[[\"src\",0,{}]]}}",
+                "{{\"geometry\":{{\"shape\":[{h},{width},{comp}],\"bits\":{bits}}},\"recipe\":[[\"src\",0,{}]]}}",
                 h * r
             ))
         } else {
             Some(format!(
-                "{{\"geometry\":{{\"shape\":[{h},{width},{comp}],\"dtype\":\"{dtype}\"}},\"codec\":[\"bytes\"],\"recipe\":[[\"rows\",0,{wb},{r},{h}]]}}"
+                "{{\"geometry\":{{\"shape\":[{h},{width},{comp}],\"bits\":{bits}}},\"recipe\":[[\"rows\",0,{wb},{r},{h}]]}}"
             ))
         };
         let parent = self.ir.struct_(0, "frames", NO_INDEX, 0, None)?;
@@ -899,7 +898,7 @@ impl Nd2 {
                 let px = start + 8;
                 if compressed {
                     let form = format!(
-                        "{{\"geometry\":{{\"shape\":[{h},{width},{comp}],\"dtype\":\"{dtype}\"}},\"codec\":[\"zlib\",\"bytes\"],\"recipe\":[[\"src\",0,{}]]}}",
+                        "{{\"geometry\":{{\"shape\":[{h},{width},{comp}],\"bits\":{bits}}},\"codec\":{{\"compression\":\"zlib\"}},\"recipe\":[[\"src\",0,{}]]}}",
                         d - 8
                     );
                     self.ir.data(s, "pixels", NO_INDEX, 0, (px, d - 8), &form)?;
