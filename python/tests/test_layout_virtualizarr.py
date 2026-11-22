@@ -602,6 +602,11 @@ def _layout_sources() -> list[Path]:
     return sorted(root.parent.rglob("*.py")) if root.name == "__init__.py" else [root]
 
 
+def _own_module(name: str) -> bool:
+    """Whether the module `name` is one of `OWN_MODULES` or within one."""
+    return any(name == m or name.startswith(f"{m}.") for m in OWN_MODULES)
+
+
 def test_the_layout_names_neither_project_nor_plan():
     """No module of the layout imports or names refkv's `project` (refkv.build's, `Projected`, or
     the core's `_core.project`) or a `plan`: it is written from the parsed input and the public
@@ -609,11 +614,12 @@ def test_the_layout_names_neither_project_nor_plan():
     named = []
     for path in _layout_sources():
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom):
-                named += [f"{path.name}: {node.module}.{a.name}" for a in node.names if a.name in OWN_OUTPUT]
-                named += [f"{path.name}: {node.module}"] if node.module in OWN_MODULES else []
+            if isinstance(node, ast.ImportFrom):  # `from refkv import _core` as well as `from refkv._core import x`
+                named += [f"{path.name}: {node.module}.{a.name}" for a in node.names
+                          if a.name in OWN_OUTPUT or _own_module(f"{node.module}.{a.name}")]
+                named += [f"{path.name}: {node.module}"] if _own_module(str(node.module)) else []
             elif isinstance(node, ast.Import):
-                named += [f"{path.name}: {a.name}" for a in node.names if a.name in OWN_MODULES]
+                named += [f"{path.name}: {a.name}" for a in node.names if _own_module(a.name)]
             elif isinstance(node, ast.Attribute) and node.attr in OWN_OUTPUT:
                 named.append(f"{path.name}: .{node.attr}")
             elif isinstance(node, ast.Name) and node.id in OWN_OUTPUT:
