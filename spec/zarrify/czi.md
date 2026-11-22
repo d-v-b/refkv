@@ -1227,3 +1227,67 @@ negative`.
 **Bounds.** An entry naming a part above 2^16 is rejected before anything is probed: `budget: the
 input names more than 65536 files`. A part with no directory stops being walked at the limit of
 [§7.3](#73-rejection).
+
+### 7.10 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a **description** of the file: what it found of the file's known structures,
+in CZI's own terms, for a projection to read with the IR and its stored arrays
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)). Its JSON Schema is
+[czi/description.json](czi/description.json). It holds none of an output's decisions: which subblocks
+are placed ([§3.2](#32-conforming-and-unplaced-subblocks)), the series, layers and levels
+([§3.3](#33-series)–[§3.5](#35-regular-levels)), the images and tile arrays with their axes, data
+types, codecs, chunks and row bands ([§4](#4-output)), the scales, units and position, the `omero`
+and the root's source metadata ([§5](#5-source-metadata)) are the projection's. An image across
+files ([§7.9](#79-several-files)) has none yet.
+
+It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `size` | the file's size in bytes |
+| `file_header` | the file header's fields ([§2.2](#22-the-file-header)): `major`, `minor`, `primary_file_guid` and `file_guid` (as text, in the form of [§2.2](#22-the-file-header)), `file_part`, `directory_position`, `metadata_position`, `update_pending` and `attachment_directory_position` |
+| `segments` | the segments the profile read ([§2.1](#21-segments)), in file order, each `offset`, `id` (its bytes up to the first NUL when the rest are NUL, else all 16 escaped), `allocated_size`, `used_size` (the field, 0 kept) and `referenced` (false of one the walk found, [§7.2](#72-structures-and-the-walk)) |
+| `directory` | the subblock directory's `position` and `entry_count` ([§2.3](#23-the-subblock-directory)); null without one |
+| `entries` | the directory's entries, in order, each an object below |
+| `metadata` | the metadata segment ([§2.5](#25-the-metadata-segment)): `position`, `xml_size`, `attachment_size`, `xml` (the XML's IR element, null when it has none) and `values`, below; null without one |
+| `attachments` | the attachment directory ([§2.6](#26-attachments)): `position`, `entry_count` and `entries`, each an object below; null without one |
+
+An entry is an object:
+
+| member | value |
+|---|---|
+| `element` | its IR value (`directory/entries/<i>`, [§5.3](#53-elements)) |
+| `schema`, `pixel_type`, `file_position`, `file_part`, `compression`, `pyramid_type` | its fields ([§2.3](#23-the-subblock-directory)), the pyramid type its byte 22 |
+| `dimensions` | its dimension entries, in order, each `dimension` (the letter), `start`, `size`, `start_coordinate` and `stored_size` |
+| `subblock` | its subblock ([§2.4](#24-subblocks)), below |
+
+A subblock is an object:
+
+| member | value |
+|---|---|
+| `element` | its segment's IR struct, the key of its stored array ([§5.3](#53-elements)): one struct for every entry that names the segment |
+| `metadata_size`, `attachment_size`, `data_size` | its sizes |
+| `header_length` | its header length `L` |
+| `agrees` | whether its copy of its entry agrees with the entry; null of an entry that names a segment an earlier entry named, whose copy is not compared |
+| `stream` | where its copy agrees and its data is what the entry says ([§7.4](#74-codec-headers)), the image the data holds: `width` and `height`, as its codec header gives them (an uncompressed, LZW or Zstd0 stream's are the entry's stored size), with, of a JpgFile stream, `lossless`, whether its frame is lossless, and, of a Zstd1 stream, `hilo`, whether its header says hi-lo packing, and `header_size`, its header's bytes; else null |
+| `data` | the IR element of its pixels ([§5.3](#53-elements)); null without a `stream`, and of an entry that names a segment an earlier entry named |
+
+`values` holds the values [§2.7](#27-the-metadata-xml) reads, as it reads them, before any
+conversion: `px`, `py` and `pz` (in meters), `inc` (in seconds) and `bits`; `info` and `display`,
+the info and display channels, in order, each `name`, `color`, `bits`, `low` and `high` (null where
+the channel has none); `scenes`, each scene's `index` and `name`, in the order first found; `sizes`,
+the first `Information/Image/Size<letter>` that is an integer of each letter [§7.9](#79-several-files)
+reads, by its letter; and `document`, the `Name` and `CreationDate` of `Information/Document`, as
+`name` and `creation_date`. A value of no element is null, or an empty list or object; every value is
+so of an XML [§2.7](#27-the-metadata-xml) does not read.
+
+An attachment entry is its `schema` and, of an `A1` entry, its `file_position`, `file_part`,
+`content_guid` (as text), `content_file_type` and `name`, these two without their trailing NULs as
+text values ([conventions §6](../conventions.md#6-source-metadata-as-json)), bytes after an earlier
+NUL kept.
+
+What the projection makes from it, and the parser still decides:
+
+- The parser still places the subblocks and makes the images and tiles beside the description, for
+  its projection ([§3](#3-placement), [§4](#4-output)).
