@@ -772,7 +772,7 @@ impl PyRun {
     fn view(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         let r = self.get()?;
         let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
-        formats::view(py, r.format.name(), &formats::View { ir, description, store: false, held: Arc::default() })
+        formats::view(py, r.format.name(), &formats::View { ir, description, store: false, held: None })
     }
     /// What makes the mirror of a run that is done (`Mirror`): its IR and description, shared with the
     /// run, which is kept and may be used while the mirror is made.
@@ -835,7 +835,7 @@ pub struct PyStoreRun {
     r: Option<refkv_ir::store::StoreRun>,
     /// the run finished without an output (`parse`): its format, IR, description, and the run's counts
     /// with what it read for the projection, kept
-    parsed: Option<(refkv_ir::store::StoreFormat, Arc<Ir>, Arc<serde_json::Value>, (serde_json::Value, refkv_ir::store::Read))>,
+    parsed: Option<(refkv_ir::store::StoreFormat, Arc<Ir>, Arc<serde_json::Value>, (serde_json::Value, Arc<refkv_ir::store::Read>))>,
 }
 
 impl PyStoreRun {
@@ -924,7 +924,7 @@ impl PyStoreRun {
         let format = r.format;
         let (ir, description, stats, read) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
         let ir = Arc::new(ir);
-        self.parsed = Some((format, Arc::clone(&ir), Arc::new(description), (stats, read)));
+        self.parsed = Some((format, Arc::clone(&ir), Arc::new(description), (stats, Arc::new(read))));
         Ok(PyIr::of(ir))
     }
     /// The input as its format's own class gives it (`formats`), of a run `parse` finished: its
@@ -932,7 +932,7 @@ impl PyStoreRun {
     /// None for a format that has none.
     fn view(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         let (format, ir, description, (_, read)) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
-        let v = formats::View { ir: Arc::clone(ir), description: Arc::clone(description), store: true, held: Arc::new(read.copied.clone()) };
+        let v = formats::View { ir: Arc::clone(ir), description: Arc::clone(description), store: true, held: Some(Arc::clone(read)) };
         formats::view(py, format.name(), &v)
     }
     /// The profile's description of the input (JSON), of a run `parse` finished.

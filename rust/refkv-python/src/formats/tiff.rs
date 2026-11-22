@@ -18,7 +18,7 @@ pub struct PyOmeImage {
     profile: &'static str,
     /// the bytes a store run read for the image (`store::Read::copied`), which `image` adds to
     /// those the caller read; empty of a file run
-    held: Arc<refkv_ir::project::Copied>,
+    held: Option<Arc<refkv_ir::store::Read>>,
 }
 
 #[pymethods]
@@ -41,7 +41,9 @@ impl PyOmeImage {
     #[pyo3(signature = (copied, checksums=false))]
     fn image<'py>(&self, py: Python<'py>, copied: Vec<((u64, u64), Vec<u8>)>, checksums: bool) -> PyResult<(String, Bound<'py, PyAny>)> {
         let mut copied: refkv_ir::project::Copied = copied.into_iter().collect();
-        copied.extend(self.held.iter().map(|(k, v)| (*k, v.clone())));
+        if let Some(read) = &self.held {
+            copied.extend(read.copied.iter().map(|(k, v)| (*k, v.clone())));
+        }
         let (nodes, out) = py
             .detach(|| refkv_ir::project::ome_image(self.profile, &self.ir, &self.description, &copied, checksums))
             .map_err(Rejected::new_err)?;
@@ -56,7 +58,7 @@ impl PyOmeImage {
 
 /// The OME image of an input of `profile`, the TIFF family's or IMS's.
 pub fn ome_image(py: Python<'_>, v: &View, profile: &'static str) -> PyResult<Py<PyAny>> {
-    let image = PyOmeImage { ir: Arc::clone(&v.ir), description: Arc::clone(&v.description), profile, held: Arc::clone(&v.held) };
+    let image = PyOmeImage { ir: Arc::clone(&v.ir), description: Arc::clone(&v.description), profile, held: v.held.clone() };
     Ok(Py::new(py, image)?.into_any())
 }
 
