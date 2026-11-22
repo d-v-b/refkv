@@ -296,10 +296,11 @@ def test_an_hdf5_files_description_is_what_h5py_reads():
     for path in HDF5:
         with read(path) as parsed:
             description: Any = parsed.description
-        if description is None:
+        assert description is not None, path.name
+        if "files" in description:
             # a file that names siblings (its external links and data) is read as a store, whose
-            # description `read` does not give
-            continue
+            # description holds each file's by key: the named file's is the one h5py reads
+            description = description["files"][description["named_key"]]
         seen["described"] += 1
         data = path.read_bytes()
         with h5py.File(path, "r") as f:
@@ -338,7 +339,8 @@ def test_an_hdf5_files_description_is_what_h5py_reads():
                 if kind != "dataset":
                     continue
                 plist = obj.id.get_create_plist()
-                assert o["dims"] == (None if obj.shape is None else list(obj.shape)), at
+                # a null dataspace (h5py's shape None) has no dimensions, and the layout `null`
+                assert o["dims"] == ([] if obj.shape is None else list(obj.shape)), at
                 if obj.shape is None:
                     assert o["layout"] == "null", at
                     continue
@@ -367,8 +369,14 @@ def test_an_hdf5_files_description_is_what_h5py_reads():
                     assert values["count"] == obj.size, at
                     seen["strings"] += 1
                 if "paths" in values:
-                    want = [f[r].name if r else "" for r in np.asarray(obj[()], dtype=object).reshape(-1)]
-                    assert values["paths"] == want, at
+                    refs = np.asarray(obj[()], dtype=object).reshape(-1)
+                    assert len(values["paths"]) == len(refs), at
+                    for p, r in zip(values["paths"], refs, strict=True):
+                        # the canonical path (spec/zarrify/hdf5.md §2.2
+                        # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#22-paths>) is
+                        # one of the object's paths, not always the one h5py names, of an object
+                        # with several hard links
+                        assert (f[p] == f[r]) if r else p == "", at
                     seen["references"] += 1
     assert all(seen.values()), seen
     assert seen["described"] >= 18, seen

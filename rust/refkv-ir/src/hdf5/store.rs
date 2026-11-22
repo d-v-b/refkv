@@ -172,13 +172,28 @@ impl StoreParser for Hdf5Store {
         }
         // the projection presents the named file's hierarchy with what its links name
         // (`crate::project::hdf5::project_store`)
+        // each file's description, without its parse's counts (the named file's rounds reach the
+        // summary through `StoreParser::counts`)
+        for d in files.values_mut() {
+            if let Some(m) = d.as_object_mut() {
+                for count in ["requests", "requested", "rounds"] {
+                    m.remove(count);
+                }
+            }
+        }
         let mut out = Map::new();
         out.insert("named_key".into(), json!(keys[0].0));
         out.insert("siblings".into(), json!(keys[1..].iter().map(|k| &k.0).collect::<Vec<_>>()));
         out.insert("files".into(), J::Object(files.into_iter().collect()));
-        let facts = J::Object(out);
+        let description = J::Object(out);
         ir.sort_values();
         crate::check::finish(&mut ir)?;
-        Ok((ir, facts))
+        Ok((ir, description))
+    }
+
+    /// The named file's read rounds, which the summary holds (spec/zarrify/hdf5.md §8.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#85-summary>).
+    fn counts(&self) -> J {
+        json!({"rounds": self.named.rounds()})
     }
 }

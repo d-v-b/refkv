@@ -672,7 +672,7 @@ and a dataset has these besides:
 
 | member | value |
 |---|---|
-| `dims` | its dataspace's dimensions |
+| `dims` | its dataspace's dimensions, none (`[]`) for a null dataspace, whose `layout` is `null` |
 | `error` | why its messages do not read; a dataset with one has none of the members below but `unread` |
 | `datatype`, `type` | its datatype, described, and its message in hexadecimal: a committed datatype's message where the dataset's is shared |
 | `maxdims` | its dataspace's maximum dimensions, when it has them, null for unlimited |
