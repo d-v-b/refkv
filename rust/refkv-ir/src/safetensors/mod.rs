@@ -390,11 +390,6 @@ impl crate::run::FileProfile for Profile {
     fn described(&self) -> bool {
         true
     }
-    /// The store run returns the description of the store (spec/zarrify/safetensors.md §9.7
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#97-the-description>).
-    fn store_described(&self) -> bool {
-        true
-    }
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
