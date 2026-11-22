@@ -23,10 +23,11 @@ input is converted:
   statuses must be the same.
 
     uv run python rust/refkv-cli/tests/identical.py [--vzip rust/refkv-cli/target/release/vzip]
-        [--only <substring>] [--modes local,http,ranges,checksums,errors] [--jobs N]
+        [--only <substring>] [--modes local,http,ranges,checksums,errors] [--jobs N] [--shard k/n]
 
 The summaries are compared without the read planner's counts and model (`planner`), which depend on
-the time requests take, for an input read over HTTP. Exits with status 1 if any input differs.
+the time requests take, for an input read over HTTP. `--shard k/n` runs every n-th conversion from
+the k-th (1-based), one of n parallel CI jobs. Exits with status 1 if any input differs.
 """
 
 from __future__ import annotations
@@ -204,7 +205,11 @@ def main() -> int:
     ap.add_argument("--only", default="")
     ap.add_argument("--modes", default="local,http,ranges,checksums,errors")
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 4)
+    ap.add_argument("--shard", default="1/1", help="k/n: every n-th conversion from the k-th (1-based)")
     opts = ap.parse_args()
+    k, n = map(int, opts.shard.split("/"))
+    if not 1 <= k <= n:
+        ap.error(f"--shard {opts.shard}: k must be from 1 to n")
     vzip = Path(opts.vzip)
     if os.name == "nt" and not vzip.suffix:
         vzip = vzip.with_suffix(".exe")
@@ -215,6 +220,7 @@ def main() -> int:
         srv, base = server(tmp / "cache")
         encoded = encoded_inputs(tmp)
         todo = [c for c in cases(files, stores, base, set(opts.modes.split(",")), encoded) if opts.only in c[0]]
+        todo = todo[k - 1::n]
 
         def one(k_case):
             k, (name, args, remote, env) = k_case
