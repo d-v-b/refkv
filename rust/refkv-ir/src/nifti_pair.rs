@@ -172,9 +172,7 @@ impl NiftiPair {
         description["header_key"] = json!(self.keys[0].0);
         description["data_key"] = json!(self.keys[1].0);
         self.ir = Some(ir);
-        let copied: Vec<J> = self.copied.iter().map(|(o, n, b)| json!([o, n, b])).collect();
-        // the description, and the edge chunks the run read for the projection, which it leaves out
-        description["copied"] = json!(copied);
+        // the edge chunks the run read for the projection are apart (`StoreParser::copied`)
         Ok(description)
     }
 }
@@ -238,12 +236,19 @@ impl StoreParser for NiftiPair {
         Ok(Some(e))
     }
 
+    /// The edge chunks the projection copies (spec/zarrify/nifti.md §7.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#75-header-and-image-pairs>),
+    /// each by its (offset, length) in the image file.
+    fn copied(&mut self) -> crate::project::Copied {
+        std::mem::take(&mut self.copied).into_iter().map(|(o, n, b)| ((o, n), b)).collect()
+    }
+
     fn finish(mut self: Box<Self>) -> Res<(Ir, J)> {
         if self.phase != Phase::Done {
             return Err("internal: the parse is not done".into());
         }
-        let facts = self.emit()?;
-        Ok((self.ir.take().ok_or("internal: no IR")?, facts))
+        let description = self.emit()?;
+        Ok((self.ir.take().ok_or("internal: no IR")?, description))
     }
 }
 
