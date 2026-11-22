@@ -3,9 +3,10 @@ against a committed manifest, so that a change to an output shows in the change 
 
 The Python and the browser implementations run one core, and most profiles have no independent
 reference implementation (conformance/zarrify/HARNESS.md), so neither comparison sees a change to
-how the core builds an output. This one does: `manifest.jsonl` holds, for each input, with and
-without checksums, digests of the output's parts, or the error that refuses the input. A change
-that alters an output alters the manifest, and its diff names the inputs and the parts.
+how the core builds an output. This one does: `manifests/<dir>.jsonl` holds, for each input under
+fixtures/<dir>, with and without checksums, digests of the output's parts, or the error that refuses
+the input. A change that alters an output alters the manifest, and its diff names the inputs and the
+parts.
 
 The corpus is rust/refkv-cli/tests/identical.py's: every file under fixtures/ with the suffix of
 a profile of the registry, and every store directory under a store profile's fixtures/<p>. A file
@@ -13,7 +14,8 @@ is zarrified from its path relative to the repository's root, which is then its 
 store with `url=https://data.example/<path>/`. So a manifest does not depend on where the
 repository is.
 
-A line of the manifest is one input's record, a JSON object:
+The manifest is one file per fixture directory, so that a change to one format's outputs edits only
+that format's file. A line of it is one input's record, a JSON object:
 
 - `input`: its path under fixtures/, a store's ending in `/`;
 - `plain` and `checksums`: the result of each mode, either `{"error": <exception's name>,
@@ -54,7 +56,26 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-MANIFEST = Path(__file__).resolve().parent / "manifest.jsonl"
+MANIFESTS = Path(__file__).resolve().parent / "manifests"
+
+
+def group(name: str) -> str:
+    """The manifest file an input's record is in: its fixture directory's."""
+    return name.split("/", 1)[0]
+
+
+def texts(recs: list[dict[str, Any]]) -> dict[str, str]:
+    """Each manifest file's text, by fixture directory, its records in the order given."""
+    out: dict[str, str] = {}
+    for r in recs:
+        g = group(r["input"])
+        out[g] = out.get(g, "") + json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n"
+    return out
+
+
+def committed() -> dict[str, str]:
+    """The committed manifest files' texts, by fixture directory."""
+    return {p.stem: p.read_text(encoding="utf-8") for p in sorted(MANIFESTS.glob("*.jsonl"))}
 sys.path.insert(0, str(ROOT / "rust" / "refkv-cli" / "tests"))
 
 from identical import corpus  # noqa: E402
@@ -195,17 +216,22 @@ def main() -> int:
         return 0
 
     now = records(inputs(), args.jobs)
-    text = "".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in now)
+    want = texts(now)
+    rel = MANIFESTS.relative_to(ROOT)
     if args.update:
-        MANIFEST.write_text(text, encoding="utf-8")
-        print(f"wrote {len(now)} records to {MANIFEST.relative_to(ROOT)}")
+        MANIFESTS.mkdir(exist_ok=True)
+        for stale in set(committed()) - set(want):
+            (MANIFESTS / f"{stale}.jsonl").unlink()
+        for g, text in want.items():
+            (MANIFESTS / f"{g}.jsonl").write_text(text, encoding="utf-8")
+        print(f"wrote {len(now)} records to {len(want)} files in {rel}")
         return 0
 
-    committed = MANIFEST.read_text(encoding="utf-8")
-    if committed == text:
+    have = committed()
+    if have == want:
         print(f"{len(now)} inputs: every output is the manifest's")
         return 0
-    was = {r["input"]: r for r in map(json.loads, committed.splitlines())}
+    was = {r["input"]: r for text in have.values() for r in map(json.loads, text.splitlines())}
     by_name = {r["input"]: r for r in now}
     changed = 0
     for name in sorted(was.keys() | by_name.keys()):
@@ -213,11 +239,10 @@ def main() -> int:
         if found:
             changed += 1
             print(f"{name}\n  " + "\n  ".join(found))
-    print(f"\n{changed} of {len(now)} inputs differ from {MANIFEST.relative_to(ROOT)}. If the change is "
+    print(f"\n{changed} of {len(now)} inputs differ from {rel}. If the change is "
           "meant, run `just outputs-update` and commit the manifest; `--keys INPUT` on two checkouts "
           "shows which entries changed.", file=sys.stderr)
     return 1
-
 
 if __name__ == "__main__":
     sys.exit(main())
