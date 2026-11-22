@@ -1068,3 +1068,7 @@ It is a JSON object with these members:
 
 A text is the attribute's text by [§2.1](#21-attributes-as-text), at any length: the 256-byte
 limit on names and labels ([§4](#4-output)) is the projection's.
+
+refkv's projection makes every decision of [§3](#3-metadata) and [§4](#4-output) from the
+description, through its plan of the image; the parser makes none, and checks only what
+[§2.2](#22-the-imaris-layout)–[§4](#4-output) reject.
