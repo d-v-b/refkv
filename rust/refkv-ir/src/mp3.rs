@@ -46,7 +46,7 @@ pub const RESERVOIR: [u64; 4] = [255, 0, 255, 511];
 
 /// The frames of a chunk (spec/zarrify/mp3.md §4.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#41-the-array>), but in tests
-/// (`set_chunk_frames`). Each run reads it once, into its facts.
+/// (`set_chunk_frames`). refkv's plan of a file reads it (`project::mp3::plan`).
 pub const DEFAULT_CHUNK_FRAMES: usize = 256;
 static CHUNK_FRAMES: AtomicUsize = AtomicUsize::new(DEFAULT_CHUNK_FRAMES);
 
@@ -430,7 +430,7 @@ impl Mp3 {
         let mut first = 0u32;
         let mut main = Vec::with_capacity(frames.len());
         let mut used = 0u64;
-        let (mut crc_frames, mut kbps) = (0u64, Some(frames[0].1.kbps()));
+        let mut crc_frames = 0u64;
         for (j, (o, h)) in frames.iter().enumerate() {
             let i = self.ir.data(frames_struct, "", j as u64, 0, (*o, h.length()), &form)?;
             if j == 0 {
@@ -439,11 +439,8 @@ impl Mp3 {
             main.push(h.main());
             used += h.length();
             crc_frames += h.crc as u64;
-            if kbps != Some(h.kbps()) {
-                kbps = None;
-            }
         }
-        let id3v1_json = match id3v1 {
+        let id3v1_element = match id3v1 {
             Some(o) => {
                 let i = self.ir.value(0, "id3v1", NO_INDEX, ID3V1_TYPE, 0, (o, 128), Some(&d[o as usize..o as usize + 128]))?;
                 json!(i)
@@ -464,16 +461,11 @@ impl Mp3 {
             "channel_mode": MODES[frames[0].1.mode as usize], "samples_per_frame": s.samples(), "frames": frames.len(),
             "kbps": frames.iter().map(|f| f.1.kbps()).collect::<Vec<_>>(), "crc_frames": crc_frames, "main_data": main,
             "info": info_json, "id3v2": id3v2,
-            "id3v1": id3v1.map_or(J::Null, |o| self::id3v1_json(&d[o as usize..o as usize + 128])),
+            "id3v1": id3v1.map_or(J::Null, |o| id3v1_json(&d[o as usize..o as usize + 128])),
             "ape": ape_json, "stray_bytes": stray,
-            "elements": {"frames": first, "info": info_element, "id3v1": id3v1_json},
+            "elements": {"frames": first, "info": info_element, "id3v1": id3v1_element},
         });
-        self.facts = json!({
-            "frames": first, "count": frames.len(), "version": s.version, "layer": 3, "sample_rate": s.rate(),
-            "channels": s.channels(), "mode": frames[0].1.mode, "spf": s.samples(), "main": main,
-            "kbps": kbps, "crc_frames": crc_frames, "info": info_json, "id3v2": id3v2, "id3v1": id3v1_json,
-            "ape": ape_json, "stray": stray, "chunk_frames": chunk_frames(), "description": description,
-        });
+        self.facts = description;
         Ok(())
     }
 
@@ -502,10 +494,10 @@ impl crate::run::FileProfile for Profile {
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::mp3::project(ir, facts, url, copied)
     }
-    /// The parser's description of the file, beside its projection's facts
-    /// (spec/zarrify/mp3.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#84-the-description>).
-    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
-        facts.get("description").cloned()
+    /// The parser returns its description of the file (spec/zarrify/mp3.md §8.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#84-the-description>).
+    fn described(&self) -> bool {
+        true
     }
 }
 
