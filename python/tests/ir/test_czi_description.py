@@ -39,10 +39,17 @@ import jsonschema
 import numpy as np
 import pytest
 from ir_helpers import ROOT
-from pylibCZIrw import czi as pyczi
 from test_czi_stored import FILES, jpeg_frame, writer, written, zstd1_header
 
 from refkv.build import read
+
+try:
+    from pylibCZIrw import czi as pyczi
+except ImportError:  # the free-threaded CI job installs no pylibCZIrw (.github/workflows/ci.yml)
+    pyczi = None
+# the cases only pylibCZIrw's parse of the XML reaches
+XML_CASES = ("XML pylibCZIrw does not parse", "XML px", "XML pz", "XML inc", "XML bits", "XML info", "XML display",
+             "XML scenes", "XML sizes", "XML document")
 
 SCHEMA = json.loads((ROOT / "spec" / "zarrify" / "czi" / "description.json").read_text())
 JPEG, LJPEG, JPEGXR, ZSTD1 = 1, 3, 4, 6
@@ -322,6 +329,8 @@ def check_metadata(d: dict, c: czifile.CziFile, path: Path, data: bytes, said: l
         if m["values"] != EMPTY:
             said.append("values of an XML that is not UTF-8")
         return
+    if pyczi is None:
+        return
     try:
         with pyczi.open_czi(str(path)) as r:
             tree = r.metadata
@@ -430,7 +439,7 @@ def test_the_fixtures_reach_every_case_the_comparison_reads():
               "metadata", "XML that is not UTF-8", "XML pylibCZIrw does not parse", "XML px", "XML pz", "XML inc",
               "XML bits", "XML info", "XML display", "XML scenes", "attachment entries",
               "attachment entries of another schema"]
-    assert [w for w in wanted if not seen[w]] == []
+    assert [w for w in wanted if not seen[w] and (pyczi is not None or w not in XML_CASES)] == []
 
 
 def test_cases_the_fixtures_lack_are_described_as_the_readers_read_them(tmp_path):
@@ -444,7 +453,8 @@ def test_cases_the_fixtures_lack_are_described_as_the_readers_read_them(tmp_path
                      more_entries=[again])
     said, seen = compared(written(tmp_path, "twice", czi.build()))
     assert said == ()
-    assert [w for w in ("entries of a subblock an earlier one names", "XML sizes", "XML document") if not seen[w]] == []
+    wanted = ("entries of a subblock an earlier one names", "XML sizes", "XML document")
+    assert [w for w in wanted if not seen[w] and (pyczi is not None or w not in XML_CASES)] == []
 
 
 @pytest.mark.parametrize("path", FILES[::5], ids=[p.name for p in FILES[::5]])
