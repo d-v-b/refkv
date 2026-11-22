@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/nifti/description.json",
+  "title": "The description of a NIfTI file or header-and-image pair",
+  "description": "What refkv's NIfTI parser found of the input, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#76-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "byte_order": {
+      "enum": [
+        "little",
+        "big"
+      ]
+    },
+    "header": {
+      "description": "every field of the header of the version, as the root's source metadata gives it (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#51-the-root)",
+      "type": "object",
+      "required": [
+        "sizeof_hdr",
+        "magic",
+        "datatype",
+        "bitpix",
+        "dim",
+        "pixdim",
+        "vox_offset"
+      ]
+    },
+    "extender": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "minItems": 4,
+          "maxItems": 4
+        }
+      ]
+    },
+    "voxels": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "$ref": "#/$defs/uint"
+        },
+        "bytes": {
+          "$ref": "#/$defs/uint"
+        }
+      },
+      "required": [
+        "offset",
+        "bytes"
+      ],
+      "additionalProperties": false
+    },
+    "gzip": {
+      "type": "object",
+      "properties": {
+        "skip": {
+          "$ref": "#/$defs/uint"
+        },
+        "head": {
+          "type": "string",
+          "pattern": "^([0-9a-f]{696}|[0-9a-f]{1080})$"
+        },
+        "extensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "esize": {
+                "type": "integer"
+              },
+              "ecode": {
+                "type": "integer"
+              },
+              "data": {}
+            },
+            "required": [
+              "esize",
+              "ecode"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "skip",
+        "head",
+        "extensions"
+      ],
+      "additionalProperties": false
+    },
+    "elements": {
+      "type": "object",
+      "properties": {
+        "header": {
+          "$ref": "#/$defs/uint"
+        },
+        "extender": {
+          "$ref": "#/$defs/uint"
+        },
+        "extensions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uint"
+          }
+        },
+        "voxels": {
+          "$ref": "#/$defs/uint"
+        }
+      },
+      "required": [
+        "voxels"
+      ],
+      "additionalProperties": false
+    },
+    "header_key": {
+      "type": "string"
+    },
+    "data_key": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "byte_order",
+    "header",
+    "extender",
+    "voxels",
+    "elements"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "uint": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

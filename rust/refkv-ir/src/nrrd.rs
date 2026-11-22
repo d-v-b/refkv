@@ -343,6 +343,10 @@ pub fn vectors(d: &[u8]) -> Option<Vec<Option<Vec<f64>>>> {
 #[derive(Debug, Clone)]
 pub struct Fields {
     pub dimension: usize,
+    /// the `type` field's descriptor, trimmed, in lower case: one of the names of the table of §3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#3-data-types-and-encodings>,
+    /// an alias such as `short` or `signed short int` as written
+    pub type_name: String,
     pub data_type: String,
     pub item: u64,
     pub encoding: String,
@@ -412,6 +416,7 @@ pub fn fields(rules: &Rules, h: &Header, header_key: &str) -> Res<Fields> {
     let name = shown(trim(d)).to_ascii_lowercase();
     rules.check("type", rules::env([("name", text(&name))]))?;
     let spec = rules.entry("types", &name).ok_or("internal: a type the schema does not name")?;
+    let type_name = name;
     let (data_type, item) = (spec["dtype"].as_str().unwrap_or("uint8").to_string(), spec["bytes"].as_u64().unwrap_or(1));
 
     let d = required(rules, h, "encoding", "")?;
@@ -510,7 +515,7 @@ pub fn fields(rules: &Rules, h: &Header, header_key: &str) -> Res<Fields> {
     })?;
     let number = |field: &str| h.field(field).and_then(|d| float(trim(d)));
     Ok(Fields {
-        dimension: n, data_type, item, encoding, little, sizes, line_skip, byte_skip, data_file,
+        dimension: n, type_name, data_type, item, encoding, little, sizes, line_skip, byte_skip, data_file,
         directions, origin, space_units, spacings, units, kinds, min: number("min"), max: number("max"),
     })
 }
@@ -799,7 +804,28 @@ impl Nrrd {
         self.ir = Some(ir);
         let finite = |v: &[f64]| J::Array(v.iter().map(|x| if x.is_finite() { json!(x) } else { J::Null }).collect());
         let texts = |v: &[Vec<u8>]| J::Array(v.iter().map(|u| json!(shown(u))).collect());
+        let description = json!({
+            "magic": h.magic,
+            "fields": J::Object(h.fields.iter().map(|(k, v)| (k.clone(), text_json(v))).collect()),
+            "key_values": key_values(&h),
+            "comments": h.comments.iter().map(|c| text_json(c)).collect::<Vec<_>>(),
+            "dimension": f.dimension, "type": f.type_name, "item": f.item, "encoding": f.encoding,
+            "endian": f.little.map(|l| if l { "little" } else { "big" }),
+            "sizes": f.sizes, "line_skip": f.line_skip, "byte_skip": f.byte_skip,
+            "directions": f.directions.as_ref().map(|d| d.iter().map(|v| v.as_deref().map(finite)).collect::<Vec<_>>()),
+            "origin": f.origin.as_deref().map(finite),
+            "space_units": f.space_units.as_deref().map(texts),
+            "spacings": f.spacings.as_deref().map(finite),
+            "units": f.units.as_deref().map(texts),
+            "kinds": f.kinds,
+            "min": f.min.filter(|x| x.is_finite()), "max": f.max.filter(|x| x.is_finite()),
+            "header_key": self.keys[0].0, "header_size": self.keys[0].1,
+            "data_key": self.keys[self.data].0,
+            "data": {"offset": self.start, "bytes": self.length},
+            "elements": {"header_file": self.elems[0], "lines": lines, "data_file": self.elems[self.data], "data": data},
+        });
         Ok(json!({
+            "description": description,
             "header_key": self.keys[0].0,
             "data_key": self.keys[self.data].0,
             "own": own(&h, &f, &self.axes, (self.data != 0).then(|| self.keys[self.data].0.as_str())),
@@ -918,6 +944,15 @@ impl Nrrd {
     }
 }
 
+/// The header's key/value pairs by key, as text values: a key shown alike twice keeps its first.
+fn key_values(h: &Header) -> J {
+    let mut pairs = Map::new();
+    for (k, v) in &h.pairs {
+        pairs.entry(shown(k)).or_insert_with(|| text_json(v));
+    }
+    J::Object(pairs)
+}
+
 /// The root's source metadata (spec/zarrify/nrrd.md §5.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#51-the-root>), but `orientation`,
 /// which the projection adds.
@@ -925,11 +960,7 @@ fn own(h: &Header, f: &Fields, axes: &[&str], data_file: Option<&str>) -> J {
     let mut m = Map::new();
     m.insert("magic".into(), json!(h.magic));
     m.insert("fields".into(), J::Object(h.fields.iter().map(|(k, v)| (k.clone(), text_json(v))).collect()));
-    let mut pairs = Map::new();
-    for (k, v) in &h.pairs {
-        pairs.entry(shown(k)).or_insert_with(|| text_json(v));
-    }
-    m.insert("key_values".into(), J::Object(pairs));
+    m.insert("key_values".into(), key_values(h));
     m.insert("comments".into(), J::Array(h.comments.iter().map(|c| text_json(c)).collect()));
     m.insert("data_type".into(), json!(f.data_type));
     m.insert("encoding".into(), json!(f.encoding));
@@ -999,6 +1030,11 @@ impl crate::run::FileProfile for Profile {
     }
     fn project(&self, _: &Ir, _: &J, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
         Err("a NRRD input is zarrified as a store run".into())
+    }
+    /// The store run's description of the input, beside its projection's facts (§8.7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#87-the-description>).
+    fn store_description(&self, facts: &J) -> Option<J> {
+        facts.get("description").cloned()
     }
 }
 

@@ -647,3 +647,38 @@ members:
 | `objects` | the IR's objects |
 | `listingRequests` | the files opened beyond the header file |
 | the run's counts | the other members the run gives (`reads`, `folded`, ...) |
+
+### 8.7 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a **description** of the input: what it found of the header and its data, in
+NRRD's own terms, for a projection to read with the IR and its stored arrays
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)). Its JSON Schema is
+[nrrd/description.json](nrrd/description.json). It holds none of an output's decisions: the Zarr
+data type of a type ([§3](#3-data-types-and-encodings)), the axes' roles and the image's axes
+([§4.1](#41-the-array)), the scales, units, position and orientation ([§4.3](#43-scales-units-and-position)),
+the channels ([§4.4](#44-channels)), the chunks ([§8.5](#85-chunks)) and the root's source metadata
+([§5](#5-source-metadata)) are the projection's.
+
+It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `magic`, `fields`, `key_values`, `comments` | as [`NrrdRoot`](#type-nrrdroot) gives them |
+| `dimension`, `sizes`, `line_skip`, `byte_skip` | the fields' values as [§8.2](#82-the-fields) reads them: `n`, the sizes, and the skips (0 for a field the header lacks) |
+| `type` | the `type` field's descriptor, trimmed, in lower case: a name of [§3](#3-data-types-and-encodings)'s table |
+| `item` | the bytes of a value of the type |
+| `encoding` | `raw` or `gzip` (`gz` is `gzip`) |
+| `endian` | `little` or `big`, or null without an `endian` field |
+| `directions` | `space directions`' vectors, each an array of numbers or null for `none`; null without the field |
+| `origin`, `spacings` | `space origin`'s vector and `spacings`' numbers; null without the field |
+| `space_units`, `units` | `space units`' and `units`' strings, as text values; null without the field |
+| `kinds` | `kinds`' names, in lower case; null without the field |
+| `min`, `max` | `min` and `max` as numbers, null when they are none or not finite |
+| `header_key`, `header_size` | the header file's key and size |
+| `data_key` | the data's file's key: the header file's, or a detached header's data file's ([§8.3](#83-the-data-file)) |
+| `data` | the data's range in that file, `offset` and `bytes` ([§8.4](#84-the-data)) |
+| `elements` | the ids of its IR elements ([§5.3](#53-elements)) by name: `header_file` and `data_file`, the two objects (the same for an attached header); `lines`, the header's lines in order; and `data` |
+
+A number of `directions`, `origin` or `spacings` that is not finite is null. The array's stored
+description is keyed by `header_file` ([spec/stored-array.md §7](../stored-array.md#7-the-formats)).
