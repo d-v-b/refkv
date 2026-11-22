@@ -24,7 +24,7 @@ fn output(files: &BTreeMap<String, Vec<u8>>) -> Result<Out, String> {
     let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let (ir, facts, stats) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone())?;
-    store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://data.test/s/", true, false).map_err(String::from)
+    store_output(StoreFormat::Zarr2, &ir, &facts, stats, &Default::default(), "https://data.test/s/", true, false).map_err(String::from)
 }
 
 fn run(name: &str) -> Result<Out, String> {

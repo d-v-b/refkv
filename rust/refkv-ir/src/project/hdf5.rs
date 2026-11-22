@@ -564,7 +564,7 @@ fn build(ir: &Ir, nodes: &[J], mut summary: J, url: &str, source: &str, copied: 
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, facts: &J, url: &str, _copied: &super::Copied) -> Result<Out, String> {
     project_store(ir, facts, url)
 }
 

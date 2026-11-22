@@ -58,6 +58,18 @@ pub trait StoreParser: Send + Sync {
     fn folders(&mut self, _folders: &[String]) {}
     /// The IR (finished: `check::finish`) and the facts its projection reads.
     fn finish(self: Box<Self>) -> Res<(Ir, J)>;
+    /// The bytes the parser read for the convention's projection apart from what it describes
+    /// (edge chunks it copies, windows it samples), by their (offset, length) in the object that
+    /// holds them, asked before [`StoreParser::finish`]: the projection's `copied`, as a file
+    /// run's [`crate::run::FileProfile::reads`] give a file projection's.
+    fn copied(&mut self) -> crate::project::Copied {
+        crate::project::Copied::new()
+    }
+    /// The parser's own counts (its batches), which the output's summary holds after the
+    /// projection's members, asked before [`StoreParser::finish`]; null for none.
+    fn counts(&self) -> J {
+        J::Null
+    }
     /// The profile the store is decided to be, once the parser has decided (a Zarr v2 store
     /// is OME-Zarr's when its root declares OME-NGFF 0.4); None before that.
     fn profile(&self) -> Option<&'static str> {
@@ -116,6 +128,15 @@ impl StoreFormat {
         }
         Some(description)
     }
+}
+
+/// What a store run read for the convention's projection, apart from the IR and the description:
+/// the bytes the projection copies (`StoreParser::copied`) and the parser's counts
+/// (`StoreParser::counts`).
+#[derive(Clone, Debug, Default)]
+pub struct Read {
+    pub copied: crate::project::Copied,
+    pub counts: J,
 }
 
 /// One request: object `object` (its key `key`), the spans (start, end) to read of it.
@@ -490,11 +511,17 @@ impl StoreRun {
     }
 
     /// The IR (its held objects holding their bytes), the facts, and the run's counts.
-    pub fn finish(mut self) -> Res<(Ir, J, J)> {
+    pub fn finish(self) -> Res<(Ir, J, J)> {
+        self.finish_read().map(|(ir, facts, stats, _)| (ir, facts, stats))
+    }
+
+    /// `finish`, with what the run read for the convention's projection ([`Read`]).
+    pub fn finish_read(mut self) -> Res<(Ir, J, J, Read)> {
         if !self.done {
             return Err("the run is not done".into());
         }
-        let p = self.parser.take().ok_or("internal: no parser")?;
+        let mut p = self.parser.take().ok_or("internal: no parser")?;
+        let read = Read { copied: p.copied(), counts: p.counts() };
         let (mut ir, mut facts) = p.finish()?;
         if let Some(m) = facts.as_object_mut().filter(|_| !self.ignored.is_empty()) {
             m.insert("ignored".into(), json!(self.ignored));
@@ -517,7 +544,7 @@ impl StoreRun {
         }
         ir.hold_all(held)?;
         let stats = self.stats_json();
-        Ok((ir, facts, stats))
+        Ok((ir, facts, stats, read))
     }
 
     /// The run's counts: objects read, batches, ranges asked and their bytes, requests, spans
@@ -533,24 +560,29 @@ impl StoreRun {
     /// `checksums`.
     pub fn into_output(self, url: &str, mirror: bool, checksums: bool) -> Result<crate::out::Out, crate::seal::Refusal> {
         let format = self.format;
-        let (ir, facts, stats) = self.finish()?;
-        store_output(format, &ir, &facts, stats, url, mirror, checksums)
+        let (ir, facts, stats, read) = self.finish_read()?;
+        store_output(format, &ir, &facts, stats, &read, url, mirror, checksums)
     }
 }
 
-/// The output of a store parse: the format's projection, the mirror under `refkv_source` when
-/// `mirror`, and a summary: the projection's, with the run's counts, the IR's element count
+/// The output of a store parse: the format's projection (given the bytes the run read for it,
+/// `read.copied`), the mirror under `refkv_source` when `mirror`, and a summary: the
+/// projection's, then the parser's counts (`read.counts`), with the run's counts, the IR's element count
 /// (and, but for SAFE, whose projection counts its objects itself, the format's name and the
 /// IR's object count) and what the mirror's table folded. Then the ignored keys (and a SAFE
 /// directory's empty directories) beside the mirror (`record_ignored`). Last, the output is sealed
 /// (`seal::out`), its url sources the objects of the IR its references use, for a host that
 /// records the ranges' checksums when `checksums`.
-pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str, mirror: bool, checksums: bool)
+#[allow(clippy::too_many_arguments)]
+pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, read: &Read, url: &str, mirror: bool, checksums: bool)
                     -> Result<crate::out::Out, crate::seal::Refusal> {
-    let mut out = format.project(ir, facts, url)?;
+    let mut out = format.project(ir, facts, url, &read.copied)?;
     crate::shard::refuse(&out)?;
     let mut summary = std::mem::take(&mut out.summary);
     if let Some(m) = summary.as_object_mut() {
+        if let Some(c) = read.counts.as_object() {
+            m.extend(c.clone());
+        }
         if format != StoreFormat::Safe {
             // the profile: a Zarr v2 store whose root declares OME-NGFF 0.4 is OME-Zarr's
             m.insert("format".into(), json!(facts["profile"].as_str().unwrap_or(format.name())));

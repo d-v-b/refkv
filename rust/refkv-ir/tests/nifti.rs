@@ -36,7 +36,7 @@ fn rejection(key: &str) -> String {
 /// A store run of the pair whose header file is `key`, the image file found by `beside`.
 fn run_pair(key: &str, data: &[u8], beside: impl Fn(&str) -> Option<Vec<u8>>) -> Result<refkv_ir::out::Out, String> {
     let (ir, facts, stats) = parse_pair(key, data, beside)?;
-    refkv_ir::store::store_output(StoreFormat::Nifti, &ir, &facts, stats, "https://example.org/nifti/", true, false).map_err(String::from)
+    refkv_ir::store::store_output(StoreFormat::Nifti, &ir, &facts, stats, &Default::default(), "https://example.org/nifti/", true, false).map_err(String::from)
 }
 
 /// The store IR, the facts and the run's counts of the pair whose header file is `key`, the image file found by `beside`.

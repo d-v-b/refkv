@@ -1008,7 +1008,8 @@ impl PyOmeImage {
 pub struct PyStoreRun {
     r: Option<refkv_ir::store::StoreRun>,
     /// the run finished without an output (`parse`): its format, IR, facts and counts, kept
-    parsed: Option<(refkv_ir::store::StoreFormat, Arc<Ir>, Arc<serde_json::Value>, serde_json::Value)>,
+    /// the format, the IR, the facts, and the run's counts with what it read for the projection
+    parsed: Option<(refkv_ir::store::StoreFormat, Arc<Ir>, Arc<serde_json::Value>, (serde_json::Value, refkv_ir::store::Read))>,
 }
 
 impl PyStoreRun {
@@ -1079,8 +1080,8 @@ impl PyStoreRun {
         let format = r.format;
         let (o, ir) = py
             .detach(|| -> Result<_, refkv_ir::seal::Refusal> {
-                let (ir, facts, stats) = r.finish()?;
-                Ok((refkv_ir::store::store_output(format, &ir, &facts, stats, url, mirror, checksums)?, ir))
+                let (ir, facts, stats, read) = r.finish_read()?;
+                Ok((refkv_ir::store::store_output(format, &ir, &facts, stats, &read, url, mirror, checksums)?, ir))
             })
             .map_err(refused)?;
         Ok((out_py(py, &o)?, PyIr::new(ir)))
@@ -1095,9 +1096,9 @@ impl PyStoreRun {
     fn parse(&mut self, py: Python<'_>) -> PyResult<PyIr> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
         let format = r.format;
-        let (ir, facts, stats) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
+        let (ir, facts, stats, read) = py.detach(|| r.finish_read()).map_err(Rejected::new_err)?;
         let ir = Arc::new(ir);
-        self.parsed = Some((format, Arc::clone(&ir), Arc::new(facts), stats));
+        self.parsed = Some((format, Arc::clone(&ir), Arc::new(facts), (stats, read)));
         Ok(PyIr::of(ir))
     }
     /// The HDF5 files a run `parse` finished read (`Hdf5`), its IR and descriptions shared with the
@@ -1153,9 +1154,9 @@ impl PyStoreRun {
     /// `output`, of a run `parse` finished: the output alone, in `out_py`'s form.
     #[pyo3(signature = (url, mirror=true, checksums=false))]
     fn project<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, checksums: bool) -> PyResult<Bound<'py, PyAny>> {
-        let (format, ir, facts, stats) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        let (format, ir, facts, (stats, read)) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
         let o = py
-            .detach(|| refkv_ir::store::store_output(*format, ir, facts, stats.clone(), url, mirror, checksums))
+            .detach(|| refkv_ir::store::store_output(*format, ir, facts, stats.clone(), read, url, mirror, checksums))
             .map_err(refused)?;
         out_py(py, &o)
     }

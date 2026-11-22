@@ -9,7 +9,7 @@
 //! decision of the output itself: the Zarr data type, the axes, the scales, units, position and
 //! orientation, the channels, the chunks and the root's source metadata.
 
-use super::{arr, contiguous, image_axes, key, n, translation, with_counts};
+use super::{arr, contiguous, image_axes, key, n, translation, Copied};
 use super::vsi::object_url;
 use crate::ir::Ir;
 use crate::nrrd::CHUNK_BYTES;
@@ -151,9 +151,9 @@ fn own(d: &J, data_type: &str, axes: &[&str]) -> Map<String, J> {
     m
 }
 
-/// The output of the input `description` describes; `description` also holds the edge chunks the
-/// store run read (`copied`) and its counts.
-pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+/// The output of the input `description` describes; `copied` holds the edge chunks the store run
+/// read for it, by their (offset, length) in the data's object.
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
     let a = description;
     let nrrd_axes = header_axes(a)?;
     let sizes: Vec<u64> = arr(&a["sizes"]).iter().map(n).collect();
@@ -227,9 +227,6 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
     // the chunks (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#85-chunks>):
     // ranges of the data's object, an edge chunk's padding a range of the zero data source, or
     // copied with it
-    let copied: Vec<(u64, Vec<u8>)> = arr(&a["copied"]).iter()
-        .map(|c| (n(&c[0]), arr(&c[1]).iter().map(|b| n(b) as u8).collect()))
-        .collect();
     let count = chunks.len();
     let mut zeros = contiguous::Zeros::of(&chunks);
     let mut refs = Refs::new(ir, out);
@@ -245,8 +242,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
                 refs.chunk(k, start, length, 0, Some(parts))?;
             }
             Chunk::Copy(o, len, pad) => {
-                let mut b = copied.iter().find(|c| c.0 == o && c.1.len() as u64 == len)
-                    .ok_or("internal: a copied chunk's bytes were not read")?.1.clone();
+                let mut b = copied.get(&(o, len)).ok_or("internal: a copied chunk's bytes were not read")?.clone();
                 b.resize(b.len() + pad as usize, 0);
                 refs.out.bytes(&k, b);
             }
@@ -258,14 +254,14 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
         super::store::check_key(k)?;
     }
     let sizes_by: Map<String, J> = axes.iter().zip(&shape).map(|(x, s)| (x.to_string(), json!(s))).collect();
-    out.summary = with_counts(json!({
+    out.summary = json!({
         "sizes": sizes_by, "dataType": data_type, "encoding": encoding, "detached": a["data_key"] != a["header_key"],
         "dataFile": data_key, "chunkShape": chunk_shape, "chunks": count, "orientation": applied, "translation": tr.is_some(),
-    }), a);
+    });
     Ok(out)
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
-    project(ir, description, url)
+pub fn store_project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+    project(ir, description, url, copied)
 }
