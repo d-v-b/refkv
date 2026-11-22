@@ -185,12 +185,14 @@ The HDF5 attributes are written as the HDF5 convention writes them
 ### 5.3 Elements
 
 The IR ([conventions §8](../conventions.md#8-the-ir-mirror)) is the HDF5 file's IR
-([hdf5.md §7.3](hdf5.md#73-the-ir-mirror)), but that the contiguous data of each channel the
-profile zarrifies is not one `data` element: it is a struct `data` of the same extent whose
-children are the elements of its MP4 file's IR ([mp4.md §5.3](mp4.md#53-elements)) but that file's
-root, each extent moved `a` bytes on (`a` where the dataset's bytes start). So the mirror holds the
-MP4 file's boxes, and its samples are `data` elements, `data/samples/<T>/<j>` under the dataset's
-object. A channel the profile doesn't zarrify keeps its `data` element.
+([hdf5.md §7.3](hdf5.md#73-the-ir-mirror)), but that the contiguous data of each channel whose
+bytes the MP4 profile reads as a file, zarrified or not, is not one `data` element: it is a struct
+`data` of the same extent whose children are the elements of its MP4 file's IR
+([mp4.md §5.3](mp4.md#53-elements)) but that file's root, each extent moved `a` bytes on (`a` where
+the dataset's bytes start). So the mirror holds the MP4 file's boxes, and its samples are `data`
+elements, `data/samples/<T>/<j>` under the dataset's object. A channel whose bytes don't read as an
+MP4 file (the first four reasons of [§8.2](#82-channels), not the fifth, refkv's MP4 convention
+zarrifying none of its tracks) keeps its `data` element.
 
 ### 5.4 Equivalence
 
@@ -257,13 +259,17 @@ HDF5, an H5J file among them.
 ### 8.2 Channels
 
 A channel is each object `/Channels/Channel_<n>`, in order of `n`. It is zarrified unless one of
-these holds, checked in this order; the first that holds is its **reason** ([§5.1](#51-the-root)),
-and the channel keeps its dataset's `data` element ([§5.3](#53-elements)):
+these holds, checked in this order; the first that holds is its **reason** ([§5.1](#51-the-root)).
+A channel with one of the first four, whose bytes don't read as an MP4 file, keeps its dataset's
+`data` element ([§5.3](#53-elements)):
 
 - it is no dataset: `not a dataset of bytes`;
 - its data type is not `uint8`, or it has other than one dimension;
 - its storage is not contiguous (compact, chunked, external or not allocated);
-- the MP4 profile rejects its bytes, read as a file: `its MP4 file: ` and the rejection;
+- the MP4 profile's parser rejects its bytes, read as a file, or finds that the file names other
+  files: `its MP4 file: ` and the rejection, or `its MP4 file names other files`;
+- refkv's MP4 convention zarrifies none of its tracks ([mp4.md §8.2](mp4.md#82-tracks)):
+  `its MP4 file: ` and the rejection;
 - the MP4 file has other than one track;
 - the MP4 profile doesn't zarrify the track ([mp4.md §8.2](mp4.md#82-tracks)): its reason;
 - the track is not H.264, HEVC, AV1 or VP9 video;
@@ -300,3 +306,24 @@ members:
 |---|---|
 | `channels` | for each channel zarrified, its `name`, `path`, `frames`, `chunkFrames` and `chunks` |
 | `skipped` | for each other, its `name` and `reason` |
+
+### 8.6 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a **description** of the file: the HDF5 profile's
+([hdf5.md §8.7](hdf5.md#87-the-description)), with one more member, `h5j`, whose `channels` are
+each channel `/Channels/Channel_<n>`, in order of `n`:
+
+| member | value |
+|---|---|
+| `name`, `path` | its name, `Channel_<n>`, and its dataset's path, `Channels/Channel_<n>` |
+| `offset`, `length` | where its contiguous data is in the file, and its bytes |
+| `attributes` | its dataset's attributes, as the HDF5 hierarchy presents them |
+| `unread` | why its bytes are not read as an MP4 file (the first four reasons of [§8.2](#82-channels)), or null |
+| `mp4` | the MP4 profile's description of its bytes read as a file ([mp4.md §8.5](mp4.md#85-the-description)), each IR element it names (a track's `trak` and `first`) the H5J file's IR's ([§5.3](#53-elements)), or null when `unread` is not |
+
+It holds none of an output's decisions: which channels are zarrified and each one's reason
+([§8.2](#82-channels)), the padding, and the arrays' data types, shapes, chunks and codecs
+([§4](#4-the-layout)) are the projection's, made from the description through refkv's plan of the
+file. The profile's check of [§8.3](#83-checks) that some channel is zarrified, which chooses the
+profile ([§8.1](#81-choosing-the-profile)), applies that plan.

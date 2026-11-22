@@ -1071,7 +1071,7 @@ impl Hdf5 {
         let grafts = self.channels.as_ref().map(|c| c.grafts(&grafted)).unwrap_or_default();
         super::stored::describe(&mut ir, &mut self.h, &em, &self.visited, &self.slots, self.found.as_ref(), &grafts)?;
         if let Some(c) = &self.channels {
-            facts["h5j"] = c.facts(&grafted)?;
+            facts["h5j"] = c.description(&grafted)?;
         }
         facts["requests"] = json!(self.requests);
         facts["requested"] = json!(self.requested);

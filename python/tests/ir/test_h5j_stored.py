@@ -69,6 +69,7 @@ def test_h5j_channels_are_described_as_h5py_and_ffmpeg_read_them(path: Path):
     presented = {str(at(c, "name")) for c in sequence(d.out.summary["channels"])}
     assert presented
     tracks = []
+    others = []  # the bytes of each channel the convention doesn't zarrify, (offset, length)
     with h5py.File(path, "r") as f:
         for name, ds in f["Channels"].items():
             if ds.dtype != np.uint8 or ds.chunks is not None:
@@ -79,6 +80,7 @@ def test_h5j_channels_are_described_as_h5py_and_ffmpeg_read_them(path: Path):
             assert k is not None, f"{name}: no description of the dataset's bytes"
             assert d.stored.arrays[k].shape == (len(data),)
             if name not in presented:
+                others.append((ds.id.get_offset(), len(data)))
                 continue
             # its MP4 file's track: the luma plane of its pictures, a row a sample
             offset = ds.id.get_offset()
@@ -107,5 +109,10 @@ def test_h5j_channels_are_described_as_h5py_and_ffmpeg_read_them(path: Path):
             reference = pictures(setup, [bytes(p) for p in packets])
             assert len(whole) == len(packets)
             assert all(np.array_equal(x, y) for x, y in zip(whole, reference, strict=True))
-    # no track is described but a zarrified channel's
-    assert sorted(tracks) == sorted(hevc)
+    # every zarrified channel's track is described; any other track described is a grafted channel's
+    # that the convention doesn't zarrify (spec/zarrify/h5j.md §5.3
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#53-elements>)
+    assert set(tracks) <= set(hevc)
+    for k in set(hevc) - set(tracks):
+        (_, start, _), *_ = d.parts(d.rows[k][0])
+        assert any(o <= start < o + n for o, n in others), k
