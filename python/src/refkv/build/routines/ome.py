@@ -55,7 +55,7 @@ def ome_image(parsed: Parsed) -> OmeImage:
     chunks its `omero` windows sample (through `Parsed.bytes`), and asks for no output of refkv's.
     ValueError for an input of another profile; `refkv.zarrify.Rejected` where the convention
     rejects the input, as `zarrify` does."""
-    image = parsed._image  # noqa: SLF001
+    image = parsed._view_as(_core.OmeImage)  # noqa: SLF001
     if image is None:
         raise ValueError(f"an OME image routine reads a TIFF, QPTIFF, NDPI or IMS input, not a {parsed.profile} input")
     return OmeImage(parsed, image)

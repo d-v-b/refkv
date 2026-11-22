@@ -19,11 +19,11 @@ import threading
 import warnings
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Self, overload
+from typing import TYPE_CHECKING, Any, Self, TypeVar, overload
 
 import refkv.ir  # its Ir, read at call time: refkv.ir imports refkv.zarrify, which imports this module (a cycle)
 import refkv.zarrify as _zarrify  # its parse, read at call time: refkv.zarrify imports this module (a cycle)
-from refkv import Range, ReferenceStore, Source, _core, _sync
+from refkv import Range, ReferenceStore, Source, _sync
 from refkv.errors import RefkvError
 from refkv.ir.kind import Kind
 from refkv.ir.store import StoreIrOutput, StoreParse
@@ -42,6 +42,8 @@ if TYPE_CHECKING:
     from refkv.zarrify.store.beside import Scope
 
 __all__ = ["NoIrError", "Parsed", "read", "read_async"]
+
+_V = TypeVar("_V")
 
 STRUCT, VALUE, DATA, DERIVED, ALIAS, GAP, OBJECT = (Kind.STRUCT, Kind.VALUE, Kind.DATA, Kind.DERIVED, Kind.ALIAS,
                                                     Kind.GAP, Kind.OBJECT)
@@ -96,12 +98,8 @@ class Parsed:
         self._read = 0  # bytes `bytes` has read from sources
         self._ir = refkv.ir.Ir(run.ir)
         self._mirrored = run.mirrored  # what makes the IR mirror, kept past `close`
-        self._fits: _core.Fits | None = getattr(run, "fits", None)  # a FITS file's IR and description
-        self._hdf5: _core.Hdf5 | None = getattr(run, "hdf5", None)  # an HDF5 input's IR and description
-        self._image: _core.OmeImage | None = getattr(run, "image", None)  # a TIFF's (or IMS file's) IR and description
-        self._netcdf3: _core.Netcdf3 | None = getattr(run, "netcdf3", None)  # a netCDF3 file's IR and description
-        self._envi: _core.Envi | None = getattr(run, "envi", None)  # an ENVI raster's description
-        self._zarr: _core.Zarr | None = getattr(run, "zarr", None)  # a Zarr store's IR and description
+        # the input as its format's own class gives it (`_core.Run.view`), for its routines
+        self._view: object | None = run.view
         self._description: dict[str, Any] = run.description
         # the profile the run decided, and the version of its convention, as an output's root
         # declares them
@@ -123,6 +121,10 @@ class Parsed:
     @property
     def ir(self) -> Ir:
         return self._ir
+
+    def _view_as(self, cls: type[_V]) -> _V | None:
+        """The input as its format's own class gives it, when that class is `cls`; else None."""
+        return self._view if isinstance(self._view, cls) else None
 
     @property
     def description(self) -> dict[str, Any]:

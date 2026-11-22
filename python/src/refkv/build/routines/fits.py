@@ -28,7 +28,7 @@ def _part(parsed: Parsed, piece: _core.FitsPiece) -> Part:
 def _fits(parsed: Parsed) -> _core.Fits:
     """The FITS file `parsed` read, its IR and description shared with its run: one for the file,
     whatever HDUs are asked for."""
-    fits = parsed._fits  # noqa: SLF001
+    fits = parsed._view_as(_core.Fits)  # noqa: SLF001
     if fits is None:
         raise ValueError(f"a FITS routine reads a FITS file, not a {parsed.profile} input")
     return fits

@@ -43,7 +43,7 @@ def netcdf3_hierarchy(parsed: Parsed) -> Netcdf3Hierarchy:
     (§7.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#77-the-description>) by
     the function refkv's own projection calls. It reads nothing, and asks for no output of refkv's.
     ValueError for an input that is not a netCDF3 file."""
-    netcdf3 = parsed._netcdf3  # noqa: SLF001
+    netcdf3 = parsed._view_as(_core.Netcdf3)  # noqa: SLF001
     if netcdf3 is None:
         raise ValueError(f"a netCDF3 routine reads a netCDF3 file, not a {parsed.profile} input")
     return Netcdf3Hierarchy(parsed, netcdf3)

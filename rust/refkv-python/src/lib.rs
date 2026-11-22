@@ -2,6 +2,7 @@
 //! as the module `refkv._core`: the parsers as step/feed/finish objects, and the IR's
 //! columns, tables and per-element reads.
 
+mod formats;
 mod phkv;
 
 use refkv_ir::check;
@@ -766,59 +767,12 @@ impl PyRun {
         let (ir, _) = self.get()?.parsed().map_err(PyValueError::new_err)?;
         Ok(PyIr::of(Arc::clone(ir)))
     }
-    /// The FITS file a run that is done parsed (`Fits`), its IR and description shared with the
-    /// run; ValueError for a run of another format.
-    fn fits(&mut self) -> PyResult<PyFits> {
+    /// The input as its format's own class gives it (`formats`), its IR and description shared
+    /// with the run; None for a format that has none.
+    fn view(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         let r = self.get()?;
-        if r.format.name() != "fits" {
-            return Err(PyValueError::new_err(format!("a run of {}, not of a FITS file", r.format.name())));
-        }
         let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
-        Ok(PyFits { ir, description, heaps: std::sync::OnceLock::new() })
-    }
-    /// The HDF5 file a run that is done parsed (`Hdf5`), its IR and description shared with the
-    /// run; ValueError for a run of another format.
-    fn hdf5(&mut self) -> PyResult<PyHdf5> {
-        let r = self.get()?;
-        if r.format.name() != "hdf5" {
-            return Err(PyValueError::new_err(format!("a run of {}, not of an HDF5 file", r.format.name())));
-        }
-        let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
-        Ok(PyHdf5 { ir, description, store: false })
-    }
-    /// The TIFF, QPTIFF, NDPI or IMS file a run that is done parsed (`OmeImage`), its IR and
-    /// description shared with the run; ValueError for a run of another format.
-    fn ome_image(&mut self) -> PyResult<PyOmeImage> {
-        let r = self.get()?;
-        let profile = match r.format.name() {
-            "tiff" => "tiff",
-            "qptiff" => "qptiff",
-            "ndpi" => "ndpi",
-            "ims" => "ims",
-            other => return Err(PyValueError::new_err(format!("a run of {other}, not of a TIFF, QPTIFF, NDPI or IMS file"))),
-        };
-        let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
-        Ok(PyOmeImage { ir, description, profile, held: Arc::default() })
-    }
-    /// The netCDF3 file a run that is done parsed (`Netcdf3`), its IR and description shared with
-    /// the run; ValueError for a run of another format.
-    fn netcdf3(&mut self) -> PyResult<PyNetcdf3> {
-        let r = self.get()?;
-        if r.format.name() != "netcdf3" {
-            return Err(PyValueError::new_err(format!("a run of {}, not of a netCDF3 file", r.format.name())));
-        }
-        let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
-        Ok(PyNetcdf3 { ir, description })
-    }
-    /// The zipped Zarr v3 store a run that is done parsed (`Zarr`), its IR and description shared
-    /// with the run; ValueError for a run of another format.
-    fn zarr(&mut self) -> PyResult<PyZarr> {
-        let r = self.get()?;
-        if r.format.name() != "zarr3" {
-            return Err(PyValueError::new_err(format!("a run of {}, not of a zipped Zarr v3 store", r.format.name())));
-        }
-        let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
-        Ok(PyZarr { ir, description, version: 3 })
+        formats::view(py, r.format.name(), &formats::View { ir, description, store: false, held: Arc::default() })
     }
     /// What makes the mirror of a run that is done (`Mirror`): its IR and description, shared with the
     /// run, which is kept and may be used while the mirror is made.
@@ -868,135 +822,6 @@ impl PyMirror {
             }.map(|_| o)
         }).map_err(Rejected::new_err)?;
         out_py(py, &o)
-    }
-}
-
-/// A Zarr v2 or v3 store a run parsed (`Run.zarr()` of a zipped Zarr v3 store, `StoreRun.zarr()`):
-/// its IR and its description, shared with the run and never changed, so that a layout asks for
-/// the Zarr convention's hierarchy from any thread.
-#[pyclass(name = "Zarr", module = "refkv._core", frozen)]
-pub struct PyZarr {
-    ir: Arc<Ir>,
-    description: Arc<serde_json::Value>,
-    /// 3 for a Zarr v3 store, else 2 (Zarr v2's, and OME-Zarr's, which it reads)
-    version: u8,
-}
-
-#[pymethods]
-impl PyZarr {
-    /// The Zarr convention's hierarchy but for refkv's declarations and its `refkv_source/`
-    /// objects (`project::zarr2::hierarchy`, `project::zarr3::hierarchy`): its nodes as JSON, each
-    /// its path, kind and source metadata `S` as JSON text, and its documents and chunks in
-    /// `out_py`'s form (the url empty); or Rejected.
-    fn hierarchy<'py>(&self, py: Python<'py>) -> PyResult<(String, Bound<'py, PyAny>)> {
-        let (nodes, out) = py
-            .detach(|| if self.version == 3 {
-                refkv_ir::project::zarr3::hierarchy(&self.ir, &self.description)
-            } else {
-                refkv_ir::project::zarr2::hierarchy(&self.ir, &self.description)
-            })
-            .map_err(Rejected::new_err)?;
-        Ok((serde_json::Value::Array(nodes).to_string(), out_py(py, &out)?))
-    }
-}
-
-/// An HDF5 input a run parsed (`Run.hdf5()`, `StoreRun.hdf5()`): its IR and its description (a
-/// store run's, of each file it read), shared with the run and never changed, so that a layout
-/// asks for the HDF5 convention's hierarchy from any thread, while the run is used for something
-/// else or after it is gone.
-#[pyclass(name = "Hdf5", module = "refkv._core", frozen)]
-pub struct PyHdf5 {
-    ir: Arc<Ir>,
-    description: Arc<serde_json::Value>,
-    store: bool,
-}
-
-#[pymethods]
-impl PyHdf5 {
-    /// The HDF5 convention's hierarchy (`project::hdf5::hierarchy`): its nodes as JSON, its
-    /// documents and chunks in `out_py`'s form (the url empty) but for the edge chunks it copies,
-    /// and those, each `(key, offset, length, padding)` of the file; or Rejected.
-    #[allow(clippy::type_complexity)]
-    fn hierarchy<'py>(&self, py: Python<'py>) -> PyResult<(String, Bound<'py, PyAny>, Vec<(String, u64, u64, u64)>)> {
-        let (nodes, out, copies) = py
-            .detach(|| refkv_ir::project::hdf5::hierarchy(&self.ir, &self.description, self.store))
-            .map_err(Rejected::new_err)?;
-        Ok((serde_json::Value::Array(nodes).to_string(), out_py(py, &out)?, copies))
-    }
-    /// The key of the file a store run was named by, whose object URL the hierarchy's root names
-    /// as its source; None for a file run.
-    fn named_key(&self) -> Option<String> {
-        self.description["named_key"].as_str().filter(|_| self.store).map(str::to_string)
-    }
-}
-
-/// A netCDF3 file a run parsed (`Run.netcdf3()`): its IR and its description, shared with the run
-/// and never changed, so that a layout asks for the netCDF3 convention's hierarchy from any thread,
-/// while the run is used for something else or after it is gone.
-#[pyclass(name = "Netcdf3", module = "refkv._core", frozen)]
-pub struct PyNetcdf3 {
-    ir: Arc<Ir>,
-    description: Arc<serde_json::Value>,
-}
-
-#[pymethods]
-impl PyNetcdf3 {
-    /// The netCDF3 convention's hierarchy (`project::netcdf3::hierarchy`): its nodes as JSON, its
-    /// documents and chunks in `out_py`'s form (the url empty) but for the edge chunks it copies,
-    /// and those, each `(key, offset, length, padding)` of the file; or Rejected.
-    #[allow(clippy::type_complexity)]
-    fn hierarchy<'py>(&self, py: Python<'py>) -> PyResult<(String, Bound<'py, PyAny>, Vec<(String, u64, u64, u64)>)> {
-        let (nodes, out, copies) = py
-            .detach(|| refkv_ir::project::netcdf3::hierarchy(&self.ir, &self.description))
-            .map_err(Rejected::new_err)?;
-        Ok((serde_json::Value::Array(nodes).to_string(), out_py(py, &out)?, copies))
-    }
-}
-
-/// A TIFF, QPTIFF, NDPI or IMS input a run parsed (`Run.ome_image()`, `StoreRun.ome_image()`): its
-/// IR and its description, shared with the run and never changed, so that a
-/// layout asks for the OME image refkv's convention writes from any thread, while the run is used
-/// for something else or after it is gone.
-#[pyclass(name = "OmeImage", module = "refkv._core", frozen)]
-pub struct PyOmeImage {
-    ir: Arc<Ir>,
-    description: Arc<serde_json::Value>,
-    profile: &'static str,
-    /// the bytes a store run read for the image (`store::Read::copied`), which `image` adds to
-    /// those the caller read; empty of a file run
-    held: Arc<refkv_ir::project::Copied>,
-}
-
-#[pymethods]
-impl PyOmeImage {
-    /// The input's profile: `tiff`, `qptiff`, `ndpi` or `ims`.
-    #[getter]
-    fn profile(&self) -> &'static str {
-        self.profile
-    }
-    /// The ranges of the file the image samples for its `omero` windows
-    /// (`project::ome_image_reads`), `(offset, length)`, which the caller reads and gives
-    /// `image`; or Rejected where refkv's plan rejects the input.
-    fn reads(&self, py: Python<'_>) -> PyResult<Vec<(u64, u64)>> {
-        py.detach(|| refkv_ir::project::ome_image_reads(self.profile, &self.ir, &self.description)).map_err(Rejected::new_err)
-    }
-    /// The OME image (`project::ome_image`): its nodes as JSON, and its documents and
-    /// chunks in `out_py`'s form (the url empty), its arrays sharded, ranges joined across inner
-    /// chunks unless `checksums`; `copied` the bytes of the ranges `reads` gave, each
-    /// `((offset, length), bytes)`. Rejected where refkv's plan rejects the input.
-    #[pyo3(signature = (copied, checksums=false))]
-    fn image<'py>(&self, py: Python<'py>, copied: Vec<((u64, u64), Vec<u8>)>, checksums: bool) -> PyResult<(String, Bound<'py, PyAny>)> {
-        let mut copied: refkv_ir::project::Copied = copied.into_iter().collect();
-        copied.extend(self.held.iter().map(|(k, v)| (*k, v.clone())));
-        let (nodes, out) = py
-            .detach(|| refkv_ir::project::ome_image(self.profile, &self.ir, &self.description, &copied, checksums))
-            .map_err(Rejected::new_err)?;
-        Ok((serde_json::Value::Array(nodes).to_string(), out_py(py, &out)?))
-    }
-    /// The key of the file a store run was named by, whose object URL the image's root names as
-    /// its source; None for a file run.
-    fn named_key(&self) -> Option<String> {
-        self.description["named_key"].as_str().map(str::to_string)
     }
 }
 
@@ -1102,49 +927,18 @@ impl PyStoreRun {
         self.parsed = Some((format, Arc::clone(&ir), Arc::new(description), (stats, read)));
         Ok(PyIr::of(ir))
     }
-    /// The HDF5 files a run `parse` finished read (`Hdf5`), its IR and descriptions shared with the
-    /// run; ValueError for a run of another format.
-    fn hdf5(&mut self) -> PyResult<PyHdf5> {
-        let (format, ir, description, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
-        if *format != refkv_ir::store::StoreFormat::Hdf5 {
-            return Err(PyValueError::new_err("a run of a store of another format, not of HDF5 files"));
-        }
-        Ok(PyHdf5 { ir: Arc::clone(ir), description: Arc::clone(description), store: true })
-    }
-    /// The image across files a TIFF store run `parse` finished read (`OmeImage`), its IR and
-    /// description shared with the run, with the bytes its windows sample, which the run read;
-    /// ValueError for a run of another format.
-    fn ome_image(&mut self) -> PyResult<PyOmeImage> {
+    /// The input as its format's own class gives it (`formats`), of a run `parse` finished: its
+    /// IR and description shared with the run, with the bytes the run read for its projection;
+    /// None for a format that has none.
+    fn view(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         let (format, ir, description, (_, read)) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
-        if *format != refkv_ir::store::StoreFormat::Tiff {
-            return Err(PyValueError::new_err("a run of a store of another format, not of TIFF files"));
-        }
-        Ok(PyOmeImage { ir: Arc::clone(ir), description: Arc::clone(description), profile: "tiff", held: Arc::new(read.copied.clone()) })
-    }
-    /// The Zarr v2 or v3 store a run `parse` finished read (`Zarr`), its IR and description shared
-    /// with the run; ValueError for a run of another format.
-    fn zarr(&mut self) -> PyResult<PyZarr> {
-        let (format, ir, description, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
-        let version = match format {
-            refkv_ir::store::StoreFormat::Zarr2 => 2,
-            refkv_ir::store::StoreFormat::Zarr3 => 3,
-            _ => return Err(PyValueError::new_err(format!("a run of a store of {}, not of Zarr", format.name()))),
-        };
-        Ok(PyZarr { ir: Arc::clone(ir), description: Arc::clone(description), version })
+        let v = formats::View { ir: Arc::clone(ir), description: Arc::clone(description), store: true, held: Arc::new(read.copied.clone()) };
+        formats::view(py, format.name(), &v)
     }
     /// The profile's description of the input (JSON), of a run `parse` finished.
     fn description(&mut self) -> PyResult<String> {
         let (_, _, description, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
         Ok(description.to_string())
-    }
-    /// The ENVI raster a run `parse` finished read (`Envi`), its description shared with the run;
-    /// ValueError for a run of another format.
-    fn envi(&mut self) -> PyResult<PyEnvi> {
-        let (format, _, description, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
-        if *format != refkv_ir::store::StoreFormat::Envi {
-            return Err(PyValueError::new_err("a run of a store of another format, not of an ENVI raster"));
-        }
-        Ok(PyEnvi { description: Arc::clone(description) })
     }
     /// What makes the mirror of a run `parse` finished (`Mirror`): its IR and description, shared
     /// with the run.
@@ -1179,7 +973,7 @@ fn rebuild_store<'py>(py: Python<'py>, get: Bound<'py, PyAny>) -> PyResult<Vec<(
 /// data sources [bytes], lazy prefixes [str], summary JSON); a part is (offset,
 /// length) of source 0, (source, offset, length), bytes, or ("object", key, offset, length) of a
 /// store's object.
-fn out_py<'py>(py: Python<'py>, o: &refkv_ir::out::Out) -> PyResult<Bound<'py, PyAny>> {
+pub(crate) fn out_py<'py>(py: Python<'py>, o: &refkv_ir::out::Out) -> PyResult<Bound<'py, PyAny>> {
     use refkv_ir::out::Part;
     let entries = PyList::empty(py);
     for (k, v) in &o.entries {
@@ -1408,7 +1202,7 @@ fn grid_chunks(py: Python<'_>, offset: u64, shape: Vec<u64>, item: u64, limit: u
 /// A part of a chunk of `Fits.arrays`: `("src", offset, length)` of the file, `("lit", bytes)`,
 /// `("zeros", length)` of an edge chunk's padding, or `("copy", offset, length)` of the file, to
 /// be copied.
-fn piece_py<'py>(py: Python<'py>, piece: &refkv_ir::project::fits::Piece) -> PyResult<Bound<'py, PyAny>> {
+pub(crate) fn piece_py<'py>(py: Python<'py>, piece: &refkv_ir::project::fits::Piece) -> PyResult<Bound<'py, PyAny>> {
     use refkv_ir::project::fits::Piece;
     Ok(match piece {
         Piece::Src(o, n) => ("src", *o, *n).into_pyobject(py)?.into_any(),
@@ -1416,64 +1210,6 @@ fn piece_py<'py>(py: Python<'py>, piece: &refkv_ir::project::fits::Piece) -> PyR
         Piece::Zeros(n) => ("zeros", *n).into_pyobject(py)?.into_any(),
         Piece::Copy(o, n) => ("copy", *o, *n).into_pyobject(py)?.into_any(),
     })
-}
-
-/// A FITS file a run parsed (`Run.fits()`): its IR and its description, shared with the run and
-/// never changed, and its heaps' elements, found once; so that a layout asks for each HDU's arrays
-/// and cards without the description going through JSON for each, from any thread.
-#[pyclass(name = "Fits", module = "refkv._core", frozen)]
-pub struct PyFits {
-    ir: Arc<Ir>,
-    description: Arc<serde_json::Value>,
-    heaps: std::sync::OnceLock<refkv_ir::project::fits::Heaps>,
-}
-
-#[pymethods]
-impl PyFits {
-    /// The arrays of HDU `index` as the FITS convention writes them, but for their declarations
-    /// (`project::fits::hdu_arrays`): each `(path, document JSON, chunks)`, `path` under the HDU's
-    /// node (`""`, `rows`, `heap`), each chunk `(coords, parts)` in `piece_py`'s form. ValueError
-    /// for no HDU `index`.
-    #[allow(clippy::type_complexity)]
-    fn arrays<'py>(&self, py: Python<'py>, index: u64) -> PyResult<Vec<(String, String, Vec<(Vec<u64>, Vec<Bound<'py, PyAny>>)>)>> {
-        let arrays = py.detach(|| {
-            let heaps = self.heaps.get_or_init(|| refkv_ir::project::fits::Heaps::of(&self.ir));
-            refkv_ir::project::fits::hdu_arrays(&self.ir, &self.description, index, heaps)
-        }).map_err(PyValueError::new_err)?;
-        arrays.into_iter().map(|a| {
-            let chunks = a.chunks.iter().map(|(coords, pieces)| {
-                Ok((coords.clone(), pieces.iter().map(|p| piece_py(py, p)).collect::<PyResult<Vec<_>>>()?))
-            }).collect::<PyResult<Vec<_>>>()?;
-            Ok((a.path, a.doc.to_string(), chunks))
-        }).collect()
-    }
-    /// The cards of HDU `index` as the FITS convention writes them (`project::fits::hdu_cards`):
-    /// JSON, each `[keyword, value, comment]`. ValueError for no HDU `index`.
-    fn cards(&self, py: Python<'_>, index: u64) -> PyResult<String> {
-        let cards = py.detach(|| refkv_ir::project::fits::hdu_cards(&self.ir, &self.description, index)).map_err(PyValueError::new_err)?;
-        Ok(refkv_ir::out::to_text(&cards))
-    }
-}
-
-/// An ENVI raster a store run parsed (`StoreRun.envi()`): its description, shared with the run
-/// and never changed, so that a layout asks for the ENVI convention's image from any thread, while
-/// the run is used for something else or after it is gone.
-#[pyclass(name = "Envi", module = "refkv._core", frozen)]
-pub struct PyEnvi {
-    description: Arc<serde_json::Value>,
-}
-
-#[pymethods]
-impl PyEnvi {
-    /// The ENVI convention's image (`project::envi::image`): the root's source metadata (JSON),
-    /// the array's document (JSON, with no attributes), its chunks, each `(coords, offset, length)`
-    /// of the data file, and the header and data files' keys.
-    #[allow(clippy::type_complexity)]
-    fn image(&self) -> PyResult<(String, String, Vec<(Vec<u64>, u64, u64)>, String, String)> {
-        let img = refkv_ir::project::envi::image(&self.description).map_err(PyValueError::new_err)?;
-        let chunks = img.chunks.iter().map(|(coords, (offset, length))| (coords.to_vec(), *offset, *length)).collect();
-        Ok((refkv_ir::out::to_text(&img.own), refkv_ir::out::to_text(&img.array), chunks, img.header_key, img.data_key))
-    }
 }
 
 /// What frames a raw deflate stream as a gzip member, as the built-in projections write one: the
@@ -1544,14 +1280,9 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_set_shard_frames, m)?)?;
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
     m.add_class::<PyMirror>()?;
+    formats::register(m)?;
     m.add_function(wrap_pyfunction!(grid_chunks, m)?)?;
     m.add_function(wrap_pyfunction!(gzip_frame, m)?)?;
-    m.add_class::<PyFits>()?;
-    m.add_class::<PyHdf5>()?;
-    m.add_class::<PyNetcdf3>()?;
-    m.add_class::<PyOmeImage>()?;
-    m.add_class::<PyZarr>()?;
-    m.add_class::<PyEnvi>()?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;
     m.add_function(wrap_pyfunction!(view_problem, m)?)?;
     m.add_function(wrap_pyfunction!(synthetic, m)?)?;

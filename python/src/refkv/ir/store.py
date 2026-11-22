@@ -316,14 +316,9 @@ class StoreParse:
             raise Rejected(str(e), format=self.profile) from None
         # what makes the IR mirror alone, with the keys and directories the listing ignored
         self.mirrored: _core.Mirror = run.mirror()
-        # an HDF5 input's IR and descriptions, for the HDF5 convention's routine
-        self.hdf5: _core.Hdf5 | None = run.hdf5() if fmt == "hdf5" else None
-        # a TIFF image across files' IR and description, for the OME image routine
-        self.image: _core.OmeImage | None = run.ome_image() if fmt == "tiff" else None
-        # a Zarr v2 or v3 store's IR and description, for the Zarr convention's routine
-        self.zarr: _core.Zarr | None = run.zarr() if fmt in ("zarr2", "zarr3") else None
-        # an ENVI raster's description, for the ENVI convention's routine
-        self.envi: _core.Envi | None = run.envi() if fmt == "envi" else None
+        # the input as its format's own class gives it, for that format's routines
+        # (`refkv.build.routines`); None for a format that has none
+        self.view: object | None = run.view()
         # the profile's description of the input
         self.description: dict[str, Any] = json.loads(run.description())
         # the objects' sizes, from the IR: the listing's, and a VSI input's files probed into it
