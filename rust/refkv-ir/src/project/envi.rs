@@ -10,7 +10,7 @@
 //! value) are made here, by [`image`], from the header's fields as the parser read them.
 
 use super::vsi::object_url;
-use super::{key, n, with_counts};
+use super::{key, n};
 use crate::envi::stored_axes;
 use crate::ir::Ir;
 use crate::out::{array_json, bytes_codec, gzip_codecs, image_ome, root_json, Out, Part};
@@ -129,11 +129,11 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
     }
     let shape = img.array["shape"].as_array().cloned().unwrap_or_default();
     let sizes_by: Map<String, J> = axes.iter().zip(shape).map(|(x, s)| (x.to_string(), s)).collect();
-    out.summary = with_counts(json!({
+    out.summary = json!({
         "sizes": sizes_by, "dataType": img.array["data_type"], "interleave": img.own["interleave"],
         "compression": img.own["compression"], "dataFile": img.data_key,
         "chunkShape": img.array["chunk_grid"]["configuration"]["chunk_shape"], "chunks": img.chunks.len(),
-    }), description);
+    });
     Ok(out)
 }
 
