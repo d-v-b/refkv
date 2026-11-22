@@ -87,7 +87,7 @@ pub fn ome_image(profile: &str, ir: &Ir, description: &J, copied: &Copied, check
         "ndpi" => ndpi::project(ir, description, "")?,
         "qptiff" => qptiff::project(ir, description, "", copied)?,
         "ims" => ims::project(ir, description, "")?,
-        "tiff" if description.get("files").is_some() => tiff::project_set(ir, description, "")?,
+        "tiff" if description.get("files").is_some() => tiff::project_set(ir, description, "", copied)?,
         "tiff" => tiff::project(ir, description, "", copied)?,
         other => return Err(format!("internal: no OME image of a {other} input")),
     };
