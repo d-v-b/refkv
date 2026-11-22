@@ -8,16 +8,17 @@
 # for Python (`uv sync`, which builds python/, refkv, with its bindings as the module refkv._core) and for wasm32 for the browser code (`just js::wasm`).
 # The vzip CLI (rust/refkv-cli) is checked against the Python zarrifier, archive for archive, and
 # refkv's VirtualiZarr parser against VirtualiZarr's own parsers, on Linux.
-# Three tiers, so that the runners' queue is not spent on every push (GitHub's free plan runs about
-# 20 jobs at a time across the repository):
-# - full: the merge queue (`merge_group`), pushes to main and manual runs, on Linux, macOS and
-#   Windows; the Python tests also on free-threaded CPython 3.14t and at refkv's declared floors;
-#   the CLI against the Python zarrifier in shards; the fixture comparison, the fixtures'
-#   reproducibility and the Node tests;
-# - a pull request into main: the section references and lint, the IR core's tests, the Python
-#   tests, the install without extras, the output digests and the VirtualiZarr parity, on Linux;
-# - a pull request stacked on another's branch: the section references and the IR core's tests,
-#   until GitHub moves it onto main when its predecessor merges.
+# Two tiers, so that the runners' queue is not spent on the whole suite at every push (GitHub's free
+# plan runs about 20 jobs at a time across the repository):
+# - full: the merge queue (`merge_group`) and manual runs, on Linux, macOS and Windows; the Python
+#   tests also on free-threaded CPython 3.14t and at refkv's declared floors; the CLI against the
+#   Python zarrifier in shards; the fixture comparison, the fixtures' reproducibility and the Node
+#   tests. A push to main runs it too while the merge queue is off; once it is on, the repository
+#   variable MERGE_QUEUE is `true` and a push runs the light tier only, since the commit main
+#   becomes is the one the queue tested;
+# - light: every pull request, stacked or not, and a push to main with the merge queue on: the
+#   section references and lint, the IR core's tests, the Python tests, the install without
+#   extras, the output digests and the VirtualiZarr parity, on Linux.
 # `ci-ok` needs every job and passes when each passed or was skipped for its tier: it is the one
 # check to require of main and of the merge queue (a skipped matrix job reports no name of its
 # own, so a check per job cannot be required).
@@ -53,13 +54,12 @@ defaults:
 jobs:
   pytest:
     name: pytest (${{ matrix.os }})
-    if: github.event_name != 'pull_request' || github.base_ref == 'main'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest", "windows-latest"]') }}
+        os: ${{ fromJSON((github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.MERGE_QUEUE != 'true')) && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
     # the tests read the repository's text files (UTF-8) without naming an encoding
     env:
       PYTHONUTF8: "1"
@@ -105,7 +105,7 @@ jobs:
   # is installed instead (the lock keeps the release the fixture generators encode with).
   pytest-free-threaded:
     name: pytest (ubuntu-latest, 3.14t)
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.MERGE_QUEUE != 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     # `uv run` uses the environment `uv sync` made, without syncing it again (with every package)
@@ -163,7 +163,7 @@ jobs:
   # here if it stops.
   pytest-min-versions:
     name: pytest (ubuntu-latest, minimum versions)
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.MERGE_QUEUE != 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     # `uv run` uses the environment as the steps leave it, without syncing it back to uv.lock
@@ -215,7 +215,7 @@ jobs:
   # On Linux, both; on macOS and Windows, the oldest. In the full tier only.
   node:
     name: node (${{ matrix.os }}, ${{ matrix.node }})
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.MERGE_QUEUE != 'true')
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -260,7 +260,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest", "windows-latest"]') }}
+        os: ${{ fromJSON((github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.MERGE_QUEUE != 'true')) && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -298,7 +298,7 @@ jobs:
   # minutes in one job. The CLI's own tests and the conformance harness run in each OS's first shard.
   cli:
     name: cli (${{ matrix.os }}, ${{ matrix.shard }}/${{ matrix.of }})
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.MERGE_QUEUE != 'true')
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     strategy:
@@ -341,7 +341,7 @@ jobs:
         run: just impls::rust::test
 
   fixture-compare:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.MERGE_QUEUE != 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -384,7 +384,6 @@ jobs:
   # fixtures (conformance/virtualizarr/test_parity.py): each open gap of
   # https://github.com/d-v-b/refkv/issues/271 is a strict xfail, which fails once the gap closes
   virtualizarr-parity:
-    if: github.event_name != 'pull_request' || github.base_ref == 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -408,7 +407,6 @@ jobs:
   # (conformance/outputs/digest.py): a change that alters an output must alter the manifest, so
   # the change's diff names the inputs and the parts of their outputs that changed
   outputs:
-    if: github.event_name != 'pull_request' || github.base_ref == 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -433,13 +431,12 @@ jobs:
   # installs it; then with only the zarr extra, which reads them through zarr
   base-install:
     name: base-install (${{ matrix.os }})
-    if: github.event_name != 'pull_request' || github.base_ref == 'main'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest", "windows-latest"]') }}
+        os: ${{ fromJSON((github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.MERGE_QUEUE != 'true')) && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -504,7 +501,7 @@ jobs:
       - run: just typecheck
 
   fixtures-reproducible:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.MERGE_QUEUE != 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
