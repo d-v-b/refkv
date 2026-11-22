@@ -205,7 +205,8 @@ class Run:
     span a plain range request, several a multi-range one) and `complete(k,
     parts, seconds)` (each span's bytes, or None for a multi-range request the
     server did not answer with its ranges), until `poll()` gives None; then
-    `finish()` gives the IR, the parser's description (JSON) and the planner's counts (JSON).
+    `finish()` gives the IR, the parser's description (JSON) and the planner's counts, with the
+    parser's as `parser` (JSON).
 
     The constructor raises ValueError for an unknown `format`; `poll` and `complete` raise
     Rejected when the parser rejects the input."""

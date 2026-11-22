@@ -411,9 +411,13 @@ impl Run {
         self.planner.complete(k, data, seconds)
     }
 
-    /// The IR, the description and the planner's counts.
+    /// The IR, the description and the planner's counts, with the parser's (`parser`).
     pub fn finish(self) -> Result<(Ir, serde_json::Value, serde_json::Value), String> {
-        self.finished().map(|f| (f.ir, f.description, f.stats))
+        self.finished().map(|f| {
+            let mut stats = f.stats;
+            stats["parser"] = f.counts;
+            (f.ir, f.description, stats)
+        })
     }
 
     /// `finish`, with the parser's counts and the bytes of the ranges the projection copies.
