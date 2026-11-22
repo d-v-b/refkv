@@ -14,6 +14,7 @@ Version: 0 (draft) · Schema: [stored-array.json](stored-array.json)
 
 Added 2026-11-08. The design is design/proposals/ir-array-model.md (d-v-b/refkv#289); where the
 two differ, this document governs.
+Changed 2026-11-22: every projection reads the descriptions (d-v-b/refkv#378).
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be interpreted as described in
 RFC 2119.
@@ -28,6 +29,12 @@ not interpret something, it falls back to a more general representation: bytes, 
 source holds them ([§2.2](#22-places-and-parameters)); the source's own id and parameters (the
 codec `source`, [§3.2](#32-the-list)); an array whose storage it does not model (a description
 with no grid, [§2.3](#23-the-grid)).
+
+The descriptions and the chunk map are given to every projection alike: refkv's own, which
+reads them with the format's description (the format's known structures, specified in its
+document under [zarrify/](zarrify/)) and decides the output through the plan its convention makes
+from them, and a layout plugin's ([layout.md §2](layout.md#2-the-inputs)), which reads the same
+parsed input and none of refkv's output or plan.
 
 Every array a parser reaches has a description, whether or not its profile presents it. A format
 whose parser describes its arrays has a paragraph in [§7](#7-the-formats), which lists the
@@ -423,11 +430,9 @@ them to the IR, which, in order: sorts the descriptions by `(element, index)`, s
 arrays fall back follows from the source alone; fits the map to its limit (below); drops from the chain table the
 chains no description names, keeping the others' order, and renumbers the descriptions' positions
 in it; fits the descriptions to their limit (below), which falls back the same way and drops the
-chains it leaves unnamed; sorts the rows; and checks them ([§5](#5-checks)). They are
-not in the facts a projection reads, which keep their arrays until each format's projection reads
-the descriptions. NumPy's does: its parser returns no facts of an array but its header's text and
-its description's key, and its projection takes the array's shape, order and data from the
-description and the chunk map.
+chains it leaves unnamed; sorts the rows; and checks them ([§5](#5-checks)). Each
+format's projection reads them where its parser builds them, with the format's description and the plan refkv's convention
+makes from it ([§1](#1-stored-arrays)), and so may any layout, from the parsed input.
 
 **Only two things change ids afterwards.**
 
