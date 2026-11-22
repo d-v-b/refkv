@@ -73,7 +73,6 @@ OFFENDERS: dict[str, str] = {
 
     "flac": "FLAC's frame forms give a Zarr data type (`geometry.data_type`)",
 
-    "mp3": "MP3's frame forms give a Zarr data type (`geometry.data_type`)",
 
     "mrc": "MRC's data forms give a Zarr data type (`geometry.data_type`)",
 
