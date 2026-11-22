@@ -1,8 +1,8 @@
 //! The QPTIFF image projection (spec/zarrify/qptiff.md §4
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#4-the-image>) from a valid IR:
 //! one array per level, whose chunks are the tiles, or the strips, of each channel's IFD (a
-//! short last strip padded to the chunk by the planned' `pad`: a zero data source, or a literal
-//! tail spliced into its LZW stream); the planned hold the format, the channels' names and
+//! short last strip padded to the chunk by the plan's `pad`: a zero data source, or a literal
+//! tail spliced into its LZW stream); the plan holds the format, the channels' names and
 //! colors (its `omero`), sizes, scales and translation; the windows of its `omero` are sampled
 //! from the coarsest level's chunks, which the run reads (`reads`).
 
@@ -53,7 +53,7 @@ fn channel_count(planned: &J) -> u64 {
     if spp > 1 { spp } else { arr(&planned["channels"]).len() as u64 }
 }
 
-/// A level's shape and chunk shape (along the planned' axes).
+/// A level's shape and chunk shape (along the plan's axes).
 fn level_shape(planned: &J, lv: &J) -> (Vec<u64>, Vec<u64>) {
     let spp = n(&planned["spp"]);
     let c_chunk = if spp > 1 && n(&planned["planar"]) == 1 { spp } else { 1 };

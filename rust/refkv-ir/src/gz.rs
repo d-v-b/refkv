@@ -140,7 +140,7 @@ pub fn recorded(size: u128) -> u32 {
     size as u32
 }
 
-/// The inflated start a gzipped file's description hold (`head`), which a projection reads for the
+/// The inflated start a gzipped file's description holds (`head`), which a projection reads for the
 /// header the IR cannot hold: the stream's bytes are not the file's.
 pub fn head_of(description: &J) -> Option<Vec<u8>> {
     let hex = description["gzip"]["head"].as_str()?;

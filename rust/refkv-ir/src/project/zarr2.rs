@@ -39,7 +39,7 @@ pub fn is_chunk(rest: &str, grid: &[u64], sep: &str) -> bool {
     parts.len() == grid.len() && parts.iter().zip(grid).all(|(s, &n)| canonical_index(s, n))
 }
 
-/// The hierarchy of a Zarr v2 store, or, when the planned say the root declares OME-NGFF 0.4
+/// The hierarchy of a Zarr v2 store, or, when the plan says the root declares OME-NGFF 0.4
 /// (`profile` "ome-zarr"), of an OME-Zarr one (spec/zarrify/ome-zarr.md
 /// §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#5-group-attributes>–§8
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#8-source-metadata>): its

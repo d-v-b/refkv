@@ -40,7 +40,7 @@ fn element(h: &J, name: &str) -> Option<u32> {
     h["elements"][name].as_u64().map(|v| v as u32)
 }
 
-/// Whether a row of the binary table whose description are `t` is its columns' fields: every TFORMn one
+/// Whether a row of the binary table whose description is `t` is its columns' fields: every TFORMn one
 /// the parser reads, and their bytes NAXIS1 in all. Of any other table, readers do not agree on
 /// where a row is: the standard's rows are NAXIS1 bytes each, and astropy's the fields' bytes.
 fn fields_fill_rows(t: &J) -> bool {
@@ -264,7 +264,7 @@ impl Built {
     }
 }
 
-/// The descriptions of the arrays of the HDUs whose description are `hdus`, their chains and their rows.
+/// The descriptions of the arrays of the HDUs whose descriptions are `hdus`, their chains and their rows.
 pub(super) fn described(ir: &Ir, hdus: &[J]) -> Res<(Vec<StoredArray>, Vec<Chain>, ChunkMap)> {
     let mut b = Built::default();
     for h in hdus {

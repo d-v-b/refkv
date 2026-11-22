@@ -29,7 +29,7 @@ fn schema() -> &'static Rules {
     rules::of(PROFILE)
 }
 
-/// The planned the hierarchy is written from (`project/zarr3.rs`), of the store's description:
+/// The plan the hierarchy is written from (`project/zarr3.rs`), of the store's description:
 /// each node presented, with what it writes of it and its chunk keys, and the nodes left out and
 /// why. A root that fails rejects the store.
 pub fn hierarchy(description: &J) -> Res<J> {
@@ -334,7 +334,7 @@ impl Classified {
         is_chunk(rest, a.grid.v2, &a.grid.sep, &a.grid.counts).then(|| path.to_string())
     }
 
-    /// The planned the projection reads: each node, and the documents held.
+    /// The plan the projection reads: each node, and the documents held.
     fn planned(&self, form: &str) -> J {
         let mut nodes = Vec::new();
         for (path, (doc, moved, array)) in &self.presented {

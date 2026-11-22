@@ -63,13 +63,13 @@ fn presented(shown: &str, node: &J) -> Res<(Array, Option<Jv>)> {
     Ok((array(shown, &doc)?, attrs))
 }
 
-/// The planned the hierarchy is written from (`project/zarr2.rs`), of the store's description:
+/// The plan the hierarchy is written from (`project/zarr2.rs`), of the store's description:
 /// each node presented, with its `zarr.json` and source metadata, the arrays not presented and
 /// why, and the OME layer's, of a store whose root declares OME-NGFF 0.4.
 pub fn hierarchy(ir: &Ir, description: &J) -> Res<J> {
     let s = schema();
     let ome = description["profile"] == "ome-zarr";
-    // each node: its planned, its attributes (an explicit group's, for the OME layer) and M
+    // each node: its plan, its attributes (an explicit group's, for the OME layer) and M
     let mut found: Vec<(J, Option<Jv>, Jv)> = Vec::new();
     let mut arrays: BTreeMap<String, crate::ome_zarr::ArrayInfo> = BTreeMap::new();
     // the arrays left out, and why

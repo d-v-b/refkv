@@ -462,7 +462,7 @@ fn unhex(s: &str) -> Vec<u8> {
 }
 
 impl Codestream {
-    /// What the projection needs of the codestream to make its chunks, as the description hold it.
+    /// What the projection needs of the codestream to make its chunks, as refkv's plan holds it.
     pub fn to_facts(&self) -> serde_json::Value {
         serde_json::json!({
             "n": self.n, "c0": self.c0, "siz": hex(&self.siz), "rest": hex(&self.rest),
@@ -473,7 +473,7 @@ impl Codestream {
         })
     }
 
-    /// The codestream the description hold ([`Codestream::to_facts`]).
+    /// The codestream the plan holds ([`Codestream::to_facts`]).
     pub fn from_facts(f: &serde_json::Value) -> Codestream {
         let n = |k: &str| f[k].as_u64().unwrap_or(0);
         let pair = |v: &serde_json::Value| (v[0].as_u64().unwrap_or(0), v[1].as_u64().unwrap_or(0));

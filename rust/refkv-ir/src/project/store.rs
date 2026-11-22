@@ -93,7 +93,7 @@ pub fn kept(profile: &str) -> &'static [&'static str] {
 /// missing from [`kept`], whose keys would otherwise be lost.
 pub fn record_ignored(out: &mut Out, description: &J, profile: &str) -> Result<(), String> {
     let strings = |m: &str| -> Vec<&str> { description[m].as_array().into_iter().flatten().filter_map(J::as_str).collect() };
-    // a member the description carry that the profile does not keep would be lost: refuse it
+    // a member the description carries that the profile does not keep would be lost: refuse it
     for m in ["empty_dirs", "ignored"] {
         if !kept(profile).contains(&m) && !strings(m).is_empty() {
             return Err(format!("internal: the {profile} convention keeps no {m}"));

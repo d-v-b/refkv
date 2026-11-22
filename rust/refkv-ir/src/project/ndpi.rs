@@ -3,13 +3,13 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>) from a valid IR:
 //! one array per level, whose chunk is the level's strip (with the level's size in its SOF0 when
 //! the frame's differs), or, with McuStarts, `a × b` of the
-//! strip's restart intervals as a JPEG stream of their own (`ndpi::Grid`); the planned hold the
+//! strip's restart intervals as a JPEG stream of their own (`ndpi::Grid`); the plan holds the
 //! sizes, the grids, scales and translation, and the IR the McuStarts values. A JPEG XR level's
 //! chunks are its tiles (the members of its IFD's `tiles`), or its strip, each as it is, of the
 //! data type and samples its streams' pixel format gives. Its `omero` is the RGB samples the
 //! streams decode to, or the one channel, labeled with the slide's Fluorescence, each with its
 //! type's whole range for a window. A level's planes are stacked along a `z` axis, each with
-//! chunks of its own, when the planned' axes have one.
+//! chunks of its own, when the plan's axes have one.
 
 use super::{arr, n, strs, tiled};
 use crate::ir::Ir;
@@ -18,7 +18,7 @@ use crate::out::{array_json, omero_channel, omero_json, root_json, sample_channe
 use crate::refs::Refs;
 use serde_json::{json, Value as J};
 
-/// A tag's integer values from its planned (`{value, type, high}`), as the IR holds them.
+/// A tag's integer values from its plan (`{value, type, high}`), as the IR holds them.
 fn values(ir: &Ir, f: &J) -> Option<Vec<u64>> {
     let v = f["value"].as_u64()? as u32;
     let typ = f["type"].as_u64()? as u16;

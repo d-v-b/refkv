@@ -3,7 +3,7 @@
 //! §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#4-the-image>, and NDPI's
 //! levels): one array per level whose chunks are the tiles of each plane's IFD, the samples'
 //! data type and codecs, the `omero` windows sampled from the coarsest level, and the image's
-//! OME-NGFF object with the planned' translation at every level.
+//! OME-NGFF object with the plan's translation at every level.
 
 use super::contiguous::Zeros;
 use super::{arr, key, n, obj, strs, translations, truthy, window, Copied};
@@ -147,14 +147,14 @@ pub fn chunk_rows(lv: &J) -> u64 {
 
 /// The output's one zero data source (spec/zarrify.md §1.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>) of a TIFF's or QPTIFF's
-/// padded strips: as many zero bytes as the most any strip of the planned' levels is padded with.
+/// padded strips: as many zero bytes as the most any strip of the plan's levels is padded with.
 pub fn zero_source(planned: &J) -> Zeros {
     let most = arr(&planned["levels"]).iter().flat_map(|lv| arr(&lv["pad"]["zeros"])).map(|p| n(&p["zeros"])).max();
     Zeros::sized(most.unwrap_or(0))
 }
 
 /// How a level's short last strip is padded to the chunk (spec/zarrify/tiff.md §4.5
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): the planned' `pad`,
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): the plan's `pad`,
 /// zero bytes after plane `p`'s uncompressed strip `k`, or a literal tail spliced into its LZW
 /// stream.
 pub struct Padding {
@@ -226,7 +226,7 @@ pub fn sampled(out: &Out, planned: &J, samples: &[window::Sample], chunk: impl F
     }
 }
 
-/// The image's OME-NGFF object: the planned' axes, units and scales, with the planned' translation
+/// The image's OME-NGFF object: the plan's axes, units and scales, with the plan's translation
 /// at every level when it has one.
 pub fn ome(planned: &J, axes: &[&str], name: Option<&J>) -> Result<J, String> {
     let tr = &planned["translation"];

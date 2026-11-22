@@ -954,7 +954,7 @@ impl PyNetcdf3 {
 }
 
 /// A TIFF, QPTIFF, NDPI or IMS input a run parsed (`Run.ome_image()`, `StoreRun.ome_image()`): its
-/// IR and its description , shared with the run and never changed, so that a
+/// IR and its description, shared with the run and never changed, so that a
 /// layout asks for the OME image refkv's convention writes from any thread, while the run is used
 /// for something else or after it is gone.
 #[pyclass(name = "OmeImage", module = "refkv._core", frozen)]

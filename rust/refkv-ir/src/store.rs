@@ -575,7 +575,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, description: &J, stats: J, rea
         let folded = mirrored(format, ir, description, &mut out)?;
         out.summary["folded"] = folded.json();
     } else {
-        // a description that carries a member the profile does not keep are refused, mirror or not
+        // a description that carries a member the profile does not keep is refused, mirror or not
         crate::project::store::record_ignored(&mut out, description, description["profile"].as_str().unwrap_or(format.profile()))?;
     }
     let objects: std::collections::HashMap<String, u64> =
@@ -585,7 +585,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, description: &J, stats: J, rea
 }
 
 /// Writes to `out` the mirror of a store's IR under `refkv_source`, and the keys and directories
-/// its listing ignored, which the run's description hold and its convention records beside the mirror
+/// its listing ignored, which the run's description holds and its convention records beside the mirror
 /// (`project::store::record_ignored`): what `store_output` writes there but for the store's
 /// objects, which its projection writes; and what the table folded.
 pub fn mirrored(format: StoreFormat, ir: &Ir, description: &J, out: &mut crate::out::Out) -> Result<crate::mirror::Folded, String> {
