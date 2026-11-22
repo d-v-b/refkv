@@ -101,11 +101,11 @@ impl StoreFormat {
     /// run's own counts: Some for a store format whose profile's store run is described
     /// (`run::FileProfile::store_described`), or says where its description is beside its
     /// projection's facts (`run::FileProfile::store_description`, as VSI's does), and always for
-    /// Zarr v2, Zarr v3 and N5, which have no file profile of their own; None otherwise. Each profile
-    /// with a description specifies it in its document's section "The description"
-    /// (`spec/zarrify/<profile>.md`).
+    /// Zarr v2, Zarr v3, N5 and Neuroglancer precomputed, which have no file profile of their own;
+    /// None otherwise. Each profile with a description specifies it in its document's section "The
+    /// description" (`spec/zarrify/<profile>.md`).
     pub fn description(self, facts: &J) -> Option<J> {
-        let own = matches!(self, StoreFormat::Zarr2 | StoreFormat::Zarr3 | StoreFormat::N5);
+        let own = matches!(self, StoreFormat::Zarr2 | StoreFormat::Zarr3 | StoreFormat::N5 | StoreFormat::Precomputed);
         let profile = crate::run::Format::from_name(self.name()).map(|f| f.profile());
         if let Some(d) = profile.and_then(|p| p.store_description(facts)) {
             return Some(d);
@@ -613,7 +613,7 @@ mod tests {
     #[test]
     fn a_store_format_whose_profile_says_so_gives_its_facts_as_a_description() {
         let facts = json!({"samples": 1, "counts": {"batches": 2}});
-        for name in ["envi", "hdf5", "zarr2", "zarr3", "n5"] {
+        for name in ["envi", "hdf5", "zarr2", "zarr3", "n5", "precomputed"] {
             let want = (name != "hdf5").then(|| json!({"samples": 1}));
             assert_eq!(StoreFormat::from_name(name).unwrap().description(&facts), want, "{name}");
         }
