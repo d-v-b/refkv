@@ -5,6 +5,7 @@ every chunk reference is one of refkv's own output, and every array reads as Vir
 a tile-compressed FITS image reads as astropy reads it; and each way its options or an input are
 refused."""
 
+import ast
 import bz2
 import gzip
 import importlib.util
@@ -37,6 +38,7 @@ from zarr.core.buffer import default_buffer_prototype
 from zarr.core.metadata import ArrayV3Metadata
 from zarr.core.sync import sync
 
+import refkv._core
 import refkv.zarr
 from refkv.build import Parsed, Projected, Ref, Value, Written, project, read, seal
 from refkv.zarrify import zarrify
@@ -588,20 +590,60 @@ FITS_KINDS = ["fits/fits_mef_sci_err_dq.fits", "fits/fits_asciitable.fits", "fit
               "fits/fits_comp_rice_int16.fits", "fits/fits_chunk_rows.fits", "fits/fits_header_huge.fits"]
 
 
-@pytest.mark.parametrize("name", FITS_KINDS)
-def test_a_fits_file_is_presented_with_no_output_of_refkv_s(monkeypatch, name):
-    """The layout is a peer of refkv's own FITS projection (the plan of d-v-b/refkv#278): it
-    presents images, an ASCII table, a binary table's group, a tile-compressed image, an image cut
-    into chunks and a header past refkv's own budget from the parser's description, the IR and the
-    FITS convention's routines, with refkv's own output made to raise. That what it writes is
-    VirtualiZarr's, and its arrays refkv's own, the parity test above and test_build_formats.py
+# ---- the peer test (d-v-b/refkv#378, Acceptance): the layout is a peer of refkv's own projection
+
+OWN_OUTPUT = frozenset({"project", "project_async", "Projected", "plan"})  # refkv's own output, and its plan
+OWN_MODULES = frozenset({"refkv.build.project", "refkv._core"})
+
+
+def _layout_sources() -> list[Path]:
+    """The layout's source files: its module, or every module of its package."""
+    root = Path(sys.modules[VirtualiZarr.__module__].__file__ or "")
+    return sorted(root.parent.rglob("*.py")) if root.name == "__init__.py" else [root]
+
+
+def _own_module(name: str) -> bool:
+    """Whether the module `name` is one of `OWN_MODULES` or within one."""
+    return any(name == m or name.startswith(f"{m}.") for m in OWN_MODULES)
+
+
+def test_the_layout_names_neither_project_nor_plan():
+    """No module of the layout imports or names refkv's `project` (refkv.build's, `Projected`, or
+    the core's `_core.project`) or a `plan`: it is written from the parsed input and the public
+    routines alone."""
+    named = []
+    for path in _layout_sources():
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom):  # `from refkv import _core` as well as `from refkv._core import x`
+                named += [f"{path.name}: {node.module}.{a.name}" for a in node.names
+                          if a.name in OWN_OUTPUT or _own_module(f"{node.module}.{a.name}")]
+                named += [f"{path.name}: {node.module}"] if _own_module(str(node.module)) else []
+            elif isinstance(node, ast.Import):
+                named += [f"{path.name}: {a.name}" for a in node.names if _own_module(a.name)]
+            elif isinstance(node, ast.Attribute) and node.attr in OWN_OUTPUT:
+                named.append(f"{path.name}: .{node.attr}")
+            elif isinstance(node, ast.Name) and node.id in OWN_OUTPUT:
+                named.append(f"{path.name}: {node.id}")
+    assert named == []
+
+
+PEER_INPUTS = sorted({*(c[0] for c in CASES), *(str(p.values[0]) for p in DEFECTS), *FITS_KINDS})
+
+
+@pytest.mark.parametrize("name", PEER_INPUTS)
+def test_the_layout_writes_with_refkv_s_own_output_refused(monkeypatch, tmp_path, name):
+    """On every input of this module's tests, the layout writes an output that seals with refkv's
+    own output made to raise wherever it is made (the input's built-in output, which
+    `refkv.build.project` reads, and the core's `_core.project`): nothing the layout imports
+    reaches refkv's own projection. That what it writes is VirtualiZarr's is the parity test's to
     show."""
     def refuse(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("refkv's own output was asked for")
 
-    with read(str(FIXTURES / name)) as parsed:
+    with read(_input(name, tmp_path)) as parsed:
         monkeypatch.setattr(Parsed, "_output_async", refuse)
         monkeypatch.setattr(Parsed, "_output", refuse)
+        monkeypatch.setattr(refkv._core, "project", refuse, raising=False)  # raising=False: Phase D removes it
         out = VirtualiZarr().write([parsed], {"nonfinite": "token"})
         assert "zarr.json" in out
         seal(out, [parsed])
