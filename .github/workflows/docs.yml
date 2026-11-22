@@ -1,0 +1,93 @@
+# The documentation site (docs-site/conf.py; `just docs`): built on every pull request and push to
+# main, failing on any warning (a link to a heading or document that does not exist, a block with
+# no renderer). Its cross-format pages are rendered from the profile registry (spec/zarrify/profiles/)
+# and each format's files as it builds (spec/tools/blocks.py).
+#
+# GitHub Pages serves the gh-pages branch (Settings → Pages → Deploy from a branch: gh-pages, /):
+# main's site at its root, and each pull request's at pr-preview/pr-<n>/, which a comment on the
+# pull request links and which is removed when the pull request closes. A pull request from a fork
+# gets no preview: its token cannot push.
+name: docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    # closed: to remove the preview
+    types: [opened, reopened, synchronize, closed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
+      # Sphinx, MyST and the theme (pyproject.toml's docs group); the site imports spec/tools, not refkv
+      - run: uv sync --only-group docs --locked
+      - run: UV_NO_SYNC=1 just docs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: docs-site/_build
+          include-hidden-files: true  # .nojekyll (sphinx.ext.githubpages)
+          retention-days: 7
+
+  # main's site, at the root of gh-pages, keeping the previews
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: site
+      - uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: site
+          branch: gh-pages
+          clean-exclude: pr-preview/
+          # a push that another deploy beat to gh-pages rebases onto it and tries again, as the
+          # previews' do (rossjrw/pr-preview-action passes force: false): a concurrency group would
+          # keep only one pending job, and drop the others
+          force: false
+          attempt-limit: 10
+
+  # a pull request's site, at pr-preview/pr-<n>/ of gh-pages, and its removal when it closes
+  preview:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !cancelled() && (needs.build.result == 'success' || github.event.action == 'closed')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - if: github.event.action != 'closed'
+        uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: site
+      - uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: site
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
