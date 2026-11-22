@@ -30,7 +30,7 @@ use crate::sans;
 use crate::text::{is_decimal, latin1};
 use elements::*;
 use json::{dictionary_vr, is_integer, is_text, numeric, Pixel, Translator, EOT_TAGS, MAX_TEXT, PADDING};
-use serde_json::{json, Map, Value as J};
+use serde_json::{json, Value as J};
 use std::collections::{HashMap, HashSet};
 
 const FIRST: u64 = 1 << 16;
@@ -1104,29 +1104,25 @@ impl Dicom {
     fn build(&mut self) -> R<()> {
         let img = self.image.clone().unwrap();
         let lay = self.layout.clone().unwrap();
-        let pixel = Pixel {
-            end: lay.end,
-            extra: lay.extra,
-            unreferenced: lay.eot.as_ref().and_then(|(_, headers, members)| members.iter().any(|m| m.1 > 0).then_some(!headers)),
-            eot_layout: lay.eot.is_some(),
-            fragments: lay.multiple,
-            offset_table: lay.offset_table,
-        };
-        let (root, tail) = Translator::new(&self.b).root(img.start, img.enc, &pixel)?;
+        let pixel = Pixel { end: lay.end, eot_layout: lay.eot.is_some() };
+        let (model, tail) = Translator::new(&self.b).model(img.start, img.enc, &pixel)?;
+        let size = self.b.size;
         let mut e = Emit { b: &self.b, ir: &mut self.ir, form: String::new() };
         let pixel_el = e.file(&img, &lay, tail)?;
-        self.facts = Some(facts(&img, &lay, root, pixel_el));
+        let mut description = describe(&img, &lay, pixel_el);
+        description["dicom_json"] = model;
+        description["trailing"] = if tail < size { json!({"offset": tail, "bytes": size - tail}) } else { J::Null };
+        self.facts = Some(description);
         Ok(())
     }
 
     /// The finished IR, with its arrays described (`stored.rs`), and the description, whose
     /// `elements` give the stored arrays' keys: `pixel_data`, the top-level Pixel Data's element;
     /// `palette_tables`, the lookup tables' elements; and `nested`, each element that keys the
-    /// Pixel Data of its items, with how many; with the root's source metadata (`facts`).
+    /// Pixel Data of its items, with how many.
     pub fn finish(self) -> Result<(Ir, J), String> {
         let mut facts = self.facts.unwrap_or(J::Null);
         self.counts.put(&mut facts);
-        facts["held_max"] = json!(self.held_max);
         let (mut ir, mut facts) = sans::finish(self.phase == Phase::Done, self.ir, facts)?;
         if let (Some(img), Some(lay)) = (&self.image, &self.layout) {
             let d = stored::described(&ir, img, lay)?;
@@ -1324,8 +1320,9 @@ pub fn parts_of(ranges: &[(u64, u64)], adobe: Option<u8>) -> Vec<Part> {
 /// The description of the file (spec/zarrify/dicom.md §7.8
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#78-the-description>): its transfer
 /// syntax, the attributes the profile reads of the image as it reads them, a palette's tables, the
-/// pixel data's structure, and the id of its element. It holds none of the output's decisions: no
-/// axes, shape, chunks, data type, scales, units or window.
+/// pixel data's structure, and the id of its element (`build` adds the file in the DICOM JSON Model
+/// and its trailing bytes). It holds none of the output's decisions: no axes, shape, chunks, data
+/// type, scales, units, window or root source metadata.
 fn describe(img: &Image, lay: &Layout, pixel: u32) -> J {
     let structure = if img.codec == "native" {
         json!({
@@ -1338,8 +1335,9 @@ fn describe(img: &Image, lay: &Layout, pixel: u32) -> J {
             "offset_table": lay.offset_table,
             "bounds": lay.bounds,
             "delimiter": lay.delimiter,
-            "extended_offset_table": lay.eot.as_ref().map(|(frames, headers, _)| json!({
+            "extended_offset_table": lay.eot.as_ref().map(|(frames, headers, members)| json!({
                 "frames": frames.iter().map(|&(o, n)| json!([o, n])).collect::<Vec<_>>(), "headers": headers,
+                "skips": members.iter().any(|m| m.1 > 0),
             })),
         })
     };
@@ -1359,15 +1357,6 @@ fn describe(img: &Image, lay: &Layout, pixel: u32) -> J {
         },
         "elements": {"pixel_data": pixel},
     })
-}
-
-/// What the parser returns beside the IR: the description, and the root's source metadata
-/// (spec/zarrify/dicom.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#51-the-root>),
-/// which it translates from bytes the IR does not hold, and the description leaves out.
-fn facts(img: &Image, lay: &Layout, root: Map<String, J>, pixel: u32) -> J {
-    let mut facts = describe(img, lay, pixel);
-    facts["root"] = J::Object(root);
-    facts
 }
 
 // ---- the IR (spec/zarrify/dicom.md §5
@@ -1756,17 +1745,5 @@ impl crate::run::FileProfile for Profile {
     }
     fn described(&self) -> bool {
         true
-    }
-    /// The parser's description of the file (§7.8
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#78-the-description>): what it
-    /// returns without the root's source metadata and the run's counts.
-    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
-        let mut description = facts.clone();
-        if let Some(m) = description.as_object_mut() {
-            for k in ["root", "held_max", "requests", "requested", "rounds"] {
-                m.remove(k);
-            }
-        }
-        Some(description)
     }
 }

@@ -1362,7 +1362,8 @@ terms, for a projection to read with the IR and its stored arrays
 ([spec/stored-array.md §7](../stored-array.md#7-the-formats)). Its JSON Schema is
 [dicom/description.json](dicom/description.json). It holds none of an output's decisions: the axes,
 shape, chunks and data type ([§3](#3-the-image), [§4](#4-output)), the frames' axis, the scales and
-units, the omero window and a whole-slide image's arrangement are the projection's.
+units, the omero window, a whole-slide image's arrangement and the root's source metadata
+([§5](#5-source-metadata)) are the projection's.
 
 It is a JSON object with these members:
 
@@ -1374,6 +1375,8 @@ It is a JSON object with these members:
 | `attributes` | the attributes the profile reads of the image ([§2.2](#22-attributes)), each null when the dataset lacks it (below) |
 | `palette` | a `PALETTE COLOR` image's lookup tables ([§4.1](#41-the-palette)), else null (a segmented palette's included): `entries`, the descriptor's count (65536 for 0); `first_mapped`; `bits`; `cell`, an entry's bytes; and `tables`, where the red, green and blue tables' values start in the file |
 | `pixel_data` | the top-level Pixel Data: `vr` (null in implicit VR), `offset` and `length`, its value's (4294967295 when undefined), `end`, where it ends, `encapsulated`, and its `structure` (below) |
+| `dicom_json` | the file in the DICOM JSON Model (PS3.18 §F.2), as [§5.1](#51-the-root) translates it: `preamble`, the preamble in base64 where it is not all zeros, else null; and `meta` and `dataset`, the File Meta Information's and the dataset's attributes by tag, sorted, every member kept, the Per-Frame Functional Groups Sequence among them. A value kept out of the JSON names its element's path in `BulkDataURI` (such as `dataset/00282000`), not under the source node |
+| `trailing` | the bytes after the last element that parses ([§5.1](#51-the-root)): `offset` and `bytes`; null for none |
 | `elements` | the ids of its IR elements ([§5.4](#54-elements)) that key its stored arrays ([spec/stored-array.md §7](../stored-array.md#7-the-formats)): `pixel_data`, the top-level Pixel Data's; `palette_tables`, the red, green and blue tables' (empty without a palette); and `nested`, each element that keys the Pixel Data of its items, with `count`, how many |
 
 `attributes` has one member per attribute, named by its keyword in snake case: `sop_class_uid`,
@@ -1395,13 +1398,16 @@ encapsulated pixel data it is `items`, each item's offset, its data's offset and
 the Basic Offset Table's first; `offset_table`, whether that table is not empty; `bounds`, where
 frame `f`'s fragments are, `bounds[f]` to `bounds[f + 1]` among the items after the table;
 `delimiter`, where the sequence's delimiter is; and `extended_offset_table`, the frames' data
-(offset, length) and whether their item headers precede them, or null.
+(offset, length), whether their item headers precede them, and `skips`, whether it leaves bytes
+between the frames unreferenced, or null.
 
 refkv's projection makes every decision of [§3](#3-the-image) and [§4](#4-output) from the
-description, through its plan of the image. The parser still makes two decisions of the output: the
-root's source metadata ([§5](#5-source-metadata)), which it translates from bytes that the IR does
-not hold and returns beside the description, and the elements of the frames that its IR names
-([§5.4](#54-elements)).
+description, through its plan of the image, and the root's source metadata
+([§5.1](#51-the-root)) from `dicom_json`, `pixel_data` and `trailing`: it leaves out the Per-Frame
+Functional Groups Sequence and the members that would make the root large, puts each
+`BulkDataURI` under the source node, and adds the members that name the pixel data's extra,
+unreferenced and fragment bytes and the trailing bytes. The parser still makes one decision of the
+output: the elements of the frames that its IR names ([§5.4](#54-elements)).
 
 ## 9. The store form
 

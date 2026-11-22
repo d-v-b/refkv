@@ -8,6 +8,7 @@ and its structure: native frames' size and count, or the fragments of each encap
 `pydicom.encaps` finds them, the Basic Offset Table's presence and an Extended Offset Table's frames.
 Each description is valid by its JSON Schema, and holds none of the output's decisions."""
 
+import base64
 import json
 import math
 import struct
@@ -154,3 +155,32 @@ def test_the_description_is_pydicoms_reading(path: Path):
                         for f in range(len(bounds) - 1)]
                 assert ours == theirs
         assert parsed.ir.path(d["elements"]["pixel_data"]) == "dataset/7FE00010"
+
+
+@pytest.mark.parametrize("path", FILES, ids=lambda p: p.name)
+def test_the_dicom_json_is_pydicoms_reading(path: Path):
+    """The description's file in the DICOM JSON Model (`dicom_json`) holds the preamble, and every
+    tag of the File Meta Information and the top-level dataset that pydicom reads, a duplicate's
+    among the `duplicates`: all but a group length, which the model leaves out where it is the
+    group's; an Extended Offset Table's, which the pixel data's structure holds; the Data Set
+    Trailing Padding, which it does not keep; and of a file with trailing bytes, those past Pixel
+    Data, which pydicom may read further (spec/zarrify/dicom.md §5.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#52-the-datasets-as-json>)."""
+    ds = pydicom.dcmread(path)
+    with read(path) as parsed:
+        d: Any = parsed.description
+    model = d["dicom_json"]
+    preamble = ds.preamble if ds.preamble and any(ds.preamble) else None
+    assert model["preamble"] == (None if preamble is None else base64.b64encode(preamble).decode())
+    eot = d["pixel_data"]["structure"].get("extended_offset_table") is not None
+    for members, want in ((model["meta"], ds.file_meta), (model["dataset"], ds)):
+        ours = set(members) - {"duplicates"}
+        for item in members.get("duplicates", []):
+            ours |= set(item)
+        # the tags alone: iterating a dataset converts each value, which some fixtures' do not read
+        for tag in list(want.keys()):
+            t = int(tag)
+            if (t & 0xFFFF == 0 or (eot and t in (0x7FE00001, 0x7FE00002)) or t == 0xFFFCFFFC
+                    or (d["trailing"] is not None and t > PIXEL_DATA)):
+                continue
+            assert f"{t:08X}" in ours, f"{t:08X}"

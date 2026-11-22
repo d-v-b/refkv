@@ -1,15 +1,19 @@
-//! The root's source metadata of a DICOM file (spec/zarrify/dicom.md §5
-//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>): its File
-//! Meta Information and dataset in the DICOM JSON Model (PS3.18 §F.2), without the members
-//! that would make the root large, and the paths the root names. Revision 25 wrote the moved
-//! members and the arrays the paths name under `vzip_source` (now `refkv_source`); the IR mirror holds all of it
-//! now, and the root is unchanged.
+//! A DICOM file's File Meta Information and dataset in the DICOM JSON Model (PS3.18 §F.2), which
+//! the description holds (spec/zarrify/dicom.md §7.8
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#78-the-description>, its
+//! `dicom_json`), and from which refkv's projection makes the root's source metadata
+//! (spec/zarrify/dicom.md §5
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>): without
+//! the members that would make the root large, and with the paths the root names
+//! (`crate::project::dicom::root`). A value the model keeps out of the JSON names its element's
+//! path (`BulkDataURI`), which revision 25 wrote under `vzip_source` (now `refkv_source`); the IR
+//! mirror holds all of it now, and the root is unchanged.
 
 use super::elements::*;
 use crate::fed::{Word, uint};
 use crate::mirror::base64;
 use crate::text::{is_decimal, latin1};
-use crate::out::{int_json, int_text, json_size, js_string_size, MAX_CHUNK, SOURCE_NODE};
+use crate::out::{int_json, int_text, json_size, MAX_CHUNK};
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::OnceLock;
@@ -24,11 +28,9 @@ const PN_GROUPS: [&str; 3] = ["Alphabetic", "Ideographic", "Phonetic"];
 const INLINE: u64 = 64;
 /// the longest text value kept as JSON
 pub const MAX_TEXT: u64 = 1 << 16;
-const MAX_MEMBER: usize = 1 << 14;
-const MAX_ROOT: usize = 1 << 16;
 pub const PADDING: u32 = 0xFFFC_FFFC;
 pub const EOT_TAGS: [u32; 2] = [0x7FE0_0001, 0x7FE0_0002];
-const PER_FRAME: &str = "52009230";
+pub const PER_FRAME: &str = "52009230";
 const GATHER_ITEMS: usize = 64;
 const MAX_PATHS: usize = 1024;
 const MAX_STRUCTURES: usize = 1 << 16;
@@ -387,20 +389,12 @@ impl GroupLengths {
     }
 }
 
-/// What the profile found that the root's source metadata records.
+/// What the translation needs of the top-level Pixel Data.
 pub struct Pixel {
     /// where the top-level Pixel Data ends
     pub end: u64,
-    /// native pixel data past the frames, unless one 00 byte
-    pub extra: Option<(u64, u64)>,
-    /// an Extended Offset Table skips bytes: whether the frames' item headers are among them
-    pub unreferenced: Option<bool>,
     /// the profile read the frames from the Extended Offset Table
     pub eot_layout: bool,
-    /// a frame has more than one fragment
-    pub fragments: bool,
-    /// the Basic Offset Table is not empty
-    pub offset_table: bool,
 }
 
 /// Translates every element (the profile has accepted the file's structure).
@@ -424,7 +418,7 @@ impl<'a> Translator<'a> {
 
     fn array(&mut self, vr: &str, path: &str, n: u64, data_type: &'static str, little: bool) -> J {
         self.extents.push(Extent { rest: String::new(), n, data_type, little, values: None, dropped: false });
-        json!({"vr": vr, "BulkDataURI": format!("{SOURCE_NODE}/{path}")})
+        json!({"vr": vr, "BulkDataURI": path})
     }
 
     fn gather(&mut self, vr: &str, el: &El, path: &str) -> R<J> {
@@ -538,7 +532,7 @@ impl<'a> Translator<'a> {
                 let vr = el.vr.map(|v| vr_str(&v).to_string()).unwrap_or_else(|| "OB".into());
                 let mut a = json!({"vr": vr});
                 if !fragments.is_empty() {
-                    a["BulkDataURI"] = json!(format!("{SOURCE_NODE}/{path}"));
+                    a["BulkDataURI"] = json!(path);
                 }
                 (a, pos)
             } else {
@@ -718,16 +712,15 @@ impl<'a> Translator<'a> {
         }
     }
 
-    /// The root's source metadata, and where the elements after Pixel Data end (the
-    /// trailing bytes start).
-    pub fn root(mut self, start: u64, enc: Enc, pixel: &Pixel) -> R<(Obj, u64)> {
+    /// The file in the DICOM JSON Model, the description's `dicom_json`: `preamble`, the
+    /// preamble in base64 where it is not all zeros, else null; `meta` and `dataset`, each its
+    /// attributes by tag, sorted; and where the elements after Pixel Data end (the trailing bytes
+    /// start).
+    pub fn model(mut self, start: u64, enc: Enc, pixel: &Pixel) -> R<(J, u64)> {
         let size = self.b.size;
-        let mut root = Obj::new();
         let preamble = self.read(0, 128)?;
-        if preamble.iter().any(|&c| c != 0) {
-            root.insert("preamble".into(), json!(base64(preamble)));
-        }
-        let mut meta = self.meta(start)?;
+        let preamble = if preamble.iter().any(|&c| c != 0) { json!(base64(preamble)) } else { J::Null };
+        let meta = self.meta(start)?;
         let mut dataset = Obj::new();
         let mut groups = GroupLengths::default();
         let mut seen: HashSet<u32> = HashSet::new();
@@ -784,29 +777,8 @@ impl<'a> Translator<'a> {
         }
         self.extents.truncate(mark);
         groups.finish(tail, &mut dataset, &mut self.extents);
-        dataset.swap_remove(PER_FRAME);
-        move_large(&mut meta, &mut dataset);
-        root.insert("meta".into(), J::Object(sorted(meta)));
-        root.insert("dataset".into(), J::Object(sorted(dataset)));
-        if pixel.extra.is_some() {
-            root.insert("pixel_extra".into(), json!(format!("{SOURCE_NODE}/pixel_extra")));
-        }
-        if let Some(headers) = pixel.unreferenced {
-            root.insert("pixel_unreferenced".into(), json!(format!("{SOURCE_NODE}/pixel_unreferenced")));
-            if headers {
-                root.insert("pixel_unreferenced_headers".into(), json!(true));
-            }
-        }
-        if pixel.fragments {
-            root.insert("pixel_fragments".into(), json!(format!("{SOURCE_NODE}/pixel_fragments")));
-        }
-        if pixel.offset_table {
-            root.insert("pixel_offset_table".into(), json!(true));
-        }
-        if tail < size {
-            root.insert("trailing".into(), json!(format!("{SOURCE_NODE}/trailing")));
-        }
-        Ok((root, tail))
+        let model = json!({"preamble": preamble, "meta": J::Object(sorted(meta)), "dataset": J::Object(sorted(dataset))});
+        Ok((model, tail))
     }
 }
 
@@ -833,39 +805,6 @@ fn gathered_cost(members: &[&Extent], count: u64) -> u64 {
     match gathered_kind(members) {
         None => 8 * (count + 1) + members.iter().map(|e| e.n).sum::<u64>(),
         Some(n) => (if 2 * (members.len() as u64) < count { members.len() as u64 } else { count }) * n,
-    }
-}
-
-fn object_size(sizes: &[(String, usize)]) -> usize {
-    2 + sizes.len().saturating_sub(1) + sizes.iter().map(|(k, n)| js_string_size(k) + 1 + n).sum::<usize>()
-}
-
-/// Leaves out of the root's `meta` and `dataset` the members that would make it large:
-/// each over 16384 bytes, then, while the two are over 65536 together, the largest left
-/// (of equal sizes, the first by name, `meta`'s before `dataset`'s).
-fn move_large(meta: &mut Obj, dataset: &mut Obj) {
-    let mut sizes: [Vec<(String, usize)>; 2] = [Vec::new(), Vec::new()];
-    for (i, members) in [&mut *meta, &mut *dataset].into_iter().enumerate() {
-        let keys: Vec<String> = members.keys().cloned().collect();
-        for k in keys {
-            let n = json_size(&members[&k]);
-            if n > MAX_MEMBER {
-                members.swap_remove(&k);
-            } else {
-                sizes[i].push((k, n));
-            }
-        }
-    }
-    let mut total: usize = sizes.iter().map(|s| object_size(s)).sum();
-    let mut largest: Vec<(usize, String, usize)> = sizes.iter().enumerate().flat_map(|(i, s)| s.iter().map(move |(k, n)| (*n, k.clone(), i))).collect();
-    largest.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)).then_with(|| a.2.cmp(&b.2)));
-    for (n, k, i) in largest {
-        if total <= MAX_ROOT {
-            break;
-        }
-        let members = if i == 0 { &mut *meta } else { &mut *dataset };
-        total -= js_string_size(&k) + 1 + n + usize::from(members.len() > 1);
-        members.swap_remove(&k);
     }
 }
 
