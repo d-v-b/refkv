@@ -1,3 +1,0 @@
-Changed 2026-11-22, with no change to any output: the links to the HDF4 plan, design/plans/hdf4.md,
-name the pull request that adds it, [#326](https://github.com/d-v-b/refkv/pull/326), as the plan
-is not in the repository yet.
