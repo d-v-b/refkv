@@ -437,6 +437,28 @@ members:
 | `tensors` | each presented tensor's `{"path", "dtype", "dataType", "shape", "chunkShape", "chunks"}`, in the header's order |
 | `unpresented` | the tensors not presented, a count by reason |
 
+### 8.5 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a **description** of the file: what it found of the header, in the format's
+own terms, for a projection to read with the IR and its stored arrays
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)), which give each tensor's bytes. Its
+JSON Schema is [safetensors/description.json](safetensors/description.json). It holds none of an
+output's decisions: which tensors are presented and why the others are not, their paths and the
+groups they make ([§4.1](#41-paths)), each array's data type, fill value, chunks and codecs
+([§3](#3-data-types), [§4.2](#42-the-arrays), [§8.3](#83-chunks)) and the source metadata
+([§5](#5-source-metadata)) are the projection's. It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `header_length` | the header's length `N`, the file's first 8 bytes ([§2](#2-the-safetensors-format)) |
+| `metadata` | the header's `__metadata__`, its strings as written; null without one |
+| `tensors` | each tensor in the order the header writes them: `name`, its member's name; `dtype`, `shape` and `data_offsets`, its entry's; and `extra`, its entry's other members, where it has any |
+| `elements` | the IR's elements: `length`, `header`, and `tensors`, each tensor's data element in the order of `tensors`, null for a tensor of no bytes |
+
+Every tensor of the header is there, those [§4.1](#41-paths) does not present among them: a header
+that fails a check of [§8.2](#82-checks) rejects the file before the description.
+
 ## 9. The store form
 
 The store form zarrifies a store input ([spec/zarrify.md §1.4](../zarrify.md#14-store-inputs)) of
@@ -515,3 +537,19 @@ and the mirror rebuilds it. Every other object is referenced.
 This section is informative. The summary has `shards` (each presented shard's `{"key",
 "tensors"}`), `unpresented` (the shards not presented), `chunks` and `others` (the objects
 referenced whole).
+
+### 9.7 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the store form's parser returns a **description** of the store, of the same JSON Schema
+([safetensors/description.json](safetensors/description.json), its definition `store`). It holds
+none of an output's decisions: which shards are presented and why the others are not
+([§9.1](#91-the-hierarchy)), the groups their keys make, whether an index agrees with the shards
+([§9.2](#92-source-metadata)), and which objects are referenced whole ([§9.4](#94-chunks-and-sources))
+are the projection's. It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `shards` | each shard, in key order: `key`; `object`, its object's element; and `header`, its header's description as [§8.5](#85-the-description) gives a file's (with `elements` where the shard is described in place, [§9.5](#95-the-ir-mirror)), or `error`, the message of the first check of [§8.2](#82-checks) it fails |
+| `documents` | each index and configuration the store form reads ([§9.3](#93-reading-and-checks)), in key order: `key`; `object`, its object's element; and `json`, the document as parsed, as text (its integers and strings as written, its members in order), or `error`, why it is not a JSON document of [spec/zarrify.md §1.6](../zarrify.md#16-json-documents) |
+| `ignored` | the keys the listing ignored, where there are any |

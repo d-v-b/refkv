@@ -509,11 +509,6 @@ impl crate::run::FileProfile for Profile {
     fn described(&self) -> bool {
         true
     }
-    /// A pair's store run returns its description, with the edge chunks it read (§7.6
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#76-the-description>).
-    fn store_described(&self) -> bool {
-        true
-    }
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
