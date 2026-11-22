@@ -27,10 +27,11 @@ shape does not decode) is `Rejected`, naming it, unless the option
 `skip` is true: then it is left out, and the root's attribute `skipped` maps its IR path to why.
 Options: `{"skip": false}`.
 
-`check` finds `copy` on its output, and nothing else: where refkv's own output stacks an IFD with
-others (a plane of an OME-TIFF, an EER frame), this layout's array of it holds only references
-that output holds too (the IR's, of the same tiles or strips), built by hand around them with a
-shape that is no `copy` of that output's array.
+`check` finds nothing on its output. It copies nothing of refkv's own output, so it is checked
+with no bases: where refkv's own output stacks an IFD with others (a plane of an OME-TIFF, an EER
+frame), this layout's array of it holds only references that output holds too (the IR's, of the
+same tiles or strips), built by hand around them with a shape that is no `copy` of that output's
+array, which `check` given that output as a base reports as `copy`.
 """
 
 from __future__ import annotations
