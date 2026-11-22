@@ -440,7 +440,7 @@ a frame's length.
 | `metadata/<k>/cuesheet` | value | `bytes[n]` | a CUESHEET body, opaque ([§5.1](#51-the-root) decodes it) |
 | `metadata/<k>/fields` | value | `bytes[f]` | a PICTURE block's fields before its data, opaque ([§5.1](#51-the-root) decodes them) |
 | `frames` | struct | | the frames: from the first's start to the last's end |
-| `frames/<j>` | data | | frame `j`, `j` from 0, `(offset, L)`, header and footer included; its form's geometry is `{"samples": B, "channels": C, "data_type": D}` (`B` its block size, `D` the array's data type), its codec `{"name": "flac", "sample_rate": r, "bits_per_sample": b}`, and its recipe `[["src", 0, null]]` |
+| `frames/<j>` | data | | frame `j`, `j` from 0, `(offset, L)`, header and footer included; its form's geometry is `{"samples": B, "channels": C}` (`B` its block size; no data type, which is the plan's, [conventions §8.5](../conventions.md#85-forms-and-recipes)), its codec `{"name": "flac", "sample_rate": r, "bits_per_sample": b}`, and its recipe `[["src", 0, null]]` |
 | `id3v1` | value | `{tag:ascii[3],title:cstr[30],artist:cstr[30],album:cstr[30],year:ascii[4],comment:cstr[30],genre:u1}` | the ID3v1 tag, `(size − 128, 128)`, when there is one |
 
 The view ([conventions §8.7](../conventions.md#87-the-view)) shows each ID3v2

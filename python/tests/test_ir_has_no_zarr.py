@@ -71,7 +71,6 @@ OFFENDERS: dict[str, str] = {
 
     "fits": "FITS's image forms give a Zarr data type (`geometry.data_type`)",
 
-    "flac": "FLAC's frame forms give a Zarr data type (`geometry.data_type`)",
 
     "mp3": "MP3's frame forms give a Zarr data type (`geometry.data_type`)",
 
