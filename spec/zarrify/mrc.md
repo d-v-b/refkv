@@ -680,3 +680,27 @@ gzip stream has no index, so a reader inflates the whole stream to read any valu
 holds the whole array in memory to do so, and reads it with no concurrency. Zarrifying stays cheap,
 since only the start of the stream is inflated. A reader that needs random access to a large
 volume should decompress the file once and zarrify that, which gives chunks of at most 1 MiB.
+
+### 8.5 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a **description** of the file: what it found of the file's known structures,
+in MRC's own terms, for a projection to read with the IR and its stored arrays
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)). Its JSON Schema is
+[mrc/description.json](mrc/description.json). It holds none of an output's decisions: the data type
+of a mode ([§3](#3-data-types)), the kind of file, its axes and their order, the voxel size and the
+position ([§4](#4-the-image)), the chunks ([§8.2](#82-chunks)) and the root's source metadata
+([§5](#5-source-metadata)) are the projection's.
+
+It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `byte_order` | `little` or `big`, as the machine stamp gives it ([§8.1](#81-header)) |
+| `header` | every field of the header, as [`MrcHeader`](#type-mrcheader) gives it |
+| `data` | the data's range: `offset`, `1024 + nsymbt`, and `bytes`, its size `B` ([§8.1](#81-header)); of a gzipped file ([§8.4](#84-gzipped-files)), in the stream `S` |
+| `gzip` | of a gzipped file only: `skip`, `1024 + nsymbt`, and `head`, the first 1024 bytes of `S`, the header, as lowercase hexadecimal |
+| `elements` | the ids of its IR elements ([§5.3](#53-elements)) by name: `data`, and of a file that is not gzipped, `header` and, when `nsymbt > 0`, `extended` |
+
+The array's stored description is keyed by `header`, or of a gzipped file by `data`, the stream
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)).
