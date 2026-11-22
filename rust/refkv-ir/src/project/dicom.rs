@@ -5,15 +5,17 @@
 //! refkv's plan of it (`dicom::plan::plan`): each frame's chunk names the IR's data elements under
 //! the top-level Pixel Data (its fragments by the plan's `bounds`, or one per frame), made explicit
 //! about its color transform for a JPEG with three samples; the plan holds the array, its scales
-//! and the window. The root's source metadata is the parser's (`root`, beside the description).
+//! and the window. The root's source metadata is made from the description's file in the DICOM
+//! JSON Model (`root`).
 
 use super::{arr, key, n, obj, strs};
 use crate::dicom::plan::plan;
 use crate::dicom::ADOBE;
 use crate::ir::Ir;
-use crate::out::{array_json, bytes_codec, image_ome, item_size, omero_channel, omero_json, root_json, transpose_codec, Out, Part, RGBA};
+use crate::dicom::json::PER_FRAME;
+use crate::out::{array_json, bytes_codec, image_ome, item_size, js_string_size, json_size, omero_channel, omero_json, root_json, transpose_codec, Out, Part, RGBA, SOURCE_NODE};
 use crate::refs::Refs;
-use serde_json::{json, Value as J};
+use serde_json::{json, Map, Value as J};
 
 /// The channels of an image of YCbCr samples as stored, its labels and colors.
 const YBR: [(&str, &str); 3] = [("Y", "FFFFFF"), ("Cb", "0000FF"), ("Cr", "FF0000")];
@@ -62,8 +64,108 @@ pub fn chain(codec: &str, data_type: &str, spp: u64, endian: &str) -> J {
     }
 }
 
-/// The output of the file `description` describes; beside the description, `description` holds
-/// `root`, the root's source metadata the parser translated.
+/// the most bytes of one member of the root's `meta` or `dataset`, and of the two together
+const MAX_MEMBER: usize = 1 << 14;
+const MAX_ROOT: usize = 1 << 16;
+
+/// The root's source metadata (§5.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#51-the-root>), from the
+/// description's file in the DICOM JSON Model (`dicom_json`): the preamble where it is not all
+/// zeros; `meta` and `dataset` without the Per-Frame Functional Groups Sequence and the members
+/// that would make the root large (`move_large`), each value kept out of the JSON naming its path
+/// under the source node; and the paths of the pixel data's extra bytes, unreferenced bytes,
+/// fragments and the trailing bytes, where the file has them.
+pub fn root(d: &J) -> J {
+    let model = &d["dicom_json"];
+    let mut root = Map::new();
+    if !model["preamble"].is_null() {
+        root.insert("preamble".into(), model["preamble"].clone());
+    }
+    let members = |k: &str| model[k].as_object().cloned().unwrap_or_default();
+    let (mut meta, mut dataset) = (members("meta"), members("dataset"));
+    dataset.swap_remove(PER_FRAME);
+    move_large(&mut meta, &mut dataset);
+    for (k, mut m) in [("meta", meta), ("dataset", dataset)] {
+        m.sort_keys();
+        let mut v = J::Object(m);
+        under_source_node(&mut v);
+        root.insert(k.into(), v);
+    }
+    let pixel = &d["pixel_data"];
+    let structure = &pixel["structure"];
+    if !structure["extra"].is_null() && !pixel["encapsulated"].as_bool().unwrap_or(false) {
+        root.insert("pixel_extra".into(), json!(format!("{SOURCE_NODE}/pixel_extra")));
+    }
+    let eot = &structure["extended_offset_table"];
+    if eot["skips"].as_bool().unwrap_or(false) {
+        root.insert("pixel_unreferenced".into(), json!(format!("{SOURCE_NODE}/pixel_unreferenced")));
+        if !eot["headers"].as_bool().unwrap_or(false) {
+            root.insert("pixel_unreferenced_headers".into(), json!(true));
+        }
+    }
+    let bounds: Vec<u64> = arr(&structure["bounds"]).iter().map(n).collect();
+    if bounds.windows(2).any(|w| w[1] - w[0] > 1) {
+        root.insert("pixel_fragments".into(), json!(format!("{SOURCE_NODE}/pixel_fragments")));
+    }
+    if structure["offset_table"].as_bool().unwrap_or(false) {
+        root.insert("pixel_offset_table".into(), json!(true));
+    }
+    if !d["trailing"].is_null() {
+        root.insert("trailing".into(), json!(format!("{SOURCE_NODE}/trailing")));
+    }
+    J::Object(root)
+}
+
+/// Each `BulkDataURI`, an element's path, made its path under the source node.
+fn under_source_node(v: &mut J) {
+    match v {
+        J::Object(m) => {
+            for (k, x) in m.iter_mut() {
+                match x {
+                    J::String(path) if k == "BulkDataURI" => *path = format!("{SOURCE_NODE}/{path}"),
+                    _ => under_source_node(x),
+                }
+            }
+        }
+        J::Array(a) => a.iter_mut().for_each(under_source_node),
+        _ => {}
+    }
+}
+
+fn object_size(sizes: &[(String, usize)]) -> usize {
+    2 + sizes.len().saturating_sub(1) + sizes.iter().map(|(k, n)| js_string_size(k) + 1 + n).sum::<usize>()
+}
+
+/// Leaves out of the root's `meta` and `dataset` the members that would make it large:
+/// each over 16384 bytes, then, while the two are over 65536 together, the largest left
+/// (of equal sizes, the first by name, `meta`'s before `dataset`'s).
+fn move_large(meta: &mut Map<String, J>, dataset: &mut Map<String, J>) {
+    let mut sizes: [Vec<(String, usize)>; 2] = [Vec::new(), Vec::new()];
+    for (i, members) in [&mut *meta, &mut *dataset].into_iter().enumerate() {
+        let keys: Vec<String> = members.keys().cloned().collect();
+        for k in keys {
+            let n = json_size(&members[&k]);
+            if n > MAX_MEMBER {
+                members.swap_remove(&k);
+            } else {
+                sizes[i].push((k, n));
+            }
+        }
+    }
+    let mut total: usize = sizes.iter().map(|s| object_size(s)).sum();
+    let mut largest: Vec<(usize, String, usize)> = sizes.iter().enumerate().flat_map(|(i, s)| s.iter().map(move |(k, n)| (*n, k.clone(), i))).collect();
+    largest.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)).then_with(|| a.2.cmp(&b.2)));
+    for (n, k, i) in largest {
+        if total <= MAX_ROOT {
+            break;
+        }
+        let members = if i == 0 { &mut *meta } else { &mut *dataset };
+        total -= js_string_size(&k) + 1 + n + usize::from(members.len() > 1);
+        members.swap_remove(&k);
+    }
+}
+
+/// The output of the file `description` describes.
 pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
     let d = description;
     let plan = plan(d);
@@ -100,7 +202,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
     ome["omero"] = omero_json(channels);
 
     let mut refs = Refs::new(ir, Out::new(url));
-    let mut own = d["root"].clone();
+    let mut own = root(d);
     if let Some(p) = d.get("palette").filter(|p| !p.is_null()) {
         own["palette"] = json!({"path": "palette", "first_mapped": p["first_mapped"], "bits": p["bits"]});
     }

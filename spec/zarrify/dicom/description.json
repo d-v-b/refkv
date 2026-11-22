@@ -532,11 +532,16 @@
                         },
                         "headers": {
                           "type": "boolean"
+                        },
+                        "skips": {
+                          "type": "boolean",
+                          "description": "whether a frame's table entry leaves bytes between the frames unreferenced"
                         }
                       },
                       "required": [
                         "frames",
-                        "headers"
+                        "headers",
+                        "skips"
                       ],
                       "additionalProperties": false
                     }
@@ -603,6 +608,60 @@
         "nested"
       ],
       "additionalProperties": false
+    },
+    "dicom_json": {
+      "type": "object",
+      "description": "the file in the DICOM JSON Model (PS3.18 §F.2): a value the model keeps out of the JSON names its element's path in the file in BulkDataURI",
+      "properties": {
+        "preamble": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "description": "the 128-byte preamble in base64, where it is not all zeros"
+            }
+          ]
+        },
+        "meta": {
+          "type": "object",
+          "description": "the DICOM JSON Model's attributes (PS3.18 §F.2), by tag as eight uppercase hexadecimal digits"
+        },
+        "dataset": {
+          "type": "object",
+          "description": "the DICOM JSON Model's attributes (PS3.18 §F.2), by tag as eight uppercase hexadecimal digits"
+        }
+      },
+      "required": [
+        "preamble",
+        "meta",
+        "dataset"
+      ],
+      "additionalProperties": false
+    },
+    "trailing": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "offset": {
+              "$ref": "#/$defs/uint"
+            },
+            "bytes": {
+              "$ref": "#/$defs/uint"
+            }
+          },
+          "required": [
+            "offset",
+            "bytes"
+          ],
+          "additionalProperties": false
+        }
+      ]
     }
   },
   "additionalProperties": false,
@@ -620,6 +679,8 @@
     "attributes",
     "palette",
     "pixel_data",
-    "elements"
+    "elements",
+    "dicom_json",
+    "trailing"
   ]
 }
