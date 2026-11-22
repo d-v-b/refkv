@@ -4,8 +4,8 @@ compared with the reference readers: the safetensors library (`safetensors.deser
 gives each tensor's data type, shape and bytes) and the file's own header, read here apart from the
 parser (the length, then JSON through Python's scanner, for the tensors' order, each one's
 `data_offsets` and where its `dtype` is written). Every tensor the library reads has a description,
-keyed by its file's `header` element (or, of a shard the store form does not present, by the
-shard's object), at its position in the header, and
+keyed by its file's `header` element (of a shard, presented or not, its own), at its position in
+the header, and
 
 - its shape is the library's;
 - its sample size is the library's: the bits of its bytes over its elements, and, of a tensor of
@@ -44,7 +44,6 @@ from ir_helpers import FIXTURES
 from test_safetensors import TYPES, expected
 
 from refkv.ir import Ir, parse
-from refkv.ir.kind import Kind
 from refkv.ir.planner import open_transport
 from refkv.ir.store import StoreIrOutput, zarrify_store
 from refkv.ir.stored import Codec, Each, ElementPlace, Grid, Listed, Stored, Value
@@ -192,10 +191,8 @@ def check_tensor(d: Described, k: int, t: Tensor, key: str | None, seen: Counter
     seen["scalars"] += not t.shape
     if (row["coords"], row["member"], row["ranges"], row["chain"], row["skips"]) != ([0] * len(t.shape), *[None] * 4):
         said.append(f"a row {row}")
-    # the unit is its data's element, whole, or, keyed by its object, a range of the object
-    in_object = d.ir.kind(a.element) == Kind.OBJECT
-    seen["rows of a range of their object"] += in_object
-    if in_object != (row["range"] is not None) or (row["element"] == a.element) != in_object:
+    # the unit is its data's element, whole
+    if row["range"] is not None or row["element"] == a.element:
         said.append(f"a row of element {row['element']} and range {row['range']}, keyed by {a.path}")
     if d.parts(row) != [(key, *t.at)]:
         said.append(f"a unit at {d.parts(row)}, the header's data_offsets {t.at}")
@@ -240,15 +237,12 @@ def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
         if not arrays:
             seen["files of no tensors"] += 1
             continue
-        # one key: the header, or, where the profile wrote no group of the shard, its object
+        # one key: the header, whether or not the profile wrote a group of the shard
         header = "header" if key is None else f"{key}/header"
-        if len({a.element for a in arrays}) != 1 or arrays[0].path not in (header, key):
+        if len({a.element for a in arrays}) != 1 or arrays[0].path != header:
             said.append(f"{name}: descriptions keyed by {sorted({str(a.path) for a in arrays})}")
             continue
-        in_object = d.ir.kind(arrays[0].element) == Kind.OBJECT
-        seen["shards keyed by their object"] += in_object
-        if isinstance(d.out, StoreIrOutput) and in_object != (f"{key}/zarr.json" not in d.out.entries):
-            said.append(f"{name}: keyed by {arrays[0].path}, with{'out' * in_object} a group in the output")
+        seen["shards not presented"] += isinstance(d.out, StoreIrOutput) and f"{key}/zarr.json" not in d.out.entries
         for k, t in zip(mine, tensors, strict=True):
             said += [f"{name}:{t.name}: {s}" for s in check_tensor(d, k, t, key, seen)]
     said += [f"{key}: {len(ks)} descriptions of an object that is no safetensors file" for key, ks in by_object.items()]
@@ -279,7 +273,7 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
         "files the library reads": 18,
         "files the library refuses": 1,
         "files of no tensors": 2,
-        "shards keyed by their object": 1,
+        "shards not presented": 1,
         "tensors": 52,
         "tensors of whole bytes": 47,
         "tensors of 4 bits, packed": 3,
@@ -288,7 +282,6 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
         "tensors of no bytes": 1,
         "scalars": 1,
         "rows": 51,
-        "rows of a range of their object": 1,
         "packed elements decoded": 2200918,
     }
 
@@ -310,7 +303,8 @@ def test_tensors_no_fixture_holds_are_described_as_the_library_reads_them(tmp_pa
     bytes a character before it; `__metadata__` between the tensors, with a member `dtype`; a
     scalar of one byte and one of a complex number; a tensor of five axes; tensors of no elements,
     of whole bytes and of 4 bits; a packed tensor that is not the buffer's first; and, in a store, a
-    shard keyed by its object (its key is reserved) that holds packed tensors and one of no bytes."""
+    shard not presented (its key is reserved), keyed by its header all the same, that holds packed
+    tensors and one of no bytes."""
     rng = np.random.default_rng(0)
     header = (
         '{ "π/w" : {"note":{"dtype":"I64","shape":[9]},"shape":[2,1,3,1,1],'
@@ -349,7 +343,7 @@ def test_tensors_no_fixture_holds_are_described_as_the_library_reads_them(tmp_pa
     assert said == ()
     assert reached(seen) == {
         "files the library reads": 2,
-        "shards keyed by their object": 1,
+        "shards not presented": 1,
         "tensors": 4,
         "tensors of whole bytes": 1,
         "tensors of 4 bits, packed": 1,
@@ -357,7 +351,6 @@ def test_tensors_no_fixture_holds_are_described_as_the_library_reads_them(tmp_pa
         "tensors of no elements, sized by the library's table": 1,
         "tensors of no bytes": 1,
         "rows": 3,
-        "rows of a range of their object": 2,
         "packed elements decoded": 10,
     }
 
