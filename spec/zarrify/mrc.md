@@ -703,4 +703,9 @@ It is a JSON object with these members:
 | `elements` | the ids of its IR elements ([§5.3](#53-elements)) by name: `data`, and of a file that is not gzipped, `header` and, when `nsymbt > 0`, `extended` |
 
 The array's stored description is keyed by `header`, or of a gzipped file by `data`, the stream
-([spec/stored-array.md §7](../stored-array.md#7-the-formats)).
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)). The projection reads the header
+from the IR's `header` value, or a gzipped file's from `gzip.head`, and makes every decision of
+[§3](#3-data-types), [§4](#4-the-image), [§5](#5-source-metadata) and [§8.2](#82-chunks) from it.
+
+The parser still makes one decision of the output: the `data` element's form names the data type
+of [§3](#3-data-types) ([§5.3](#53-elements)).

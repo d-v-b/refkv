@@ -2,15 +2,18 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#4-the-image>, and the root's
 //! source metadata of §5
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#5-source-metadata>) from a valid
-//! IR: the header is the IR's `header` value, and the array's chunks are cut from its
-//! `data` element.
+//! IR and the parser's description of the file (§8.5
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#85-the-description>): the header
+//! is the IR's `header` value (a gzipped file's, the description's `gzip.head`), and the array's
+//! chunks are cut from its `data` element. The projection makes every decision of the output
+//! itself: the data type, the kind of file, the axes, the voxel size and position, and the chunks.
 
 use super::{contiguous, header_json, json_text, n, Copied};
 use crate::gz;
 use crate::ir::Ir;
-use crate::mrc::header;
+use crate::mrc::{data_type, header};
 use crate::record::Header;
-use crate::out::{array_json, bytes_codec, declared_group, full_window, grid_chunks, gzip_array, gzip_codecs, image_ome, omero_channel, omero_json, root_json, Chunk, Out, Part, GZIP_LEVEL};
+use crate::out::{array_json, copy_threshold, bytes_codec, declared_group, full_window, grid_chunks, gzip_array, gzip_codecs, image_ome, omero_channel, omero_json, root_json, Chunk, Out, Part, GZIP_LEVEL};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 use std::borrow::Cow;
@@ -58,7 +61,7 @@ struct Cut {
     chunks: Vec<(Vec<u64>, Chunk)>,
 }
 
-fn cut(h: &Header, (offset, length): (u64, u64), facts: &J) -> Result<Cut, String> {
+fn cut(h: &Header, (offset, length): (u64, u64), description: &J) -> Result<Cut, String> {
     let (nx, ny, nz) = (h.get("nx").i() as u64, h.get("ny").i() as u64, h.get("nz").i() as u64);
     let (ispg, mz) = (h.get("ispg").i(), h.get("mz").i());
     let spec = &crate::rules::of("mrc").table("modes")[h.get("mode").i().to_string()];
@@ -82,9 +85,9 @@ fn cut(h: &Header, (offset, length): (u64, u64), facts: &J) -> Result<Cut, Strin
         _ => (named.clone(), vec![nz, ny, nx]),
     };
     let bits = spec["bits"].as_u64();
-    let threshold = contiguous::threshold(facts);
+    let threshold = copy_threshold();
     let cut = match bits {
-        _ if facts["gzip"].is_object() => Some(contiguous::whole_stream(&shape, (offset, length))),
+        _ if description["gzip"].is_object() => Some(contiguous::whole_stream(&shape, (offset, length))),
         Some(k) => contiguous::packed_chunks(offset, &shape, k, CHUNK_BYTES, threshold).filter(|_| (nx * k).is_multiple_of(8)).or_else(|| Some(row_chunks(offset, &shape, k))),
         None => grid_chunks(offset, &shape, item, CHUNK_BYTES, threshold),
     };
@@ -122,21 +125,22 @@ fn complex_int16() -> J {
     ]}})
 }
 
-/// The header's bytes (in the facts, of a gzipped file) and the data's element.
-fn parts<'a>(ir: &'a Ir, facts: &J) -> Result<(Cow<'a, [u8]>, u32), String> {
-    let raw = match gz::head_of(facts) {
+/// The header's bytes (in the description, of a gzipped file) and the data's element.
+fn parts<'a>(ir: &'a Ir, description: &J) -> Result<(Cow<'a, [u8]>, u32), String> {
+    let elements = &description["elements"];
+    let raw = match gz::head_of(description) {
         Some(head) => Cow::Owned(head),
-        None => Cow::Borrowed(ir.value_bytes(n(&facts["header"]) as u32).ok_or("internal: the header is not held")?),
+        None => Cow::Borrowed(ir.value_bytes(n(&elements["header"]) as u32).ok_or("internal: the header is not held")?),
     };
-    Ok((raw, n(&facts["data"]) as u32))
+    Ok((raw, n(&elements["data"]) as u32))
 }
 
 /// The source's ranges of the edge chunks the projection copies (§8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#82-chunks>).
-pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
-    let (raw, data) = parts(ir, facts)?;
+pub fn reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+    let (raw, data) = parts(ir, description)?;
     let h = header(&raw);
-    let c = cut(&h, (ir.start[data as usize], ir.len[data as usize]), facts)?;
+    let c = cut(&h, (ir.start[data as usize], ir.len[data as usize]), description)?;
     Ok(contiguous::copy_reads(&c.chunks).collect())
 }
 
@@ -144,13 +148,15 @@ fn valid(v: f64) -> bool {
     v.is_finite() && v > 0.0
 }
 
-pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    let (raw, data) = parts(ir, facts)?;
+/// The output of the file `description` describes; `description` also holds the run's options,
+/// `layouts` among them.
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+    let (raw, data) = parts(ir, description)?;
     let h = header(&raw);
     let (offset, form) = (ir.start[data as usize], ir.form_id(data).ok_or("internal: the data has no form")?);
     let length = ir.len[data as usize];
     let mode = h.get("mode").i();
-    let data_type = facts["data_type"].as_str().unwrap_or("int8");
+    let data_type = data_type(&h);
     let f = |name: &str| h.get(name).f();
 
     // voxel size and origin (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#42-scales-units-and-position>)
@@ -175,7 +181,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     };
 
     // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#41-the-array>)
-    let Cut { kind, axes, names, mapped, shape, item, bits, grid, chunks } = cut(&h, (offset, length), facts)?;
+    let Cut { kind, axes, names, mapped, shape, item, bits, grid, chunks } = cut(&h, (offset, length), description)?;
     let mut units: Map<String, J> = Map::new();
     let scales: Vec<J> = axes
         .iter()
@@ -213,13 +219,13 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     if voxel.iter().all(|v| v.is_some()) {
         own.insert("voxel_size".into(), json!({"x": voxel[0], "y": voxel[1], "z": voxel[2]}));
     }
-    let gzip = &facts["gzip"];
+    let gzip = &description["gzip"];
     if gzip.is_object() {
         own.insert("gzip".into(), json!({"skip": gzip["skip"]}));
     }
     // the dataset layout, unless the run's layouts leave it out (spec/zarrify/mrc.md §8
     // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#8-mrc-profile>)
-    let dataset = facts["layouts"].as_array().is_none_or(|l| l.iter().any(|v| v == DATASET));
+    let dataset = description["layouts"].as_array().is_none_or(|l| l.iter().any(|v| v == DATASET));
     let mut out = Out::new(url);
     let mut root = root_json(ome, "mrc", url, Some(J::Object(own.clone())));
     if dataset {
