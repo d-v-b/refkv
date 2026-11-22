@@ -191,7 +191,8 @@ bytes the MP4 profile reads as a file, zarrified or not, is not one `data` eleme
 ([mp4.md §5.3](mp4.md#53-elements)) but that file's root, each extent moved `a` bytes on (`a` where
 the dataset's bytes start). So the mirror holds the MP4 file's boxes, and its samples are `data`
 elements, `data/samples/<T>/<j>` under the dataset's object. A channel whose bytes don't read as an
-MP4 file (the first four reasons of [§8.2](#82-channels)) keeps its `data` element.
+MP4 file (the first four reasons of [§8.2](#82-channels), not the fifth, refkv's MP4 convention
+zarrifying none of its tracks) keeps its `data` element.
 
 ### 5.4 Equivalence
 
@@ -259,12 +260,16 @@ HDF5, an H5J file among them.
 
 A channel is each object `/Channels/Channel_<n>`, in order of `n`. It is zarrified unless one of
 these holds, checked in this order; the first that holds is its **reason** ([§5.1](#51-the-root)).
-A channel with one of the first four keeps its dataset's `data` element ([§5.3](#53-elements)):
+A channel with one of the first four, whose bytes don't read as an MP4 file, keeps its dataset's
+`data` element ([§5.3](#53-elements)):
 
 - it is no dataset: `not a dataset of bytes`;
 - its data type is not `uint8`, or it has other than one dimension;
 - its storage is not contiguous (compact, chunked, external or not allocated);
-- the MP4 profile rejects its bytes, read as a file: `its MP4 file: ` and the rejection;
+- the MP4 profile's parser rejects its bytes, read as a file, or finds that the file names other
+  files: `its MP4 file: ` and the rejection, or `its MP4 file names other files`;
+- refkv's MP4 convention zarrifies none of its tracks ([mp4.md §8.2](mp4.md#82-tracks)):
+  `its MP4 file: ` and the rejection;
 - the MP4 file has other than one track;
 - the MP4 profile doesn't zarrify the track ([mp4.md §8.2](mp4.md#82-tracks)): its reason;
 - the track is not H.264, HEVC, AV1 or VP9 video;
