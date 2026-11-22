@@ -56,19 +56,8 @@ import math
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Any, ClassVar
 
-from refkv.build import (
-    Hdf5Hierarchy,
-    Parsed,
-    Value,
-    Written,
-    Zeros,
-    concat,
-    cut,
-    filled,
-    fits,
-    hdf5_hierarchy,
-    mirror,
-)
+from refkv.build import Parsed, Value, Written, Zeros, concat, cut, filled, fits, mirror
+from refkv.build.routines.hdf5 import Hdf5Hierarchy, hdf5_hierarchy
 from refkv.zarrify import Rejected
 from refkv.zarrify.layouts import MIRROR
 from refkv.zarrify.layouts.hierarchy import array, copy, group
