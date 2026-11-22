@@ -259,6 +259,6 @@ fn project_named(ir: &Ir, facts: &J, url: &str, named: &str) -> Result<Out, Stri
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied) -> Result<Out, String> {
     project_set(ir, description, url)
 }

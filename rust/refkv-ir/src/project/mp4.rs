@@ -293,6 +293,16 @@ fn classify(t: &J, f: &mut J) -> Result<(), String> {
     let codec = e["type"].as_str().unwrap_or("");
     let (width, height) = (n(&e["width"]), n(&e["height"]));
     let pts: Vec<i64> = arr(&t["pts"]).iter().map(|v| v.as_i64().unwrap_or(0)).collect();
+    // a picture's presentation time for each sample: the description gives none when the stts box
+    // and the fragments do not count the samples laid out (§8.5
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#85-the-description>)
+    let untimed = || {
+        if t["pts"].is_null() || pts.len() as u64 != count || t["sync"].is_null() {
+            Err(format!("its stts box and track fragments do not give each of its {count} samples a time"))
+        } else {
+            Ok(())
+        }
+    };
     if is_mjpeg(e) {
         let frame = &e["jpeg"];
         if frame.is_null() {
@@ -312,6 +322,7 @@ fn classify(t: &J, f: &mut J) -> Result<(), String> {
         if (fw, fh) != (width, height) {
             return Err(format!("JPEG pictures of {fw}x{fh} in a sample entry of {width}x{height}, as an interlaced picture's fields are"));
         }
+        untimed()?;
         let mut sorted = pts.clone();
         sorted.sort_unstable();
         if sorted.windows(2).any(|w| w[0] == w[1]) {
@@ -382,6 +393,7 @@ fn classify(t: &J, f: &mut J) -> Result<(), String> {
         if width == 0 || height == 0 {
             return Err("a sample entry of width or height 0".into());
         }
+        untimed()?;
         let sync: Vec<u64> = arr(&t["sync"]).iter().map(n).collect();
         crate::mp4::gops(&pts, &sync)?;
         let data_type = if luma > 8 { "uint16" } else { "uint8" };
@@ -811,6 +823,23 @@ mod plan_tests {
         assert!(plans[3]["reason"].as_str().unwrap().starts_with("H.264 with chroma format 3"));
         assert_eq!((plans[4]["format"].clone(), plans[4]["frames"].clone()), (json!("pcm"), json!(4)));
         assert_eq!(plans[5]["reason"], "PCM samples of 6 bytes, not a whole number of 4-byte frames");
+    }
+
+    /// A video or Motion JPEG track whose samples' times the description does not give (the stts
+    /// box and fragments count other samples than those laid out) is not zarrified.
+    #[test]
+    fn a_track_whose_samples_have_no_time_is_not_zarrified() {
+        let jpeg = json!({"type": "jpeg", "width": 64, "height": 48,
+                          "jpeg": {"marker": 0xC0, "precision": 8, "width": 64, "height": 48, "components": 3}});
+        let reason = "its stts box and track fragments do not give each of its 2 samples a time";
+        for entry in [avc1(1, 8), jpeg] {
+            for (pts, sync) in [(J::Null, J::Null), (json!([0]), json!([0])), (json!([0, 1]), J::Null)] {
+                let mut t = track("vide", 1, entry.clone());
+                t["pts"] = pts;
+                t["sync"] = sync;
+                assert_eq!(track_plans(&json!({"tracks": [t]}))[0]["reason"], reason, "{entry}");
+            }
+        }
     }
 
     #[test]

@@ -624,7 +624,8 @@ and the track is kept in the mirror but has no group:
   allow), or its first SPS cannot be read to its bit depths (ITU-T H.265
   §7.3.2.2), or the SPS is not 4:0:0, 4:2:0 or 4:2:2 of 8, 10 or 12 bits (`chroma_format_idc` 0, 1 or 2 and
   both bit depths 8, both 10 or both 12, or for 0 the luma bit depth alone: Main, Main 10 and range extensions); or its width or
-  height is 0; or its first sample is not a sync
+  height is 0; or its `stts` box and track fragments do not give each of its samples a time (a
+  description with no `pts`, [§8.5](#85-the-description)); or its first sample is not a sync
   sample; or its sync samples do not increase, or one is past its last
   sample; or two samples share a presentation time; or two sync samples
   (or the last one and the end) are more than 1024 samples apart; or a
@@ -638,8 +639,9 @@ and the track is kept in the mirror but has no group:
   type indication 0x6C; and its first sample has no JPEG frame header in its first 1 MiB; or its
   width or height is 0; or the frame header (ITU T.81 §B.2.2) is not baseline, extended sequential or
   progressive of 8 bits (marker 0xC0 to 0xC2); or has other than 1 or 3 components; or its size is
-  not the sample entry's, as an interlaced picture's fields are, a JPEG stream each; or two samples
-  share a presentation time. `mjpb` (Motion JPEG B, whose streams have no markers) and any other `mp4v`
+  not the sample entry's, as an interlaced picture's fields are, a JPEG stream each; or its `stts`
+  box and track fragments do not give each of its samples a time; or two samples share a
+  presentation time. `mjpb` (Motion JPEG B, whose streams have no markers) and any other `mp4v`
   are other video codecs;
 - **audio:** its sample entry is a QuickTime sound description of version 2, unless of
   type `lpcm`; or it is none of `mp4a`, `.mp3` and the PCM entries below; or, for a PCM entry, the

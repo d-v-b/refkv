@@ -90,7 +90,7 @@ fn a_stores_description_names_each_shards_stored_arrays() {
         let files = common::walk(&common::fixtures().join("safetensors").join(store));
         let data: Vec<&Vec<u8>> = files.values().collect();
         let listing = common::listing(&files);
-        let (ir, description, _) = run_store(StoreFormat::Safetensors, listing.clone(), &|k| data[k].clone()).unwrap();
+        let (ir, description, _, _) = run_store(StoreFormat::Safetensors, listing.clone(), &|k| data[k].clone()).unwrap();
         let planned = plan_store(&description, &listing).unwrap();
         let mut described = 0;
         for (shard, file) in description["shards"].as_array().unwrap().iter().zip(planned["own"]["files"].as_array().unwrap()) {

@@ -35,7 +35,6 @@ parameters into codecs.
 
 from __future__ import annotations
 
-import bisect
 import dataclasses
 import importlib.metadata
 import io
@@ -48,20 +47,12 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, override
 
-import refkv.ir  # its Ir, read at call time: refkv.ir imports this module's package
-from refkv.ir.kind import Kind
-from refkv.ir.store import StoreIrOutput
-from refkv.pb import Concat, Range, Source
-from refkv.policy import Policy
-from refkv.reader import Registry
-from refkv.refstore import ReferenceStore
-from refkv.vzip.names import RESERVED_PREFIX
-from refkv.zarrify.common import MAX_PAYLOAD, PROFILES, Output, Rejected
+from refkv.pb import Concat, Range
+from refkv.zarrify.common import MAX_PAYLOAD, Rejected
 from refkv.zarrify.profiles import REGISTRY
 
 if TYPE_CHECKING:
     from refkv.build import Parsed, Value, Written
-    from refkv.ir import Ir
 
 __all__ = ["BASE_PROFILES", "MAX_PAYLOAD", "MIRROR", "Entries", "EntryValue", "Layout",
            "LayoutFailed", "LayoutRejected", "LayoutUsageError", "Plugin", "Problem",
@@ -72,9 +63,9 @@ type EntryValue = bytes | Range | Concat  # a value of an output's entry
 type Entries = dict[str, EntryValue]  # an output's entries, keys from its root, as a plugin builds them
 
 GROUP = "refkv.layouts"  # the entry points' group
-# the base's IR mirror's node (spec/conventions.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>)
+# the IR mirror's node (spec/conventions.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>)
 MIRROR = "refkv_source"
-# the profiles a base may be of: every file and store profile (not a dataset layout's entry)
+# the profiles a plugin may read: every file and store profile (not a dataset layout's entry)
 BASE_PROFILES = frozenset(str(e["name"]) for e in REGISTRY if e["kind"] in ("file", "store", "both"))
 REFKV_UUIDS = frozenset(str(e["uuid"]).lower() for e in REGISTRY)
 REFKV_MEMBERS = ("refkv_zarrified", "refkv_provenance")  # what refkv declares on a node
@@ -98,19 +89,15 @@ def undeclared(attributes: Mapping[str, Any]) -> dict[str, Any]:
     return attrs
 NAME = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+")
 
-# bytes of a key's UTF-8 the ZIP binding holds (spec/bindings/vzip.md §10.3 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#103-file-names>)
-MAX_KEY = 65535
 MAX_OPEN = 256 << 20  # bytes read at open, and of a format entry: the default max_format_entry
 MERGE_GAP = 1 << 16  # ranges of one source this close are one read, as refkv's readers merge them by default
 # a DEFLATE stream that could reach this is not written (spec/bindings/vzip.md §14.1
 # <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#141-requirements>)
 STORED = 0xFFFFFFFF
-MAX_OFFSET = (1 << 64) - 1
 PAGE_ENTRY = 16  # the most a phkv page index's entry takes beside its first key: three varints, and room
 CRC_FIELD = 6  # the most bytes a range's crc32c field takes: a tag, and a varint of 32 bits
 # the documents a Zarr reader parses as JSON, by a key's last segment
 DOCUMENTS = frozenset(["zarr.json", ".zgroup", ".zarray", ".zattrs", ".zmetadata"])
-STRUCT, VALUE, DATA, DERIVED, ALIAS, OBJECT = Kind.STRUCT, Kind.VALUE, Kind.DATA, Kind.DERIVED, Kind.ALIAS, Kind.OBJECT
 
 
 class LayoutUsageError(ValueError):
@@ -392,8 +379,6 @@ def plan(layout: object) -> Planned:
     return Planned(plugin, name, read, text)
 
 
-# ---- the base (spec/layout.md, what a plugin is given)
-
 def _without_checksum(value: Range | Concat) -> Range | Concat:
     """A reference value as spec/zarrify.md §1.1
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence> compares
@@ -401,498 +386,6 @@ def _without_checksum(value: Range | Concat) -> Range | Concat:
     if isinstance(value, Range):
         return dataclasses.replace(value, crc32c=None)
     return Concat(tuple(dataclasses.replace(r, crc32c=None) for r in value.parts))
-
-
-def _is_document(key: str) -> bool:
-    return key.rpartition("/")[2] == "zarr.json"
-
-
-def _prefix(path: str) -> str:
-    return f"{path}/" if path else ""
-
-
-class _Base:
-    """A built-in profile's output of an input, held for `refkv.build.Projected`, which is how a
-    caller or a plugin reaches it (`refkv.build.project`); internal, and no part of what a plugin
-    is given. It holds every layout the format has, the output's
-    root as refkv writes it, no checksums, and the IR it was projected from, with the bridges
-    between them. Each accessor returns new objects; one that is given a key, path or element the
-    output does not have raises KeyError naming it.
-
-    - `profile`, `version`, `uuid`: the profile that read the input (a TIFF the parser found to
-      be NDPI is `ndpi`), and its convention's version and UUID; `checksums`, whether the call
-      asks for them;
-    - `ir`: the IR (`refkv.ir.Ir`); `reference`, `form`, `element_at` and `elements` read it;
-    - `sources`, `zero_source`: the source table, and its zero data source;
-    - `keys()`, `document(key)`, `attributes(path)`, `source_metadata(path)`, `array(path)`,
-      `entries(prefix)`: the output's entries."""
-
-    def __init__(self, store: ReferenceStore, ir: Ir | None, *, checksums: bool = False,
-                 objects: Sequence[str] = (), sizes: Sequence[int | None] | None = None) -> None:
-        self._values: dict[str, bytes | Range | Concat] = {
-            k: _without_checksum(v) if isinstance(v, (Range, Concat)) else v for k, v in store.mapping.items()}
-        # each reference value without its checksum, to the base's own value, which refkv writes
-        self._references = {self._values[k]: v for k, v in store.mapping.items() if isinstance(v, (Range, Concat))}
-        self._sorted = sorted(self._values)  # for an array's keys, found by prefix
-        self._read_at_open = store.read_at_open
-        self._sources = tuple(store._sources)  # noqa: SLF001 (the base's table)
-        # each url source's size, as refkv found it: given, else its pin
-        self._sizes = tuple(sizes) if sizes is not None else tuple(s.size for s in self._sources)
-        root = json.loads(self._values["zarr.json"])  # type: ignore[arg-type]
-        prop = root["attributes"]["refkv_zarrified"]
-        self._profile: str = prop["profile"]
-        self._version: int = prop["version"]
-        self._checksums = checksums
-        self._ir = ir
-        self._objects = list(objects)  # a store IR's object keys, by source index
-        self._index: dict[int, tuple[list[int], list[tuple[int, int, int, int | None]]]] | None = None
-        self._objects_of: dict[int, int] | None = None
-        self._holders: dict[Range | Concat, list[str]] | None = None
-
-    @property
-    def profile(self) -> str:
-        return self._profile
-
-    @property
-    def version(self) -> int:
-        return self._version
-
-    @property
-    def uuid(self) -> str:
-        return PROFILES[self._profile][0]
-
-    @property
-    def checksums(self) -> bool:
-        return self._checksums
-
-    @property
-    def ir(self) -> Ir:
-        if self._ir is None:  # a base built by hand, in a test
-            raise ValueError("this base has no IR")
-        return self._ir
-
-    @property
-    def sources(self) -> tuple[Source, ...]:
-        return self._sources
-
-    @property
-    def zero_source(self) -> tuple[int, int] | None:
-        """(index, length) of the base's zero data source, or None (spec/zarrify.md §1.2
-        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)."""
-        for i, s in enumerate(self._sources):
-            if s.data and not s.data.strip(b"\0"):
-                return i, len(s.data)
-        return None
-
-    def keys(self) -> list[str]:
-        """The base's keys, sorted."""
-        return list(self._sorted)
-
-    def __contains__(self, key: object) -> bool:
-        return key in self._values
-
-    @property
-    def datasets(self) -> dict[str, str]:
-        """The base's dataset layouts (spec/conventions.md §9
-        <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>), by the
-        name the root gives each, each its node's path; `{}` for a format that has none."""
-        prop = json.loads(self._values["zarr.json"])["attributes"]["refkv_zarrified"]  # type: ignore[arg-type]
-        named = prop.get("layouts") if isinstance(prop.get("layouts"), dict) else {}
-        return {str(k): str(v) for k, v in named.items()}
-
-    @property
-    def mirror(self) -> str | None:
-        """The path of the base's IR mirror (spec/conventions.md §8
-        <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>), `MIRROR`, or None."""
-        return MIRROR if f"{MIRROR}/zarr.json" in self._values else None
-
-    def _left_out(self, mirror: bool, datasets: bool) -> list[str]:
-        out = [] if mirror or self.mirror is None else [MIRROR]
-        return out if datasets else out + list(self.datasets.values())
-
-    def nodes(self, *, mirror: bool = False, datasets: bool = False) -> list[str]:
-        """The paths of the base's nodes (the root is `""`), sorted: its image layout's, and the
-        IR mirror's with `mirror`, the dataset layouts' with `datasets`."""
-        left = self._left_out(mirror, datasets)
-        out = []
-        for k in self._sorted:
-            if not _is_document(k):
-                continue
-            path = k[: -len("zarr.json")].rstrip("/")
-            if not any(path == p or path.startswith(f"{p}/") for p in left):
-                out.append(path)
-        return sorted(out)
-
-    def node_type(self, path: str) -> str | None:
-        """`"group"` or `"array"` for the base's node at `path`, None for a path it has no node at."""
-        value = self._values.get(f"{_prefix(path)}zarr.json")
-        return json.loads(value).get("node_type") if isinstance(value, bytes) else None
-
-    def document(self, key: str) -> dict[str, Any]:
-        """The JSON document at `key` (a `zarr.json`), parsed."""
-        value = self._values.get(key)
-        if not _is_document(key) or not isinstance(value, bytes):
-            raise KeyError(f"no document {key!r} in the base (a document's key ends in zarr.json)")
-        return json.loads(value)  # type: ignore[no-any-return]
-
-    def _node(self, path: str) -> dict[str, Any]:
-        try:
-            return self.document(f"{_prefix(path)}zarr.json")
-        except KeyError:
-            raise KeyError(f"no node {path!r} in the base") from None
-
-    def attributes(self, path: str) -> dict[str, Any]:
-        """The attributes of the node at `path` without refkv's declarations (`undeclared`)."""
-        return undeclared(self._node(path).get("attributes", {}))
-
-    def source_metadata(self, path: str) -> Any:  # noqa: ANN401 (JSON the format's convention specifies)
-        """The source metadata the node at `path` declares: the member named after the profile its
-        `refkv_zarrified` names (the base's, or a dataset layout's own) (spec/conventions.md §2
-        <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), or None."""
-        prop = self._node(path).get("attributes", {}).get("refkv_zarrified")
-        if not isinstance(prop, dict):
-            return None
-        # a node of a dataset layout declares its own profile (`mrc-dataset`), and so names its member
-        return prop.get(prop.get("profile", self._profile))
-
-    def array(self, path: str) -> tuple[dict[str, Any], dict[str, bytes | Range | Concat]]:
-        """The array at `path`: its document, and its chunks by key relative to the array."""
-        doc = self._node(path)
-        if doc.get("node_type") != "array":
-            raise KeyError(f"{path!r} is a group of the base, not an array")
-        prefix = _prefix(path)
-        chunks: dict[str, bytes | Range | Concat] = {}
-        for k in self._sorted[bisect.bisect_left(self._sorted, prefix):]:
-            if not k.startswith(prefix):
-                break
-            if not _is_document(k[len(prefix):]):
-                chunks[k[len(prefix):]] = self._values[k]
-        return doc, chunks
-
-    def entries(self, prefix: str = "", *, declarations: bool = True, mirror: bool = True,
-                datasets: bool = True) -> Entries:
-        """The base's entries whose keys start with `prefix`, keys as the base holds them:
-        `out |= base.entries()` keeps the whole of refkv's output, `base.entries("refkv_source/")`
-        the IR mirror. Without `declarations`, each `zarr.json` is written with its node's
-        `attributes`, refkv's declarations left out, as `dump` writes it; without `mirror` or
-        `datasets`, the IR mirror's or the dataset layouts' entries are left out."""
-        keys = [k for k in self._sorted[bisect.bisect_left(self._sorted, prefix):] if k.startswith(prefix)] \
-            if prefix else self._sorted
-        left = tuple(f"{p}/" for p in self._left_out(mirror, datasets))
-        out: Entries = {}
-        for k in keys:
-            if left and k.startswith(left):
-                continue
-            v = self._values[k]
-            if not declarations and _is_document(k):
-                doc = json.loads(v)  # type: ignore[arg-type]
-                doc["attributes"] = self.attributes(k[: -len("zarr.json")].rstrip("/"))
-                v = dump(doc)
-            out[k] = v
-        return out
-
-    def _arrays_holding(self, value: Range | Concat) -> list[str]:
-        """The paths of the base's arrays that hold the reference `value` (without checksums)."""
-        if self._holders is None:
-            arrays = {k[: -len("zarr.json")].rstrip("/") for k in self._sorted if _is_document(k)
-                      and json.loads(self._values[k]).get("node_type") == "array"}  # type: ignore[arg-type]
-            holders: dict[Range | Concat, list[str]] = {}
-            for k, v in self._values.items():
-                if isinstance(v, (Range, Concat)):
-                    holder = k.rpartition("/")[0]
-                    while holder and holder not in arrays:
-                        holder = holder.rpartition("/")[0]
-                    paths = holders.setdefault(v, [])
-                    if holder in arrays and holder not in paths:  # a reference outside every array is no chunk
-                        paths.append(holder)
-            self._holders = holders
-        return self._holders.get(_without_checksum(value), [])
-
-    def base_value(self, value: object) -> Range | Concat | None:
-        """The base's reference value equal to `value` but for checksums, or None."""
-        if type(value) is not Range and type(value) is not Concat:
-            return None
-        try:
-            return self._references.get(_without_checksum(value))  # type: ignore[arg-type]
-        except (TypeError, ValueError):  # a Range of unhashable members
-            return None
-
-    # ---- the IR
-
-    def _element(self, i: object) -> int:
-        if type(i) is not int or not 0 <= i < len(self.ir):
-            raise KeyError(f"no element {i!r} in the IR")
-        return i
-
-    def members(self, i: int) -> list[tuple[int, int, int]]:
-        """Element `i`'s data members (an alias's are its target's), each `(number, start,
-        length)`: its name index (a TIFF tile's number), and its bytes' extent, in its object for a
-        store IR. A member that is missing (a tile of byte count 0, or one outside the file) has
-        none: `numbers` the tags give and those listed differ."""
-        numbers, starts, lengths, _ = self.ir.members(self._target(self._element(i)))
-        return list(zip(numbers, starts, lengths, strict=True))
-
-    def _member(self, i: int, member: object) -> tuple[int, int, int]:
-        """(start, length, form id) of element `i`'s data member `member`."""
-        _, starts, lengths, forms = self.ir.members(self._target(i))
-        if type(member) is not int or not 0 <= member < len(starts):
-            raise KeyError(f"element {i} ({self.ir.path(i)!r}) has no data member {member!r}")
-        return starts[member], lengths[member], forms[member]
-
-    def form(self, i: int, member: int | None = None) -> dict[str, Any] | None:
-        """The form of element `i` (or of its data member `member`), parsed (its `geometry`,
-        `codec` and `recipe`), or None for one without a form (spec/conventions.md §8.5
-        <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)."""
-        i = self._element(i)
-        text = self.ir.form(i) if member is None else self.ir.forms()[self._member(i, member)[2]]
-        return None if text is None else json.loads(text)
-
-    def _target(self, i: int) -> int:
-        """`i`, or what it is an alias of."""
-        seen = set()
-        while self.ir.kind(i) == ALIAS and i not in seen:
-            seen.add(i)
-            t = self.ir.target(i)
-            if t < 0:
-                break
-            i = t
-        return i
-
-    def _object(self, i: int) -> int | None:
-        """The object element (a file of a file read as a store, spec/conventions.md §8.9
-        <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>) that holds
-        element `i`, or None for a file IR."""
-        if not self.ir.object_bases():
-            return None
-        if self._objects_of is None:
-            self._objects_of = {}
-        at = i
-        while at >= 0:
-            if self.ir.kind(at) == OBJECT:
-                return at
-            at = self.ir.parent(at)
-        return None
-
-    def source_of(self, i: int) -> int:
-        """The index in the base's table of the source that holds element `i`'s bytes: 0 for a file
-        IR, the source of its object for a store IR. ValueError for an object the base
-        references no byte of, which spec/zarrify.md §1.9
-        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>
-        leaves out of the table."""
-        o = self._object(self._target(self._element(i)))
-        if o is None:
-            if self.ir.object_bases():
-                raise ValueError(f"{self.ir.path(i)!r} is in no object of the store")
-            return 0
-        key = self.ir.path(o)
-        if key not in self._objects:
-            raise ValueError(f"the object {key!r} is not in the base's table, which references none of its bytes "
-                             "(spec/zarrify.md §1.9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>)")
-        return self._objects.index(key)
-
-    def _data_part(self, data: bytes) -> Range:
-        """A range of the base's data source of `data`, or `data` as a literal."""
-        for k, s in enumerate(self._sources):
-            if s.data == data:
-                return Range(k, 0, len(data))
-        return Range(data=data)
-
-    def reference(self, i: int, member: int | None = None) -> Range | Concat:
-        """The reference value that reads element `i`'s bytes (or its data member `member`'s) as
-        the profile reads them: a Range of the source that holds them, or a Concat of its form's
-        recipe (spec/layout.md). ValueError for an element that holds no bytes of a source."""
-        i = self._element(i)
-        path = self.ir.path(i)
-        if member is not None:  # an alias's members are its target's
-            self._source_space(self._target(i))
-            start, length, form_id = self._member(self._target(i), member)
-            text: str | None = self.ir.forms()[form_id]
-        elif self.ir.kind(i) == ALIAS:  # its own extent, read by its own form
-            start, length = self.ir.extent(i)
-            t = self._target(i)
-            ts, tn = self.ir.extent(t)
-            if t == i or not (ts <= start and start + length <= ts + tn):
-                raise ValueError(f"{path!r} is an alias whose extent is not within its target's")
-            text = self.ir.form(i) or self.ir.form(t)
-        else:
-            kind = self.ir.kind(i)
-            if kind == DERIVED or self.ir.space(i) != 0:
-                raise ValueError(f"{path!r} is in a derived space (the inflated bytes of another element): "
-                                 "no range of a source reads it")
-            if kind not in (DATA, VALUE):
-                raise ValueError(f"{path!r} is not data or a value (its kind is {kind}): it holds no bytes of its own")
-            start, length = self.ir.extent(i)
-            text = self.ir.form(i)
-        form = None if text is None else json.loads(text)
-        codec = form.get("codec") if isinstance(form, dict) else None
-        if isinstance(codec, dict) and codec.get("mask"):
-            raise ValueError(f"{path!r}: its form skips filters (mask {codec['mask']}), so it decodes otherwise than "
-                             "its siblings: copy its array from the base")
-        source = self.source_of(i)  # a store IR's extents are its object's own offsets
-        recipe = form.get("recipe") if isinstance(form, dict) else None
-        if not recipe:
-            return Range(source, start, length)
-        shared = self.ir.shared()
-        parts: list[Range] = []
-        # the parts of spec/conventions.md §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>
-        for step in recipe:
-            if step[0] == "src":
-                o, n = int(step[1]), step[2]
-                parts.append(Range(source, start + o, length - o if n is None else int(n)))
-            elif step[0] == "rows":  # c runs of n bytes, the first at o, each s after the one before
-                o, stride, n, c = (int(x) for x in step[1:5])
-                parts += [Range(source, start + o + k * stride, n) for k in range(c)]
-            elif step[0] == "shared":
-                parts.append(self._data_part(bytes(shared[int(step[1])])))
-            else:
-                raise ValueError(f"{path!r}: its recipe has a part {step[0]!r} this refkv does not read")
-        return parts[0] if len(parts) == 1 else Concat(tuple(parts))
-
-    def _space_index(self, source: int) -> tuple[list[int], list[tuple[int, int, int, int | None]]]:
-        """The data elements of source `source` and the data members no element covers, by start:
-        (starts, entries of (start, end, element, member))."""
-        if self._index is None:
-            ir = self.ir
-            by: dict[int, list[tuple[int, int, int, int | None]]] = {}
-            covered: set[tuple[int, int, int]] = set()
-            kinds = ir.columns()["kind"]
-
-            def source_or_none(i: int) -> int | None:
-                try:
-                    return self.source_of(i)
-                except ValueError:
-                    return None
-            for i in range(len(ir)):
-                if kinds[i] == DATA and ir.space(i) == 0 and (s := source_or_none(i)) is not None:
-                    a, n = ir.extent(i)
-                    by.setdefault(s, []).append((a, a + n, i, None))
-                    covered.add((s, a, n))
-            for i in range(len(ir)):
-                if kinds[i] == STRUCT and ir.space(i) == 0 and (s := source_or_none(i)) is not None:
-                    _, starts, lengths, _forms = ir.members(i)
-                    for k, (a, n) in enumerate(zip(starts, lengths, strict=True)):
-                        if (s, a, n) not in covered:
-                            by.setdefault(s, []).append((a, a + n, i, k))
-            self._index = {}
-            for s, spans in by.items():
-                spans.sort(key=lambda t: (t[0], t[1]))
-                self._index[s] = ([t[0] for t in spans], spans)
-        return self._index.get(source, ([], []))
-
-    def element_at(self, source: int, offset: int) -> tuple[int, int | None] | None:
-        """(element, member) of the IR holding byte `offset` of the base's source `source`: the
-        innermost data element (member None), else a struct's data member no element covers;
-        None for a byte no data holds, and KeyError for a source the table does not have."""
-        if type(source) is not int or not 0 <= source < len(self._sources):
-            raise KeyError(f"no source {source!r} in the base's table")
-        if self._sources[source].url is None:
-            return None
-        starts, spans = self._space_index(source)
-        k = bisect.bisect_right(starts, offset) - 1
-        while k >= 0:
-            s, e, i, member = spans[k]
-            if s <= offset < e:
-                return i, member
-            if e <= offset and (k == 0 or spans[k - 1][1] <= offset):
-                break
-            k -= 1
-        return None
-
-    def span(self, i: int, member: int | None = None) -> Range:
-        """The bytes element `i` (or its data member `member`) spans in its source, as one Range,
-        no recipe applied: what `elements`' offsets are offsets into, so that `cut(base.span(i,
-        m), start, stop)` reads a part's bytes whatever the element's form (a JPEG tile's span
-        is its own bytes, without the tables its `reference` splices in). ValueError for an
-        element that holds no bytes of a source."""
-        i = self._element(i)
-        if member is not None:  # an alias's members are its target's
-            t = self._target(i)
-            self._source_space(t)
-            start, length, _ = self._member(t, member)
-            return Range(self.source_of(i), start, length)
-        self._source_space(i)
-        if self.ir.kind(i) not in (DATA, VALUE, ALIAS):
-            raise ValueError(f"{self.ir.path(i)!r} is not data or a value: it holds no bytes of its own")
-        start, end = self._span_end(i, None)
-        return Range(self.source_of(i), start, end - start)
-
-    def _source_space(self, i: int) -> None:
-        """ValueError for an element in a derived space (its extent in the inflated bytes of
-        another), or a derived one, whose bytes and members no range of a source reads."""
-        if self.ir.kind(i) == DERIVED or self.ir.space(i) != 0:
-            raise ValueError(f"{self.ir.path(i)!r} is in a derived space (the inflated bytes of another element): "
-                             "no range of a source reads it")
-
-    def _span_end(self, i: int, member: int | None) -> tuple[int, int]:
-        """(start, end) of element `i`'s bytes, or of its data member `member`'s."""
-        if member is not None:
-            _, starts, lengths, _ = self.ir.members(i)
-            return starts[member], starts[member] + lengths[member]
-        a, n = self.ir.extent(i)
-        return a, a + n
-
-    def elements(self, path: str) -> dict[str, tuple[tuple[int, int | None, int, int] | Range | None, ...]]:
-        """For every chunk of the base's array at `path` (keys relative to the array), the bytes its
-        value reads, in order, by the element that holds them: (element, member, start, stop), the
-        bytes of it read, half open, offsets within the element's (or member's) own bytes, its
-        `span` (not its `reference`, which a recipe may change), one item for each
-        element a part runs across (a chunk of strips the profile joined is several); None for a
-        literal part or a part of a data source; a Range, of the part, for bytes of a url source
-        that no data element holds (an HDF5 dataset's external storage)."""
-        _, chunks = self.array(path)
-        out: dict[str, tuple[tuple[int, int | None, int, int] | Range | None, ...]] = {}
-        for key, value in chunks.items():
-            items: list[tuple[int, int | None, int, int] | Range | None] = []
-            for r in (() if isinstance(value, bytes) else _parts(value)):
-                if r.data is not None or self._sources[r.source].url is None:
-                    items.append(None)
-                    continue
-                at, end = r.offset, r.offset + r.length
-                while True:
-                    held = self.element_at(r.source, at)
-                    if held is None:  # bytes no data element holds, up to the next one that does
-                        starts, _ = self._space_index(r.source)
-                        k = bisect.bisect_right(starts, at)
-                        stop = min(end, starts[k]) if k < len(starts) else end
-                        items.append(Range(r.source, at, max(stop - at, 0)))
-                    else:
-                        i, member = held
-                        begin, finish = self._span_end(i, member)
-                        stop = min(end, finish)
-                        items.append((i, member, at - begin, stop - begin))
-                    if stop >= end:
-                        break
-                    at = stop
-            out[key] = tuple(items)
-        return out
-
-    def zeros(self, n: int) -> Range:
-        """A range of `n` zero bytes of a data source: the base's zero data source when it is at
-        least that long, else of source `len(base.sources)`, the zero data source refkv adds
-        after the table's sources when the output references it, as long as the most bytes the
-        output reads of it (spec/layout.md §4
-        <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#4-sealing-the-output>), for
-        padding a chunk at an array's edge. A range of that source is the same whatever `_Base`
-        made it."""
-        if type(n) is not int or n < 0:
-            raise ValueError(f"{n!r} zero bytes: a natural number of them")
-        zero = self.zero_source
-        if zero is not None and zero[1] >= n:
-            return Range(zero[0], 0, n)
-        return Range(len(self._sources), 0, n)  # the source after the table's: refkv adds it
-
-    def fits(self, value: object) -> str | None:
-        """Why refkv would not write `value` in this base's output (spec/layout.md §4
-        <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#4-sealing-the-output>), or None:
-        a reference value whose ranges lie outside the base's sources, or whose payload could pass
-        65519 bytes once checksummed. How many reads a value takes is its reader's limit (spec/refkv.md
-        §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5)."""
-        why = _value_problem(value, self)
-        if why is None and type(value) in (Range, Concat) and self.base_value(value) is None:
-            v: Range | Concat = value  # type: ignore[assignment]
-            if _payload(v, self, self._checksums) > MAX_PAYLOAD:
-                why = f"a payload of up to {_payload(v, self, self._checksums)} bytes, more than {MAX_PAYLOAD}"
-        return why
 
 
 # ---- chunk keys (Zarr v3's chunk key encodings, and Zarr v2's dimension separator)
@@ -1001,7 +494,7 @@ def payload_size(value: Range | Concat, *, checksums: bool = False) -> int:
     """A value's payload in bytes, as refkv measures it against the limit of 65519 (spec/zarrify.md
     §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): with `checksums`,
     the most they can add, a 6-byte `crc32c` field a source range (an upper bound: a range of a
-    data source gets none, which `_Base.fits` knows)."""
+    data source gets none)."""
     extra = CRC_FIELD * sum(1 for r in _parts(value) if r.data is None and r.crc32c is None) if checksums else 0
     bare = value if isinstance(value, Range) or len(value.parts) != 1 else value.parts[0]
     return len(bare.encode()) + extra
@@ -1040,20 +533,8 @@ def _float(value: object, size: int) -> float:
     raise ValueError(f"{value!r} is not a fill value of a {8 * size}-bit float")
 
 
-def _url(r: Range, base: _Base) -> bool:
-    """Whether `r` is a range of a url source of `base`'s table."""
-    return r.data is None and r.source < len(base.sources) and base.sources[r.source].url is not None
-
-
-def _payload(value: Range | Concat, base: _Base, checksums: bool) -> int:
-    """A value's payload, with the most checksums can add to its ranges of url sources."""
-    extra = CRC_FIELD * sum(1 for r in _parts(value) if _url(r, base) and r.crc32c is None) if checksums else 0
-    bare = value if isinstance(value, Range) or len(value.parts) != 1 else value.parts[0]
-    return len(bare.encode()) + extra
-
-
 def without_checksums(value: Range | Concat) -> Range | Concat:
-    """`value` with no checksum on any range: as `_Base` gives values, and as outputs are
+    """`value` with no checksum on any range: as outputs are
     compared (spec/zarrify.md §1.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence>)."""
     return _without_checksum(value)
 
@@ -1068,80 +549,6 @@ class Problem:
     key: str | None
     code: str
     message: str
-
-
-def _key_problem(key: object) -> str | None:
-    if type(key) is not str:
-        return f"keys are str, not {type(key).__name__}"
-    if not key:
-        return "a key is not empty"
-    try:
-        n = len(key.encode("utf-8"))
-    except UnicodeEncodeError:
-        return "a key is valid UTF-8 (it holds a lone surrogate)"
-    if n > MAX_KEY:
-        return f"a key of {n} bytes, more than an archive's {MAX_KEY}"
-    if key.startswith(RESERVED_PREFIX):
-        return f"keys beginning {RESERVED_PREFIX!r} are the ZIP binding's own"
-    return None
-
-
-def _int(v: object) -> bool:
-    return type(v) is int and v >= 0
-
-
-def _range_problem(r: object, base: _Base) -> str | None:
-    """Why a part of a plugin's reference is not one refkv writes (spec/layout.md), or None."""
-    if type(r) is not Range:
-        return f"a part is a Range, not {type(r).__name__}"
-    if r.data is not None:
-        if type(r.data) is not bytes:
-            return f"a literal's data is bytes, not {type(r.data).__name__}"
-        if r.source != 0 or r.offset != 0 or r.length != 0 or type(r.source) is not int \
-                or type(r.offset) is not int or type(r.length) is not int:
-            return "a literal has source, offset and length 0"
-        return None
-    if not (_int(r.source) and _int(r.offset) and _int(r.length)):
-        return "a range's source, offset and length are natural numbers (int, not bool)"
-    if r.crc32c is not None and not (_int(r.crc32c) and r.crc32c < 1 << 32):
-        return "a range's crc32c is a natural number below 2^32"
-    end = r.offset + r.length
-    if end > MAX_OFFSET:
-        return "a range ends past 2^64 - 1"
-    if r.source == len(base.sources):  # the zero source refkv adds (`_Base.zeros`), as long as the output reads
-        if end > MAX_OPEN:
-            return f"bytes {r.offset} to {end} of the zero source, past the {MAX_OPEN} of a source table"
-        return None
-    if r.source >= len(base.sources):
-        return f"source {r.source} is not in the base's table ({len(base.sources)} sources)"
-    s = base.sources[r.source]
-    if s.url is not None:
-        size = base._sizes[r.source]  # noqa: SLF001 (the module's own _Base)
-        if size is None:
-            return f"source {r.source}'s size is not known, so a range of it cannot be checked"
-        if end > size:
-            return f"bytes {r.offset} to {end} of source {r.source}, past its {size}"
-        return None
-    if s.data is not None:
-        if end > len(s.data):
-            return f"bytes {r.offset} to {end} of data source {r.source}, past its {len(s.data)}"
-        return None
-    return f"source {r.source} is a key source, which a plugin's output does not reference"
-
-
-def _value_problem(v: object, base: _Base) -> str | None:
-    """Why a value is neither bytes nor a reference value refkv writes for `base`, or None."""
-    if type(v) in (bytes, bytearray, memoryview):
-        return None
-    if type(v) is not Range and type(v) is not Concat:
-        return f"a value is bytes, a Range or a Concat, not {type(v).__name__}"
-    parts = (v,) if type(v) is Range else v.parts  # type: ignore[union-attr]
-    if type(v) is Concat and (type(parts) is not tuple or not parts):
-        return "a Concat's parts are a non-empty tuple of Ranges"
-    why = next((w for w in (_range_problem(r, base) for r in parts) if w), None)
-    if why is None and sum(r.size for r in parts) > MAX_OFFSET:
-        why = "its ranges total more than 2^64 - 1 bytes"
-    return why
 
 
 def _deflate_bound(n: int) -> int:
@@ -1159,21 +566,3 @@ class _Counting(io.RawIOBase):
     @override
     def write(self, b: Any) -> int:
         return len(b)
-
-
-def _base_of(out: Output | StoreIrOutput, fmt: str, policy: Policy | None,
-            registry: Registry | None = None, *, checksums: bool | None = None) -> tuple[_Base, ReferenceStore]:
-    """The `_Base` of a file input's output, and the output as a store (reading its sources under
-    `policy`, with the object stores of `registry`). `checksums`: whether the call asks for them
-    (default: whether the output checksums its ranges)."""
-    store = out.to_store(policy=policy, registry=registry, info={"format": fmt, **out.summary})
-    if out.ir is None:
-        raise TypeError("an output without an IR takes no layout")
-    if isinstance(out, StoreIrOutput):
-        objects, _, _ = out._numbered()  # noqa: SLF001 (its table's url sources, in order)
-        sizes: list[int | None] = [out.sizes.get(k) for k in objects] + [None] * (len(store._sources) - len(objects))  # noqa: SLF001
-    else:
-        objects: list[str] = []
-        sizes = [out.size] + [None] * (len(store._sources) - 1)  # noqa: SLF001
-    checksums = out.checksum is not None if checksums is None else checksums
-    return _Base(store, refkv.ir.Ir(out.ir), checksums=checksums, objects=objects, sizes=sizes), store

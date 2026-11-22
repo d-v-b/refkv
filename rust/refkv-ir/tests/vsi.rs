@@ -21,8 +21,8 @@ fn fixtures() -> PathBuf {
 /// Runs the VSI store format on the `.vsi` at `path`, probing for its tile files beside it:
 /// (the output, the IR, the files read by key), or the rejection.
 fn run(path: &Path) -> Result<(Out, Ir, BTreeMap<String, Vec<u8>>), String> {
-    let (ir, facts, stats, mut files) = parsed(path)?;
-    let out = refkv_ir::store::store_output(StoreFormat::Vsi, &ir, &facts, stats, "https://example.org/slides/", true, false)?;
+    let (ir, facts, (stats, read), mut files) = parsed(path)?;
+    let out = refkv_ir::store::store_output(StoreFormat::Vsi, &ir, &facts, stats, &read, "https://example.org/slides/", true, false)?;
     // the files of the input: those the run made objects (a second tile file name found beside
     // the first is neither read nor an object)
     let objects: std::collections::HashSet<String> = ir.sources().objects.iter().map(|&o| ir.key(o)).collect();
@@ -30,9 +30,11 @@ fn run(path: &Path) -> Result<(Out, Ir, BTreeMap<String, Vec<u8>>), String> {
     Ok((out, ir, files))
 }
 
-/// The run of `run`, before its projection: (the IR, the facts, the run's counts, the files
-/// read by key).
-fn parsed(path: &Path) -> Result<(Ir, serde_json::Value, serde_json::Value, BTreeMap<String, Vec<u8>>), String> {
+/// The run of `run`, before its projection: (the IR, the facts, the run's counts with what it
+/// read for the projection, the files read by key).
+type Parsed = (Ir, serde_json::Value, (serde_json::Value, refkv_ir::store::Read), BTreeMap<String, Vec<u8>>);
+
+fn parsed(path: &Path) -> Result<Parsed, String> {
     let dir = path.parent().unwrap();
     let key = path.file_name().unwrap().to_str().unwrap().to_string();
     let size = std::fs::metadata(path).unwrap().len();
@@ -60,8 +62,8 @@ fn parsed(path: &Path) -> Result<(Ir, serde_json::Value, serde_json::Value, BTre
             run.complete(k, parts)?;
         }
     }
-    let (ir, facts, stats) = run.finish()?;
-    Ok((ir, facts, stats, files))
+    let (ir, facts, stats, read) = run.finish()?;
+    Ok((ir, facts, (stats, read), files))
 }
 
 fn entry(out: &Out) -> impl Fn(&str) -> Option<Vec<u8>> + '_ {

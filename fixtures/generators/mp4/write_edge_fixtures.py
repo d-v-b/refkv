@@ -3,8 +3,9 @@
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#81-boxes>, §8.2
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>) byte by byte, with
 no ffmpeg: an `ftyp` box with a 64-bit size whose payload is too short for its major brand and
-minor version, and, from the fixture `mp4_h264_two_tracks.mp4`, two tracks of one track ID.
-`edge_reject_*` files must be rejected.
+minor version; from the fixture `mp4_h264_two_tracks.mp4`, two tracks of one track ID; and, from
+fragmented fixtures, tracks whose stts box counts samples their tables do not lay out, so that
+no sample has a time. `edge_reject_*` files must be rejected.
 
 Usage: uv run python fixtures/generators/mp4/write_edge_fixtures.py
 """
@@ -39,6 +40,41 @@ def track_ids_alike(mp4: bytes) -> bytes:
     return bytes(out)
 
 
+def boxes_in(mp4: bytes, parent: bytes) -> list[tuple[int, bytes, int]]:
+    """Each child box of the one `parent` box in `mp4`: its offset, type and size."""
+    p = mp4.find(parent) - 4
+    end = p + struct.unpack(">I", mp4[p:p + 4])[0]
+    p += 8
+    out = []
+    while p < end:
+        size, typ = struct.unpack(">I4s", mp4[p:p + 8])
+        out.append((p, typ, size))
+        p += size
+    return out
+
+
+def without_stsz(mp4: bytes) -> bytes:
+    """`mp4`, of one track, with its stsz box renamed `free`: its tables lay out no sample, while
+    its stts box still counts the samples they held, so the samples of its fragments have no
+    time. Nothing moves."""
+    assert mp4.count(b"stsz") == 1
+    i = mp4.find(b"stsz")
+    return mp4[:i] + b"free" + mp4[i + 4:]
+
+
+def stts_of_three(mp4: bytes) -> bytes:
+    """`mp4`, of one track whose tables hold no sample (all in fragments), with its stts box
+    given one entry of 3 samples and its stsz box dropped, a free box taking up the bytes freed,
+    so that its fragments' samples have no time. Nothing moves: stts, stsc and stsz are the
+    stbl box's second to fourth boxes, and become stts, stsc and free."""
+    kids = boxes_in(mp4, b"stbl")
+    (t, tt, ts), (c, ct, cs), (z, zt, zs) = kids[1:4]
+    assert (tt, ct, zt) == (b"stts", b"stsc", b"stsz"), kids
+    assert ts + zs >= 32, kids
+    stts = box(b"stts", struct.pack(">4xIII", 1, 3, 1))
+    return mp4[:t] + stts + mp4[c:c + cs] + box(b"free", bytes(ts + zs - len(stts) - 8)) + mp4[z + zs:]
+
+
 def main() -> None:
     OUT.mkdir(exist_ok=True)
     for old in OUT.glob("edge_*.mp4"):
@@ -49,6 +85,9 @@ def main() -> None:
     # the second of two zarrifiable tracks has the first's track ID: it is not zarrified
     (OUT / "edge_mp4_duplicate_track_id.mp4").write_bytes(
         track_ids_alike((OUT / "mp4_h264_two_tracks.mp4").read_bytes()))
+    # samples of a Motion JPEG track and an H.264 track that have no time: rejected
+    (OUT / "edge_reject_mp4_mjpeg_untimed.mp4").write_bytes(stts_of_three((OUT / "mp4_frag_mjpeg.mp4").read_bytes()))
+    (OUT / "edge_reject_mp4_h264_untimed.mp4").write_bytes(without_stsz((OUT / "mp4_frag_hybrid.mp4").read_bytes()))
     for p in sorted(OUT.glob("edge_*.mp4")):
         print(p.name, p.stat().st_size)
 
