@@ -1529,10 +1529,6 @@ impl crate::run::FileProfile for Profile {
         plan::plan(facts)?;
         Ok(Vec::new())
     }
-    /// And so does its store run, of an image across files, with each part's.
-    fn store_described(&self) -> bool {
-        true
-    }
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
