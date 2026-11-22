@@ -8,7 +8,8 @@
 //! index every sample, so the media data is not read). Every box is a struct with its header,
 //! fields, table and children; each track's samples are `data` elements under `samples/<T>`; the
 //! media data no sample claims is gaps. The schema (`schema/mp4.json`) holds the checks that reject a file; whether a
-//! track is zarrified is decided here, and recorded with the reason when it is not.
+//! track is zarrified is refkv's plan of the file (`project::mp4::plan`), made from the description
+//! the parser returns (`describe`).
 
 use crate::coding::{Head, JpegFrame, jpeg_frame_header};
 use crate::expr::V;
@@ -114,10 +115,10 @@ fn is_mjpeg(e: &Entry) -> bool {
 
 /// How a PCM track's samples are stored: their data type's name and bytes, and their byte order.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Pcm {
-    data_type: &'static str,
-    bytes: u64,
-    endian: &'static str,
+pub(crate) struct Pcm {
+    pub data_type: &'static str,
+    pub bytes: u64,
+    pub endian: &'static str,
 }
 
 impl Pcm {
@@ -132,17 +133,47 @@ const LPCM_BIG_ENDIAN: u64 = 0x2;
 const LPCM_SIGNED: u64 = 0x4;
 const LPCM_NON_INTERLEAVED: u64 = 0x20;
 
+/// What of a sample entry says how PCM samples are stored: its type, `sample_size` (bits),
+/// channels and sound description version, a version 2 sound description's format flags and bytes
+/// a packet, its `pcmC` box's format flags and sample size, and whether an `enda` box says
+/// little-endian.
+pub(crate) struct PcmEntry<'a> {
+    pub typ: &'a [u8],
+    pub bits: u64,
+    pub channels: u64,
+    pub sound_version: u64,
+    pub lpcm_flags: u64,
+    pub lpcm_packet: u64,
+    pub pcmc: Option<(u8, u8)>,
+    pub enda: bool,
+}
+
+impl<'a> PcmEntry<'a> {
+    fn of(e: &'a Entry) -> Self {
+        PcmEntry {
+            typ: &e.typ, bits: e.bits, channels: e.channels, sound_version: e.sound_version, lpcm_flags: e.lpcm_flags,
+            lpcm_packet: e.lpcm_packet, pcmc: e.child(b"pcmC").filter(|c| c.len() >= 6).map(|c| (c[4], c[5])),
+            enda: e.child(b"enda").is_some_and(|b| b.len() >= 2 && uint(b, 0, 2, false) == 1),
+        }
+    }
+}
+
 /// How the sample entry `e`'s samples are stored, when it is a PCM one, or why the profile does not
 /// read them (spec/zarrify/mp4.md §8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>).
 fn pcm_of(e: &Entry) -> Option<Result<Pcm, String>> {
+    pcm_of_entry(&PcmEntry::of(e))
+}
+
+/// `pcm_of`, of what a sample entry says of its PCM samples.
+pub(crate) fn pcm_of_entry(e: &PcmEntry) -> Option<Result<Pcm, String>> {
     // QuickTime's in32, fl32 and fl64 are big-endian, without an enda box that says otherwise
-    let enda = || e.child(b"enda").is_some_and(|b| b.len() >= 2 && uint(b, 0, 2, false) == 1);
+    let enda = || e.enda;
     let bad = |what: String| Err(format!("{what} PCM is not supported: the bytes codec has no data type for it"));
-    Some(match &e.typ {
+    Some(match e.typ {
         b"sowt" | b"twos" => match e.bits {
             8 => Pcm::new("int8", 1, true),
-            16 => Pcm::new("int16", 2, &e.typ == b"sowt"),
+            16 => Pcm::new("int16", 2, e.typ == b"sowt"),
             b => bad(format!("{b}-bit")),
         },
         b"raw " | b"NONE" => match e.bits {
@@ -155,11 +186,11 @@ fn pcm_of(e: &Entry) -> Option<Result<Pcm, String>> {
         b"fl64" => Pcm::new("float64", 8, enda()),
         b"ipcm" | b"fpcm" => {
             // a PCMConfig box (ISO/IEC 23003-5 §5.1): its format flags, then its sample size
-            let Some(c) = e.child(b"pcmC").filter(|c| c.len() >= 6) else {
-                return Some(Err(format!("an {} sample entry without a pcmC box", latin1(&e.typ))));
+            let Some((flags, size)) = e.pcmc else {
+                return Some(Err(format!("an {} sample entry without a pcmC box", latin1(e.typ))));
             };
-            let little = c[4] & 1 == 1;
-            match (&e.typ, c[5]) {
+            let little = flags & 1 == 1;
+            match (e.typ, size) {
                 (b"ipcm", 8) => Pcm::new("int8", 1, little),
                 (b"ipcm", 16) => Pcm::new("int16", 2, little),
                 (b"ipcm", 32) => Pcm::new("int32", 4, little),
@@ -938,24 +969,13 @@ impl Mp4 {
 
     /// Each track's samples, from its tables (spec/zarrify/mp4.md §8.2
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>), as `data`
-    /// elements; whether the profile zarrifies it, and the facts its projection reads.
+    /// elements, and the description of the file (`describe`).
     fn samples(&mut self) -> Res<()> {
         let tracks = std::mem::take(&mut self.tracks);
         let mut samples_struct = None;
-        let mut facts = Vec::new();
         let mut described = Vec::new();
-        let mut reasons = Vec::new();
-        let mut projected = 0;
-        let mut ids = std::collections::HashSet::new();
         for (k, t) in tracks.iter().enumerate() {
             let (offsets, sizes) = self.layout(t)?;
-            let mut f = self.classify(t, &offsets);
-            // the last reason: a zarrified track's group is named by its ID
-            if f["reason"].is_null() && !ids.insert(t.id) {
-                f["reason"] = json!(format!("its track ID {} is an earlier zarrified track's", t.id));
-                f["format"] = J::Null;
-            }
-            f["index"] = json!(k);
             let mut elements = Vec::new();
             if !offsets.is_empty() {
                 let ss = match samples_struct {
@@ -967,20 +987,10 @@ impl Mp4 {
                     }
                 };
                 let ts = self.ir.struct_(ss, "", k as u64, 0, None)?;
-                // a PCM track's frames: each sample a whole number of them, or no PCM track
-                if let (Some(frame), true) = (pcm_frame(t), f["reason"].is_null()) {
-                    match ragged_pcm(t, &sizes) {
-                        Some(n) => {
-                            f["reason"] = json!(format!("PCM samples of {n} bytes, not a whole number of {frame}-byte frames"));
-                            f["format"] = J::Null;
-                            f["geometry"] = J::Null;
-                        }
-                        None => f["frames"] = json!(sizes.iter().sum::<u64>() / frame),
-                    }
-                }
+                // a sample's form: its sample entry's type, read whole (§5.3
+                // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#53-elements>)
                 let form = json!({
-                    "geometry": f["geometry"].clone(),
-                    "codec": {"name": latin1(&t.entries.first().map(|e| e.typ).unwrap_or(*b"    ")), "format": f["format"].clone()},
+                    "codec": {"name": latin1(&t.entries.first().map(|e| e.typ).unwrap_or(*b"    "))},
                     "recipe": [["src", 0, null]],
                 }).to_string();
                 for (j, (&o, &n)) in offsets.iter().zip(&sizes).enumerate() {
@@ -989,25 +999,16 @@ impl Mp4 {
                     ]))?;
                     elements.push(self.ir.data(ts, "", j as u64, 0, (o, n), &form)?);
                 }
-                f["first"] = json!(elements.first());
             }
             described.push(describe::track(k, t, &offsets, &sizes, &elements));
-            // a video or audio track's samples are described, by its trak box: `declared_by`
+            // a video or audio track's samples are described, by its trak box
             if matches!(&t.handler, b"vide" | b"soun") {
                 let entry = t.entries.first();
                 let declarations = entry.into_iter().flat_map(|e| e.fields_el.into_iter().chain(e.child_els.iter().flatten().copied())).collect();
                 let kind = stored::kind(t, elements.len() as u64, sync_samples(t, offsets.len() as u64), ragged_pcm(t, &sizes).is_some());
                 self.media.push(stored::Media { element: t.el, declarations, samples: elements, kind });
-                f["declared_by"] = json!(t.el);
             }
-            if f["reason"].is_null() {
-                projected += 1;
-            } else {
-                reasons.push(format!("track {} ({}): {}", t.id, latin1(&t.entries.first().map(|e| e.typ).unwrap_or(*b"none")).trim(), f["reason"].as_str().unwrap_or("")));
-            }
-            facts.push(f);
         }
-        self.rules.check("tracks", rules::env([("projected", num(projected as f64)), ("reasons", text(&reasons.join("; ")))]))?;
         let brand = self.ftyp.as_ref().map(|(_, f)| {
             let head = if uint(f, 0, 4, false) == 1 { 16 } else { 8 };
             let body = &f[head..];
@@ -1020,10 +1021,7 @@ impl Mp4 {
         let description = json!({
             "brand": brand, "timescale": self.movie.0, "duration": int_json(self.movie.1 as i128), "tracks": described,
         });
-        self.facts = json!({
-            "brand": brand, "timescale": self.movie.0, "duration": int_json(self.movie.1 as i128), "tracks": facts,
-            "chunk_frames": crate::mp3::chunk_frames(), "description": description,
-        });
+        self.facts = description;
         Ok(())
     }
 
@@ -1194,187 +1192,7 @@ impl Mp4 {
         Ok((offsets, sizes))
     }
 
-    /// Whether the profile zarrifies the track, and the facts its projection reads
-    /// (spec/zarrify/mp4.md §8.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>): `reason` is
-    /// null for a track it zarrifies, else why it does not.
-    fn classify(&self, t: &Track, offsets: &[u64]) -> J {
-        let entry = t.entries.first();
-        let codec = entry.map(|e| latin1(&e.typ)).unwrap_or_default();
-        let mut f = json!({
-            "id": t.id, "handler": latin1(&t.handler), "codec": codec, "timescale": t.timescale, "duration": int_json(t.duration as i128),
-            "edits": t.edits, "count": offsets.len(), "format": null, "geometry": null, "reason": null,
-        });
-        let reason = (|| -> Result<(), String> {
-            let kind = match &t.handler {
-                b"vide" => "video",
-                b"soun" => "audio",
-                h => return Err(format!("a {} track", latin1(h).trim())),
-            };
-            if t.stz2 {
-                return Err("compact sample sizes (stz2) are not supported".into());
-            }
-            if offsets.is_empty() {
-                return Err("no samples".into());
-            }
-            if t.stsd_count != 1 || t.entries.len() != 1 || t.stsc.iter().any(|e| e.2 != 1) || t.frag_other_entry {
-                return Err("more than one sample description".into());
-            }
-            if t.timescale == 0 {
-                return Err("a media timescale of 0".into());
-            }
-            let e = entry.unwrap();
-            if is_mjpeg(e) {
-                let frame = t.jpeg.flatten().ok_or("a first sample without a JPEG frame header")?;
-                if e.width == 0 || e.height == 0 {
-                    return Err("a sample entry of width or height 0".into());
-                }
-                if !matches!(frame.marker, 0xC0..=0xC2) || frame.precision != 8 {
-                    return Err(format!("JPEG of marker 0x{:02X} and {} bits is not supported: only 8-bit baseline, extended and progressive JPEG is", frame.marker, frame.precision));
-                }
-                if !matches!(frame.components, 1 | 3) {
-                    return Err(format!("JPEG of {} components is not supported: only 1 or 3 is", frame.components));
-                }
-                if (frame.width, frame.height) != (e.width, e.height) {
-                    return Err(format!("JPEG pictures of {}x{} in a sample entry of {}x{}, as an interlaced picture's fields are", frame.width, frame.height, e.width, e.height));
-                }
-                let pts = presentation(t);
-                let mut sorted = pts.clone();
-                sorted.sort_unstable();
-                if sorted.windows(2).any(|w| w[0] == w[1]) {
-                    return Err("two samples share a presentation time".into());
-                }
-                f["format"] = json!("mjpeg");
-                f["geometry"] = json!({"width": e.width, "height": e.height, "channels": frame.components, "data_type": "uint8"});
-                f["pts"] = json!(pts);
-            } else if kind == "video" {
-                let (format, setup, sps) = match &e.typ {
-                    b"avc1" => {
-                        let avcc = e.child(b"avcC").ok_or("an avc1 sample entry without an avcC box")?;
-                        let sps = h264_sps(avcc).ok_or("an avcC box without a parameter set the profile reads")?;
-                        if sps.chroma != 1 || sps.luma != sps.chroma_depth || !matches!(sps.luma, 8 | 10) {
-                            return Err(format!("H.264 with chroma format {} and bit depth {} is not supported: only 4:2:0 of 8 or 10 bits is", sps.chroma, sps.luma));
-                        }
-                        ("h264", avcc, sps)
-                    }
-                    b"hvc1" | b"hev1" => {
-                        let hvcc = e.child(b"hvcC").ok_or_else(|| format!("an {} sample entry without an hvcC box", codec.trim()))?;
-                        let sps = hevc_sps(hvcc).ok_or("an hvcC box without a VPS, SPS and PPS the profile reads")?;
-                        // a 4:0:0 picture has no chroma, whatever bit depth the SPS gives it
-                        let depths = sps.chroma == 0 || sps.luma == sps.chroma_depth;
-                        if !matches!(sps.chroma, 0..=2) || !depths || !matches!(sps.luma, 8 | 10 | 12) {
-                            let depth = if sps.luma == sps.chroma_depth { format!("bit depth {}", sps.luma) } else { format!("bit depths {} and {}", sps.luma, sps.chroma_depth) };
-                            return Err(format!("HEVC with chroma format {} and {depth} is not supported: only 4:0:0, 4:2:0 or 4:2:2 of 8, 10 or 12 bits is", sps.chroma));
-                        }
-                        ("hevc", hvcc, sps)
-                    }
-                    b"av01" => {
-                        let av1c = e.child(b"av1C").ok_or("an av01 sample entry without an av1C box")?;
-                        let sps = av1_config(av1c).ok_or("an av1C box the profile cannot read")?;
-                        if sps.chroma != 1 || !matches!(sps.luma, 8 | 10) {
-                            return Err(format!("AV1 with chroma format {} and bit depth {} is not supported: only 4:2:0 of 8 or 10 bits is", sps.chroma, sps.luma));
-                        }
-                        ("av1", av1c, sps)
-                    }
-                    b"vp09" => {
-                        let vpcc = e.child(b"vpcC").ok_or("a vp09 sample entry without a vpcC box")?;
-                        let sps = vp9_config(vpcc).ok_or("a vpcC box the profile cannot read")?;
-                        if !matches!(sps.chroma, 1 | 2) || !matches!(sps.luma, 8 | 10 | 12) {
-                            return Err(format!("VP9 with chroma format {} and bit depth {} is not supported: only 4:2:0 or 4:2:2 of 8, 10 or 12 bits is", sps.chroma, sps.luma));
-                        }
-                        ("vp9", vpcc, sps)
-                    }
-                    _ => return Err(format!("{} video is not supported: only H.264 (avc1), HEVC (hvc1, hev1), AV1 (av01), VP9 (vp09) and Motion JPEG (jpeg, mjpa, dmb1) are", codec.trim())),
-                };
-                if e.width == 0 || e.height == 0 {
-                    return Err("a sample entry of width or height 0".into());
-                }
-                let pts = presentation(t);
-                let sync = sync_samples(t, offsets.len() as u64);
-                gops(&pts, &sync)?;
-                f["format"] = json!(format);
-                let data_type = if sps.luma > 8 { "uint16" } else { "uint8" };
-                let (chroma, planes) = match sps.chroma {
-                    0 => ("4:0:0", 1),
-                    2 => ("4:2:2", 3),
-                    _ => ("4:2:0", 3),
-                };
-                f["geometry"] = json!({"width": e.width, "height": e.height, "planes": planes, "data_type": data_type, "chroma": chroma});
-                f["setup"] = json!(crate::mirror::base64(setup));
-                f["profile"] = json!(sps.profile);
-                f["level"] = json!(sps.level);
-                f["bit_depth"] = json!(sps.luma);
-                f["pts"] = json!(pts);
-                f["sync"] = json!(sync);
-            } else {
-                if e.sound_version > 1 && &e.typ != b"lpcm" {
-                    return Err(format!("a version {} QuickTime sound description", e.sound_version));
-                }
-                if let Some(pcm) = pcm_of(e) {
-                    let pcm = pcm?;
-                    // a sample rate past 16 bits may be 0 in the sample entry; the media timescale is it
-                    let rate = if e.rate > 0 { e.rate } else { t.timescale };
-                    if rate == 0 || e.channels == 0 {
-                        return Err("a sample rate or channel count of 0".into());
-                    }
-                    f["format"] = json!("pcm");
-                    f["geometry"] = json!({"channels": e.channels, "data_type": pcm.data_type});
-                    f["endian"] = json!(pcm.endian);
-                    f["bytes"] = json!(pcm.bytes);
-                    f["sample_rate"] = json!(rate);
-                    f["channels"] = json!(e.channels);
-                    f["spf"] = json!(1);
-                    return Ok(());
-                }
-                let (format, setup, rate, channels, spf) = match &e.typ {
-                    b"mp4a" => {
-                        let esds = e.child(b"esds").ok_or("an mp4a sample entry without an esds box")?;
-                        let (oti, asc) = esds_config(esds).ok_or("an esds box the profile cannot read")?;
-                        match oti {
-                            0x40 | 0x66 | 0x67 | 0x68 => {
-                                let a = aac_config(&asc).ok_or("an AudioSpecificConfig the profile cannot read")?;
-                                if a.aot != 2 {
-                                    return Err(format!("AAC object type {} is not supported: only AAC-LC (2), and HE-AAC of it (5 and 29), are", a.aot));
-                                }
-                                if a.short {
-                                    return Err("960-sample AAC frames are not supported".into());
-                                }
-                                let channels = if a.channels > 0 { a.channels } else { e.channels };
-                                match a.sbr_rate {
-                                    None => ("aac", Some(asc), a.rate, channels, 1024),
-                                    Some(r) if r == 2 * a.rate => ("aac", Some(asc), r, if a.ps { 2 } else { channels }, 2048),
-                                    Some(r) => return Err(format!("HE-AAC of SBR at {r} Hz over a core at {} Hz is not supported: only at twice its rate is", a.rate)),
-                                }
-                            }
-                            0x69 | 0x6B => ("mp3", None, e.rate, e.channels, if e.rate >= 32000 { 1152 } else { 576 }),
-                            x => return Err(format!("audio of object type indication 0x{x:02x} is not supported")),
-                        }
-                    }
-                    b".mp3" => ("mp3", None, e.rate, e.channels, if e.rate >= 32000 { 1152 } else { 576 }),
-                    _ => return Err(format!("{} audio is not supported: only AAC, MP3 and PCM are", codec.trim())),
-                };
-                if rate == 0 || channels == 0 {
-                    return Err("a sample rate or channel count of 0".into());
-                }
-                f["format"] = json!(format);
-                f["geometry"] = json!({"samples": spf, "channels": channels, "data_type": "float32"});
-                if let Some(s) = setup {
-                    f["setup"] = json!(crate::mirror::base64(&s));
-                }
-                f["sample_rate"] = json!(rate);
-                f["channels"] = json!(channels);
-                f["spf"] = json!(spf);
-            }
-            Ok(())
-        })();
-        if let Err(r) = reason {
-            f["reason"] = json!(r);
-            f["format"] = J::Null;
-        }
-        f
-    }
-
-    /// The finished IR, with its tracks' samples described (`stored.rs`), and the facts.
+    /// The finished IR, with its tracks' samples described (`stored.rs`), and the description.
     pub fn finish(self) -> Result<(Ir, J), String> {
         let described = if self.phase == Phase::Done { Some(stored::described(&self.media)?) } else { None };
         let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
@@ -1810,10 +1628,16 @@ impl crate::run::FileProfile for Profile {
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::mp4::project(ir, facts, url, copied)
     }
-    /// The parser's description of the file, beside its projection's facts
-    /// (spec/zarrify/mp4.md §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#85-the-description>).
-    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
-        facts.get("description").cloned()
+    /// Nothing to copy; refkv's plan of the file (`project::mp4::plan`) is made here, so that a run
+    /// rejects a file with no track to zarrify before it is done, as the profile's other checks do.
+    fn reads(&self, _ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+        crate::project::mp4::plan(facts)?;
+        Ok(Vec::new())
+    }
+    /// The parser returns its description of the file (spec/zarrify/mp4.md §8.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#85-the-description>).
+    fn described(&self) -> bool {
+        true
     }
 }
 

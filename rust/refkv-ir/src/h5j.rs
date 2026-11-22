@@ -43,6 +43,25 @@ pub fn is_h5j(h: &mut H5, root: u64) -> R<bool> {
     Ok(!channels.list.is_empty() && channels.list.iter().all(|(name, _)| channel_number(name).is_some()))
 }
 
+/// An MP4 file as refkv's MP4 convention reads it, from the parser's description: its brand, movie
+/// timescale and duration, the most frames of a chunk, and each track's description and refkv's
+/// plan of it together (`project::mp4::planned_track`); an error, the convention's, when it
+/// zarrifies no track (spec/zarrify/mp4.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>).
+fn planned(description: &J) -> Result<J, String> {
+    use crate::project::mp4::{plan, planned_track};
+    let p = plan(description)?;
+    let empty = Vec::new();
+    let tracks: Vec<J> = description["tracks"].as_array().unwrap_or(&empty).iter()
+        .zip(p["tracks"].as_array().unwrap_or(&empty))
+        .map(|(t, f)| planned_track(t, f))
+        .collect();
+    Ok(json!({
+        "brand": description["brand"], "timescale": description["timescale"], "duration": description["duration"],
+        "chunk_frames": p["chunk_frames"], "tracks": tracks,
+    }))
+}
+
 /// A channel's dataset, and its MP4 file's parse.
 struct Channel {
     /// its name and number, its dataset header's address, and where its bytes are in the file
@@ -55,7 +74,8 @@ struct Channel {
     parser: Option<Mp4>,
     /// the reads the parser asked for, in its file's offsets, not yet fed
     pending: Vec<(u64, u64)>,
-    /// the parse, once done, or why the channel isn't presented
+    /// the parse, once done, with refkv's plan of its MP4 file (`planned`), or why the channel
+    /// isn't presented
     parsed: Option<(Ir, J)>,
     reason: Option<String>,
 }
@@ -144,7 +164,7 @@ impl Channels {
                     Ok(Step::Read(r)) if !r.is_empty() => c.pending = r,
                     Ok(Step::Read(_) | Step::Done) => {
                         let parser = c.parser.take().expect("a parse in progress");
-                        match parser.finish() {
+                        match parser.finish().and_then(|(ir, d)| Ok((ir, planned(&d)?))) {
                             Ok(p) => c.parsed = Some(p),
                             Err(m) => c.reason = Some(format!("its MP4 file: {m}")),
                         }

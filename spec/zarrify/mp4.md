@@ -448,7 +448,7 @@ the IR's root, whose path is `""`
 | `<box>/rest` | value | `bytes[k]` | bytes of a box that are none of its fields, table or boxes |
 | `samples` | struct | | the samples of the file's tracks |
 | `samples/<T>` | struct | | track `T`'s samples |
-| `samples/<T>/<j>` | data | | sample `j` of track `T`, `(offset, size)`, or, for a PCM track of one sample size, the samples of its table's chunk `j` together, and of a `trun` box with no table of its track fragments; its form's geometry is `{"width", "height", "planes", "data_type", "chroma"}` for a video track, `planes` 1 for 4:0:0 and 3 otherwise, `{"width", "height", "channels", "data_type"}` for a Motion JPEG track, its data type the planes' (`"uint8"` or `"uint16"`), `{"samples", "channels", "data_type": "float32"}` for an audio track and `{"channels", "data_type"}` for a PCM one (null for a track the profile does not zarrify), its codec `{"name": E, "format": F}` (`F` null for such a track), its recipe `[["src", 0, null]]` |
+| `samples/<T>/<j>` | data | | sample `j` of track `T`, `(offset, size)`, or, for a PCM track of one sample size, the samples of its table's chunk `j` together, and of a `trun` box with no table of its track fragments; its form's codec is `{"name": E}`, `E` its track's sample entry type, and its recipe `[["src", 0, null]]`: the form has no geometry, which the stored arrays give ([spec/stored-array.md §7](../stored-array.md#7-the-formats)), and does not depend on whether the track is zarrified |
 | `gaps/<offset>` | gap | | bytes no other element claims: the media data in no sample, and fewer than 8 bytes after the last box |
 
 A box is named by its type: printable ASCII as it is but for `/`, `~`, `%`
@@ -853,3 +853,12 @@ and a sample entry these:
 | `pcmC` | its `pcmC` box's `format_flags` and `sample_size`, or null |
 | `enda` | its `enda` box's flag, `true` for little-endian, or null |
 | `jpeg` | of a Motion JPEG sample entry, its track's first sample's JPEG frame header (ITU T.81 §B.2.2): `marker`, `precision`, `width`, `height` and `components`, or null |
+
+The projection reads the root's and each track's source metadata ([§5](#5-source-metadata)) from
+the description, and makes **refkv's plan** of the file from the description alone: `tracks`, each
+track's `reason` ([§8.2](#82-tracks)), null for a track it zarrifies, and of such a track its
+`format`, its samples' `geometry` (the arrays' data type among it) and what its arrays read
+(`setup`, `profile`, `level` and `bit_depth` of a video track, `sample_rate`, `channels` and `spf`
+of an audio one, `endian`, `bytes` and `frames` of a PCM one); and `chunk_frames`, the most frames
+of a chunk ([§8.3](#83-chunks)). It rejects the file, with the check of [§8.2](#82-tracks), when no
+track is zarrified. The plan belongs to refkv's convention, not to the IR.

@@ -8,10 +8,43 @@ use refkv_ir::mp4::Mp4;
 // one test per case of conformance/zarrify/rejects/mp4.json (build.rs), each the message its check gives
 macro_rules! reject {
     ($name:ident, $input:literal, $msg:literal) => {
-        common::reject!($name, Mp4, concat!("mp4/", $input), $msg);
+        #[test]
+        fn $name() {
+            let data = std::fs::read(common::fixtures().join(concat!("mp4/", $input))).unwrap();
+            match planned(&data) {
+                Err(m) => assert!(m.starts_with($msg), "{m}"),
+                Ok(_) => panic!("{} was accepted", $input),
+            }
+        }
     };
 }
 include!(concat!(env!("OUT_DIR"), "/rejects_mp4.rs"));
+
+/// The MP4 parser's description of a file read whole, with refkv's plan of it
+/// (`project::mp4::plan`): Err with the parser's rejection, or the plan's (`with_plan`).
+fn planned(data: &[u8]) -> Result<(refkv_ir::ir::Ir, serde_json::Value), String> {
+    let (ir, description) = refkv_ir::parse_bytes::<Mp4>(data)?;
+    Ok((ir, with_plan(&description)?))
+}
+
+/// A description with refkv's plan of each track: its tracks each as the convention reads it
+/// (`project::mp4::planned_track`), a video or audio track's key as `declared_by`.
+fn with_plan(description: &serde_json::Value) -> Result<serde_json::Value, String> {
+    use refkv_ir::project::mp4::{plan, planned_track};
+    let p = plan(description)?;
+    let tracks: Vec<serde_json::Value> = description["tracks"].as_array().unwrap().iter().zip(p["tracks"].as_array().unwrap())
+        .map(|(t, f)| {
+            let mut m = planned_track(t, f);
+            if matches!(t["handler"].as_str(), Some("vide" | "soun")) {
+                m["declared_by"] = t["elements"]["trak"].clone();
+            }
+            m
+        })
+        .collect();
+    let mut out = description.clone();
+    out["tracks"] = serde_json::json!(tracks);
+    Ok(out)
+}
 
 /// The ftyp box read gives the brands, with a 64-bit size too; a second ftyp box, larger than
 /// the first, is opaque.
@@ -74,8 +107,8 @@ fn a_run_without_a_data_offset_follows_the_run_before() {
     let mut moved = plain.clone();
     moved[flags + 3] &= !1;
     moved.copy_within(table..second - 4 + size, table - 4);
-    let (ir, facts) = refkv_ir::parse_bytes::<Mp4>(&plain).unwrap();
-    let (moved_ir, moved_facts) = refkv_ir::parse_bytes::<Mp4>(&moved).unwrap();
+    let (ir, facts) = planned(&plain).unwrap();
+    let (moved_ir, moved_facts) = planned(&moved).unwrap();
     assert!(facts["tracks"][0]["reason"].is_null());
     assert_eq!(samples_of(&moved_ir, &moved_facts, 0), samples_of(&ir, &facts, 0));
     assert!(common::rebuilt(&moved_ir, &moved) == moved);
@@ -114,7 +147,8 @@ fn a_motion_jpeg_track_reads_its_first_sample_s_frame_header() {
         }
         assert_eq!(reads.len(), want, "{name}: {reads:?}");
         assert!(reads[0] <= 4096, "{name}: {reads:?}");
-        let (ir, facts) = parser.finish().unwrap();
+        let (ir, description) = parser.finish().unwrap();
+        let facts = with_plan(&description).unwrap();
         assert_eq!(facts["tracks"][0]["format"], "mjpeg", "{name}");
         assert!(common::rebuilt(&ir, &data) == data, "{name}");
     }
@@ -126,7 +160,7 @@ fn a_motion_jpeg_track_reads_its_first_sample_s_frame_header() {
 fn a_pcm_run_is_one_element() {
     let file = std::fs::read(common::fixtures().join("mp4/mov_frag_pcm_s32be.mov")).unwrap();
     let runs = file.windows(4).filter(|w| w == b"trun").count();
-    let (ir, facts) = refkv_ir::parse_bytes::<Mp4>(&file).unwrap();
+    let (ir, facts) = planned(&file).unwrap();
     assert_eq!(facts["tracks"][0]["format"], "pcm");
     assert_eq!(facts["tracks"][0]["frames"], 8192);
     let samples = samples_of(&ir, &facts, 0);
@@ -164,7 +198,8 @@ fn a_fragment_takes_one_read() {
             parser.feed(o, data[o as usize..(o + n) as usize].to_vec());
         }
     }
-    let (ir, facts) = parser.finish().unwrap();
+    let (ir, description) = parser.finish().unwrap();
+    let facts = with_plan(&description).unwrap();
     assert!(moofs > 1);
     assert!(reads <= moofs + 2, "{reads} reads of {moofs} moof boxes");
     assert!(facts["tracks"][0]["reason"].is_null());
@@ -197,7 +232,7 @@ fn every_accepted_fixtures_tracks_name_their_descriptions() {
         if name.contains("reject") || !(name.ends_with(".mp4") || name.ends_with(".mov")) {
             continue;
         }
-        let (ir, facts) = refkv_ir::parse_bytes::<Mp4>(&std::fs::read(&p).unwrap()).unwrap();
+        let (ir, facts) = planned(&std::fs::read(&p).unwrap()).unwrap();
         let s = &ir.stored;
         for (t, track) in facts["tracks"].as_array().unwrap().iter().enumerate() {
             let at = format!("{name} track {t}");
