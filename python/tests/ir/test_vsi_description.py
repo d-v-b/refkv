@@ -12,7 +12,9 @@ reference readers.
   time, channel names and wavelengths, z increment, and the coordinates of its `z`, `t` and `c`
   dimensions; the series' `Image Type`; and the tree's text fields that it records under the same
   names. Bio-Formats does not open three fixtures (`BIOFORMATS_CANNOT`): theirs are checked by the
-  other two.
+  other two. Bio-Formats runs in a process of its own (`bioformats_pool`), whose JVM the test
+  process never starts: a JVM that has read every fixture this way left the test process to crash
+  later, in tests of other native libraries, on Linux.
 - The spec, for what neither reader exposes: each tile file's SIS and ETS headers and directory
   records read at their offsets (spec/zarrify/vsi.md §3
   <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#3-the-tile-files>), the stacks' fields
@@ -25,10 +27,12 @@ the output's decisions."""
 
 import base64
 import json
+import multiprocessing
 import os
 import re
 import struct
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -36,7 +40,6 @@ from typing import Any
 import jsonschema
 import pytest
 import tifffile
-from bioio_bioformats import Reader
 from ir_helpers import FIXTURES, ROOT
 
 from refkv.build import read
@@ -268,7 +271,9 @@ def jmap(m: Any) -> dict:
 
 
 def check_bioformats(path: Path, d: dict, said: list[str], seen: Counter) -> None:
-    """The tile files and the stacks against Bio-Formats' CellSensReader."""
+    """The tile files and the stacks against Bio-Formats' CellSensReader, in Bio-Formats' process."""
+    from bioio_bioformats import Reader  # noqa: PLC0415 (optional, and it starts a JVM: in this process only)
+
     r = Reader(str(path))
     bf = r._bf  # bioio's handle on the Java reader
     with bf.ensure_open():
@@ -371,16 +376,41 @@ def check_bioformats(path: Path, d: dict, said: list[str], seen: Counter) -> Non
         texts(d["tree"]["fields"])
 
 
-@cache
-def bioformats_available() -> bool:
-    """Whether bioio-bioformats can start its JVM (it needs Java and Maven to fetch Bio-Formats)."""
-    if os.environ.get("REFKV_NO_BIOFORMATS"):
-        return False
+def bioformats_starts() -> bool:
+    """Whether bioio-bioformats starts its JVM and opens a slide (it needs Java and Maven to fetch
+    Bio-Formats), in Bio-Formats' process."""
     try:
+        from bioio_bioformats import Reader  # noqa: PLC0415 (optional, and it starts a JVM: in this process only)
+
         Reader(str(VSI / "vsi_no_stacks.vsi"))
     except Exception:  # noqa: BLE001 - no JVM, no Maven, no network: not a failure of the profile
         return False
     return True
+
+
+def bioformats_compared(path: str, d: dict) -> tuple[list[str], Counter]:
+    """`check_bioformats` of one slide, in Bio-Formats' process: what differs, and the cases seen."""
+    said: list[str] = []
+    seen: Counter = Counter()
+    check_bioformats(Path(path), d, said, seen)
+    return said, seen
+
+
+@cache
+def bioformats_pool() -> ProcessPoolExecutor | None:
+    """The process Bio-Formats runs in, spawned, so that its JVM is never the test process's; None
+    where Bio-Formats does not start."""
+    if os.environ.get("REFKV_NO_BIOFORMATS"):
+        return None
+    pool = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"))
+    if not pool.submit(bioformats_starts).result():
+        pool.shutdown()
+        return None
+    return pool
+
+
+def bioformats_available() -> bool:
+    return bioformats_pool() is not None
 
 
 @cache
@@ -399,7 +429,11 @@ def compared(path: Path, bioformats: bool) -> tuple[tuple[str, ...], Counter]:
     d, ir = got["description"], got["ir"]
     said += [f"not of the schema: {e.message[:200]}" for e in jsonschema.Draft202012Validator(SCHEMA).iter_errors(d)]
     if bioformats:
-        check_bioformats(path, d, said, seen)
+        pool = bioformats_pool()
+        assert pool is not None
+        theirs, cases = pool.submit(bioformats_compared, str(path), d).result()
+        said += theirs
+        seen += cases
     else:
         check_tiff(path, d, ir, said, seen)
         check_spec(path, d, ir, said, seen)
