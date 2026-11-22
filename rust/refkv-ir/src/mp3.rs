@@ -236,6 +236,21 @@ fn differs(s: &Head, h: &Head) -> (&'static str, String, String) {
     }
 }
 
+/// The ID3v1 tag's fields (spec/zarrify/mp3.md §5.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#51-the-root>), its 128 bytes `b`:
+/// each text field up to its first NUL, as a text value, an ID3v1.1 tag's track number, and the
+/// genre byte.
+pub fn id3v1_json(b: &[u8]) -> J {
+    let text = |r: std::ops::Range<usize>| crate::project::json_text(&b[r]);
+    json!({
+        "title": text(3..33), "artist": text(33..63), "album": text(63..93), "year": text(93..97),
+        "comment": text(97..127),
+        // ID3v1.1: a NUL at byte 125 makes byte 126 the track number
+        "track": if b[125] == 0 && b[126] != 0 { json!(b[126]) } else { J::Null },
+        "genre": b[127],
+    })
+}
+
 /// The ID3v1 tag as one record type (conventions §8.6
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#86-types>).
 pub const ID3V1_TYPE: &str = "{tag:ascii[3],title:cstr[30],artist:cstr[30],album:cstr[30],year:ascii[4],comment:cstr[30],genre:u1}";
@@ -395,13 +410,13 @@ impl Mp3 {
         self.rules.check("audio", rules::env([("frames", num(frames.len() as f64)), ("free", free.map_or(V::Absent, |o| num(o as f64)))]))?;
         let s = stream.ok_or("internal: no stream")?;
         // the elements, in the file's order
-        let info_json = match info {
+        let (info_json, info_element) = match info {
             Some((o, h)) => {
                 let len = h.length();
-                self.ir.value(0, "info", NO_INDEX, &format!("bytes[{len}]"), 0, (o, len), Some(&d[o as usize..(o + len) as usize]))?;
-                info_json(&d[o as usize..(o + len) as usize], &h)
+                let i = self.ir.value(0, "info", NO_INDEX, &format!("bytes[{len}]"), 0, (o, len), Some(&d[o as usize..(o + len) as usize]))?;
+                (info_json(&d[o as usize..(o + len) as usize], &h), json!(i))
             }
-            None => J::Null,
+            None => (J::Null, J::Null),
         };
         let (first_o, last) = (frames[0].0, frames[frames.len() - 1]);
         let span = last.0 + last.1.length() - first_o;
@@ -443,11 +458,21 @@ impl Mp3 {
             None => J::Null,
         };
         let stray = e - a - used - info.map_or(0, |(_, h)| h.length());
+        // the description (§8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#84-the-description>)
+        let description = json!({
+            "version": VERSIONS[s.version as usize], "layer": 3, "sample_rate": s.rate(), "channels": s.channels(),
+            "channel_mode": MODES[frames[0].1.mode as usize], "samples_per_frame": s.samples(), "frames": frames.len(),
+            "kbps": frames.iter().map(|f| f.1.kbps()).collect::<Vec<_>>(), "crc_frames": crc_frames, "main_data": main,
+            "info": info_json, "id3v2": id3v2,
+            "id3v1": id3v1.map_or(J::Null, |o| self::id3v1_json(&d[o as usize..o as usize + 128])),
+            "ape": ape_json, "stray_bytes": stray,
+            "elements": {"frames": first, "info": info_element, "id3v1": id3v1_json},
+        });
         self.facts = json!({
             "frames": first, "count": frames.len(), "version": s.version, "layer": 3, "sample_rate": s.rate(),
             "channels": s.channels(), "mode": frames[0].1.mode, "spf": s.samples(), "main": main,
             "kbps": kbps, "crc_frames": crc_frames, "info": info_json, "id3v2": id3v2, "id3v1": id3v1_json,
-            "ape": ape_json, "stray": stray, "chunk_frames": chunk_frames(),
+            "ape": ape_json, "stray": stray, "chunk_frames": chunk_frames(), "description": description,
         });
         Ok(())
     }
@@ -476,6 +501,11 @@ impl crate::run::FileProfile for Profile {
     }
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::mp3::project(ir, facts, url, copied)
+    }
+    /// The parser's description of the file, beside its projection's facts
+    /// (spec/zarrify/mp3.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#84-the-description>).
+    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
+        facts.get("description").cloned()
     }
 }
 

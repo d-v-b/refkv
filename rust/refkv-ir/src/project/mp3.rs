@@ -6,30 +6,15 @@
 //! before it that a decoder needs (the lead-in, §8.2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#82-chunks>).
 
-use super::{arr, audio, json_text, n, Copied};
+use super::{arr, audio, n, Copied};
 use crate::ir::Ir;
-use crate::mp3::{MODES, RESERVOIR, VERSIONS};
+use crate::mp3::{id3v1_json, MODES, RESERVOIR, VERSIONS};
 use crate::out::{array_json, declared_group, Out};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
 /// The array's path.
 pub const ARRAY: &str = "samples";
-
-/// The ID3v1 tag's fields as the root's source metadata writes them (§5.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#51-the-root>).
-pub(super) fn id3v1_json(b: &[u8]) -> J {
-    let mut m = Map::new();
-    m.insert("title".into(), json_text(&b[3..33]));
-    m.insert("artist".into(), json_text(&b[33..63]));
-    m.insert("album".into(), json_text(&b[63..93]));
-    m.insert("year".into(), json_text(&b[93..97]));
-    m.insert("comment".into(), json_text(&b[97..127]));
-    // ID3v1.1: a NUL at byte 125 makes byte 126 the track number
-    m.insert("track".into(), if b[125] == 0 && b[126] != 0 { json!(b[126]) } else { J::Null });
-    m.insert("genre".into(), json!(b[127]));
-    J::Object(m)
-}
 
 pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, String> {
     let first = n(&facts["frames"]) as usize;
