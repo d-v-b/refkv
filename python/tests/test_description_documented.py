@@ -9,14 +9,12 @@ from functools import cache
 from pathlib import Path
 
 import pytest
+from helpers import accepted_fixtures
 
 from refkv import _core
-from refkv.build import NoIrError, read
-from refkv.zarrify.common import Rejected
 
 ROOT = Path(__file__).parents[2]
 SPEC = ROOT / "spec" / "zarrify"
-FIXTURES = ROOT / "fixtures"
 HEADING = re.compile(r"^#{2,4} [\d.]+ The description$", re.MULTILINE)
 PROFILES = sorted(e["name"] for e in json.loads(_core.registry()))
 
@@ -29,21 +27,8 @@ def documented(profile: str) -> bool:
 
 @cache
 def described() -> set[str]:
-    """The profiles that return a description of some fixture they read, by the profile that read
-    it: a fixture directory holds files of other profiles too, such as an ND2 file's NumPy
-    sidecars."""
-    out: set[str] = set()
-    for path in sorted(FIXTURES.glob("*/*")):
-        if "reject" in path.name or path.name.startswith(".") or path.parent.name == "generators":
-            continue
-        try:
-            with read(str(path)) as p:
-                if p.description is not None:
-                    out.add(p.profile)
-        except (Rejected, NoIrError):  # a fixture its profile refuses, or an input with no IR
-            continue
-    return out
-
+    """The profiles that return a description of some fixture they read."""
+    return {p.profile for _, p in accepted_fixtures() if p.description is not None}
 
 
 def test_some_profile_returns_a_description():
