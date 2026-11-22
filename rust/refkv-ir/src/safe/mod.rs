@@ -705,9 +705,6 @@ impl crate::run::FileProfile for Profile {
     fn described(&self) -> bool {
         true
     }
-    fn store_described(&self) -> bool {
-        true
-    }
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
