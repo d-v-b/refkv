@@ -298,7 +298,6 @@ pub fn project_store(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
 fn store_nodes(facts: &J) -> Result<(Vec<J>, J, String), String> {
     let named_key = facts["named_key"].as_str().unwrap_or("");
     let Nodes { nodes: mut named_nodes, mut summary } = nodes(&facts["files"][named_key])?;
-    summary["rounds"] = facts["files"][named_key]["rounds"].clone();
     let mut files: HashMap<&str, Vec<J>> = HashMap::new();
     files.insert(named_key, named_nodes.clone());
     for (key, d) in facts["files"].as_object().into_iter().flatten() {

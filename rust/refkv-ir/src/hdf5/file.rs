@@ -109,6 +109,11 @@ pub struct Hdf5 {
 }
 
 impl Hdf5 {
+    /// The read rounds the parse took (the reader's replay), which a store run's summary holds.
+    pub(crate) fn rounds(&self) -> u64 {
+        self.rounds
+    }
+
     pub fn new(size: u64) -> Self {
         let mut h = H5::new(size);
         h.symtab_soft = true;
