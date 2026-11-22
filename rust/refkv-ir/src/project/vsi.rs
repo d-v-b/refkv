@@ -4,8 +4,10 @@
 //! §9.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#94-chunks>) from a valid
 //! store IR: a bioformats2raw layout of one OME-Zarr image per stack with pixels, each level's
 //! chunks the tile file's tiles, and the macro image from the `.vsi` file's own IFD; the root
-//! carries the metadata tree as JSON and the IFD images it does not present. The facts hold what
-//! the parser read; the projection checks only the archive's own limits.
+//! carries the metadata tree as JSON and the IFD images it does not present. It reads the parser's
+//! description of the slide (§9.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#96-the-description>),
+//! the IR's elements it names, and refkv's plan made from the description (`vsi::plan`); it checks
+//! only the archive's own limits.
 
 use super::{along, arr, image_axes, key, n, translation, with_counts, Copied};
 use crate::ir::Ir;
@@ -252,19 +254,20 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
 }
 
 /// The VSI hierarchy: the root (the tree), `OME/zarr.json`, and one image per stack with pixels
-/// and for the macro image.
-pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, String> {
-    let images = arr(&facts["images"]);
-    let vsi_key = facts["vsi"]["key"].as_str().unwrap_or("").to_string();
+/// and for the macro image, from the description `description` (with the run's counts).
+pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied) -> Result<Out, String> {
+    let plan = crate::vsi::plan::plan(description)?;
+    let images = arr(&plan["images"]);
+    let vsi_key = description["key"].as_str().unwrap_or("").to_string();
     let mut out = Out::new(url);
     let mut own = json!({
-        "file": facts["vsi"],
-        "stacks": facts["stacks"],
-        "tree": facts["tree"],
+        "file": plan["file"],
+        "stacks": plan["stacks"],
+        "tree": description["tree"],
     });
-    let not_presented = arr(&facts["not_presented"]);
+    let not_presented = arr(&plan["not_presented"]);
     if !not_presented.is_empty() {
-        own["not_presented"] = facts["not_presented"].clone();
+        own["not_presented"] = plan["not_presented"].clone();
     }
     let vsi_url = object_url(url, &vsi_key);
     bioformats2raw(&mut out, PROFILE, &vsi_url, own, images.len(), !images.is_empty());
@@ -278,11 +281,11 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
         super::store::check_key(k)?;
     }
     let chunks: u64 = summaries.iter().map(|s| n(&s["chunks"])).sum();
-    out.summary = with_counts(json!({"images": summaries, "notPresented": not_presented.len(), "chunks": chunks, "dataSources": out.data.len()}), facts);
+    out.summary = with_counts(json!({"images": summaries, "notPresented": not_presented.len(), "chunks": chunks, "dataSources": out.data.len()}), description);
     Ok(out)
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    project(ir, facts, url, &Default::default())
+pub fn store_project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    project(ir, description, url, &Default::default())
 }

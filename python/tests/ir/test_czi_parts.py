@@ -18,6 +18,7 @@ from ir_helpers import FIXTURES, ROOT
 import refkv.zarr
 from refkv import _core
 from refkv._narrow import at, integer, mapping, ndarray
+from refkv.build import read as read_input
 from refkv.ir.store import StoreIrOutput
 from refkv.policy import Policy
 from refkv.zarrify import Rejected
@@ -173,3 +174,16 @@ def test_a_file_that_names_more_parts_than_a_run_probes_is_rejected(tmp_path):
     (tmp_path / "a.czi").write_bytes(data)
     with pytest.raises(Rejected, match=r"budget: the input names more than 65536 files"):
         zarrify(str(tmp_path / "a.czi"))
+
+
+def test_an_image_across_files_its_plan_rejects_is_rejected_when_read(tmp_path):
+    """The store run makes refkv's plan of the image (spec/zarrify/czi.md §7.10
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#710-the-description>), so that an
+    image its checks reject is rejected before the run is done, not only when projected: here a
+    PX whose micrometers are not finite."""
+    w = write_fixtures
+    master = w.Czi(w.in_time(0), w.xml(px=1e303, py=2.5e-7, sizes={"T": 2}), file_guid=w.MASTER)
+    (tmp_path / "a.czi").write_bytes(master.build())
+    (tmp_path / "a(1).czi").write_bytes(w.part(1, 1).build())
+    with pytest.raises(Rejected, match="a translation is not finite"), read_input(tmp_path / "a.czi"):
+        pass

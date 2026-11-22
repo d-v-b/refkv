@@ -543,7 +543,28 @@ of first use, the references in ascending order of their keys' UTF-8 bytes, as f
 position and that range ([§6.1](#61-a-zarr-chunks-value)); an other object's is that range alone.
 No other entry is a reference, and the output has no data sources.
 
-### 11.4 Summary
+### 11.4 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a **description** of the store: what it found of the source, for a
+projection to read with the IR. Its JSON Schema is
+[precomputed/description.json](precomputed/description.json). The parser describes no stored array
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)): the chunks are the listing's objects,
+whose names [§3.2](#32-chunk-objects) and [§4.2](#42-a-shard-is-a-box-of-chunks) place. The
+description holds none of an output's decisions: which scales are presented and why the others are
+not ([§3.3](#33-scales-that-are-not-presented)), their order, each array's `zarr.json`
+([§3.1](#31-the-array)), the image ([§5](#5-the-image)), the source metadata
+([§7](#7-source-metadata)) and which objects are chunks ([§8](#8-other-objects)) are the
+projection's, which makes them from the description and the listing. It is a JSON object with these
+members:
+
+| member | value |
+|---|---|
+| `info` | the `info` document as parsed, as text (its integers and strings as written, its members in order), which passed [§11.2](#112-rejection)'s checks |
+| `documents` | the keys of the documents the IR holds: `["info"]` |
+| `ignored` | the keys the listing ignored, where there are any |
+
+### 11.5 Summary
 
 The summary line holds `arrays` (presented scales), `notPresented`, `sharded` (the arrays with
 shards), `chunks` (the references to chunk objects and shards), `emptyChunks`, `objects` and

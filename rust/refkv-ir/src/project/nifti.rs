@@ -2,8 +2,12 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#4-the-image>, and the root's
 //! source metadata of §5
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#5-source-metadata>) from a valid
-//! IR: the header is the IR's `header` value, and the array's chunks are cut from its
-//! `voxels` element.
+//! IR and the parser's description of the file or pair (§7.6
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#76-the-description>): the header
+//! is the IR's `header` value (a gzipped file's, the description's `gzip.head`), and the array's
+//! chunks are cut from its `voxels` element. The projection makes every decision of the output
+//! itself: the data type, the axes, the scaling, the scales, units, affine and position, and the
+//! chunks.
 
 use super::vsi::object_url;
 use super::{along, arr, contiguous, header_json, image_axes, n, Copied};
@@ -11,7 +15,7 @@ use crate::gz;
 use crate::ir::Ir;
 use crate::nifti::header;
 use crate::record::Header;
-use crate::out::{array_json, bytes_codec, full_window, grid_chunks, gzip_codecs, image_ome, omero_channel, omero_json, root_json, Chunk, Out, GZIP_LEVEL, RGBA};
+use crate::out::{array_json, bytes_codec, copy_threshold, full_window, grid_chunks, gzip_codecs, image_ome, omero_channel, omero_json, root_json, Chunk, Out, GZIP_LEVEL, RGBA};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 use std::borrow::Cow;
@@ -45,7 +49,7 @@ struct Cut {
     chunks: Vec<(Vec<u64>, Chunk)>,
 }
 
-fn cut(h: &Header, (vox, length): (u64, u64), facts: &J) -> Result<Cut, String> {
+fn cut(h: &Header, (vox, length): (u64, u64), gzipped: bool) -> Result<Cut, String> {
     let dim: Vec<i64> = h.values("dim").iter().map(|x| x.i()).collect();
     let nd = dim[0];
     let size = |i: usize| if (i as i64) <= nd { dim[i] as u64 } else { 1 };
@@ -63,33 +67,35 @@ fn cut(h: &Header, (vox, length): (u64, u64), facts: &J) -> Result<Cut, String> 
         .map(|a| along(a, [size(4), if color { samples } else { size(5) }, size(3), size(2), size(1)]))
         .collect();
     let item = bits / 8 / samples;
-    let (grid, chunks) = if facts["gzip"].is_object() {
+    let (grid, chunks) = if gzipped {
         contiguous::whole_stream(&shape, (vox, length))
     } else {
-        grid_chunks(vox, &shape, item, CHUNK_BYTES, contiguous::threshold(facts)).ok_or("internal: the voxel data cannot be cut into chunks")?
+        grid_chunks(vox, &shape, item, CHUNK_BYTES, copy_threshold()).ok_or("internal: the voxel data cannot be cut into chunks")?
     };
     Ok(Cut { axes, stored, shape, item, grid, chunks })
 }
 
-/// The header's bytes (in the facts, of a gzipped file) and the voxel data's element.
-fn parts<'a>(ir: &'a Ir, facts: &J) -> Result<(Cow<'a, [u8]>, u32), String> {
-    let raw = match gz::head_of(facts) {
+/// The header's bytes (in the description, of a gzipped file) and the voxel data's element.
+fn parts<'a>(ir: &'a Ir, description: &J) -> Result<(Cow<'a, [u8]>, u32), String> {
+    let elements = &description["elements"];
+    let raw = match gz::head_of(description) {
         Some(head) => Cow::Owned(head),
-        None => Cow::Borrowed(ir.value_bytes(n(&facts["header"]) as u32).ok_or("internal: the header is not held")?),
+        None => Cow::Borrowed(ir.value_bytes(n(&elements["header"]) as u32).ok_or("internal: the header is not held")?),
     };
-    Ok((raw, n(&facts["voxels"]) as u32))
+    Ok((raw, n(&elements["voxels"]) as u32))
 }
 
 /// The image file's ranges of the edge chunks a pair's projection copies (§7.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>), of voxels at `vox`.
-pub fn copy_ranges(h: &Header, vox: u64, facts: &J) -> Result<Vec<(u64, u64)>, String> {
+pub fn copy_ranges(h: &Header, vox: u64) -> Result<Vec<(u64, u64)>, String> {
     // a pair is not gzipped: only a gzip stream's chunk takes the length
-    Ok(contiguous::copy_reads(&cut(h, (vox, 0), facts)?.chunks).collect())
+    Ok(contiguous::copy_reads(&cut(h, (vox, 0), false)?.chunks).collect())
 }
 
 /// The output of a header-and-image pair (§7.5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#75-header-and-image-pairs>), its
-/// store URL `url`: the single file's, of the image file's voxels, with the header file's URL as its source's.
+/// store URL `url`: the single file's, of the image file's voxels, with the header file's URL as its
+/// source's. `facts` is the pair's description, with `copied`, the edge chunks the store run read.
 pub fn project_pair(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let copied: Copied = arr(&facts["copied"]).iter()
         .map(|c| ((n(&c[0]), n(&c[1])), arr(&c[2]).iter().map(|b| n(b) as u8).collect()))
@@ -99,22 +105,23 @@ pub fn project_pair(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
 
 /// The source's ranges of the edge chunks the projection copies (§7.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>).
-pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
-    let (raw, voxels) = parts(ir, facts)?;
-    let h = header(&raw, n(&facts["version"]) as u8);
-    let c = cut(&h, (ir.start[voxels as usize], ir.len[voxels as usize]), facts)?;
+pub fn reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+    let (raw, voxels) = parts(ir, description)?;
+    let h = header(&raw, n(&description["version"]) as u8);
+    let c = cut(&h, (ir.start[voxels as usize], ir.len[voxels as usize]), description["gzip"].is_object())?;
     Ok(contiguous::copy_reads(&c.chunks).collect())
 }
 
-pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    let (raw, voxels) = parts(ir, facts)?;
-    let version = n(&facts["version"]) as u8;
+/// The output of the input `description` describes; `description` also holds the run's options.
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+    let (raw, voxels) = parts(ir, description)?;
+    let version = n(&description["version"]) as u8;
     let h = header(&raw, version);
     let form = ir.form_id(voxels).ok_or("internal: the voxels have no form")?;
     // a store IR's offsets are virtual: a pair's voxels are given in the image file's
-    let data_key = facts["data_key"].as_str();
+    let data_key = description["data_key"].as_str();
     let (vox, length) = match data_key {
-        Some(_) => (n(&facts["start"]), n(&facts["length"])),
+        Some(_) => (n(&description["voxels"]["offset"]), n(&description["voxels"]["bytes"])),
         None => (ir.start[voxels as usize], ir.len[voxels as usize]),
     };
     let dim: Vec<i64> = h.values("dim").iter().map(|x| x.i()).collect();
@@ -201,7 +208,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     }
 
     // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#41-the-array>)
-    let Cut { axes, stored, shape: stored_shape, item, grid, chunks } = cut(&h, (vox, length), facts)?;
+    let Cut { axes, stored, shape: stored_shape, item, grid, chunks } = cut(&h, (vox, length), description["gzip"].is_object())?;
     let shape_of = |a: &str| stored_shape[stored.iter().position(|s| *s == a).unwrap()];
     let pos = |a: &str| stored.iter().position(|s| *s == a).unwrap();
     let chunk_shape: Vec<u64> = axes.iter().map(|a| grid[pos(a)]).collect();
@@ -225,14 +232,14 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     if let Some(a) = affine {
         own.insert("affine".into(), json!({"form": a, "applied": placed.is_some()}));
     }
-    let gzip = &facts["gzip"];
+    let gzip = &description["gzip"];
     if gzip.is_object() {
-        own.insert("gzip".into(), json!({"skip": gzip["skip"], "extender": gzip["extender"], "extensions": gzip["extensions"]}));
+        own.insert("gzip".into(), json!({"skip": gzip["skip"], "extender": description["extender"], "extensions": gzip["extensions"]}));
     }
     if let Some(key) = data_key {
         own.insert("data_file".into(), json!(key));
     }
-    let source_url = facts["header_key"].as_str().map_or(url.to_string(), |k| object_url(url, k));
+    let source_url = description["header_key"].as_str().map_or(url.to_string(), |k| object_url(url, k));
     let mut out = Out::new(url);
     out.json("zarr.json", &root_json(ome, "nifti", &source_url, Some(J::Object(own))));
     let mut codecs = Vec::new();
@@ -258,11 +265,13 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     contiguous::emit(&mut refs, chunks, (vox, length, form), copied, &["0/c/"], |c| axes.iter().map(|a| c[pos(a)]).collect(), &mut zeros)?;
     let mut out = refs.out;
     let sizes: Map<String, J> = axes.iter().map(|a| (a.to_string(), json!(shape_of(a)))).collect();
+    // whether the extender says extensions follow; a pair's header file may have none
+    let extended = description["extender"][0].as_u64().is_some_and(|b| b != 0);
     let mut summary = json!({
         "version": version, "byteOrder": endian, "sizes": sizes, "dataType": data_type, "color": color,
         "chunkShape": chunk_shape, "chunks": count,
         "scaling": if nontrivial { let (s, i) = scaling.unwrap(); json!({"slope": s, "inter": i}) } else { J::Null },
-        "affine": affine, "translation": translation.is_some(), "extensions": facts["extended"],
+        "affine": affine, "translation": translation.is_some(), "extensions": extended,
     });
     if let Some(key) = data_key {
         summary["dataFile"] = json!(key);

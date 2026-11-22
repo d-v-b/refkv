@@ -15,7 +15,7 @@ from pathlib import Path
 
 OUT = Path(__file__).parents[2] / "hdf4"
 
-LINKED, COMPRESSED, CHUNK, NT, VS, SD, SPECIAL = 20, 40, 61, 106, 1963, 702, 0x4000
+LINKED, COMPRESSED, CHUNK, NT, VS, SD, VG, SPECIAL = 20, 40, 61, 106, 1963, 702, 1965, 0x4000
 
 
 def descriptors(b: bytes):
@@ -61,6 +61,18 @@ def rejects(source: Path) -> dict[str, bytes]:
     rows = struct.unpack_from(">H", b, element(b, SPECIAL | VS, chunk_table_ref)[0] + 14)[0]
     blocks = struct.unpack_from(">HH", b, element(b, LINKED, rows)[0])
     row_off = element(b, LINKED, blocks[1])[0]
+    # the number type of that dataset, a member of its Var0.0 Vgroup (a count, then the tags, then
+    # the refs), whose type byte is patched to int64, which the SD interface does not read
+    dataset_nt = None
+    for _, (t, _, o, _) in dds:
+        if t != VG:
+            continue
+        k = struct.unpack_from(">H", b, o)[0]
+        tags, refs = struct.unpack_from(f">{k}H", b, o + 2), struct.unpack_from(f">{k}H", b, o + 2 + 2 * k)
+        members = list(zip(tags, refs, strict=True))
+        if (SD, sd_ref) in members:
+            dataset_nt = element(b, NT, next(r for t2, r in members if t2 == NT))[0]
+    assert dataset_nt is not None
     nt_desc = next(o for o, (t, _, _, _) in dds if t == NT)
     other_nt = next(r for o, (t, r, _, _) in dds if t == NT and o != nt_desc)
     return {
@@ -74,6 +86,8 @@ def rejects(source: Path) -> dict[str, bytes]:
         # one block a table, so that the element's two blocks need a second table, which is the first
         "hdf4_reject_link_loop.hdf": patched(link_off + 10, ">I", 1, then=(table_off, ">H", first_table)),
         "hdf4_reject_chunk_outside.hdf": patched(row_off, ">I", 9),
+        # the same table, of a dataset the convention does not present: the parser reads every table
+        "hdf4_reject_unpresented_chunk_outside.hdf": patched(row_off, ">I", 9, then=(dataset_nt + 1, ">B", 26)),
     }
 
 

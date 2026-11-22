@@ -8,7 +8,7 @@
 //! time, in order, since whether there is another may depend on what the last one holds.
 
 use crate::beside::{Tree, MAX_FILES};
-use crate::czi::{Czi, Placed, Planes};
+use crate::czi::{Czi, Planes};
 use crate::ir::{Ir, Res};
 use crate::nd2::Step;
 use crate::run::unread_shown;
@@ -82,9 +82,8 @@ pub struct CziSet {
     second: bool,
     highest: i32,
     planes: Option<Planes>,
-    /// the parsed files, in the listing's order: (IR, what it places, the key of each entry's
-    /// description, its subblocks)
-    parsed: Vec<(Ir, Vec<Placed>, Vec<Option<u32>>, usize)>,
+    /// the parsed files, in the listing's order: each one's IR and description
+    parsed: Vec<(Ir, J)>,
     fill: Vec<(usize, u32, u64, u64)>,
     finished: Option<(Ir, J)>,
 }
@@ -130,35 +129,32 @@ impl CziSet {
         Ok((!asked.is_empty()).then_some(StoreStep::Read(asked)))
     }
 
-    /// Joins the files' IRs into the store IR, and places their subblocks as one image's: the
-    /// named file's, then each part's, in order.
+    /// Joins the files' IRs into the store IR, and their descriptions into the store's: the named
+    /// file's, with the named file's key and each part's key and description, in order, their
+    /// elements those of the store IR.
     fn join(&mut self) -> Res<()> {
         let mut ir = self.ir.take().ok_or("internal: no IR")?;
-        let mut placed = Vec::new();
-        // `declared_by`: the key of each entry's description, the named file's entries, then each
-        // part's, as they are placed
-        let mut declared_by: Vec<Option<u32>> = Vec::new();
-        let (mut offset, mut subblocks) = (0, 0);
-        for (k, (mut file, ps, keys, own)) in std::mem::take(&mut self.parsed).into_iter().enumerate() {
+        let mut facts = J::Null;
+        let mut files = Vec::new();
+        for (k, (mut file, mut d)) in std::mem::take(&mut self.parsed).into_iter().enumerate() {
             file.sort_values();
             let e = self.elems[k];
             ir.describe_in_place(e)?;
             // the graft carries the file's descriptions, their elements renumbered as `at` gives
             let at = ir.graft(&file, e)?;
-            placed.extend(ps.into_iter().map(|mut p| {
-                p.el = at[p.el as usize];
-                p.key = at[p.key as usize];
-                p.index += offset;
-                p
-            }));
-            offset += keys.len();
-            declared_by.extend(keys.into_iter().map(|key| key.map(|key| at[key as usize])));
-            subblocks += own;
+            remap(&mut d, &at);
+            if k == 0 {
+                facts = d;
+            } else {
+                files.push(json!({"key": self.keys[k], "description": d}));
+            }
         }
-        let mut facts = self.named.layout_of(placed, subblocks)?;
-        facts["declared_by"] = json!(declared_by);
-        facts["root"]["parts"] = json!(self.keys[1..]);
         facts["named_key"] = json!(self.named_key);
+        facts["files"] = J::Array(files);
+        // refkv's plan of the image, made here as the file run's `reads` makes it, so that an image
+        // its checks reject is rejected before the run is done (as the TIFF store run's sampled
+        // reads make TIFF's)
+        crate::czi::plan::plan(&facts)?;
         self.finished = Some(crate::sans::finish(true, ir, facts)?);
         Ok(())
     }
@@ -273,6 +269,26 @@ impl StoreParser for CziSet {
             return Err("internal: the parse is not done".into());
         }
         self.finished.take().ok_or_else(|| "internal: the files were not joined".to_string())
+    }
+}
+
+/// A file's description with each IR element it names (an entry's, its subblock's and its pixels',
+/// and the XML's) the store IR's, `at` mapping the file IR's to it.
+fn remap(d: &mut J, at: &[u32]) {
+    let map = |v: &mut J| {
+        if let Some(e) = v.as_u64() {
+            *v = json!(at.get(e as usize).copied().unwrap_or(e as u32));
+        }
+    };
+    for e in d.get_mut("entries").and_then(J::as_array_mut).into_iter().flatten() {
+        map(&mut e["element"]);
+        if let Some(s) = e.get_mut("subblock").filter(|s| s.is_object()) {
+            map(&mut s["element"]);
+            map(&mut s["data"]);
+        }
+    }
+    if let Some(m) = d.get_mut("metadata").filter(|m| m.is_object()) {
+        map(&mut m["xml"]);
     }
 }
 

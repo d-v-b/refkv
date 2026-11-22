@@ -413,9 +413,9 @@ fn parsed(key: &str, files: &BTreeMap<String, Vec<u8>>) -> (Ir, J) {
 
 /// Each field of an accepted fixture names the description of its values by its key
 /// (spec/stored-array.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>):
-/// `declared_by`, the element of its message, and `array`, its index among the arrays the message
+/// `element`, the element of its message, and `array`, its index among the arrays the message
 /// declares; and by `mask` the bitmap that says which points its values are, a description of
-/// 1-bit elements of that message. The facts so name every description, each message's indexed
+/// 1-bit elements of that message. The description so names every description, each message's indexed
 /// from 0, and a field's row is in its own section 7.
 #[test]
 fn every_accepted_fixtures_fields_name_their_descriptions() {
@@ -437,7 +437,7 @@ fn every_accepted_fixtures_fields_name_their_descriptions() {
         for f in facts["fields"].as_array().unwrap() {
             let (message, field) = (f["message"].as_u64().unwrap(), f["field"].as_u64().unwrap());
             let here = format!("{name} message {message} field {field}");
-            let key = f["declared_by"].as_u64().unwrap() as u32;
+            let key = f["element"].as_u64().unwrap() as u32;
             assert_eq!(ir.path(key), format!("{name}/messages/{message}"), "{here}");
             let k = at(key, f["array"].as_u64().unwrap());
             named.insert(k);

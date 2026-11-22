@@ -1,0 +1,625 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/dicom/description.json",
+  "title": "The description of a DICOM file",
+  "description": "What refkv's DICOM parser found of the file's image, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#78-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "transfer_syntax": {
+      "type": "string"
+    },
+    "explicit": {
+      "type": "boolean"
+    },
+    "little": {
+      "type": "boolean"
+    },
+    "compression": {
+      "enum": [
+        "native",
+        "jpeg",
+        "ljpeg",
+        "jpegls",
+        "jpeg2k",
+        "htj2k",
+        "dicomrle"
+      ]
+    },
+    "attributes": {
+      "type": "object",
+      "properties": {
+        "samples_per_pixel": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "planar_configuration": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "rows": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "columns": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "bits_allocated": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "bits_stored": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "high_bit": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "pixel_representation": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "total_pixel_matrix_columns": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "total_pixel_matrix_rows": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "number_of_optical_paths": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "total_pixel_matrix_focal_planes": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "sop_class_uid": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "dimension_organization_type": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "photometric_interpretation": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "window_center": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "window_width": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "rescale_intercept": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "rescale_slope": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "frame_time": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "pixel_spacing": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "spacing_between_slices": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "number_of_frames": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "frame_increment_pointer": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9A-F]{8}$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "bits_allocated",
+        "bits_stored",
+        "columns",
+        "dimension_organization_type",
+        "frame_increment_pointer",
+        "frame_time",
+        "high_bit",
+        "number_of_frames",
+        "number_of_optical_paths",
+        "photometric_interpretation",
+        "pixel_representation",
+        "pixel_spacing",
+        "planar_configuration",
+        "rescale_intercept",
+        "rescale_slope",
+        "rows",
+        "samples_per_pixel",
+        "sop_class_uid",
+        "spacing_between_slices",
+        "total_pixel_matrix_columns",
+        "total_pixel_matrix_focal_planes",
+        "total_pixel_matrix_rows",
+        "window_center",
+        "window_width"
+      ],
+      "additionalProperties": false
+    },
+    "palette": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "entries": {
+              "$ref": "#/$defs/uint"
+            },
+            "first_mapped": {
+              "type": "integer"
+            },
+            "bits": {
+              "$ref": "#/$defs/uint"
+            },
+            "cell": {
+              "enum": [
+                1,
+                2
+              ]
+            },
+            "tables": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/uint"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          },
+          "required": [
+            "entries",
+            "first_mapped",
+            "bits",
+            "cell",
+            "tables"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "pixel_data": {
+      "type": "object",
+      "properties": {
+        "vr": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "offset": {
+          "$ref": "#/$defs/uint"
+        },
+        "length": {
+          "$ref": "#/$defs/uint"
+        },
+        "end": {
+          "$ref": "#/$defs/uint"
+        },
+        "encapsulated": {
+          "type": "boolean"
+        },
+        "structure": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "frame_size": {
+                  "$ref": "#/$defs/uint"
+                },
+                "stored": {
+                  "$ref": "#/$defs/uint"
+                },
+                "extra": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "offset": {
+                          "$ref": "#/$defs/uint"
+                        },
+                        "bytes": {
+                          "$ref": "#/$defs/uint"
+                        }
+                      },
+                      "required": [
+                        "offset",
+                        "bytes"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "frame_size",
+                "stored",
+                "extra"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/uint"
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  }
+                },
+                "offset_table": {
+                  "type": "boolean"
+                },
+                "bounds": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/uint"
+                  }
+                },
+                "delimiter": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/$defs/uint"
+                    }
+                  ]
+                },
+                "extended_offset_table": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "frames": {
+                          "type": "array",
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/$defs/uint"
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
+                          }
+                        },
+                        "headers": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "frames",
+                        "headers"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "items",
+                "offset_table",
+                "bounds",
+                "delimiter",
+                "extended_offset_table"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "vr",
+        "offset",
+        "length",
+        "end",
+        "encapsulated",
+        "structure"
+      ],
+      "additionalProperties": false
+    },
+    "elements": {
+      "type": "object",
+      "properties": {
+        "pixel_data": {
+          "$ref": "#/$defs/uint"
+        },
+        "palette_tables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uint"
+          }
+        },
+        "nested": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "element": {
+                "$ref": "#/$defs/uint"
+              },
+              "count": {
+                "$ref": "#/$defs/uint"
+              }
+            },
+            "required": [
+              "element",
+              "count"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "pixel_data",
+        "palette_tables",
+        "nested"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "uint": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "transfer_syntax",
+    "explicit",
+    "little",
+    "compression",
+    "attributes",
+    "palette",
+    "pixel_data",
+    "elements"
+  ]
+}

@@ -509,8 +509,8 @@ impl Safe {
         // no run, and a band file's elements overlap no other's, so those it made keep their ids
         let (arrays, chains, map) = stored::described(&reached)?;
         ir.describe(arrays, chains, map)?;
-        let declared_by: Vec<u32> = reached.iter().map(|r| r.codestream).collect();
-        Ok((ir, self.facts(&declared_by)))
+        let elements: Vec<u32> = reached.iter().map(|r| r.codestream).collect();
+        Ok((ir, self.description(&elements)))
     }
 
     // ---- the IR
@@ -564,35 +564,22 @@ impl Safe {
         Ok(reached.into_iter().map(|r| r.1).collect())
     }
 
-    /// The facts; `declared_by` is, for each band in order, the key of its image's description:
-    /// its `codestream` struct.
-    fn facts(&self, declared_by: &[u32]) -> J {
+    /// The description of the product (spec/zarrify/safe.md §8.11
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#811-the-description>): its
+    /// level and form, its product and tile metadata as XML trees, its tile geocoding, its band
+    /// files (each its image file, basename, resolution, band name and codestream, and the IR
+    /// element that keys its stored array, `elements[k]`) and its objects.
+    fn description(&self, elements: &[u32]) -> J {
         let geo = self.geo.as_ref().unwrap();
-        let metadata = self.metadata.as_ref().unwrap();
-        let l2a = self.level == 1;
-        let bands: Vec<J> = self.bands.iter().zip(declared_by).map(|(b, declared_by)| {
+        let bands: Vec<J> = self.bands.iter().zip(elements).map(|(b, e)| {
             let base = if self.store { 0 } else { self.entries[self.objs[b.obj].entry].ds };
-            let siz_b64 = crate::mirror::base64(&b.cs.siz);
-            json!({"key": b.image.key, "base": base, "resolution": b.resolution, "name": b.name, "declared_by": declared_by,
-                   "meta": product::band_metadata(metadata, l2a, &b.image.text, &b.name, &siz_b64),
-                   "codestream": b.cs.to_facts()})
+            json!({"image_file": b.image.text, "key": b.image.key, "basename": b.image.basename, "resolution": b.resolution,
+                   "name": b.name, "base": base, "codestream": b.cs.to_facts(), "element": e})
         }).collect();
-        let band_objs: HashSet<usize> = self.bands.iter().map(|b| b.obj).collect();
         let held: HashSet<usize> = self.held.iter().copied().collect();
-        let mut referenced = Vec::new();
-        let mut empty = 0u64;
-        for (o, obj) in self.objs.iter().enumerate() {
-            if self.markers.contains(&o) || band_objs.contains(&o) || held.contains(&o) {
-                continue;
-            }
-            if obj.size == 0 {
-                empty += 1;
-            } else {
-                referenced.push(json!([obj.key, obj.size]));
-            }
-        }
-        // the zip form's recorded keys; the directory form's are the store run's
-        // (`StoreRun::ignore`), which it adds to these facts
+        let objects: Vec<J> = self.objs.iter().enumerate().map(|(o, obj)| {
+            json!({"key": obj.key, "size": obj.size, "marker": self.markers.contains(&o), "held": held.contains(&o)})
+        }).collect();
         let ignored: Vec<String> = {
             let mut v = if self.store { Vec::new() } else { self.zprod.as_ref().map(|p| p.ignored.clone()).unwrap_or_default() };
             v.sort();
@@ -601,17 +588,16 @@ impl Safe {
         json!({
             "level": product::LEVELS[self.level].1,
             "form": if self.store { "store" } else { "zip" },
-            "root": product::root_metadata(metadata, self.tile.as_ref().unwrap(), geo),
-            "geo": {"code": geo.code, "sizes": geo.sizes.iter().map(|s| [s.0, s.1, s.2]).collect::<Vec<_>>(),
-                    "positions": geo.positions.iter().map(|(r, v)| json!([r, v])).collect::<Vec<_>>()},
+            "product_metadata": {"key": self.objs[self.product_obj].key, "document": self.metadata.as_ref().unwrap().to_json()},
+            "tile_metadata": {"key": self.objs[self.tile_obj].key, "document": self.tile.as_ref().unwrap().to_json()},
+            "geocoding": {"code": geo.code, "sizes": geo.sizes.iter().map(|s| [s.0, s.1, s.2]).collect::<Vec<_>>(),
+                          "positions": geo.positions.iter().map(|(r, v)| json!([r, v])).collect::<Vec<_>>(),
+                          "cs_name": geo.cs_name, "cs_code": geo.cs_code},
             "bands": bands,
-            "objects": if self.store { referenced.clone() } else { Vec::new() },
+            "objects": objects,
             "empty_dirs": self.empty_dirs,
             "ignored": ignored,
-            "counts": {"objects": self.objs.len(), "folderMarkers": self.markers.len(), "emptyDirs": self.empty_dirs.len(),
-                       "heldXml": self.held.len(), "otherObjects": referenced.len(), "emptyObjects": empty,
-                       "tileParts": self.bands.iter().map(|b| b.cs.tiles.len()).sum::<usize>(),
-                       "bandReads": self.readers.iter().map(|r| r.requests).sum::<u64>(), "batches": self.batches},
+            "reads": {"batches": self.batches, "band_reads": self.readers.iter().map(|r| r.requests).sum::<u64>()},
         })
     }
 }
@@ -713,6 +699,11 @@ impl crate::run::FileProfile for Profile {
     /// Its empty directories and ignored keys beside the mirror, as a SAFE directory's.
     fn mirrored(&self, out: &mut crate::out::Out, facts: &serde_json::Value) -> Result<(), String> {
         crate::project::store::record_ignored(out, facts, "safe")
+    }
+    /// The parser returns a description of the product, of either form (spec/zarrify/safe.md
+    /// §8.11 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#811-the-description>).
+    fn described(&self) -> bool {
+        true
     }
 }
 

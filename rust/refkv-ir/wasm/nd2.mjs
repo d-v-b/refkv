@@ -34,7 +34,10 @@ for (;;) {
 }
 const n = Number(w.nd2_finish(p));
 if (n < 0) { console.log(JSON.stringify({ rejected: text(-n) })); process.exit(3); }
+// the parser's description of the file (spec/zarrify/nd2.md §7.5
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#75-the-description>), with the IR's counts
 const facts = JSON.parse(text(n));
-console.log(JSON.stringify({ elements: facts.elements, runs: facts.runs, check: facts.check, frames: facts.frames,
-  positions: facts.positions, loops: facts.loops.map((l) => `${l.kind}${l.count}`), decoded: facts.decoded.length,
+const frames = facts.loops.reduce((f, l) => f * l.count, 1);
+console.log(JSON.stringify({ elements: facts.elements, runs: facts.runs, check: facts.check, frames,
+  loops: facts.loops.map((l) => `${l.kind}${l.count}`), chunks: facts.chunks.length,
   rounds, ranges, bytes, ms: Math.round(performance.now() - t0) }));
