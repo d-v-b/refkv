@@ -38,7 +38,7 @@ fn run_project(dir: &Path, named: &str) -> Result<(refkv_ir::ir::Ir, serde_json:
             run.complete(i, q.spans.iter().map(|&(a, b)| data[a as usize..b as usize].to_vec()).collect())?;
         }
     }
-    let (ir, facts, _) = run.finish()?;
+    let (ir, facts, _, _) = run.finish()?;
     Ok((ir, facts, files))
 }
 
@@ -83,7 +83,7 @@ fn a_project_is_a_valid_store_ir() {
         let plan = refkv_ir::lif::plan::plan_set(&facts).unwrap_or_else(|m| panic!("{named}: {m}"));
         assert_eq!(plan["images"].as_array().unwrap().len(), images, "{named}");
         assert_eq!(files.len(), objects, "{named}");
-        let out = refkv_ir::store::store_output(StoreFormat::Lif, &ir, &facts, serde_json::json!({}), "https://example.org/set/", true, false).map_err(String::from)
+        let out = refkv_ir::store::store_output(StoreFormat::Lif, &ir, &facts, serde_json::json!({}), &Default::default(), "https://example.org/set/", true, false).map_err(String::from)
             .unwrap_or_else(|m| panic!("{named}: {m}"));
         assert_eq!(out.summary["series"], images, "{named}");
     }

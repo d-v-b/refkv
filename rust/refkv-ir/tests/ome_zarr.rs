@@ -18,8 +18,8 @@ fn fixtures() -> PathBuf {
 fn output(dir: &Path) -> Result<refkv_ir::out::Out, String> {
     let files = walk(dir);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
-    let (ir, facts, stats) = run_store(StoreFormat::Zarr2, listing(&files), &|k| bytes[k].clone())?;
-    store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://example.org/s/", true, false).map_err(String::from)
+    let (ir, facts, stats, read) = run_store(StoreFormat::Zarr2, listing(&files), &|k| bytes[k].clone())?;
+    store_output(StoreFormat::Zarr2, &ir, &facts, stats, &read, "https://example.org/s/", true, false).map_err(String::from)
 }
 
 fn stores(format: &str) -> Vec<PathBuf> {
@@ -108,7 +108,7 @@ fn output_of(objects: &[(String, Vec<u8>)]) -> (Result<refkv_ir::out::Out, Strin
     let k2 = keys.clone();
     let t = std::time::Instant::now();
     let r = run_store(StoreFormat::Zarr2, keys, &|k| by[k2[k].0.as_str()].clone())
-        .and_then(|(ir, facts, stats)| store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://example.org/s/", true, false).map_err(String::from));
+        .and_then(|(ir, facts, stats, read)| store_output(StoreFormat::Zarr2, &ir, &facts, stats, &read, "https://example.org/s/", true, false).map_err(String::from));
     (r, t.elapsed())
 }
 
@@ -296,7 +296,7 @@ fn probe_a_document_the_test_reads_outside_the_batch() {
     let o = base(br#"{"well": {"images": []}}"#);
     let listing = keys(&o);
     let bytes = |k: usize| o.iter().find(|x| x.0 == listing[k].0).unwrap().1.clone();
-    let (_, _, stats) = run_store(StoreFormat::Zarr2, listing.clone(), &bytes).unwrap();
+    let (_, _, stats, _) = run_store(StoreFormat::Zarr2, listing.clone(), &bytes).unwrap();
     assert_eq!(stats["batches"], 2);
     assert_eq!(output_of(&o).0.unwrap().summary["format"], "zarr2");
     // a document the test cannot parse rejects the store

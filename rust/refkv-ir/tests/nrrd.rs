@@ -44,8 +44,8 @@ fn run_with_facts(key: &str, mut files: BTreeMap<String, Vec<u8>>) -> Result<(Ra
             run.complete(k, q.spans.iter().map(|&(a, b)| data[a as usize..b as usize].to_vec()).collect())?;
         }
     }
-    let (ir, facts, stats) = run.finish()?;
-    let out = refkv_ir::store::store_output(StoreFormat::Nrrd, &ir, &facts, stats, "https://example.org/nrrd/", true, false)?;
+    let (ir, facts, stats, read) = run.finish()?;
+    let out = refkv_ir::store::store_output(StoreFormat::Nrrd, &ir, &facts, stats, &read, "https://example.org/nrrd/", true, false)?;
     let objects: std::collections::HashSet<String> = ir.sources().objects.iter().map(|&o| ir.key(o)).collect();
     files.retain(|k, _| objects.contains(k));
     Ok(((out, ir, files), facts))

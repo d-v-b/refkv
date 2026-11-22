@@ -114,7 +114,7 @@ fn a_store_runs_datasets_name_their_storage_in_their_objects() {
             run.complete(k, q.spans.iter().map(|&(a, b)| data[a as usize..b as usize].to_vec()).collect()).unwrap();
         }
     }
-    let (ir, facts, _) = run.finish().unwrap();
+    let (ir, facts, _, _) = run.finish().unwrap();
     let mut objects = std::collections::BTreeSet::new();
     for (key, d) in facts["files"].as_object().unwrap() {
         for o in d["objects"].as_array().unwrap() {

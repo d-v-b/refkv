@@ -23,8 +23,8 @@ fn fixtures() -> PathBuf {
 fn output(files: &BTreeMap<String, Vec<u8>>) -> Result<Out, String> {
     let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
-    let (ir, facts, stats) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone())?;
-    store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://data.test/s/", true, false).map_err(String::from)
+    let (ir, facts, stats, read) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone())?;
+    store_output(StoreFormat::Zarr2, &ir, &facts, stats, &read, "https://data.test/s/", true, false).map_err(String::from)
 }
 
 fn run(name: &str) -> Result<Out, String> {
@@ -127,7 +127,7 @@ fn documents_are_read_as_json_by_the_store_rules() {
         files.insert(".zattrs".into(), doc.into_bytes());
         let keys = listing(&files);
         let bytes: Vec<&Vec<u8>> = files.values().collect();
-        let (ir, _, _) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone()).unwrap();
+        let (ir, _, _, _) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone()).unwrap();
         let o = (0..ir.len() as u32).find(|&i| ir.kind[i as usize] == refkv_ir::ir::OBJECT && ir.key(i) == ".zattrs").unwrap();
         let kids: Vec<u32> = ir.children(o).iter().copied().filter(|&c| ir.kind[c as usize] == refkv_ir::ir::VALUE).collect();
         assert_eq!(kids.len(), values, "{n}");
@@ -212,7 +212,7 @@ fn members_named_gaps_or_json_keep_the_ir_valid_and_rebuild() {
         files.insert(".zattrs".into(), doc.clone().into_bytes());
         let keys = listing(&files);
         let bytes: Vec<&Vec<u8>> = files.values().collect();
-        let (ir, _, _) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone()).unwrap_or_else(|e| panic!("{n}: {e}"));
+        let (ir, _, _, _) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone()).unwrap_or_else(|e| panic!("{n}: {e}"));
         refkv_ir::check::check(&ir).unwrap_or_else(|e| panic!("{n}: {e}"));
         // the members `gaps` and `json` are escaped and indexed, as repeated keys are
         let o = (0..ir.len() as u32).find(|&i| ir.kind[i as usize] == refkv_ir::ir::OBJECT && ir.key(i) == ".zattrs").unwrap();

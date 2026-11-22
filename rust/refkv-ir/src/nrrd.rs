@@ -820,12 +820,10 @@ impl Nrrd {
             "data": {"offset": self.start, "bytes": self.length},
             "elements": {"header_file": self.elems[0], "lines": lines, "data_file": self.elems[self.data], "data": data},
         });
-        // the description (§8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#87-the-description>),
-        // with the edge chunks the run read for the projection and the run's counts, which it leaves out
-        let mut facts = description;
-        facts["copied"] = self.copied.iter().map(|(o, b)| json!([o, b])).collect::<Vec<_>>().into();
-        facts["counts"] = json!({"batches": self.batches});
-        Ok(facts)
+        // the description (§8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#87-the-description>);
+        // the edge chunks the run read for the projection and the run's counts are apart
+        // (`StoreParser::copied`, `StoreParser::counts`)
+        Ok(description)
     }
 
     fn advance(&mut self) -> Res<StoreStep> {
@@ -962,12 +960,23 @@ impl StoreParser for Nrrd {
         Ok(Some(e))
     }
 
+    /// The edge chunks the projection copies (§8.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#85-chunks>), each by its
+    /// (offset, length) in the data's object.
+    fn copied(&mut self) -> crate::project::Copied {
+        std::mem::take(&mut self.copied).into_iter().map(|(o, b)| ((o, b.len() as u64), b)).collect()
+    }
+
+    fn counts(&self) -> J {
+        json!({"batches": self.batches})
+    }
+
     fn finish(mut self: Box<Self>) -> Res<(Ir, J)> {
         if self.phase != Phase::Done {
             return Err("internal: the parse is not done".into());
         }
-        let facts = self.emit()?;
-        Ok((self.ir.take().unwrap(), facts))
+        let description = self.emit()?;
+        Ok((self.ir.take().unwrap(), description))
     }
 }
 

@@ -40,7 +40,7 @@ fn no_source(_: u64, _: u64) -> Result<Vec<u8>, String> {
 fn try_mirrored(files: &BTreeMap<String, Vec<u8>>) -> Result<(Out, Ir, Vec<String>), String> {
     let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
-    let (ir, facts, _) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone())?;
+    let (ir, facts, _, _) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone())?;
     let mut out = Out::new("https://example.org/s/");
     mirror(&ir, &mut out, "zarr2").unwrap();
     let docs = facts["documents"].as_array().unwrap().iter().map(|d| d.as_str().unwrap().to_string()).collect();
