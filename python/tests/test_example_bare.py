@@ -141,8 +141,8 @@ def test_bare_is_refkv_s_own_output_without_its_declarations(tmp_path, fixture, 
     plugin = Bare()
     with read(path, checksums=checksums) as p:
         out = plugin.write([p], plugin.options(options))
-        assert [x for x in check(out, [p]) if x.code not in ALLOWED] == []
-        pr = project(p)
+        pr = project(p)  # what the layout copies: every array is a copy of one of refkv's own output
+        assert [x for x in check(out, [p], bases=[pr]) if x.code not in ALLOWED] == []
         info = {"format": p.profile, "elements": len(p.ir), "layouts": [NAME]}
 
     store = zarrify(path, layout=Layout(NAME, options), checksums=checksums)
