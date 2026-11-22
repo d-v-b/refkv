@@ -9,7 +9,7 @@
 //! the IR's elements it names, and refkv's plan made from the description (`vsi::plan`); it checks
 //! only the archive's own limits.
 
-use super::{along, arr, image_axes, key, n, translation, with_counts, Copied};
+use super::{along, arr, image_axes, key, n, translation, Copied};
 use crate::ir::Ir;
 use crate::out::{array_json, bioformats2raw, bytes_codec, declared_group, image_ome, transpose_codec, Out, Part, BGRA, RGBA};
 use crate::refs::Refs;
@@ -281,7 +281,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied) -> Result<
         super::store::check_key(k)?;
     }
     let chunks: u64 = summaries.iter().map(|s| n(&s["chunks"])).sum();
-    out.summary = with_counts(json!({"images": summaries, "notPresented": not_presented.len(), "chunks": chunks, "dataSources": out.data.len()}), description);
+    out.summary = json!({"images": summaries, "notPresented": not_presented.len(), "chunks": chunks, "dataSources": out.data.len()});
     Ok(out)
 }
 
