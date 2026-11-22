@@ -129,51 +129,13 @@ class Parsed:
         """The profile's description of the input: what its parser found of the source, as the
         profile's document specifies it (the design of d-v-b/refkv#278, "The description"), a
         copy the caller may change. None for a profile that has none yet, and for a store of a
-        format whose parser returns none yet (HDF5 files beside each other). A profile that has
-        one:
+        format whose parser returns none yet (HDF5 files beside each other).
 
-        - NumPy: `own`, the source metadata
-          (spec/zarrify/npy.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#51-the-root>),
-          and `arrays`, each array the profile presents with its `path`, its header's text
-          (`header`), `stored`, the IR element that keys its stored array, and, for a deflated
-          archive member, `deflate`, its stream's CRC-32 and the size of what it inflates to.
-        - FITS: `hdus`, each HDU as its header and the IR give it (its kind, axes, table and
-          tile compression, and its elements' ids), and a compressed file's `stream`
-          (spec/zarrify/fits.md §9.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#96-the-description>).
-        - HDF5: every object of the file in canonical order, with its attributes, a group's
-          links, and a dataset's datatype, layout, filters, storage, dimension scale structures
-          and decoded strings, references and records
-          (spec/zarrify/hdf5.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#87-the-description>),
-          of a file read as a file.
-        - netCDF3: the file's version, record count and size, header size, dimensions and global
-          attributes, and each variable in the header's order with its name, dimensions, type,
-          shape, `begin`, `vsize` and attributes, each attribute's value decoded
-          (spec/zarrify/netcdf3.md §7.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#77-the-description>).
-        - ENVI: the header's fields as written and as the profile reads them (`samples`, `lines`,
-          `bands`, `interleave`, the `data_type` code, `byte_order`, `header_offset`,
-          `file_compression`), its comments, the header and data files' keys and sizes, the data's
-          range in the data file and the IR elements of the header file and the data
-          (spec/zarrify/envi.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#87-the-description>).
-        - Zarr v2 (and OME-Zarr, whose stores it reads): each node, by path and kind, with its
-          documents as parsed, and the documents the IR holds
-          (spec/zarrify/zarr2.md §7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#73-the-description>).
-        - Zarr v3, listed or zipped: each candidate's `zarr.json` as parsed, the documents the IR
-          holds, and a zip file's objects and counts
-          (spec/zarrify/zarr3.md §7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#76-the-description>).
-        - TIFF and QPTIFF: the header, the IFD tree with each IFD's tags
-          as the profile reads them, its tiles and strips structs, and the structures the file
-          holds (OME-XML, an ImageJ hyperstack, a Micro-Manager stack, an Aperio description, each
-          IFD's QPI description) and its short last LZW strips' tails; of an image across files,
-          with each other file's
-          (spec/zarrify/tiff.md §7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#76-the-description>).
-        - NDPI: the main chain's IFDs with NDPI's tags, and of each image its tile tables and
-          McuStarts with their high bytes, its focal offset, acquisition tags and stream header
-          (spec/zarrify/ndpi.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#71-the-description>).
-        - N5: each node, by path and kind (`dataset` or `group`), with its `attributes.json` as
-          parsed, and the documents the IR holds
-          (spec/zarrify/n5.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#83-the-description>).
-        - Neuroglancer precomputed: `info` as parsed, and the documents the IR holds
-          (spec/zarrify/precomputed.md §11.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#114-the-description>)."""
+        Each profile that returns one specifies it in its own document, in the section of Part 2
+        titled "The description" (`spec/zarrify/<profile>.md`, with its JSON Schema beside it
+        where it has one, `spec/zarrify/<profile>/description.json`);
+        python/tests/test_description_documented.py checks that every such profile has that
+        section."""
         return None if self._description is None else json.loads(json.dumps(self._description))
 
     @property

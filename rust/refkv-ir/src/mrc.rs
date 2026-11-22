@@ -239,20 +239,26 @@ impl Mrc {
             let data = self.ir.data(0, "data", NO_INDEX, 0, (0, self.size), &form.to_string())?;
             // `declared_by`: the key of the array's description, the stream
             self.reached = Some(reached(data, data, Some(offset)));
+            let gzip = json!({"skip": offset, "head": gz::head(h.raw)});
+            let description = describe(&h, (offset, total as u64), json!({"data": data}), Some(&gzip));
             self.facts = json!({"data": data, "declared_by": data, "data_type": dtype,
-                                "gzip": {"skip": offset, "head": gz::head(h.raw)}, "copy_threshold": crate::out::copy_threshold()});
+                                "gzip": gzip, "copy_threshold": crate::out::copy_threshold(), "description": description});
             return Ok(());
         }
         let header = self.ir.value(0, "header", NO_INDEX, &h.record_type(), 0, (0, HEADER), Some(h.raw))?;
+        let mut elements = json!({"header": header});
         if nsymbt > 0 {
-            self.ir.value(0, "extended", NO_INDEX, &format!("bytes[{nsymbt}]"), 0, (HEADER, nsymbt as u64), None)?;
+            elements["extended"] = json!(self.ir.value(0, "extended", NO_INDEX, &format!("bytes[{nsymbt}]"), 0, (HEADER, nsymbt as u64), None)?);
         }
         let form = json!({"geometry": geometry, "codec": {"endian": endian}, "recipe": [["src", 0, null]]});
         let data = self.ir.data(0, "data", NO_INDEX, 0, (offset, total as u64), &form.to_string())?;
         // `declared_by`: the key of the array's description, the header; `copy_threshold`: the
         // payload past which the projection copies an edge chunk, read once per run
         self.reached = Some(reached(header, data, None));
-        self.facts = json!({"header": header, "data": data, "declared_by": header, "data_type": dtype, "copy_threshold": crate::out::copy_threshold()});
+        elements["data"] = json!(data);
+        let description = describe(&h, (offset, total as u64), elements, None);
+        self.facts = json!({"header": header, "data": data, "declared_by": header, "data_type": dtype, "copy_threshold": crate::out::copy_threshold(),
+                            "description": description});
         Ok(())
     }
 
@@ -268,6 +274,24 @@ impl Mrc {
 }
 
 crate::parser!(Mrc);
+
+/// The description of the file (spec/zarrify/mrc.md §8.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#85-the-description>): its byte
+/// order, every field of its header as the root's source metadata gives them, the data's range
+/// (in what a gzipped file's stream inflates to), a gzipped file's stream, and the ids of its IR
+/// elements. It holds none of the output's decisions: no data type, kind, axes or voxel size.
+fn describe(h: &Header, (offset, bytes): (u64, u64), elements: J, gzip: Option<&J>) -> J {
+    let mut d = json!({
+        "byte_order": if h.little { "little" } else { "big" },
+        "header": crate::project::header_json(h),
+        "data": {"offset": offset, "bytes": bytes},
+        "elements": elements,
+    });
+    if let Some(g) = gzip {
+        d["gzip"] = g.clone();
+    }
+    d
+}
 
 /// The MRC profile's file run (spec/zarrify/mrc.md).
 pub struct Profile;
@@ -290,5 +314,10 @@ impl crate::run::FileProfile for Profile {
     }
     fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
         crate::project::mrc::reads(ir, facts)
+    }
+    /// The parser's description of the file, beside its projection's facts (§8.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#85-the-description>).
+    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
+        facts.get("description").cloned()
     }
 }
