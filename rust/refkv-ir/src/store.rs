@@ -98,15 +98,18 @@ impl StoreFormat {
 
     /// The profile's description of the input (the design of d-v-b/refkv#278, "The
     /// description"), from what the run's parser returned beside the IR, `facts`, without the
-    /// run's own counts: Some for a store format whose store run returns one, as its profile's
-    /// registry entry says (`described`, spec/zarrify/profiles/<name>.json), None otherwise. Each
-    /// profile with a description specifies it in its document's section "The description"
+    /// run's own counts: the facts, of a store format whose store run returns them as one, as its
+    /// profile's registry entry says (`described`, spec/zarrify/profiles/<name>.json); else where a
+    /// profile whose store parser returns one beside its facts says it is
+    /// (`run::FileProfile::store_description`, as VSI's does); None otherwise. Each profile with a
+    /// description specifies it in its document's section "The description"
     /// (`spec/zarrify/<profile>.md`).
     pub fn description(self, facts: &J) -> Option<J> {
-        if !self.described() {
-            return None;
-        }
-        let mut description = facts.clone();
+        let mut description = if self.described() {
+            facts.clone()
+        } else {
+            crate::run::Format::from_name(self.name())?.profile().store_description(facts)?
+        };
         if let Some(m) = description.as_object_mut() {
             m.remove("counts");
             // the bytes a store run read for its projection (windows it samples, edge chunks it

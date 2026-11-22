@@ -15,6 +15,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): each tile
 //! file's levels, and the images of the `.vsi` file's IFDs.
 
+mod describe;
 pub mod ets;
 mod stored;
 pub mod tiff;
@@ -129,6 +130,8 @@ struct Stack {
     /// the tile file's directory key, and the index of its file in `ets` once found
     dir: String,
     file: Option<usize>,
+    /// the stack's fields as the description gives them (`describe`), the tree's values as read
+    described: J,
 }
 
 /// A tile file: its listing index, key, size, and what was read of it.
@@ -250,7 +253,28 @@ impl Vsi {
             let Some(sc) = f.child() else { continue };
             let mut s = Stack { id: f.tag2.unwrap_or(0), ..Default::default() };
             s.dimension_sizes = tree::numbers_of(rules, b, sc, DIMENSION_SIZE).unwrap_or_default().iter().map(|v| *v as i64).collect();
-            if let Some(fc) = sc.volume(IMAGE_FRAME_VOLUME) {
+            // the description's fields (`describe`): each the first value field of its tag, as read
+            let value = |c: Option<&Container>, tag: u32| c.and_then(|c| tree::value_of(rules, b, c, tag)).unwrap_or(J::Null);
+            let fc = sc.volume(IMAGE_FRAME_VOLUME);
+            let xp = fc.and_then(|fc| fc.volume(EXTERNAL_FILE_PROPERTIES));
+            let pc = sc.volume(MULTIDIM_STACK_PROPERTIES);
+            let ifd_of = |tag: u32| fc.and_then(|fc| fc.fields.iter().find(|x| x.tag == tag && x.kind == Kind::TiffIfd)).and_then(|x| x.tag2);
+            let stack_type = value(pc, STACK_TYPE);
+            let mut described = json!({
+                "id": s.id, "name": value(pc, STACK_NAME), "type": stack_type,
+                "type_name": stack_type.as_f64().map(|t| t as i64).and_then(|t| rules.table("stack_types").get(t.to_string()).cloned()),
+                "has_external_file": value(xp, HAS_EXTERNAL_FILE), "image_boundary": value(xp, IMAGE_BOUNDARY),
+                "dimension_sizes": value(Some(sc), DIMENSION_SIZE),
+                "default_ifd": ifd_of(DEFAULT_SAMPLE_IFD), "coarse_ifd": ifd_of(COARSE_FRAME_IFD),
+                "frame_scale": value(pc, RWC_FRAME_SCALE), "frame_origin": value(pc, RWC_FRAME_ORIGIN),
+                "frame_unit": value(pc, RWC_FRAME_UNIT), "display_limits": value(pc, DISPLAY_LIMITS),
+                "creation_time": value(pc, CREATION_TIME),
+                "magnification": pc.and_then(|pc| find_value(rules, b, pc, OBJECTIVE_MAG)),
+            });
+            let mut described_dims = Vec::new();
+            let mut z_increment = J::Null;
+            let mut described_channels = Vec::new();
+            if let Some(fc) = fc {
                 if let Some(xp) = fc.volume(EXTERNAL_FILE_PROPERTIES) {
                     if let Some(v) = tree::numbers_of(rules, b, xp, IMAGE_BOUNDARY).filter(|v| v.len() >= 4) {
                         s.width = Some(v[2].max(0.0) as u64);
@@ -288,7 +312,8 @@ impl Vsi {
                     for p in &psets {
                         if let Some((v, u)) = tree::mdim_value(rules, b, p, Z_INCREMENT) {
                             s.z_step = v.as_f64();
-                            s.z_unit = u;
+                            s.z_unit = u.clone();
+                            z_increment = json!({"value": v, "unit": u});
                         }
                     }
                 }
@@ -298,12 +323,22 @@ impl Vsi {
                         ch.display = tree::numbers_of(rules, b, p, DISPLAY_LIMITS).filter(|v| v.len() >= 2).map(|v| (v[0], v[1]));
                         ch.color = lut_color(rules, b, p);
                         ch.wavelength = tree::mdim_value(rules, b, p, CHANNEL_WAVELENGTH).and_then(|(v, _)| v.as_f64());
+                        described_channels.push(json!({
+                            "dimension_name": tree::text_of(rules, b, p, DIMENSION_NAME), "channel_name": ch.channel_name,
+                            "lut_color": ch.color, "display_limits": value(Some(p), DISPLAY_LIMITS),
+                            "wavelength": tree::mdim_value(rules, b, p, CHANNEL_WAVELENGTH).map_or(J::Null, |(v, _)| v),
+                        }));
                         s.channels.push(ch);
                     }
                 }
+                described_dims.push(json!({"index": index, "meaning_code": psets.iter().find_map(|p| tree::value_of(rules, b, p, DIMENSION_MEANING).filter(J::is_number)), "meaning": meaning}));
                 s.dims.push(Dim { coord: 2 + index, meaning });
             }
             s.dims.sort_by_key(|d| d.coord);
+            described["dimensions"] = J::Array(described_dims);
+            described["z_increment"] = z_increment;
+            described["channels"] = J::Array(described_channels);
+            s.described = described;
             self.rules.check(
                 "stack",
                 rules::env([
@@ -622,6 +657,7 @@ impl Vsi {
         let chain = self.ifds.iter().filter(|f| !f.exif).count();
         let declared_by: Vec<Option<u32>> = (0..chain).map(|k| made.get(&k).map(|m| m.el).filter(|e| described.contains(e))).collect();
         ir.describe(arrays, chains, map)?;
+        let description = self.description(header, &made, &tiles_of);
         let tree = self.tree.as_ref().unwrap();
         let facts = json!({
             "vsi": {"key": self.keys[self.vsi].0, "size": self.keys[self.vsi].1, "ifds": self.ifds.iter().filter(|f| !f.exif).count()},
@@ -634,6 +670,7 @@ impl Vsi {
                 "tile_file": s.file.map(|f| self.files[f].key.clone()),
             })).collect::<Vec<_>>(),
             "counts": {"ifds": self.ifds.len(), "tileFiles": self.files.len(), "tiles": self.files.iter().map(|f| f.tiles.len()).sum::<usize>(), "batches": self.batches},
+            "description": description,
         });
         self.ir = Some(ir);
         Ok(facts)
@@ -786,10 +823,15 @@ fn lut_color(rules: &Rules, b: &[u8], p: &Container) -> Option<String> {
 
 /// The first number of `tag` anywhere under `c` (depth first).
 fn find_number(rules: &Rules, b: &[u8], c: &Container, tag: u32) -> Option<f64> {
-    if let Some(v) = tree::number_of(rules, b, c, tag) {
+    find_value(rules, b, c, tag)?.as_f64()
+}
+
+/// The first value of `tag` anywhere under `c` (depth first) that is a number.
+fn find_value(rules: &Rules, b: &[u8], c: &Container, tag: u32) -> Option<J> {
+    if let Some(v) = tree::value_of(rules, b, c, tag).filter(|v| v.is_number()) {
         return Some(v);
     }
-    c.fields.iter().filter_map(|f| f.child()).find_map(|child| find_number(rules, b, child, tag))
+    c.fields.iter().filter_map(|f| f.child()).find_map(|child| find_value(rules, b, child, tag))
 }
 
 /// An Olympus VSI slide's file run: a `.vsi` file whose tile files lie beside it, zarrified as a
@@ -809,6 +851,11 @@ impl crate::run::FileProfile for Profile {
     }
     fn project(&self, _: &crate::ir::Ir, _: &serde_json::Value, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
         Err("a VSI input is zarrified as a store run".into())
+    }
+    /// The store run's description of the slide, beside its projection's facts (spec/zarrify/vsi.md
+    /// §9.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#96-the-description>).
+    fn store_description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
+        facts.get("description").cloned()
     }
 }
 
