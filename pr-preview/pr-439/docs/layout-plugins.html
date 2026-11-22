@@ -500,7 +500,7 @@ python<span class="w"> </span>-m<span class="w"> </span>refkv.zarrify<span class
 <p>Beside the examples, refkv supports one layout, which it keeps working from release to release:</p>
 <ul class="simple">
 <li><p><strong><code class="docutils literal notranslate"><span class="pre">refkv.virtualizarr</span></code></strong>
-(<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/python/src/refkv/zarrify/layouts/virtualizarr.py">refkv.zarrify.layouts.virtualizarr</a>)
+(<a class="reference external" href="https://github.com/d-v-b/refkv/tree/main/python/src/refkv/zarrify/layouts/virtualizarr">refkv.zarrify.layouts.virtualizarr</a>)
 presents an HDF5, netCDF-4, netCDF3, FITS, ENVI, Zarr v2 or zipped Zarr v3 file as
 VirtualiZarr’s own parsers (<code class="docutils literal notranslate"><span class="pre">HDFParser</span></code>, <code class="docutils literal notranslate"><span class="pre">NetCDF3Parser</span></code>, <code class="docutils literal notranslate"><span class="pre">FITSParser</span></code>, <code class="docutils literal notranslate"><span class="pre">ENVIParser</span></code>,
 <code class="docutils literal notranslate"><span class="pre">ZarrParser</span></code>, <code class="docutils literal notranslate"><span class="pre">ZippedZarrParser</span></code>) present it, so that code that selects variables and reads
@@ -512,8 +512,9 @@ refkv’s own layout’s; it drops what <code class="docutils literal notranslat
 array its <code class="docutils literal notranslate"><span class="pre">_ARRAY_DIMENSIONS</span></code> as <code class="docutils literal notranslate"><span class="pre">dimension_names</span></code>, and writes no refkv declarations and no
 <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> mirror. It runs without the <code class="docutils literal notranslate"><span class="pre">layouts</span></code> extra. Its option <code class="docutils literal notranslate"><span class="pre">{&quot;nonfinite&quot;:</span> <span class="pre">&quot;text&quot;}</span></code>
 writes a NaN or infinite attribute as text (<code class="docutils literal notranslate"><span class="pre">&quot;NaN&quot;</span></code>) rather than the bare token zarr-python
-writes. The module’s docstring lists where it keeps refkv’s presentation because VirtualiZarr’s
-is a defect, such as <code class="docutils literal notranslate"><span class="pre">phony_dim_&lt;axis&gt;</span></code> names that give one dimension two sizes.</p></li>
+writes. Each profile’s module of the package lists where it keeps refkv’s presentation because
+VirtualiZarr’s is a defect, such as <code class="docutils literal notranslate"><span class="pre">phony_dim_&lt;axis&gt;</span></code> names that give one dimension two sizes
+(<code class="docutils literal notranslate"><span class="pre">virtualizarr/hdf5.py</span></code>).</p></li>
 </ul>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>refkv.zarrify<span class="w"> </span>data.nc<span class="w"> </span>out.vzip<span class="w"> </span>--layout<span class="w"> </span>refkv.virtualizarr
 </pre></div>
