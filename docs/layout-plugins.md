@@ -28,7 +28,7 @@ python -m refkv.zarrify ophys.nwb out.vzip --layout refkv.example.ome-zarr-06 \
 Beside the examples, refkv supports one layout, which it keeps working from release to release:
 
 - **`refkv.virtualizarr`**
-  ([refkv.zarrify.layouts.virtualizarr](../python/src/refkv/zarrify/layouts/virtualizarr.py))
+  ([refkv.zarrify.layouts.virtualizarr](../python/src/refkv/zarrify/layouts/virtualizarr/))
   presents an HDF5, netCDF-4, netCDF3, FITS, ENVI, Zarr v2 or zipped Zarr v3 file as
   VirtualiZarr's own parsers (`HDFParser`, `NetCDF3Parser`, `FITSParser`, `ENVIParser`,
   `ZarrParser`, `ZippedZarrParser`) present it, so that code that selects variables and reads
