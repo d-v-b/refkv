@@ -69,6 +69,35 @@ def decimals(t: str | None, n: int) -> list[float] | None:
     return values if all(np.isfinite(values)) else None
 
 
+def integer(t: str | None) -> int | None:
+    """An integer from 1 to 2^53 - 1, by the rule for attributes as text
+    (<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#21-attributes-as-text>), else None."""
+    if t is None or not t.strip(" \t\r\n").isdigit():
+        return None
+    n = int(t.strip(" \t\r\n"))
+    return n if 1 <= n < 2**53 else None
+
+
+def color_table(g: Any) -> str | None:
+    """A channel's color table as the description gives it: read only where the base color does
+    not decide the color first (`Color` three values from 0 to 1, and `ColorMode` not `TableColor`)
+    and `ColorTableLength` is an integer; its attribute's text, or else its linked dataset's (a
+    string dataset, compact or contiguous, of no filters); None otherwise."""
+    if g is None:
+        return None
+    color = decimals(attr(g, "Color"), 3)
+    base = color is not None and all(0 <= v <= 1 for v in color)
+    mode = (optional(g, "ColorMode") or "").strip(" \t\r\n")
+    if (base and mode != "TableColor") or integer(optional(g, "ColorTableLength")) is None:
+        return None
+    if "ColorTable" in g.attrs:
+        return optional(g, "ColorTable")
+    ds = g.get("ColorTable")
+    if not isinstance(ds, h5py.Dataset) or ds.dtype.kind != "S" or ds.chunks is not None:
+        return None
+    return text(ds[()])
+
+
 def filters(ds: Any) -> list[int]:
     plist = ds.id.get_create_plist()
     return [plist.get_filter(i)[0] for i in range(plist.get_nfilters())]
@@ -125,8 +154,7 @@ def test_the_description_is_h5pys_reading(path: Path):
                 assert ch["color_range"] == decimals(attr(g, "ColorRange"), 2), c
                 assert ch["color_mode"] == optional(g, "ColorMode"), c
                 assert ch["color_table_length"] == optional(g, "ColorTableLength"), c
-                if ch["color_table"] is not None and g is not None and "ColorTable" in g.attrs:
-                    assert ch["color_table"] == attr(g, "ColorTable"), c
+                assert ch["color_table"] == color_table(g), c
         else:
             assert d["info"]["channels"] == []
         tp = d["info"]["time_points"]
