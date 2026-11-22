@@ -81,15 +81,21 @@ pub fn root(d: &J) -> J {
     if !model["preamble"].is_null() {
         root.insert("preamble".into(), model["preamble"].clone());
     }
-    let members = |k: &str| model[k].as_object().cloned().unwrap_or_default();
+    // each BulkDataURI under the source node first: the sizes `move_large` measures are the root's
+    let members = |k: &str| {
+        let mut v = model[k].clone();
+        under_source_node(&mut v);
+        match v {
+            J::Object(m) => m,
+            _ => Map::new(),
+        }
+    };
     let (mut meta, mut dataset) = (members("meta"), members("dataset"));
     dataset.swap_remove(PER_FRAME);
     move_large(&mut meta, &mut dataset);
     for (k, mut m) in [("meta", meta), ("dataset", dataset)] {
         m.sort_keys();
-        let mut v = J::Object(m);
-        under_source_node(&mut v);
-        root.insert(k.into(), v);
+        root.insert(k.into(), J::Object(m));
     }
     let pixel = &d["pixel_data"];
     let structure = &pixel["structure"];
@@ -274,4 +280,25 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
         "references": references,
     });
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A member whose size is at most 16384 bytes only without the source node in its
+    /// `BulkDataURI`s is left out of the root: the sizes are the root's, the prefix included.
+    #[test]
+    fn a_member_is_measured_with_its_bulk_data_uris_under_the_source_node() {
+        let item = json!({"00281201": {"vr": "OW", "BulkDataURI": "dataset/00082112/0/00281201"}});
+        let one = json_size(&item) + 1;
+        // just under the limit without the prefix, over it with
+        let count = (MAX_MEMBER - 40) / one + 1;
+        let member = json!({"vr": "SQ", "Value": vec![item; count]});
+        let size = json_size(&member);
+        assert!(size <= MAX_MEMBER && size + count * (SOURCE_NODE.len() + 1) > MAX_MEMBER, "{size}");
+        let d = json!({"dicom_json": {"preamble": null, "meta": {}, "dataset": {"00082112": member}},
+                       "pixel_data": {"encapsulated": false, "structure": {"extra": null}}, "trailing": null});
+        assert!(root(&d)["dataset"].get("00082112").is_none());
+    }
 }
