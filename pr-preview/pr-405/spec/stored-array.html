@@ -1649,8 +1649,8 @@ sections 6 holds (indicator 0) and each of its fields (a section 7, with the sec
 in effect at it) is an array, indexed in the order of their sections, a bitmap before its field.
 The file’s store parser describes them itself (<a class="reference internal" href="#in-the-ir">stored-array.md §6</a>). A field’s array is the values
 its section 7 codes, in the file’s order: how fields stack into a variable, where on its grid a
-bitmap puts a field’s values, and which way a grid’s rows run are the profile’s. The facts give
-the keys: each entry of <code class="docutils literal notranslate"><span class="pre">fields</span></code> has <code class="docutils literal notranslate"><span class="pre">declared_by</span></code>, the id of its message’s element, <code class="docutils literal notranslate"><span class="pre">array</span></code>, the
+bitmap puts a field’s values, and which way a grid’s rows run are the profile’s. The description
+(<a class="reference internal" href="zarrify/grib.html#the-description"><span class="std std-ref">grib.md §8.7</span></a>) gives the keys: each entry of <code class="docutils literal notranslate"><span class="pre">fields</span></code> has <code class="docutils literal notranslate"><span class="pre">element</span></code>, the id of its message’s element, <code class="docutils literal notranslate"><span class="pre">array</span></code>, the
 index of its values’ array, and <code class="docutils literal notranslate"><span class="pre">mask</span></code>, the index of the bitmap that says which points its values
 are (its own, or, under indicator 254, the message’s last one before it), or null. Below, an octet
 is numbered from 1 in its section, a section is the element <code class="docutils literal notranslate"><span class="pre">messages/&lt;i&gt;/sections/&lt;j&gt;</span></code>, and <code class="docutils literal notranslate"><span class="pre">n</span></code>
@@ -1753,8 +1753,9 @@ its bytes, as an MP4 file, are not described.</p>
 <p>Every dataset of the SD interface the parser
 reaches is a stored array, whether or not the profile presents it: each <code class="docutils literal notranslate"><span class="pre">Var0.0</span></code> Vgroup of the
 file’s <code class="docutils literal notranslate"><span class="pre">CDF0.0</span></code> Vgroup (<a class="reference internal" href="zarrify/hdf4.html#datasets"><span class="std std-ref">hdf4.md §3</span></a>). It is keyed by that
-Vgroup’s element (<code class="docutils literal notranslate"><span class="pre">elements/1965/&lt;ref&gt;</span></code>), with no index. The facts give the key: each presented
-dataset’s <code class="docutils literal notranslate"><span class="pre">array.declared_by</span></code> is that element’s id. The writer’s Vdatas (tables) and the
+Vgroup’s element (<code class="docutils literal notranslate"><span class="pre">elements/1965/&lt;ref&gt;</span></code>), with no index. The description gives the key: each
+dataset’s <code class="docutils literal notranslate"><span class="pre">element</span></code> (<a class="reference internal" href="zarrify/hdf4.html#the-description"><span class="std std-ref">hdf4.md §9.6</span></a>) is that element’s id, of every
+dataset with a stored array, presented or not. The writer’s Vdatas (tables) and the
 datasets’ attributes are not described yet.</p>
 <ul class="simple">
 <li><p><strong>Declarations.</strong> The number type’s element (<code class="docutils literal notranslate"><span class="pre">elements/106/&lt;ref&gt;</span></code>), whose type code and width
@@ -1946,8 +1947,9 @@ neither planar nor interleaved, rows that overlap) has no IR.</p></li>
 <p>What the MP4 parser describes as stored arrays (<a class="reference internal" href="#"><span class="std std-doc">stored-array.md</span></a>), part of <a class="reference internal" href="zarrify/mp4.html"><span class="std std-doc">the MP4 profile</span></a>.</p>
 <p>Every track whose handler is <code class="docutils literal notranslate"><span class="pre">vide</span></code> or <code class="docutils literal notranslate"><span class="pre">soun</span></code> has
 descriptions, whether or not the profile zarrifies it, keyed by its <code class="docutils literal notranslate"><span class="pre">trak</span></code> box, a kind of element
-that may declare several arrays: each of a track’s has an index. The facts give the key: each such
-track’s <code class="docutils literal notranslate"><span class="pre">declared_by</span></code> is the id of its <code class="docutils literal notranslate"><span class="pre">trak</span></code> box. A track’s samples are its tables’, then its
+that may declare several arrays: each of a track’s has an index. The parser’s description gives the
+key: each such track’s <code class="docutils literal notranslate"><span class="pre">elements</span></code> has the id of its <code class="docutils literal notranslate"><span class="pre">trak</span></code> box as <code class="docutils literal notranslate"><span class="pre">trak</span></code>
+(<a class="reference internal" href="zarrify/mp4.html#the-description"><span class="std std-ref">mp4.md §8.5</span></a>). A track’s samples are its tables’, then its
 track fragments’, in decode order (<a class="reference internal" href="zarrify/mp4.html#tracks-and-samples"><span class="std std-ref">mp4.md §3</span></a>), each
 the element <code class="docutils literal notranslate"><span class="pre">samples/&lt;T&gt;/&lt;j&gt;</span></code>.</p>
 <ul class="simple">
@@ -2318,8 +2320,8 @@ likewise.</p>
 file, holds one image, a stored array, in both forms of the product: in the directory form’s
 store IR, whose parser describes its objects’ arrays itself (<a class="reference internal" href="#in-the-ir">stored-array.md §6</a>), and in the zip
 form’s file IR. It is keyed by the band file’s <code class="docutils literal notranslate"><span class="pre">codestream</span></code> struct (<code class="docutils literal notranslate"><span class="pre">boxes/&lt;i&gt;/codestream</span></code>, under
-the band file’s object or under its zip entry’s <code class="docutils literal notranslate"><span class="pre">data</span></code>), with no index. The facts give the key:
-each band’s <code class="docutils literal notranslate"><span class="pre">declared_by</span></code> is the id of that struct. The profile presents every band file. The
+the band file’s object or under its zip entry’s <code class="docutils literal notranslate"><span class="pre">data</span></code>), with no index. The description gives the key (<a class="reference internal" href="zarrify/safe.html#the-description"><span class="std std-ref">safe.md §8.11</span></a>):
+each band’s <code class="docutils literal notranslate"><span class="pre">element</span></code> is the id of that struct. The profile presents every band file. The
 product’s other images (the quality masks, the preview image, the cloud and snow probabilities,
 a mirror’s quicklook) are in objects the parser does not read
 (<a class="reference internal" href="zarrify/safe.html#objects"><span class="std std-ref">safe.md §2.1</span></a>), and have no description.</p>
@@ -2364,23 +2366,18 @@ IR of it.</p></li>
 that passes the profile’s checks (<a class="reference internal" href="zarrify/safetensors.html#checks"><span class="std std-ref">safetensors.md §8.2</span></a>)
 is a stored array, whether or not the profile presents it, keyed by the file’s <code class="docutils literal notranslate"><span class="pre">header</span></code> element, a
 kind of element that may declare several arrays: a tensor’s index is its position among the
-header’s tensors, in the order the header writes them (<code class="docutils literal notranslate"><span class="pre">__metadata__</span></code> is none of them). The facts
-give the key: <code class="docutils literal notranslate"><span class="pre">declared_by</span></code> is the id of the <code class="docutils literal notranslate"><span class="pre">header</span></code> element, and a tensor’s index is its position
-in the facts’ <code class="docutils literal notranslate"><span class="pre">own.tensors</span></code>, which a presented tensor’s entry of the facts’ <code class="docutils literal notranslate"><span class="pre">arrays</span></code> gives as
-<code class="docutils literal notranslate"><span class="pre">index</span></code>.</p>
+header’s tensors, in the order the header writes them (<code class="docutils literal notranslate"><span class="pre">__metadata__</span></code> is none of them). The
+description gives the key: <code class="docutils literal notranslate"><span class="pre">elements.header</span></code>
+(<a class="reference internal" href="zarrify/safetensors.html#the-description"><span class="std std-ref">safetensors.md §8.5</span></a>), and a tensor’s index is its position
+in the description’s <code class="docutils literal notranslate"><span class="pre">tensors</span></code>.</p>
 <ul class="simple">
 <li><p><strong>The store form</strong> (<a class="reference internal" href="zarrify/safetensors.html#the-store-form"><span class="std std-ref">safetensors.md §9</span></a>)
-describes each shard’s tensors itself, not by graft. A presented shard, described in place, has a
-file’s elements and facts (its entry of the store’s facts’ <code class="docutils literal notranslate"><span class="pre">shards</span></code> holds them as <code class="docutils literal notranslate"><span class="pre">facts</span></code>), and
-its tensors are keyed by its own <code class="docutils literal notranslate"><span class="pre">header</span></code>. A shard that is not presented for its key, whose
-header passed the checks, has no element but its object: its tensors are keyed by that object,
-also a kind of element that may declare several arrays, with the same indexes, and their places
-are ranges of it. A shard whose header fails a check has no descriptions. The store’s facts’
-<code class="docutils literal notranslate"><span class="pre">declared_by</span></code> lists, in the order of <code class="docutils literal notranslate"><span class="pre">own.files</span></code>, the id of the element that keys each shard’s
-descriptions, null for a shard with none.</p></li>
+describes each shard’s tensors itself, not by graft. Every shard whose header passed the checks
+is described in place, whether or not the profile presents it: it has a file’s elements, its
+entry of the store’s description holds its header’s description with them, and its tensors are
+keyed by its own <code class="docutils literal notranslate"><span class="pre">header</span></code>. A shard whose header fails a check has no descriptions.</p></li>
 <li><p><strong>Declarations.</strong> One: the range of the header that holds the entry’s <code class="docutils literal notranslate"><span class="pre">dtype</span></code> value, a JSON
-string as the header writes it, with its quotes and any escapes (of a shard keyed by its
-object, the same bytes as a range of the object). The format fixes the elements’ byte order
+string as the header writes it, with its quotes and any escapes. The format fixes the elements’ byte order
 (little-endian) and their order (the last index varying fastest), which no place declares.</p></li>
 <li><p><strong><code class="docutils literal notranslate"><span class="pre">shape</span></code></strong> is the entry’s <code class="docutils literal notranslate"><span class="pre">shape</span></code>, empty for a scalar. <code class="docutils literal notranslate"><span class="pre">axes</span></code> is absent: a tensor is stored in
 the order of its <code class="docutils literal notranslate"><span class="pre">shape</span></code>.</p></li>
@@ -2389,8 +2386,7 @@ the order of its <code class="docutils literal notranslate"><span class="pre">sh
 number is one element. There is no <code class="docutils literal notranslate"><span class="pre">pad_from</span></code>: a tensor’s elements pack unbroken into whole
 bytes.</p></li>
 <li><p><strong>The grid.</strong> A tensor is one unit: each axis is <code class="docutils literal notranslate"><span class="pre">Each</span></code> of its length, or an empty <code class="docutils literal notranslate"><span class="pre">List</span></code> for
-an axis of length 0, under <code class="docutils literal notranslate"><span class="pre">short</span></code>. Its row is its data’s element, <code class="docutils literal notranslate"><span class="pre">tensors/&lt;i&gt;</span></code>, or, of a
-shard keyed by its object, the data’s range of the object. A tensor with an axis of length 0
+an axis of length 0, under <code class="docutils literal notranslate"><span class="pre">short</span></code>. Its row is its data’s element, <code class="docutils literal notranslate"><span class="pre">tensors/&lt;i&gt;</span></code>. A tensor with an axis of length 0
 holds no bytes, and has no unit and no row.</p></li>
 <li><p><strong>The chain</strong> is empty for elements of whole bytes. Elements of 4 or 6 bits (<code class="docutils literal notranslate"><span class="pre">F4</span></code>, <code class="docutils literal notranslate"><span class="pre">F6_E2M3</span></code>
 and <code class="docutils literal notranslate"><span class="pre">F6_E3M2</span></code>) are in <code class="docutils literal notranslate"><span class="pre">lsb_first</span></code>, its <code class="docutils literal notranslate"><span class="pre">bits</span></code> their size: the buffer packs them from each

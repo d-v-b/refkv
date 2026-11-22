@@ -2959,6 +2959,170 @@ IFD image (<a class="reference internal" href="#the-macro-image">the convention 
 </tbody>
 </table>
 </div>
+</section>
+<section id="the-description">
+<span id="96-the-description"></span><h3>9.6 The description<a class="headerlink" href="#the-description" title="Link to this heading">¶</a></h3>
+<p>This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a <strong>description</strong> of the slide: what it found of the <code class="docutils literal notranslate"><span class="pre">.vsi</span></code> file’s and the
+tile files’ known structures, in Olympus’s own terms, for a projection to read with the IR and its
+stored arrays (<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>). Its JSON Schema is
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi/description.json">vsi/description.json</a>. It holds none of an output’s decisions: which stacks
+and IFDs are images and in what order (<a class="reference internal" href="#the-images">§4</a>), and which IFD images are not presented
+(<a class="reference internal" href="#ifd-images-that-are-not-presented">§4.4</a>); the levels, axes, data types, fill values and codecs
+(<a class="reference internal" href="#the-pyramid">§4.1</a>, <a class="reference internal" href="#the-macro-image">§4.3</a>); the channels’ labels, colors and windows
+(<a class="reference internal" href="#channels">§4.2</a>); the units, scales and translations (<a class="reference internal" href="#scales-units-and-position">§5</a>); and the
+source metadata (<a class="reference internal" href="#source-metadata">§6</a>) are the projection’s.</p>
+<p>It is a JSON object with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">key</span></code>, <code class="docutils literal notranslate"><span class="pre">size</span></code>, <code class="docutils literal notranslate"><span class="pre">element</span></code></p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">.vsi</span></code> file’s key, its size in bytes, and its object’s IR element</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">header</span></code></p></td>
+<td><p>the TIFF header (<a class="reference internal" href="#the-vsi-file">§2</a>): <code class="docutils literal notranslate"><span class="pre">byte_order</span></code> (its first two bytes as text), <code class="docutils literal notranslate"><span class="pre">magic</span></code>, <code class="docutils literal notranslate"><span class="pre">first_ifd</span></code>, and <code class="docutils literal notranslate"><span class="pre">element</span></code>, its IR element</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ifds</span></code></p></td>
+<td><p>the IFDs of the chain (<a class="reference internal" href="#the-tiff-images">§2.3</a>), each followed by its EXIF IFD, in the order read, each an object below</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tree</span></code></p></td>
+<td><p>the metadata tree (<a class="reference internal" href="#containers-and-fields">§2.1</a>) as the root’s <code class="docutils literal notranslate"><span class="pre">tree</span></code> gives it (<a class="reference internal" href="#the-root">§6.1</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">macro_ifd</span></code></p></td>
+<td><p>the second tag of the collection volume’s <code class="docutils literal notranslate"><span class="pre">Default</span> <span class="pre">sample</span> <span class="pre">IFD</span></code> field (2016), an IFD’s index; null without one</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">stacks</span></code></p></td>
+<td><p>the stacks of the tree (<a class="reference internal" href="#stacks">§2.2</a>), in its order, each an object below</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tile_files</span></code></p></td>
+<td><p>the tile files read (<a class="reference internal" href="#id2">§9.2</a>), in the stacks’ order, each an object below</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An IFD is an object:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">index</span></code></p></td>
+<td><p>its index in the main chain, or, of an EXIF IFD, its IFD’s</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">exif</span></code></p></td>
+<td><p>whether it is an EXIF IFD</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">offset</span></code>, <code class="docutils literal notranslate"><span class="pre">next</span></code></p></td>
+<td><p>its offset, and its next-IFD word</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tags</span></code></p></td>
+<td><p>each tag it has of those the profile reads (256, 257, 258, 259, 262, 273, 277, 278, 279, 284, 322, 323, 324, 325, 339, 347 and 34665; the first entry of a tag), by its number: <code class="docutils literal notranslate"><span class="pre">type</span></code>, its field type; <code class="docutils literal notranslate"><span class="pre">count</span></code>, its count; and <code class="docutils literal notranslate"><span class="pre">value</span></code>, its values as unsigned integers for the types BYTE, SHORT, LONG and IFD, JPEGTables’ bytes in base64, or null for another type or a value outside the file</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">element</span></code></p></td>
+<td><p>of a main-chain IFD in a TIFF region (<a class="reference internal" href="#the-tiff-images">§2.3</a>), its IR struct (<a class="reference internal" href="#elements">§6.3</a>); else null</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">strips</span></code>, <code class="docutils literal notranslate"><span class="pre">tiles</span></code></p></td>
+<td><p>of such an IFD with both fields of its strips’ (273 and 279) or tiles’ (324 and 325) table, of one length, the <code class="docutils literal notranslate"><span class="pre">data</span></code> element of each entry, or null for an entry of no bytes or outside the file; else null</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A stack is an object. Each value it takes from the tree is the value of the first field of its tag
+as the root’s <code class="docutils literal notranslate"><span class="pre">tree</span></code> gives it (a number, a list of numbers, a text), or null without that field:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id</span></code></p></td>
+<td><p>the stack’s id, its volume field’s second tag</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code>, <code class="docutils literal notranslate"><span class="pre">type</span></code></p></td>
+<td><p>its <code class="docutils literal notranslate"><span class="pre">Stack</span> <span class="pre">name</span></code> (2030) and <code class="docutils literal notranslate"><span class="pre">Stack</span> <span class="pre">type</span></code> (2074), of its properties (2005)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">type_name</span></code></p></td>
+<td><p>the type’s entry in the table <code class="docutils literal notranslate"><span class="pre">stack_types</span></code> (Bio-Formats’ name); null without one</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">has_external_file</span></code>, <code class="docutils literal notranslate"><span class="pre">image_boundary</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Has</span> <span class="pre">external</span> <span class="pre">file</span></code> (20005) and <code class="docutils literal notranslate"><span class="pre">Image</span> <span class="pre">boundary</span></code> (2053), of its frame volume’s (2002) external file properties (2018)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dimension_sizes</span></code></p></td>
+<td><p>its own <code class="docutils literal notranslate"><span class="pre">Dimension</span> <span class="pre">size</span></code> (2003)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">default_ifd</span></code>, <code class="docutils literal notranslate"><span class="pre">coarse_ifd</span></code></p></td>
+<td><p>the second tags of its frame volume’s <code class="docutils literal notranslate"><span class="pre">Default</span> <span class="pre">sample</span> <span class="pre">IFD</span></code> (2016) and <code class="docutils literal notranslate"><span class="pre">Coarse</span> <span class="pre">frame</span> <span class="pre">IFD</span></code> (2019) fields; null without them</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">frame_scale</span></code>, <code class="docutils literal notranslate"><span class="pre">frame_origin</span></code>, <code class="docutils literal notranslate"><span class="pre">frame_unit</span></code>, <code class="docutils literal notranslate"><span class="pre">display_limits</span></code>, <code class="docutils literal notranslate"><span class="pre">creation_time</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">RWC</span> <span class="pre">frame</span> <span class="pre">scale</span></code> (2019), <code class="docutils literal notranslate"><span class="pre">RWC</span> <span class="pre">frame</span> <span class="pre">origin</span></code> (2018), <code class="docutils literal notranslate"><span class="pre">RWC</span> <span class="pre">frame</span> <span class="pre">unit</span></code> (2020), <code class="docutils literal notranslate"><span class="pre">Display</span> <span class="pre">limits</span></code> (2003) and <code class="docutils literal notranslate"><span class="pre">Creation</span> <span class="pre">time</span></code> (2015), of its properties</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">magnification</span></code></p></td>
+<td><p>the first number of an <code class="docutils literal notranslate"><span class="pre">Objective</span> <span class="pre">magnification</span></code> field (120060) under its properties, depth first; null without one</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dimensions</span></code></p></td>
+<td><p>its dimension description volumes (2007), in the tree’s order: <code class="docutils literal notranslate"><span class="pre">index</span></code>, the volume’s second tag (its coordinate is <code class="docutils literal notranslate"><span class="pre">2</span> <span class="pre">+</span> <span class="pre">index</span></code>); <code class="docutils literal notranslate"><span class="pre">meaning_code</span></code>, the first number of a <code class="docutils literal notranslate"><span class="pre">Dimension</span> <span class="pre">meaning</span></code> field (2023) among its property sets (2008); and <code class="docutils literal notranslate"><span class="pre">meaning</span></code>, as <a class="reference internal" href="#stacks">§2.2</a> reads it</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">z_increment</span></code></p></td>
+<td><p>of the <code class="docutils literal notranslate"><span class="pre">z</span></code> dimension, the last of its property sets’ <code class="docutils literal notranslate"><span class="pre">Z</span> <span class="pre">increment</span></code> mdim volumes (2013): <code class="docutils literal notranslate"><span class="pre">value</span></code>, its <code class="docutils literal notranslate"><span class="pre">Value</span></code> (268435458), and <code class="docutils literal notranslate"><span class="pre">unit</span></code>, its <code class="docutils literal notranslate"><span class="pre">Units</span></code> (268435456) text; null without one</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channels</span></code></p></td>
+<td><p>of the <code class="docutils literal notranslate"><span class="pre">c</span></code> dimension, one per property set: <code class="docutils literal notranslate"><span class="pre">dimension_name</span></code> (2021) and <code class="docutils literal notranslate"><span class="pre">channel_name</span></code> (2419), texts; <code class="docutils literal notranslate"><span class="pre">lut_color</span></code>, the last entry of its <code class="docutils literal notranslate"><span class="pre">Stack</span> <span class="pre">display</span> <span class="pre">LUT</span></code> (2004) as <code class="docutils literal notranslate"><span class="pre">RRGGBB</span></code> (<a class="reference internal" href="#channels">§4.2</a>); <code class="docutils literal notranslate"><span class="pre">display_limits</span></code> (2003); and <code class="docutils literal notranslate"><span class="pre">wavelength</span></code>, its <code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">wavelength</span></code> mdim volume’s (2417) <code class="docutils literal notranslate"><span class="pre">Value</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tile_file</span></code></p></td>
+<td><p>its tile file, an index into <code class="docutils literal notranslate"><span class="pre">tile_files</span></code>; null without one</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A tile file is an object:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">key</span></code>, <code class="docutils literal notranslate"><span class="pre">size</span></code>, <code class="docutils literal notranslate"><span class="pre">element</span></code></p></td>
+<td><p>its key, its size in bytes, and its object’s IR element</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">stack</span></code></p></td>
+<td><p>its stack, an index into <code class="docutils literal notranslate"><span class="pre">stacks</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sis</span></code></p></td>
+<td><p>the SIS header’s <code class="docutils literal notranslate"><span class="pre">header_size</span></code>, <code class="docutils literal notranslate"><span class="pre">version</span></code>, <code class="docutils literal notranslate"><span class="pre">coordinates</span></code>, <code class="docutils literal notranslate"><span class="pre">ets_offset</span></code>, <code class="docutils literal notranslate"><span class="pre">ets_size</span></code>, <code class="docutils literal notranslate"><span class="pre">tiles_offset</span></code>, <code class="docutils literal notranslate"><span class="pre">tiles</span></code> and <code class="docutils literal notranslate"><span class="pre">size</span></code> (<a class="reference internal" href="#the-tile-files">§3</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ets</span></code></p></td>
+<td><p>the ETS header’s <code class="docutils literal notranslate"><span class="pre">version</span></code>, <code class="docutils literal notranslate"><span class="pre">pixel_type</span></code>, <code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">colorspace</span></code>, <code class="docutils literal notranslate"><span class="pre">compression</span></code>, <code class="docutils literal notranslate"><span class="pre">quality</span></code>, <code class="docutils literal notranslate"><span class="pre">tile_width</span></code>, <code class="docutils literal notranslate"><span class="pre">tile_height</span></code>, <code class="docutils literal notranslate"><span class="pre">tile_depth</span></code>, <code class="docutils literal notranslate"><span class="pre">background</span></code> (its 40 bytes in base64), <code class="docutils literal notranslate"><span class="pre">component_order</span></code>, <code class="docutils literal notranslate"><span class="pre">use_pyramid</span></code> (whether it is not 0), <code class="docutils literal notranslate"><span class="pre">dimensions</span></code>, and <code class="docutils literal notranslate"><span class="pre">dimension_sizes</span></code>, its first <code class="docutils literal notranslate"><span class="pre">dimensions</span></code> sizes (at most 10)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">header</span></code></p></td>
+<td><p>the ETS header’s IR element, <code class="docutils literal notranslate"><span class="pre">ets</span></code>, which keys the file’s stored arrays</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tiles</span></code></p></td>
+<td><p>the directory’s records, in order, each <code class="docutils literal notranslate"><span class="pre">[element,</span> <span class="pre">offset,</span> <span class="pre">size,</span> <span class="pre">c0,</span> <span class="pre">c1,</span> <span class="pre">...]</span></code>: the tile’s <code class="docutils literal notranslate"><span class="pre">data</span></code> element, its offset and size, and its <code class="docutils literal notranslate"><span class="pre">coordinates</span></code> coordinates in the record’s order</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The parser returns the description alone beside the IR, and the IR’s elements and stored arrays do
+not depend on what the layout presents. The projection makes refkv’s <strong>plan</strong> from the description
+and nothing else: the images and their order and the IFD images not presented, with their reasons
+(<a class="reference internal" href="#the-images">§4</a>, <a class="reference internal" href="#ifd-images-that-are-not-presented">§4.4</a>); each pyramid’s levels, its tiles
+inside them, data type, fill value and codec (<a class="reference internal" href="#the-pyramid">§4.1</a>); each IFD image’s strips and
+JPEG prefix (<a class="reference internal" href="#the-macro-image">§4.3</a>); the channels’ names, colors and display limits
+(<a class="reference internal" href="#channels">§4.2</a>); and the units the table <code class="docutils literal notranslate"><span class="pre">units</span></code> names (<a class="reference internal" href="#scales-units-and-position">§5</a>). The
+plan is public data of refkv’s convention, not of the IR. The parser still checks the input as
+<a class="reference internal" href="#id1">§9.1</a> to <a class="reference internal" href="#tiles-and-levels">§9.3</a> say.</p>
 <div class="toctree-wrapper compound">
 </div>
 </section>

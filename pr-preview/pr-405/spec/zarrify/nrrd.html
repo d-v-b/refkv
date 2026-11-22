@@ -1599,6 +1599,83 @@ members:</p>
 </tbody>
 </table>
 </div>
+</section>
+<section id="the-description">
+<span id="87-the-description"></span><h3>8.7 The description<a class="headerlink" href="#the-description" title="Link to this heading">¶</a></h3>
+<p>This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a <strong>description</strong> of the input: what it found of the header and its data, in
+NRRD’s own terms, for a projection to read with the IR and its stored arrays
+(<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>). Its JSON Schema is
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd/description.json">nrrd/description.json</a>. It holds none of an output’s decisions: the Zarr
+data type of a type (<a class="reference internal" href="#data-types-and-encodings">§3</a>), the axes’ roles and the image’s axes
+(<a class="reference internal" href="#the-array">§4.1</a>), the scales, units, position and orientation (<a class="reference internal" href="#scales-units-and-position">§4.3</a>),
+the channels (<a class="reference internal" href="#channels">§4.4</a>), the chunks (<a class="reference internal" href="#chunks">§8.5</a>) and the root’s source metadata
+(<a class="reference internal" href="#source-metadata">§5</a>) are the projection’s.</p>
+<p>It is a JSON object with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">magic</span></code>, <code class="docutils literal notranslate"><span class="pre">fields</span></code>, <code class="docutils literal notranslate"><span class="pre">key_values</span></code>, <code class="docutils literal notranslate"><span class="pre">comments</span></code></p></td>
+<td><p>as <a class="reference internal" href="#type-nrrdroot"><code class="docutils literal notranslate"><span class="pre">NrrdRoot</span></code></a> gives them</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dimension</span></code>, <code class="docutils literal notranslate"><span class="pre">sizes</span></code>, <code class="docutils literal notranslate"><span class="pre">line_skip</span></code>, <code class="docutils literal notranslate"><span class="pre">byte_skip</span></code></p></td>
+<td><p>the fields’ values as <a class="reference internal" href="#the-fields">§8.2</a> reads them: <code class="docutils literal notranslate"><span class="pre">n</span></code>, the sizes, and the skips (0 for a field the header lacks)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">type</span></code></p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">type</span></code> field’s descriptor, trimmed, in lower case: a name of <a class="reference internal" href="#data-types-and-encodings">§3</a>’s table</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">item</span></code></p></td>
+<td><p>the bytes of a value of the type</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">encoding</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">raw</span></code> or <code class="docutils literal notranslate"><span class="pre">gzip</span></code> (<code class="docutils literal notranslate"><span class="pre">gz</span></code> is <code class="docutils literal notranslate"><span class="pre">gzip</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">endian</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">little</span></code> or <code class="docutils literal notranslate"><span class="pre">big</span></code>, or null without an <code class="docutils literal notranslate"><span class="pre">endian</span></code> field</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">directions</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">directions</span></code>’ vectors, each an array of numbers or null for <code class="docutils literal notranslate"><span class="pre">none</span></code>; null without the field</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">origin</span></code>, <code class="docutils literal notranslate"><span class="pre">spacings</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">origin</span></code>’s vector and <code class="docutils literal notranslate"><span class="pre">spacings</span></code>’ numbers; null without the field</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">space_units</span></code>, <code class="docutils literal notranslate"><span class="pre">units</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">units</span></code>’ and <code class="docutils literal notranslate"><span class="pre">units</span></code>’ strings, as text values; null without the field</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">kinds</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">kinds</span></code>’ names, in lower case; null without the field</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">min</span></code>, <code class="docutils literal notranslate"><span class="pre">max</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">min</span></code> and <code class="docutils literal notranslate"><span class="pre">max</span></code> as numbers, null when they are none or not finite</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">header_key</span></code>, <code class="docutils literal notranslate"><span class="pre">header_size</span></code></p></td>
+<td><p>the header file’s key and size</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">data_key</span></code></p></td>
+<td><p>the data’s file’s key: the header file’s, or a detached header’s data file’s (<a class="reference internal" href="#the-data-file">§8.3</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data</span></code></p></td>
+<td><p>the data’s range in that file, <code class="docutils literal notranslate"><span class="pre">offset</span></code> and <code class="docutils literal notranslate"><span class="pre">bytes</span></code> (<a class="reference internal" href="#the-data">§8.4</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">elements</span></code></p></td>
+<td><p>the ids of its IR elements (<a class="reference internal" href="#elements">§5.3</a>) by name: <code class="docutils literal notranslate"><span class="pre">header_file</span></code> and <code class="docutils literal notranslate"><span class="pre">data_file</span></code>, the two objects (the same for an attached header); <code class="docutils literal notranslate"><span class="pre">lines</span></code>, the header’s lines in order; and <code class="docutils literal notranslate"><span class="pre">data</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A number of <code class="docutils literal notranslate"><span class="pre">directions</span></code>, <code class="docutils literal notranslate"><span class="pre">origin</span></code> or <code class="docutils literal notranslate"><span class="pre">spacings</span></code> that is not finite is null. The array’s stored
+description is keyed by <code class="docutils literal notranslate"><span class="pre">header_file</span></code> (<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>).
+The projection makes every decision of <a class="reference internal" href="#data-types-and-encodings">§3</a>, <a class="reference internal" href="#the-image">§4</a>,
+<a class="reference internal" href="#source-metadata">§5</a> and <a class="reference internal" href="#chunks">§8.5</a> from the description. The store run also reads the
+edge chunks the projection copies (<a class="reference internal" href="#the-data">§8.4</a>), which it returns beside the description.</p>
+<p>The parser still makes one decision of the output: the <code class="docutils literal notranslate"><span class="pre">data</span></code> element’s form names the Zarr data
+type of <a class="reference internal" href="#data-types-and-encodings">§3</a> (<a class="reference internal" href="#elements">§5.3</a>). It checks the axes’ roles
+(<a class="reference internal" href="#the-fields">§8.2</a>), and the projection names the axes from them.</p>
 <div class="toctree-wrapper compound">
 </div>
 </section>

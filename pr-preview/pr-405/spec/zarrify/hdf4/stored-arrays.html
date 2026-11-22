@@ -479,8 +479,9 @@
 <p>Every dataset of the SD interface the parser
 reaches is a stored array, whether or not the profile presents it: each <code class="docutils literal notranslate"><span class="pre">Var0.0</span></code> Vgroup of the
 file’s <code class="docutils literal notranslate"><span class="pre">CDF0.0</span></code> Vgroup (<a class="reference internal" href="../hdf4.html#datasets"><span class="std std-ref">hdf4.md §3</span></a>). It is keyed by that
-Vgroup’s element (<code class="docutils literal notranslate"><span class="pre">elements/1965/&lt;ref&gt;</span></code>), with no index. The facts give the key: each presented
-dataset’s <code class="docutils literal notranslate"><span class="pre">array.declared_by</span></code> is that element’s id. The writer’s Vdatas (tables) and the
+Vgroup’s element (<code class="docutils literal notranslate"><span class="pre">elements/1965/&lt;ref&gt;</span></code>), with no index. The description gives the key: each
+dataset’s <code class="docutils literal notranslate"><span class="pre">element</span></code> (<a class="reference internal" href="../hdf4.html#the-description"><span class="std std-ref">hdf4.md §9.6</span></a>) is that element’s id, of every
+dataset with a stored array, presented or not. The writer’s Vdatas (tables) and the
 datasets’ attributes are not described yet.</p>
 <ul class="simple">
 <li><p><strong>Declarations.</strong> The number type’s element (<code class="docutils literal notranslate"><span class="pre">elements/106/&lt;ref&gt;</span></code>), whose type code and width

@@ -719,3 +719,37 @@ when it has one, the chain ([§5.3](#53-elements)) lies in the header file, whos
 **The array and its chunks** are the single file's ([§4.1](#41-the-array), [`NiftiChunk`](#type-niftichunk)), source 0
 being the image file. The root's `source.url` is the header file's object URL
 ([spec/zarrify.md §1.4](../zarrify.md#14-store-inputs)), and its `data_file` the image file's key.
+
+### 7.6 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a **description** of the input: what it found of the file's known structures,
+in NIfTI's own terms, for a projection to read with the IR and its stored arrays
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)). Its JSON Schema is
+[nifti/description.json](nifti/description.json). It holds none of an output's decisions: the data
+type of a datatype code ([§3](#3-data-types)), the axes and their order, the scaling, the scales,
+units, affine and position ([§4](#4-the-image)), the chunks ([§7.2](#72-chunks)) and the root's
+source metadata ([§5](#5-source-metadata)) are the projection's.
+
+It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `version` | `1` or `2`, as the signature selects it ([§7.1](#71-header)) |
+| `byte_order` | `little` or `big`: the order in which the header's first field is its length |
+| `header` | every field of the header of the version, as the root's `header` gives it ([§5.1](#51-the-root)) |
+| `extender` | the 4 bytes after the header, as integers; null for a pair's header file that ends at its header ([§7.5](#75-header-and-image-pairs)) |
+| `voxels` | the voxel data's range: `offset`, `v`, and `bytes`, its size `B` ([§7.1](#71-header)); of a gzipped file ([§7.4](#74-gzipped-files)), in the stream; of a pair, in the image file |
+| `gzip` | of a gzipped file only: `skip`, `v`; `head`, the header's bytes in the stream, as lowercase hexadecimal; and `extensions`, each extension of the chain the stream's start holds, its `esize` and `ecode`, and the `data` of a text code's of at most 1024 bytes as a text value ([conventions §6](../conventions.md#6-source-metadata-as-json)) |
+| `elements` | the ids of its IR elements ([§5.3](#53-elements)) by name: `voxels`, and of a file that is not gzipped, `header`, `extender` (when there is one) and `extensions`, the chain's in its order |
+| `header_key`, `data_key` | of a pair only: the header file's and the image file's keys |
+
+The voxels' stored description is keyed by `header`, or of a gzipped file by `voxels`, the stream
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)). The projection reads the header
+from the IR's `header` value, or a gzipped file's from `gzip.head`, and makes every decision of
+[§3](#3-data-types), [§4](#4-the-image), [§5](#5-source-metadata) and [§7.2](#72-chunks) from it. A
+pair's store run also reads the edge chunks the projection copies ([§7.5](#75-header-and-image-pairs)),
+which it returns beside the description.
+
+The parser still makes one decision of the output: the `voxels` element's form names the data type
+of [§3](#3-data-types) ([§5.3](#53-elements)).

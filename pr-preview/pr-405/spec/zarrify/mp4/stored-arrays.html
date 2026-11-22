@@ -478,8 +478,9 @@
 <p>What the MP4 parser describes as stored arrays (<a class="reference internal" href="../../stored-array.html"><span class="std std-doc">stored-array.md</span></a>), part of <a class="reference internal" href="../mp4.html"><span class="std std-doc">the MP4 profile</span></a>.</p>
 <p>Every track whose handler is <code class="docutils literal notranslate"><span class="pre">vide</span></code> or <code class="docutils literal notranslate"><span class="pre">soun</span></code> has
 descriptions, whether or not the profile zarrifies it, keyed by its <code class="docutils literal notranslate"><span class="pre">trak</span></code> box, a kind of element
-that may declare several arrays: each of a track’s has an index. The facts give the key: each such
-track’s <code class="docutils literal notranslate"><span class="pre">declared_by</span></code> is the id of its <code class="docutils literal notranslate"><span class="pre">trak</span></code> box. A track’s samples are its tables’, then its
+that may declare several arrays: each of a track’s has an index. The parser’s description gives the
+key: each such track’s <code class="docutils literal notranslate"><span class="pre">elements</span></code> has the id of its <code class="docutils literal notranslate"><span class="pre">trak</span></code> box as <code class="docutils literal notranslate"><span class="pre">trak</span></code>
+(<a class="reference internal" href="../mp4.html#the-description"><span class="std std-ref">mp4.md §8.5</span></a>). A track’s samples are its tables’, then its
 track fragments’, in decode order (<a class="reference internal" href="../mp4.html#tracks-and-samples"><span class="std std-ref">mp4.md §3</span></a>), each
 the element <code class="docutils literal notranslate"><span class="pre">samples/&lt;T&gt;/&lt;j&gt;</span></code>.</p>
 <ul class="simple">

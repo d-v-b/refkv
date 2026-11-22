@@ -951,6 +951,10 @@ add two functions, which <code class="docutils literal notranslate"><span class=
 <li><p><code class="docutils literal notranslate"><span class="pre">pub</span> <span class="pre">fn</span> <span class="pre">store_parser(ir,</span> <span class="pre">objects,</span> <span class="pre">keys)</span></code> in <code class="docutils literal notranslate"><span class="pre">src/&lt;m&gt;.rs</span></code>;</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">pub</span> <span class="pre">fn</span> <span class="pre">store_project(ir,</span> <span class="pre">facts,</span> <span class="pre">url)</span></code> in <code class="docutils literal notranslate"><span class="pre">src/project/&lt;m&gt;.rs</span></code>.</p></li>
 </ul>
+<p>A store run whose parser returns the profile’s description of the input beside the IR (its
+document’s section “The description”) says so in the same entry, <code class="docutils literal notranslate"><span class="pre">&quot;described&quot;:</span> <span class="pre">true</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">StoreFormat::description</span></code> gives it to the hosts; one whose parser returns no description yet
+leaves it out.</p>
 <p>A format whose writers name files in another case than they have (LIF’s XLEF documents) adds
 <code class="docutils literal notranslate"><span class="pre">&quot;case&quot;:</span> <span class="pre">true</span></code>, and each host that can list a local directory then answers a probe with
 <code class="docutils literal notranslate"><span class="pre">StoreRun::found_as</span></code>.</p>
