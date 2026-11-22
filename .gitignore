@@ -44,3 +44,6 @@ examples-out/
 
 # measure.py's cache of remote files (design/experiments/third_party)
 design/experiments/third_party/.cache/
+
+# the documentation site (`just docs`)
+docs-site/_build/
