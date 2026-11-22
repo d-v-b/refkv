@@ -3,7 +3,7 @@
 //! one's bytes and time), until `poll()` gives None; then `finish()`.
 
 use crate::ir::Ir;
-use crate::nd2::Step;
+use crate::step::Step;
 use crate::out::Out;
 use crate::plan::{Planner, Request};
 use crate::project::Copied;

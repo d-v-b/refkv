@@ -19,7 +19,7 @@
 use crate::fed::{Fed, Overlap};
 use crate::hdf5::types::{float_json, int_of};
 use crate::ir::{Ir, NO_INDEX};
-use crate::nd2::Step;
+use crate::step::Step;
 use crate::out::int_json;
 use crate::rules::{self, Rules};
 use crate::sans::Asked;

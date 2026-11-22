@@ -18,7 +18,7 @@
 use crate::hdf5::types::{float_json, int_of};
 use crate::hdf5::{Acc, Fail, Src, R};
 use crate::ir::{Ir, NO_INDEX};
-use crate::nd2::Step;
+use crate::step::Step;
 use crate::rules::{self, Rules};
 use crate::text::text_json;
 use serde_json::{json, Value as J};

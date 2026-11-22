@@ -5,7 +5,7 @@
 //! the stream is inflated only as far as the header, and its trailer says how many bytes it holds.
 
 use crate::fed::Fed;
-use crate::nd2::Step;
+use crate::step::Step;
 use serde_json::Value as J;
 
 /// The bytes a gzip member starts with: its magic number, and the method deflate.

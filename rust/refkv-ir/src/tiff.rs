@@ -48,7 +48,7 @@
 use crate::expr::V;
 use crate::fed::{Fed, Word};
 use crate::ir::*;
-use crate::nd2::Step;
+use crate::step::Step;
 use crate::lzw;
 use crate::ndpi;
 use crate::rules::{self, Rules, flag, int, num, text};
@@ -2830,7 +2830,7 @@ impl crate::Parser for Tiff {
     fn new(size: u64) -> Self {
         Tiff::new(size)
     }
-    fn step(&mut self) -> Result<crate::nd2::Step, String> {
+    fn step(&mut self) -> Result<crate::step::Step, String> {
         Tiff::step(self)
     }
     fn feed(&mut self, offset: u64, data: Vec<u8>) {

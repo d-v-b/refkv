@@ -15,7 +15,7 @@ use crate::coding::{Head, JpegFrame, jpeg_frame_header};
 use crate::expr::V;
 use crate::fed::{Fed, Word, uint};
 use crate::ir::*;
-use crate::nd2::Step;
+use crate::step::Step;
 use crate::out::int_json;
 use crate::rules::{self, Rules, flag, num, text};
 use crate::sans;

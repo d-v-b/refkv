@@ -23,7 +23,7 @@
 
 use crate::ir::{Ir, Res, NO_INDEX};
 use crate::json::{self, Jv};
-use crate::nd2::Step;
+use crate::step::Step;
 use crate::project::zarr3_nodes::classify;
 use crate::rules::{self, Rules};
 use crate::store::{StoreParser, StoreStep};

@@ -23,7 +23,7 @@ mod stored;
 
 use crate::fed::Word;
 use crate::ir::*;
-use crate::nd2::Step;
+use crate::step::Step;
 use crate::out::{payload_size, Part};
 use crate::rules::{self, Rules, Vars, flag, num, text};
 use crate::sans;
