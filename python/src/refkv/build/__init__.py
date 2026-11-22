@@ -12,26 +12,16 @@ bytes of sources `read` opened, within them.
 `read` parses an input as `zarrify` does and keeps its IR and the sources it opened; `project`
 gives refkv's own output of it, made when asked for; `apply` is what `zarrify` does with a plugin
 layout: the plugin's `write(inputs, options)`, sealed. A format's description, its plan and the
-routines that build on them come later.
+routines that build on them come later. The routines of each format's convention
+(`refkv.build.routines`) are exported here too, by the names their modules export.
 """
+
+from typing import Any
 
 from refkv.zarrify.layouts import MAX_PAYLOAD
 
+from . import routines
 from .convention import declaration, filled, grid, gzip_member, mirror
-from .formats import (
-    EnviImage,
-    Hdf5Hierarchy,
-    Netcdf3Hierarchy,
-    OmeImage,
-    ZarrHierarchy,
-    envi_image,
-    fits_arrays,
-    fits_cards,
-    hdf5_hierarchy,
-    netcdf3_hierarchy,
-    ome_image,
-    zarr_hierarchy,
-)
 from .parsed import MAX_BYTES, NoIrError, Parsed, read, read_async
 from .plugin import apply
 from .project import Projected, project, project_async
@@ -64,12 +54,8 @@ __all__ = [
     "Array",
     "Copy",
     "Data",
-    "EnviImage",
-    "Hdf5Hierarchy",
     "Literal",
-    "Netcdf3Hierarchy",
     "NoIrError",
-    "OmeImage",
     "Parsed",
     "Part",
     "Projected",
@@ -78,23 +64,16 @@ __all__ = [
     "Shared",
     "Value",
     "Written",
-    "ZarrHierarchy",
     "Zeros",
     "apply",
     "concat",
     "cut",
     "declaration",
-    "envi_image",
     "filled",
     "fits",
-    "fits_arrays",
-    "fits_cards",
     "grid",
     "gzip_member",
-    "hdf5_hierarchy",
     "mirror",
-    "netcdf3_hierarchy",
-    "ome_image",
     "payload_size",
     "project",
     "project_async",
@@ -104,5 +83,16 @@ __all__ = [
     "stored_array",
     "value",
     "zarr_codecs",
-    "zarr_hierarchy",
 ]
+__all__ += routines.__all__
+
+
+def __getattr__(name: str) -> Any:  # noqa: ANN401 (a routine or its class, of any format)
+    """A routine of `refkv.build.routines`, or its class, by name."""
+    if name in routines.__all__:
+        return getattr(routines, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *routines.__all__})
