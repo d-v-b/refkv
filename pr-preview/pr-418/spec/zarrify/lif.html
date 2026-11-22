@@ -1,0 +1,2041 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../../genindex.html"><link rel="search" title="Search" href="../../search.html"><link rel="next" title="LIF" href="../../docs/zarrify/lif/README.html"><link rel="prev" title="IMS: stored arrays" href="ims/stored-arrays.html">
+        <link rel="canonical" href="https://d-v-b.github.io/refkv/spec/zarrify/lif.html">
+
+    <!-- Generated with Sphinx 9.1.1 and Furo 2025.12.19 -->
+        <title>LIF - refkv</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="../../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../../README.html"><div class="brand">refkv</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../../README.html">
+  
+  <span class="sidebar-brand-text">refkv</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/README.html">refkv documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/adding-a-format.html">Adding a file format</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/build.html">Building an output from the IR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/combining-stores.html">Combining stores</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/layout-plugins.html">Writing a layout plugin</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/tiff-stack.html">A stack of TIFF files as one array</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/virtual-datasets.html">Virtual datasets with xarray</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Specification</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../TECHNIQUES.html">Mapping image formats to Zarr: techniques</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../conventions.html">refkv’s Zarr conventions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../layout.html">Layouts written by plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../provenance.html">refkv’s provenance convention</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../refkv.html">refkv: a reference value type for key-value stores</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../refkv.html#part-1-reference-values">Part 1. Reference values</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../stored-array.html">Stored arrays in the IR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../zarrify.html">Zarrifying files and stores as Zarr in refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/phkv.html">phkv: the perfect-hash binding of refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/phkv.html#part-3-the-perfect-hash-binding">Part 3. The perfect-hash binding</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/vzip.html">vzip: the ZIP binding of refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/vzip.html#part-2-the-zip-binding">Part 2. The ZIP binding</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Formats</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="czi.html">CZI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="czi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="czi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/czi/README.html">CZI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="czi/stored-arrays.html">CZI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="dicom.html">DICOM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dicom.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="dicom.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/dicom/README.html">DICOM, including whole-slide images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dicom/stored-arrays.html">DICOM: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="envi.html">ENVI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="envi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="envi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/envi/README.html">ENVI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="envi/stored-arrays.html">ENVI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="fits.html">FITS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fits.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="fits.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/fits/README.html">FITS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="fits/stored-arrays.html">FITS: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="flac.html">FLAC</a></li>
+<li class="toctree-l1"><a class="reference internal" href="flac.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="flac.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-5" name="toctree-checkbox-5" role="switch" type="checkbox"/><label for="toctree-checkbox-5"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/flac/README.html">FLAC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="flac/stored-arrays.html">FLAC: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="grib.html">GRIB</a></li>
+<li class="toctree-l1"><a class="reference internal" href="grib.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="grib.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-6" name="toctree-checkbox-6" role="switch" type="checkbox"/><label for="toctree-checkbox-6"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/grib/README.html">GRIB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="grib/stored-arrays.html">GRIB: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="h5j.html">H5J</a></li>
+<li class="toctree-l1"><a class="reference internal" href="h5j.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="h5j.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-7" name="toctree-checkbox-7" role="switch" type="checkbox"/><label for="toctree-checkbox-7"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/h5j/README.html">H5J</a></li>
+<li class="toctree-l2"><a class="reference internal" href="h5j/stored-arrays.html">H5J: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="hdf4.html">HDF4</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hdf4.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="hdf4.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-8" name="toctree-checkbox-8" role="switch" type="checkbox"/><label for="toctree-checkbox-8"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/hdf4/README.html">HDF4 and HDF-EOS2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="hdf4/stored-arrays.html">HDF4: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="hdf5.html">HDF5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hdf5.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="hdf5.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-9" name="toctree-checkbox-9" role="switch" type="checkbox"/><label for="toctree-checkbox-9"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/hdf5/README.html">HDF5 and NWB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="hdf5/stored-arrays.html">HDF5: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ims.html">IMS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ims.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ims.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-10" name="toctree-checkbox-10" role="switch" type="checkbox"/><label for="toctree-checkbox-10"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/ims/README.html">Imaris IMS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ims/stored-arrays.html">IMS: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">LIF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-11" name="toctree-checkbox-11" role="switch" type="checkbox"/><label for="toctree-checkbox-11"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/lif/README.html">LIF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lif/stored-arrays.html">LIF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="mp3.html">MP3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mp3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mp3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-12" name="toctree-checkbox-12" role="switch" type="checkbox"/><label for="toctree-checkbox-12"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/mp3/README.html">MP3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mp3/stored-arrays.html">MP3: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="mp4.html">MP4</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mp4.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mp4.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-13" name="toctree-checkbox-13" role="switch" type="checkbox"/><label for="toctree-checkbox-13"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/mp4/README.html">MP4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mp4/stored-arrays.html">MP4: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="mrc.html">MRC</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mrc.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mrc.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-14" name="toctree-checkbox-14" role="switch" type="checkbox"/><label for="toctree-checkbox-14"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/mrc/README.html">MRC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mrc/stored-arrays.html">MRC: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mrc-dataset.html">MRC as a dataset</a><input aria-label="Toggle navigation of MRC as a dataset" class="toctree-checkbox" id="toctree-checkbox-15" name="toctree-checkbox-15" role="switch" type="checkbox"/><label for="toctree-checkbox-15"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul class="simple">
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="n5.html">N5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="n5.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="n5.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-16" name="toctree-checkbox-16" role="switch" type="checkbox"/><label for="toctree-checkbox-16"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/n5/README.html">N5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="n5/stored-arrays.html">N5: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="nd2.html">ND2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nd2.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="nd2.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-17" name="toctree-checkbox-17" role="switch" type="checkbox"/><label for="toctree-checkbox-17"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/nd2/README.html">Nikon ND2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nd2/stored-arrays.html">ND2: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ndpi.html">NDPI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ndpi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ndpi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-18" name="toctree-checkbox-18" role="switch" type="checkbox"/><label for="toctree-checkbox-18"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/ndpi/README.html">Hamamatsu NDPI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ndpi/stored-arrays.html">NDPI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="netcdf3.html">netCDF3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="netcdf3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="netcdf3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-19" name="toctree-checkbox-19" role="switch" type="checkbox"/><label for="toctree-checkbox-19"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/netcdf3/README.html">netCDF3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="netcdf3/stored-arrays.html">netCDF3: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="nifti.html">NIfTI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nifti.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="nifti.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-20" name="toctree-checkbox-20" role="switch" type="checkbox"/><label for="toctree-checkbox-20"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/nifti/README.html">NIfTI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nifti/stored-arrays.html">NIfTI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="npy.html">NumPy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="npy.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="npy.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-21" name="toctree-checkbox-21" role="switch" type="checkbox"/><label for="toctree-checkbox-21"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/npy/README.html">NumPy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="npy/stored-arrays.html">NumPy: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="nrrd.html">NRRD</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nrrd.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="nrrd.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-22" name="toctree-checkbox-22" role="switch" type="checkbox"/><label for="toctree-checkbox-22"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/nrrd/README.html">NRRD</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nrrd/stored-arrays.html">NRRD: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ome-zarr.html">OME-Zarr</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ome-zarr.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ome-zarr.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-23" name="toctree-checkbox-23" role="switch" type="checkbox"/><label for="toctree-checkbox-23"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/ome-zarr/README.html">OME-Zarr 0.4 to 0.5, in place</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ome-zarr/stored-arrays.html">OME-Zarr: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="precomputed.html">Neuroglancer precomputed</a></li>
+<li class="toctree-l1"><a class="reference internal" href="precomputed.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="precomputed.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-24" name="toctree-checkbox-24" role="switch" type="checkbox"/><label for="toctree-checkbox-24"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/precomputed/README.html">Neuroglancer precomputed</a></li>
+<li class="toctree-l2"><a class="reference internal" href="precomputed/stored-arrays.html">Neuroglancer precomputed: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="qptiff.html">QPTIFF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="qptiff.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="qptiff.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-25" name="toctree-checkbox-25" role="switch" type="checkbox"/><label for="toctree-checkbox-25"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/qptiff/README.html">Akoya QPTIFF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="qptiff/stored-arrays.html">QPTIFF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="safe.html">SAFE</a></li>
+<li class="toctree-l1"><a class="reference internal" href="safe.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="safe.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-26" name="toctree-checkbox-26" role="switch" type="checkbox"/><label for="toctree-checkbox-26"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/safe/README.html">Sentinel-2 SAFE</a></li>
+<li class="toctree-l2"><a class="reference internal" href="safe/stored-arrays.html">SAFE: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="safetensors.html">safetensors</a></li>
+<li class="toctree-l1"><a class="reference internal" href="safetensors.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="safetensors.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-27" name="toctree-checkbox-27" role="switch" type="checkbox"/><label for="toctree-checkbox-27"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/safetensors/README.html">safetensors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="safetensors/stored-arrays.html">safetensors: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="tiff.html">TIFF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tiff.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="tiff.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-28" name="toctree-checkbox-28" role="switch" type="checkbox"/><label for="toctree-checkbox-28"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/tiff/README.html">TIFF, OME-TIFF and Aperio SVS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tiff/stored-arrays.html">TIFF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="vsi.html">VSI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="vsi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="vsi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-29" name="toctree-checkbox-29" role="switch" type="checkbox"/><label for="toctree-checkbox-29"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/vsi/README.html">VSI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="vsi/stored-arrays.html">VSI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarr2.html">Zarr v2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarr2.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarr2.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-30" name="toctree-checkbox-30" role="switch" type="checkbox"/><label for="toctree-checkbox-30"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/zarr2/README.html">Zarr v2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarr2/stored-arrays.html">Zarr v2: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarr3.html">Zarr v3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarr3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarr3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-31" name="toctree-checkbox-31" role="switch" type="checkbox"/><label for="toctree-checkbox-31"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/zarr3/README.html">Zarr v3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarr3/stored-arrays.html">Zarr v3: stored arrays</a></li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/d-v-b/refkv/edit/main/spec/zarrify/lif.md" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="lif">
+<h1>LIF<a class="headerlink" href="#lif" title="Link to this heading">¶</a></h1>
+<p>The Zarr layout of a Leica LIF file (the Leica Image File that LAS X and LAS AF write,
+versions 1 and 2), of a Leica object file (LOF), of a LIF extension file (LIFEXT) and of a LAS X
+project of XLEF, XLCF, XLIF and XLLF documents (<a class="reference internal" href="#las-x-documents">§8</a>), and the translation of
+their XML into JSON. What all of refkv’s
+conventions share is in <a class="reference internal" href="../conventions.html"><span class="std std-doc">spec/conventions.md</span></a>, cited here as “conventions
+§n”. How refkv produces this layout as a reference store is the LIF profile,
+<a class="reference internal" href="#part-2-the-profile">Part 2</a> below, cited as “the profile §n”.</p>
+<p>Convention version: 0 (until release, <a class="reference internal" href="../conventions.html#conventions"><span class="std std-ref">conventions §1</span></a>) · UUID: <code class="docutils literal notranslate"><span class="pre">b099ab1f-f9d4-4276-9006-9ff1193a34b2</span></code> ·
+Schema: <a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif/schema.json">schema.json</a></p>
+<p>Changes: <a class="reference external" href="https://github.com/d-v-b/refkv/tree/main/spec/zarrify/changes/lif">changes/lif/</a>, one file per change.</p>
+<p>Added 2026-10-25.</p>
+<p>This document has two parts (<a class="reference internal" href="../conventions.html#parts"><span class="std std-ref">conventions §11.1</span></a>).</p>
+</section>
+<section id="part-1-the-convention">
+<h1>Part 1. The convention<a class="headerlink" href="#part-1-the-convention" title="Link to this heading">¶</a></h1>
+<p>This convention gives a layout only to the files that meet its requirements. Where it says
+that “the input is rejected”, or that something MUST hold, a file that fails has no layout
+under this convention, and the profile rejects it.</p>
+<p>Every convention is held to reconstruction and efficiency (conventions, introduction). For
+LIF this means: every block the file holds (the XML header, every memory block with its ID and
+data, those of no image included) and the bytes after the last block can be rebuilt from the
+hierarchy, byte for byte (its IR mirror, <a class="reference internal" href="#the-ir-mirror">§5.3</a>); each image’s elements of
+the XML, its dimensions and channels, are on its group as JSON; and no document grows with the
+number of planes: an image’s documents grow with its dimensions and channels only, which the
+profile bounds (<a class="reference internal" href="#rejection">the profile §7.3</a>).</p>
+<section id="layout">
+<h2>Layout<a class="headerlink" href="#layout" title="Link to this heading">¶</a></h2>
+<p>The hierarchy’s entries (<a class="reference internal" href="../conventions.html#layout-tables"><span class="std std-ref">conventions §11.5</span></a>), a
+bioformats2raw collection (<a class="reference internal" href="../conventions.html#images"><span class="std std-ref">conventions §4</span></a>, whose
+<a class="reference internal" href="../conventions.html#table-collection"><span class="std std-ref">entries</span></a> these rows refine) of the images’ fields, one
+series each:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>prefix</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>structure</p></th>
+<th class="head"><p>description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json</span></code></p></td>
+<td><p>group</p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-groupdocument"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">GroupDocument</span></code></span></a>, attributes a <a class="reference internal" href="../conventions.html#type-collectionroot"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">CollectionRoot</span></code></span></a></p></td>
+<td><p>the root (<a class="reference internal" href="#the-hierarchy">§4.1</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/ome</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{&quot;version&quot;:</span> <span class="pre">&quot;0.5&quot;,</span> <span class="pre">&quot;bioformats2raw.layout&quot;:</span> <span class="pre">3}</span></code></p></td>
+<td><p>when the file has a series; absent for a file without images (only folders, or FLIM data), which then has no <code class="docutils literal notranslate"><span class="pre">OME</span></code> group</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/zarr_conventions</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p>array of <a class="reference internal" href="../conventions.html#type-conventionmetadata"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">ConventionMetadata</span></code></span></a></p></td>
+<td><p>the CMO of <a class="reference internal" href="#declaration">§1</a></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/refkv_zarrified</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-rootproperty"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">RootProperty</span></code></span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">profile</span></code> <code class="docutils literal notranslate"><span class="pre">&quot;lif&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">version</span></code> <code class="docutils literal notranslate"><span class="pre">0</span></code>, <code class="docutils literal notranslate"><span class="pre">source.url</span></code> the file’s URL, or a project’s named document’s object URL</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/refkv_zarrified/lif</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="#type-lifroot"><code class="docutils literal notranslate"><span class="pre">LifRoot</span></code></a></p></td>
+<td><p>the root’s source metadata (<a class="reference internal" href="#the-root">§5.1</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">OME/zarr.json</span></code></p></td>
+<td><p>group</p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-groupdocument"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">GroupDocument</span></code></span></a>, attributes a <a class="reference internal" href="../conventions.html#type-seriesgroup"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">SeriesGroup</span></code></span></a></p></td>
+<td><p>when the file has a series: <code class="docutils literal notranslate"><span class="pre">series</span></code> <code class="docutils literal notranslate"><span class="pre">&quot;0&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;1&quot;</span></code>, …, one per series</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;s&gt;/zarr.json</span></code></p></td>
+<td><p>group</p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-imagegroup"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">ImageGroup</span></code></span></a></p></td>
+<td><p>series <code class="docutils literal notranslate"><span class="pre">s</span></code> (<a class="reference internal" href="#id1">§4.2</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;s&gt;/zarr.json#/attributes/ome</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-omeimage"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">OmeImage</span></code></span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">M</span></code>: one level, the array <code class="docutils literal notranslate"><span class="pre">0</span></code>, with <code class="docutils literal notranslate"><span class="pre">name</span></code>, scales and <code class="docutils literal notranslate"><span class="pre">omero</span></code> as <a class="reference internal" href="#id1">§4.2</a> says, and no translation</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;s&gt;/zarr.json#/attributes/zarr_conventions</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p>array of <a class="reference internal" href="../conventions.html#type-conventionmetadata"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">ConventionMetadata</span></code></span></a></p></td>
+<td><p>the CMO of <a class="reference internal" href="#declaration">§1</a>: every image group declares the convention</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;s&gt;/zarr.json#/attributes/refkv_zarrified</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-nodeproperty"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">NodeProperty</span></code></span></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;s&gt;/zarr.json#/attributes/refkv_zarrified/lif</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="#type-lifimage"><code class="docutils literal notranslate"><span class="pre">LifImage</span></code></a></p></td>
+<td><p>the series’ source metadata (<a class="reference internal" href="#the-images">§5.2</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;s&gt;/0/zarr.json</span></code></p></td>
+<td><p>array</p></td>
+<td><p><a class="reference internal" href="#type-lifarray"><code class="docutils literal notranslate"><span class="pre">LifArray</span></code></a></p></td>
+<td><p>the series’ array (<a class="reference internal" href="#image-arrays">§4.3</a>); attributes <code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;s&gt;/0/c/&lt;coords&gt;</span></code></p></td>
+<td><p>chunk</p></td>
+<td><p><a class="reference internal" href="#type-lifchunk"><code class="docutils literal notranslate"><span class="pre">LifChunk</span></code></a></p></td>
+<td><p>a band of a plane (<a class="reference internal" href="#image-arrays">§4.3</a>); every chunk is present</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">refkv_source/**</span></code></p></td>
+<td><p>subtree</p></td>
+<td><p><a class="reference internal" href="../conventions.html#table-mirror"><span class="std std-ref">the mirror’s entries</span></a></p></td>
+<td><p>the IR mirror (<a class="reference internal" href="#the-ir-mirror">§5.3</a>): its elements are <a class="reference internal" href="#elements">§5.4</a>’s; the convention writes no arrays of its own under it (a LAS X project’s LOFs that no image’s chunks reference are chunks under <code class="docutils literal notranslate"><span class="pre">refkv_source/objects/</span></code>, <a class="reference internal" href="#the-siblings">§8.2</a>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>placeholder</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;s&gt;</span></code></p></td>
+<td><p>a series’ index, in decimal, from 0: image 0’s fields in order, then image 1’s, and so on (<a class="reference internal" href="#the-hierarchy">§4.1</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;coords&gt;</span></code></p></td>
+<td><p>the chunk’s coordinates along the array’s axes, in decimal, one key segment each: <code class="docutils literal notranslate"><span class="pre">&lt;t&gt;/&lt;c&gt;/&lt;z&gt;/&lt;j&gt;/0</span></code>, each of <code class="docutils literal notranslate"><span class="pre">t</span></code>, <code class="docutils literal notranslate"><span class="pre">c</span></code> and <code class="docutils literal notranslate"><span class="pre">z</span></code> only for the axes present (so it stands for two to five segments); <code class="docutils literal notranslate"><span class="pre">j</span></code> the band</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="declaration">
+<span id="1-declaration"></span><h2>1. Declaration<a class="headerlink" href="#declaration" title="Link to this heading">¶</a></h2>
+<p>The root and <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> declare the convention
+(<a class="reference internal" href="../conventions.html#declaration"><span class="std std-ref">conventions §11.2</span></a>), the root with the source metadata of
+<a class="reference internal" href="#the-root">§5.1</a> as the member <code class="docutils literal notranslate"><span class="pre">&quot;lif&quot;</span></code>. Its CMO is:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"uuid"</span><span class="p">:</span><span class="w"> </span><span class="s2">"b099ab1f-f9d4-4276-9006-9ff1193a34b2"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"schema_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/lif/schema.json"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"spec_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"refkv_zarrified"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"description"</span><span class="p">:</span><span class="w"> </span><span class="s2">"The Zarr layout of a LIF source zarrified by refkv, and the source's metadata"</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Every image group (<a class="reference internal" href="#id1">§4.2</a>) declares it too, with <code class="docutils literal notranslate"><span class="pre">{&quot;lif&quot;:</span> <span class="pre">S}</span></code>, <code class="docutils literal notranslate"><span class="pre">S</span></code> its source
+metadata (<a class="reference internal" href="#the-images">§5.2</a>), a <a class="reference internal" href="#type-lifimage"><code class="docutils literal notranslate"><span class="pre">LifImage</span></code></a>. No other node declares it:
+not the image arrays, nor <code class="docutils literal notranslate"><span class="pre">OME</span></code>.</p>
+</section>
+<section id="the-source">
+<span id="2-the-source"></span><h2>2. The source<a class="headerlink" href="#the-source" title="Link to this heading">¶</a></h2>
+<p>All integers are little-endian, <code class="docutils literal notranslate"><span class="pre">u8</span></code>, <code class="docutils literal notranslate"><span class="pre">u32</span></code> and <code class="docutils literal notranslate"><span class="pre">u64</span></code> unsigned. Offsets are from the start of
+the file.</p>
+<section id="blocks">
+<span id="21-blocks"></span><h3>2.1 Blocks<a class="headerlink" href="#blocks" title="Link to this heading">¶</a></h3>
+<p>A LIF file is a sequence of <strong>blocks</strong>. The first, at offset 0, is the <strong>header block</strong>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>bytes</p></th>
+<th class="head"><p>field</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>0–3</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">u32</span></code> test value <code class="docutils literal notranslate"><span class="pre">0x70</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>4–7</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">u32</span></code> length (not read; writers set it to <code class="docutils literal notranslate"><span class="pre">2c</span> <span class="pre">+</span> <span class="pre">5</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p>8</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">u8</span></code> magic byte <code class="docutils literal notranslate"><span class="pre">0x2A</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>9–12</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">u32</span></code> <code class="docutils literal notranslate"><span class="pre">c</span></code>, the XML header’s characters</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">2c</span></code> bytes from 13</p></td>
+<td><p>the XML header (<a class="reference internal" href="#the-xml-header">§2.2</a>), UTF-16LE</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The test value and the magic byte MUST be these, and the XML header MUST lie within the file.</p>
+<p>After it come the <strong>memory blocks</strong>, from offset <code class="docutils literal notranslate"><span class="pre">13</span> <span class="pre">+</span> <span class="pre">2c</span></code>. A memory block is its <strong>fixed
+part</strong> of <code class="docutils literal notranslate"><span class="pre">H</span></code> bytes, then its <strong>ID</strong> and its <strong>data</strong>. The data size <code class="docutils literal notranslate"><span class="pre">D</span></code> is a <code class="docutils literal notranslate"><span class="pre">u32</span></code> in a file of
+version 1 and a <code class="docutils literal notranslate"><span class="pre">u64</span></code> in one of version 2 (<a class="reference internal" href="#the-xml-header">§2.2</a>), so <code class="docutils literal notranslate"><span class="pre">H</span></code> is 18 or 22 (a
+LIFEXT file’s is a <code class="docutils literal notranslate"><span class="pre">u64</span></code> whatever its version, <a class="reference internal" href="#lifext-files">§2.6</a>):</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>bytes, version 1</p></th>
+<th class="head"><p>bytes, version 2</p></th>
+<th class="head"><p>field</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>0–3</p></td>
+<td><p>0–3</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">u32</span></code> test value <code class="docutils literal notranslate"><span class="pre">0x70</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>4–7</p></td>
+<td><p>4–7</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">u32</span></code> length (not read)</p></td>
+</tr>
+<tr class="row-even"><td><p>8</p></td>
+<td><p>8</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">u8</span></code> magic byte <code class="docutils literal notranslate"><span class="pre">0x2A</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>9–12</p></td>
+<td><p>9–16</p></td>
+<td><p>the data size <code class="docutils literal notranslate"><span class="pre">D</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>13</p></td>
+<td><p>17</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">u8</span></code> magic byte <code class="docutils literal notranslate"><span class="pre">0x2A</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>14–17</p></td>
+<td><p>18–21</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">u32</span></code> <code class="docutils literal notranslate"><span class="pre">m</span></code>, the ID’s characters</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">2m</span></code> bytes from 18</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">2m</span></code> bytes from 22</p></td>
+<td><p>the <strong>ID</strong>, UTF-16LE</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">D</span></code> bytes from <code class="docutils literal notranslate"><span class="pre">18</span> <span class="pre">+</span> <span class="pre">2m</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">D</span></code> bytes from <code class="docutils literal notranslate"><span class="pre">22</span> <span class="pre">+</span> <span class="pre">2m</span></code></p></td>
+<td><p>the <strong>data</strong></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Memory block <code class="docutils literal notranslate"><span class="pre">i</span></code> is the <code class="docutils literal notranslate"><span class="pre">i</span></code>-th the <strong>walk</strong>
+finds (<a class="reference internal" href="#reading">the profile §7.2</a>), from 0, in file order. Bytes after the last block are
+the <strong>tail</strong>.</p>
+</section>
+<section id="the-xml-header">
+<span id="22-the-xml-header"></span><h3>2.2 The XML header<a class="headerlink" href="#the-xml-header" title="Link to this heading">¶</a></h3>
+<p>The XML header’s bytes MUST be well-formed UTF-16LE (a code unit of an unpaired surrogate
+rejects the input); its text is read by the tag scan of <a class="reference internal" href="tiff.html#ome-xml"><span class="std std-ref">the TIFF convention §3</span></a>
+(skipped sections, tags, and attribute values with their references decoded), and its tags
+nest into elements as <a class="reference internal" href="czi.html#the-metadata-xml"><span class="std std-ref">the CZI convention §2.7</span></a> says: an element’s
+<strong>children</strong> are those opened while it is the innermost open one, and the <strong>root</strong> is the first
+element at depth 0, self-closing or not. Elements are named by their local name. A path <code class="docutils literal notranslate"><span class="pre">A/B</span></code> names an element’s
+first child <code class="docutils literal notranslate"><span class="pre">A</span></code> and that child’s first child <code class="docutils literal notranslate"><span class="pre">B</span></code>.</p>
+<p>The root MUST be named <code class="docutils literal notranslate"><span class="pre">LMSDataContainerHeader</span></code>, or <code class="docutils literal notranslate"><span class="pre">LMSDataContainerEnhancedHeader</span></code> in a LIFEXT
+file (<a class="reference internal" href="#lifext-files">§2.6</a>), and its attribute <code class="docutils literal notranslate"><span class="pre">Version</span></code> MUST be an integer, 1 or 2: the file’s
+<strong>version</strong>, which gives the width of the memory blocks’ data sizes. An XML header whose text is
+<code class="docutils literal notranslate"><span class="pre">LMS_Object_File</span></code> is a Leica object file’s (LOF): its XML is elsewhere (<a class="reference internal" href="#leica-object-files">§2.5</a>).</p>
+<p>An attribute’s <strong>integer</strong> is its value with whitespace removed from both ends, one or more
+digits of a value at most 2^53 − 1; its <strong>decimal</strong> is that value when it matches the decimal of
+<a class="reference internal" href="czi.html#the-metadata-xml"><span class="std std-ref">the CZI convention §2.7</span></a> and is finite.</p>
+</section>
+<section id="images">
+<span id="23-images"></span><h3>2.3 Images<a class="headerlink" href="#images" title="Link to this heading">¶</a></h3>
+<p>The <strong>elements</strong> are the elements named <code class="docutils literal notranslate"><span class="pre">Element</span></code> in the root’s subtree, in document order:
+the file’s own, its folders, and its images. An <strong>image</strong> is an element with a path
+<code class="docutils literal notranslate"><span class="pre">Data/Image</span></code>; the images are numbered <code class="docutils literal notranslate"><span class="pre">k</span></code> from 0 in document order. An element with no image,
+such as a folder, or FLIM data (<code class="docutils literal notranslate"><span class="pre">Data/SingleMoleculeDetection</span></code>), has no layout: its memory
+block is kept as bytes (<a class="reference internal" href="#elements">§5.4</a>).</p>
+<p>An image’s <strong>path</strong> is the attribute <code class="docutils literal notranslate"><span class="pre">Name</span></code> of each element from the file’s own element to the
+image, in that order (an element without one: <code class="docutils literal notranslate"><span class="pre">null</span></code>). Its memory block is named by the
+attribute <code class="docutils literal notranslate"><span class="pre">MemoryBlockID</span></code> of its first child <code class="docutils literal notranslate"><span class="pre">Memory</span></code>, which MUST be present: the memory block
+whose ID’s code units are the attribute value’s (<a class="reference internal" href="#blocks">§2.1</a>). Exactly one memory block
+MUST have that ID, and two images MUST NOT name one block. (LAS X gives elements without data,
+such as folders, IDs it writes no block for, or the ID of one block of size 0; they name no
+image’s block.)</p>
+</section>
+<section id="dimensions-and-channels">
+<span id="24-dimensions-and-channels"></span><h3>2.4 Dimensions and channels<a class="headerlink" href="#dimensions-and-channels" title="Link to this heading">¶</a></h3>
+<p>An image’s <strong>dimensions</strong> are the children <code class="docutils literal notranslate"><span class="pre">DimensionDescription</span></code> of its
+<code class="docutils literal notranslate"><span class="pre">Data/Image/ImageDescription/Dimensions</span></code>, 1 to 16 of them, in document order; its <strong>channels</strong>
+the children <code class="docutils literal notranslate"><span class="pre">ChannelDescription</span></code> of <code class="docutils literal notranslate"><span class="pre">Data/Image/ImageDescription/Channels</span></code>, 1 to 1024.</p>
+<p>A dimension’s attributes:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>attribute</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">DimID</span></code></p></td>
+<td><p>MUST be an integer (below)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NumberOfElements</span></code></p></td>
+<td><p>MUST be an integer, at least 1</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">BytesInc</span></code></p></td>
+<td><p>MUST be an integer: the bytes from one element to the next</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">BitInc</span></code></p></td>
+<td><p>when present, MUST be the integer 0 (bit-packed data cannot be referenced as bytes)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Origin</span></code></p></td>
+<td><p>its first element’s position</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">Length</span></code></p></td>
+<td><p>the distance from its first element to the last</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Unit</span></code></p></td>
+<td><p>their unit</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A dimension of one element is <strong>unused</strong>; the others are <strong>used</strong>, and no two used dimensions
+MUST have one <code class="docutils literal notranslate"><span class="pre">DimID</span></code>.</p>
+<p>A channel’s attributes:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>attribute</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">DataType</span></code></p></td>
+<td><p>MUST be an integer: 0, unsigned integer; 1, floating point</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">Resolution</span></code></p></td>
+<td><p>MUST be an integer: bits, 1 to 64; more than 8 for a float</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">BytesInc</span></code></p></td>
+<td><p>MUST be an integer: where its samples start</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">BitInc</span></code></p></td>
+<td><p>when present, MUST be 0</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ChannelTag</span></code></p></td>
+<td><p>names its color: 0 gray, 1 red, 2 green, 3 blue</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">LUTName</span></code></p></td>
+<td><p>names its color</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A dimension’s <code class="docutils literal notranslate"><span class="pre">DimID</span></code> gives its axis:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p><code class="docutils literal notranslate"><span class="pre">DimID</span></code></p></th>
+<th class="head"><p>dimension</p></th>
+<th class="head"><p>axis</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>1</p></td>
+<td><p>X</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">x</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>2</p></td>
+<td><p>Y</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">y</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>3</p></td>
+<td><p>Z</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">z</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>4</p></td>
+<td><p>T</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">t</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>5, 9</p></td>
+<td><p>emission, excitation wavelength</p></td>
+<td><p>a field (<a class="reference internal" href="#axes-and-fields">§3.3</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p>6, 7, 8, 11</p></td>
+<td><p>rotation, XT slices, T slices, loop</p></td>
+<td><p>a field</p></td>
+</tr>
+<tr class="row-even"><td><p>10</p></td>
+<td><p>mosaic tile (LAS X’s stage position)</p></td>
+<td><p>a field: a tile (<a class="reference internal" href="#mosaics">§4.4</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p>other</p></td>
+<td><p></p></td>
+<td><p>a field</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="leica-object-files">
+<span id="25-leica-object-files"></span><h3>2.5 Leica object files<a class="headerlink" href="#leica-object-files" title="Link to this heading">¶</a></h3>
+<p>A <strong>LOF</strong> holds one memory block, of one element, and its XML after the data. Its header block
+(<a class="reference internal" href="#blocks">§2.1</a>) has the XML text <code class="docutils literal notranslate"><span class="pre">LMS_Object_File</span></code> (15 characters), so that what follows it, from
+offset <code class="docutils literal notranslate"><span class="pre">h</span> <span class="pre">=</span> <span class="pre">13</span> <span class="pre">+</span> <span class="pre">2</span> <span class="pre">×</span> <span class="pre">15</span> <span class="pre">=</span> <span class="pre">43</span></code>, is:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>bytes from <code class="docutils literal notranslate"><span class="pre">h</span></code></p></th>
+<th class="head"><p>field</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>0</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">u8</span></code> magic byte <code class="docutils literal notranslate"><span class="pre">0x2A</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>1–4</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">u32</span></code> a version (LAS X writes 1)</p></td>
+</tr>
+<tr class="row-even"><td><p>5</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">u8</span></code> magic byte <code class="docutils literal notranslate"><span class="pre">0x2A</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>6–9</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">u32</span></code> a second version (LAS X writes 0)</p></td>
+</tr>
+<tr class="row-even"><td><p>10</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">u8</span></code> magic byte <code class="docutils literal notranslate"><span class="pre">0x2A</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>11–18</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">u64</span></code> the data size <code class="docutils literal notranslate"><span class="pre">D</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">D</span></code> bytes from 19</p></td>
+<td><p>the <strong>data</strong></p></td>
+</tr>
+<tr class="row-odd"><td><p>13 bytes from <code class="docutils literal notranslate"><span class="pre">19</span> <span class="pre">+</span> <span class="pre">D</span></code></p></td>
+<td><p>the <strong>XML block’s</strong> fixed part: <code class="docutils literal notranslate"><span class="pre">u32</span></code> test value <code class="docutils literal notranslate"><span class="pre">0x70</span></code>, <code class="docutils literal notranslate"><span class="pre">u32</span></code> length (not read), <code class="docutils literal notranslate"><span class="pre">u8</span></code> magic byte <code class="docutils literal notranslate"><span class="pre">0x2A</span></code>, <code class="docutils literal notranslate"><span class="pre">u32</span></code> <code class="docutils literal notranslate"><span class="pre">c</span></code>, the XML’s characters</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">2c</span></code> bytes after it</p></td>
+<td><p>the <strong>XML</strong>, UTF-16LE</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The magic bytes and the test value MUST be these, and the XML MUST lie within the file. The bytes
+after the XML are the <strong>tail</strong>. The memory block has no ID. Its data is the data of the file’s
+image, if it has one, whatever its XML’s <code class="docutils literal notranslate"><span class="pre">MemoryBlockID</span></code> says, and the file has at most one image.</p>
+<p>The XML is read as <a class="reference internal" href="#the-xml-header">§2.2</a> says, with <a class="reference internal" href="#images">§2.3</a> and
+<a class="reference internal" href="#dimensions-and-channels">§2.4</a> for its image, but for two things. An image need not have a
+<code class="docutils literal notranslate"><span class="pre">Memory</span></code> element. XML that starts with <code class="docutils literal notranslate"><span class="pre">&lt;Data&gt;</span></code>, as an older writer’s does, is read as if it were
+<code class="docutils literal notranslate"><span class="pre">&lt;LMSDataContainerHeader</span> <span class="pre">Version=&quot;2&quot;&gt;&lt;Element&gt;</span></code> followed by that XML and the end tags of those
+elements, so its image’s path is <code class="docutils literal notranslate"><span class="pre">[null]</span></code>, and it has no <code class="docutils literal notranslate"><span class="pre">Name</span></code> or <code class="docutils literal notranslate"><span class="pre">UniqueID</span></code>.</p>
+<p>A LOF of no image is accepted. LAS X writes one beside a frame image, of a <code class="docutils literal notranslate"><span class="pre">SimpleListInMemory</span></code>:
+its output is the root and <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code>.</p>
+</section>
+<section id="lifext-files">
+<span id="26-lifext-files"></span><h3>2.6 LIFEXT files<a class="headerlink" href="#lifext-files" title="Link to this heading">¶</a></h3>
+<p>A <strong>LIFEXT</strong> file holds optional data that LAS X writes beside a LIF file: pyramid levels and
+histograms of the LIF file’s images. It is a LIF file (<a class="reference internal" href="#blocks">§2.1</a>) but for two things. The
+root of its XML header is <code class="docutils literal notranslate"><span class="pre">LMSDataContainerEnhancedHeader</span></code>, its elements under children of the root
+named <code class="docutils literal notranslate"><span class="pre">ChildrenOf</span></code>. And the data size of each of its memory blocks is a <code class="docutils literal notranslate"><span class="pre">u64</span></code>, also in the files of
+<code class="docutils literal notranslate"><span class="pre">Version</span></code> 1 that LAS X writes. A <code class="docutils literal notranslate"><span class="pre">ChildrenOf</span></code> has an attribute <code class="docutils literal notranslate"><span class="pre">MemoryBlockID</span></code>, the ID of a memory
+block in the LIF file, whose image the elements under it belong to.</p>
+<p>The images of a LIFEXT file are read as a LIF file’s are (<a class="reference internal" href="#images">§2.3</a>) and each is an image of
+its output. The profile reads the LIFEXT file alone: it presents the images the file holds, records
+the <code class="docutils literal notranslate"><span class="pre">MemoryBlockID</span></code> each belongs to as its <code class="docutils literal notranslate"><span class="pre">parent</span></code> (<a class="reference internal" href="#the-images">§5.2</a>), and does not look for
+the LIF file, which the LIFEXT file does not name. Nor does a LIF file name its LIFEXT file, so
+<a class="reference internal" href="#reading">§7.2</a> reads none for a LIF file (for the reason of
+<a class="reference internal" href="../zarrify.html#sources-beside-the-input"><span class="std std-ref">zarrify §1.9</span></a>, <strong>Probing</strong>): to present a file’s LIFEXT
+images, zarrify the LIFEXT file.</p>
+</section>
+</section>
+<section id="placement">
+<span id="3-placement"></span><h2>3. Placement<a class="headerlink" href="#placement" title="Link to this heading">¶</a></h2>
+<section id="data-types">
+<span id="31-data-types"></span><h3>3.1 Data types<a class="headerlink" href="#data-types" title="Link to this heading">¶</a></h3>
+<p>A channel’s <strong>item size</strong> <code class="docutils literal notranslate"><span class="pre">e</span></code> and data type, by its <code class="docutils literal notranslate"><span class="pre">Resolution</span></code> and <code class="docutils literal notranslate"><span class="pre">DataType</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p><code class="docutils literal notranslate"><span class="pre">Resolution</span></code></p></th>
+<th class="head"><p>item size <code class="docutils literal notranslate"><span class="pre">e</span></code></p></th>
+<th class="head"><p>data type, <code class="docutils literal notranslate"><span class="pre">DataType</span></code> 0</p></th>
+<th class="head"><p>data type, <code class="docutils literal notranslate"><span class="pre">DataType</span></code> 1</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>1–8 bits</p></td>
+<td><p>1 byte</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">uint8</span></code></p></td>
+<td><p>rejected</p></td>
+</tr>
+<tr class="row-odd"><td><p>9–16 bits</p></td>
+<td><p>2 bytes</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">uint16</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">float16</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>17–32 bits</p></td>
+<td><p>4 bytes</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">uint32</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">float32</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>33–64 bits</p></td>
+<td><p>8 bytes</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">uint64</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">float64</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>(So 12 bits are <code class="docutils literal notranslate"><span class="pre">uint16</span></code>, and a float of 8 bits is rejected.) Every channel of an image MUST
+have one data type, the image’s. Samples are little-endian.</p>
+</section>
+<section id="channels">
+<span id="32-channels"></span><h3>3.2 Channels<a class="headerlink" href="#channels" title="Link to this heading">¶</a></h3>
+<p>An image’s channels are taken in ascending order of their <code class="docutils literal notranslate"><span class="pre">BytesInc</span></code> (two channels of one
+<code class="docutils literal notranslate"><span class="pre">BytesInc</span></code> reject the input): channel <code class="docutils literal notranslate"><span class="pre">c</span></code>, from 0, has the <code class="docutils literal notranslate"><span class="pre">c</span></code>-th, <code class="docutils literal notranslate"><span class="pre">o_c</span></code>. The image MUST have a
+dimension of <code class="docutils literal notranslate"><span class="pre">DimID</span></code> 1: its <strong>X</strong> is the used one, else the first, of <code class="docutils literal notranslate"><span class="pre">BytesInc</span></code> <code class="docutils literal notranslate"><span class="pre">s_x</span></code>, and its
+channels are:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>channels</p></th>
+<th class="head"><p>when</p></th>
+<th class="head"><p>samples</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>planar</strong></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">s_x</span> <span class="pre">=</span> <span class="pre">e</span></code></p></td>
+<td><p>each channel’s samples are an image of their own, from <code class="docutils literal notranslate"><span class="pre">o_c</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>interleaved</strong></p></td>
+<td><p>there are <code class="docutils literal notranslate"><span class="pre">n</span> <span class="pre">&gt;</span> <span class="pre">1</span></code> channels, <code class="docutils literal notranslate"><span class="pre">s_x</span> <span class="pre">=</span> <span class="pre">n</span> <span class="pre">×</span> <span class="pre">e</span></code> and <code class="docutils literal notranslate"><span class="pre">o_c</span> <span class="pre">=</span> <span class="pre">c</span> <span class="pre">×</span> <span class="pre">e</span></code></p></td>
+<td><p>a pixel holds one sample of each channel, in order (RGB data, as LAS X writes it)</p></td>
+</tr>
+<tr class="row-even"><td><p>(none)</p></td>
+<td><p>otherwise</p></td>
+<td><p>the input is rejected</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The sample of channel <code class="docutils literal notranslate"><span class="pre">c</span></code> at the index <code class="docutils literal notranslate"><span class="pre">i_d</span></code> along each dimension <code class="docutils literal notranslate"><span class="pre">d</span></code> is at <code class="docutils literal notranslate"><span class="pre">o_c</span> <span class="pre">+</span> <span class="pre">Σ</span> <span class="pre">i_d</span> <span class="pre">×</span> <span class="pre">s_d</span></code>
+bytes into the data of the image’s memory block, <code class="docutils literal notranslate"><span class="pre">s_d</span></code> the dimension’s <code class="docutils literal notranslate"><span class="pre">BytesInc</span></code>. The image’s
+<strong>extent</strong> is <code class="docutils literal notranslate"><span class="pre">O</span> <span class="pre">+</span> <span class="pre">Σ</span> <span class="pre">(N_d</span> <span class="pre">−</span> <span class="pre">1)</span> <span class="pre">×</span> <span class="pre">s_d</span> <span class="pre">+</span> <span class="pre">e</span></code> over its dimensions (<code class="docutils literal notranslate"><span class="pre">N_d</span></code> its <code class="docutils literal notranslate"><span class="pre">NumberOfElements</span></code>,
+<code class="docutils literal notranslate"><span class="pre">O</span></code> the largest <code class="docutils literal notranslate"><span class="pre">o_c</span></code>), computed exactly, which MUST be at most its block’s data size <code class="docutils literal notranslate"><span class="pre">D</span></code>.</p>
+</section>
+<section id="axes-and-fields">
+<span id="33-axes-and-fields"></span><h3>3.3 Axes and fields<a class="headerlink" href="#axes-and-fields" title="Link to this heading">¶</a></h3>
+<p>The image’s axes (<a class="reference internal" href="../conventions.html#arrays"><span class="std std-ref">conventions §3</span></a>) are <code class="docutils literal notranslate"><span class="pre">t</span></code> when its dimension of
+<code class="docutils literal notranslate"><span class="pre">DimID</span></code> 4 is used, <code class="docutils literal notranslate"><span class="pre">c</span></code> when it has more than one channel, <code class="docutils literal notranslate"><span class="pre">z</span></code> when its dimension of <code class="docutils literal notranslate"><span class="pre">DimID</span></code> 3 is
+used, then <code class="docutils literal notranslate"><span class="pre">y</span></code> and <code class="docutils literal notranslate"><span class="pre">x</span></code>. Its shape is <code class="docutils literal notranslate"><span class="pre">N_T</span></code>, the number of channels, <code class="docutils literal notranslate"><span class="pre">N_Z</span></code>, <code class="docutils literal notranslate"><span class="pre">N_Y</span></code> and <code class="docutils literal notranslate"><span class="pre">N_X</span></code> (each
+for its axis present; <code class="docutils literal notranslate"><span class="pre">N_Y</span></code> is 1 when the image has no used dimension of <code class="docutils literal notranslate"><span class="pre">DimID</span></code> 2, as a line
+scan over time, <code class="docutils literal notranslate"><span class="pre">x</span></code> and <code class="docutils literal notranslate"><span class="pre">t</span></code>, has none). Each number of the shape MUST be at most 2^31.</p>
+<p>Its <strong>field dimensions</strong> are its used dimensions of any other <code class="docutils literal notranslate"><span class="pre">DimID</span></code>, in document order,
+<code class="docutils literal notranslate"><span class="pre">d_1,</span> <span class="pre">…,</span> <span class="pre">d_q</span></code>, and its <strong>fields</strong> the combinations of their indexes: field <code class="docutils literal notranslate"><span class="pre">f</span> <span class="pre">=</span> <span class="pre">i_1</span> <span class="pre">+</span> <span class="pre">N_1</span> <span class="pre">×</span> <span class="pre">(i_2</span> <span class="pre">+</span> <span class="pre">N_2</span> <span class="pre">×</span> <span class="pre">(…))</span></code> (the first fastest) has the <strong>offset</strong> <code class="docutils literal notranslate"><span class="pre">Σ</span> <span class="pre">i_j</span> <span class="pre">×</span> <span class="pre">s_j</span></code>; there are <code class="docutils literal notranslate"><span class="pre">F</span> <span class="pre">=</span> <span class="pre">N_1</span> <span class="pre">×</span> <span class="pre">…</span> <span class="pre">×</span> <span class="pre">N_q</span></code>
+of them, one when <code class="docutils literal notranslate"><span class="pre">q</span></code> is 0, at most 65536. The image’s <strong>planes</strong> are <code class="docutils literal notranslate"><span class="pre">N_T</span> <span class="pre">×</span> <span class="pre">n'</span> <span class="pre">×</span> <span class="pre">N_Z</span> <span class="pre">×</span> <span class="pre">F</span></code>
+(<code class="docutils literal notranslate"><span class="pre">n'</span></code> the number of channels, or 1 when they are interleaved: a band of each is a chunk), at
+most the references a run makes, <code class="docutils literal notranslate"><span class="pre">2^22</span> <span class="pre">+</span> <span class="pre">4</span> <span class="pre">×</span></code> the file’s size: a dimension whose <code class="docutils literal notranslate"><span class="pre">BytesInc</span></code>
+is 0 repeats a plane without growing the extent. Each field is an image of the output
+(<a class="reference internal" href="#id1">§4.2</a>): OME-NGFF 0.5 has no axis for a mosaic’s tile, a wavelength or a rotation.</p>
+</section>
+<section id="rows-and-bands">
+<span id="34-rows-and-bands"></span><h3>3.4 Rows and bands<a class="headerlink" href="#rows-and-bands" title="Link to this heading">¶</a></h3>
+<p>A row is <code class="docutils literal notranslate"><span class="pre">R</span> <span class="pre">=</span> <span class="pre">N_X</span> <span class="pre">×</span> <span class="pre">s_x</span></code> bytes. When Y is used, its <code class="docutils literal notranslate"><span class="pre">BytesInc</span></code> <code class="docutils literal notranslate"><span class="pre">s_y</span></code> MUST be at least <code class="docutils literal notranslate"><span class="pre">R</span></code>; the
+rows are <strong>packed</strong> when it is <code class="docutils literal notranslate"><span class="pre">R</span></code>, or Y unused, and <strong>padded</strong> otherwise (stride-aligned RGB
+rows), the bytes between them in no chunk.</p>
+<p>A chunk holds a <strong>band</strong> of <code class="docutils literal notranslate"><span class="pre">b</span></code> rows of one plane. <code class="docutils literal notranslate"><span class="pre">b</span></code> is the largest divisor of <code class="docutils literal notranslate"><span class="pre">N_Y</span></code> such that
+<code class="docutils literal notranslate"><span class="pre">b</span> <span class="pre">×</span> <span class="pre">R</span> <span class="pre">≤</span> <span class="pre">2^24</span></code> and, for padded rows, a band of <code class="docutils literal notranslate"><span class="pre">b</span></code> rows (<code class="docutils literal notranslate"><span class="pre">b</span></code> ranges of <code class="docutils literal notranslate"><span class="pre">R</span></code> bytes, <code class="docutils literal notranslate"><span class="pre">s_y</span></code> apart)
+starting at the farthest band’s offset (<a class="reference internal" href="#chunk-references">the profile §7.4</a>: the last band
+of the plane of the last time, channel, depth and field) has a reference payload of at most
+65519 bytes (<a class="reference internal" href="../zarrify.html#input"><span class="std std-ref">spec/zarrify.md §1.2</span></a>); at least 1. So every chunk is one
+range of its block, or for padded rows the ranges of its rows, and holds at most 16 MiB
+(or one row).</p>
+</section>
+</section>
+<section id="output">
+<span id="4-output"></span><h2>4. Output<a class="headerlink" href="#output" title="Link to this heading">¶</a></h2>
+<section id="the-hierarchy">
+<span id="41-the-hierarchy"></span><h3>4.1 The hierarchy<a class="headerlink" href="#the-hierarchy" title="Link to this heading">¶</a></h3>
+<p>The nodes, whose entries are listed in <a class="reference internal" href="#layout">Layout</a>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>node</p></th>
+<th class="head"><p>when</p></th>
+<th class="head"><p>what</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json</span></code></p></td>
+<td><p>always</p></td>
+<td><p>the root group, declaring the convention (<a class="reference internal" href="#declaration">§1</a>). When the file has a series (below), its attributes have <code class="docutils literal notranslate"><span class="pre">&quot;ome&quot;:</span> <span class="pre">{&quot;version&quot;:</span> <span class="pre">&quot;0.5&quot;,</span> <span class="pre">&quot;bioformats2raw.layout&quot;:</span> <span class="pre">3}</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">OME/zarr.json</span></code></p></td>
+<td><p>the file has a series</p></td>
+<td><p>a group with <code class="docutils literal notranslate"><span class="pre">{&quot;ome&quot;:</span> <span class="pre">{&quot;version&quot;:</span> <span class="pre">&quot;0.5&quot;,</span> <span class="pre">&quot;series&quot;:</span> <span class="pre">[&quot;0&quot;,</span> <span class="pre">&quot;1&quot;,</span> <span class="pre">...]}}</span></code>, one per series</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;s&gt;/zarr.json</span></code> and its array <code class="docutils literal notranslate"><span class="pre">&lt;s&gt;/0</span></code></p></td>
+<td><p>for each series</p></td>
+<td><p>series <code class="docutils literal notranslate"><span class="pre">s</span></code>, an image (<a class="reference internal" href="#id1">§4.2</a>, <a class="reference internal" href="#image-arrays">§4.3</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">refkv_source</span></code></p></td>
+<td><p>always</p></td>
+<td><p>the source metadata (<a class="reference internal" href="#source-metadata">§5</a>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The <strong>series</strong> are the fields of the images, numbered from 0: image 0’s fields in order, then
+image 1’s, and so on. A file without images (only folders, or FLIM data) is accepted: its
+output is the root and <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code>.</p>
+</section>
+<section id="id1">
+<span id="42-images"></span><h3>4.2 Images<a class="headerlink" href="#id1" title="Link to this heading">¶</a></h3>
+<p>Series <code class="docutils literal notranslate"><span class="pre">s</span></code>, field <code class="docutils literal notranslate"><span class="pre">f</span></code> of image <code class="docutils literal notranslate"><span class="pre">k</span></code>, is an image (<a class="reference internal" href="../conventions.html#images"><span class="std std-ref">conventions §4</span></a>)
+of one dataset, <code class="docutils literal notranslate"><span class="pre">&quot;0&quot;</span></code>, and no translation. Its source metadata is <a class="reference internal" href="#the-images">§5.2</a>’s, a
+<a class="reference internal" href="#type-lifimage"><code class="docutils literal notranslate"><span class="pre">LifImage</span></code></a>. Its <code class="docutils literal notranslate"><span class="pre">name</span></code>, by whether the image’s <code class="docutils literal notranslate"><span class="pre">Name</span></code> is present, not empty
+and at most 256 bytes in UTF-8 (a <strong>valid</strong> <code class="docutils literal notranslate"><span class="pre">Name</span></code>), and by its field dimensions, <code class="docutils literal notranslate"><span class="pre">&lt;f&gt;</span></code> in
+decimal:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>the image’s <code class="docutils literal notranslate"><span class="pre">Name</span></code></p></th>
+<th class="head"><p>field dimensions</p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>valid</p></td>
+<td><p>none</p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">Name</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>valid</p></td>
+<td><p>its only field dimension is of <code class="docutils literal notranslate"><span class="pre">DimID</span></code> 10</p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">Name</span></code> followed by <code class="docutils literal notranslate"> <span class="pre">(tile</span> <span class="pre">&lt;f&gt;)</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>valid</p></td>
+<td><p>some, other than a single one of <code class="docutils literal notranslate"><span class="pre">DimID</span></code> 10</p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">Name</span></code> followed by <code class="docutils literal notranslate"> <span class="pre">(field</span> <span class="pre">&lt;f&gt;)</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>not valid</p></td>
+<td><p>its only field dimension is of <code class="docutils literal notranslate"><span class="pre">DimID</span></code> 10</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tile</span> <span class="pre">&lt;f&gt;</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>not valid</p></td>
+<td><p>some, other than a single one of <code class="docutils literal notranslate"><span class="pre">DimID</span></code> 10</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">field</span> <span class="pre">&lt;f&gt;</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>not valid</p></td>
+<td><p>none</p></td>
+<td><p>no <code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Scale.</strong> <code class="docutils literal notranslate"><span class="pre">c</span></code> is 1. Along <code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code>, <code class="docutils literal notranslate"><span class="pre">z</span></code> and <code class="docutils literal notranslate"><span class="pre">t</span></code>, the dimension of its <code class="docutils literal notranslate"><span class="pre">DimID</span></code> (1, 2, 3, 4)
+that is used gives the step <code class="docutils literal notranslate"><span class="pre">|L</span> <span class="pre">/</span> <span class="pre">(N</span> <span class="pre">−</span> <span class="pre">1)|</span></code> (binary64: the division, then the magnitude), <code class="docutils literal notranslate"><span class="pre">L</span></code>
+its <code class="docutils literal notranslate"><span class="pre">Length</span></code> (a decimal) and <code class="docutils literal notranslate"><span class="pre">N</span></code> its <code class="docutils literal notranslate"><span class="pre">NumberOfElements</span></code>; the scale is 1, without a unit, when
+the dimension is unused, <code class="docutils literal notranslate"><span class="pre">Length</span></code> is not a decimal, or the step is not finite and positive.
+Otherwise:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>axis</p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">Unit</span></code></p></th>
+<th class="head"><p>scale</p></th>
+<th class="head"><p>unit</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code>, <code class="docutils literal notranslate"><span class="pre">z</span></code></p></td>
+<td><p>a length symbol of <a class="reference internal" href="../conventions.html#units"><span class="std std-ref">conventions §5</span></a></p></td>
+<td><p>the step converted to micrometers, <code class="docutils literal notranslate"><span class="pre">step</span> <span class="pre">×</span> <span class="pre">(size(Unit)</span> <span class="pre">/</span> <span class="pre">1e-6)</span></code> (<code class="docutils literal notranslate"><span class="pre">m</span></code>, as LAS X writes, gives <code class="docutils literal notranslate"><span class="pre">step</span> <span class="pre">×</span> <span class="pre">(1</span> <span class="pre">/</span> <span class="pre">1e-6)</span></code>), when finite and positive; else 1</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">micrometer</span></code>; none when the converted step is not finite and positive (scale 1)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">t</span></code></p></td>
+<td><p>a time symbol of <a class="reference internal" href="../conventions.html#units"><span class="std std-ref">conventions §5</span></a> (<code class="docutils literal notranslate"><span class="pre">s</span></code>, <code class="docutils literal notranslate"><span class="pre">ms</span></code>, <code class="docutils literal notranslate"><span class="pre">min</span></code>, <code class="docutils literal notranslate"><span class="pre">h</span></code>)</p></td>
+<td><p>the step</p></td>
+<td><p>that unit</p></td>
+</tr>
+<tr class="row-even"><td><p>any</p></td>
+<td><p>otherwise</p></td>
+<td><p>the step</p></td>
+<td><p>none</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Origins are not translations: each image keeps its own (its dimensions’), and a mosaic’s tiles
+their stage positions, in its source metadata (<a class="reference internal" href="#mosaics">§4.4</a>).</p>
+<p><strong>omero.</strong> When the image has at most 64 channels, <code class="docutils literal notranslate"><span class="pre">M</span></code> has <code class="docutils literal notranslate"><span class="pre">&quot;omero&quot;:</span> <span class="pre">{&quot;channels&quot;:</span> <span class="pre">[...]}</span></code>, one
+<a class="reference internal" href="../conventions.html#type-omerochannel"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">OmeroChannel</span></code></span></a> per channel <code class="docutils literal notranslate"><span class="pre">c</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">label</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">C&lt;c&gt;</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">color</span></code></p></td>
+<td><p>by its <code class="docutils literal notranslate"><span class="pre">ChannelTag</span></code>, else by its <code class="docutils literal notranslate"><span class="pre">LUTName</span></code> (below)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">active</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">window</span></code></p></td>
+<td><p>for an unsigned type, <code class="docutils literal notranslate"><span class="pre">{&quot;min&quot;:</span> <span class="pre">0,</span> <span class="pre">&quot;max&quot;:</span> <span class="pre">V,</span> <span class="pre">&quot;start&quot;:</span> <span class="pre">0,</span> <span class="pre">&quot;end&quot;:</span> <span class="pre">V}</span></code>, <code class="docutils literal notranslate"><span class="pre">V</span> <span class="pre">=</span> <span class="pre">2^b</span> <span class="pre">−</span> <span class="pre">1</span></code>, <code class="docutils literal notranslate"><span class="pre">b</span></code> the channel’s <code class="docutils literal notranslate"><span class="pre">Resolution</span></code> (4095 for 12-bit data in <code class="docutils literal notranslate"><span class="pre">uint16</span></code>); no window for a float</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The color is <code class="docutils literal notranslate"><span class="pre">FF0000</span></code>, <code class="docutils literal notranslate"><span class="pre">00FF00</span></code> or <code class="docutils literal notranslate"><span class="pre">0000FF</span></code> for a <code class="docutils literal notranslate"><span class="pre">ChannelTag</span></code> of 1, 2 or 3, else by its
+<code class="docutils literal notranslate"><span class="pre">LUTName</span></code>, compared in ASCII lower case:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p><code class="docutils literal notranslate"><span class="pre">LUTName</span></code></p></th>
+<th class="head"><p>color</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">red</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">FF0000</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">green</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">00FF00</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">blue</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0000FF</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">cyan</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">00FFFF</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">magenta</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">FF00FF</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">yellow</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">FFFF00</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>anything else</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">FFFFFF</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="image-arrays">
+<span id="43-image-arrays"></span><h3>4.3 Image arrays<a class="headerlink" href="#image-arrays" title="Link to this heading">¶</a></h3>
+<p>The array of series <code class="docutils literal notranslate"><span class="pre">s</span></code>, at <code class="docutils literal notranslate"><span class="pre">&lt;s&gt;/0</span></code> (<a class="reference internal" href="../conventions.html#arrays"><span class="std std-ref">conventions §3</span></a>):</p>
+<p><span id="type-lifarray"></span><strong><code class="docutils literal notranslate"><span class="pre">LifArray</span></code></strong>, the array’s <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code>: an
+<a class="reference internal" href="../conventions.html#type-arraydocument"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">ArrayDocument</span></code></span></a> with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">shape</span></code></p></td>
+<td><p>array of integer</p></td>
+<td><p>required</p></td>
+<td><p>the image’s (<a class="reference internal" href="#axes-and-fields">§3.3</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data_type</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p>the image’s (<a class="reference internal" href="#data-types">§3.1</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">chunk_grid</span></code></p></td>
+<td><p>object</p></td>
+<td><p>required</p></td>
+<td><p>regular, its chunk shape 1 for <code class="docutils literal notranslate"><span class="pre">t</span></code> and <code class="docutils literal notranslate"><span class="pre">z</span></code>, the number of channels for <code class="docutils literal notranslate"><span class="pre">c</span></code> when they are interleaved and 1 when they are planar, the band <code class="docutils literal notranslate"><span class="pre">b</span></code> for <code class="docutils literal notranslate"><span class="pre">y</span></code> (<a class="reference internal" href="#rows-and-bands">§3.4</a>) and <code class="docutils literal notranslate"><span class="pre">N_X</span></code> for <code class="docutils literal notranslate"><span class="pre">x</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">fill_value</span></code></p></td>
+<td><p>number</p></td>
+<td><p>required</p></td>
+<td><p>0</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">codecs</span></code></p></td>
+<td><p>array of object</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">transpose</span></code> (<a class="reference internal" href="../conventions.html#arrays"><span class="std std-ref">conventions §3</span></a>) when the channels are interleaved (a chunk holds <code class="docutils literal notranslate"><span class="pre">[y,</span> <span class="pre">x,</span> <span class="pre">c]</span></code>), then <code class="docutils literal notranslate"><span class="pre">bytes</span></code>, little-endian for an item of more than one byte</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dimension_names</span></code></p></td>
+<td><p>array of string</p></td>
+<td><p>required</p></td>
+<td><p>the image’s axes (<a class="reference internal" href="#axes-and-fields">§3.3</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">attributes</span></code></p></td>
+<td><p>object</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Chunks:</strong> the chunk at <code class="docutils literal notranslate"><span class="pre">t</span></code>, <code class="docutils literal notranslate"><span class="pre">c</span></code>, <code class="docutils literal notranslate"><span class="pre">z</span></code> (each for its axis present), <code class="docutils literal notranslate"><span class="pre">j</span></code>, 0 holds band <code class="docutils literal notranslate"><span class="pre">j</span></code> (rows
+<code class="docutils literal notranslate"><span class="pre">j</span> <span class="pre">×</span> <span class="pre">b</span></code> to <code class="docutils literal notranslate"><span class="pre">j</span> <span class="pre">×</span> <span class="pre">b</span> <span class="pre">+</span> <span class="pre">b</span> <span class="pre">−</span> <span class="pre">1</span></code>) of the plane of that time, channel (all channels when they are
+interleaved, at <code class="docutils literal notranslate"><span class="pre">c</span></code> = 0), depth and the series’ field, a <a class="reference internal" href="#type-lifchunk"><code class="docutils literal notranslate"><span class="pre">LifChunk</span></code></a>, as
+<a class="reference internal" href="#chunk-references">the profile §7.4</a> references it. Every chunk is present.</p>
+</section>
+<section id="mosaics">
+<span id="44-mosaics"></span><h3>4.4 Mosaics<a class="headerlink" href="#mosaics" title="Link to this heading">¶</a></h3>
+<p>A tile scan is an image with a used dimension of <code class="docutils literal notranslate"><span class="pre">DimID</span></code> 10, one element per tile, whose
+<code class="docutils literal notranslate"><span class="pre">Data/Image</span></code> has an <code class="docutils literal notranslate"><span class="pre">Attachment</span></code> named <code class="docutils literal notranslate"><span class="pre">TileScanInfo</span></code> with a child <code class="docutils literal notranslate"><span class="pre">Tile</span></code> per tile (its
+<code class="docutils literal notranslate"><span class="pre">FieldX</span></code>, <code class="docutils literal notranslate"><span class="pre">FieldY</span></code> and stage position <code class="docutils literal notranslate"><span class="pre">PosX</span></code>, <code class="docutils literal notranslate"><span class="pre">PosY</span></code>, <code class="docutils literal notranslate"><span class="pre">PosZ</span></code>). Tiles overlap: the stage moves
+less than a field of view between them, and LAS X stitches them into a merged image, which it
+writes as an image of its own. Each tile is a series of the output, as a CZI tile is an array of
+its own (<a class="reference internal" href="czi.html#tiles"><span class="std std-ref">the CZI convention §4.4</span></a>): its pixels as the file holds them, its
+place in <a class="reference internal" href="#the-images">§5.2</a>’s <code class="docutils literal notranslate"><span class="pre">tile</span></code> and <code class="docutils literal notranslate"><span class="pre">tile_scan</span></code>, and nothing stitched. The tiles have no
+translation: the stage frame’s direction and origin (<code class="docutils literal notranslate"><span class="pre">FlipX</span></code>, <code class="docutils literal notranslate"><span class="pre">FlipY</span></code>, <code class="docutils literal notranslate"><span class="pre">SwapXY</span></code> and the
+objective’s) are not in the image’s own frame, so a viewer places them from the source metadata,
+or shows the merged image.</p>
+</section>
+</section>
+<section id="source-metadata">
+<span id="5-source-metadata"></span><h2>5. Source metadata<a class="headerlink" href="#source-metadata" title="Link to this heading">¶</a></h2>
+<section id="the-root">
+<span id="51-the-root"></span><h3>5.1 The root<a class="headerlink" href="#the-root" title="Link to this heading">¶</a></h3>
+<p><span id="type-lifroot"></span><strong><code class="docutils literal notranslate"><span class="pre">LifRoot</span></code></strong>, the root’s <code class="docutils literal notranslate"><span class="pre">S</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">version</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">V</span></code>, the file’s version (<a class="reference internal" href="#the-xml-header">§2.2</a>): 1 or 2</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">file</span></code></p></td>
+<td><p>string</p></td>
+<td><p>optional</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;lof&quot;</span></code> for a LOF (<a class="reference internal" href="#leica-object-files">§2.5</a>), <code class="docutils literal notranslate"><span class="pre">&quot;lifext&quot;</span></code> for a LIFEXT file (<a class="reference internal" href="#lifext-files">§2.6</a>), <code class="docutils literal notranslate"><span class="pre">&quot;set&quot;</span></code> for a LAS X project (<a class="reference internal" href="#las-x-documents">§8</a>), then <code class="docutils literal notranslate"><span class="pre">V</span></code> being its named document’s; absent for a LIF file</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">files</span></code></p></td>
+<td><p>array of string</p></td>
+<td><p>optional</p></td>
+<td><p>of a LAS X project: the key of every sibling, as found, in the order they were found</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">not_presented</span></code></p></td>
+<td><p>array of <a class="reference internal" href="#type-lifnotpresented"><code class="docutils literal notranslate"><span class="pre">LifNotPresented</span></code></a></p></td>
+<td><p>optional</p></td>
+<td><p>of a LAS X project: the images <a class="reference internal" href="#id2">§8.4</a> leaves out, in the walk’s order; absent when there is none</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-lifnotpresented"></span><strong><code class="docutils literal notranslate"><span class="pre">LifNotPresented</span></code></strong>, an image a project’s output leaves out:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">path</span></code></p></td>
+<td><p>array of (string or <code class="docutils literal notranslate"><span class="pre">null</span></code>)</p></td>
+<td><p>required</p></td>
+<td><p>its path (<a class="reference internal" href="#id2">§8.4</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">document</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p>the key of the document that describes it</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">reason</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p>why, naming the entries of its <code class="docutils literal notranslate"><span class="pre">Memory</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Everything else is on the images and on <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code>.</p>
+</section>
+<section id="the-images">
+<span id="52-the-images"></span><h3>5.2 The images<a class="headerlink" href="#the-images" title="Link to this heading">¶</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">S</span></code> of series <code class="docutils literal notranslate"><span class="pre">s</span></code>, field <code class="docutils literal notranslate"><span class="pre">f</span></code> of image <code class="docutils literal notranslate"><span class="pre">k</span></code>, has these members, in this order:</p>
+<p><span id="type-lifimage"></span><strong><code class="docutils literal notranslate"><span class="pre">LifImage</span></code></strong>, an image group’s <code class="docutils literal notranslate"><span class="pre">S</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">image</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">k</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">path</span></code></p></td>
+<td><p>array of (string or <code class="docutils literal notranslate"><span class="pre">null</span></code>)</p></td>
+<td><p>required</p></td>
+<td><p>the image’s path (<a class="reference internal" href="#images">§2.3</a>), an array of strings and <code class="docutils literal notranslate"><span class="pre">null</span></code>s</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">parent</span></code></p></td>
+<td><p>string</p></td>
+<td><p>optional</p></td>
+<td><p>in a LIFEXT file, the <code class="docutils literal notranslate"><span class="pre">MemoryBlockID</span></code> of the <code class="docutils literal notranslate"><span class="pre">ChildrenOf</span></code> that holds the image (<a class="reference internal" href="#lifext-files">§2.6</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">attributes</span></code></p></td>
+<td><p><a class="reference internal" href="#type-lifattributes"><code class="docutils literal notranslate"><span class="pre">LifAttributes</span></code></a></p></td>
+<td><p>required</p></td>
+<td><p>the image element’s attributes (<code class="docutils literal notranslate"><span class="pre">Name</span></code>, <code class="docutils literal notranslate"><span class="pre">UniqueID</span></code>, …)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">memory</span></code></p></td>
+<td><p><a class="reference internal" href="#type-lifattributes"><code class="docutils literal notranslate"><span class="pre">LifAttributes</span></code></a></p></td>
+<td><p>optional</p></td>
+<td><p>its <code class="docutils literal notranslate"><span class="pre">Memory</span></code> element’s attributes (<code class="docutils literal notranslate"><span class="pre">Size</span></code>, <code class="docutils literal notranslate"><span class="pre">MemoryBlockID</span></code>); only an image of a LOF may have none</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dimensions</span></code></p></td>
+<td><p>array of <a class="reference internal" href="#type-lifattributes"><code class="docutils literal notranslate"><span class="pre">LifAttributes</span></code></a></p></td>
+<td><p>required</p></td>
+<td><p>each dimension’s attributes, in document order</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channels</span></code></p></td>
+<td><p>array of <a class="reference internal" href="#type-lifattributes"><code class="docutils literal notranslate"><span class="pre">LifAttributes</span></code></a></p></td>
+<td><p>required</p></td>
+<td><p>each channel’s attributes, in document order (not the channel order of <a class="reference internal" href="#channels">§3.2</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tile_scan</span></code></p></td>
+<td><p><a class="reference internal" href="#type-lifattributes"><code class="docutils literal notranslate"><span class="pre">LifAttributes</span></code></a></p></td>
+<td><p>optional</p></td>
+<td><p>when the image’s only field dimension is of <code class="docutils literal notranslate"><span class="pre">DimID</span></code> 10 and its <code class="docutils literal notranslate"><span class="pre">TileScanInfo</span></code> attachment (<a class="reference internal" href="#mosaics">§4.4</a>) has a child <code class="docutils literal notranslate"><span class="pre">Tile</span></code>, the attachment’s attributes</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">field</span></code></p></td>
+<td><p><a class="reference internal" href="#type-liffield"><code class="docutils literal notranslate"><span class="pre">LifField</span></code></a></p></td>
+<td><p>optional</p></td>
+<td><p>when the image has field dimensions</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tile</span></code></p></td>
+<td><p><a class="reference internal" href="#type-lifattributes"><code class="docutils literal notranslate"><span class="pre">LifAttributes</span></code></a></p></td>
+<td><p>optional</p></td>
+<td><p>when <code class="docutils literal notranslate"><span class="pre">tile_scan</span></code> is present and the attachment has an <code class="docutils literal notranslate"><span class="pre">f</span></code>-th child <code class="docutils literal notranslate"><span class="pre">Tile</span></code> (from 0), that child’s attributes</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-lifattributes"></span><strong><code class="docutils literal notranslate"><span class="pre">LifAttributes</span></code></strong>, an element’s <strong>attributes</strong>: a JSON object of
+its attributes’ values as strings, references decoded, in document order (of a repeated name,
+the first):</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>each attribute of the element, by its name</p></td>
+<td><p>string</p></td>
+<td><p>optional</p></td>
+<td><p>the attribute’s value, when the element has it</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-liffield"></span><strong><code class="docutils literal notranslate"><span class="pre">LifField</span></code></strong>: an object whose members are the image’s field
+dimensions’ <code class="docutils literal notranslate"><span class="pre">DimID</span></code>s, as text, in the order of the field dimensions <code class="docutils literal notranslate"><span class="pre">d_1,</span> <span class="pre">…,</span> <span class="pre">d_q</span></code>
+(<a class="reference internal" href="#axes-and-fields">§3.3</a>), and the field’s index along each:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>each field dimension’s <code class="docutils literal notranslate"><span class="pre">DimID</span></code>, in decimal</p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the field’s index along that dimension, from 0</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The rest of the XML header (the experiment, the hardware settings, time stamps, LUTs and every
+other attachment) is in the IR mirror, with every byte of the file.</p>
+</section>
+<section id="the-ir-mirror">
+<span id="53-the-ir-mirror"></span><h3>5.3 The IR mirror<a class="headerlink" href="#the-ir-mirror" title="Link to this heading">¶</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> is the file’s <strong>IR mirror</strong>
+(<a class="reference internal" href="../conventions.html#id1"><span class="std std-ref">conventions §11.3</span></a>). The IR’s elements (the LIF <strong>source
+model</strong>) are below; nothing is left out: the XML header, every memory block (an image’s or not,
+of size 0 or not) and the tail.</p>
+</section>
+<section id="elements">
+<span id="54-elements"></span><h3>5.4 Elements<a class="headerlink" href="#elements" title="Link to this heading">¶</a></h3>
+<p>Paths are relative to the IR’s root, whose path is <code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code>
+(<a class="reference internal" href="../conventions.html#elements"><span class="std std-ref">conventions §8.1</span></a>); <code class="docutils literal notranslate"><span class="pre">&lt;i&gt;</span></code> is a decimal name index.</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>path</p></th>
+<th class="head"><p>kind</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>what</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>struct</p></td>
+<td><p></p></td>
+<td><p>the root: the whole file, extent <code class="docutils literal notranslate"><span class="pre">(0,</span> <span class="pre">size)</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">header</span></code></p></td>
+<td><p>struct</p></td>
+<td><p></p></td>
+<td><p>the header block</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">header/fields</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{test:&lt;u4,length:&lt;u4,magic:u1,characters:&lt;u4}</span></code></p></td>
+<td><p>its fixed part</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">header/xml</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">utf16[2c]</span></code></p></td>
+<td><p>the XML header, when <code class="docutils literal notranslate"><span class="pre">c</span> <span class="pre">&gt;</span> <span class="pre">0</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">versions</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{magic:u1,version:&lt;u4,magic2:u1,version2:&lt;u4}</span></code></p></td>
+<td><p>a LOF’s version fields (<a class="reference internal" href="#leica-object-files">§2.5</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">blocks/&lt;i&gt;</span></code></p></td>
+<td><p>struct</p></td>
+<td><p></p></td>
+<td><p>memory block <code class="docutils literal notranslate"><span class="pre">i</span></code> (<a class="reference internal" href="#blocks">§2.1</a>, and a LOF’s one, <code class="docutils literal notranslate"><span class="pre">i</span></code> = 0)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">blocks/&lt;i&gt;/fields</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{test:&lt;u4,length:&lt;u4,magic:u1,size:&lt;u4,magic2:u1,characters:&lt;u4}</span></code> (a LIF file of version 1), or with <code class="docutils literal notranslate"><span class="pre">size:&lt;u8</span></code> (a LIF file of version 2, a LIFEXT file); <code class="docutils literal notranslate"><span class="pre">{magic:u1,size:&lt;u8}</span></code> (a LOF)</p></td>
+<td><p>its fixed part</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">blocks/&lt;i&gt;/id</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">utf16[2m]</span></code></p></td>
+<td><p>its ID, when <code class="docutils literal notranslate"><span class="pre">m</span> <span class="pre">&gt;</span> <span class="pre">0</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">blocks/&lt;i&gt;/data</span></code></p></td>
+<td><p>data</p></td>
+<td><p></p></td>
+<td><p>an image’s block’s data, when <code class="docutils literal notranslate"><span class="pre">D</span> <span class="pre">&gt;</span> <span class="pre">0</span></code>: form <code class="docutils literal notranslate"><span class="pre">{&quot;geometry&quot;:</span> <span class="pre">{&quot;image&quot;:</span> <span class="pre">k},</span> <span class="pre">&quot;codec&quot;:</span> <span class="pre">{&quot;endian&quot;:</span> <span class="pre">&quot;little&quot;},</span> <span class="pre">&quot;recipe&quot;:</span> <span class="pre">[[&quot;src&quot;,</span> <span class="pre">0,</span> <span class="pre">null]]}</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">blocks/&lt;i&gt;/data</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bytes[D]</span></code></p></td>
+<td><p>any other block’s data, when <code class="docutils literal notranslate"><span class="pre">D</span> <span class="pre">&gt;</span> <span class="pre">0</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">description</span></code></p></td>
+<td><p>struct</p></td>
+<td><p></p></td>
+<td><p>a LOF’s XML block</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">description/fields</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{test:&lt;u4,length:&lt;u4,magic:u1,characters:&lt;u4}</span></code></p></td>
+<td><p>its fixed part</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">description/xml</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">utf16[2c]</span></code></p></td>
+<td><p>its XML, when <code class="docutils literal notranslate"><span class="pre">c</span> <span class="pre">&gt;</span> <span class="pre">0</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tail</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bytes[n]</span></code></p></td>
+<td><p>the tail, when not empty</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="equivalence">
+<span id="55-equivalence"></span><h3>5.5 Equivalence<a class="headerlink" href="#equivalence" title="Link to this heading">¶</a></h3>
+<p>Hierarchies of one file are compared entry for entry, <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> included
+(<a class="reference internal" href="../conventions.html#equivalence"><span class="std std-ref">conventions §11.4</span></a>).</p>
+</section>
+</section>
+<section id="example">
+<span id="6-example"></span><h2>6. Example<a class="headerlink" href="#example" title="Link to this heading">¶</a></h2>
+<p>A tile scan at <code class="docutils literal notranslate"><span class="pre">https://example.org/g.lif</span></code> (<code class="docutils literal notranslate"><span class="pre">lif_mosaic_overlap.lif</span></code> of the fixtures): one
+image, <code class="docutils literal notranslate"><span class="pre">mosaic</span></code>, of two planar <code class="docutils literal notranslate"><span class="pre">uint16</span></code> channels and four overlapping tiles of 8 × 6 pixels
+(dimensions X, Y and the mosaic, <code class="docutils literal notranslate"><span class="pre">DimID</span></code> 10, with the channels between Y and the mosaic). The
+root:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"zarr_format"</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"node_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"group"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"attributes"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"ome"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0.5"</span><span class="p">,</span><span class="w"> </span><span class="nt">"bioformats2raw.layout"</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">},</span>
+<span class="w">    </span><span class="nt">"zarr_conventions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"(the CMO of §1)"</span><span class="p">],</span>
+<span class="w">    </span><span class="nt">"refkv_zarrified"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"profile"</span><span class="p">:</span><span class="w"> </span><span class="s2">"lif"</span><span class="p">,</span><span class="w"> </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">"source"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://example.org/g.lif"</span><span class="p">},</span><span class="w"> </span><span class="nt">"lif"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">}}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">OME/zarr.json</span></code> lists the series <code class="docutils literal notranslate"><span class="pre">&quot;0&quot;</span></code> to <code class="docutils literal notranslate"><span class="pre">&quot;3&quot;</span></code>, one per tile. Series <code class="docutils literal notranslate"><span class="pre">1</span></code>’s <code class="docutils literal notranslate"><span class="pre">ome</span></code> and source
+metadata:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0.5"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"multiscales"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">    </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mosaic (tile 1)"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"axes"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">      </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"c"</span><span class="p">,</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"channel"</span><span class="p">},</span>
+<span class="w">      </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"y"</span><span class="p">,</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"space"</span><span class="p">,</span><span class="w"> </span><span class="nt">"unit"</span><span class="p">:</span><span class="w"> </span><span class="s2">"micrometer"</span><span class="p">},</span>
+<span class="w">      </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"x"</span><span class="p">,</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"space"</span><span class="p">,</span><span class="w"> </span><span class="nt">"unit"</span><span class="p">:</span><span class="w"> </span><span class="s2">"micrometer"</span><span class="p">}</span>
+<span class="w">    </span><span class="p">],</span>
+<span class="w">    </span><span class="nt">"datasets"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">"path"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0"</span><span class="p">,</span><span class="w"> </span><span class="nt">"coordinateTransformations"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"scale"</span><span class="p">,</span><span class="w"> </span><span class="nt">"scale"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mf">2.2</span><span class="p">,</span><span class="w"> </span><span class="mf">2.142857142857143</span><span class="p">]}]}]</span>
+<span class="w">  </span><span class="p">}],</span>
+<span class="w">  </span><span class="nt">"omero"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"channels"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">"label"</span><span class="p">:</span><span class="w"> </span><span class="s2">"C0"</span><span class="p">,</span><span class="w"> </span><span class="nt">"color"</span><span class="p">:</span><span class="w"> </span><span class="s2">"FFFFFF"</span><span class="p">,</span><span class="w"> </span><span class="nt">"active"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nt">"window"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"min"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">"max"</span><span class="p">:</span><span class="w"> </span><span class="mi">65535</span><span class="p">,</span><span class="w"> </span><span class="nt">"start"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">"end"</span><span class="p">:</span><span class="w"> </span><span class="mi">65535</span><span class="p">}},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">"label"</span><span class="p">:</span><span class="w"> </span><span class="s2">"C1"</span><span class="p">,</span><span class="w"> </span><span class="nt">"color"</span><span class="p">:</span><span class="w"> </span><span class="s2">"FFFFFF"</span><span class="p">,</span><span class="w"> </span><span class="nt">"active"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nt">"window"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"min"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">"max"</span><span class="p">:</span><span class="w"> </span><span class="mi">65535</span><span class="p">,</span><span class="w"> </span><span class="nt">"start"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">"end"</span><span class="p">:</span><span class="w"> </span><span class="mi">65535</span><span class="p">}}</span>
+<span class="w">  </span><span class="p">]}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"image"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"path"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"g.lif"</span><span class="p">,</span><span class="w"> </span><span class="s2">"mosaic"</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"attributes"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"Name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mosaic"</span><span class="p">,</span><span class="w"> </span><span class="nt">"Visibility"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1"</span><span class="p">,</span><span class="w"> </span><span class="nt">"CopyOption"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1"</span><span class="p">,</span><span class="w"> </span><span class="nt">"UniqueID"</span><span class="p">:</span><span class="w"> </span><span class="s2">"..."</span><span class="p">},</span>
+<span class="w">  </span><span class="nt">"memory"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"Size"</span><span class="p">:</span><span class="w"> </span><span class="s2">"768"</span><span class="p">,</span><span class="w"> </span><span class="nt">"MemoryBlockID"</span><span class="p">:</span><span class="w"> </span><span class="s2">"MemBlock_1"</span><span class="p">},</span>
+<span class="w">  </span><span class="nt">"dimensions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">"DimID"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1"</span><span class="p">,</span><span class="w"> </span><span class="nt">"NumberOfElements"</span><span class="p">:</span><span class="w"> </span><span class="s2">"8"</span><span class="p">,</span><span class="w"> </span><span class="nt">"Origin"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0.000000e+000"</span><span class="p">,</span><span class="w"> </span><span class="nt">"Length"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1.500000e-05"</span><span class="p">,</span><span class="w"> </span><span class="nt">"Unit"</span><span class="p">:</span><span class="w"> </span><span class="s2">"m"</span><span class="p">,</span><span class="w"> </span><span class="nt">"BitInc"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0"</span><span class="p">,</span><span class="w"> </span><span class="nt">"BytesInc"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2"</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">"DimID"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2"</span><span class="p">,</span><span class="w"> </span><span class="nt">"NumberOfElements"</span><span class="p">:</span><span class="w"> </span><span class="s2">"6"</span><span class="p">,</span><span class="w"> </span><span class="nt">"Origin"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0.000000e+000"</span><span class="p">,</span><span class="w"> </span><span class="nt">"Length"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1.100000e-05"</span><span class="p">,</span><span class="w"> </span><span class="nt">"Unit"</span><span class="p">:</span><span class="w"> </span><span class="s2">"m"</span><span class="p">,</span><span class="w"> </span><span class="nt">"BitInc"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0"</span><span class="p">,</span><span class="w"> </span><span class="nt">"BytesInc"</span><span class="p">:</span><span class="w"> </span><span class="s2">"16"</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">"DimID"</span><span class="p">:</span><span class="w"> </span><span class="s2">"10"</span><span class="p">,</span><span class="w"> </span><span class="nt">"NumberOfElements"</span><span class="p">:</span><span class="w"> </span><span class="s2">"4"</span><span class="p">,</span><span class="w"> </span><span class="nt">"Origin"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0.000000e+000"</span><span class="p">,</span><span class="w"> </span><span class="nt">"Length"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0.000000e+00"</span><span class="p">,</span><span class="w"> </span><span class="nt">"Unit"</span><span class="p">:</span><span class="w"> </span><span class="s2">""</span><span class="p">,</span><span class="w"> </span><span class="nt">"BitInc"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0"</span><span class="p">,</span><span class="w"> </span><span class="nt">"BytesInc"</span><span class="p">:</span><span class="w"> </span><span class="s2">"192"</span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"channels"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"(two ChannelDescriptions, BytesInc 0 and 96)"</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"tile_scan"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"Name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"TileScanInfo"</span><span class="p">,</span><span class="w"> </span><span class="nt">"Application"</span><span class="p">:</span><span class="w"> </span><span class="s2">"LAS AF"</span><span class="p">,</span><span class="w"> </span><span class="nt">"FlipX"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0"</span><span class="p">,</span><span class="w"> </span><span class="nt">"FlipY"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0"</span><span class="p">,</span><span class="w"> </span><span class="nt">"SwapXY"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0"</span><span class="p">},</span>
+<span class="w">  </span><span class="nt">"field"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"10"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">},</span>
+<span class="w">  </span><span class="nt">"tile"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"FieldX"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1"</span><span class="p">,</span><span class="w"> </span><span class="nt">"FieldY"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0"</span><span class="p">,</span><span class="w"> </span><span class="nt">"PosX"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0.000106500"</span><span class="p">,</span><span class="w"> </span><span class="nt">"PosY"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0.000200000"</span><span class="p">,</span><span class="w"> </span><span class="nt">"PosZ"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0"</span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Its array <code class="docutils literal notranslate"><span class="pre">1/0</span></code> is <code class="docutils literal notranslate"><span class="pre">uint16</span></code> of shape <code class="docutils literal notranslate"><span class="pre">[2,</span> <span class="pre">6,</span> <span class="pre">8]</span></code> and chunk shape <code class="docutils literal notranslate"><span class="pre">[1,</span> <span class="pre">6,</span> <span class="pre">8]</span></code>; its chunk
+<code class="docutils literal notranslate"><span class="pre">1/0/c/1/0/0</span></code> is the 96 bytes of channel 1 of tile 1, at 192 + 96 bytes into the block’s data.</p>
+</section>
+</section>
+<section id="part-2-the-profile">
+<h1>Part 2. The profile<a class="headerlink" href="#part-2-the-profile" title="Link to this heading">¶</a></h1>
+<p>The LIF profile of <a class="reference internal" href="../zarrify.html"><span class="std std-doc">spec/zarrify.md</span></a> is <a class="reference internal" href="#lif-profile">§7</a> of this document.
+(Conformance is spec/zarrify.md’s <a class="reference internal" href="../zarrify.html#appendix-a-conformance"><span class="std std-ref">Appendix A</span></a>.) What every
+profile’s Part 2 shares is in <a class="reference internal" href="../zarrify.html#profiles"><span class="std std-ref">spec/zarrify.md, Profiles</span></a>.</p>
+<section id="lif-profile">
+<span id="7-lif-profile"></span><h2>7. LIF profile<a class="headerlink" href="#lif-profile" title="Link to this heading">¶</a></h2>
+<section id="detection">
+<span id="71-detection"></span><h3>7.1 Detection<a class="headerlink" href="#detection" title="Link to this heading">¶</a></h3>
+<p><strong>Signature</strong> (<a class="reference internal" href="../zarrify.html#input"><span class="std std-ref">spec/zarrify.md §1.2</span></a>, tested at the precedence of
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/profiles/lif.json">profiles/lif.json</a>), either of two:</p>
+<ol class="arabic simple">
+<li><p>Bytes 0–3 of <code class="docutils literal notranslate"><span class="pre">H</span></code> are <code class="docutils literal notranslate"><span class="pre">70</span> <span class="pre">00</span> <span class="pre">00</span> <span class="pre">00</span></code> (the test value) and byte 8 is <code class="docutils literal notranslate"><span class="pre">2A</span></code> (the magic byte). No other
+profile’s signature matches these bytes: a NIfTI file starts with a header size of 348 or 540, the
+others with a magic number of their own. A LOF or a LIFEXT file starts with the same bytes, and its
+XML says which it is (<a class="reference internal" href="#the-xml-header">§2.2</a>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">H</span></code> starts with the UTF-8 byte order mark <code class="docutils literal notranslate"><span class="pre">EF</span> <span class="pre">BB</span> <span class="pre">BF</span></code> or with <code class="docutils literal notranslate"><span class="pre">&lt;?xml</span></code>, and holds the bytes
+<code class="docutils literal notranslate"><span class="pre">LMSDataContainerHeader</span></code>: a LAS X document, an input of <a class="reference internal" href="#las-x-documents">§8</a>. No other signature
+tests for XML, so nothing else claims these bytes, and a LIF file’s XML is UTF-16 at byte 13. LAS X
+writes the root within the first 100 bytes.</p></li>
+</ol>
+</section>
+<section id="reading">
+<span id="72-reading"></span><h3>7.2 Reading<a class="headerlink" href="#reading" title="Link to this heading">¶</a></h3>
+<p>The zarrifier reads, in any order (<a class="reference internal" href="../zarrify.html#input"><span class="std std-ref">spec/zarrify.md §1.2</span></a>, evaluation
+order):</p>
+<ol class="arabic simple">
+<li><p>the header block’s fixed part, its first 13 bytes, which MUST lie within the file, and the
+XML header;</p></li>
+<li><p><strong>the walk.</strong> From <code class="docutils literal notranslate"><span class="pre">o</span> <span class="pre">=</span> <span class="pre">13</span> <span class="pre">+</span> <span class="pre">2c</span></code>: if <code class="docutils literal notranslate"><span class="pre">o</span></code> is the file’s size, the walk ends with an empty tail.
+Otherwise the <code class="docutils literal notranslate"><span class="pre">H</span></code> bytes at <code class="docutils literal notranslate"><span class="pre">o</span></code> are a memory block’s fixed part when they lie within the file,
+their test value is <code class="docutils literal notranslate"><span class="pre">0x70</span></code> and both magic bytes <code class="docutils literal notranslate"><span class="pre">0x2A</span></code>, its ID ends within the file, its <code class="docutils literal notranslate"><span class="pre">D</span></code>
+is at most 2^53 − 1 and its data ends within the file; the walk then continues at the end of
+its data. When they are not, or after 2^20 blocks, the walk ends and the tail is the bytes from
+<code class="docutils literal notranslate"><span class="pre">o</span></code> to the end of the file. The walk never rejects: a block that cannot be read ends it, and
+an image whose block lies after it names a block the file does not hold
+(<a class="reference internal" href="#rejection">§7.3</a>).</p></li>
+</ol>
+<p>A LOF has no walk. After step 1 it is read in order: the 19 bytes of its version fields and memory
+block’s fixed part, and its XML block’s fixed part and XML (<a class="reference internal" href="#leica-object-files">§2.5</a>).</p>
+<p>Nothing else is read: no byte of a block’s data. (The implementations read the first 64 KiB,
+then the rest of the XML header when it is longer, then the blocks’ fixed parts and IDs in
+batches at the offsets the XML’s <code class="docutils literal notranslate"><span class="pre">Memory</span></code> elements predict: the first one’s (the file’s own
+element’s), then those with a <code class="docutils literal notranslate"><span class="pre">Size</span></code> above 0, each ID once, in document order, since LAS X
+writes no block for its folders’ empty and repeated IDs. A file whose blocks follow its elements
+is walked in one round of requests, and each block the prediction misses costs another. The prediction decides only what is read ahead, never
+the output. A LOF’s XML is read, with its fixed part, in a read of at most 1 MiB from the end of the
+data, then of the rest of the XML when it is longer.)</p>
+</section>
+<section id="rejection">
+<span id="73-rejection"></span><h3>7.3 Rejection<a class="headerlink" href="#rejection" title="Link to this heading">¶</a></h3>
+<p>The input is rejected when a read of <a class="reference internal" href="#reading">§7.2</a> step 1 lies outside the file, when a
+rule of this profile fails, and wherever the convention says the input is rejected or that
+something MUST hold: the header block (<a class="reference internal" href="#blocks">§2.1</a>: test value, magic byte, the XML
+within the file), the XML header (<a class="reference internal" href="#the-xml-header">§2.2</a>: UTF-16, the root, the
+version), a LOF’s parts (<a class="reference internal" href="#leica-object-files">§2.5</a>: their magic bytes and test value, the XML
+within the file, at most one image), each image (<a class="reference internal" href="#images">§2.3</a>: its <code class="docutils literal notranslate"><span class="pre">Memory</span></code>, its memory block found once and named by
+it alone; <a class="reference internal" href="#dimensions-and-channels">§2.4</a>: its dimensions and channels and their
+attributes; <a class="reference internal" href="#placement">§3</a>: its data type, channels, X, rows, extent, shape and planes), the images in
+document order. The walk (<a class="reference internal" href="#reading">§7.2</a> step 2) never
+rejects, and neither does what only the source metadata reads.</p>
+<p><strong>Limits.</strong> These bound memory, time and the documents; exceeding one rejects the input:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>limit</p></th>
+<th class="head"><p>value</p></th>
+<th class="head"><p>bounds</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>the XML header, a LOF’s XML</p></td>
+<td><p>2^27 bytes</p></td>
+<td><p>the parse, which reads it whole</p></td>
+</tr>
+<tr class="row-odd"><td><p>dimensions of an image</p></td>
+<td><p>16</p></td>
+<td><p>an image’s documents</p></td>
+</tr>
+<tr class="row-even"><td><p>channels of an image</p></td>
+<td><p>1024</p></td>
+<td><p>an image’s documents (<code class="docutils literal notranslate"><span class="pre">omero</span></code> lists at most 64)</p></td>
+</tr>
+<tr class="row-odd"><td><p>array extent</p></td>
+<td><p>each number of an image’s shape at most 2^31</p></td>
+<td><p>shapes</p></td>
+</tr>
+<tr class="row-even"><td><p>fields of an image, and series</p></td>
+<td><p>65536</p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">OME</span></code> series list, as for CZI and ND2</p></td>
+</tr>
+<tr class="row-odd"><td><p>planes of an image</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">2^22</span> <span class="pre">+</span> <span class="pre">4</span> <span class="pre">×</span></code> the file’s size</p></td>
+<td><p>its chunks, before they are listed</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The walk stops at 2^20 blocks without rejecting. Every document is then bounded: the root’s by
+its one member, each image’s by its element’s attributes, at most 16 dimensions and 1024
+channels, and <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code>’s by the mirror’s budgets (<a class="reference internal" href="../conventions.html#the-view"><span class="std std-ref">conventions §8.7</span></a>).</p>
+</section>
+<section id="chunk-references">
+<span id="74-chunk-references"></span><h3>7.4 Chunk references<a class="headerlink" href="#chunk-references" title="Link to this heading">¶</a></h3>
+<p>All references are ranges of source 0; this profile has no data sources. Let <code class="docutils literal notranslate"><span class="pre">B</span></code> be the offset
+of the data of the image’s memory block (its start plus <code class="docutils literal notranslate"><span class="pre">H</span> <span class="pre">+</span> <span class="pre">2m</span></code>; in a LOF, 62). Series <code class="docutils literal notranslate"><span class="pre">s</span></code>, field <code class="docutils literal notranslate"><span class="pre">f</span></code> of an
+image, has, for each plane of time <code class="docutils literal notranslate"><span class="pre">t</span></code>, channel <code class="docutils literal notranslate"><span class="pre">c</span></code> (only <code class="docutils literal notranslate"><span class="pre">c</span></code> = 0 when interleaved) and depth
+<code class="docutils literal notranslate"><span class="pre">z</span></code> (each from 0; 0 for an axis the image lacks), the plane offset</p>
+<p><code class="docutils literal notranslate"><span class="pre">P</span> <span class="pre">=</span> <span class="pre">B</span> <span class="pre">+</span> <span class="pre">o</span> <span class="pre">+</span> <span class="pre">t</span> <span class="pre">×</span> <span class="pre">s_T</span> <span class="pre">+</span> <span class="pre">z</span> <span class="pre">×</span> <span class="pre">s_Z</span> <span class="pre">+</span> <span class="pre">(the</span> <span class="pre">offset</span> <span class="pre">of</span> <span class="pre">field</span> <span class="pre">f)</span></code></p>
+<p>where <code class="docutils literal notranslate"><span class="pre">o</span></code> is <code class="docutils literal notranslate"><span class="pre">o_c</span></code>, or 0 when the channels are interleaved, and <code class="docutils literal notranslate"><span class="pre">s_T</span></code>, <code class="docutils literal notranslate"><span class="pre">s_Z</span></code> the <code class="docutils literal notranslate"><span class="pre">BytesInc</span></code> of
+the T and Z dimensions (<a class="reference internal" href="#axes-and-fields">§3.3</a>). Band <code class="docutils literal notranslate"><span class="pre">j</span></code> of the plane is the chunk of
+<a class="reference internal" href="#image-arrays">§4.3</a>, by its rows (<a class="reference internal" href="#rows-and-bands">§3.4</a>). Pixels are never copied.</p>
+<p><span id="type-lifchunk"></span><strong><code class="docutils literal notranslate"><span class="pre">LifChunk</span></code></strong>, band <code class="docutils literal notranslate"><span class="pre">j</span></code> of the plane at <code class="docutils literal notranslate"><span class="pre">P</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>part</p></th>
+<th class="head"><p>range</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>the band, packed rows</p></td>
+<td><p>source range <code class="docutils literal notranslate"><span class="pre">(0,</span> <span class="pre">P</span> <span class="pre">+</span> <span class="pre">j</span> <span class="pre">×</span> <span class="pre">b</span> <span class="pre">×</span> <span class="pre">R,</span> <span class="pre">b</span> <span class="pre">×</span> <span class="pre">R)</span></code></p></td>
+<td><p>optional</p></td>
+<td><p>for packed rows: the single range</p></td>
+</tr>
+<tr class="row-odd"><td><p>row <code class="docutils literal notranslate"><span class="pre">r</span></code> of the band, padded rows</p></td>
+<td><p>source range <code class="docutils literal notranslate"><span class="pre">(0,</span> <span class="pre">P</span> <span class="pre">+</span> <span class="pre">(j</span> <span class="pre">×</span> <span class="pre">b</span> <span class="pre">+</span> <span class="pre">r)</span> <span class="pre">×</span> <span class="pre">s_y,</span> <span class="pre">R)</span></code></p></td>
+<td><p>optional</p></td>
+<td><p>for padded rows: <code class="docutils literal notranslate"><span class="pre">b</span></code> ranges, <code class="docutils literal notranslate"><span class="pre">r</span></code> = 0 to <code class="docutils literal notranslate"><span class="pre">b</span> <span class="pre">−</span> <span class="pre">1</span></code>, in order</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="what-the-profile-does-not-read">
+<span id="75-what-the-profile-does-not-read"></span><h3>7.5 What the profile does not read<a class="headerlink" href="#what-the-profile-does-not-read" title="Link to this heading">¶</a></h3>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>input</p></th>
+<th class="head"><p>what it is</p></th>
+<th class="head"><p>outcome</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>a <strong>LIFEXT</strong> file beside a LIF file</p></td>
+<td><p>not named by the LIF file</p></td>
+<td><p>not read (<a class="reference internal" href="#lifext-files">§2.6</a>): it is an input of its own</p></td>
+</tr>
+<tr class="row-odd"><td><p>an image in <strong><code class="docutils literal notranslate"><span class="pre">Frame</span></code>s</strong> of a LAS X project</p></td>
+<td><p>TIFF, JPEG, PNG or BMP files, of one image or of a plane each</p></td>
+<td><p>not presented, and recorded (<a class="reference internal" href="#id2">§8.4</a>): its files are not read</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>FLIM</strong> raw data</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">SingleMoleculeDetection</span></code> elements, photon arrival histograms</p></td>
+<td><p>has no image: its blocks are kept as bytes in the mirror</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>LIF stores pixels uncompressed and unpacked, so every image the convention gives a layout is
+referenced, not decoded.</p>
+</section>
+<section id="decisions">
+<span id="76-decisions"></span><h3>7.6 Decisions<a class="headerlink" href="#decisions" title="Link to this heading">¶</a></h3>
+<ul class="simple">
+<li><p><strong>Hierarchy.</strong> A file holds a tree of elements (folders and images), each image with its own
+memory block. The output is a bioformats2raw collection of the images in document order, as
+the CZI and ND2 profiles collect their scenes and positions, with each image’s path in the
+tree on its group (<a class="reference internal" href="#the-images">§5.2</a>). A field dimension (a mosaic’s tiles, a lambda
+scan’s wavelengths) selects an image, as ND2’s positions and CZI’s scene, illumination and
+view dimensions do: OME-NGFF 0.5 has room for one time axis, one channel axis and space.</p></li>
+<li><p><strong>Axes and chunks.</strong> The axes come from <code class="docutils literal notranslate"><span class="pre">DimID</span></code>, not from the order of the dimensions: LAS X
+usually stores channels between Y and Z (or outside T), and the <code class="docutils literal notranslate"><span class="pre">BytesInc</span></code> of each dimension
+and channel places every plane, so a chunk is a band of one plane whatever the order of the
+others. Bands follow the CZI profile’s row bands, bounded at 2^24 bytes.</p></li>
+<li><p><strong>Channels.</strong> Planar channels are chunks of their own; interleaved channels (RGB) are one
+chunk with <code class="docutils literal notranslate"><span class="pre">c</span></code> inside it and the <code class="docutils literal notranslate"><span class="pre">transpose</span></code> codec, as the TIFF profile reads interleaved
+samples. The channel order is the bytes’ order (<code class="docutils literal notranslate"><span class="pre">BytesInc</span></code>): BGR data stays BGR, labeled by
+<code class="docutils literal notranslate"><span class="pre">ChannelTag</span></code>’s colors, as the CZI convention keeps its subblocks’ B, G, R order.</p></li>
+<li><p><strong>Mosaics.</strong> Not stitched; each tile is an image with its stage position in its source
+metadata (<a class="reference internal" href="#mosaics">§4.4</a>), as CZI keeps each overlapping tile.</p></li>
+<li><p><strong>Metadata.</strong> Nothing is lost: the XML header and every block are in the mirror, byte for
+byte, and each image’s element, memory, dimensions and channels are on its group as text, as
+the XML writes them, so that no number changes in a translation.</p></li>
+<li><p><strong>LIFEXT files of several parents.</strong> A LIFEXT file has a <code class="docutils literal notranslate"><span class="pre">ChildrenOf</span></code> for each image of the LIF
+file it adds to, as public files do, and each gives images here. liffile reads only the first.</p></li>
+<li><p><strong>LOF and LIFEXT.</strong> A LOF is an image of one block and a LIFEXT file a LIF file’s images in
+another root, so each has the layout a LIF file’s images have: the same series, array and source
+metadata. A LIFEXT file is not joined to its LIF file: neither names the other. So it has its own
+output, with each image’s <code class="docutils literal notranslate"><span class="pre">parent</span></code>, and a LIF file’s output does not depend on a file beside it.</p></li>
+<li><p><strong>Signature.</strong> Precedence 55, after CZI’s: the test value and magic byte are five fixed bytes
+that no other signature reads.</p></li>
+<li><p><strong>Data types.</strong> Every bit depth the XML can describe in whole bytes: 1 to 64 bits, as
+<code class="docutils literal notranslate"><span class="pre">uint8</span></code> to <code class="docutils literal notranslate"><span class="pre">uint64</span></code>, and <code class="docutils literal notranslate"><span class="pre">float16</span></code> to <code class="docutils literal notranslate"><span class="pre">float64</span></code>; the <code class="docutils literal notranslate"><span class="pre">Resolution</span></code> is kept as the window’s
+range. Bit-packed data (<code class="docutils literal notranslate"><span class="pre">BitInc</span></code> other than 0), other data types, channels of two types, and
+channels that are neither planar nor interleaved cannot be referenced as chunks, and are
+rejected.</p></li>
+<li><p><strong>LAS X documents.</strong> A project’s documents describe the images a LIF file’s XML header describes, so its
+output has the layout of a LIF file’s, and its images their paths in the same tree. The documents are read
+whole and kept in the mirror. A LOF gives what its document does, and LAS X writes both the same; the
+profile reads a LOF’s for the layout, so that a project and a LOF of it give one image. <a class="reference internal" href="#the-siblings">§8.2</a>
+lists the rest.</p></li>
+</ul>
+</section>
+</section>
+<section id="las-x-documents">
+<span id="8-las-x-documents"></span><h2>8. LAS X documents<a class="headerlink" href="#las-x-documents" title="Link to this heading">¶</a></h2>
+<p>LAS X can save a project as many files instead of one LIF file: <strong>documents</strong>, which are XML, name one
+another and name the files that hold the images. An XLEF is the experiment, an XLCF a collection, an
+XLIF an image or another element, and an XLLF a folder view. Images are held in LOFs
+(<a class="reference internal" href="#leica-object-files">§2.5</a>), or in TIFF, JPEG, PNG or BMP files, one per plane or per image.</p>
+<p>Such an input is a file read as a store (<a class="reference internal" href="../zarrify.html#files-read-as-stores"><span class="std std-ref">zarrify §1.8</span></a>), and its
+output has the layout of <a class="reference internal" href="#output">§4</a>: a bioformats2raw collection of the images, each with its path
+in the tree of elements.</p>
+<section id="the-documents">
+<span id="81-the-documents"></span><h3>8.1 The documents<a class="headerlink" href="#the-documents" title="Link to this heading">¶</a></h3>
+<p>A document is UTF-8, usually after a byte order mark, and is read by the tag scan of
+<a class="reference internal" href="#the-xml-header">§2.2</a>. Its bytes MUST be valid UTF-8, its root MUST be named
+<code class="docutils literal notranslate"><span class="pre">LMSDataContainerHeader</span></code>, with a <code class="docutils literal notranslate"><span class="pre">Version</span></code> of 1 or 2, and the root MUST have a child <code class="docutils literal notranslate"><span class="pre">Element</span></code>: the
+document’s <strong>element</strong>. So a document holds one element, and:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>path under the element</p></th>
+<th class="head"><p>what</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Data/Experiment</span></code>, <code class="docutils literal notranslate"><span class="pre">Data/Collection</span></code>, …</p></td>
+<td><p>what it is; only <code class="docutils literal notranslate"><span class="pre">Data/Image</span></code> matters here: such an element is an <strong>image</strong></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">Data/Image</span></code></p></td>
+<td><p>as in <a class="reference internal" href="#images">§2.3</a> and <a class="reference internal" href="#dimensions-and-channels">§2.4</a></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Memory</span></code></p></td>
+<td><p>its attribute <code class="docutils literal notranslate"><span class="pre">Size</span></code>, and the children that have an attribute <code class="docutils literal notranslate"><span class="pre">File</span></code>, its <strong>entries</strong>: <code class="docutils literal notranslate"><span class="pre">Block</span></code> (<code class="docutils literal notranslate"><span class="pre">Offset</span></code>, <code class="docutils literal notranslate"><span class="pre">Size</span></code>, <code class="docutils literal notranslate"><span class="pre">UUID</span></code>) or <code class="docutils literal notranslate"><span class="pre">Frame</span></code>, …</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">Children/Reference</span></code></p></td>
+<td><p>each with an attribute <code class="docutils literal notranslate"><span class="pre">File</span></code>, a <strong>reference</strong>, names a document, and may have a <code class="docutils literal notranslate"><span class="pre">UUID</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A <code class="docutils literal notranslate"><span class="pre">Reference</span></code> without a <code class="docutils literal notranslate"><span class="pre">File</span></code> names nothing. Elements that are not images (<code class="docutils literal notranslate"><span class="pre">Data/Experiment</span></code>,
+<code class="docutils literal notranslate"><span class="pre">Data/Collection</span></code>, LAS X’s <code class="docutils literal notranslate"><span class="pre">Data/ProcessingControl</span></code> in <code class="docutils literal notranslate"><span class="pre">IOManagerConfiguation.xlif</span></code>, whose <code class="docutils literal notranslate"><span class="pre">Memory</span></code> has
+a <code class="docutils literal notranslate"><span class="pre">Size</span></code> of 0, and a <code class="docutils literal notranslate"><span class="pre">Data/SimpleListInMemory</span></code>) add only the documents and LOFs they name.</p>
+<p>A <code class="docutils literal notranslate"><span class="pre">Memory</span></code> of exactly one entry, a <code class="docutils literal notranslate"><span class="pre">Block</span></code> whose <code class="docutils literal notranslate"><span class="pre">File</span></code> ends in <code class="docutils literal notranslate"><span class="pre">.lof</span></code> in ASCII lower case, names a
+<strong>LOF</strong>. It MUST have an integer <code class="docutils literal notranslate"><span class="pre">Offset</span></code> and an integer <code class="docutils literal notranslate"><span class="pre">Size</span></code> (<a class="reference internal" href="#the-xml-header">§2.2</a>), for an
+element that is an image or not. Any other entries name nothing the profile reads (<a class="reference internal" href="#id2">§8.4</a>).</p>
+</section>
+<section id="the-siblings">
+<span id="82-the-siblings"></span><h3>8.2 The siblings<a class="headerlink" href="#the-siblings" title="Link to this heading">¶</a></h3>
+<p>The sibling table (<a class="reference internal" href="../zarrify.html#sources-beside-the-input"><span class="std std-ref">zarrify §1.9</span></a>):</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>what</p></th>
+<th class="head"><p>it says</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>form</p></td>
+<td><p>always: an input whose bytes match the second signature of <a class="reference internal" href="#detection">§7.1</a> is a file read as a store. A LIF, LOF or LIFEXT file names no sibling and is a file input</p></td>
+</tr>
+<tr class="row-odd"><td><p>names</p></td>
+<td><p>written: each <code class="docutils literal notranslate"><span class="pre">File</span></code> of a <code class="docutils literal notranslate"><span class="pre">Reference</span></code> or of a LOF’s <code class="docutils literal notranslate"><span class="pre">Block</span></code>, percent-decoded once, each <code class="docutils literal notranslate"><span class="pre">\</span></code> a <code class="docutils literal notranslate"><span class="pre">/</span></code>, with <code class="docutils literal notranslate"><span class="pre">..</span></code> allowed, relative to the directory of the document that holds it, through the steps of <strong>Naming</strong>; <strong>Case</strong> applies. A name those steps reject rejects the input. <code class="docutils literal notranslate"><span class="pre">Frame</span></code>s and other entries are not made keys</p></td>
+</tr>
+<tr class="row-even"><td><p>probes</p></td>
+<td><p>the keys that the documents of one level name, in one batch: a level’s documents in the order read, each one’s <code class="docutils literal notranslate"><span class="pre">Reference</span></code>s, then its <code class="docutils literal notranslate"><span class="pre">Block</span></code>. All required; an absent one rejects the input: <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">document</span> <span class="pre">&quot;&lt;key&gt;&quot;</span> <span class="pre">does</span> <span class="pre">not</span> <span class="pre">exist</span></code>, or <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">LOF</span> <span class="pre">&quot;&lt;key&gt;&quot;</span></code>, with the advice of <strong>Absent names</strong> below. Files a <code class="docutils literal notranslate"><span class="pre">Frame</span></code> names are not probed. A key already known is not probed again, and what it would have named is already known too, so a document that names itself or an earlier document adds nothing</p></td>
+</tr>
+<tr class="row-odd"><td><p>identity</p></td>
+<td><p>a <code class="docutils literal notranslate"><span class="pre">Reference</span></code>’s <code class="docutils literal notranslate"><span class="pre">UUID</span></code> against the <code class="docutils literal notranslate"><span class="pre">UniqueID</span></code> of the element of the document it names, and the <code class="docutils literal notranslate"><span class="pre">UniqueID</span></code> of an element that names a LOF against the <code class="docutils literal notranslate"><span class="pre">UniqueID</span></code> of the LOF’s <code class="docutils literal notranslate"><span class="pre">Element</span></code>, where both exist; else <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">document</span> <span class="pre">&quot;&lt;key&gt;&quot;</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">part</span> <span class="pre">of</span> <span class="pre">this</span> <span class="pre">experiment</span></code>, or <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">LOF</span> <span class="pre">&quot;&lt;key&gt;&quot;</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>order</p></td>
+<td><p>first use</p></td>
+</tr>
+<tr class="row-odd"><td><p>reads and mirror</p></td>
+<td><p>a document is read whole and <strong>held</strong>, with one child <code class="docutils literal notranslate"><span class="pre">xml</span></code>, of type <code class="docutils literal notranslate"><span class="pre">xml</span></code>, its whole extent. A LOF is read as <a class="reference internal" href="#reading">§7.2</a> says, and <strong>described in place</strong>, its <a class="reference internal" href="#elements">§5.4</a> elements under its object; a LOF that no image’s chunks reference, as beside a frame image, is also referenced whole at <code class="docutils literal notranslate"><span class="pre">refkv_source/objects/&lt;key&gt;</span></code> (<a class="reference internal" href="../zarrify.html#store-inputs"><span class="std std-ref">zarrify §1.4</span></a>), which makes it a source. Nothing is read of what no document names</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Case.</strong> LAS X writes names in lower case on a file system that ignores it, so a written key differs
+from the file’s: <code class="docutils literal notranslate"><span class="pre">.%5Cmetadata%5Cseries010_edf001.xlcf</span></code> for <code class="docutils literal notranslate"><span class="pre">Metadata/Series010_EDF001.xlcf</span></code>. So this
+profile says <strong>Case</strong> applies. A host that can list a local directory finds each key by listing it
+segment by segment, and a key’s object is the file’s key as listed. Two entries that match only ignoring
+case reject the input: <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">file</span> <span class="pre">&quot;&lt;key&gt;&quot;</span> <span class="pre">matches</span> <span class="pre">both</span> <span class="pre">&quot;&lt;a&gt;&quot;</span> <span class="pre">and</span> <span class="pre">&quot;&lt;b&gt;&quot;</span></code>. This listing happens whether or
+not the written key opens, so that a file system that ignores case gives the same output as one that
+does not.</p>
+<p><strong>Absent names.</strong> A web server cannot list a directory, so over HTTP, and in the browser, a written name
+is the only key tried, and a set whose names are in another case than its files is rejected, unless the
+server itself ignores case. The message says what to do: download the set, and zarrify the local copy
+with <code class="docutils literal notranslate"><span class="pre">--url</span></code> naming where it is served. This reads the same output, with the keys the files have.
+S3 stores are not listed for this today.</p>
+</section>
+<section id="limits">
+<span id="83-limits"></span><h3>8.3 Limits<a class="headerlink" href="#limits" title="Link to this heading">¶</a></h3>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>limit</p></th>
+<th class="head"><p>value</p></th>
+<th class="head"><p>bounds</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>a document</p></td>
+<td><p>2^27 bytes</p></td>
+<td><p>its parse, and its bytes in the mirror</p></td>
+</tr>
+<tr class="row-odd"><td><p>the documents of an input</p></td>
+<td><p>2^28 bytes in total</p></td>
+<td><p>the same</p></td>
+</tr>
+<tr class="row-even"><td><p>names</p></td>
+<td><p>at most 65536 keys probed (<a class="reference internal" href="../zarrify.html#sources-beside-the-input"><span class="std std-ref">zarrify §1.9</span></a>, <strong>Bounds</strong>)</p></td>
+<td><p>requests</p></td>
+</tr>
+<tr class="row-odd"><td><p>depth</p></td>
+<td><p>16 levels of documents, the named file being level 1: <code class="docutils literal notranslate"><span class="pre">budget:</span> <span class="pre">documents</span> <span class="pre">name</span> <span class="pre">documents</span> <span class="pre">more</span> <span class="pre">than</span> <span class="pre">16</span> <span class="pre">levels</span> <span class="pre">deep</span></code>. A level is the fewest references from the named file; the walk of <a class="reference internal" href="#id2">§8.4</a> also holds to it</p></td>
+<td><p>requests, and an image’s <code class="docutils literal notranslate"><span class="pre">path</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>a LOF</p></td>
+<td><p>named by at most one document: two images must not name one block</p></td>
+<td><p>as <a class="reference internal" href="#images">§2.3</a></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A document’s or LOF’s limits are the store run’s besides: its reads (<a class="reference internal" href="../conventions.html#stores"><span class="std std-ref">conventions §8.9</span></a>).</p>
+</section>
+<section id="id2">
+<span id="84-the-images"></span><h3>8.4 The images<a class="headerlink" href="#id2" title="Link to this heading">¶</a></h3>
+<p>The documents are walked from the named file, a document before the ones it names, and these in the
+order of its <code class="docutils literal notranslate"><span class="pre">Reference</span></code>s, each document once. The walk gives the images in order, so that <code class="docutils literal notranslate"><span class="pre">k</span></code> and the
+series (<a class="reference internal" href="#the-hierarchy">§4.1</a>) number the input’s images as a LIF file’s do, and each image’s <code class="docutils literal notranslate"><span class="pre">path</span></code>
+(<a class="reference internal" href="#images">§2.3</a>) is the <code class="docutils literal notranslate"><span class="pre">Name</span></code> of each document’s element on the way to it.</p>
+<p>An image element with a LOF is <strong>presented</strong>. Its LOF MUST be a LOF (<a class="reference internal" href="#leica-object-files">§2.5</a>,
+<code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">LOF</span> <span class="pre">&quot;&lt;key&gt;&quot;</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">a</span> <span class="pre">LOF</span> <span class="pre">file</span></code>), MUST have an image (<code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">LOF</span> <span class="pre">&quot;&lt;key&gt;&quot;</span> <span class="pre">that</span> <span class="pre">&quot;&lt;document&gt;&quot;</span> <span class="pre">names</span> <span class="pre">holds</span> <span class="pre">no</span> <span class="pre">image</span></code>), and that image is the one the output has: its dimensions and channels are its LOF’s, which
+LAS X writes the same as its document’s, and its checks are <a class="reference internal" href="#rejection">§7.3</a>’s, whose message then
+starts with <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">LOF</span> <span class="pre">&quot;&lt;key&gt;&quot;:</span> </code>. Its <code class="docutils literal notranslate"><span class="pre">Offset</span></code> plus its <code class="docutils literal notranslate"><span class="pre">Size</span></code> MUST be at most the LOF’s data size <code class="docutils literal notranslate"><span class="pre">D</span></code>, and
+the image’s extent (<a class="reference internal" href="#channels">§3.2</a>) at most its <code class="docutils literal notranslate"><span class="pre">Size</span></code>: its plane offset (<a class="reference internal" href="#chunk-references">§7.4</a>)
+counts from <code class="docutils literal notranslate"><span class="pre">B</span></code> plus its <code class="docutils literal notranslate"><span class="pre">Offset</span></code>. LAS X writes an <code class="docutils literal notranslate"><span class="pre">Offset</span></code> of 0 and a <code class="docutils literal notranslate"><span class="pre">Size</span></code> of <code class="docutils literal notranslate"><span class="pre">D</span></code>.</p>
+<p>Any other image element is <strong>not presented</strong>, and is recorded on the root
+(<a class="reference internal" href="#the-root">§5.1</a>) with its reason. That is an image in TIFF, JPEG, PNG or BMP <code class="docutils literal notranslate"><span class="pre">Frame</span></code>s, an image of
+several <code class="docutils literal notranslate"><span class="pre">Block</span></code>s, an image whose <code class="docutils literal notranslate"><span class="pre">Block</span></code> is not of a LOF, and one whose <code class="docutils literal notranslate"><span class="pre">Memory</span></code> names no file. Its
+document is still in the mirror, as is every other element, so nothing about it is lost but the
+reference to its pixels. A later version MAY present an uncompressed TIFF frame: a frame’s <code class="docutils literal notranslate"><span class="pre">Size</span></code> is the
+plane’s, and its <code class="docutils literal notranslate"><span class="pre">Offset</span></code> where the plane falls in the image, so it needs each TIFF’s strips read, and one
+file for each plane at worst.</p>
+<p>The references of an image are ranges of its LOF’s object, named by object URL
+(<a class="reference internal" href="../zarrify.html#files-read-as-stores"><span class="std std-ref">zarrify §1.8</span></a>).</p>
+<div class="toctree-wrapper compound">
+</div>
+</section>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="../../docs/zarrify/lif/README.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">LIF</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="ims/stored-arrays.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">IMS: stored arrays</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; the refkv authors
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer no-toc">
+      
+      
+      
+    </aside>
+  </div>
+</div><script src="../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/scripts/furo.js?v=46bd48cc"></script>
+    </body>
+</html>

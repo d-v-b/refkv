@@ -1,0 +1,1773 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../../genindex.html"><link rel="search" title="Search" href="../../search.html"><link rel="next" title="N5" href="../../docs/zarrify/n5/README.html"><link rel="prev" title="MRC as a dataset" href="mrc-dataset.html">
+        <link rel="canonical" href="https://d-v-b.github.io/refkv/spec/zarrify/n5.html">
+
+    <!-- Generated with Sphinx 9.1.1 and Furo 2025.12.19 -->
+        <title>N5 - refkv</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="../../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../../README.html"><div class="brand">refkv</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../../README.html">
+  
+  <span class="sidebar-brand-text">refkv</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/README.html">refkv documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/adding-a-format.html">Adding a file format</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/build.html">Building an output from the IR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/combining-stores.html">Combining stores</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/layout-plugins.html">Writing a layout plugin</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/tiff-stack.html">A stack of TIFF files as one array</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/virtual-datasets.html">Virtual datasets with xarray</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Specification</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../TECHNIQUES.html">Mapping image formats to Zarr: techniques</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../conventions.html">refkv’s Zarr conventions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../layout.html">Layouts written by plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../provenance.html">refkv’s provenance convention</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../refkv.html">refkv: a reference value type for key-value stores</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../refkv.html#part-1-reference-values">Part 1. Reference values</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../stored-array.html">Stored arrays in the IR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../zarrify.html">Zarrifying files and stores as Zarr in refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/phkv.html">phkv: the perfect-hash binding of refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/phkv.html#part-3-the-perfect-hash-binding">Part 3. The perfect-hash binding</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/vzip.html">vzip: the ZIP binding of refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/vzip.html#part-2-the-zip-binding">Part 2. The ZIP binding</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Formats</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="czi.html">CZI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="czi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="czi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/czi/README.html">CZI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="czi/stored-arrays.html">CZI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="dicom.html">DICOM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dicom.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="dicom.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/dicom/README.html">DICOM, including whole-slide images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dicom/stored-arrays.html">DICOM: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="envi.html">ENVI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="envi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="envi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/envi/README.html">ENVI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="envi/stored-arrays.html">ENVI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="fits.html">FITS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fits.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="fits.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/fits/README.html">FITS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="fits/stored-arrays.html">FITS: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="flac.html">FLAC</a></li>
+<li class="toctree-l1"><a class="reference internal" href="flac.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="flac.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-5" name="toctree-checkbox-5" role="switch" type="checkbox"/><label for="toctree-checkbox-5"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/flac/README.html">FLAC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="flac/stored-arrays.html">FLAC: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="grib.html">GRIB</a></li>
+<li class="toctree-l1"><a class="reference internal" href="grib.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="grib.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-6" name="toctree-checkbox-6" role="switch" type="checkbox"/><label for="toctree-checkbox-6"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/grib/README.html">GRIB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="grib/stored-arrays.html">GRIB: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="h5j.html">H5J</a></li>
+<li class="toctree-l1"><a class="reference internal" href="h5j.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="h5j.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-7" name="toctree-checkbox-7" role="switch" type="checkbox"/><label for="toctree-checkbox-7"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/h5j/README.html">H5J</a></li>
+<li class="toctree-l2"><a class="reference internal" href="h5j/stored-arrays.html">H5J: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="hdf4.html">HDF4</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hdf4.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="hdf4.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-8" name="toctree-checkbox-8" role="switch" type="checkbox"/><label for="toctree-checkbox-8"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/hdf4/README.html">HDF4 and HDF-EOS2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="hdf4/stored-arrays.html">HDF4: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="hdf5.html">HDF5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hdf5.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="hdf5.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-9" name="toctree-checkbox-9" role="switch" type="checkbox"/><label for="toctree-checkbox-9"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/hdf5/README.html">HDF5 and NWB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="hdf5/stored-arrays.html">HDF5: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ims.html">IMS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ims.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ims.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-10" name="toctree-checkbox-10" role="switch" type="checkbox"/><label for="toctree-checkbox-10"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/ims/README.html">Imaris IMS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ims/stored-arrays.html">IMS: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="lif.html">LIF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lif.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="lif.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-11" name="toctree-checkbox-11" role="switch" type="checkbox"/><label for="toctree-checkbox-11"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/lif/README.html">LIF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lif/stored-arrays.html">LIF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="mp3.html">MP3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mp3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mp3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-12" name="toctree-checkbox-12" role="switch" type="checkbox"/><label for="toctree-checkbox-12"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/mp3/README.html">MP3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mp3/stored-arrays.html">MP3: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="mp4.html">MP4</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mp4.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mp4.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-13" name="toctree-checkbox-13" role="switch" type="checkbox"/><label for="toctree-checkbox-13"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/mp4/README.html">MP4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mp4/stored-arrays.html">MP4: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="mrc.html">MRC</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mrc.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mrc.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-14" name="toctree-checkbox-14" role="switch" type="checkbox"/><label for="toctree-checkbox-14"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/mrc/README.html">MRC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mrc/stored-arrays.html">MRC: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mrc-dataset.html">MRC as a dataset</a><input aria-label="Toggle navigation of MRC as a dataset" class="toctree-checkbox" id="toctree-checkbox-15" name="toctree-checkbox-15" role="switch" type="checkbox"/><label for="toctree-checkbox-15"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul class="simple">
+</ul>
+</li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">N5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-16" name="toctree-checkbox-16" role="switch" type="checkbox"/><label for="toctree-checkbox-16"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/n5/README.html">N5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="n5/stored-arrays.html">N5: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="nd2.html">ND2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nd2.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="nd2.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-17" name="toctree-checkbox-17" role="switch" type="checkbox"/><label for="toctree-checkbox-17"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/nd2/README.html">Nikon ND2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nd2/stored-arrays.html">ND2: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ndpi.html">NDPI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ndpi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ndpi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-18" name="toctree-checkbox-18" role="switch" type="checkbox"/><label for="toctree-checkbox-18"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/ndpi/README.html">Hamamatsu NDPI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ndpi/stored-arrays.html">NDPI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="netcdf3.html">netCDF3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="netcdf3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="netcdf3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-19" name="toctree-checkbox-19" role="switch" type="checkbox"/><label for="toctree-checkbox-19"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/netcdf3/README.html">netCDF3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="netcdf3/stored-arrays.html">netCDF3: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="nifti.html">NIfTI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nifti.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="nifti.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-20" name="toctree-checkbox-20" role="switch" type="checkbox"/><label for="toctree-checkbox-20"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/nifti/README.html">NIfTI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nifti/stored-arrays.html">NIfTI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="npy.html">NumPy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="npy.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="npy.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-21" name="toctree-checkbox-21" role="switch" type="checkbox"/><label for="toctree-checkbox-21"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/npy/README.html">NumPy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="npy/stored-arrays.html">NumPy: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="nrrd.html">NRRD</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nrrd.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="nrrd.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-22" name="toctree-checkbox-22" role="switch" type="checkbox"/><label for="toctree-checkbox-22"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/nrrd/README.html">NRRD</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nrrd/stored-arrays.html">NRRD: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ome-zarr.html">OME-Zarr</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ome-zarr.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ome-zarr.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-23" name="toctree-checkbox-23" role="switch" type="checkbox"/><label for="toctree-checkbox-23"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/ome-zarr/README.html">OME-Zarr 0.4 to 0.5, in place</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ome-zarr/stored-arrays.html">OME-Zarr: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="precomputed.html">Neuroglancer precomputed</a></li>
+<li class="toctree-l1"><a class="reference internal" href="precomputed.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="precomputed.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-24" name="toctree-checkbox-24" role="switch" type="checkbox"/><label for="toctree-checkbox-24"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/precomputed/README.html">Neuroglancer precomputed</a></li>
+<li class="toctree-l2"><a class="reference internal" href="precomputed/stored-arrays.html">Neuroglancer precomputed: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="qptiff.html">QPTIFF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="qptiff.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="qptiff.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-25" name="toctree-checkbox-25" role="switch" type="checkbox"/><label for="toctree-checkbox-25"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/qptiff/README.html">Akoya QPTIFF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="qptiff/stored-arrays.html">QPTIFF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="safe.html">SAFE</a></li>
+<li class="toctree-l1"><a class="reference internal" href="safe.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="safe.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-26" name="toctree-checkbox-26" role="switch" type="checkbox"/><label for="toctree-checkbox-26"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/safe/README.html">Sentinel-2 SAFE</a></li>
+<li class="toctree-l2"><a class="reference internal" href="safe/stored-arrays.html">SAFE: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="safetensors.html">safetensors</a></li>
+<li class="toctree-l1"><a class="reference internal" href="safetensors.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="safetensors.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-27" name="toctree-checkbox-27" role="switch" type="checkbox"/><label for="toctree-checkbox-27"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/safetensors/README.html">safetensors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="safetensors/stored-arrays.html">safetensors: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="tiff.html">TIFF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tiff.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="tiff.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-28" name="toctree-checkbox-28" role="switch" type="checkbox"/><label for="toctree-checkbox-28"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/tiff/README.html">TIFF, OME-TIFF and Aperio SVS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tiff/stored-arrays.html">TIFF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="vsi.html">VSI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="vsi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="vsi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-29" name="toctree-checkbox-29" role="switch" type="checkbox"/><label for="toctree-checkbox-29"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/vsi/README.html">VSI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="vsi/stored-arrays.html">VSI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarr2.html">Zarr v2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarr2.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarr2.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-30" name="toctree-checkbox-30" role="switch" type="checkbox"/><label for="toctree-checkbox-30"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/zarr2/README.html">Zarr v2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarr2/stored-arrays.html">Zarr v2: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarr3.html">Zarr v3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarr3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarr3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-31" name="toctree-checkbox-31" role="switch" type="checkbox"/><label for="toctree-checkbox-31"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/zarr3/README.html">Zarr v3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarr3/stored-arrays.html">Zarr v3: stored arrays</a></li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/d-v-b/refkv/edit/main/spec/zarrify/n5.md" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="n5">
+<h1>N5<a class="headerlink" href="#n5" title="Link to this heading">¶</a></h1>
+<p>The Zarr v3 layout of an N5 container, and its attributes. What all of
+refkv’s conventions share is in <a class="reference internal" href="../conventions.html"><span class="std std-doc">spec/conventions.md</span></a>, cited
+here as “conventions §n”. How refkv produces this layout as a reference store
+from a listed store is the N5 profile, <a class="reference internal" href="#part-2-the-profile">Part 2</a> below.</p>
+<p>Convention version: 0 (until release, <a class="reference internal" href="../conventions.html#conventions"><span class="std std-ref">conventions §1</span></a>) · UUID: <code class="docutils literal notranslate"><span class="pre">ad5d4c39-c69e-48f7-a3ef-4cc8c607d416</span></code> ·
+Schema: <a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5/schema.json">schema.json</a></p>
+<p>Changes: <a class="reference external" href="https://github.com/d-v-b/refkv/tree/main/spec/zarrify/changes/n5">changes/n5/</a>, one file per change.</p>
+<p>Changes before 2026-10-22 are recorded in
+<a class="reference internal" href="../history/virtualize/REVISIONS.html"><span class="std std-doc">the revision log of VIRTUALIZE.md</span></a>, this document’s earlier
+name, up to
+<a class="reference internal" href="../history/virtualize/REVISIONS.html#revision-29-no-recorded-revision-the-profile-registry"><span class="std std-ref">revision 29</span></a>.</p>
+<p>This document has two parts (<a class="reference internal" href="../conventions.html#parts"><span class="std std-ref">conventions §11.1</span></a>).</p>
+</section>
+<section id="part-1-the-convention">
+<h1>Part 1. The convention<a class="headerlink" href="#part-1-the-convention" title="Link to this heading">¶</a></h1>
+<p>This convention gives a layout only to the containers that meet its
+requirements. Where it says that “the input is rejected”, or that
+something MUST hold, a container that fails has no layout under this
+convention, and the profile rejects it.</p>
+<p>An N5 container (the N5 specification, version 4.0.0 and the 2.x versions
+before it) is a hierarchy of groups and datasets. Each may have an
+<code class="docutils literal notranslate"><span class="pre">attributes.json</span></code> document; a dataset’s holds its shape, block size, data
+type and compression. A dataset’s blocks are objects at keys
+<code class="docutils literal notranslate"><span class="pre">&lt;dataset&gt;/&lt;i0&gt;/&lt;i1&gt;/…</span></code>, each a header (mode, number of dimensions and the
+block’s size along each) followed by the elements in column-major (first
+index fastest) order, big-endian, compressed as a whole.</p>
+<p>The output is a Zarr v3 hierarchy with a node at the path of every N5 node.
+Each N5 dataset becomes an array that reads the blocks with the
+<strong><code class="docutils literal notranslate"><span class="pre">n5_default</span></code></strong> codec of the zarr-extensions registry
+(<code class="docutils literal notranslate"><span class="pre">codecs/n5_default</span></code>), and each chunk holds a whole block object, header
+included: the codec parses the header, so a block that is smaller than the
+block size (the truncated edge blocks Java N5 writes) or larger (padded
+ones) reads correctly. Every object of the container that is neither a
+node’s document nor a block is kept whole (<a class="reference internal" href="#other-objects">§6</a>).</p>
+<section id="layout">
+<h2>Layout<a class="headerlink" href="#layout" title="Link to this heading">¶</a></h2>
+<p>The hierarchy’s entries (<a class="reference internal" href="../conventions.html#layout-tables"><span class="std std-ref">conventions §11.5</span></a>):</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>prefix</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>structure</p></th>
+<th class="head"><p>description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json</span></code></p></td>
+<td><p>group</p></td>
+<td><p><a class="reference internal" href="#type-n5group"><code class="docutils literal notranslate"><span class="pre">N5Group</span></code></a></p></td>
+<td><p>the root, when it is a group (<a class="reference internal" href="#nodes">§2</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json</span></code></p></td>
+<td><p>array</p></td>
+<td><p><a class="reference internal" href="#type-n5array"><code class="docutils literal notranslate"><span class="pre">N5Array</span></code></a></p></td>
+<td><p>the root, when it is a dataset (<a class="reference internal" href="#datasets">§3</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/ome</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="#type-n5ome"><code class="docutils literal notranslate"><span class="pre">N5Ome</span></code></a></p></td>
+<td><p>when the root is a group that <a class="reference internal" href="#multiscale-images">§4</a> recognizes as a multiscale image</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/zarr_conventions</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p>array of <a class="reference internal" href="../conventions.html#type-conventionmetadata"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">ConventionMetadata</span></code></span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[C]</span></code>, <code class="docutils literal notranslate"><span class="pre">C</span></code> the CMO of <a class="reference internal" href="#declaration">§1</a></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/refkv_zarrified</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-rootproperty"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">RootProperty</span></code></span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">profile</span></code> <code class="docutils literal notranslate"><span class="pre">&quot;n5&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">version</span></code> <code class="docutils literal notranslate"><span class="pre">0</span></code>, <code class="docutils literal notranslate"><span class="pre">source.url</span></code> the store’s URL, ending in <code class="docutils literal notranslate"><span class="pre">/</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/refkv_zarrified/n5</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="#type-n5node"><code class="docutils literal notranslate"><span class="pre">N5Node</span></code></a></p></td>
+<td><p>the root’s source metadata (<a class="reference internal" href="#source-metadata">§5</a>), when it has any</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;path&gt;/zarr.json</span></code></p></td>
+<td><p>group</p></td>
+<td><p><a class="reference internal" href="#type-n5group"><code class="docutils literal notranslate"><span class="pre">N5Group</span></code></a></p></td>
+<td><p>every other group, explicit or implicit (<a class="reference internal" href="#nodes">§2</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;path&gt;/zarr.json</span></code></p></td>
+<td><p>array</p></td>
+<td><p><a class="reference internal" href="#type-n5array"><code class="docutils literal notranslate"><span class="pre">N5Array</span></code></a></p></td>
+<td><p>every other dataset (<a class="reference internal" href="#datasets">§3</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;path&gt;/zarr.json#/attributes/ome</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="#type-n5ome"><code class="docutils literal notranslate"><span class="pre">N5Ome</span></code></a></p></td>
+<td><p>an explicit group that <a class="reference internal" href="#multiscale-images">§4</a> recognizes as a multiscale image</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;path&gt;/zarr.json#/attributes/zarr_conventions</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p>array of <a class="reference internal" href="../conventions.html#type-conventionmetadata"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">ConventionMetadata</span></code></span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[C]</span></code>, <code class="docutils literal notranslate"><span class="pre">C</span></code> the CMO of <a class="reference internal" href="#declaration">§1</a>, on a node that has source metadata</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;path&gt;/zarr.json#/attributes/refkv_zarrified</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-nodeproperty"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">NodeProperty</span></code></span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{&quot;n5&quot;:</span> <span class="pre">S}</span></code>, on a node that has source metadata (<a class="reference internal" href="#declaration">§1</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;path&gt;/zarr.json#/attributes/refkv_zarrified/n5</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="#type-n5node"><code class="docutils literal notranslate"><span class="pre">N5Node</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">S</span></code>, the node’s source metadata (<a class="reference internal" href="#source-metadata">§5</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;block&gt;</span></code></p></td>
+<td><p>chunk</p></td>
+<td><p><a class="reference internal" href="#type-n5object"><code class="docutils literal notranslate"><span class="pre">N5Object</span></code></a></p></td>
+<td><p>each present chunk of the root, when it is a dataset (<a class="reference internal" href="#chunks">§3.1</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;path&gt;/&lt;block&gt;</span></code></p></td>
+<td><p>chunk</p></td>
+<td><p><a class="reference internal" href="#type-n5object"><code class="docutils literal notranslate"><span class="pre">N5Object</span></code></a></p></td>
+<td><p>each present chunk of the dataset at <code class="docutils literal notranslate"><span class="pre">&lt;path&gt;</span></code> (<a class="reference internal" href="#chunks">§3.1</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">refkv_source/**</span></code></p></td>
+<td><p>subtree</p></td>
+<td><p><a class="reference internal" href="../conventions.html#table-mirror"><span class="std std-ref">the mirror’s entries</span></a></p></td>
+<td><p>the store’s IR mirror (<a class="reference internal" href="#the-ir-mirror">§5.1</a>), a store IR’s, with <code class="docutils literal notranslate"><span class="pre">ir/held</span></code>: every entry under <code class="docutils literal notranslate"><span class="pre">refkv_source/</span></code> but those under <code class="docutils literal notranslate"><span class="pre">refkv_source/objects/</span></code>. Under a root dataset, plain keys of the archive (<a class="reference internal" href="#other-objects">§6</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">refkv_source/zarr.json#/attributes/refkv_zarrified/n5</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="#type-n5mirror"><code class="docutils literal notranslate"><span class="pre">N5Mirror</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">refkv_source</span></code>’s source metadata (<a class="reference internal" href="#the-ir-mirror">§5.1</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">refkv_source/objects/&lt;k&gt;</span></code></p></td>
+<td><p>object</p></td>
+<td><p><a class="reference internal" href="#type-n5object"><code class="docutils literal notranslate"><span class="pre">N5Object</span></code></a></p></td>
+<td><p>each other object, kept whole (<a class="reference internal" href="#other-objects">§6</a>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>placeholder</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;path&gt;</span></code></p></td>
+<td><p>a node’s path, the path of a directory of the store (<a class="reference internal" href="#nodes">§2</a>); it stands for one or more segments</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;block&gt;</span></code></p></td>
+<td><p>a chunk key’s indexes below its dataset (<a class="reference internal" href="#chunks">§3.1</a>), <code class="docutils literal notranslate"><span class="pre">i0/i1/…/i(n−1)</span></code>, each in decimal without leading zeros; it stands for <code class="docutils literal notranslate"><span class="pre">n</span></code> segments</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;k&gt;</span></code></p></td>
+<td><p>the other object’s key, its last segment escaped (<a class="reference internal" href="#other-objects">§6</a>); it stands for one or more segments</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="declaration">
+<span id="1-declaration"></span><h2>1. Declaration<a class="headerlink" href="#declaration" title="Link to this heading">¶</a></h2>
+<p>The root and <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> declare the convention
+(<a class="reference internal" href="../conventions.html#declaration"><span class="std std-ref">conventions §11.2</span></a>), the root with its source
+metadata (<a class="reference internal" href="#source-metadata">§5</a>), if it has any, as the member <code class="docutils literal notranslate"><span class="pre">&quot;n5&quot;</span></code>. Every other
+node that has source metadata (<a class="reference internal" href="#source-metadata">§5</a>) declares it with <code class="docutils literal notranslate"><span class="pre">{&quot;n5&quot;:</span> <span class="pre">S}</span></code>.
+Its CMO is:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"uuid"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ad5d4c39-c69e-48f7-a3ef-4cc8c607d416"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"schema_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/n5/schema.json"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"spec_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"refkv_zarrified"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"description"</span><span class="p">:</span><span class="w"> </span><span class="s2">"The Zarr layout of a N5 source zarrified by refkv, and the source's metadata"</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">refkv_source</span></code>’s source metadata also holds the recorded ignored keys
+(<a class="reference internal" href="#the-ir-mirror">§5.1</a>).</p>
+</section>
+<section id="nodes">
+<span id="2-nodes"></span><h2>2. Nodes<a class="headerlink" href="#nodes" title="Link to this heading">¶</a></h2>
+<p>The <strong>candidates</strong> are the directories <code class="docutils literal notranslate"><span class="pre">D</span></code> (the root included) for which
+the store has an object <code class="docutils literal notranslate"><span class="pre">D/attributes.json</span></code> (<code class="docutils literal notranslate"><span class="pre">attributes.json</span></code> for the
+root). Each candidate’s document is read (<a class="reference internal" href="../zarrify.html#json-documents"><span class="std std-ref">spec/zarrify.md §1.6</span></a>) and MUST be a JSON object;
+otherwise the input is rejected.</p>
+<p>Candidates are classified from the root down (in order of their number of
+segments):</p>
+<ul class="simple">
+<li><p>a candidate inside a dataset (a proper descendant of a directory that is
+a dataset) is <strong>not a node</strong>, and its document is neither read nor
+checked: it, and the blocks of such a nested dataset, are other objects
+(<a class="reference internal" href="#other-objects">§6</a>);</p></li>
+<li><p>otherwise, a candidate whose document has a member <code class="docutils literal notranslate"><span class="pre">dimensions</span></code> is a
+<strong>dataset</strong>;</p></li>
+<li><p>otherwise, it is an <strong>explicit group</strong>.</p></li>
+</ul>
+<p>Every directory that is a proper ancestor of a dataset or an explicit
+group, and is not one itself, is an <strong>implicit group</strong> (N5 has no document
+for a group without attributes; any directory on a file system is a group,
+and an object store has directories only as key prefixes). No other
+directory is a node: a directory that leads to no <code class="docutils literal notranslate"><span class="pre">attributes.json</span></code> (for
+example a directory of other files) is not a node, and its objects are
+other objects (<a class="reference internal" href="#other-objects">§6</a>).</p>
+<p>The hierarchy has one <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code> per node, at <code class="docutils literal notranslate"><span class="pre">&lt;path&gt;/zarr.json</span></code>
+(<code class="docutils literal notranslate"><span class="pre">zarr.json</span></code> for the root). A dataset’s is <a class="reference internal" href="#datasets">§3</a>’s
+<a class="reference internal" href="#type-n5array"><code class="docutils literal notranslate"><span class="pre">N5Array</span></code></a>; a group’s is
+<code class="docutils literal notranslate"><span class="pre">{&quot;zarr_format&quot;:</span> <span class="pre">3,</span> <span class="pre">&quot;node_type&quot;:</span> <span class="pre">&quot;group&quot;,</span> <span class="pre">&quot;attributes&quot;:</span> <span class="pre">A}</span></code>:</p>
+<p><span id="type-n5group"></span><strong><code class="docutils literal notranslate"><span class="pre">N5Group</span></code></strong>, a group’s <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">zarr_format</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">3</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">node_type</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;group&quot;</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">attributes</span></code></p></td>
+<td><p>object</p></td>
+<td><p>required</p></td>
+<td><p>for an implicit group, <code class="docutils literal notranslate"><span class="pre">{}</span></code> (the root’s has the declaration of <a class="reference internal" href="#declaration">§1</a>); for an explicit group, <code class="docutils literal notranslate"><span class="pre">A</span></code>, which holds the member <code class="docutils literal notranslate"><span class="pre">ome</span></code>, an <a class="reference internal" href="#type-n5ome"><code class="docutils literal notranslate"><span class="pre">N5Ome</span></code></a>, when <a class="reference internal" href="#multiscale-images">§4</a> applies, and then the members of a <a class="reference internal" href="../conventions.html#type-declaration"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Declaration</span></code></span></a>, the declaration of <a class="reference internal" href="#declaration">§1</a> (on the root, and on a group that has source metadata)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="datasets">
+<span id="3-datasets"></span><h2>3. Datasets<a class="headerlink" href="#datasets" title="Link to this heading">¶</a></h2>
+<p>A dataset’s document MUST have these members, or the input is rejected:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dimensions</span></code></p></td>
+<td><p>an array of <code class="docutils literal notranslate"><span class="pre">n</span></code> integers (<a class="reference internal" href="../zarrify.html#json-documents"><span class="std std-ref">spec/zarrify.md §1.6</span></a>), <code class="docutils literal notranslate"><span class="pre">1</span> <span class="pre">≤</span> <span class="pre">n</span> <span class="pre">≤</span> <span class="pre">32</span></code>, each from 0 to 2^53 − 1: the size along each dimension</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">blockSize</span></code></p></td>
+<td><p>an array of <code class="docutils literal notranslate"><span class="pre">n</span></code> integers, each from 1 to 2^31 − 1</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dataType</span></code></p></td>
+<td><p>one of the strings in the table below</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">compression</span></code>, or else <code class="docutils literal notranslate"><span class="pre">compressionType</span></code> (below)</p></td>
+<td><p>the compression: an object whose member <code class="docutils literal notranslate"><span class="pre">type</span></code> is a string</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">compressionType</span></code>, if there is no member <code class="docutils literal notranslate"><span class="pre">compression</span></code></p></td>
+<td><p>the compression: a string <code class="docutils literal notranslate"><span class="pre">t</span></code>, which is read as the object <code class="docutils literal notranslate"><span class="pre">{&quot;type&quot;:</span> <span class="pre">t}</span></code> (N5 before version 1.0.0)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p><code class="docutils literal notranslate"><span class="pre">dataType</span></code></p></th>
+<th class="head"><p>Zarr <code class="docutils literal notranslate"><span class="pre">data_type</span></code></p></th>
+<th class="head"><p>bytes per element <code class="docutils literal notranslate"><span class="pre">b</span></code></p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">uint8</span></code>, <code class="docutils literal notranslate"><span class="pre">int8</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">uint8</span></code>, <code class="docutils literal notranslate"><span class="pre">int8</span></code></p></td>
+<td><p>1</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">uint16</span></code>, <code class="docutils literal notranslate"><span class="pre">int16</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">uint16</span></code>, <code class="docutils literal notranslate"><span class="pre">int16</span></code></p></td>
+<td><p>2</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">uint32</span></code>, <code class="docutils literal notranslate"><span class="pre">int32</span></code>, <code class="docutils literal notranslate"><span class="pre">float32</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">uint32</span></code>, <code class="docutils literal notranslate"><span class="pre">int32</span></code>, <code class="docutils literal notranslate"><span class="pre">float32</span></code></p></td>
+<td><p>4</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">uint64</span></code>, <code class="docutils literal notranslate"><span class="pre">int64</span></code>, <code class="docutils literal notranslate"><span class="pre">float64</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">uint64</span></code>, <code class="docutils literal notranslate"><span class="pre">int64</span></code>, <code class="docutils literal notranslate"><span class="pre">float64</span></code></p></td>
+<td><p>8</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Any other <code class="docutils literal notranslate"><span class="pre">dataType</span></code> (such as <code class="docutils literal notranslate"><span class="pre">string</span></code> or <code class="docutils literal notranslate"><span class="pre">object</span></code>) rejects the input.</p>
+<p><strong>Dimension order.</strong> The array’s axes are the N5 dimensions in the order
+<code class="docutils literal notranslate"><span class="pre">dimensions</span></code> lists them: the shape is <code class="docutils literal notranslate"><span class="pre">dimensions</span></code> and the chunk shape is
+<code class="docutils literal notranslate"><span class="pre">blockSize</span></code>, neither reversed. N5 stores a block’s elements with the first
+dimension fastest; the <code class="docutils literal notranslate"><span class="pre">transpose</span></code> codec inside <code class="docutils literal notranslate"><span class="pre">n5_default</span></code> (order
+<code class="docutils literal notranslate"><span class="pre">[n−1,</span> <span class="pre">…,</span> <span class="pre">0]</span></code>) turns that layout into the array’s. This is the convention of
+the <code class="docutils literal notranslate"><span class="pre">n5_default</span></code> README’s example (<code class="docutils literal notranslate"><span class="pre">examples/zstd_array</span></code>, where
+<code class="docutils literal notranslate"><span class="pre">dimensions</span> <span class="pre">[256,</span> <span class="pre">128]</span></code> becomes <code class="docutils literal notranslate"><span class="pre">shape</span> <span class="pre">[256,</span> <span class="pre">128]</span></code>) and of <code class="docutils literal notranslate"><span class="pre">zarr-n5</span></code>, and it
+is what makes block keys and chunk keys agree: the block at <code class="docutils literal notranslate"><span class="pre">i0/i1/…/i(n−1)</span></code>
+is the chunk whose index along dimension <code class="docutils literal notranslate"><span class="pre">k</span></code> is <code class="docutils literal notranslate"><span class="pre">ik</span></code>.</p>
+<p><strong>Compression.</strong> The compression object’s <code class="docutils literal notranslate"><span class="pre">type</span></code> selects the bytes-to-bytes
+codec <code class="docutils literal notranslate"><span class="pre">C</span></code>, or none:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p><code class="docutils literal notranslate"><span class="pre">type</span></code></p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">C</span></code></p></th>
+<th class="head"><p>members <code class="docutils literal notranslate"><span class="pre">C</span></code> carries</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">raw</span></code></p></td>
+<td><p>none</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">type</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">gzip</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{&quot;name&quot;:</span> <span class="pre">&quot;gzip&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;level&quot;:</span> <span class="pre">L}}</span></code> if the member <code class="docutils literal notranslate"><span class="pre">useZlib</span></code> is absent or <code class="docutils literal notranslate"><span class="pre">false</span></code>; <code class="docutils literal notranslate"><span class="pre">{&quot;name&quot;:</span> <span class="pre">&quot;numcodecs.zlib&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;level&quot;:</span> <span class="pre">L}}</span></code> if it is <code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">type</span></code>, <code class="docutils literal notranslate"><span class="pre">useZlib</span></code>, <code class="docutils literal notranslate"><span class="pre">level</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">zstd</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{&quot;name&quot;:</span> <span class="pre">&quot;zstd&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;level&quot;:</span> <span class="pre">L,</span> <span class="pre">&quot;checksum&quot;:</span> <span class="pre">false}}</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">type</span></code>, <code class="docutils literal notranslate"><span class="pre">level</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">blosc</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{&quot;name&quot;:</span> <span class="pre">&quot;blosc&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;cname&quot;:</span> <span class="pre">c,</span> <span class="pre">&quot;clevel&quot;:</span> <span class="pre">l,</span> <span class="pre">&quot;shuffle&quot;:</span> <span class="pre">s,</span> <span class="pre">&quot;typesize&quot;:</span> <span class="pre">b,</span> <span class="pre">&quot;blocksize&quot;:</span> <span class="pre">k}}</span></code>, see below</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">type</span></code>, <code class="docutils literal notranslate"><span class="pre">cname</span></code>, <code class="docutils literal notranslate"><span class="pre">clevel</span></code>, <code class="docutils literal notranslate"><span class="pre">shuffle</span></code>, <code class="docutils literal notranslate"><span class="pre">blocksize</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>anything else, among them <code class="docutils literal notranslate"><span class="pre">lz4</span></code>, <code class="docutils literal notranslate"><span class="pre">xz</span></code>, <code class="docutils literal notranslate"><span class="pre">bzip2</span></code> and <code class="docutils literal notranslate"><span class="pre">jpeg</span></code></p></td>
+<td><p>rejected</p></td>
+<td><p></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The values of the codecs, from the compression object’s members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>value</p></th>
+<th class="head"><p>member</p></th>
+<th class="head"><p>MUST be</p></th>
+<th class="head"><p>when the member is absent</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">C</span></code>’s name, for <code class="docutils literal notranslate"><span class="pre">gzip</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">useZlib</span></code></p></td>
+<td><p>a boolean: <code class="docutils literal notranslate"><span class="pre">numcodecs.zlib</span></code> if it is <code class="docutils literal notranslate"><span class="pre">true</span></code>, <code class="docutils literal notranslate"><span class="pre">gzip</span></code> if it is <code class="docutils literal notranslate"><span class="pre">false</span></code>. Java N5 writes a gzip stream (RFC 1952) unless <code class="docutils literal notranslate"><span class="pre">useZlib</span></code> is true, when it writes a zlib stream (RFC 1950)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">gzip</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">L</span></code>, for <code class="docutils literal notranslate"><span class="pre">gzip</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">level</span></code></p></td>
+<td><p>an integer from −1 to 9; <code class="docutils literal notranslate"><span class="pre">L</span></code> is that integer, except that −1 (the default of Java’s <code class="docutils literal notranslate"><span class="pre">Deflater</span></code>, which Java N5 writes) is 6, the level it stands for (the Zarr v3 <code class="docutils literal notranslate"><span class="pre">gzip</span></code> and <code class="docutils literal notranslate"><span class="pre">numcodecs.zlib</span></code> codecs take 0 to 9)</p></td>
+<td><p>6</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">L</span></code>, for <code class="docutils literal notranslate"><span class="pre">zstd</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">level</span></code></p></td>
+<td><p>an integer from −131072 to 22 (zstd’s levels, which the Zarr v3 <code class="docutils literal notranslate"><span class="pre">zstd</span></code> codec takes); <code class="docutils literal notranslate"><span class="pre">L</span></code> is that integer</p></td>
+<td><p>3, the default of n5-zstandard</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">c</span></code>, for <code class="docutils literal notranslate"><span class="pre">blosc</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">cname</span></code></p></td>
+<td><p>one of <code class="docutils literal notranslate"><span class="pre">blosclz</span></code>, <code class="docutils literal notranslate"><span class="pre">lz4</span></code>, <code class="docutils literal notranslate"><span class="pre">lz4hc</span></code>, <code class="docutils literal notranslate"><span class="pre">snappy</span></code>, <code class="docutils literal notranslate"><span class="pre">zlib</span></code> and <code class="docutils literal notranslate"><span class="pre">zstd</span></code></p></td>
+<td><p>rejected</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">l</span></code>, for <code class="docutils literal notranslate"><span class="pre">blosc</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">clevel</span></code></p></td>
+<td><p>an integer from 0 to 9</p></td>
+<td><p>rejected</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">s</span></code>, for <code class="docutils literal notranslate"><span class="pre">blosc</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">shuffle</span></code></p></td>
+<td><p>an integer 0, 1 or 2, for which <code class="docutils literal notranslate"><span class="pre">s</span></code> is <code class="docutils literal notranslate"><span class="pre">&quot;noshuffle&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;shuffle&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;bitshuffle&quot;</span></code></p></td>
+<td><p>rejected</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">k</span></code>, for <code class="docutils literal notranslate"><span class="pre">blosc</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">blocksize</span></code></p></td>
+<td><p>an integer from 0 to 2^31 − 1</p></td>
+<td><p>0</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">b</span></code>, for <code class="docutils literal notranslate"><span class="pre">blosc</span></code></p></td>
+<td><p></p></td>
+<td><p>the bytes per element</p></td>
+<td><p></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Any other value rejects the input. (A level only matters when encoding; the codec carries it
+so that the compression can be recovered.) <code class="docutils literal notranslate"><span class="pre">blosc</span></code> is the n5-blosc compression. (A blosc
+stream describes itself, so every n5-blosc block decodes with the Zarr <code class="docutils literal notranslate"><span class="pre">blosc</span></code> codec; these
+checks make its configuration exactly the compressor’s.)</p>
+<p>The compression object’s members that <code class="docutils literal notranslate"><span class="pre">C</span></code> does not carry (such as
+n5-blosc’s <code class="docutils literal notranslate"><span class="pre">nthreads</span></code>) are not read here; they are kept in the source
+metadata (<a class="reference internal" href="#source-metadata">§5</a>).</p>
+<p><strong>The array.</strong> The dataset’s <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code> is the object</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"zarr_format"</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"node_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"array"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"shape"</span><span class="p">:</span><span class="w"> </span><span class="err">dime</span><span class="kc">ns</span><span class="err">io</span><span class="kc">ns</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"data_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"..."</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"chunk_grid"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"regular"</span><span class="p">,</span><span class="w"> </span><span class="nt">"configuration"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"chunk_shape"</span><span class="p">:</span><span class="w"> </span><span class="err">blockSize</span><span class="p">}},</span>
+<span class="w">  </span><span class="nt">"chunk_key_encoding"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"v2"</span><span class="p">,</span><span class="w"> </span><span class="nt">"configuration"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"separator"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/"</span><span class="p">}},</span>
+<span class="w">  </span><span class="nt">"fill_value"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"codecs"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"n5_default"</span><span class="p">,</span><span class="w"> </span><span class="nt">"configuration"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"codecs"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="err">T</span><span class="p">,</span><span class="w"> </span><span class="err">B</span><span class="p">,</span><span class="w"> </span><span class="err">C</span><span class="p">]}}],</span>
+<span class="w">  </span><span class="nt">"attributes"</span><span class="p">:</span><span class="w"> </span><span class="err">A</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>with the member <code class="docutils literal notranslate"><span class="pre">&quot;dimension_names&quot;</span></code> only when <a class="reference internal" href="#multiscale-images">§4</a> gives the array axis
+names, and no other members:</p>
+<p><span id="type-n5array"></span><strong><code class="docutils literal notranslate"><span class="pre">N5Array</span></code></strong>, a dataset’s <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code>: an
+<a class="reference internal" href="../conventions.html#type-arraydocument"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">ArrayDocument</span></code></span></a> with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">shape</span></code></p></td>
+<td><p>array of integer</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">dimensions</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data_type</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p>from <code class="docutils literal notranslate"><span class="pre">dataType</span></code>, by the table of data types above</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">chunk_grid</span></code></p></td>
+<td><p>object</p></td>
+<td><p>required</p></td>
+<td><p>regular, its chunk shape <code class="docutils literal notranslate"><span class="pre">blockSize</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">chunk_key_encoding</span></code></p></td>
+<td><p>object</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{&quot;name&quot;:</span> <span class="pre">&quot;v2&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;separator&quot;:</span> <span class="pre">&quot;/&quot;}}</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">codecs</span></code></p></td>
+<td><p>array of object</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[{&quot;name&quot;:</span> <span class="pre">&quot;n5_default&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;codecs&quot;:</span> <span class="pre">[T,</span> <span class="pre">B,</span> <span class="pre">C]}}]</span></code>, the codecs of <code class="docutils literal notranslate"><span class="pre">n5_default</span></code> below</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dimension_names</span></code></p></td>
+<td><p>array of string</p></td>
+<td><p>optional</p></td>
+<td><p>only when <a class="reference internal" href="#multiscale-images">§4</a> gives the array axis names: those names, in array order</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">attributes</span></code></p></td>
+<td><p>object</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">A</span></code>: the members of a <a class="reference internal" href="../conventions.html#type-declaration"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Declaration</span></code></span></a>, the declaration of <a class="reference internal" href="#declaration">§1</a>, with the dataset’s source metadata (<a class="reference internal" href="#source-metadata">§5</a>), when it has any (and on the root, which always declares the convention); otherwise <code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The codecs of <code class="docutils literal notranslate"><span class="pre">n5_default</span></code>, in this order:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>codec</p></th>
+<th class="head"><p>value</p></th>
+<th class="head"><p>when</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">T</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{&quot;name&quot;:</span> <span class="pre">&quot;transpose&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;order&quot;:</span> <span class="pre">[n−1,</span> <span class="pre">…,</span> <span class="pre">1,</span> <span class="pre">0]}}</span></code></p></td>
+<td><p>always</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">B</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{&quot;name&quot;:</span> <span class="pre">&quot;bytes&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;endian&quot;:</span> <span class="pre">&quot;big&quot;}}</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">b</span> <span class="pre">&gt;</span> <span class="pre">1</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">B</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{&quot;name&quot;:</span> <span class="pre">&quot;bytes&quot;}</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">b</span> <span class="pre">=</span> <span class="pre">1</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">C</span></code></p></td>
+<td><p>the compression codec</p></td>
+<td><p>when there is one; it is left out (the list is <code class="docutils literal notranslate"><span class="pre">[T,</span> <span class="pre">B]</span></code>) when there is none</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>N5 has no fill value; blocks that do not exist read as 0.</p>
+<section id="chunks">
+<span id="31-chunks"></span><h3>3.1 Chunks<a class="headerlink" href="#chunks" title="Link to this heading">¶</a></h3>
+<p>The <strong>chunk keys</strong> of a dataset at path <code class="docutils literal notranslate"><span class="pre">D</span></code> are <code class="docutils literal notranslate"><span class="pre">D/i0/i1/…/i(n−1)</span></code> (or
+<code class="docutils literal notranslate"><span class="pre">i0/…/i(n−1)</span></code> for a dataset at the root), where each <code class="docutils literal notranslate"><span class="pre">ik</span></code> is the decimal
+form of an integer with <code class="docutils literal notranslate"><span class="pre">0</span> <span class="pre">≤</span> <span class="pre">ik</span> <span class="pre">&lt;</span> <span class="pre">ceil(dimensions[k]</span> <span class="pre">/</span> <span class="pre">blockSize[k])</span></code>,
+without leading zeros (<code class="docutils literal notranslate"><span class="pre">0</span></code> itself is the only form of zero). A dataset with
+a zero in <code class="docutils literal notranslate"><span class="pre">dimensions</span></code> has no chunk keys. Its chunk objects (<a class="reference internal" href="../zarrify.html#store-inputs"><span class="std std-ref">spec/zarrify.md §1.4</span></a>) are the
+store’s objects with these keys, whatever their size; every other object
+under <code class="docutils literal notranslate"><span class="pre">D</span></code> (an object whose name is not a chunk key, or whose index is
+outside the grid) is an other object (<a class="reference internal" href="#other-objects">§6</a>).</p>
+<p>Each chunk is present when its object is (and is not empty): its bytes
+are the whole block object, header included, which the <code class="docutils literal notranslate"><span class="pre">n5_default</span></code> codec
+decodes. Every other chunk is absent and reads as 0. An empty chunk object
+is one of <a class="reference internal" href="#other-objects">§6</a>’s empty objects, whose key is kept there. (N5 readers fail on
+an empty block, which an interrupted write can leave behind, rather than
+read it as absent; the key records that the object was there.)</p>
+<p><span id="type-n5object"></span><strong><code class="docutils literal notranslate"><span class="pre">N5Object</span></code></strong>, a present chunk, or an other object
+(<a class="reference internal" href="#other-objects">§6</a>): the whole of an object of the store, of size <code class="docutils literal notranslate"><span class="pre">s</span> <span class="pre">&gt;</span> <span class="pre">0</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>part</p></th>
+<th class="head"><p>range</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>the object</p></td>
+<td><p>source range <code class="docutils literal notranslate"><span class="pre">(i,</span> <span class="pre">0,</span> <span class="pre">s)</span></code></p></td>
+<td><p>required</p></td>
+<td><p>every byte of the object (for a chunk, the block, header included), <code class="docutils literal notranslate"><span class="pre">i</span></code> its own <code class="docutils literal notranslate"><span class="pre">url</span></code> source (<a class="reference internal" href="../zarrify.html#store-inputs"><span class="std std-ref">spec/zarrify.md §1.4</span></a>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An N5 block declares its <strong>mode</strong> in its header:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>mode</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>default</p></td>
+<td><p>0</p></td>
+</tr>
+<tr class="row-odd"><td><p>varlength</p></td>
+<td><p>1</p></td>
+</tr>
+<tr class="row-even"><td><p>object</p></td>
+<td><p>2</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Only default-mode blocks hold an array of the dataset’s
+shape, and nothing in a dataset’s attributes says which mode its blocks
+use, so the zarrifier, which reads no block (<a class="reference internal" href="../zarrify.html#store-inputs"><span class="std std-ref">spec/zarrify.md §1.4</span></a>), cannot know it. The
+output always uses <code class="docutils literal notranslate"><span class="pre">n5_default</span></code>. A reader decoding a block whose mode is
+not default, or whose header’s number of dimensions is not <code class="docutils literal notranslate"><span class="pre">n</span></code>, fails on
+that chunk (the <code class="docutils literal notranslate"><span class="pre">n5_default</span></code> codec rejects it, as its README requires);
+the rest of the array reads normally.</p>
+</section>
+</section>
+<section id="multiscale-images">
+<span id="4-multiscale-images"></span><h2>4. Multiscale images<a class="headerlink" href="#multiscale-images" title="Link to this heading">¶</a></h2>
+<p>A group may describe a multiscale image in one of two widely used N5
+conventions: COSEM (as on OpenOrganelle) and n5-viewer (as written by
+BigDataViewer, Fiji’s N5 plugins and Paintera). For each explicit group <code class="docutils literal notranslate"><span class="pre">G</span></code>
+whose document has no member <code class="docutils literal notranslate"><span class="pre">ome</span></code>, the zarrifier tries COSEM first and
+then n5-viewer; the first that <strong>recognizes</strong> <code class="docutils literal notranslate"><span class="pre">G</span></code> gives the OME-NGFF 0.5
+object <code class="docutils literal notranslate"><span class="pre">M</span></code>, and <code class="docutils literal notranslate"><span class="pre">G</span></code>’s attributes get the member <code class="docutils literal notranslate"><span class="pre">&quot;ome&quot;:</span> <span class="pre">M</span></code>. If neither
+does, <code class="docutils literal notranslate"><span class="pre">G</span></code> has no <code class="docutils literal notranslate"><span class="pre">ome</span></code>. (A group recognized by both, such as
+OpenOrganelle’s, which have COSEM <code class="docutils literal notranslate"><span class="pre">multiscales</span></code> and n5-viewer <code class="docutils literal notranslate"><span class="pre">scales</span></code>,
+uses COSEM.) Whatever is recognized, the N5 attributes themselves are in the source metadata (<a class="reference internal" href="#source-metadata">§5</a>).</p>
+<p><strong>Levels.</strong> A <strong>level path</strong> is a string of one or more segments separated
+by <code class="docutils literal notranslate"><span class="pre">/</span></code>, none of them empty, <code class="docutils literal notranslate"><span class="pre">.</span></code> or <code class="docutils literal notranslate"><span class="pre">..</span></code>. It names the node at <code class="docutils literal notranslate"><span class="pre">G</span></code>’s path
+joined with it, which MUST be a dataset.</p>
+<p><strong>Axis types.</strong> An axis named <code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code> or <code class="docutils literal notranslate"><span class="pre">z</span></code> is a space axis, <code class="docutils literal notranslate"><span class="pre">t</span></code> a time
+axis, and <code class="docutils literal notranslate"><span class="pre">c</span></code> a channel axis; any other name is a custom axis (no type).
+The axes are <strong>valid</strong> when their names are nonempty and distinct and, in
+array order, they are at most one time axis, then at most one channel or
+custom axis, then two or three space axes, as OME-NGFF 0.5 requires.</p>
+<p><strong>Units.</strong> A unit string maps by <a class="reference internal" href="../conventions.html#units"><span class="std std-ref">conventions §5</span></a>’s table; a string that is already one
+of that table’s unit names (<code class="docutils literal notranslate"><span class="pre">micrometer</span></code>, <code class="docutils literal notranslate"><span class="pre">nanometer</span></code>, …, <code class="docutils literal notranslate"><span class="pre">hour</span></code>) is kept
+as it is. Any other string gives no unit.</p>
+<p><strong>COSEM.</strong> <code class="docutils literal notranslate"><span class="pre">G</span></code> is recognized when all of these hold:</p>
+<ul class="simple">
+<li><p>its member <code class="docutils literal notranslate"><span class="pre">multiscales</span></code> is a nonempty array whose first element <code class="docutils literal notranslate"><span class="pre">m</span></code> is
+an object whose member <code class="docutils literal notranslate"><span class="pre">datasets</span></code> is a nonempty array of objects (only
+<code class="docutils literal notranslate"><span class="pre">m</span></code> is read);</p></li>
+<li><p>every element <code class="docutils literal notranslate"><span class="pre">d</span></code> of <code class="docutils literal notranslate"><span class="pre">datasets</span></code> has a member <code class="docutils literal notranslate"><span class="pre">path</span></code> that is a level path,
+and its <strong>transform</strong> is <code class="docutils literal notranslate"><span class="pre">d</span></code>’s member <code class="docutils literal notranslate"><span class="pre">transform</span></code> if <code class="docutils literal notranslate"><span class="pre">d</span></code> has one, and
+otherwise the member <code class="docutils literal notranslate"><span class="pre">transform</span></code> of the level’s dataset document; the
+transform is an object with the members of the table below, where <code class="docutils literal notranslate"><span class="pre">n</span></code> is
+the level’s number of dimensions;</p></li>
+<li><p>every level has the same <code class="docutils literal notranslate"><span class="pre">n</span></code>, and after the reordering below the same
+axes and the same units;</p></li>
+<li><p>the axes are valid.</p></li>
+</ul>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">axes</span></code></p></td>
+<td><p>an array of <code class="docutils literal notranslate"><span class="pre">n</span></code> strings</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">scale</span></code></p></td>
+<td><p>an array of <code class="docutils literal notranslate"><span class="pre">n</span></code> numbers, each positive</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">translate</span></code></p></td>
+<td><p>an array of <code class="docutils literal notranslate"><span class="pre">n</span></code> numbers, or absent (zeros)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">units</span></code></p></td>
+<td><p>an array of <code class="docutils literal notranslate"><span class="pre">n</span></code> strings, or absent (no units)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">order</span></code></p></td>
+<td><p>the string <code class="docutils literal notranslate"><span class="pre">&quot;C&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;F&quot;</span></code>, or absent (<code class="docutils literal notranslate"><span class="pre">&quot;C&quot;</span></code>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>COSEM lists a transform’s values in C order, the reverse of N5’s dimension
+order (OpenOrganelle’s <code class="docutils literal notranslate"><span class="pre">fibsem-uint16/s0</span></code> has <code class="docutils literal notranslate"><span class="pre">dimensions</span></code> <code class="docutils literal notranslate"><span class="pre">[12000,</span> <span class="pre">1600,</span> <span class="pre">6368]</span></code> in the order x, y, z, and the transform <code class="docutils literal notranslate"><span class="pre">&quot;axes&quot;:</span> <span class="pre">[&quot;z&quot;,</span> <span class="pre">&quot;y&quot;,</span> <span class="pre">&quot;x&quot;]</span></code>),
+unless its <code class="docutils literal notranslate"><span class="pre">order</span></code> is <code class="docutils literal notranslate"><span class="pre">&quot;F&quot;</span></code>. So, for order <code class="docutils literal notranslate"><span class="pre">&quot;C&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">axes</span></code>, <code class="docutils literal notranslate"><span class="pre">scale</span></code>,
+<code class="docutils literal notranslate"><span class="pre">translate</span></code> and <code class="docutils literal notranslate"><span class="pre">units</span></code> are each reversed onto the dimension order; for
+<code class="docutils literal notranslate"><span class="pre">&quot;F&quot;</span></code> they are used as they are. Then <code class="docutils literal notranslate"><span class="pre">M</span></code> is</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0.5"</span><span class="p">,</span><span class="w"> </span><span class="nt">"multiscales"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="err">...</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"axes"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="err">a</span><span class="p">,</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="err">...</span><span class="p">,</span><span class="w"> </span><span class="nt">"unit"</span><span class="p">:</span><span class="w"> </span><span class="err">...</span><span class="p">},</span><span class="w"> </span><span class="err">...</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"datasets"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">"path"</span><span class="p">:</span><span class="w"> </span><span class="err">pa</span><span class="kc">t</span><span class="err">h</span><span class="p">,</span><span class="w"> </span><span class="nt">"coordinateTransformations"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"scale"</span><span class="p">,</span><span class="w"> </span><span class="nt">"scale"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="err">...</span><span class="p">]},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"translation"</span><span class="p">,</span><span class="w"> </span><span class="nt">"translation"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="err">...</span><span class="p">]}]},</span><span class="w"> </span><span class="err">...</span><span class="p">]</span>
+<span class="p">}]}</span>
+</pre></div>
+</div>
+<p>with <code class="docutils literal notranslate"><span class="pre">name</span></code> only when <code class="docutils literal notranslate"><span class="pre">m</span></code>’s member <code class="docutils literal notranslate"><span class="pre">name</span></code> is a string (it is that string);
+each axis with <code class="docutils literal notranslate"><span class="pre">type</span></code> only when it has one and <code class="docutils literal notranslate"><span class="pre">unit</span></code> only when its unit
+maps; and the datasets in <code class="docutils literal notranslate"><span class="pre">datasets</span></code>’ order, each with its path as written
+and the scale and translation of its transform (the translation always
+present, zeros when <code class="docutils literal notranslate"><span class="pre">translate</span></code> is absent). Its types:</p>
+<p><span id="type-n5ome"></span><strong><code class="docutils literal notranslate"><span class="pre">N5Ome</span></code></strong>, <code class="docutils literal notranslate"><span class="pre">M</span></code>, a recognized group’s <code class="docutils literal notranslate"><span class="pre">ome</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">version</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;0.5&quot;</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">multiscales</span></code></p></td>
+<td><p>array of <a class="reference internal" href="#type-n5multiscale"><code class="docutils literal notranslate"><span class="pre">N5Multiscale</span></code></a></p></td>
+<td><p>required</p></td>
+<td><p>one multiscale</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-n5multiscale"></span><strong><code class="docutils literal notranslate"><span class="pre">N5Multiscale</span></code></strong>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
+<td><p>string</p></td>
+<td><p>optional</p></td>
+<td><p>COSEM only: <code class="docutils literal notranslate"><span class="pre">m</span></code>’s member <code class="docutils literal notranslate"><span class="pre">name</span></code>, present only when it is a string</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">axes</span></code></p></td>
+<td><p>array of <a class="reference internal" href="#type-n5axis"><code class="docutils literal notranslate"><span class="pre">N5Axis</span></code></a></p></td>
+<td><p>required</p></td>
+<td><p>one per dimension, in array order (the dimension order)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">datasets</span></code></p></td>
+<td><p>array of <a class="reference internal" href="#type-n5dataset"><code class="docutils literal notranslate"><span class="pre">N5Dataset</span></code></a></p></td>
+<td><p>required</p></td>
+<td><p>the levels: for COSEM in <code class="docutils literal notranslate"><span class="pre">datasets</span></code>’ order, for n5-viewer <code class="docutils literal notranslate"><span class="pre">s0</span></code>, …, <code class="docutils literal notranslate"><span class="pre">s(k−1)</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-n5axis"></span><strong><code class="docutils literal notranslate"><span class="pre">N5Axis</span></code></strong>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p>the axis’s name</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">type</span></code></p></td>
+<td><p>string</p></td>
+<td><p>optional</p></td>
+<td><p>present only when the axis has a type (<strong>Axis types</strong>): <code class="docutils literal notranslate"><span class="pre">&quot;space&quot;</span></code> for <code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code> and <code class="docutils literal notranslate"><span class="pre">z</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;time&quot;</span></code> for <code class="docutils literal notranslate"><span class="pre">t</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;channel&quot;</span></code> for <code class="docutils literal notranslate"><span class="pre">c</span></code>; a custom axis has none</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">unit</span></code></p></td>
+<td><p>string</p></td>
+<td><p>optional</p></td>
+<td><p>present only when the axis’s unit maps (<strong>Units</strong>): for n5-viewer, the unit of every space axis</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-n5dataset"></span><strong><code class="docutils literal notranslate"><span class="pre">N5Dataset</span></code></strong>, a level:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">path</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p>the level path, as written (COSEM), or <code class="docutils literal notranslate"><span class="pre">s&lt;i&gt;</span></code> (n5-viewer)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">coordinateTransformations</span></code></p></td>
+<td><p>array of object</p></td>
+<td><p>required</p></td>
+<td><p>a <a class="reference internal" href="../conventions.html#type-scale"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Scale</span></code></span></a>, then a <a class="reference internal" href="../conventions.html#type-translation"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Translation</span></code></span></a>, always present</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>n5-viewer.</strong> <code class="docutils literal notranslate"><span class="pre">G</span></code> is recognized when all of these hold:</p>
+<ul class="simple">
+<li><p>the <strong>levels</strong> are found by the first of these that applies:</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">G</span></code> has a member <code class="docutils literal notranslate"><span class="pre">scales</span></code>: it is a nonempty array of <code class="docutils literal notranslate"><span class="pre">k</span></code> arrays, each of
+<code class="docutils literal notranslate"><span class="pre">n</span></code> positive numbers, the <strong>factors</strong> of level <code class="docutils literal notranslate"><span class="pre">i</span></code>; the levels are the
+datasets <code class="docutils literal notranslate"><span class="pre">s0</span></code>, …, <code class="docutils literal notranslate"><span class="pre">s(k−1)</span></code> (level paths), each with <code class="docutils literal notranslate"><span class="pre">n</span></code> dimensions;</p></li>
+<li><p>otherwise: <code class="docutils literal notranslate"><span class="pre">s0</span></code> and <code class="docutils literal notranslate"><span class="pre">s1</span></code> are datasets, and the levels are <code class="docutils literal notranslate"><span class="pre">s0</span></code>, <code class="docutils literal notranslate"><span class="pre">s1</span></code>,
+…, <code class="docutils literal notranslate"><span class="pre">s(k−1)</span></code> for the largest <code class="docutils literal notranslate"><span class="pre">k</span></code> such that each of them is a dataset;
+the factors of <code class="docutils literal notranslate"><span class="pre">s0</span></code> are its member <code class="docutils literal notranslate"><span class="pre">downsamplingFactors</span></code> if it has one,
+else <code class="docutils literal notranslate"><span class="pre">n</span></code> ones; the factors of each later level are its member
+<code class="docutils literal notranslate"><span class="pre">downsamplingFactors</span></code>, which it MUST have; each <code class="docutils literal notranslate"><span class="pre">downsamplingFactors</span></code> is
+an array of <code class="docutils literal notranslate"><span class="pre">n</span></code> positive numbers, and every level has the <code class="docutils literal notranslate"><span class="pre">n</span></code>
+dimensions of <code class="docutils literal notranslate"><span class="pre">s0</span></code>;</p></li>
+</ul>
+</li>
+<li><p>the <strong>resolution</strong> <code class="docutils literal notranslate"><span class="pre">r</span></code> and the <strong>unit</strong>: the member <code class="docutils literal notranslate"><span class="pre">pixelResolution</span></code> of
+<code class="docutils literal notranslate"><span class="pre">G</span></code>, or, if <code class="docutils literal notranslate"><span class="pre">G</span></code> has none, of <code class="docutils literal notranslate"><span class="pre">s0</span></code>’s document. It is either an object with
+<code class="docutils literal notranslate"><span class="pre">dimensions</span></code>, an array of <code class="docutils literal notranslate"><span class="pre">n</span></code> positive numbers (<code class="docutils literal notranslate"><span class="pre">r</span></code>), and optionally
+<code class="docutils literal notranslate"><span class="pre">unit</span></code>, a string; or an array of <code class="docutils literal notranslate"><span class="pre">n</span></code> positive numbers (<code class="docutils literal notranslate"><span class="pre">r</span></code>, no unit). If
+neither document has <code class="docutils literal notranslate"><span class="pre">pixelResolution</span></code>, <code class="docutils literal notranslate"><span class="pre">r</span></code> is <code class="docutils literal notranslate"><span class="pre">n</span></code> ones and there is no
+unit. (<code class="docutils literal notranslate"><span class="pre">pixelResolution</span></code> is in dimension order.)</p></li>
+<li><p>the <strong>axes</strong>: <code class="docutils literal notranslate"><span class="pre">G</span></code>’s member <code class="docutils literal notranslate"><span class="pre">axes</span></code>, an array of <code class="docutils literal notranslate"><span class="pre">n</span></code> strings, if it has
+one; else <code class="docutils literal notranslate"><span class="pre">[&quot;x&quot;,</span> <span class="pre">&quot;y&quot;]</span></code> for <code class="docutils literal notranslate"><span class="pre">n</span> <span class="pre">=</span> <span class="pre">2</span></code> and <code class="docutils literal notranslate"><span class="pre">[&quot;x&quot;,</span> <span class="pre">&quot;y&quot;,</span> <span class="pre">&quot;z&quot;]</span></code> for <code class="docutils literal notranslate"><span class="pre">n</span> <span class="pre">=</span> <span class="pre">3</span></code>
+(for any other <code class="docutils literal notranslate"><span class="pre">n</span></code>, <code class="docutils literal notranslate"><span class="pre">G</span></code> is not recognized). The axes are valid.</p></li>
+</ul>
+<p>Any member above that is present but not of the stated form means <code class="docutils literal notranslate"><span class="pre">G</span></code> is
+not recognized. Then <code class="docutils literal notranslate"><span class="pre">M</span></code> is as for COSEM, without <code class="docutils literal notranslate"><span class="pre">name</span></code>, with the datasets
+<code class="docutils literal notranslate"><span class="pre">s0</span></code>, …, <code class="docutils literal notranslate"><span class="pre">s(k−1)</span></code>, each with a scale and a translation: along dimension
+<code class="docutils literal notranslate"><span class="pre">j</span></code>, level <code class="docutils literal notranslate"><span class="pre">i</span></code>’s scale is <code class="docutils literal notranslate"><span class="pre">r[j]</span> <span class="pre">×</span> <span class="pre">factors_i[j]</span></code> and its translation is
+<code class="docutils literal notranslate"><span class="pre">((factors_i[j]</span> <span class="pre">−</span> <span class="pre">1)</span> <span class="pre">/</span> <span class="pre">2)</span> <span class="pre">×</span> <span class="pre">r[j]</span></code>, since N5’s downsampling (as BigDataViewer
+and the N5 tools do it) centers a downsampled voxel on the voxels it
+averages. The unit, if it maps, is the unit of every space axis.</p>
+<p><strong>Dimension names.</strong> OME-NGFF 0.5 requires every level array to have
+<code class="docutils literal notranslate"><span class="pre">dimension_names</span></code> equal to its image’s axis names. Groups are considered in
+ascending order of path (compared as UTF-8). A group that is recognized,
+but one of whose levels is already a level of an earlier recognized group
+with different axis names, is not recognized after all: it gets no <code class="docutils literal notranslate"><span class="pre">ome</span></code>. (An array can only have one set of
+<code class="docutils literal notranslate"><span class="pre">dimension_names</span></code>, so the later image could not be valid 0.5.) Each level of
+each recognized group then gets <code class="docutils literal notranslate"><span class="pre">&quot;dimension_names&quot;</span></code>: the axis names in
+array order.</p>
+</section>
+<section id="source-metadata">
+<span id="5-source-metadata"></span><h2>5. Source metadata<a class="headerlink" href="#source-metadata" title="Link to this heading">¶</a></h2>
+<p>A node’s source metadata <code class="docutils literal notranslate"><span class="pre">S</span></code> (<a class="reference internal" href="../conventions.html#attributes"><span class="std std-ref">conventions §2</span></a>) is
+the object</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">"attributes"</span><span class="p">:</span><span class="w"> </span><span class="err">A</span><span class="p">,</span><span class="w"> </span><span class="nt">"metadata"</span><span class="p">:</span><span class="w"> </span><span class="err">M</span><span class="p">}</span>
+</pre></div>
+</div>
+<p>where each member is present only when its value is not empty, and
+the node has source metadata only when <code class="docutils literal notranslate"><span class="pre">S</span></code> has a member. An implicit group,
+which has no document, has none. Each node’s document is also kept whole,
+byte for byte, with the store’s listing, on <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code>, the store’s <strong>IR
+mirror</strong> (<a class="reference internal" href="#the-ir-mirror">§5.1</a>).</p>
+<p><span id="type-n5node"></span><strong><code class="docutils literal notranslate"><span class="pre">N5Node</span></code></strong>, a node’s <code class="docutils literal notranslate"><span class="pre">S</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">attributes</span></code></p></td>
+<td><p>object</p></td>
+<td><p>optional</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">A</span></code>, present when not empty: the node’s <code class="docutils literal notranslate"><span class="pre">attributes.json</span></code> document without its <strong>layout members</strong>, the container’s version <code class="docutils literal notranslate"><span class="pre">n5</span></code>, and, for a dataset, <code class="docutils literal notranslate"><span class="pre">dimensions</span></code>, <code class="docutils literal notranslate"><span class="pre">blockSize</span></code>, <code class="docutils literal notranslate"><span class="pre">dataType</span></code>, <code class="docutils literal notranslate"><span class="pre">compression</span></code> and <code class="docutils literal notranslate"><span class="pre">compressionType</span></code>. It is the user’s attributes and those of the multiscale conventions (<code class="docutils literal notranslate"><span class="pre">pixelResolution</span></code>, <code class="docutils literal notranslate"><span class="pre">transform</span></code>, <code class="docutils literal notranslate"><span class="pre">scales</span></code>, …), unchanged. (A group’s <code class="docutils literal notranslate"><span class="pre">dataType</span></code> or <code class="docutils literal notranslate"><span class="pre">compression</span></code> is not a layout member: it describes no dataset.) Every member is under the key, so none can collide with <code class="docutils literal notranslate"><span class="pre">ome</span></code> or with the conventions of the Zarr v3 hierarchy; a document that has its own <code class="docutils literal notranslate"><span class="pre">refkv_zarrified</span></code> or <code class="docutils literal notranslate"><span class="pre">zarr_conventions</span></code> nests them there</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metadata</span></code></p></td>
+<td><p><a class="reference internal" href="#type-n5metadata"><code class="docutils literal notranslate"><span class="pre">N5Metadata</span></code></a></p></td>
+<td><p>optional</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">M</span></code>, present when not empty</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-n5metadata"></span><strong><code class="docutils literal notranslate"><span class="pre">N5Metadata</span></code></strong>, <code class="docutils literal notranslate"><span class="pre">M</span></code>: the layout members that the Zarr v3
+metadata does not reproduce, in this order:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">n5</span></code></p></td>
+<td><p>any JSON value</p></td>
+<td><p>optional</p></td>
+<td><p>the member as written, when the document has it</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">compression</span></code></p></td>
+<td><p>object</p></td>
+<td><p>optional</p></td>
+<td><p>for a dataset: the object of the compression object’s members that its codec does not carry (<a class="reference internal" href="#datasets">§3</a>), when there is any</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">compressionType</span></code></p></td>
+<td><p>any JSON value</p></td>
+<td><p>optional</p></td>
+<td><p>for a dataset whose document has both <code class="docutils literal notranslate"><span class="pre">compression</span></code> and <code class="docutils literal notranslate"><span class="pre">compressionType</span></code>: the member as written (<a class="reference internal" href="#datasets">§3</a> reads only <code class="docutils literal notranslate"><span class="pre">compression</span></code>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>What <code class="docutils literal notranslate"><span class="pre">S</span></code> leaves out, the Zarr v3 metadata holds: <code class="docutils literal notranslate"><span class="pre">dimensions</span></code>, <code class="docutils literal notranslate"><span class="pre">blockSize</span></code>,
+<code class="docutils literal notranslate"><span class="pre">dataType</span></code>, and the compression’s <code class="docutils literal notranslate"><span class="pre">type</span></code> and the members its codec
+carries. What neither keeps is layout: whether a default level was written
+(or was −1 rather than 6), whether <code class="docutils literal notranslate"><span class="pre">useZlib</span></code> was <code class="docutils literal notranslate"><span class="pre">false</span></code> or absent, and
+whether an old container wrote <code class="docutils literal notranslate"><span class="pre">compressionType</span></code> rather than <code class="docutils literal notranslate"><span class="pre">compression</span></code>.
+So a node’s document is recovered from its <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code>: the members that <a class="reference internal" href="#datasets">§3</a>
+reads back from the Zarr v3 metadata (<code class="docutils literal notranslate"><span class="pre">dimensions</span></code> the shape, <code class="docutils literal notranslate"><span class="pre">blockSize</span></code>
+the chunk shape, <code class="docutils literal notranslate"><span class="pre">dataType</span></code> the data type, <code class="docutils literal notranslate"><span class="pre">compression</span></code> from the codec),
+then those of <code class="docutils literal notranslate"><span class="pre">A</span></code>, and those of <code class="docutils literal notranslate"><span class="pre">M</span></code> set over them (the members of
+<code class="docutils literal notranslate"><span class="pre">M.compression</span></code> over the compression object).</p>
+<p>Members are copied as <a class="reference internal" href="../zarrify.html#json-documents"><span class="std std-ref">spec/zarrify.md §1.6</span></a>
+reads them, except that a number written as an integer (a JSON number
+with no fraction and no exponent) is kept exactly, every digit, beyond
+2^53 − 1 too, and is written back so. Any other number is its binary64
+value, and a number whose binary64 value is infinite still rejects the
+input. Where <a class="reference internal" href="#datasets">§3</a> and <a class="reference internal" href="#multiscale-images">§4</a> use a number (a size, a level, a scale), they use
+its binary64 value.</p>
+<section id="the-ir-mirror">
+<span id="51-the-ir-mirror"></span><h3>5.1 The IR mirror<a class="headerlink" href="#the-ir-mirror" title="Link to this heading">¶</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> is the store’s <strong>IR mirror</strong>
+(<a class="reference internal" href="../conventions.html#stores"><span class="std std-ref">conventions §8.9</span></a>): its table, from which every
+node’s <code class="docutils literal notranslate"><span class="pre">attributes.json</span></code> is rebuilt byte for byte and the listing (every
+object’s key and size) is read back, and its view, <code class="docutils literal notranslate"><span class="pre">refkv_source/tree</span></code>. Its
+source metadata is <code class="docutils literal notranslate"><span class="pre">{&quot;ir&quot;:</span> <span class="pre">I,</span> <span class="pre">&quot;ignored&quot;:</span> <span class="pre">K}</span></code> (not a node’s <code class="docutils literal notranslate"><span class="pre">S</span></code> of <a class="reference internal" href="#source-metadata">§5</a>): <code class="docutils literal notranslate"><span class="pre">I</span></code> the mirror’s
+description (<a class="reference internal" href="../conventions.html#the-table"><span class="std std-ref">conventions §8.2</span></a>, with
+<code class="docutils literal notranslate"><span class="pre">objects</span></code>), and <code class="docutils literal notranslate"><span class="pre">K</span></code> the recorded ignored keys of
+<a class="reference internal" href="../zarrify.html#store-inputs"><span class="std std-ref">spec/zarrify.md §1.4</span></a> in ascending order of their UTF-8
+bytes, present only when there is one (they are not objects, so the IR does
+not hold them). The IR’s elements (the N5 <strong>source model</strong>) are below:
+the documents the profile reads are held, and every other object (blocks,
+other objects, documents it does not read) is referenced, or empty.</p>
+<p><span id="type-n5mirror"></span><strong><code class="docutils literal notranslate"><span class="pre">N5Mirror</span></code></strong>, <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code>’s source metadata: a
+<a class="reference internal" href="../conventions.html#type-mirror"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Mirror</span></code></span></a> with these members, and no <code class="docutils literal notranslate"><span class="pre">empty_dirs</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ir</span></code></p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-irdescription"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">IrDescription</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">I</span></code>, the mirror’s description, a store IR’s, with <code class="docutils literal notranslate"><span class="pre">objects</span></code> (<a class="reference internal" href="../conventions.html#the-table"><span class="std std-ref">conventions §8.2</span></a>, <a class="reference internal" href="../conventions.html#stores"><span class="std std-ref">§8.9</span></a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ignored</span></code></p></td>
+<td><p>array of string</p></td>
+<td><p>optional</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">K</span></code>, the recorded ignored keys of <a class="reference internal" href="../zarrify.html#store-inputs"><span class="std std-ref">spec/zarrify.md §1.4</span></a>, in ascending order of their UTF-8 bytes; present only when there is one</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="elements">
+<span id="52-elements"></span><h3>5.2 Elements<a class="headerlink" href="#elements" title="Link to this heading">¶</a></h3>
+<p>Paths are relative to the IR’s root, whose path is <code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code>; the root and the
+directories are the listing’s (<a class="reference internal" href="../conventions.html#stores"><span class="std std-ref">conventions §8.9</span></a>),
+so the path of an object is its key, each segment named by that section’s
+rule. <code class="docutils literal notranslate"><span class="pre">&lt;D&gt;</span></code> is a node’s path (<code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code> for the root), <code class="docutils literal notranslate"><span class="pre">&lt;m&gt;</span></code> a member’s name and
+<code class="docutils literal notranslate"><span class="pre">&lt;o&gt;</span></code> a decimal name index.</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>path</p></th>
+<th class="head"><p>kind</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>what</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>struct</p></td>
+<td><p></p></td>
+<td><p>the root: the store’s root directory (no extent)</p></td>
+</tr>
+<tr class="row-odd"><td><p>a directory’s path</p></td>
+<td><p>struct</p></td>
+<td><p></p></td>
+<td><p>each directory of the store (no extent)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;D&gt;/attributes.json</span></code></p></td>
+<td><p>object</p></td>
+<td><p></p></td>
+<td><p>the document of a node (an explicit group or a dataset, <a class="reference internal" href="#nodes">§2</a>): held, extent <code class="docutils literal notranslate"><span class="pre">(0,</span> <span class="pre">s)</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;D&gt;/attributes.json/&lt;m&gt;</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ascii[n]</span></code></p></td>
+<td><p>the value of the document’s top-level member named <code class="docutils literal notranslate"><span class="pre">&lt;m&gt;</span></code> (below), its bytes as written: the member’s JSON text</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;D&gt;/attributes.json/gaps/&lt;o&gt;</span></code></p></td>
+<td><p>gap</p></td>
+<td><p></p></td>
+<td><p>the rest of the document at offset <code class="docutils literal notranslate"><span class="pre">&lt;o&gt;</span></code>: braces, member names, colons, commas and whitespace (the whole document when it has no member)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;D&gt;/attributes.json/json</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ascii[s]</span></code></p></td>
+<td><p>in place of the members and gaps, the whole document, when it has more than 4096 top-level members (so that a document’s rows stay few)</p></td>
+</tr>
+<tr class="row-even"><td><p>any other key</p></td>
+<td><p>object</p></td>
+<td><p></p></td>
+<td><p>every other object: a block, an other object (<a class="reference internal" href="#other-objects">§6</a>), a candidate’s document that is not read (<a class="reference internal" href="#nodes">§2</a>); referenced (one leaf, its whole source) when its size is not 0, empty otherwise</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Members.</strong> A document’s top-level members are its values’ elements in the
+order the document writes them, a member written twice being two elements
+(the hierarchy reads the last, <a class="reference internal" href="../zarrify.html#json-documents"><span class="std std-ref">spec/zarrify.md §1.6</span></a>). They are named by
+the rule of <a class="reference internal" href="nd2.html#elements"><span class="std std-ref">ND2 §5.3</span></a>, with <code class="docutils literal notranslate"><span class="pre">gaps</span></code> and <code class="docutils literal notranslate"><span class="pre">json</span></code> the fixed
+names: among the members, in order, one whose name <code class="docutils literal notranslate"><span class="pre">t</span></code> is not empty, holds no
+<code class="docutils literal notranslate"><span class="pre">/</span></code> or <code class="docutils literal notranslate"><span class="pre">~</span></code>, is neither <code class="docutils literal notranslate"><span class="pre">gaps</span></code> nor <code class="docutils literal notranslate"><span class="pre">json</span></code> and is the first with name <code class="docutils literal notranslate"><span class="pre">t</span></code> is named <code class="docutils literal notranslate"><span class="pre">t</span></code>, with no
+name index; any other is named <code class="docutils literal notranslate"><span class="pre">t</span></code> with <code class="docutils literal notranslate"><span class="pre">%</span></code>, <code class="docutils literal notranslate"><span class="pre">/</span></code> and <code class="docutils literal notranslate"><span class="pre">~</span></code> percent-encoded,
+then <code class="docutils literal notranslate"><span class="pre">~</span></code>, with the number of earlier members named <code class="docutils literal notranslate"><span class="pre">t</span></code> as its name index. A
+name read from an escape that leaves a surrogate unpaired has U+FFFD in
+place of that surrogate (the bytes of the document keep the escape). The
+view (<a class="reference internal" href="../conventions.html#the-view"><span class="std std-ref">conventions §8.7</span></a>) shows each member whose
+value is at most 1024 bytes as its JSON text, a string.</p>
+</section>
+<section id="equivalence">
+<span id="53-equivalence"></span><h3>5.3 Equivalence<a class="headerlink" href="#equivalence" title="Link to this heading">¶</a></h3>
+<p>Hierarchies of one store are compared entry for entry, <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> included
+(<a class="reference internal" href="../conventions.html#equivalence"><span class="std std-ref">conventions §11.4</span></a>).</p>
+</section>
+</section>
+<section id="other-objects">
+<span id="6-other-objects"></span><h2>6. Other objects<a class="headerlink" href="#other-objects" title="Link to this heading">¶</a></h2>
+<p>An <strong>other object</strong> is an object of the store
+(<a class="reference internal" href="../zarrify.html#store-inputs"><span class="std std-ref">spec/zarrify.md §1.4</span></a>) whose size is not
+0 and which is neither the <code class="docutils literal notranslate"><span class="pre">attributes.json</span></code> of a node (an explicit group
+or a dataset, <a class="reference internal" href="#nodes">§2</a>) nor a chunk object of a dataset (<a class="reference internal" href="#chunks">§3.1</a>), whatever its
+size. Among them are READMEs and other files a writer put next to the
+data, the objects of directories that are not nodes, the objects under a
+dataset that are not chunk keys, and a dataset nested in a dataset (its
+<code class="docutils literal notranslate"><span class="pre">attributes.json</span></code> and its blocks), which is not a node (<a class="reference internal" href="#nodes">§2</a>). Each is kept
+whole: the hierarchy has the key <code class="docutils literal notranslate"><span class="pre">refkv_source/objects/&lt;k&gt;</span></code>, where <code class="docutils literal notranslate"><span class="pre">k</span></code> is the
+object’s key, escaped, and its bytes are the object’s. (An empty object
+holds nothing, and has no key: the mirror’s listing has it, <a class="reference internal" href="#the-ir-mirror">§5.1</a>.)</p>
+<p><strong>Escaping.</strong> A last segment that a Zarr reader would take for a node’s
+document must not end a key under <code class="docutils literal notranslate"><span class="pre">refkv_source/objects/</span></code>: when the last
+segment of <code class="docutils literal notranslate"><span class="pre">k</span></code> is <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code>, <code class="docutils literal notranslate"><span class="pre">.zarray</span></code> or <code class="docutils literal notranslate"><span class="pre">.zgroup</span></code> followed by any
+number (zero included) of <code class="docutils literal notranslate"><span class="pre">~</span></code>, one <code class="docutils literal notranslate"><span class="pre">~</span></code> is appended to it. So <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code>
+is kept at <code class="docutils literal notranslate"><span class="pre">refkv_source/objects/zarr.json~</span></code>, <code class="docutils literal notranslate"><span class="pre">a/.zgroup</span></code> at
+<code class="docutils literal notranslate"><span class="pre">refkv_source/objects/a/.zgroup~</span></code>, and <code class="docutils literal notranslate"><span class="pre">zarr.json~</span></code> at
+<code class="docutils literal notranslate"><span class="pre">refkv_source/objects/zarr.json~~</span></code>. The escape is one to one: a key whose
+last segment is one of these names followed by at least one <code class="docutils literal notranslate"><span class="pre">~</span></code> is the
+object’s key with one <code class="docutils literal notranslate"><span class="pre">~</span></code> removed, and every other key is the object’s.
+No Zarr v3 or Zarr v2 reader then opens a node under <code class="docutils literal notranslate"><span class="pre">refkv_source/objects/</span></code>.</p>
+<p><strong>Empty objects.</strong> The <strong>empty objects</strong> are the store’s objects of size
+0, the empty chunk objects (<a class="reference internal" href="#chunks">§3.1</a>) among them. They are objects of the
+mirror’s listing (<a class="reference internal" href="#the-ir-mirror">§5.1</a>), with no extent, and have no key in
+the hierarchy; the recorded <strong>ignored keys</strong> of
+<a class="reference internal" href="../zarrify.html#store-inputs"><span class="std std-ref">spec/zarrify.md §1.4</span></a> are the member
+<code class="docutils literal notranslate"><span class="pre">ignored</span></code> of <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code>’s source metadata.</p>
+<p><strong><code class="docutils literal notranslate"><span class="pre">refkv_source</span></code>.</strong> The hierarchy always has <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code>, the mirror. When
+the root is a group, it is the group <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code>, a child of the root (the
+source metadata node of <a class="reference internal" href="../conventions.html#attributes"><span class="std std-ref">conventions §2</span></a>), whose
+<code class="docutils literal notranslate"><span class="pre">zarr.json</span></code> is <code class="docutils literal notranslate"><span class="pre">{&quot;zarr_format&quot;:</span> <span class="pre">3,</span> <span class="pre">&quot;node_type&quot;:</span> <span class="pre">&quot;group&quot;,</span> <span class="pre">&quot;attributes&quot;:</span> <span class="pre">A}</span></code>,
+<code class="docutils literal notranslate"><span class="pre">A</span></code> declaring the convention (<a class="reference internal" href="#declaration">§1</a>) with the source metadata of
+<a class="reference internal" href="#the-ir-mirror">§5.1</a>; the mirror’s groups and arrays, and the other objects’
+keys, are below it, and the directories between it and the objects are not
+nodes and have no <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code>. A hierarchy that then has a node (<a class="reference internal" href="#nodes">§2</a>) at
+the path <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code>, or below it, is rejected, since its keys would mix
+with these. When the root is an array, which can have no children, the
+same keys (the mirror’s documents and arrays, and the objects’ keys) are
+plain keys of the archive under <code class="docutils literal notranslate"><span class="pre">refkv_source/</span></code>, which a Zarr reader that
+opens the root never reads as nodes.</p>
+</section>
+<section id="example">
+<span id="7-example"></span><h2>7. Example<a class="headerlink" href="#example" title="Link to this heading">¶</a></h2>
+<p>The level <code class="docutils literal notranslate"><span class="pre">s0</span></code> of a COSEM multiscale image <code class="docutils literal notranslate"><span class="pre">em/fibsem-uint8</span></code> of the store
+<code class="docutils literal notranslate"><span class="pre">https://example.org/c.n5/</span></code>, whose compression is
+<code class="docutils literal notranslate"><span class="pre">{&quot;type&quot;:</span> <span class="pre">&quot;gzip&quot;,</span> <span class="pre">&quot;level&quot;:</span> <span class="pre">-1,</span> <span class="pre">&quot;useZlib&quot;:</span> <span class="pre">false}</span></code>:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"zarr_format"</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"node_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"array"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"shape"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="mi">12</span><span class="p">,</span>
+<span class="w">    </span><span class="mi">10</span><span class="p">,</span>
+<span class="w">    </span><span class="mi">8</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"data_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"uint8"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"chunk_grid"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"regular"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"configuration"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"chunk_shape"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="mi">12</span><span class="p">,</span>
+<span class="w">        </span><span class="mi">10</span><span class="p">,</span>
+<span class="w">        </span><span class="mi">8</span>
+<span class="w">      </span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">"chunk_key_encoding"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"v2"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"configuration"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"separator"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/"</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">"fill_value"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"codecs"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"n5_default"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"configuration"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">"codecs"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">          </span><span class="p">{</span>
+<span class="w">            </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"transpose"</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">"configuration"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">              </span><span class="nt">"order"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">                </span><span class="mi">2</span><span class="p">,</span>
+<span class="w">                </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">                </span><span class="mi">0</span>
+<span class="w">              </span><span class="p">]</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">          </span><span class="p">},</span>
+<span class="w">          </span><span class="p">{</span>
+<span class="w">            </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"bytes"</span>
+<span class="w">          </span><span class="p">},</span>
+<span class="w">          </span><span class="p">{</span>
+<span class="w">            </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"gzip"</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">"configuration"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">              </span><span class="nt">"level"</span><span class="p">:</span><span class="w"> </span><span class="mi">6</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">          </span><span class="p">}</span>
+<span class="w">        </span><span class="p">]</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"dimension_names"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="s2">"x"</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">"y"</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">"z"</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"attributes"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"zarr_conventions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">      </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">"uuid"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ad5d4c39-c69e-48f7-a3ef-4cc8c607d416"</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"schema_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/n5/schema.json"</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"spec_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md"</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"refkv_zarrified"</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"description"</span><span class="p">:</span><span class="w"> </span><span class="s2">"The Zarr layout of a N5 source zarrified by refkv, and the source's metadata"</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">],</span>
+<span class="w">    </span><span class="nt">"refkv_zarrified"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"n5"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">"attributes"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">          </span><span class="nt">"transform"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nt">"axes"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">              </span><span class="s2">"z"</span><span class="p">,</span>
+<span class="w">              </span><span class="s2">"y"</span><span class="p">,</span>
+<span class="w">              </span><span class="s2">"x"</span>
+<span class="w">            </span><span class="p">],</span>
+<span class="w">            </span><span class="nt">"scale"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">              </span><span class="mf">5.24</span><span class="p">,</span>
+<span class="w">              </span><span class="mf">4.0</span><span class="p">,</span>
+<span class="w">              </span><span class="mf">4.0</span>
+<span class="w">            </span><span class="p">],</span>
+<span class="w">            </span><span class="nt">"translate"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">              </span><span class="mf">0.0</span><span class="p">,</span>
+<span class="w">              </span><span class="mf">0.0</span><span class="p">,</span>
+<span class="w">              </span><span class="mf">0.0</span>
+<span class="w">            </span><span class="p">],</span>
+<span class="w">            </span><span class="nt">"units"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">              </span><span class="s2">"nm"</span><span class="p">,</span>
+<span class="w">              </span><span class="s2">"nm"</span><span class="p">,</span>
+<span class="w">              </span><span class="s2">"nm"</span>
+<span class="w">            </span><span class="p">]</span>
+<span class="w">          </span><span class="p">},</span>
+<span class="w">          </span><span class="nt">"pixelResolution"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nt">"dimensions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">              </span><span class="mf">4.0</span><span class="p">,</span>
+<span class="w">              </span><span class="mf">4.0</span><span class="p">,</span>
+<span class="w">              </span><span class="mf">5.24</span>
+<span class="w">            </span><span class="p">],</span>
+<span class="w">            </span><span class="nt">"unit"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nm"</span>
+<span class="w">          </span><span class="p">}</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="part-2-the-profile">
+<h1>Part 2. The profile<a class="headerlink" href="#part-2-the-profile" title="Link to this heading">¶</a></h1>
+<p>The N5 profile of <a class="reference internal" href="../zarrify.html"><span class="std std-doc">spec/zarrify.md</span></a> is <a class="reference internal" href="#n5-profile">§8</a> of this document. What every profile’s Part 2 shares is in
+<a class="reference internal" href="../zarrify.html#profiles"><span class="std std-ref">spec/zarrify.md, Profiles</span></a>.</p>
+<section id="n5-profile">
+<span id="8-n5-profile"></span><h2>8. N5 profile<a class="headerlink" href="#n5-profile" title="Link to this heading">¶</a></h2>
+<p>The profile was chosen because the store’s root has an <code class="docutils literal notranslate"><span class="pre">attributes.json</span></code>
+(<a class="reference internal" href="../zarrify.html#store-inputs"><span class="std std-ref">§1.4</span></a>). The store is listed (<a class="reference internal" href="../zarrify.html#listing-a-store"><span class="std std-ref">§1.5</span></a>), and its documents are read as JSON
+(<a class="reference internal" href="../zarrify.html#json-documents"><span class="std std-ref">§1.6</span></a>): the <code class="docutils literal notranslate"><span class="pre">attributes.json</span></code> of each candidate of
+<a class="reference internal" href="#nodes">the convention §2</a>, which MUST be a
+JSON object. They are read in rounds
+(<a class="reference internal" href="../conventions.html#stores"><span class="std std-ref">conventions §8.9</span></a>, producers): each round is
+every candidate not read yet whose candidates above it are read and are
+groups, read concurrently, each document once and whole; a candidate inside
+a dataset is never read. Their integer literals are kept exactly where the convention
+copies them (<a class="reference internal" href="#source-metadata">its §5</a>),
+beyond 2^53 − 1 too, in place of <a class="reference internal" href="../zarrify.html#json-documents"><span class="std std-ref">§1.6</span></a>’s last paragraph; every number the
+convention uses is its binary64 value, as <a class="reference internal" href="../zarrify.html#json-documents"><span class="std std-ref">§1.6</span></a> says.</p>
+<section id="rejection">
+<span id="81-rejection"></span><h3>8.1 Rejection<a class="headerlink" href="#rejection" title="Link to this heading">¶</a></h3>
+<p>The input is rejected when a rule of <a class="reference internal" href="../zarrify.html#store-inputs"><span class="std std-ref">§1.4</span></a>–<a class="reference internal" href="../zarrify.html#json-documents"><span class="std std-ref">§1.6</span></a> fails, and when the
+convention gives it no layout: wherever it says that the input is
+rejected, or that something MUST hold and it does not.</p>
+</section>
+<section id="chunks-and-other-objects">
+<span id="82-chunks-and-other-objects"></span><h3>8.2 Chunks and other objects<a class="headerlink" href="#chunks-and-other-objects" title="Link to this heading">¶</a></h3>
+<p>Each chunk object is a chunk entry referencing the whole object (<a class="reference internal" href="../zarrify.html#store-inputs"><span class="std std-ref">§1.4</span></a>); an
+object of size 0 has no entry, and its key is one of <a class="reference internal" href="#other-objects">the convention §6</a>’s
+empty objects’ keys. The block’s header is not read: the output
+depends only on the keys and sizes in the listing.</p>
+<p>Every other object of <a class="reference internal" href="#other-objects">the convention §6</a>
+is referenced whole in the same way, by an entry under the key
+<code class="docutils literal notranslate"><span class="pre">refkv_source/objects/&lt;k&gt;</span></code> (with a <code class="docutils literal notranslate"><span class="pre">~</span></code> appended when <a class="reference internal" href="#other-objects">the convention §6</a>
+escapes <code class="docutils literal notranslate"><span class="pre">k</span></code>’s last segment) whose <code class="docutils literal notranslate"><span class="pre">url</span></code> source is the URL of the object <code class="docutils literal notranslate"><span class="pre">k</span></code>
+(<a class="reference internal" href="../zarrify.html#store-inputs"><span class="std std-ref">§1.4</span></a>). (This is the one place where an entry’s key is not its object’s
+key; <a class="reference internal" href="../zarrify.html#store-inputs"><span class="std std-ref">§1.4</span></a>’s rules otherwise apply: the sources are in ascending order of
+their entries’ keys, each entry referencing its object’s whole range.)
+The documents under <code class="docutils literal notranslate"><span class="pre">refkv_source/</span></code> (the mirror’s, <a class="reference internal" href="#the-ir-mirror">the convention §5.1</a>)
+are deflated and, like the chunks, not among the documents a reader fetches
+when it opens the archive (<a class="reference internal" href="../conventions.html#attributes"><span class="std std-ref">conventions §2</span></a>).</p>
+</section>
+<section id="summary">
+<span id="83-summary"></span><h3>8.3 Summary<a class="headerlink" href="#summary" title="Link to this heading">¶</a></h3>
+<p>This section is informative. Both implementations print a one-line JSON
+summary, with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">groups</span></code></p></td>
+<td><p>the groups, explicit and implicit</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">arrays</span></code></p></td>
+<td><p>the arrays</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">chunks</span></code></p></td>
+<td><p>the number of chunk entries</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">emptyChunks</span></code></p></td>
+<td><p>the chunk objects of size 0</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">objects</span></code></p></td>
+<td><p>the store’s objects</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">otherObjects</span></code></p></td>
+<td><p>the entries under <code class="docutils literal notranslate"><span class="pre">refkv_source/objects/</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">images</span></code></p></td>
+<td><p>the recognized groups, each <code class="docutils literal notranslate"><span class="pre">{&quot;path&quot;,</span> <span class="pre">&quot;convention&quot;}</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">listingRequests</span></code></p></td>
+<td><p>the listing’s requests</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">format</span></code></p></td>
+<td><p>from the Rust core</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">reads</span></code></p></td>
+<td><p>from the Rust core, the store run’s counts: the objects read, the batches, the ranges asked and their bytes, the requests, spans and bytes read, the objects listed</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">elements</span></code></p></td>
+<td><p>from the Rust core: the IR’s elements</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">folded</span></code></p></td>
+<td><p>from the Rust core: what the mirror’s table folded</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The members are the implementations’, not the convention’s.</p>
+<div class="toctree-wrapper compound">
+</div>
+</section>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="../../docs/zarrify/n5/README.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">N5</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="mrc-dataset.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">MRC as a dataset</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; the refkv authors
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer no-toc">
+      
+      
+      
+    </aside>
+  </div>
+</div><script src="../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/scripts/furo.js?v=46bd48cc"></script>
+    </body>
+</html>
