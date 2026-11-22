@@ -66,7 +66,7 @@ def envi_image(parsed: Parsed) -> EnviImage:
     (§8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#87-the-description>) by the
     function refkv's own projection calls. It reads nothing, and asks for no output of refkv's.
     ValueError for an input that is not an ENVI raster."""
-    envi = parsed._envi  # noqa: SLF001
+    envi = parsed._view_as(_core.Envi)  # noqa: SLF001
     if envi is None:
         raise ValueError(f"an ENVI routine reads an ENVI raster, not a {parsed.profile} input")
     return EnviImage(parsed, envi)

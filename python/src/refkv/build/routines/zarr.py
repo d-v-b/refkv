@@ -97,7 +97,7 @@ def zarr_hierarchy(parsed: Parsed) -> ZarrHierarchy:
     function refkv's own projection calls. It reads nothing, and asks for no output of refkv's.
     ValueError for an input that is not a Zarr store; `refkv.zarrify.Rejected` where the convention
     rejects the input, as `zarrify` does."""
-    zarr = parsed._zarr  # noqa: SLF001
+    zarr = parsed._view_as(_core.Zarr)  # noqa: SLF001
     if zarr is None:
         raise ValueError(f"a Zarr routine reads a Zarr v2 or v3 store, not a {parsed.profile} input")
     return ZarrHierarchy(parsed, zarr)

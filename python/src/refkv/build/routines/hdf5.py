@@ -69,7 +69,7 @@ def hdf5_hierarchy(parsed: Parsed) -> Hdf5Hierarchy:
     function refkv's own projection calls. It reads nothing, and asks for no output of refkv's.
     ValueError for an input that is not HDF5; `refkv.zarrify.Rejected` where the convention rejects
     the input, as `zarrify` does."""
-    hdf5 = parsed._hdf5  # noqa: SLF001
+    hdf5 = parsed._view_as(_core.Hdf5)  # noqa: SLF001
     if hdf5 is None:
         raise ValueError(f"an HDF5 routine reads an HDF5 input, not a {parsed.profile} input")
     return Hdf5Hierarchy(parsed, hdf5)

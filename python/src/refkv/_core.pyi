@@ -261,21 +261,10 @@ class Run:
         """The profile's description of the source (JSON), of a run that is done."""
     def ir(self) -> Ir:
         """The IR of a run that is done, shared with the run, which is kept."""
-    def fits(self) -> Fits:
-        """The FITS file a run that is done parsed, its IR and description shared with the run;
-        ValueError for a run of another format."""
-    def hdf5(self) -> Hdf5:
-        """The HDF5 file a run that is done parsed, its IR and description shared with the run;
-        ValueError for a run of another format."""
-    def ome_image(self) -> OmeImage:
-        """The TIFF, QPTIFF, NDPI or IMS file a run that is done parsed, its IR and description
-        shared with the run; ValueError for a run of another format."""
-    def netcdf3(self) -> Netcdf3:
-        """The netCDF3 file a run that is done parsed, its IR and description shared with the run;
-        ValueError for a run of another format."""
-    def zarr(self) -> Zarr:
-        """The zipped Zarr v3 store a run that is done parsed, its IR and description shared with
-        the run; ValueError for a run of another format."""
+    def view(self) -> object | None:
+        """The input as its format's own class gives it (rust/refkv-python/src/formats/<profile>.rs),
+        its IR and description shared with the run; None for a format that has none. A caller
+        narrows it with `isinstance`."""
     def mirror(self) -> Mirror:
         """What makes the mirror of a run that is done: its IR and description, shared with the run,
         which is kept and may be used while the mirror is made."""
@@ -335,21 +324,13 @@ class StoreRun:
         that `project(...)` gives the built-in output of it, as often as the host likes."""
     def description(self) -> str:
         """The profile's description of the input (JSON), of a run `parse` finished."""
-    def envi(self) -> Envi:
-        """The ENVI raster a run `parse` finished read, its description shared with the run;
-        ValueError for a run of a store of another format."""
     def mirror(self) -> Mirror:
         """What makes the mirror of a run `parse` finished: its IR and description, shared with the
         run."""
-    def hdf5(self) -> Hdf5:
-        """The HDF5 files a run `parse` finished read, its IR and descriptions shared with the
-        run; ValueError for a run of a store of another format."""
-    def ome_image(self) -> OmeImage:
-        """The image across files a TIFF store run `parse` finished read, its IR and description
-        shared with the run; ValueError for a run of a store of another format."""
-    def zarr(self) -> Zarr:
-        """The Zarr v2 or v3 store a run `parse` finished read, its IR and description shared with
-        the run; ValueError for a run of a store of another format."""
+    def view(self) -> object | None:
+        """The input as its format's own class gives it, of a run `parse` finished: its IR and
+        description shared with the run, with the bytes the run read for its projection; None for
+        a format that has none. A caller narrows it with `isinstance`."""
     def project(self, url: str, mirror: bool = True, checksums: bool = False) -> Out[StorePart]:
         """`output`, of a run `parse` finished: the output alone."""
 
@@ -428,7 +409,7 @@ type FitsPiece = (tuple[Literal["src"], int, int] | tuple[Literal["lit"], bytes]
 
 @final
 class Fits:
-    """A FITS file a run parsed (`Run.fits()`): its IR and its description, shared with the run and
+    """A FITS file a run parsed (`Run.view()`): its IR and its description, shared with the run and
     never changed, and its heaps' elements, found once."""
 
     def arrays(self, index: int) -> list[tuple[str, str, list[tuple[list[int], list[FitsPiece]]]]]:
@@ -442,8 +423,8 @@ class Fits:
         value, comment]`. ValueError for no HDU `index`."""
 
 class Zarr:
-    """A Zarr v2 or v3 store a run parsed (`Run.zarr()` of a zipped Zarr v3 store,
-    `StoreRun.zarr()`): its IR and its description, shared with the run and never changed."""
+    """A Zarr v2 or v3 store a run parsed (`Run.view()` of a zipped Zarr v3 store,
+    `StoreRun.view()`): its IR and its description, shared with the run and never changed."""
 
     def hierarchy(self) -> tuple[str, Out[FilePart | StorePart]]:
         """The Zarr convention's hierarchy but for refkv's declarations and its `refkv_source/`
@@ -451,7 +432,7 @@ class Zarr:
         documents and chunks (`out_py`'s form, the url empty); or Rejected."""
 
 class Hdf5:
-    """An HDF5 input a run parsed (`Run.hdf5()`, `StoreRun.hdf5()`): its IR and its description,
+    """An HDF5 input a run parsed (`Run.view()`, `StoreRun.view()`): its IR and its description,
     shared with the run and never changed."""
 
     def hierarchy(self) -> tuple[str, Out[FilePart | StorePart], list[tuple[str, int, int, int]]]:
@@ -463,7 +444,7 @@ class Hdf5:
 
 @final
 class OmeImage:
-    """A TIFF, QPTIFF, NDPI or IMS input a run parsed (`Run.ome_image()`, `StoreRun.ome_image()`):
+    """A TIFF, QPTIFF, NDPI or IMS input a run parsed (`Run.view()`, `StoreRun.view()`):
     its IR and its description, shared with the run and never changed."""
 
     @property
@@ -480,7 +461,7 @@ class OmeImage:
 
 @final
 class Netcdf3:
-    """A netCDF3 file a run parsed (`Run.netcdf3()`): its IR and its description, shared with the
+    """A netCDF3 file a run parsed (`Run.view()`): its IR and its description, shared with the
     run and never changed."""
 
     def hierarchy(self) -> tuple[str, Out[FilePart], list[tuple[str, int, int, int]]]:
@@ -489,7 +470,7 @@ class Netcdf3:
         offset, length, padding)` of the file; or Rejected."""
 
 class Envi:
-    """An ENVI raster a store run parsed (`StoreRun.envi()`): its description, shared with the run
+    """An ENVI raster a store run parsed (`StoreRun.view()`): its description, shared with the run
     and never changed."""
 
     def image(self) -> tuple[str, str, list[tuple[list[int], int, int]], str, str]:
