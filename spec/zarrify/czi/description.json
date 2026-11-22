@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/czi/description.json",
+  "title": "The description of a CZI file",
+  "description": "What refkv's CZI parser found of a CZI file's known structures, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#710-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "size": {"$ref": "#/$defs/uint"},
+    "file_header": {
+      "type": "object",
+      "properties": {
+        "major": {"$ref": "#/$defs/i32"},
+        "minor": {"$ref": "#/$defs/i32"},
+        "primary_file_guid": {"$ref": "#/$defs/guid"},
+        "file_guid": {"$ref": "#/$defs/guid"},
+        "file_part": {"$ref": "#/$defs/i32"},
+        "directory_position": {"type": "integer"},
+        "metadata_position": {"type": "integer"},
+        "update_pending": {"$ref": "#/$defs/i32"},
+        "attachment_directory_position": {"type": "integer"}
+      },
+      "required": ["major", "minor", "primary_file_guid", "file_guid", "file_part", "directory_position", "metadata_position", "update_pending", "attachment_directory_position"],
+      "additionalProperties": false
+    },
+    "segments": {"type": "array", "items": {"$ref": "#/$defs/segment"}},
+    "directory": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "properties": {"position": {"$ref": "#/$defs/uint"}, "entry_count": {"$ref": "#/$defs/uint"}},
+          "required": ["position", "entry_count"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "entries": {"type": "array", "items": {"$ref": "#/$defs/entry"}},
+    "metadata": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/metadata"}]},
+    "attachments": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "properties": {
+            "position": {"$ref": "#/$defs/uint"},
+            "entry_count": {"$ref": "#/$defs/uint"},
+            "entries": {"type": "array", "items": {"$ref": "#/$defs/attachment"}}
+          },
+          "required": ["position", "entry_count", "entries"],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": ["size", "file_header", "segments", "directory", "entries", "metadata", "attachments"],
+  "additionalProperties": false,
+  "$defs": {
+    "uint": {"type": "integer", "minimum": 0},
+    "i32": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
+    "element": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/uint"}]},
+    "guid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "text": {
+      "description": "a text value (https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json): UTF-8 as a string, else its bytes as Latin-1",
+      "oneOf": [
+        {"type": "string"},
+        {"type": "object", "properties": {"latin1": {"type": "string"}}, "required": ["latin1"], "additionalProperties": false}
+      ]
+    },
+    "float": {"oneOf": [{"type": "number"}, {"enum": ["NaN", "Infinity", "-Infinity"]}]},
+    "segment": {
+      "type": "object",
+      "properties": {
+        "offset": {"$ref": "#/$defs/uint"},
+        "id": {"type": "string"},
+        "allocated_size": {"type": "integer"},
+        "used_size": {"type": "integer"},
+        "referenced": {"type": "boolean"}
+      },
+      "required": ["offset", "id", "allocated_size", "used_size", "referenced"],
+      "additionalProperties": false
+    },
+    "dimension": {
+      "type": "object",
+      "properties": {
+        "dimension": {"type": "string", "pattern": "^[XYZCTRSIHVBM]$"},
+        "start": {"$ref": "#/$defs/i32"},
+        "size": {"$ref": "#/$defs/i32"},
+        "start_coordinate": {"$ref": "#/$defs/float"},
+        "stored_size": {"$ref": "#/$defs/i32"}
+      },
+      "required": ["dimension", "start", "size", "start_coordinate", "stored_size"],
+      "additionalProperties": false
+    },
+    "entry": {
+      "type": "object",
+      "properties": {
+        "element": {"$ref": "#/$defs/element"},
+        "schema": {"const": "DV"},
+        "pixel_type": {"$ref": "#/$defs/i32"},
+        "file_position": {"type": "integer"},
+        "file_part": {"$ref": "#/$defs/i32"},
+        "compression": {"$ref": "#/$defs/i32"},
+        "pyramid_type": {"type": "integer", "minimum": 0, "maximum": 255},
+        "dimensions": {"type": "array", "items": {"$ref": "#/$defs/dimension"}, "minItems": 2, "maxItems": 12},
+        "subblock": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/subblock"}]}
+      },
+      "required": ["element", "schema", "pixel_type", "file_position", "file_part", "compression", "pyramid_type", "dimensions", "subblock"],
+      "additionalProperties": false
+    },
+    "subblock": {
+      "type": "object",
+      "properties": {
+        "element": {"$ref": "#/$defs/uint"},
+        "metadata_size": {"$ref": "#/$defs/uint"},
+        "attachment_size": {"$ref": "#/$defs/uint"},
+        "data_size": {"$ref": "#/$defs/uint"},
+        "header_length": {"type": "integer", "minimum": 256},
+        "agrees": {"oneOf": [{"type": "null"}, {"type": "boolean"}]},
+        "stream": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/stream"}]},
+        "data": {"$ref": "#/$defs/element"}
+      },
+      "required": ["element", "metadata_size", "attachment_size", "data_size", "header_length", "agrees", "stream", "data"],
+      "additionalProperties": false
+    },
+    "stream": {
+      "type": "object",
+      "properties": {
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "lossless": {"type": "boolean", "description": "of a JpgFile stream: whether its frame is lossless"},
+        "hilo": {"type": "boolean", "description": "of a Zstd1 stream: whether its header says hi-lo packing"},
+        "header_size": {"type": "integer", "minimum": 1, "description": "of a Zstd1 stream: its header's bytes"}
+      },
+      "required": ["width", "height"],
+      "additionalProperties": false
+    },
+    "channel": {
+      "type": "object",
+      "properties": {
+        "name": {"type": ["string", "null"]},
+        "color": {"oneOf": [{"type": "null"}, {"type": "string", "pattern": "^[0-9A-F]{6}$"}]},
+        "bits": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/uint"}]},
+        "low": {"oneOf": [{"type": "null"}, {"type": "number"}]},
+        "high": {"oneOf": [{"type": "null"}, {"type": "number"}]}
+      },
+      "required": ["name", "color", "bits", "low", "high"],
+      "additionalProperties": false
+    },
+    "values": {
+      "type": "object",
+      "properties": {
+        "px": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "py": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "pz": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "inc": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "bits": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/uint"}]},
+        "info": {"type": "array", "items": {"$ref": "#/$defs/channel"}},
+        "display": {"type": "array", "items": {"$ref": "#/$defs/channel"}},
+        "scenes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {"index": {"$ref": "#/$defs/uint"}, "name": {"type": ["string", "null"]}},
+            "required": ["index", "name"],
+            "additionalProperties": false
+          }
+        },
+        "sizes": {"type": "object", "propertyNames": {"pattern": "^[CZTSBHIRVM]$"}, "additionalProperties": {"$ref": "#/$defs/uint"}},
+        "document": {
+          "type": "object",
+          "properties": {"name": {"type": ["string", "null"]}, "creation_date": {"type": ["string", "null"]}},
+          "required": ["name", "creation_date"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["px", "py", "pz", "inc", "bits", "info", "display", "scenes", "sizes", "document"],
+      "additionalProperties": false
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "position": {"$ref": "#/$defs/uint"},
+        "xml_size": {"$ref": "#/$defs/uint"},
+        "attachment_size": {"$ref": "#/$defs/uint"},
+        "xml": {"$ref": "#/$defs/element"},
+        "values": {"$ref": "#/$defs/values"}
+      },
+      "required": ["position", "xml_size", "attachment_size", "xml", "values"],
+      "additionalProperties": false
+    },
+    "attachment": {
+      "type": "object",
+      "properties": {
+        "schema": {"$ref": "#/$defs/text"},
+        "file_position": {"type": "integer"},
+        "file_part": {"$ref": "#/$defs/i32"},
+        "content_guid": {"$ref": "#/$defs/guid"},
+        "content_file_type": {"$ref": "#/$defs/text"},
+        "name": {"$ref": "#/$defs/text"}
+      },
+      "required": ["schema"],
+      "additionalProperties": false
+    }
+  }
+}

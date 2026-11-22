@@ -426,6 +426,47 @@ pub fn flatten(root: &V) -> Vec<Loop> {
     loops
 }
 
+/// A member's value as the description writes it (spec/zarrify/nd2.md §7.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#75-the-description>), by its
+/// spec: an integer or a color exactly, a number as a number, a flag, a string, an object by its
+/// members in the schema's order (plane `i` of an indexed object by its source name, the prefix
+/// and `i`); null where absent.
+fn described(v: &V, spec: &J) -> J {
+    match (v, spec["kind"].as_str().unwrap_or("")) {
+        (V::Absent, _) => J::Null,
+        // integers and colors are checked from 0 to 2^53 - 1 and 2^32 - 1: exact as u64
+        (V::Num(x), "integer" | "color") => J::from(*x as u64),
+        (V::Obj(m), "object") => {
+            let indexed = spec.get("indexed");
+            J::Object(
+                m.iter()
+                    .map(|(name, x)| match indexed {
+                        Some(ix) => (format!("{}{name}", ix["prefix"].as_str().unwrap_or("")), described(x, ix)),
+                        None => (name.clone(), described(x, &spec["members"][name])),
+                    })
+                    .collect(),
+            )
+        }
+        _ => v.to_json(),
+    }
+}
+
+/// A loop as the description writes it: its kind, count and depth, and its period (ms) of a time
+/// loop, its step (µm) and whether `dZStep` is negative of a z loop, or its stage positions of a
+/// position loop, each `[x, y]`, a coordinate absent null.
+fn described_loop(l: &Loop) -> J {
+    let mut o = serde_json::json!({"kind": l.kind, "count": l.count as u64, "depth": l.depth});
+    match l.kind.as_str() {
+        "t" => o["period"] = serde_json::json!(l.scale),
+        "z" => {
+            o["step"] = serde_json::json!(l.scale);
+            o["flip"] = J::Bool(l.flip);
+        }
+        _ => o["stage"] = J::Array(l.stage.iter().map(|(x, y)| serde_json::json!([x, y])).collect()),
+    }
+    o
+}
+
 /// A placed frame's header as read: (offset, magic, name length, data length), or
 /// None when its 16 bytes are not within the file.
 #[derive(Clone, Copy, Debug)]
@@ -522,7 +563,8 @@ pub fn check_nd2(
     );
     // picture metadata
     let p = &objs["picture"];
-    let pic = match chunk_member(picture, p["member"].as_str().unwrap()) {
+    let picture_member = chunk_member(picture, p["member"].as_str().unwrap());
+    let pic = match picture_member {
         Some(item) => read(
             Some(item),
             &serde_json::json!({"kind": "object", "members": p["members"]}),
@@ -656,7 +698,17 @@ pub fn check_nd2(
         })
         .collect();
     let get = |k: &str| env.get(k).map(|v| v.to_json()).unwrap_or(J::Null);
+    // the description (spec/zarrify/nd2.md §7.5
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#75-the-description>): the
+    // members as read, the loops as flattened, and no derived quantity
+    let picture_spec = serde_json::json!({"kind": "object", "members": p["members"]});
+    let description = serde_json::json!({
+        "attributes": described(&attrs, &serde_json::json!({"kind": "object", "members": a["members"]})),
+        "loops": loops.iter().map(described_loop).collect::<Vec<J>>(),
+        "picture": if picture_member.is_some() { described(&pic, &picture_spec) } else { J::Null },
+    });
     let json = serde_json::json!({
+        "description": description,
         "attributes": {"width": get("uiWidth"), "height": get("uiHeight"), "width_bytes": get("uiWidthBytes"),
                        "components": get("uiComp"), "bits": get("uiBpcInMemory"), "significant": get("uiBpcSignificant"),
                        "compression": get("eCompression"), "row": get("R"), "compressed": compressed},

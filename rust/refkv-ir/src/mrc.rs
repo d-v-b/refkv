@@ -11,11 +11,14 @@
 //! A file gzipped whole (§8.4
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#84-gzipped-files>) takes other
 //! rounds: the start of the stream, inflated as far as the header, and its trailer. Its IR is one
-//! `data` element, the whole file; the header is in the facts, as the file's bytes do not show it.
+//! `data` element, the whole file; the header is in the description, as the file's bytes do not
+//! show it.
 //!
-//! The parser describes the file's array as the file stores it (spec/stored-array.md §7
+//! The parser returns the IR and a description of the file (spec/zarrify/mrc.md §8.5
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#85-the-description>), and
+//! describes the file's array as the file stores it (spec/stored-array.md §7
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>; `mrc/stored.rs`),
-//! keyed by the element its facts name `declared_by`.
+//! keyed by its header, or a gzipped file's stream.
 
 use crate::fed::Fed;
 use crate::gz;
@@ -81,6 +84,22 @@ pub fn position(h: &Header) -> Vec<f64> {
     let standard = NVERSION_STANDARD.contains(&h.get("nversion").i());
     let imod_sign = stamped && h.number(IMOD_FLAGS, "i4").i() & IMOD_INVERTED_ORIGIN == 0 && !standard;
     h.values("origin").iter().map(|v| if imod_sign { -v.f() } else { v.f() } + 0.0).collect()
+}
+
+/// The Zarr data type of a file's values (spec/zarrify/mrc.md §3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>), the profile's table
+/// of modes. In a file with IMOD's stamp, mode 0 is unsigned unless bit 0 of IMOD's flags is set ("1
+/// = bytes are stored as signed (the default as of IMOD 4.9)", imodFlags in
+/// <https://bio3d.colorado.edu/imod/doc/mrc_format.txt>) or NVERSION declares the standard (the same
+/// document: "the best way to indicate that a byte file is signed").
+pub fn data_type(h: &Header) -> &'static str {
+    let code = h.get("mode").i();
+    let imod_unsigned = code == 0
+        && h.number(IMOD_STAMP, "i4").i() == IMOD
+        && h.number(IMOD_FLAGS, "i4").i() & 1 == 0
+        && !NVERSION_STANDARD.contains(&h.get("nversion").i());
+    let spec = &rules::of("mrc").table("modes")[code.to_string()];
+    if imod_unsigned { "uint8" } else { spec["dtype"].as_str().unwrap_or("int8") }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -170,17 +189,9 @@ impl Mrc {
         self.rules.check("mode", rules::env([("code", num(code as f64))]))?;
         let spec = &self.rules.table("modes")[code.to_string()];
         let bytes = spec["bytes"].as_u64().unwrap_or(1);
-        // In a file with IMOD's stamp, mode 0 is signed when bit 0 of IMOD's flags is set ("1 =
-        // bytes are stored as signed (the default as of IMOD 4.9)", imodFlags in
-        // <https://bio3d.colorado.edu/imod/doc/mrc_format.txt>) or NVERSION declares the standard
-        // (the same document: "the best way to indicate that a byte file is signed"); otherwise
-        // it is unsigned (spec/zarrify/mrc.md §3
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>)
-        let imod_unsigned = code == 0
-            && h.number(IMOD_STAMP, "i4").i() == IMOD
-            && h.number(IMOD_FLAGS, "i4").i() & 1 == 0
-            && !NVERSION_STANDARD.contains(&h.get("nversion").i());
-        let dtype = if imod_unsigned { "uint8" } else { spec["dtype"].as_str().unwrap_or("int8") };
+        // the data element's form names the data type (§5.3
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#53-elements>)
+        let dtype = data_type(&h);
         let nsymbt = h.get("nsymbt").i();
         self.rules.check("extended_header", rules::env([("nsymbt", num(nsymbt as f64)), ("size", num(size))]))?;
         let (ispg, mz) = (h.get("ispg").i(), h.get("mz").i());
@@ -237,12 +248,10 @@ impl Mrc {
                               "codec": {"encoding": "gzip", "endian": endian, "skip": offset},
                               "recipe": [["src", 0, null]]});
             let data = self.ir.data(0, "data", NO_INDEX, 0, (0, self.size), &form.to_string())?;
-            // `declared_by`: the key of the array's description, the stream
+            // the key of the array's description is the stream
             self.reached = Some(reached(data, data, Some(offset)));
             let gzip = json!({"skip": offset, "head": gz::head(h.raw)});
-            let description = describe(&h, (offset, total as u64), json!({"data": data}), Some(&gzip));
-            self.facts = json!({"data": data, "declared_by": data, "data_type": dtype,
-                                "gzip": gzip, "copy_threshold": crate::out::copy_threshold(), "description": description});
+            self.facts = describe(&h, (offset, total as u64), json!({"data": data}), Some(&gzip));
             return Ok(());
         }
         let header = self.ir.value(0, "header", NO_INDEX, &h.record_type(), 0, (0, HEADER), Some(h.raw))?;
@@ -252,17 +261,15 @@ impl Mrc {
         }
         let form = json!({"geometry": geometry, "codec": {"endian": endian}, "recipe": [["src", 0, null]]});
         let data = self.ir.data(0, "data", NO_INDEX, 0, (offset, total as u64), &form.to_string())?;
-        // `declared_by`: the key of the array's description, the header; `copy_threshold`: the
-        // payload past which the projection copies an edge chunk, read once per run
+        // the key of the array's description is the header
         self.reached = Some(reached(header, data, None));
         elements["data"] = json!(data);
-        let description = describe(&h, (offset, total as u64), elements, None);
-        self.facts = json!({"header": header, "data": data, "declared_by": header, "data_type": dtype, "copy_threshold": crate::out::copy_threshold(),
-                            "description": description});
+        self.facts = describe(&h, (offset, total as u64), elements, None);
         Ok(())
     }
 
-    /// The finished IR, with the file's array described (`stored.rs`), and the facts.
+    /// The finished IR, with the file's array described (`stored.rs`), and the description of the
+    /// file (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#85-the-description>).
     pub fn finish(self) -> Result<(Ir, J), String> {
         let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
         if let Some(reached) = &self.reached {
@@ -315,9 +322,7 @@ impl crate::run::FileProfile for Profile {
     fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
         crate::project::mrc::reads(ir, facts)
     }
-    /// The parser's description of the file, beside its projection's facts (§8.5
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#85-the-description>).
-    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
-        facts.get("description").cloned()
+    fn described(&self) -> bool {
+        true
     }
 }
