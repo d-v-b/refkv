@@ -5,7 +5,9 @@
 //! 1. **The layout** (spec/zarrify/ims.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#2-the-source>–§4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#4-output>): the groups, attributes and datasets the
 //!    convention reads, in its order, every rejection of the profile checked here (the HDF5
 //!    subset by the reader, the Imaris layout by `schema/ims.json`'s roles). Its outcome is the
-//!    facts the projection writes: the root's metadata, the level arrays, and each chunk's key.
+//!    description of the file (spec/zarrify/ims.md §7.10
+//!    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#710-the-description>), from
+//!    which refkv's plan (`crate::project::ims::plan`) makes the output's decisions.
 //! 2. **The walk**, which never rejects: every object reachable from the root group by hard
 //!    links (by level, at most `walk_objects` + `walk_per_image` × the Data datasets, to
 //!    `walk_depth` levels), its header, the structures that hold its links and attributes, its
@@ -16,7 +18,6 @@
 //! numbered depth first from the root group (a group's hard links in ascending byte order of
 //! their names), then the global heap collections.
 
-use crate::out::{omero_channel, omero_json, omero_window};
 use crate::check;
 use crate::hdf5::walk::{lenient, visit, Emit, Visit};
 use crate::hdf5::{self, le, Acc, Fail, Links, R, Target, H5};
@@ -25,11 +26,11 @@ use crate::nd2::Step;
 use crate::rules::{self, flag, num, text, Rules, Vars};
 use crate::expr::V;
 use crate::text::{is_decimal, utf8_or_latin1};
-use serde_json::{json, Map, Value as J};
+use serde_json::{json, Value as J};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc as Rc;
 
-const WS: &[char] = &[' ', '\t', '\r', '\n'];
+pub(crate) const WS: &[char] = &[' ', '\t', '\r', '\n'];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Phase {
@@ -122,7 +123,7 @@ pub fn integer(s: Option<&str>) -> Option<u64> {
     integer_text(s?).1
 }
 
-fn unit_rgb(values: Option<&[f64]>) -> Option<String> {
+pub(crate) fn unit_rgb(values: Option<&[f64]>) -> Option<String> {
     let v = values?;
     if !v.iter().all(|&x| (0.0..=1.0).contains(&x)) {
         return None;
@@ -171,7 +172,7 @@ pub fn timestamp(s: Option<&str>) -> Option<(i64, f64)> {
 
 /// The length unit of a `Unit` text (conventions §5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>).
-fn length_unit(s: &str) -> Option<&'static str> {
+pub(crate) fn length_unit(s: &str) -> Option<&'static str> {
     Some(match s {
         "\u{b5}m" | "\u{3bc}m" | "um" => "micrometer",
         "nm" => "nanometer",
@@ -207,7 +208,7 @@ fn pipeline_ok(filters: &[u64]) -> bool {
     rest.is_empty()
 }
 
-fn jf(x: f64) -> J {
+pub(crate) fn jf(x: f64) -> J {
     json!(x)
 }
 
@@ -332,9 +333,10 @@ impl Ims {
         })
     }
 
-    /// (Zarr data type, byte order or None for one byte, integer range) of a Data dataset.
-    fn data_type(&self, dt: &hdf5::Datatype) -> R<(String, Option<&'static str>, Option<(i64, i64)>)> {
-        let order = if dt.bits & 1 != 0 { "big" } else { "little" };
+    /// Checks a Data dataset's datatype (spec/zarrify/ims.md §2.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#22-the-imaris-layout>): one the
+    /// profile reads, whose data type refkv's plan names.
+    fn data_type(&self, dt: &hdf5::Datatype) -> R<()> {
         let plain = if dt.cls == 0 && [1, 2, 4].contains(&dt.size) {
             le(&dt.props, 0, 2)? == 0 && le(&dt.props, 2, 2)? == 8 * dt.size
         } else {
@@ -356,15 +358,7 @@ impl Ims {
             "datatype",
             rules::env([("class", num(dt.cls)), ("size", num(dt.size as f64)), ("plain", flag(plain)), ("ieee32", flag(ieee32))]),
         )?;
-        let bits = 8 * dt.size;
-        if dt.cls == 0 {
-            let o = if bits > 8 { Some(order) } else { None };
-            if dt.bits & 8 != 0 {
-                return Ok((format!("int{bits}"), o, Some((-(1i64 << (bits - 1)), (1i64 << (bits - 1)) - 1))));
-            }
-            return Ok((format!("uint{bits}"), o, Some((0, (1i64 << bits) - 1))));
-        }
-        Ok(("float32".into(), Some(order), None))
+        Ok(())
     }
 
     fn layout(&mut self) -> R<()> {
@@ -404,16 +398,29 @@ impl Ims {
         let images = top.take(self.datasets(&dataset, &level0, &first_time, levels, times, channels));
         let meta = if top.stopped() { None } else { top.take(self.metadata(&root, times, channels)) };
         top.done()?;
-        let (level_info, data_type, chunk_list, datatype) = images.unwrap();
-        let (meta, info) = meta.unwrap();
-        let mut facts = self.output(&level_info, &data_type, meta, levels, times, channels)?;
+        let (level_info, chunk_list, datatype) = images.unwrap();
+        let info = meta.unwrap();
+        // the profile's checks of the image's levels and extents (spec/zarrify/ims.md §3
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#3-metadata>, §4
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#4-output>)
+        let z0 = level_info[0].0[0];
+        let most = level_info.iter().map(|i| i.0[0]).max().unwrap_or(1);
+        self.check("z_levels", rules::env([("z0", num(z0 as f64)), ("most", num(most as f64))]))?;
+        let image = &info["image"];
+        for i in 0..3 {
+            if let (Some(lo), Some(hi)) = (image["ext_min"][i].as_f64(), image["ext_max"][i].as_f64()) {
+                self.check("extent", rules::env([("i", num(i as f64)), ("finite", flag((hi - lo).is_finite()))]))?;
+            }
+        }
         // the description (spec/zarrify/ims.md §7.10
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#710-the-description>)
-        facts["levels"] = level_info.iter().map(|(sizes, chunk, filters)| json!({"image_size": sizes, "chunk": chunk, "filters": filters})).collect();
-        facts["datatype"] = datatype;
-        facts["times"] = json!(times);
-        facts["channels"] = json!(channels);
-        facts["info"] = info;
+        let facts = json!({
+            "levels": level_info.iter().map(|(sizes, chunk, filters)| json!({"image_size": sizes, "chunk": chunk, "filters": filters})).collect::<Vec<_>>(),
+            "datatype": datatype,
+            "times": times,
+            "channels": channels,
+            "info": info,
+        });
         self.image_sets = chunk_list;
         self.images = level_info.len() as u64 * times * channels;
         self.facts = Some(facts);
@@ -423,10 +430,9 @@ impl Ims {
     /// Levels' (sizes, chunk, filters), the data type, and each dataset's chunks.
     #[allow(clippy::type_complexity)]
     fn datasets(&mut self, dataset: &Links, level0: &Rc<Links>, first_time: &Rc<Links>, levels: u64, times: u64, channels: u64)
-                -> R<(Vec<Level>, (String, Option<&'static str>, Option<(i64, i64)>), Vec<Image>, J)> {
+                -> R<(Vec<Level>, Vec<Image>, J)> {
         let mut acc = Acc::default();
-        let mut data_type: Option<(String, Option<&'static str>, Option<(i64, i64)>)> = None;
-        let mut datatype = J::Null;
+        let mut datatype: Option<J> = None;
         let mut level_info = Vec::new();
         let mut chunk_list = Vec::new();
         'levels: for r in 0..levels as usize {
@@ -454,20 +460,20 @@ impl Ims {
                     for c in 0..channels as usize {
                         let one = self.image(&time_links, r, c);
                         if let Some((sizes, ds, at)) = acc.take(one) {
-                            let dt = match self.data_type(&ds.datatype) {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    acc.take::<()>(Err(e));
-                                    break 'levels;
-                                }
-                            };
+                            if let Err(e) = self.data_type(&ds.datatype) {
+                                acc.take::<()>(Err(e));
+                                break 'levels;
+                            }
+                            let dt = Self::datatype_description(&ds.datatype);
                             let larger = sizes.iter().zip(&ds.dims).any(|(s, n)| s > n);
                             let this = if ds.dims.len() == 3 {
                                 Some(([sizes[0], sizes[1], sizes[2]], [ds.chunk[0], ds.chunk[1], ds.chunk[2]], ds.filters.clone()))
                             } else {
                                 None
                             };
-                            let same_type = data_type.as_ref().is_none_or(|d| *d == dt);
+                            // one byte has no byte order
+                            let same_type = datatype.as_ref().is_none_or(|d| d["class"] == dt["class"] && d["size"] == dt["size"]
+                                && d["signed"] == dt["signed"] && (dt["size"] == 1 || d["byte_order"] == dt["byte_order"]));
                             let same_level = info.is_none() || info == this;
                             let filters = V::List(ds.filters.iter().map(|&f| V::Num(f as f64)).collect());
                             let pipeline = pipeline_ok(&ds.filters);
@@ -489,10 +495,7 @@ impl Ims {
                                 }
                                 continue;
                             }
-                            if data_type.is_none() {
-                                datatype = Self::datatype_description(&ds.datatype);
-                            }
-                            data_type.get_or_insert(dt);
+                            datatype.get_or_insert(dt);
                             info.get_or_insert(this.unwrap());
                             let ch = self.h.chunks(at, &ds, false);
                             if let Some(ch) = acc.take(ch) {
@@ -511,7 +514,7 @@ impl Ims {
             level_info.push(info.unwrap_or(([1, 1, 1], [1, 1, 1], Vec::new())));
         }
         acc.done()?;
-        Ok((level_info, data_type.unwrap(), chunk_list, datatype))
+        Ok((level_info, chunk_list, datatype.unwrap_or(J::Null)))
     }
 
     /// A channel group's image size and Data dataset (spec/zarrify/ims.md §2.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#22-the-imaris-layout>).
@@ -535,7 +538,7 @@ impl Ims {
     }
 
     /// The metadata groups' attributes (spec/zarrify/ims.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#3-metadata>), and the channels' colors.
-    fn metadata(&mut self, root: &Links, times: u64, channels: u64) -> R<(Meta, J)> {
+    fn metadata(&mut self, root: &Links, times: u64, channels: u64) -> R<J> {
         let meta = if root.has("DataSetInfo") {
             let (_, l) = self.opened(root, "DataSetInfo")?;
             Some(l)
@@ -566,58 +569,31 @@ impl Ims {
         for i in 0..3 {
             ext_max[i] = decimal(self.attr_text(im, &format!("ExtMax{i}"))?.as_deref());
         }
-        let unit_text = self.attr_text(im, "Unit")?;
-        let mut name = self.attr_text(im, "Name")?;
-        let image_info = json!({"ext_min": ext_min, "ext_max": ext_max, "unit": unit_text, "name": name});
+        let unit = self.attr_text(im, "Unit")?;
+        let name = self.attr_text(im, "Name")?;
+        let image_info = json!({"ext_min": ext_min, "ext_max": ext_max, "unit": unit, "name": name});
         let mut channel_info = Vec::new();
-        if name.as_ref().is_some_and(|n| n.len() > self.rules.limit("max_name") as usize) {
-            name = None;
-        }
-        let mut labels = Vec::new();
-        let mut colors = Vec::new();
-        let mut ranges = Vec::new();
         let mut acc = Acc::default();
-        for (c, g) in groups.into_iter().enumerate() {
+        for g in groups {
             let (attrs, links) = g.unwrap();
             let a = attrs.as_deref();
-            let label = self.attr_text(a, "Name")?;
-            let mut read = json!({"name": label});
-            labels.push(match label {
-                Some(l) if !l.is_empty() && l.len() <= self.rules.limit("max_name") as usize => l,
-                _ => format!("Channel {c}"),
-            });
-            let color = self.channel_color(a, links.as_deref(), &mut read);
-            match acc.take(color) {
-                Some(col) => colors.push(col),
-                None => colors.push(String::new()),
-            }
+            let mut read = json!({"name": self.attr_text(a, "Name")?});
+            // the color table is read only where the base color does not decide the color first
+            acc.take(self.channel_color(a, links.as_deref(), &mut read));
             if acc.stopped() {
                 break;
             }
-            let range = decimals(self.attr_text(a, "ColorRange")?.as_deref(), 2);
-            read["color_range"] = json!(range);
+            read["color_range"] = json!(decimals(self.attr_text(a, "ColorRange")?.as_deref(), 2));
             channel_info.push(read);
-            ranges.push(range);
         }
         acc.done()?;
         let (time_attrs, _) = time.unwrap();
-        let mut period = None;
         let mut time_points = J::Null;
         if times > 1 {
             let ta = time_attrs.as_deref();
-            let (first, last) = (self.attr_text(ta, "TimePoint1")?, self.attr_text(ta, &format!("TimePoint{times}"))?);
-            time_points = json!({"first": first, "last": last});
-            let first = timestamp(first.as_deref());
-            let last = timestamp(last.as_deref());
-            if let (Some(f), Some(l)) = (first, last) {
-                let elapsed = (l.0 - f.0) as f64 + (l.1 - f.1);
-                if elapsed > 0.0 {
-                    period = Some(elapsed / (times - 1) as f64);
-                }
-            }
+            time_points = json!({"first": self.attr_text(ta, "TimePoint1")?, "last": self.attr_text(ta, &format!("TimePoint{times}"))?});
         }
-        let info = json!({"image": image_info, "channels": channel_info, "time_points": time_points});
-        Ok((Meta { ext_min, ext_max, unit_text, name, labels, colors, ranges, period }, info))
+        Ok(json!({"image": image_info, "channels": channel_info, "time_points": time_points}))
     }
 
     /// A group's attributes and links, or none if it is missing.
@@ -696,138 +672,6 @@ impl Ims {
             Ok(Some(decode_text(&data)))
         })();
         Ok(lenient(r)?.flatten())
-    }
-
-    /// The facts the projection writes (spec/zarrify/ims.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#4-output>).
-    fn output(&self, level_info: &[Level], data_type: &(String, Option<&'static str>, Option<(i64, i64)>), meta: Meta,
-              levels: u64, times: u64, channels: u64) -> R<J> {
-        let z0 = level_info[0].0[0];
-        let has_z = z0 > 1 || level_info.iter().any(|i| i.1[0] > 1);
-        let mut axes: Vec<&str> = Vec::new();
-        if times > 1 {
-            axes.push("t");
-        }
-        if channels > 1 {
-            axes.push("c");
-        }
-        if has_z {
-            axes.push("z");
-        }
-        axes.extend(["y", "x"]);
-        let most = level_info.iter().map(|i| i.0[0]).max().unwrap_or(1);
-        self.check("z_levels", rules::env([("z0", num(z0 as f64)), ("most", num(most as f64))]))?;
-        let unit = match meta.unit_text.as_deref() {
-            None | Some("") => Some("micrometer"),
-            Some(u) => length_unit(u),
-        };
-        let mut extent: HashMap<&str, f64> = HashMap::new();
-        for (axis, i) in [("x", 0usize), ("y", 1), ("z", 2)] {
-            if let (Some(lo), Some(hi)) = (meta.ext_min[i], meta.ext_max[i]) {
-                let e = hi - lo;
-                self.check("extent", rules::env([("i", num(i as f64)), ("finite", flag(e.is_finite()))]))?;
-                if e > 0.0 {
-                    extent.insert(axis, e);
-                }
-            }
-        }
-        let spatial: Vec<&str> = axes.iter().copied().filter(|a| matches!(*a, "z" | "y" | "x")).collect();
-        let mut units = Map::new();
-        units.insert("t".into(), meta.period.map_or(J::Null, |_| json!("second")));
-        for a in &spatial {
-            units.insert((*a).into(), if extent.contains_key(a) { unit.map_or(J::Null, |u| json!(u)) } else { J::Null });
-        }
-        let mut scales = Vec::new();
-        let mut arrays = Vec::new();
-        for (sizes, chunk, filters) in level_info {
-            let n = |a: &str| match a {
-                "z" => sizes[0],
-                "y" => sizes[1],
-                _ => sizes[2],
-            };
-            let scale: Vec<J> = axes
-                .iter()
-                .map(|a| match *a {
-                    "t" => meta.period.map_or(json!(1), jf),
-                    "c" => json!(1),
-                    a => extent.get(a).map_or(json!(1), |e| jf(e / n(a) as f64)),
-                })
-                .collect();
-            scales.push(J::Array(scale));
-            let shape: Vec<u64> = axes.iter().map(|a| match *a {
-                "t" => times,
-                "c" => channels,
-                a => n(a),
-            }).collect();
-            let chunks: Vec<u64> = axes.iter().map(|a| match *a {
-                "t" | "c" => 1,
-                "z" => chunk[0],
-                "y" => chunk[1],
-                _ => chunk[2],
-            }).collect();
-            let mut codecs = vec![match data_type.1 {
-                Some(e) => json!({"name": "bytes", "configuration": {"endian": e}}),
-                None => json!({"name": "bytes"}),
-            }];
-            let item = data_type.1.map_or(1, |_| if data_type.0.ends_with("16") { 2 } else { 4 });
-            for f in filters {
-                match *f {
-                    hdf5::SHUFFLE => codecs.push(json!({"name": "numcodecs.shuffle", "configuration": {"elementsize": item}})),
-                    hdf5::DEFLATE => codecs.push(json!({"name": "numcodecs.zlib", "configuration": {"level": 1}})),
-                    hdf5::LZ4 => codecs.push(json!({"name": "imagecodecs_lz4h5"})),
-                    _ => {}
-                }
-            }
-            let trim = if filters.contains(&hdf5::FLETCHER32) { hdf5::CHECKSUM } else { 0 };
-            arrays.push(json!({"shape": shape, "chunks": chunks, "codecs": codecs, "sizes": sizes, "chunk": chunk, "trim": trim}));
-        }
-        let translations = if spatial.iter().all(|a| extent.contains_key(a)) {
-            let t: Vec<J> = axes
-                .iter()
-                .map(|a| match *a {
-                    "x" => jf(meta.ext_min[0].unwrap()),
-                    "y" => jf(meta.ext_min[1].unwrap()),
-                    "z" => jf(meta.ext_min[2].unwrap()),
-                    _ => json!(0),
-                })
-                .collect();
-            J::Array(vec![J::Array(t); levels as usize])
-        } else {
-            J::Null
-        };
-        let mut omero = J::Null;
-        if channels <= self.rules.limit("max_channels") as u64 {
-            let mut chs = Vec::new();
-            for (k, label) in meta.labels.iter().enumerate() {
-                let rng = meta.ranges.get(k).cloned().flatten();
-                let window = match (data_type.2, rng) {
-                    (Some((lo, hi)), Some(r)) => Some(omero_window(json!(lo), json!(hi), jf(r[0]), jf(r[1]))),
-                    (Some((lo, hi)), None) => Some(omero_window(json!(lo), json!(hi), json!(lo), json!(hi))),
-                    (None, Some(r)) => Some(omero_window(jf(r[0]), jf(r[1]), jf(r[0]), jf(r[1]))),
-                    (None, None) => None,
-                };
-                chs.push(omero_channel(label, meta.colors[k].as_str(), window.as_ref()));
-            }
-            omero = omero_json(chs);
-        }
-        let name = meta.name.filter(|n| !n.is_empty()).map_or(J::Null, |n| json!(n));
-        Ok(json!({
-            "axes": axes,
-            "units": units,
-            "scales": scales,
-            "name": name,
-            "translations": translations,
-            "omero": omero,
-            "dtype": data_type.0,
-            "arrays": arrays,
-            "summary": {
-                "levels": levels,
-                "sizes": {"t": times, "c": channels, "z": level_info[0].0[0], "y": level_info[0].0[1], "x": level_info[0].0[2]},
-                "dataType": data_type.0,
-                "chunkShape": level_info[0].1,
-                "compressed": level_info.iter().map(|i| !i.2.is_empty()).collect::<Vec<_>>(),
-                "channels": meta.labels,
-            },
-        }))
     }
 
     // ---- phase 2: the walk
@@ -960,7 +804,7 @@ impl Ims {
         // the image's datasets, by the structs that hold their chunks (None: no chunk allocated),
         // each with the key of its stored-array description: its object's struct
         let struct_of: HashMap<u64, u32> = order.iter().copied().zip(structs.iter().copied()).collect();
-        let (mut images, mut data) = (Vec::new(), Vec::new());
+        let mut data = Vec::new();
         for im in &self.image_sets {
             let el = match e.chunks_of.get(&im.at) {
                 Some(&x) => json!(x),
@@ -968,7 +812,6 @@ impl Ims {
                 None => J::Null,
             };
             data.push(json!({"level": im.r, "time": im.t, "channel": im.c, "chunks": el, "grid": im.grid, "object": struct_of.get(&im.at)}));
-            images.push(json!([im.r, im.t, im.c, el, im.grid, struct_of.get(&im.at)]));
         }
         let crate::hdf5::walk::Emit { mut ir, rec, data_of, .. } = e;
         ir.sort_values();
@@ -976,7 +819,6 @@ impl Ims {
         let em = crate::hdf5::stored::Emitted { order: &order, structs: &structs, rec: &rec, data_of: &data_of };
         crate::hdf5::stored::describe(&mut ir, &mut self.h, &em, &self.visited, &HashMap::new(), None, &[])?;
         let mut facts = self.facts.take().unwrap_or(J::Null);
-        facts["images"] = J::Array(images);
         facts["data"] = J::Array(data);
         facts["objects"] = json!(order.len());
         facts["requests"] = json!(self.requests);
@@ -986,16 +828,6 @@ impl Ims {
     }
 }
 
-struct Meta {
-    ext_min: [Option<f64>; 3],
-    ext_max: [Option<f64>; 3],
-    unit_text: Option<String>,
-    name: Option<String>,
-    labels: Vec<String>,
-    colors: Vec<String>,
-    ranges: Vec<Option<Vec<f64>>>,
-    period: Option<f64>,
-}
 
 
 crate::parser!(Ims);
@@ -1014,15 +846,10 @@ impl crate::run::FileProfile for Profile {
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::ims::project(ir, facts, url)
     }
+    /// The parser returns the description of the file (spec/zarrify/ims.md §7.10
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#710-the-description>).
     fn described(&self) -> bool {
         true
-    }
-    /// The parser's description of the file (spec/zarrify/ims.md §7.10
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#710-the-description>): its
-    /// members of what it returns, without the facts its projection still reads.
-    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
-        let keep = ["levels", "datatype", "times", "channels", "info", "data", "objects"];
-        Some(J::Object(keep.iter().map(|&k| (k.to_string(), facts[k].clone())).collect()))
     }
 }
 
