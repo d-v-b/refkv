@@ -949,8 +949,11 @@ The documentation site lists it in the table of <a class="reference internal" hr
 add two functions, which <code class="docutils literal notranslate"><span class="pre">build.rs</span></code> calls from the <code class="docutils literal notranslate"><span class="pre">StoreFormat</span></code> it generates:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">pub</span> <span class="pre">fn</span> <span class="pre">store_parser(ir,</span> <span class="pre">objects,</span> <span class="pre">keys)</span></code> in <code class="docutils literal notranslate"><span class="pre">src/&lt;m&gt;.rs</span></code>;</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">pub</span> <span class="pre">fn</span> <span class="pre">store_project(ir,</span> <span class="pre">facts,</span> <span class="pre">url)</span></code> in <code class="docutils literal notranslate"><span class="pre">src/project/&lt;m&gt;.rs</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pub</span> <span class="pre">fn</span> <span class="pre">store_project(ir,</span> <span class="pre">facts,</span> <span class="pre">url,</span> <span class="pre">copied)</span></code> in <code class="docutils literal notranslate"><span class="pre">src/project/&lt;m&gt;.rs</span></code>.</p></li>
 </ul>
+<p>A parser that reads bytes for the projection apart from what it describes (edge chunks it copies,
+windows it samples) gives them through <code class="docutils literal notranslate"><span class="pre">StoreParser::copied</span></code>, by their offset and length, and its
+own counts through <code class="docutils literal notranslate"><span class="pre">StoreParser::counts</span></code>, which the summary holds; neither goes in the description.</p>
 <p>A store run whose parser returns the profile’s description of the input beside the IR (its
 document’s section “The description”) says so in the same entry, <code class="docutils literal notranslate"><span class="pre">&quot;described&quot;:</span> <span class="pre">true</span></code>, and
 <code class="docutils literal notranslate"><span class="pre">StoreFormat::description</span></code> gives it to the hosts; one whose parser returns no description yet

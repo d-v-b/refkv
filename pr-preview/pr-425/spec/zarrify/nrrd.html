@@ -1672,7 +1672,9 @@ the channels (<a class="reference internal" href="#channels">§4.4</a>), the chu
 description is keyed by <code class="docutils literal notranslate"><span class="pre">header_file</span></code> (<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>).
 The projection makes every decision of <a class="reference internal" href="#data-types-and-encodings">§3</a>, <a class="reference internal" href="#the-image">§4</a>,
 <a class="reference internal" href="#source-metadata">§5</a> and <a class="reference internal" href="#chunks">§8.5</a> from the description. The store run also reads the
-edge chunks the projection copies (<a class="reference internal" href="#the-data">§8.4</a>), which it returns beside the description.</p>
+edge chunks the projection copies (<a class="reference internal" href="#the-data">§8.4</a>), which it gives the projection apart from
+the description, by their offset and length in the data’s file, with its count of <code class="docutils literal notranslate"><span class="pre">batches</span></code>, which
+the summary holds (<a class="reference internal" href="#summary">§8.6</a>).</p>
 <p>The parser still makes one decision of the output: the <code class="docutils literal notranslate"><span class="pre">data</span></code> element’s form names the Zarr data
 type of <a class="reference internal" href="#data-types-and-encodings">§3</a> (<a class="reference internal" href="#elements">§5.3</a>). It checks the axes’ roles
 (<a class="reference internal" href="#the-fields">§8.2</a>), and the projection names the axes from them.</p>
