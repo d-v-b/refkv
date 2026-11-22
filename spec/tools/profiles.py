@@ -25,17 +25,19 @@ the phrases the indexes describe it by. Everything else is derived from it:
   through `refkv._core.registry`; the browser code's `#profiles` (js/src/zarrify/); and the
   demo page's formats sentence, examples and credits (js/build.mjs, from each profile's
   demo/examples/<name>.html);
-- here, the index pages of the documents, where the profiles' own documents come together:
-  the profile tables of spec/zarrify.md, spec/conventions.md and docs/zarrify/README.md,
-  each between a pair of marker comments (`<!-- profiles:<block> -->` and `<!-- /profiles -->`),
-  one row per profile, by name, so that two profiles added at once conflict only when their
-  names sort next to each other;
-- and the Python package's source and store classes, one per profile
+- when the documentation site is built (docs-site/, `just docs`), the cross-format blocks of the
+  documents, where the profiles' own documents come together: the profile tables of
+  spec/zarrify.md, spec/conventions.md and docs/zarrify/README.md, each format's stored arrays
+  and the index of the profiles that return a description, each between a pair of marker
+  comments (`<!-- profiles:<block> -->` and `<!-- /profiles -->`), rendered by
+  spec/tools/blocks.py and never committed, so that a format's own files are all that adding it
+  edits;
+- here, the Python package's source and store classes, one per profile
   (python/src/refkv/zarrify/profile_classes.py, written whole, which refkv.zarrify re-exports):
   code, so that a type checker reads them.
 
 Adding a format is its registry file and its own files; `just profiles` then regenerates the
-indexes and the classes. `spec/tools/test_profiles.py` checks that the derived files are current (`just
+Rust core's copies and the classes. `spec/tools/test_profiles.py` checks that the derived files are current (`just
 sections` runs it).
 
 The documents also write out each convention's metadata object (CMO, spec/conventions.md §1
@@ -135,13 +137,6 @@ def input_kind(e: dict) -> str:
     return {"file": "file", "store": "store", "both": "file or store"}[e["kind"]]
 
 
-def spec_table(entries: list[dict]) -> str:
-    rows = ["| profile | input | inputs |", "|---|---|---|"]
-    rows += [f"| [{e['title']}](zarrify/{e['name']}.md#part-2-the-profile) | {input_kind(e)} | {e['inputs']} |"
-             for e in profiles(entries)]
-    return "\n".join(rows)
-
-
 def profile_heading(e: dict) -> tuple[str, str]:
     """The number and text of the profile's heading in its document (`## <n>. <T> profile`, the
     first heading of its Part 2)."""
@@ -153,65 +148,8 @@ def profile_heading(e: dict) -> tuple[str, str]:
     return m.group(1), m.group(2)
 
 
-def profile_link(e: dict, base: str) -> str:
-    """A link to the profile's heading, from a document at `base` (the path to spec/zarrify/)."""
-    n, heading = profile_heading(e)
-    return f"[{e['name']}.md §{n}]({base}{e['name']}.md#{n}-{slug(heading)})"
-
-
-def spec_list(entries: list[dict]) -> str:
-    items = []
-    for e in profiles(entries):
-        n, heading = profile_heading(e)
-        items.append(f"- the {heading}: [spec/zarrify/{e['name']}.md §{n}](zarrify/{e['name']}.md#{n}-{slug(heading)})")
-    return ";\n".join(items) + "."
-
-
-def sniff_table(entries: list[dict]) -> str:
-    rows = ["| profile | `sniff` |", "|---|---|"]
-    rows += [f"| {e['title']} ({profile_link(e, 'zarrify/')}) | {e['sniff']} |"
-             for e in entries if e["sniff"] is not None]
-    return "\n".join(rows)
-
-
 def slug(text: str) -> str:
     return re.sub(r"[^\w\- ]", "", text.lower()).replace(" ", "-")
-
-
-def section_link(e: dict, anchor: str) -> str:
-    """A link from spec/zarrify.md to the heading of the profile's document with this anchor."""
-    text = (ROOT / "spec" / "zarrify" / f"{e['name']}.md").read_text(encoding="utf-8")
-    for heading in re.findall(r"^#+ (.+)$", text, re.MULTILINE):
-        if slug(heading) == anchor:
-            return f"[{e['name']}.md §{heading.split()[0].rstrip('.')}](zarrify/{e['name']}.md#{anchor})"
-    raise ValueError(f"{e['name']}: spec/zarrify/{e['name']}.md has no heading with the anchor {anchor!r}")
-
-
-def beside_table(entries: list[dict]) -> str:
-    """The profiles that read a file with the files beside it."""
-    rows = ["| profile | read as a store | the named file | specified in |", "|---|---|---|---|"]
-    forms = {"always": "always", "on_demand": "on demand"}
-    rows += [f"| {e['title']} | {forms[run['form']]} | {run['named']} | {section_link(e, run['section'])} |"
-             for e in entries if (run := e["store_run"]) is not None and run["form"] != "listed"]
-    return "\n".join(rows)
-
-
-def conventions_table(entries: list[dict]) -> str:
-    rows = ["| format | convention | UUID |", "|---|---|---|"]
-    for e in entries:
-        source = e["source"] + (" ([§9](#9-dataset-layouts))" if e["kind"] == "layout" else "")
-        rows.append(f"| {source} | [{e['name']}](zarrify/{e['name']}.md) | `{e['uuid']}` |")
-    return "\n".join(rows)
-
-
-def docs_table(entries: list[dict]) -> str:
-    rows = ["| format | for | README | profile |", "|---|---|---|---|"]
-    for e in profiles(entries):
-        f = e["name"]
-        readme = (f"[{f}]({f}/README.md)" if (ROOT / "docs" / "zarrify" / f / "README.md").is_file()
-                  else f"[convention](../../spec/zarrify/{f}.md)")
-        rows.append(f"| {e['title']} | {e['for']} | {readme} | {profile_link(e, '../../spec/zarrify/')} |")
-    return "\n".join(rows)
 
 
 def class_name(name: str, suffix: str) -> str:
@@ -254,24 +192,8 @@ def classes_module(entries: list[dict]) -> str:
     return "\n".join(out)
 
 
-BLOCKS = {
-    "spec/zarrify.md": {"spec-table": spec_table, "sniff-table": sniff_table, "spec-list": spec_list,
-                        "beside-table": beside_table},
-    "spec/conventions.md": {"conventions-table": conventions_table},
-    "docs/zarrify/README.md": {"docs-table": docs_table},
-}
 # the files written whole
 FILES = {"python/src/refkv/zarrify/profile_classes.py": classes_module}
-
-
-def with_blocks(text: str, blocks: dict, entries: list[dict]) -> str:
-    """`text` with each marked block's content replaced by its generator's."""
-    for name, make in blocks.items():
-        pattern = re.compile(rf"(<!-- profiles:{re.escape(name)} -->\n).*?(\n[ \t]*<!-- /profiles -->)", re.DOTALL)
-        if not pattern.search(text):
-            raise ValueError(f"no block {name!r}")
-        text = pattern.sub(lambda m, make=make: m.group(1) + make(entries) + m.group(2), text, count=1)
-    return text
 
 
 def copies() -> dict[Path, str]:
@@ -280,9 +202,8 @@ def copies() -> dict[Path, str]:
 
 
 def derived(entries: list[dict]) -> dict[str, str]:
-    """Each derived file's path and content: the index pages, and the files written whole."""
-    return {path: with_blocks((ROOT / path).read_text(encoding="utf-8"), blocks, entries)
-            for path, blocks in BLOCKS.items()} | {path: make(entries) for path, make in FILES.items()}
+    """Each derived file's path and content: the files written whole."""
+    return {path: make(entries) for path, make in FILES.items()}
 
 
 def stale() -> list[str]:
@@ -397,7 +318,7 @@ def main(argv: list[str]) -> int:
         # unchanged files keep their times, so that nothing rebuilds for them
         if not p.is_file() or p.read_text(encoding="utf-8") != text:
             p.write_text(text, encoding="utf-8")
-    print(f"wrote {len(BLOCKS) + len(FILES)} derived files and {len(copies())} copies from {len(entries)} entries")
+    print(f"wrote {len(FILES)} derived files and {len(copies())} copies from {len(entries)} entries")
     return 0
 
 
