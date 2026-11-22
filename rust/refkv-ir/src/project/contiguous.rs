@@ -7,15 +7,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), not a literal.
 
 use super::{key, Copied};
-use crate::out::{grid_chunks, payload_size, Chunk, Out, Part, MAX_PAYLOAD};
+use crate::out::{grid_chunks, payload_size, Chunk, Out, Part};
 use crate::refs::Refs;
-use serde_json::Value as J;
-
-/// The payload past which an edge chunk is copied: the facts' `copy_threshold` (the run's,
-/// `out::copy_threshold`), else MAX_PAYLOAD.
-pub fn threshold(facts: &J) -> usize {
-    facts["copy_threshold"].as_u64().map_or(MAX_PAYLOAD, |t| t as usize)
-}
 
 /// The one chunk of an array of `shape` that a compressed stream `(start, length)` holds whole:
 /// its grid, and the chunk.
