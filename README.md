@@ -106,6 +106,10 @@ The code in this repository exercises the model by writing vzip archives, and ph
 per format. [python/README.md](python/README.md) lists the extras and the
 platforms with wheels, and [js/README.md](js/README.md) covers the browser code.
 
+The documentation site, <https://d-v-b.github.io/refkv/>, renders docs/ and spec/ with the pages
+that list every format, which are made from the profile registry when the site is built
+(`just docs`, [docs-site/conf.py](docs-site/conf.py)).
+
 ## Layout
 
 Specifications, documentation and design notes are organized by component;
