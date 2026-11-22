@@ -617,11 +617,6 @@ impl crate::run::FileProfile for Profile {
     fn project(&self, _: &crate::ir::Ir, _: &serde_json::Value, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
         Err("a VSI input is zarrified as a store run".into())
     }
-    /// The store run returns the description of the slide (spec/zarrify/vsi.md §9.6
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#96-the-description>).
-    fn store_described(&self) -> bool {
-        true
-    }
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
