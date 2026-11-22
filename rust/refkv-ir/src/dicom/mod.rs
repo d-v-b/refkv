@@ -1669,11 +1669,10 @@ impl Emit<'_> {
         let el = img.pixel;
         let s = self.ir.struct_(d, &tag_key(PIXEL_DATA), NO_INDEX, 0, Some((el.at, lay.end - el.at))).map_err(hard)?;
         self.value(s, "header", NO_INDEX, &format!("{{{}}}", header_fields(&el, img.enc)), el.at, el.value - el.at)?;
-        let codec = match img.codec {
-            "native" if img.bits_allocated == 1 => json!({"name": "packbits"}),
-            "native" => json!({"name": "bytes", "endian": if img.enc.little { "little" } else { "big" }}),
-            c => json!({"name": c}),
-        };
+        // the codec in the file's terms, its Transfer Syntax UID: the Zarr codec that decodes it
+        // is an output's decision (conventions §8.5
+        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)
+        let codec = json!({"transfer_syntax": img.syntax});
         let geometry = json!({"rows": img.rows, "columns": img.columns, "samples": img.spp, "bits_allocated": img.bits_allocated,
             "pixel_representation": u8::from(img.signed), "photometric": img.photometric});
         self.form = crate::out::to_text(&json!({"geometry": geometry, "codec": codec, "recipe": [["src", 0, null]]}));

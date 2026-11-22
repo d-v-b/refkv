@@ -65,7 +65,6 @@ METADATA_KEYS = frozenset({
 OFFENDERS: dict[str, str] = {
     "czi": "CZI's subblock forms give a Zarr data type (`geometry.dtype`) and a Zarr codec chain (`codec`)",
 
-    "dicom": "DICOM's frame forms give a Zarr codec (`codec.name` `bytes`, with its byte order)",
 
     "envi": "ENVI's band forms give a Zarr data type (`geometry.data_type`)",
 
