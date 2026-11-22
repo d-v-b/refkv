@@ -59,7 +59,7 @@ fn doc_key(path: &str) -> String {
     if path.is_empty() { "zarr.json".into() } else { format!("{path}/zarr.json") }
 }
 
-/// An array's chunk keys, from its facts.
+/// An array's chunk keys, from its node in the plan.
 struct Keys {
     v2: bool,
     sep: String,
@@ -88,11 +88,11 @@ pub fn hierarchy(ir: &Ir, description: &J) -> Result<(Vec<J>, Out), String> {
 /// (its path, kind and source metadata) added to `nodes`.
 fn build(ir: &Ir, description: &J, url: &str, declared: bool, nodes_out: &mut Vec<J>) -> Result<Out, String> {
     // the convention's decisions, of the parser's description (`zarr3_nodes.rs`)
-    let facts = &super::zarr3_nodes::hierarchy(description)?;
-    let zip = facts["form"] == "zip";
+    let planned = &super::zarr3_nodes::hierarchy(description)?;
+    let zip = planned["form"] == "zip";
     let mut out = Out::new(url);
-    let nodes = facts["nodes"].as_array().cloned().unwrap_or_default();
-    let documents: HashSet<&str> = facts["documents"].as_array().into_iter().flatten().filter_map(J::as_str).collect();
+    let nodes = planned["nodes"].as_array().cloned().unwrap_or_default();
+    let documents: HashSet<&str> = planned["documents"].as_array().into_iter().flatten().filter_map(J::as_str).collect();
     let mut arrays: HashMap<String, Keys> = HashMap::new();
     let (mut groups, mut narrays, mut sharded) = (0u64, 0u64, 0u64);
     for n in &nodes {
@@ -145,7 +145,7 @@ fn build(ir: &Ir, description: &J, url: &str, declared: bool, nodes_out: &mut Ve
     let (mut chunks, mut empty_chunks, mut others) = (0u64, 0u64, 0u64);
     if zip {
         // the stored objects but the documents held: (key, data start, size)
-        for o in facts["objects"].as_array().into_iter().flatten() {
+        for o in planned["objects"].as_array().into_iter().flatten() {
             let (key, ds, us) = (o[0].as_str().unwrap_or(""), o[1].as_u64().unwrap_or(0), o[2].as_u64().unwrap_or(0));
             if !chunk(key) {
                 continue;
@@ -186,20 +186,20 @@ fn build(ir: &Ir, description: &J, url: &str, declared: bool, nodes_out: &mut Ve
     out.summary = json!({"groups": groups, "arrays": narrays, "shardedArrays": sharded, "chunks": chunks, "emptyChunks": empty_chunks});
     if zip {
         out.summary["form"] = json!("zip");
-        for (k, v) in facts["counts"].as_object().into_iter().flatten() {
+        for (k, v) in planned["counts"].as_object().into_iter().flatten() {
             out.summary[k] = v.clone();
         }
     } else {
         out.summary["objects"] = json!(ir.objects);
         out.summary["otherObjects"] = json!(others);
     }
-    if !facts["notPresented"].is_null() {
-        out.summary["notPresented"] = facts["notPresented"].clone();
+    if !planned["notPresented"].is_null() {
+        out.summary["notPresented"] = planned["notPresented"].clone();
     }
     Ok(out)
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, facts: &J, url: &str, _copied: &super::Copied) -> Result<Out, String> {
-    project(ir, facts, url)
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied) -> Result<Out, String> {
+    project(ir, description, url)
 }

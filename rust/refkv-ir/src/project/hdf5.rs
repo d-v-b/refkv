@@ -65,10 +65,10 @@ fn contiguous_chunks(a: &J, threshold: usize) -> Result<Option<(Vec<u64>, Vec<(V
 }
 
 /// The source's ranges of the contiguous edge chunks the projection copies.
-pub fn reads(_ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
+pub fn reads(_ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
     let threshold = copy_threshold();
     let mut out = Vec::new();
-    for node in &nodes(facts)?.nodes {
+    for node in &nodes(description)?.nodes {
         if let Some((_, chunks)) = contiguous_chunks(&node["array"], threshold)? {
             out.extend(contiguous::copy_reads(&chunks));
         }
@@ -200,25 +200,24 @@ fn run_of(chunk: &Chunk, item: u64) -> (u64, u64, u64) {
     }
 }
 
-pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    let Nodes { nodes, mut summary } = nodes(facts)?;
-    summary["rounds"] = facts["rounds"].clone();
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+    let Nodes { nodes, summary } = nodes(description)?;
     build(ir, &nodes, summary, url, url, copied, copy_threshold(), None)
 }
 
-/// The HDF5 convention's hierarchy of a file run's facts (a description, spec/zarrify/hdf5.md
+/// The HDF5 convention's hierarchy of a file run's description (a description, spec/zarrify/hdf5.md
 /// §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#87-the-description>), or a
 /// store run's (`store`): its nodes, and its documents and chunks as the projection writes them,
 /// but for the edge chunks it copies, which it gives apart, as ranges to copy: it reads nothing. The
 /// routine a layout calls for the convention's hierarchy (`refkv.build.hdf5_hierarchy`).
-pub fn hierarchy(ir: &Ir, facts: &J, store: bool) -> Result<(Vec<J>, Out, Vec<CopiedChunk>), String> {
+pub fn hierarchy(ir: &Ir, description: &J, store: bool) -> Result<(Vec<J>, Out, Vec<CopiedChunk>), String> {
     let mut copies = Vec::new();
     let (nodes, out) = if store {
-        let (nodes, summary, named) = store_nodes(facts)?;
+        let (nodes, summary, named) = store_nodes(description)?;
         let out = build(ir, &nodes, summary, "", &named, &Copied::new(), usize::MAX, Some(&mut copies))?;
         (nodes, out)
     } else {
-        let Nodes { nodes, summary } = nodes(facts)?;
+        let Nodes { nodes, summary } = nodes(description)?;
         let out = build(ir, &nodes, summary, "", "", &Copied::new(), copy_threshold(), Some(&mut copies))?;
         (nodes, out)
     };
@@ -284,23 +283,23 @@ fn linked_nodes(nodes: &[J], target: &str, at: &str) -> (Vec<J>, Vec<(String, Op
 /// The output of a file read as a store (spec/zarrify/hdf5.md §8.6
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#86-external-files>), its store
 /// URL `url`: the named file's hierarchy, with what each of its external links names at the link's
-/// path, one level deep, from the description of each file (`facts["files"]`, by key); the root's
+/// path, one level deep, from the description of each file (`description["files"]`, by key); the root's
 /// `source.url` is the named file's object URL. A linked file whose hierarchy rejects it is not
 /// followed.
-pub fn project_store(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    let (nodes, summary, named_key) = store_nodes(facts)?;
+pub fn project_store(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    let (nodes, summary, named_key) = store_nodes(description)?;
     let named = object_url(url, &named_key);
     // no edge chunk is copied: the run's reads have ended, and its padding is the zero data source's
     build(ir, &nodes, summary, url, &named, &Copied::new(), usize::MAX, None)
 }
 
 /// The nodes of a store run's hierarchy (`project_store`), its summary, and the named file's key.
-fn store_nodes(facts: &J) -> Result<(Vec<J>, J, String), String> {
-    let named_key = facts["named_key"].as_str().unwrap_or("");
-    let Nodes { nodes: mut named_nodes, mut summary } = nodes(&facts["files"][named_key])?;
+fn store_nodes(description: &J) -> Result<(Vec<J>, J, String), String> {
+    let named_key = description["named_key"].as_str().unwrap_or("");
+    let Nodes { nodes: mut named_nodes, mut summary } = nodes(&description["files"][named_key])?;
     let mut files: HashMap<&str, Vec<J>> = HashMap::new();
     files.insert(named_key, named_nodes.clone());
-    for (key, d) in facts["files"].as_object().into_iter().flatten() {
+    for (key, d) in description["files"].as_object().into_iter().flatten() {
         if key != named_key {
             if let Ok(n) = nodes(d) {
                 files.insert(key, n.nodes);
@@ -338,7 +337,7 @@ fn store_nodes(facts: &J) -> Result<(Vec<J>, J, String), String> {
         }
     }
     let (groups, arrays) = added.iter().fold((0u64, 0u64), |(g, a), n: &J| if n.get("array").is_some() { (g, a + 1) } else { (g + 1, a) });
-    let siblings = arr(&facts["siblings"]);
+    let siblings = arr(&description["siblings"]);
     if let Some(root) = named_nodes.first_mut().filter(|_| !siblings.is_empty()) {
         root["own"]["siblings"] = json!(siblings);
     }
@@ -563,8 +562,8 @@ fn build(ir: &Ir, nodes: &[J], mut summary: J, url: &str, source: &str, copied: 
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, facts: &J, url: &str, _copied: &super::Copied) -> Result<Out, String> {
-    project_store(ir, facts, url)
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied) -> Result<Out, String> {
+    project_store(ir, description, url)
 }
 
 #[cfg(test)]

@@ -661,13 +661,10 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Npy>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        crate::project::npy::project(ir, facts, url, copied)
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::npy::project(ir, description, url, copied)
     }
-    fn described(&self) -> bool {
-        true
-    }
-    fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
-        crate::project::npy::reads(ir, facts)
+    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+        crate::project::npy::reads(ir, description)
     }
 }

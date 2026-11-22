@@ -26,9 +26,9 @@ fn color(v: &J) -> String {
 }
 
 /// Whether the samples decode to RGB: PhotometricInterpretation 2, or 6 with JPEG tiles.
-fn rgb(facts: &J) -> bool {
-    let (interpretation, compression) = (n(&facts["interpretation"]), n(&facts["compression"]));
-    n(&facts["spp"]) > 1 && (interpretation == 2 || (interpretation == 6 && compression == 7))
+fn rgb(planned: &J) -> bool {
+    let (interpretation, compression) = (n(&planned["interpretation"]), n(&planned["compression"]));
+    n(&planned["spp"]) > 1 && (interpretation == 2 || (interpretation == 6 && compression == 7))
 }
 
 /// The `omero` member (spec/zarrify/tiff.md §4.4
@@ -36,22 +36,22 @@ fn rgb(facts: &J) -> bool {
 /// at most 64 channels and each has a window: the samples, `R`, `G`, `B` when they decode to
 /// RGB; else one per channel, named and colored by the OME-XML's Channels. Channel `c`'s window
 /// is `sampled[c]`, sampled from the data, else the type's whole range (an integer type's).
-fn omero(facts: &J, size_c: u64, data_type: &str, sampled: &[Option<J>]) -> Option<J> {
+fn omero(planned: &J, size_c: u64, data_type: &str, sampled: &[Option<J>]) -> Option<J> {
     if size_c > MAX_OMERO {
         return None;
     }
     // packed samples' range is their bits', not their type's
-    let typed = if tiled::packed(facts) { Some(full_window(json!(0), json!((1u64 << n(&facts["bits"])) - 1))) } else { type_window(data_type) };
+    let typed = if tiled::packed(planned) { Some(full_window(json!(0), json!((1u64 << n(&planned["bits"])) - 1))) } else { type_window(data_type) };
     let windows: Vec<Option<J>> = (0..size_c as usize).map(|c| sampled.get(c).cloned().flatten().or_else(|| typed.clone())).collect();
     if windows.iter().any(Option::is_none) {
         return None;
     }
-    let ome = arr(&facts["ome"]["channels"]);
+    let ome = arr(&planned["ome"]["channels"]);
     let name = |c: u64| ome.get(c as usize).and_then(|o| o["name"].as_str()).filter(|s| !s.is_empty() && s.len() <= MAX_NAME);
-    let spp = n(&facts["spp"]);
+    let spp = n(&planned["spp"]);
     if spp > 1 {
         let base = name(0).map(|s| format!("{s} ")).unwrap_or_default();
-        return Some(omero_json(sample_channels(&base, spp, rgb(facts), &windows)));
+        return Some(omero_json(sample_channels(&base, spp, rgb(planned), &windows)));
     }
     let channels = (0..size_c).map(|c| {
         let label = name(c).map(str::to_string).unwrap_or_else(|| format!("C{c}"));
@@ -61,13 +61,13 @@ fn omero(facts: &J, size_c: u64, data_type: &str, sampled: &[Option<J>]) -> Opti
 }
 
 /// The axes, and a level's shape and chunk shape along them.
-fn level_shape<'a>(facts: &'a J, lv: &J) -> (Vec<&'a str>, Vec<u64>, Vec<u64>) {
-    let spp = n(&facts["spp"]);
-    let sizes = &facts["sizes"];
+fn level_shape<'a>(planned: &'a J, lv: &J) -> (Vec<&'a str>, Vec<u64>, Vec<u64>) {
+    let spp = n(&planned["spp"]);
+    let sizes = &planned["sizes"];
     let (w, h, tw, th) = (n(&lv["w"]), n(&lv["h"]), n(&lv["tw"]), tiled::chunk_rows(lv));
-    let axes = strs(&facts["axes"]);
+    let axes = strs(&planned["axes"]);
     let shape = axes.iter().map(|a| along(a, [n(&sizes["t"]), n(&sizes["c"]), n(&sizes["z"]), h, w])).collect();
-    let chunk = axes.iter().map(|a| along(a, [1, if tiled::contig(facts) { spp } else { 1 }, 1, th, tw])).collect();
+    let chunk = axes.iter().map(|a| along(a, [1, if tiled::contig(planned) { spp } else { 1 }, 1, th, tw])).collect();
     (axes, shape, chunk)
 }
 
@@ -75,37 +75,37 @@ fn level_shape<'a>(facts: &'a J, lv: &J) -> (Vec<&'a str>, Vec<u64>, Vec<u64>) {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>): one per
 /// channel of the coarsest level, when the image has at most 64 channels, its samples do not
 /// decode to RGB, and the core decodes its compression; else none.
-fn samples(facts: &J) -> Vec<window::Sample> {
-    let size_c = n(&facts["sizes"]["c"]);
-    let levels = arr(&facts["levels"]);
+fn samples(planned: &J) -> Vec<window::Sample> {
+    let size_c = n(&planned["sizes"]["c"]);
+    let levels = arr(&planned["levels"]);
     let Some(last) = levels.len().checked_sub(1) else { return Vec::new() };
-    if size_c > MAX_OMERO || rgb(facts) || tiled::packed(facts) || !window::decodable(n(&facts["compression"])) {
+    if size_c > MAX_OMERO || rgb(planned) || tiled::packed(planned) || !window::decodable(n(&planned["compression"])) {
         return Vec::new();
     }
-    let (axes, shape, chunk) = level_shape(facts, &levels[last]);
-    window::samples(&format!("{last}/c/"), &axes, &shape, &chunk, size_c, n(&facts["bits"]) / 8)
+    let (axes, shape, chunk) = level_shape(planned, &levels[last]);
+    window::samples(&format!("{last}/c/"), &axes, &shape, &chunk, size_c, n(&planned["bits"]) / 8)
 }
 
 /// The source's ranges the windows sample (`samples`): their chunks' bytes, which the run
 /// reads after the parser.
 pub fn reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
-    let facts = &plan("tiff", description)?;
-    tiled::reads(ir, facts, &samples(facts), arrays)
+    let planned = &plan("tiff", description)?;
+    tiled::reads(ir, planned, &samples(planned), arrays)
 }
 
 /// The levels' arrays and chunks (every level's, or only level `only`'s), and their shapes: a
 /// level's chunks are the tiles of each plane (t, c, z), keyed along the axes of more than one.
-fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Vec<Vec<u64>>), String> {
-    let sizes = &facts["sizes"];
+fn arrays(ir: &Ir, planned: &J, url: &str, only: Option<usize>) -> Result<(Out, Vec<Vec<u64>>), String> {
+    let sizes = &planned["sizes"];
     let (size_t, size_c, size_z) = (n(&sizes["t"]), n(&sizes["c"]), n(&sizes["z"]));
-    let plane_c = n(&facts["plane_c"]);
+    let plane_c = n(&planned["plane_c"]);
     let shape = |lv: &J| {
-        let (_, shape, chunk) = level_shape(facts, lv);
+        let (_, shape, chunk) = level_shape(planned, lv);
         (shape, chunk)
     };
     // a short last strip's zero padding: a prefix of the output's zero data source
-    let mut zeros = tiled::zero_source(facts);
-    tiled::arrays(ir, facts, url, only, shape, |refs, li, lv| {
+    let mut zeros = tiled::zero_source(planned);
+    tiled::arrays(ir, planned, url, only, shape, |refs, li, lv| {
         let (w, h, tw, th) = (n(&lv["w"]), n(&lv["h"]), n(&lv["tw"]), n(&lv["th"]));
         // a level in strips has one chunk a row, of one strip or, uncompressed, of the strips it
         // joins; its short last chunk is padded. Each strip is one chunk here, whatever a shard
@@ -116,7 +116,7 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
         let join = n(&lv["join"]);
         if n(&lv["shard"]) > 1 {
             // compressed strips are the inner chunks of shards, down the rows of a plane
-            let along: Vec<u64> = strs(&facts["axes"]).iter().map(|a| if *a == "y" { n(&lv["shard"]) } else { 1 }).collect();
+            let along: Vec<u64> = strs(&planned["axes"]).iter().map(|a| if *a == "y" { n(&lv["shard"]) } else { 1 }).collect();
             refs.out.shard(&li.to_string(), &along);
         }
         let padding = tiled::Padding::of(refs, lv, &mut zeros)?;
@@ -136,7 +136,7 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
                             coords.push(t);
                         }
                         if size_c > 1 {
-                            coords.push(tiled::channel(facts, s, c));
+                            coords.push(tiled::channel(planned, s, c));
                         }
                         if size_z > 1 {
                             coords.push(z);
@@ -174,9 +174,9 @@ fn virtual_ranges(ir: &Ir, mut out: Out) -> Out {
 
 /// The virtual offsets of the ranges the windows of a store run's image sample (`samples`).
 pub fn set_reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
-    let facts = &plan("tiff", description)?;
-    tiled::reads(ir, facts, &samples(facts), |ir, facts, url, only| {
-        let (out, shapes) = arrays(ir, facts, url, only)?;
+    let planned = &plan("tiff", description)?;
+    tiled::reads(ir, planned, &samples(planned), |ir, planned, url, only| {
+        let (out, shapes) = arrays(ir, planned, url, only)?;
         Ok((virtual_ranges(ir, out), shapes))
     })
 }
@@ -186,20 +186,20 @@ pub fn set_reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
 /// its references ranges of the files that hold the planes, `copied` the bytes its windows sample,
 /// which the store run read (by virtual offset and length).
 pub fn project_set(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    let facts = &plan("tiff", description)?;
-    let axes = strs(&facts["axes"]);
-    let data_type = tiled::data_type(facts)?;
-    let (mut out, shapes) = arrays(ir, facts, url, None)?;
-    let sample = samples(facts);
-    let (last, _) = if sample.is_empty() { (Out::new(url), Vec::new()) } else { arrays(ir, facts, url, Some(arr(&facts["levels"]).len() - 1))? };
-    let sampled = tiled::sampled(&virtual_ranges(ir, last), facts, &sample, |lv| level_shape(facts, lv).2, &data_type, copied);
-    let mut ome = tiled::ome(facts, &axes, Some(&facts["name"]))?;
-    if let Some(omero) = omero(facts, n(&facts["sizes"]["c"]), &data_type, &sampled) {
+    let planned = &plan("tiff", description)?;
+    let axes = strs(&planned["axes"]);
+    let data_type = tiled::data_type(planned)?;
+    let (mut out, shapes) = arrays(ir, planned, url, None)?;
+    let sample = samples(planned);
+    let (last, _) = if sample.is_empty() { (Out::new(url), Vec::new()) } else { arrays(ir, planned, url, Some(arr(&planned["levels"]).len() - 1))? };
+    let sampled = tiled::sampled(&virtual_ranges(ir, last), planned, &sample, |lv| level_shape(planned, lv).2, &data_type, copied);
+    let mut ome = tiled::ome(planned, &axes, Some(&planned["name"]))?;
+    if let Some(omero) = omero(planned, n(&planned["sizes"]["c"]), &data_type, &sampled) {
         ome["omero"] = omero;
     }
-    let mut own = tiled::own(facts);
-    own["files"] = facts["files"].clone();
-    let named = super::vsi::object_url(url, facts["named_key"].as_str().unwrap_or(""));
+    let mut own = tiled::own(planned);
+    own["files"] = planned["files"].clone();
+    let named = super::vsi::object_url(url, planned["named_key"].as_str().unwrap_or(""));
     out.json("zarr.json", &root_json(ome, "tiff", &named, Some(own)));
     out.summary = json!({"axes": axes, "levels": shapes, "references": out.refs.len()});
     Ok(out)
@@ -208,16 +208,16 @@ pub fn project_set(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Resu
 /// The TIFF image: one array per level, its chunks the tiles of each plane. `copied` holds the
 /// bytes of the chunks the windows sample (`reads`).
 pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    let facts = &plan("tiff", description)?;
-    let axes = strs(&facts["axes"]);
-    let data_type = tiled::data_type(facts)?;
-    let (mut out, shapes) = arrays(ir, facts, url, None)?;
-    let sampled = tiled::sampled(&out, facts, &samples(facts), |lv| level_shape(facts, lv).2, &data_type, copied);
-    let mut ome = tiled::ome(facts, &axes, Some(&facts["name"]))?;
-    if let Some(omero) = omero(facts, n(&facts["sizes"]["c"]), &data_type, &sampled) {
+    let planned = &plan("tiff", description)?;
+    let axes = strs(&planned["axes"]);
+    let data_type = tiled::data_type(planned)?;
+    let (mut out, shapes) = arrays(ir, planned, url, None)?;
+    let sampled = tiled::sampled(&out, planned, &samples(planned), |lv| level_shape(planned, lv).2, &data_type, copied);
+    let mut ome = tiled::ome(planned, &axes, Some(&planned["name"]))?;
+    if let Some(omero) = omero(planned, n(&planned["sizes"]["c"]), &data_type, &sampled) {
         ome["omero"] = omero;
     }
-    out.json("zarr.json", &root_json(ome, "tiff", url, Some(tiled::own(facts))));
+    out.json("zarr.json", &root_json(ome, "tiff", url, Some(tiled::own(planned))));
     out.summary = json!({"axes": axes, "levels": shapes, "references": out.refs.len()});
     Ok(out)
 }
@@ -233,9 +233,9 @@ mod tests {
 
     #[test]
     fn omero_lists_at_most_64_channels() {
-        let facts = json!({"spp": 1});
-        assert_eq!(arr(&omero(&facts, 64, "uint8", &[]).unwrap()["channels"]).len(), 64);
-        assert_eq!(omero(&facts, 65, "uint8", &[]), None);
+        let planned = json!({"spp": 1});
+        assert_eq!(arr(&omero(&planned, 64, "uint8", &[]).unwrap()["channels"]).len(), 64);
+        assert_eq!(omero(&planned, 65, "uint8", &[]), None);
     }
 
     #[test]

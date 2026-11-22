@@ -102,7 +102,7 @@ class Parsed:
         self._netcdf3: _core.Netcdf3 | None = getattr(run, "netcdf3", None)  # a netCDF3 file's IR and description
         self._envi: _core.Envi | None = getattr(run, "envi", None)  # an ENVI raster's description
         self._zarr: _core.Zarr | None = getattr(run, "zarr", None)  # a Zarr store's IR and description
-        self._description: dict[str, Any] | None = run.description
+        self._description: dict[str, Any] = run.description
         # the profile the run decided, and the version of its convention, as an output's root
         # declares them
         self.profile: str = parse.fmt
@@ -125,18 +125,16 @@ class Parsed:
         return self._ir
 
     @property
-    def description(self) -> dict[str, Any] | None:
+    def description(self) -> dict[str, Any]:
         """The profile's description of the input: what its parser found of the source, as the
         profile's document specifies it (the design of d-v-b/refkv#278, "The description"), a
-        copy the caller may change. None for a profile that has none yet, and for a store of a
-        format whose parser returns none yet (HDF5 files beside each other).
+        copy the caller may change.
 
-        Each profile that returns one specifies it in its own document, in the section of Part 2
-        titled "The description" (`spec/zarrify/<profile>.md`, with its JSON Schema beside it
-        where it has one, `spec/zarrify/<profile>/description.json`);
-        python/tests/test_description_documented.py checks that every such profile has that
-        section."""
-        return None if self._description is None else json.loads(json.dumps(self._description))
+        Each profile specifies it in its own document, in the section of Part 2 titled "The
+        description" (`spec/zarrify/<profile>.md`, with its JSON Schema beside it where it has one,
+        `spec/zarrify/<profile>/description.json`); python/tests/test_description_documented.py
+        checks that every profile has that section."""
+        return json.loads(json.dumps(self._description))
 
     @property
     def plain_file(self) -> bool:

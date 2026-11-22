@@ -39,7 +39,7 @@ pub fn is_chunk(rest: &str, grid: &[u64], sep: &str) -> bool {
     parts.len() == grid.len() && parts.iter().zip(grid).all(|(s, &n)| canonical_index(s, n))
 }
 
-/// The hierarchy of a Zarr v2 store, or, when the facts say the root declares OME-NGFF 0.4
+/// The hierarchy of a Zarr v2 store, or, when the planned say the root declares OME-NGFF 0.4
 /// (`profile` "ome-zarr"), of an OME-Zarr one (spec/zarrify/ome-zarr.md
 /// §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#5-group-attributes>–§8
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#8-source-metadata>): its
@@ -66,12 +66,12 @@ pub fn hierarchy(ir: &Ir, description: &J) -> Result<(Vec<J>, Out), String> {
 /// (its path, kind and source metadata) added to `nodes`.
 fn build(ir: &Ir, description: &J, url: &str, declared: bool, nodes_out: &mut Vec<J>) -> Result<Out, String> {
     // the convention's decisions, of the parser's description (`zarr2_nodes.rs`)
-    let facts = &super::zarr2_nodes::hierarchy(ir, description)?;
-    let profile = facts["profile"].as_str().unwrap_or("zarr2");
+    let planned = &super::zarr2_nodes::hierarchy(ir, description)?;
+    let profile = planned["profile"].as_str().unwrap_or("zarr2");
     let mut out = Out::new(url);
-    let xml: HashSet<&str> = facts["xml"].as_array().into_iter().flatten().filter_map(|x| x.as_str()).collect();
-    let nodes = facts["nodes"].as_array().cloned().unwrap_or_default();
-    let documents: HashSet<&str> = facts["documents"].as_array().into_iter().flatten().filter_map(|x| x.as_str()).collect();
+    let xml: HashSet<&str> = planned["xml"].as_array().into_iter().flatten().filter_map(|x| x.as_str()).collect();
+    let nodes = planned["nodes"].as_array().cloned().unwrap_or_default();
+    let documents: HashSet<&str> = planned["documents"].as_array().into_iter().flatten().filter_map(|x| x.as_str()).collect();
     let mut arrays: HashMap<String, (Vec<u64>, String, bool)> = HashMap::new();
     let (mut groups, mut narrays) = (0u64, 0u64);
     for n in &nodes {
@@ -166,17 +166,17 @@ fn build(ir: &Ir, description: &J, url: &str, declared: bool, nodes_out: &mut Ve
     out.summary = json!({"groups": groups, "arrays": narrays, "chunks": chunks, "emptyChunks": empty_chunks,
                          "objects": ir.objects, "otherObjects": others});
     for k in ["notPresented", "notOme"] {
-        if !facts[k].is_null() {
-            out.summary[k] = facts[k].clone();
+        if !planned[k].is_null() {
+            out.summary[k] = planned[k].clone();
         }
     }
-    for (k, v) in facts["ome"].as_object().into_iter().flatten() {
+    for (k, v) in planned["ome"].as_object().into_iter().flatten() {
         out.summary[k] = v.clone();
     }
     Ok(out)
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, facts: &J, url: &str, _copied: &super::Copied) -> Result<Out, String> {
-    project(ir, facts, url)
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied) -> Result<Out, String> {
+    project(ir, description, url)
 }

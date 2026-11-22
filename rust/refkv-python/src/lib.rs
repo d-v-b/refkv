@@ -481,7 +481,7 @@ fn step_py(r: Result<Step, String>) -> PyResult<Option<Vec<(u64, u64)>>> {
 }
 
 /// The ND2 parser: `step()` gives the next batch of ranges (None when done),
-/// `feed(offset, bytes)` gives one range's bytes, `finish()` the IR and the facts (JSON).
+/// `feed(offset, bytes)` gives one range's bytes, `finish()` the IR and the description (JSON).
 #[pyclass(name = "Nd2Parser", module = "refkv._core")]
 pub struct PyNd2 {
     p: Option<Nd2>,
@@ -514,15 +514,15 @@ impl PyNd2 {
             .p
             .take()
             .ok_or_else(|| PyValueError::new_err("finished"))?;
-        let (ir, facts) = py.detach(|| p.finish()).map_err(Rejected::new_err)?;
-        Ok((PyIr::new(ir), facts.to_string()))
+        let (ir, description) = py.detach(|| p.finish()).map_err(Rejected::new_err)?;
+        Ok((PyIr::new(ir), description.to_string()))
     }
     fn memory(&self) -> usize {
         self.p.as_ref().map(|p| p.ir.memory()).unwrap_or(0)
     }
 }
 
-/// The TIFF parser: as `Nd2Parser` (`finish()` gives the IR and the facts as JSON).
+/// The TIFF parser: as `Nd2Parser` (`finish()` gives the IR and the description as JSON).
 #[pyclass(name = "TiffParser", module = "refkv._core")]
 pub struct PyTiff {
     p: Option<Tiff>,
@@ -544,8 +544,8 @@ impl PyTiff {
     }
     fn finish(&mut self, py: Python<'_>) -> PyResult<(PyIr, String)> {
         let p = self.p.take().ok_or_else(|| PyValueError::new_err("finished"))?;
-        let (ir, facts) = py.detach(|| p.finish()).map_err(Rejected::new_err)?;
-        Ok((PyIr::new(ir), facts.to_string()))
+        let (ir, description) = py.detach(|| p.finish()).map_err(Rejected::new_err)?;
+        Ok((PyIr::new(ir), description.to_string()))
     }
 }
 
@@ -578,8 +578,8 @@ impl PyCzi {
     }
     fn finish(&mut self, py: Python<'_>) -> PyResult<(PyIr, String)> {
         let p = self.p.take().ok_or_else(|| PyValueError::new_err("finished"))?;
-        let (ir, facts) = py.detach(|| p.finish()).map_err(Rejected::new_err)?;
-        Ok((PyIr::new(ir), facts.to_string()))
+        let (ir, description) = py.detach(|| p.finish()).map_err(Rejected::new_err)?;
+        Ok((PyIr::new(ir), description.to_string()))
     }
 }
 
@@ -645,7 +645,7 @@ fn czi_bands(h: u64, h2: u64, r: u64, w: u64, q: u64, uncompressed: bool) -> (St
 /// span a plain range request, several a multi-range one) and `complete(k,
 /// parts, seconds)` (each span's bytes, or None for a multi-range request the
 /// server did not answer with its ranges), until `poll()` gives None; then
-/// `finish()` gives the IR, the facts (JSON) and the planner's counts (JSON).
+/// `finish()` gives the IR, the description (JSON) and the planner's counts (JSON).
 #[pyclass(name = "Run", module = "refkv._core")]
 pub struct PyRun {
     r: Option<refkv_ir::run::Run>,
@@ -733,20 +733,17 @@ impl PyRun {
         let format = r.format;
         let (o, ir) = py
             .detach(|| -> Result<_, refkv_ir::seal::Refusal> {
-                let (ir, mut facts, stats, copied) = r.finish_copied()?;
-                if let Some(l) = layouts {
-                    facts["layouts"] = serde_json::json!(l);
-                }
-                facts["checksums"] = checksums.into();
-                Ok((refkv_ir::run::output(format, &ir, &facts, stats, url, mirror, &copied, written)?, ir))
+                let f = r.finish_copied()?;
+                let options = refkv_ir::run::Options { layouts: layouts.as_deref(), checksums, written };
+                Ok((refkv_ir::run::output(format, &f.ir, &f.description, &f.counts, f.stats, url, mirror, &f.copied, &options)?, f.ir))
             })
             .map_err(refused)?;
         Ok((out_py(py, &o)?, PyIr::new(ir)))
     }
     fn finish(&mut self, py: Python<'_>) -> PyResult<(PyIr, String, String)> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
-        let (ir, facts, stats) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
-        Ok((PyIr::new(ir), facts.to_string(), stats.to_string()))
+        let (ir, description, stats) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
+        Ok((PyIr::new(ir), description.to_string(), stats.to_string()))
     }
     /// Leaves the built-in projection's reads out of the run, before its first poll
     /// (`Run::defer_projection`): `poll()` gives None once the IR is whole, `ir()` gives it, and
@@ -760,10 +757,9 @@ impl PyRun {
     fn begin_projection(&mut self) -> PyResult<()> {
         self.get()?.begin_projection().map_err(Rejected::new_err)
     }
-    /// The profile's description of the source (JSON), of a run that is done; None for a
-    /// profile whose parser returns none yet (`Run::description`).
-    fn description(&mut self) -> PyResult<Option<String>> {
-        Ok(self.get()?.description().map_err(PyValueError::new_err)?.map(|d| d.to_string()))
+    /// The profile's description of the source (JSON), of a run that is done (`Run::description`).
+    fn description(&mut self) -> PyResult<String> {
+        Ok(self.get()?.description().map_err(PyValueError::new_err)?.to_string())
     }
     /// The IR of a run that is done, shared with the run, which is kept.
     fn ir(&mut self) -> PyResult<PyIr> {
@@ -787,8 +783,8 @@ impl PyRun {
         if r.format.name() != "hdf5" {
             return Err(PyValueError::new_err(format!("a run of {}, not of an HDF5 file", r.format.name())));
         }
-        let (ir, facts) = r.shared().map_err(PyValueError::new_err)?;
-        Ok(PyHdf5 { ir, facts, store: false })
+        let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
+        Ok(PyHdf5 { ir, description, store: false })
     }
     /// The TIFF, QPTIFF, NDPI or IMS file a run that is done parsed (`OmeImage`), its IR and
     /// description shared with the run; ValueError for a run of another format.
@@ -824,12 +820,12 @@ impl PyRun {
         let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
         Ok(PyZarr { ir, description, version: 3 })
     }
-    /// What makes the mirror of a run that is done (`Mirror`): its IR and facts, shared with the
+    /// What makes the mirror of a run that is done (`Mirror`): its IR and description, shared with the
     /// run, which is kept and may be used while the mirror is made.
     fn mirror(&mut self) -> PyResult<PyMirror> {
         let r = self.get()?;
-        let (ir, facts) = r.shared().map_err(PyValueError::new_err)?;
-        Ok(PyMirror { of: MirrorOf::File(r.format), ir, facts })
+        let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
+        Ok(PyMirror { of: MirrorOf::File(r.format), ir, description })
     }
     /// `output`, of a run that is kept (`Run::project`): the output alone, in `out_py`'s form.
     #[pyo3(signature = (url, mirror=true, layouts=None, checksums=false, written=true))]
@@ -847,28 +843,28 @@ enum MirrorOf {
     Store(refkv_ir::store::StoreFormat),
 }
 
-/// What makes the IR mirror of an input a run parsed: its IR and its facts, shared with the run
+/// What makes the IR mirror of an input a run parsed: its IR and its description, shared with the run
 /// and never changed, so `entries()` may be called from any thread, as often as the host likes,
 /// while the run is used for something else (its output) or after it is gone.
 #[pyclass(name = "Mirror", module = "refkv._core", frozen)]
 pub struct PyMirror {
     of: MirrorOf,
     ir: Arc<Ir>,
-    facts: Arc<serde_json::Value>,
+    description: Arc<serde_json::Value>,
 }
 
 #[pymethods]
 impl PyMirror {
     /// The mirror under `refkv_source` (`out_py`'s form, the url empty), with what the input's
-    /// convention records beside it from the run's facts, the keys and directories a listing
+    /// convention records beside it from the run's description, the keys and directories a listing
     /// ignored (`run::mirrored`, `store::mirrored`: what the built-in output writes there, but
     /// for a store's objects); or Rejected.
     fn entries<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let o = py.detach(|| {
             let mut o = refkv_ir::out::Out::new("");
             match self.of {
-                MirrorOf::File(f) => refkv_ir::run::mirrored(f, &self.ir, &self.facts, &mut o),
-                MirrorOf::Store(f) => refkv_ir::store::mirrored(f, &self.ir, &self.facts, &mut o),
+                MirrorOf::File(f) => refkv_ir::run::mirrored(f, &self.ir, &self.description, &mut o),
+                MirrorOf::Store(f) => refkv_ir::store::mirrored(f, &self.ir, &self.description, &mut o),
             }.map(|_| o)
         }).map_err(Rejected::new_err)?;
         out_py(py, &o)
@@ -911,7 +907,7 @@ impl PyZarr {
 #[pyclass(name = "Hdf5", module = "refkv._core", frozen)]
 pub struct PyHdf5 {
     ir: Arc<Ir>,
-    facts: Arc<serde_json::Value>,
+    description: Arc<serde_json::Value>,
     store: bool,
 }
 
@@ -923,14 +919,14 @@ impl PyHdf5 {
     #[allow(clippy::type_complexity)]
     fn hierarchy<'py>(&self, py: Python<'py>) -> PyResult<(String, Bound<'py, PyAny>, Vec<(String, u64, u64, u64)>)> {
         let (nodes, out, copies) = py
-            .detach(|| refkv_ir::project::hdf5::hierarchy(&self.ir, &self.facts, self.store))
+            .detach(|| refkv_ir::project::hdf5::hierarchy(&self.ir, &self.description, self.store))
             .map_err(Rejected::new_err)?;
         Ok((serde_json::Value::Array(nodes).to_string(), out_py(py, &out)?, copies))
     }
     /// The key of the file a store run was named by, whose object URL the hierarchy's root names
     /// as its source; None for a file run.
     fn named_key(&self) -> Option<String> {
-        self.facts["named_key"].as_str().filter(|_| self.store).map(str::to_string)
+        self.description["named_key"].as_str().filter(|_| self.store).map(str::to_string)
     }
 }
 
@@ -958,7 +954,7 @@ impl PyNetcdf3 {
 }
 
 /// A TIFF, QPTIFF, NDPI or IMS input a run parsed (`Run.ome_image()`, `StoreRun.ome_image()`): its
-/// IR and its description (an IMS input's facts), shared with the run and never changed, so that a
+/// IR and its description , shared with the run and never changed, so that a
 /// layout asks for the OME image refkv's convention writes from any thread, while the run is used
 /// for something else or after it is gone.
 #[pyclass(name = "OmeImage", module = "refkv._core", frozen)]
@@ -1012,7 +1008,7 @@ impl PyOmeImage {
 #[pyclass(name = "StoreRun", module = "refkv._core")]
 pub struct PyStoreRun {
     r: Option<refkv_ir::store::StoreRun>,
-    /// the run finished without an output (`parse`): its format, IR, facts, and the run's counts
+    /// the run finished without an output (`parse`): its format, IR, description, and the run's counts
     /// with what it read for the projection, kept
     parsed: Option<(refkv_ir::store::StoreFormat, Arc<Ir>, Arc<serde_json::Value>, (serde_json::Value, refkv_ir::store::Read))>,
 }
@@ -1085,84 +1081,83 @@ impl PyStoreRun {
         let format = r.format;
         let (o, ir) = py
             .detach(|| -> Result<_, refkv_ir::seal::Refusal> {
-                let (ir, facts, stats, read) = r.finish()?;
-                Ok((refkv_ir::store::store_output(format, &ir, &facts, stats, &read, url, mirror, checksums)?, ir))
+                let (ir, description, stats, read) = r.finish()?;
+                Ok((refkv_ir::store::store_output(format, &ir, &description, stats, &read, url, mirror, checksums)?, ir))
             })
             .map_err(refused)?;
         Ok((out_py(py, &o)?, PyIr::new(ir)))
     }
     fn finish(&mut self, py: Python<'_>) -> PyResult<(PyIr, String, String)> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
-        let (ir, facts, stats, _) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
-        Ok((PyIr::new(ir), facts.to_string(), stats.to_string()))
+        let (ir, description, stats, _) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
+        Ok((PyIr::new(ir), description.to_string(), stats.to_string()))
     }
-    /// Finishes without an output: the IR, which the run keeps with its facts and counts, so
+    /// Finishes without an output: the IR, which the run keeps with its description and counts, so
     /// that `project(...)` gives the built-in output of it, as often as the host likes.
     fn parse(&mut self, py: Python<'_>) -> PyResult<PyIr> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
         let format = r.format;
-        let (ir, facts, stats, read) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
+        let (ir, description, stats, read) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
         let ir = Arc::new(ir);
-        self.parsed = Some((format, Arc::clone(&ir), Arc::new(facts), (stats, read)));
+        self.parsed = Some((format, Arc::clone(&ir), Arc::new(description), (stats, read)));
         Ok(PyIr::of(ir))
     }
     /// The HDF5 files a run `parse` finished read (`Hdf5`), its IR and descriptions shared with the
     /// run; ValueError for a run of another format.
     fn hdf5(&mut self) -> PyResult<PyHdf5> {
-        let (format, ir, facts, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        let (format, ir, description, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
         if *format != refkv_ir::store::StoreFormat::Hdf5 {
             return Err(PyValueError::new_err("a run of a store of another format, not of HDF5 files"));
         }
-        Ok(PyHdf5 { ir: Arc::clone(ir), facts: Arc::clone(facts), store: true })
+        Ok(PyHdf5 { ir: Arc::clone(ir), description: Arc::clone(description), store: true })
     }
     /// The image across files a TIFF store run `parse` finished read (`OmeImage`), its IR and
     /// description shared with the run, with the bytes its windows sample, which the run read;
     /// ValueError for a run of another format.
     fn ome_image(&mut self) -> PyResult<PyOmeImage> {
-        let (format, ir, facts, (_, read)) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        let (format, ir, description, (_, read)) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
         if *format != refkv_ir::store::StoreFormat::Tiff {
             return Err(PyValueError::new_err("a run of a store of another format, not of TIFF files"));
         }
-        Ok(PyOmeImage { ir: Arc::clone(ir), description: Arc::clone(facts), profile: "tiff", held: Arc::new(read.copied.clone()) })
+        Ok(PyOmeImage { ir: Arc::clone(ir), description: Arc::clone(description), profile: "tiff", held: Arc::new(read.copied.clone()) })
     }
     /// The Zarr v2 or v3 store a run `parse` finished read (`Zarr`), its IR and description shared
     /// with the run; ValueError for a run of another format.
     fn zarr(&mut self) -> PyResult<PyZarr> {
-        let (format, ir, facts, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        let (format, ir, description, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
         let version = match format {
             refkv_ir::store::StoreFormat::Zarr2 => 2,
             refkv_ir::store::StoreFormat::Zarr3 => 3,
             _ => return Err(PyValueError::new_err(format!("a run of a store of {}, not of Zarr", format.name()))),
         };
-        Ok(PyZarr { ir: Arc::clone(ir), description: Arc::clone(facts), version })
+        Ok(PyZarr { ir: Arc::clone(ir), description: Arc::clone(description), version })
     }
-    /// The profile's description of the input (JSON), of a run `parse` finished; None for a store
-    /// format whose run returns none yet (`StoreFormat::description`).
-    fn description(&mut self) -> PyResult<Option<String>> {
-        let (format, _, facts, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
-        Ok(format.description(facts).map(|d| d.to_string()))
+    /// The profile's description of the input (JSON), of a run `parse` finished.
+    fn description(&mut self) -> PyResult<String> {
+        let (_, _, description, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        Ok(description.to_string())
     }
     /// The ENVI raster a run `parse` finished read (`Envi`), its description shared with the run;
     /// ValueError for a run of another format.
     fn envi(&mut self) -> PyResult<PyEnvi> {
-        let (format, _, facts, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        let (format, _, description, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
         if *format != refkv_ir::store::StoreFormat::Envi {
             return Err(PyValueError::new_err("a run of a store of another format, not of an ENVI raster"));
         }
-        Ok(PyEnvi { description: Arc::clone(facts) })
+        Ok(PyEnvi { description: Arc::clone(description) })
     }
-    /// What makes the mirror of a run `parse` finished (`Mirror`): its IR and facts, shared
+    /// What makes the mirror of a run `parse` finished (`Mirror`): its IR and description, shared
     /// with the run.
     fn mirror(&mut self) -> PyResult<PyMirror> {
-        let (format, ir, facts, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
-        Ok(PyMirror { of: MirrorOf::Store(*format), ir: Arc::clone(ir), facts: Arc::clone(facts) })
+        let (format, ir, description, _) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        Ok(PyMirror { of: MirrorOf::Store(*format), ir: Arc::clone(ir), description: Arc::clone(description) })
     }
     /// `output`, of a run `parse` finished: the output alone, in `out_py`'s form.
     #[pyo3(signature = (url, mirror=true, checksums=false))]
     fn project<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, checksums: bool) -> PyResult<Bound<'py, PyAny>> {
-        let (format, ir, facts, (stats, read)) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
+        let (format, ir, description, (stats, read)) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
         let o = py
-            .detach(|| refkv_ir::store::store_output(*format, ir, facts, stats.clone(), read, url, mirror, checksums))
+            .detach(|| refkv_ir::store::store_output(*format, ir, description, stats.clone(), read, url, mirror, checksums))
             .map_err(refused)?;
         out_py(py, &o)
     }
@@ -1206,16 +1201,6 @@ fn out_py<'py>(py: Python<'py>, o: &refkv_ir::out::Out) -> PyResult<Bound<'py, P
     let data: Vec<Bound<'py, PyBytes>> = o.data.iter().map(|d| PyBytes::new(py, d)).collect();
     let t = (o.url.as_str(), entries, refs, data, o.lazy.clone(), refkv_ir::out::to_text(&o.summary));
     Ok(t.into_pyobject(py)?.into_any())
-}
-
-/// The image projection of an IR (`format` a name of `Format::from_name`; facts as JSON) as
-/// Python objects (`out_py`), or Rejected.
-#[pyfunction]
-fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str) -> PyResult<Bound<'py, PyAny>> {
-    let f = refkv_ir::run::Format::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no format {format:?}")))?;
-    let facts: serde_json::Value = serde_json::from_str(facts).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let o = py.detach(|| refkv_ir::project::project(f, &ir.ir, &facts, url, &Default::default())).map_err(Rejected::new_err)?;
-    out_py(py, &o)
 }
 
 /// The mirror of an IR under `profile`'s convention (a name of spec/zarrify/profiles/): its entries and
@@ -1531,7 +1516,7 @@ fn _set_chunk_frames(n: Option<usize>) {
 
 // Safe without the GIL (`gil_used = false`), so a free-threaded Python keeps it disabled on
 // import. The process-wide settings above are atomics, which each run reads once, into its
-// facts. A parser or run (`Nd2Parser`, `Run`, ...) takes `&mut self` and is driven by one
+// description. A parser or run (`Nd2Parser`, `Run`, ...) takes `&mut self` and is driven by one
 // thread at a time: a second thread's call while one is under way raises RuntimeError
 // ("Already borrowed"), on any build, since a call detaches while the core works.
 #[pymodule(gil_used = false)]
@@ -1557,7 +1542,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_set_copy_threshold, m)?)?;
     m.add_function(wrap_pyfunction!(_set_chunk_frames, m)?)?;
     m.add_function(wrap_pyfunction!(_set_shard_frames, m)?)?;
-    m.add_function(wrap_pyfunction!(project, m)?)?;
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
     m.add_class::<PyMirror>()?;
     m.add_function(wrap_pyfunction!(grid_chunks, m)?)?;

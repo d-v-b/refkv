@@ -865,18 +865,13 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Lif>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        crate::project::lif::project(ir, facts, url)
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::lif::project(ir, description, url)
     }
     /// The projection reads nothing; refkv's plan is made here, so that a run rejects an input the
     /// plan rejects before it is done (`plan::plan`).
-    fn reads(&self, _ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
-        plan::plan(facts).map(|_| Vec::new())
-    }
-    /// The parser returns a description of the file (spec/zarrify/lif.md §9
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#9-the-description>).
-    fn described(&self) -> bool {
-        true
+    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+        plan::plan(description).map(|_| Vec::new())
     }
 }
 

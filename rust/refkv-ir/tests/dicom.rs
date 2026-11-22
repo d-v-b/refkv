@@ -61,10 +61,12 @@ fn a_long_fragment_chain_is_walked_to_its_end() {
     }
     body.extend_from_slice(&[0xFE, 0xFF, 0xDD, 0xE0, 0, 0, 0, 0]);
     let data = dicom("1.2.840.10008.1.2.4.90", &body);
-    let (ir, facts, _) = refkv_ir::run::run_bytes(refkv_ir::run::Format::Dicom, &data).unwrap();
+    let (ir, _, _) = refkv_ir::run::run_bytes(refkv_ir::run::Format::Dicom, &data).unwrap();
     check::check(&ir).unwrap();
     assert!(rebuilt(&ir, &data) == data);
-    assert!(facts["rounds"].as_u64().unwrap() > n as u64);
+    // the parser's counts, which a run takes apart from the description
+    let (_, parsed) = refkv_ir::parse_bytes::<refkv_ir::dicom::Dicom>(&data).unwrap();
+    assert!(parsed["rounds"].as_u64().unwrap() > n as u64);
 }
 
 #[test]

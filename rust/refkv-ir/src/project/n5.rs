@@ -1,7 +1,7 @@
 //! The N5 projection (spec/zarrify/n5.md §2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#2-nodes>–§6
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>) from a valid
-//! store IR: the nodes the parser classified (the facts), their documents read back from the
+//! store IR: the nodes the parser's description classifies, their documents read back from the
 //! held objects, the chunk objects and the other objects from the listing. It writes the
 //! hierarchy outside `refkv_source` (whose group is the mirror's), and the references: each
 //! chunk object at its own key, each other object at `refkv_source/objects/<k>`, whole.

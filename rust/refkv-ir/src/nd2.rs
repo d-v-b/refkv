@@ -1042,12 +1042,7 @@ impl crate::run::FileProfile for Profile {
     fn whole(&self) -> bool {
         false
     }
-    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        crate::project::nd2::project(ir, facts, url)
-    }
-    /// The parser returns its description of the file
-    /// (spec/zarrify/nd2.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#75-the-description>).
-    fn described(&self) -> bool {
-        true
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::nd2::project(ir, description, url)
     }
 }

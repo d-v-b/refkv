@@ -29,7 +29,7 @@ fn schema() -> &'static Rules {
     rules::of(PROFILE)
 }
 
-/// The facts the hierarchy is written from (`project/zarr3.rs`), of the store's description:
+/// The planned the hierarchy is written from (`project/zarr3.rs`), of the store's description:
 /// each node presented, with what it writes of it and its chunk keys, and the nodes left out and
 /// why. A root that fails rejects the store.
 pub fn hierarchy(description: &J) -> Res<J> {
@@ -67,15 +67,15 @@ pub fn hierarchy(description: &J) -> Res<J> {
             c.left_out.insert(path, reason);
         }
     }
-    let mut facts = c.facts(form);
+    let mut planned = c.planned(form);
     // the documents the IR holds, as the parser held them: a document that is not JSON among them
-    facts["documents"] = description["documents"].clone();
+    planned["documents"] = description["documents"].clone();
     for k in ["objects", "ignored", "counts"] {
         if !description[k].is_null() {
-            facts[k] = description[k].clone();
+            planned[k] = description[k].clone();
         }
     }
-    Ok(facts)
+    Ok(planned)
 }
 
 /// An array's chunk keys: its encoding (`v2`, else `default`), separator and the chunks along
@@ -334,8 +334,8 @@ impl Classified {
         is_chunk(rest, a.grid.v2, &a.grid.sep, &a.grid.counts).then(|| path.to_string())
     }
 
-    /// The facts the projection reads: each node, and the documents held.
-    fn facts(&self, form: &str) -> J {
+    /// The planned the projection reads: each node, and the documents held.
+    fn planned(&self, form: &str) -> J {
         let mut nodes = Vec::new();
         for (path, (doc, moved, array)) in &self.presented {
             let mut own = Jv::obj(vec![]);
@@ -360,11 +360,11 @@ impl Classified {
             nodes.push(json!({"path": p, "kind": "implicit"}));
         }
         let documents: Vec<String> = self.held.keys().map(|p| doc_key(p)).collect();
-        let mut facts = json!({"form": form, "profile": PROFILE, "nodes": nodes, "documents": documents});
+        let mut planned = json!({"form": form, "profile": PROFILE, "nodes": nodes, "documents": documents});
         if !self.left_out.is_empty() {
-            facts["notPresented"] = json!(self.left_out.len());
+            planned["notPresented"] = json!(self.left_out.len());
         }
-        facts
+        planned
     }
 }
 

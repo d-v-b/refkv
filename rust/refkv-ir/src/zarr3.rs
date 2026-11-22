@@ -638,16 +638,11 @@ impl crate::run::FileProfile for Profile {
     fn whole(&self) -> bool {
         false
     }
-    fn project(&self, ir: &Ir, facts: &J, url: &str, _copied: &crate::project::Copied) -> Res<crate::out::Out> {
-        crate::project::zarr3::project(ir, facts, url)
-    }
-    /// The parser returns a description of the zipped store (spec/zarrify/zarr3.md
-    /// §7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#76-the-description>).
-    fn described(&self) -> bool {
-        true
+    fn project(&self, ir: &Ir, description: &J, url: &str, _copied: &crate::project::Copied) -> Res<crate::out::Out> {
+        crate::project::zarr3::project(ir, description, url)
     }
     /// The ignored entries' names beside the mirror, as a listed store's ignored keys.
-    fn mirrored(&self, out: &mut crate::out::Out, facts: &J) -> Res<()> {
-        crate::project::store::record_ignored(out, facts, PROFILE)
+    fn mirrored(&self, out: &mut crate::out::Out, description: &J) -> Res<()> {
+        crate::project::store::record_ignored(out, description, PROFILE)
     }
 }

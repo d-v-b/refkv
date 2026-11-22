@@ -54,9 +54,11 @@ pub trait StoreParser: Send + Sync {
     /// and does not record (spec/zarrify.md §1.4
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), told before
     /// the first step ([`StoreRun::ignore`]): a SAFE directory's are its directories. The
-    /// recorded ignored keys reach the projection in the facts instead.
+    /// recorded ignored keys reach the projection in the description instead (`ignored`).
     fn folders(&mut self, _folders: &[String]) {}
-    /// The IR (finished: `check::finish`) and the facts its projection reads.
+    /// The IR (finished: `check::finish`) and the parser's description of the input (the design of
+    /// d-v-b/refkv#278, "The description"; each profile's in its document's section "The
+    /// description"), which its projection reads.
     fn finish(self: Box<Self>) -> Res<(Ir, J)>;
     /// The bytes the parser read for the convention's projection apart from what it describes
     /// (edge chunks it copies, windows it samples), by their (offset, length) in the object that
@@ -106,26 +108,6 @@ impl StoreFormat {
     /// The convention the mirror declares.
     pub fn profile(self) -> &'static str {
         self.name()
-    }
-
-    /// The profile's description of the input (the design of d-v-b/refkv#278, "The
-    /// description"), from what the run's parser returned beside the IR, `facts`, without the
-    /// run's own counts: Some for a store format whose store run returns one, as its profile's
-    /// registry entry says (`described`, spec/zarrify/profiles/<name>.json), None otherwise. Each
-    /// profile with a description specifies it in its document's section "The description"
-    /// (`spec/zarrify/<profile>.md`).
-    pub fn description(self, facts: &J) -> Option<J> {
-        if !self.described() {
-            return None;
-        }
-        let mut description = facts.clone();
-        if let Some(m) = description.as_object_mut() {
-            m.remove("counts");
-            // the bytes a store run read for its projection (edge chunks it copies), which
-            // describe no source
-            m.remove("copied");
-        }
-        Some(description)
     }
 }
 
@@ -263,7 +245,7 @@ impl StoreRun {
     /// ignored objects the store reader recorded, and `folders`, those of the empty objects
     /// whose keys end in `/` (each with its `/`), which are not recorded. The parser is told
     /// the folders before its first step ([`StoreParser::folders`]: a SAFE directory's empty
-    /// `d/` objects are its directories); the facts carry the recorded keys (`ignored`, in the
+    /// `d/` objects are its directories); the description carries the recorded keys (`ignored`, in the
     /// order of their UTF-8 bytes) to the projection, which records them as its convention
     /// says ([`crate::project::store::record_ignored`]).
     pub fn ignore(&mut self, keys: Vec<String>, folders: Vec<String>) -> Res<()> {
@@ -509,7 +491,7 @@ impl StoreRun {
         Ok(())
     }
 
-    /// The IR (its held objects holding their bytes), the facts, the run's counts, and what the
+    /// The IR (its held objects holding their bytes), the description, the run's counts, and what the
     /// run read for the convention's projection ([`Read`]), which `store_output` takes with them.
     pub fn finish(mut self) -> Res<(Ir, J, J, Read)> {
         if !self.done {
@@ -517,8 +499,8 @@ impl StoreRun {
         }
         let mut p = self.parser.take().ok_or("internal: no parser")?;
         let read = Read { copied: p.copied(), counts: p.counts() };
-        let (mut ir, mut facts) = p.finish()?;
-        if let Some(m) = facts.as_object_mut().filter(|_| !self.ignored.is_empty()) {
+        let (mut ir, mut description) = p.finish()?;
+        if let Some(m) = description.as_object_mut().filter(|_| !self.ignored.is_empty()) {
             m.insert("ignored".into(), json!(self.ignored));
         }
         ir.sort_values();
@@ -539,7 +521,7 @@ impl StoreRun {
         }
         ir.hold_all(held)?;
         let stats = self.stats_json();
-        Ok((ir, facts, stats, read))
+        Ok((ir, description, stats, read))
     }
 
     /// The run's counts: objects read, batches, ranges asked and their bytes, requests, spans
@@ -555,8 +537,8 @@ impl StoreRun {
     /// `checksums`.
     pub fn into_output(self, url: &str, mirror: bool, checksums: bool) -> Result<crate::out::Out, crate::seal::Refusal> {
         let format = self.format;
-        let (ir, facts, stats, read) = self.finish()?;
-        store_output(format, &ir, &facts, stats, &read, url, mirror, checksums)
+        let (ir, description, stats, read) = self.finish()?;
+        store_output(format, &ir, &description, stats, &read, url, mirror, checksums)
     }
 }
 
@@ -569,9 +551,9 @@ impl StoreRun {
 /// (`seal::out`), its url sources the objects of the IR its references use, for a host that
 /// records the ranges' checksums when `checksums`.
 #[allow(clippy::too_many_arguments)]
-pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, read: &Read, url: &str, mirror: bool, checksums: bool)
+pub fn store_output(format: StoreFormat, ir: &Ir, description: &J, stats: J, read: &Read, url: &str, mirror: bool, checksums: bool)
                     -> Result<crate::out::Out, crate::seal::Refusal> {
-    let mut out = format.project(ir, facts, url, &read.copied)?;
+    let mut out = format.project(ir, description, url, &read.copied)?;
     crate::shard::refuse(&out)?;
     let mut summary = std::mem::take(&mut out.summary);
     if let Some(m) = summary.as_object_mut() {
@@ -580,7 +562,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, read: &Re
         }
         if format != StoreFormat::Safe {
             // the profile: a Zarr v2 store whose root declares OME-NGFF 0.4 is OME-Zarr's
-            m.insert("format".into(), json!(facts["profile"].as_str().unwrap_or(format.name())));
+            m.insert("format".into(), json!(description["profile"].as_str().unwrap_or(format.name())));
         }
         m.insert("reads".into(), stats);
         m.insert("elements".into(), json!(ir.len()));
@@ -590,11 +572,11 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, read: &Re
     }
     out.summary = summary;
     if mirror {
-        let folded = mirrored(format, ir, facts, &mut out)?;
+        let folded = mirrored(format, ir, description, &mut out)?;
         out.summary["folded"] = folded.json();
     } else {
-        // facts that carry a member the profile does not keep are refused, mirror or not
-        crate::project::store::record_ignored(&mut out, facts, facts["profile"].as_str().unwrap_or(format.profile()))?;
+        // a description that carries a member the profile does not keep are refused, mirror or not
+        crate::project::store::record_ignored(&mut out, description, description["profile"].as_str().unwrap_or(format.profile()))?;
     }
     let objects: std::collections::HashMap<String, u64> =
         ir.sources().objects.iter().map(|&o| (ir.key(o), ir.len[o as usize])).collect();
@@ -603,13 +585,13 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, read: &Re
 }
 
 /// Writes to `out` the mirror of a store's IR under `refkv_source`, and the keys and directories
-/// its listing ignored, which the run's facts hold and its convention records beside the mirror
+/// its listing ignored, which the run's description hold and its convention records beside the mirror
 /// (`project::store::record_ignored`): what `store_output` writes there but for the store's
 /// objects, which its projection writes; and what the table folded.
-pub fn mirrored(format: StoreFormat, ir: &Ir, facts: &J, out: &mut crate::out::Out) -> Result<crate::mirror::Folded, String> {
-    let profile = facts["profile"].as_str().unwrap_or(format.profile());
+pub fn mirrored(format: StoreFormat, ir: &Ir, description: &J, out: &mut crate::out::Out) -> Result<crate::mirror::Folded, String> {
+    let profile = description["profile"].as_str().unwrap_or(format.profile());
     let folded = crate::mirror::mirror(ir, out, profile)?;
-    crate::project::store::record_ignored(out, facts, profile)?;
+    crate::project::store::record_ignored(out, description, profile)?;
     Ok(folded)
 }
 
@@ -629,16 +611,6 @@ pub fn run_store(format: StoreFormat, keys: Vec<(String, u64)>, read: &dyn Fn(us
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A store run's description is its facts without the run's counts, of a store format whose
-    /// registry entry says its store run returns one, and none of the others.
-    #[test]
-    fn a_store_format_whose_profile_says_so_gives_its_facts_as_a_description() {
-        let facts = json!({"samples": 1, "counts": {"batches": 2}});
-        for name in ["envi", "hdf5", "zarr2", "zarr3", "n5", "precomputed", "safetensors"] {
-            assert_eq!(StoreFormat::from_name(name).unwrap().description(&facts), Some(json!({"samples": 1})), "{name}");
-        }
-    }
 
     /// A parser that probes `batch` new keys each step, forever, or for `until` steps (then done);
     /// the keys it calls optional are those `optional` holds.

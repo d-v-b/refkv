@@ -26,20 +26,21 @@ impl Asked {
         Step::Read(r)
     }
 
-    /// The counts into a parse's facts (`requests`, `requested`, `rounds`).
-    pub fn put(&self, facts: &mut J) {
-        facts["requests"] = json!(self.requests);
-        facts["requested"] = json!(self.requested);
-        facts["rounds"] = json!(self.rounds);
+    /// The counts into what a parse returns, beside its description (`requests`, `requested`,
+    /// `rounds`; `run::parse_counts` takes them apart).
+    pub fn put(&self, description: &mut J) {
+        description["requests"] = json!(self.requests);
+        description["requested"] = json!(self.requested);
+        description["rounds"] = json!(self.rounds);
     }
 }
 
-/// The IR and facts of a parse that is `done`: its values sorted and its invariants checked.
-pub fn finish(done: bool, mut ir: Ir, facts: J) -> Result<(Ir, J), String> {
+/// The IR and description of a parse that is `done`: its values sorted and its invariants checked.
+pub fn finish(done: bool, mut ir: Ir, description: J) -> Result<(Ir, J), String> {
     if !done {
         return Err("internal: the parse is not done".into());
     }
     ir.sort_values();
     check::finish(&mut ir)?;
-    Ok((ir, facts))
+    Ok((ir, description))
 }

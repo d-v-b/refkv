@@ -1,4 +1,4 @@
-"""An output the Rust core built (`refkv._core.project`, `refkv._core.Run.output`) as a Python
+"""An output the Rust core built (`refkv._core.Run.output`, `refkv._core.Run.project`) as a Python
 `Output`, which writes the archive."""
 
 from __future__ import annotations

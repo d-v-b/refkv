@@ -413,10 +413,9 @@ pub fn plan(d: &J) -> Result<J, String> {
 /// The projection of the file the description `d` describes, through refkv's plan ([`plan`]).
 pub fn project(ir: &Ir, d: &J, url: &str) -> Result<Out, String> {
     let planned = plan(d)?;
-    let facts = d;
-    let file_key = facts["file_key"].as_str().unwrap_or("").to_string();
+    let file_key = d["file_key"].as_str().unwrap_or("").to_string();
     let file_url = object_url(url, &file_key);
-    let messages = arr(&facts["messages"]);
+    let messages = arr(&d["messages"]);
     let fields: Vec<&J> = arr(&planned["fields"]).iter().filter(|x| x.get("reason").is_none()).collect();
     let mut out = Out::new(url);
     let mut prop = root_property(PROFILE, &file_url);
@@ -439,7 +438,7 @@ pub fn project(ir: &Ir, d: &J, url: &str) -> Result<Out, String> {
     for (gi, gkey) in grids.iter().enumerate() {
         let group = format!("grid{gi}");
         let in_grid: Vec<&J> = fields.iter().copied().filter(|x| x["grid"].as_str() == Some(gkey)).collect();
-        let g = &facts["grids"][*gkey];
+        let g = &d["grids"][*gkey];
         let (dimensions, transform) = axes(g);
         let kind = g["projection"]["kind"].as_str().unwrap_or("");
         let positions = (kind == "reduced").then(|| reduced_positions(&g["projection"]));
@@ -701,8 +700,8 @@ pub fn project(ir: &Ir, d: &J, url: &str) -> Result<Out, String> {
         }
     }
     out.summary = with_counts(json!({
-        "messages": messages.len(), "fields": arr(&facts["fields"]).len(), "grids": grids.len(), "arrays": summary,
-        "chunks": count, "unpresented": unpresented, "index": facts["index_key"],
+        "messages": messages.len(), "fields": arr(&d["fields"]).len(), "grids": grids.len(), "arrays": summary,
+        "chunks": count, "unpresented": unpresented, "index": d["index_key"],
     }), &planned);
     Ok(out)
 }

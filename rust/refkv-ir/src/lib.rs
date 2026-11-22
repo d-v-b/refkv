@@ -53,7 +53,9 @@ pub mod wasm;
 include!(concat!(env!("OUT_DIR"), "/modules.rs"));
 
 /// A sans-IO parser: `step` gives the next batch of ranges to read (or done),
-/// `feed` gives one range's bytes, `finish` the IR and the facts its projection reads.
+/// `feed` gives one range's bytes, `finish` the IR and the parser's description of the source (each
+/// profile's in its document's section "The description"), with the parser's counts
+/// (`requests`, `requested`, `rounds`), which the run takes apart (`run::parse_counts`).
 pub trait Parser {
     fn new(size: u64) -> Self;
     fn step(&mut self) -> Result<step::Step, String>;

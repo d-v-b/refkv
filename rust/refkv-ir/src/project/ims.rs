@@ -211,21 +211,21 @@ pub fn plan(d: &J) -> J {
 
 /// The output of the file `description` describes, through refkv's plan of it (`plan`).
 pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
-    let facts = &plan(description);
-    let axes = strs(&facts["axes"]);
-    let mut ome = image_ome(&axes, &obj(&facts["units"]), arr(&facts["scales"]), Some(&facts["name"]), translations(&facts["translations"]))?;
-    if !facts["omero"].is_null() {
-        ome["omero"] = facts["omero"].clone();
+    let planned = &plan(description);
+    let axes = strs(&planned["axes"]);
+    let mut ome = image_ome(&axes, &obj(&planned["units"]), arr(&planned["scales"]), Some(&planned["name"]), translations(&planned["translations"]))?;
+    if !planned["omero"].is_null() {
+        ome["omero"] = planned["omero"].clone();
     }
     let mut out = Out::new(url);
     out.json("zarr.json", &root_json(ome, "ims", url, None));
-    let dtype = facts["dtype"].as_str().unwrap_or("");
-    for (r, a) in arr(&facts["arrays"]).iter().enumerate() {
+    let dtype = planned["dtype"].as_str().unwrap_or("");
+    for (r, a) in arr(&planned["arrays"]).iter().enumerate() {
         let shape: Vec<u64> = arr(&a["shape"]).iter().map(n).collect();
         out.json(&format!("{r}/zarr.json"), &array_json(&shape, dtype, a["chunks"].clone(), a["codecs"].clone(), &axes));
     }
     let mut refs = Refs::new(ir, out);
-    let arrays = arr(&facts["arrays"]);
+    let arrays = arr(&planned["arrays"]);
     let mut count = 0u64;
     for im in arr(&description["data"]) {
         let (r, t, c) = (n(&im["level"]), n(&im["time"]), n(&im["channel"]));
@@ -254,7 +254,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
         }
     }
     let mut out = refs.out;
-    let mut summary = facts["summary"].clone();
+    let mut summary = planned["summary"].clone();
     summary["chunks"] = json!(count);
     out.summary = summary;
     Ok(out)

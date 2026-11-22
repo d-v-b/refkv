@@ -115,9 +115,9 @@ pub fn plan(description: &J, nodes: &[J]) -> J {
 }
 
 /// The output of the file `description` describes, through refkv's plan of it (`plan`).
-pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    let nodes = super::hdf5_nodes::nodes(facts)?.nodes;
-    let h = &plan(facts, &nodes);
+pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    let nodes = super::hdf5_nodes::nodes(description)?.nodes;
+    let h = &plan(description, &nodes);
     let root = attributes(&nodes, "");
     let channels = arr(&h["channels"]);
     let (pad_right, pad_bottom) = (n(&h["pad"][0]), n(&h["pad"][1]));

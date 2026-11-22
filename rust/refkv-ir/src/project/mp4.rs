@@ -148,7 +148,7 @@ pub fn pcm_parts(a: u64, b: u64, frame: u64, runs: &[(u64, u64)], at: &mut (usiz
 /// A video track's chunks of at most `chunk` pictures (§4.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#41-video-tracks>, §8.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>), its `count` samples
-/// the IR's elements from `first` on and its facts `t`: each chunk's length along the pictures'
+/// the IR's elements from `first` on and its planned track `t`: each chunk's length along the pictures'
 /// axis, with its first presented picture's range and its `refkv.stream` parts; and the pictures
 /// in presentation order, by decode index.
 pub fn video_chunks(ir: &Ir, t: &J, first: usize, count: usize, chunk: u64) -> Result<(Vec<(u64, (u64, u64), Vec<Part>)>, Vec<usize>), String> {

@@ -13,8 +13,7 @@ which is a convention but no profile), its store run in the Rust core (`store_ru
 (spec/zarrify.md §1.8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#18-files-read-as-stores>),
 "always" or "on_demand", with `named`, the named file as a rejection names it, `section`, the anchor of
 the section of its document that specifies this, and `case` true where its writers name files in another
-case than they have; and, in either form, `described` true where what the store run's parser returns
-beside the IR is the profile's description of the input, its document's section "The description"),
+case than they have),
 the precedence of its signature among the file
 profiles' (`sniff`, lower first, ties by name; null for none), for a file profile with none the
 profile whose reading chooses it (`chosen_by`: the TIFF profile's chooses NDPI and QPTIFF), the
@@ -120,15 +119,12 @@ def validate_store_run(e: dict) -> None:
         return
     if not isinstance(run, dict) or run.get("form") not in STORE_RUN_FORMS:
         raise ValueError(f"{e['name']}: store_run must be null, or have a form of {STORE_RUN_FORMS}")
-    if run.get("described", True) is not True:
-        raise ValueError(f"{e['name']}: a store run's `described` is only ever true")
     if run["form"] == "listed":
-        if set(run) - {"form", "described"} or e["kind"] not in ("store", "both"):
-            raise ValueError(f"{e['name']}: a listed store run is a store input's, with no member but `described`")
+        if set(run) - {"form"} or e["kind"] not in ("store", "both"):
+            raise ValueError(f"{e['name']}: a listed store run is a store input's, with no member but `form`")
     else:
-        if set(run) - {"form", "named", "section", "case", "described"} or not {"named", "section"} <= set(run):
-            raise ValueError(f"{e['name']}: a store run of a file has `named` and `section`, and may have `case` "
-                             "and `described`")
+        if set(run) - {"form", "named", "section", "case"} or not {"named", "section"} <= set(run):
+            raise ValueError(f"{e['name']}: a store run of a file has `named` and `section`, and may have `case`")
         if e["kind"] != "file" or run.get("case", True) is not True:
             raise ValueError(f"{e['name']}: a store run of a file is a file profile's, and `case` is only ever true")
 

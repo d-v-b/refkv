@@ -324,9 +324,8 @@ class StoreParse:
         self.zarr: _core.Zarr | None = run.zarr() if fmt in ("zarr2", "zarr3") else None
         # an ENVI raster's description, for the ENVI convention's routine
         self.envi: _core.Envi | None = run.envi() if fmt == "envi" else None
-        # the profile's description of the input, where its store run returns one
-        text = run.description()
-        self.description: dict[str, Any] | None = None if text is None else json.loads(text)
+        # the profile's description of the input
+        self.description: dict[str, Any] = json.loads(run.description())
         # the objects' sizes, from the IR: the listing's, and a VSI input's files probed into it
         self.sizes: dict[str, int] = {k: n for k, _, n in self.ir.object_bases()}
 

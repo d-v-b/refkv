@@ -2862,16 +2862,11 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Tiff>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        crate::project::tiff::project(ir, facts, url, copied)
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::tiff::project(ir, description, url, copied)
     }
-    fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
-        crate::project::tiff::reads(ir, facts)
-    }
-    /// The parser returns a description of the file (spec/zarrify/tiff.md §7.6
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#76-the-description>).
-    fn described(&self) -> bool {
-        true
+    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+        crate::project::tiff::reads(ir, description)
     }
 }
 

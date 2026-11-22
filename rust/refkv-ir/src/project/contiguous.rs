@@ -1,7 +1,7 @@
 //! The chunks of contiguous values (conventions §7
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>), as
 //! the projections that cut them with `out::grid_chunks` write them (NIfTI, MRC, FITS, and NRRD's
-//! store run through `padded`): the copy threshold of a run's facts, the source's ranges of the
+//! store run through `padded`): the copy threshold, the source's ranges of the
 //! edge chunks a projection copies, and the chunks' references, copies and bytes. A reference's
 //! zero padding is a range of the output's zero data source (spec/zarrify.md §1.2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), not a literal.

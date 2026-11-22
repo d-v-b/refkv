@@ -168,14 +168,15 @@ async def sniffed(transport: Transport) -> str | None:
 
 def parse(fmt: str, transport: Transport,
           conc: int | None = None) -> tuple[_core.Ir, dict[str, object], dict[str, object]]:
-    """(IR, facts, planner counts) of the source the transport reads, or Rejected."""
+    """(IR, the parser's description, planner counts) of the source the transport reads, or
+    Rejected."""
     run = new_run(fmt, transport, conc)
     drive(run, transport, conc)
     try:
-        ir, facts, stats = run.finish()
+        ir, description, stats = run.finish()
     except _core.Rejected as e:
         raise Rejected(str(e)) from None
-    return ir, json.loads(facts), json.loads(stats)
+    return ir, json.loads(description), json.loads(stats)
 
 
 class NamesSiblingsError(Exception):
@@ -222,7 +223,7 @@ class FileParse:
         self.fmt = fmt
         self.ir: _core.Ir = run.ir()
         # what makes the IR mirror alone, with what the profile records beside it: the IR and the
-        # facts, shared with the run and usable while the run makes an output, or after it
+        # description, shared with the run and usable while the run makes an output, or after it
         self.mirrored: _core.Mirror = run.mirror()
         # a FITS file's IR and description, for the FITS convention's routines (`refkv.build.fits_arrays`)
         self.fits: _core.Fits | None = run.fits() if fmt == "fits" else None
@@ -232,9 +233,8 @@ class FileParse:
         self.netcdf3: _core.Netcdf3 | None = run.netcdf3() if fmt == "netcdf3" else None
         # a zipped Zarr v3 store's IR and description, for the Zarr convention's routine
         self.zarr: _core.Zarr | None = run.zarr() if fmt == "zarr3" else None
-        # the profile's description of the source, where its parser returns one
-        text = run.description()
-        self.description: dict[str, Any] | None = None if text is None else json.loads(text)
+        # the profile's description of the source
+        self.description: dict[str, Any] = json.loads(run.description())
         self.url = url
         self.size = transport.size
 
