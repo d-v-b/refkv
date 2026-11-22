@@ -21,8 +21,8 @@ projection decides the output. Read these before designing a parser:
 - [spec/stored-array.md](../../../spec/stored-array.md): how the IR describes each array
   the source stores, at the byte level. [§6](../../../spec/stored-array.md#6-in-the-ir)
   says when a parser builds the descriptions, and
-  [§7](../../../spec/stored-array.md#7-the-formats) has one paragraph per format that
-  describes its arrays.
+  [§7](../../../spec/stored-array.md#7-the-formats) says each format specifies its stored
+  arrays in its own `spec/zarrify/<p>/stored-arrays.md`.
 - [design/ARCHITECTURE.md §3](../../../design/ARCHITECTURE.md#3-proposal-an-intermediate-representation):
   why the IR exists and what its invariants are.
 - [docs/build.md](../../../docs/build.md): `refkv.build`, which builds outputs other than
@@ -48,10 +48,13 @@ feasibility.
    Settle each decision there, with the spec section that governs it.
 4. **Write `spec/zarrify/<p>.md`** and `spec/source_metadata/<p>.py`. See
    [§4](../../../docs/adding-a-format.md#4-write-the-document).
-   - Add the format's paragraph to
-     [stored-array §7](../../../spec/stored-array.md#7-the-formats): the structures that
+   - Write `spec/zarrify/<p>/stored-arrays.md`
+     ([stored-array §7](../../../spec/stored-array.md#7-the-formats)): the structures that
      are its stored arrays, how each is keyed, what its declarations are, and
      what is not described yet.
+   - Edit only the format's own files. Never add the format to a list of formats in a
+     shared file, in prose or in code: state a rule that names no format, and let the
+     registry or a test enumerate them.
 5. **Implement.** See [§5](../../../docs/adding-a-format.md#5-implement-it).
    - The registry file, then `just profiles`.
    - The Rust module, its projection and its source model.
