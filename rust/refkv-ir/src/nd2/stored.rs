@@ -99,11 +99,10 @@ fn weight(frame: &Frame, frames: u64, rank: usize) -> Option<u64> {
     frames.checked_mul(frame.units())?.checked_mul(1 + rank as u64)
 }
 
-/// The descriptions of the file's frames, their chains and their rows, and the key of the arrays
-/// past the loops' count with how many they are. `key` is the `ImageAttributesLV!` chunk's
+/// The descriptions of the file's frames, their chains and their rows. `key` is the `ImageAttributesLV!` chunk's
 /// struct, `declarations` the elements that declare the samples, and `count` the frames the
 /// loops count.
-pub(super) fn described(ir: &Ir, frame: &Frame, count: u64, key: u32, declarations: &[u32]) -> Res<(Vec<StoredArray>, Vec<Chain>, ChunkMap, (u32, u64))> {
+pub(super) fn described(ir: &Ir, frame: &Frame, count: u64, key: u32, declarations: &[u32]) -> Res<(Vec<StoredArray>, Vec<Chain>, ChunkMap)> {
     let named = |i: u32, name: &str| ir.children(i).iter().copied().find(|&c| ir.nidx[c as usize] == NO_INDEX && ir.names.get(ir.name[c as usize]) == name);
     let frames = named(0, "frames").ok_or("internal: an ND2 IR without frames")?;
     // the frame chunks the map names, as the finished IR holds them: a frame the loops count has
@@ -192,7 +191,7 @@ pub(super) fn described(ir: &Ir, frame: &Frame, count: u64, key: u32, declaratio
         }
         arrays.push(a);
     }
-    Ok((arrays, chains, map, (frames, beyond.len() as u64)))
+    Ok((arrays, chains, map))
 }
 
 #[cfg(test)]
