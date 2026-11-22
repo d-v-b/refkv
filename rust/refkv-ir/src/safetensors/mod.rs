@@ -255,14 +255,10 @@ impl Header {
             if end == begin {
                 continue;
             }
-            let ty = r.entry("types", &t.dtype).ok_or("internal: an unknown data type")?;
-            let bits = ty["bits"].as_u64().unwrap_or(8);
-            let form = json!({
-                "geometry": {"data_type": ty["dtype"], "shape": t.shape, "bits": bits},
-                "codec": {"endian": if bits > 8 { J::from("little") } else { J::Null }},
-                "recipe": [["src", 0, null]],
-            });
-            data[i] = Some(ir.data(parent, "tensors/", i as u64, 0, (8 + n + begin, end - begin), &form.to_string())?);
+            // its recipe alone: its type and shape are its header entry's, and an output's data
+            // type and codec are its projection's (conventions §8.5
+            // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)
+            data[i] = Some(ir.data(parent, "tensors/", i as u64, 0, (8 + n + begin, end - begin), r#"{"recipe":[["src",0,null]]}"#)?);
         }
         let description = self.describe(Some(json!({"length": length, "header": header, "tensors": data})));
         let mut reached = self.reached(r)?;

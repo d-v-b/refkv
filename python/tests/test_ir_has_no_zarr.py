@@ -85,7 +85,6 @@ OFFENDERS: dict[str, str] = {
 
     "nrrd": "NRRD's data forms give a Zarr data type (`geometry.data_type`)",
 
-    "safetensors": "safetensors' tensor forms give a Zarr data type (`geometry.data_type`)",
 }
 
 

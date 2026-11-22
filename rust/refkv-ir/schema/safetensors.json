@@ -38,7 +38,7 @@
     "about": "The IR of a safetensors file. N is the header's length, B a tensor's data's.",
     "length": {"kind": "value", "type": "<u8", "extent": "(0, 8)"},
     "header": {"kind": "value", "type": "ascii[N]", "extent": "(8, N), when N > 0"},
-    "tensors/<i>": {"kind": "data", "form": "{geometry: {data_type, shape, bits}, codec: {endian}, recipe: [[src, 0, null]]}", "extent": "(8 + N + begin, B), the header's tensor i, when B > 0"}
+    "tensors/<i>": {"kind": "data", "form": "{recipe: [[src, 0, null]]}", "extent": "(8 + N + begin, B), the header's tensor i, when B > 0"}
   },
   "roles": {
     "length": {
