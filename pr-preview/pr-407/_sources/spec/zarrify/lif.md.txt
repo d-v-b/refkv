@@ -822,3 +822,74 @@ file for each plane at worst.
 
 The references of an image are ranges of its LOF's object, named by object URL
 ([zarrify §1.8](../zarrify.md#18-files-read-as-stores)).
+
+## 9. The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser of a LIF, LOF or LIFEXT file returns a **description** of the file: what it found of
+the file's known structures, in Leica's own terms, for a projection to read with the IR and its
+stored arrays ([spec/stored-array.md §7](../stored-array.md#7-the-formats)). Its JSON Schema is
+[lif/description.json](lif/description.json). It holds none of an output's decisions: the data type
+([§3.1](#31-data-types)), the channels' order and colors ([§3.2](#32-channels), [§4.3](#43-image-arrays)),
+the axes and fields ([§3.3](#33-axes-and-fields)), the bands ([§3.4](#34-rows-and-bands)), the scales
+and units ([§4.3](#43-image-arrays)), the mosaic's tiles ([§4.4](#44-mosaics)), the series, the
+root's source metadata ([§5](#5-source-metadata)), and which images of a LAS X project are presented
+([§8.4](#84-the-images)) are refkv's **plan**, which the projection makes from the description alone,
+with each image's checks ([§7.3](#73-rejection)). A LAS X project's store run returns a description
+of its documents and LOFs, [below](#the-description-of-a-las-x-project).
+
+A file's description is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `file` | `lif`, `lof` ([§2.5](#25-leica-object-files)) or `lifext` ([§2.6](#26-lifext-files)) |
+| `size` | the file's size in bytes |
+| `xml_characters` | the header block's XML length in characters ([§2.1](#21-blocks)) |
+| `root` | the name of the XML's root element ([§2.2](#22-the-xml-header)), of a LOF its XML block's: `Data` of an older writer's LOF ([§2.5](#25-leica-object-files)) |
+| `version` | the root's `Version`, 1 or 2; null of an older writer's LOF, whose root has none |
+| `unique_id` | the `UniqueID` of the root's first `Element`; null without one |
+| `object` | of a LOF ([§2.5](#25-leica-object-files)): `versions`, its two version fields; `xml_at`, the offset of its XML block; `xml_characters`, that block's XML length in characters; and `older`, whether the XML is an older writer's, whose root is `Data`. Null for a LIF or LIFEXT file |
+| `blocks` | the memory blocks the walk found ([§7.2](#72-reading)), in the file's order, each an object below |
+| `tail` | the bytes after the last block (of a LOF, after its XML block): `offset` and `length`; null when there are none |
+| `images` | each image element of the XML ([§2.3](#23-images)), in document order, each an object below |
+
+A memory block is an object: `offset`, where it starts; `id`, its ID's text (null when it is not
+well-formed UTF-16, and for a LOF's one block, which has no ID field); `size`, `D`, its data's size;
+and `data`, the offset of its data. Its IR struct is `blocks/<i>`, `i` its index in `blocks`
+([§5.4](#54-elements)).
+
+An image is an object:
+
+| member | value |
+|---|---|
+| `name` | the element's `Name`; null without one |
+| `path` | its path ([§2.3](#23-images)) |
+| `parent` | of a LIFEXT file, the `MemoryBlockID` of the `ChildrenOf` that holds it ([§2.6](#26-lifext-files)); else null |
+| `attributes`, `memory` | the element's attributes and its `Memory`'s ([§5.2](#52-the-images)); `memory` null without one |
+| `dimensions`, `channels` | each `DimensionDescription`'s and each `ChannelDescription`'s attributes ([§2.4](#24-dimensions-and-channels)), in document order, as the XML writes them |
+| `tile_scan` | its first `Attachment` named `TileScanInfo` ([§4.4](#44-mosaics)): `attributes`, the attachment's, and `tiles`, each child `Tile`'s; null without one |
+| `block` | the first memory block of the ID its `MemoryBlockID` names (of a LOF, the file's one block), an index into `blocks`; null when the file holds none |
+| `declared_by` | the key of its stored array ([spec/stored-array.md §2.1](../stored-array.md#21-keys)): the IR element of the XML that declares it, and its index among the images; null of an image that has none (below), which the plan rejects |
+
+Attribute values are text, with references decoded; of a repeated name, the first.
+
+<a id="the-description-of-a-las-x-project"></a>**The description of a LAS X project** is a JSON
+object with these members:
+
+| member | value |
+|---|---|
+| `version` | the named document's `Version` ([§8.1](#81-the-documents)) |
+| `named_key` | the named document's key |
+| `files` | the key of every sibling, as found, in the order they were found ([§8.2](#82-the-siblings)) |
+| `documents` | each document, in the order read, the named one first: `key`; `name`, its element's `Name` (null without one); `attributes` and `memory`, its element's and its `Memory`'s attributes (`memory` null without one); `image`, whether the element is an image; `entries`, each entry of its `Memory` with its `tag`, `file`, `offset` and `size` as written (null without one); `references`, each `Reference` with a `File`, as the `key` of the document it names, its `uuid` (null without one) and `document`, that document's index in `documents`; and `lof`, the LOF it names, an index into `lofs`, or null |
+| `lofs` | each LOF a document names, in the order read: `key`, `size`, `object` (its object's IR element), `document` (the index of the document that names it) and `description`, the LOF's own description as a file's, above, whose `declared_by` names elements of the store IR |
+
+The parser checks what the documents and LOFs are ([§8.1](#81-the-documents), [§8.2](#82-the-siblings));
+the walk of [§8.4](#84-the-images), each LOF's image's checks and its `Block`'s against the LOF are the
+plan's.
+
+What the parser still decides:
+
+- The IR's data of a memory block is the first image's that names it, and that image's stored
+  array is made where its dimensions and channels are integers; the plan rejects an image whose are
+  not, or which shares its block.

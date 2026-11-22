@@ -1748,7 +1748,11 @@ position (<a class="reference internal" href="#the-image">§4</a>), the chunks (
 </table>
 </div>
 <p>The array’s stored description is keyed by <code class="docutils literal notranslate"><span class="pre">header</span></code>, or of a gzipped file by <code class="docutils literal notranslate"><span class="pre">data</span></code>, the stream
-(<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>).</p>
+(<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>). The projection reads the header
+from the IR’s <code class="docutils literal notranslate"><span class="pre">header</span></code> value, or a gzipped file’s from <code class="docutils literal notranslate"><span class="pre">gzip.head</span></code>, and makes every decision of
+<a class="reference internal" href="#data-types">§3</a>, <a class="reference internal" href="#the-image">§4</a>, <a class="reference internal" href="#source-metadata">§5</a> and <a class="reference internal" href="#chunks">§8.2</a> from it.</p>
+<p>The parser still makes one decision of the output: the <code class="docutils literal notranslate"><span class="pre">data</span></code> element’s form names the data type
+of <a class="reference internal" href="#data-types">§3</a> (<a class="reference internal" href="#elements">§5.3</a>).</p>
 <div class="toctree-wrapper compound">
 </div>
 </section>

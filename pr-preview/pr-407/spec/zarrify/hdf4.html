@@ -1102,10 +1102,11 @@ its length needs: a link table that no descriptor describes, or too short for it
 tables that loop (<code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">link</span> <span class="pre">tables</span> <span class="pre">of</span> <span class="pre">tag</span> <span class="pre">&lt;t&gt;</span> <span class="pre">ref</span> <span class="pre">&lt;r&gt;</span> <span class="pre">loop</span></code>); more than 2^20 blocks
 (<code class="docutils literal notranslate"><span class="pre">budget:</span> <span class="pre">tag</span> <span class="pre">&lt;t&gt;</span> <span class="pre">ref</span> <span class="pre">&lt;r&gt;</span> <span class="pre">needs</span> <span class="pre">more</span> <span class="pre">than</span> <span class="pre">1048576</span> <span class="pre">linked</span> <span class="pre">blocks</span></code>); a block that no descriptor
 describes, or shorter than the bytes it holds; blocks that hold less than the element’s length.</p></li>
-<li><p><strong>Chunks</strong>, of each chunked dataset presented: a chunk length of 0; a chunk table whose Vdata
-header is absent, whose records are not of <code class="docutils literal notranslate"><span class="pre">4</span> <span class="pre">×</span> <span class="pre">rank</span> <span class="pre">+</span> <span class="pre">4</span></code> bytes, which holds fewer records than
-its header counts, or of more than 2^20 chunks or 2^26 bytes; a chunk placed outside the grid of the header’s
-lengths or placed twice (<code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">chunk</span> <span class="pre">table</span> <span class="pre">of</span> <span class="pre">tag</span> <span class="pre">&lt;t&gt;</span> <span class="pre">ref</span> <span class="pre">&lt;r&gt;</span> <span class="pre">places</span> <span class="pre">a</span> <span class="pre">chunk</span> <span class="pre">at</span> <span class="pre">&lt;coords&gt;,</span> <span class="pre">outside</span> <span class="pre">its</span> <span class="pre">grid</span> <span class="pre">&lt;grid&gt;</span></code>, <code class="docutils literal notranslate"><span class="pre">…</span> <span class="pre">places</span> <span class="pre">two</span> <span class="pre">chunks</span> <span class="pre">at</span> <span class="pre">&lt;coords&gt;</span></code>); a chunk element that no descriptor describes,
+<li><p><strong>Chunks</strong>, of every chunked dataset (<a class="reference internal" href="#the-description">§9.6</a>): a chunk length of 0; a chunk
+table whose Vdata header is absent, whose records are not of <code class="docutils literal notranslate"><span class="pre">4</span> <span class="pre">×</span> <span class="pre">rank</span> <span class="pre">+</span> <span class="pre">4</span></code> bytes, which holds
+fewer records than its header counts, or of more than 2^20 chunks or 2^26 bytes; a chunk placed
+outside the grid of the header’s lengths or placed twice (<code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">chunk</span> <span class="pre">table</span> <span class="pre">of</span> <span class="pre">tag</span> <span class="pre">&lt;t&gt;</span> <span class="pre">ref</span> <span class="pre">&lt;r&gt;</span> <span class="pre">places</span> <span class="pre">a</span> <span class="pre">chunk</span> <span class="pre">at</span> <span class="pre">&lt;coords&gt;,</span> <span class="pre">outside</span> <span class="pre">its</span> <span class="pre">grid</span> <span class="pre">&lt;grid&gt;</span></code>, <code class="docutils literal notranslate"><span class="pre">…</span> <span class="pre">places</span> <span class="pre">two</span> <span class="pre">chunks</span> <span class="pre">at</span> <span class="pre">&lt;coords&gt;</span></code>); a chunk
+element that no descriptor describes. Of each chunked dataset presented, a chunk element
 shorter than a chunk, that decodes to another length, or whose stream is empty, or shorter than a
 chunk for method 0 (<code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">chunk</span> <span class="pre">at</span> <span class="pre">&lt;coords&gt;</span> <span class="pre">of</span> <span class="pre">tag</span> <span class="pre">&lt;t&gt;</span> <span class="pre">ref</span> <span class="pre">&lt;r&gt;</span> <span class="pre">holds</span> <span class="pre">&lt;n&gt;</span> <span class="pre">bytes</span> <span class="pre">of</span> <span class="pre">its</span> <span class="pre">stream</span></code>).</p></li>
 <li><p><strong>Rounds:</strong> more than 4096 rounds of dependent reads (<code class="docutils literal notranslate"><span class="pre">more</span> <span class="pre">than</span> <span class="pre">4096</span> <span class="pre">rounds</span> <span class="pre">of</span> <span class="pre">dependent</span> <span class="pre">reads</span></code>).</p></li>
@@ -1126,6 +1127,122 @@ padding of a contiguous array’s edge chunk, are ranges of the zero data source
 <p>Both implementations print <code class="docutils literal notranslate"><span class="pre">groups</span></code> and <code class="docutils literal notranslate"><span class="pre">arrays</span></code> (presented), <code class="docutils literal notranslate"><span class="pre">unpresented</span></code> (a count by reason),
 <code class="docutils literal notranslate"><span class="pre">chunks</span></code> (the chunks of the presented chunked datasets that the chunk tables list), <code class="docutils literal notranslate"><span class="pre">descriptors</span></code>,
 <code class="docutils literal notranslate"><span class="pre">chunk_entries</span></code> (the chunks written) and <code class="docutils literal notranslate"><span class="pre">rounds</span></code>.</p>
+</section>
+<section id="the-description">
+<span id="96-the-description"></span><h3>9.6 The description<a class="headerlink" href="#the-description" title="Link to this heading">¶</a></h3>
+<p>This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a <strong>description</strong> of the file: what it found of the file’s known structures,
+in HDF4’s own terms, for a projection to read with the IR and its stored arrays
+(<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>). Its JSON Schema is
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4/description.json">hdf4/description.json</a>. It holds none of an output’s decisions: which
+Vgroups are groups and which datasets and tables are arrays (<a class="reference internal" href="#the-hierarchy">§2</a>,
+<a class="reference internal" href="#datasets">§3</a>, <a class="reference internal" href="#tables">§4</a>), their paths (<a class="reference internal" href="#paths">§2.2</a>), data types, fill values,
+codecs and chunks (<a class="reference internal" href="#data-types">§3.1</a>, <a class="reference internal" href="#chunks">§3.2</a>, <a class="reference internal" href="#text">§3.3</a>), the attributes
+presented (<a class="reference internal" href="#attributes">§7</a>) and the source metadata (<a class="reference internal" href="#source-metadata">§8</a>) are the
+projection’s. Those decisions are refkv’s <strong>plan</strong> of the file, made from the description alone by
+the function the convention’s projection calls; a layout that wants another hierarchy makes its own
+from the description. Text is a text value (<a class="reference internal" href="../conventions.html#source-metadata-as-json"><span class="std std-ref">conventions §6</span></a>).</p>
+<p>It is a JSON object with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">descriptors</span></code></p></td>
+<td><p>the count of the file’s descriptors, the null descriptors aside</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">version</span></code></p></td>
+<td><p>the library version element (tag 30): <code class="docutils literal notranslate"><span class="pre">major</span></code>, <code class="docutils literal notranslate"><span class="pre">minor</span></code>, <code class="docutils literal notranslate"><span class="pre">release</span></code> and <code class="docutils literal notranslate"><span class="pre">text</span></code>, its text up to its first NUL; null without one</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">vgroups</span></code></p></td>
+<td><p>every Vgroup (tag 1965), in ref order: <code class="docutils literal notranslate"><span class="pre">ref</span></code>, <code class="docutils literal notranslate"><span class="pre">name</span></code>, <code class="docutils literal notranslate"><span class="pre">class</span></code>, <code class="docutils literal notranslate"><span class="pre">version</span></code>, <code class="docutils literal notranslate"><span class="pre">members</span></code> (each <code class="docutils literal notranslate"><span class="pre">[tag,</span> <span class="pre">ref]</span></code>, in order) and <code class="docutils literal notranslate"><span class="pre">attributes</span></code> (a version 4 Vgroup’s, each <code class="docutils literal notranslate"><span class="pre">[tag,</span> <span class="pre">ref]</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">vdatas</span></code></p></td>
+<td><p>every Vdata, by its header (tag 1962), in ref order: <code class="docutils literal notranslate"><span class="pre">ref</span></code>, <code class="docutils literal notranslate"><span class="pre">name</span></code>, <code class="docutils literal notranslate"><span class="pre">class</span></code>, <code class="docutils literal notranslate"><span class="pre">version</span></code>, <code class="docutils literal notranslate"><span class="pre">interlace</span></code>, <code class="docutils literal notranslate"><span class="pre">records</span></code>, <code class="docutils literal notranslate"><span class="pre">record_size</span></code>, <code class="docutils literal notranslate"><span class="pre">fields</span></code> (each its <code class="docutils literal notranslate"><span class="pre">name</span></code>, <code class="docutils literal notranslate"><span class="pre">type</span></code> (the number type’s code, its byte-order bit 0x4000 included), <code class="docutils literal notranslate"><span class="pre">size</span></code>, <code class="docutils literal notranslate"><span class="pre">offset</span></code> and <code class="docutils literal notranslate"><span class="pre">order</span></code>), <code class="docutils literal notranslate"><span class="pre">attributes</span></code> (a version 4 header’s, each <code class="docutils literal notranslate"><span class="pre">[field</span> <span class="pre">index</span> <span class="pre">or</span> <span class="pre">−1,</span> <span class="pre">tag,</span> <span class="pre">ref]</span></code>) and <code class="docutils literal notranslate"><span class="pre">data</span></code>, its records’ storage (below); and of an attribute (class <code class="docutils literal notranslate"><span class="pre">Attr0.0</span></code>) that <a class="reference internal" href="#attributes">§7</a> reads, of one field, not interlaced, of at most the budget’s <code class="docutils literal notranslate"><span class="pre">attribute_bytes</span></code>, its records stored as they are: <code class="docutils literal notranslate"><span class="pre">bytes</span></code>, its value’s bytes in hex, and <code class="docutils literal notranslate"><span class="pre">value</span></code>, a <code class="docutils literal notranslate"><span class="pre">char8</span></code> field’s text (all of it, NULs too), a number type’s numbers in a list (a float’s NaN and infinities as <a class="reference internal" href="../conventions.html#source-metadata-as-json"><span class="std std-ref">conventions §6</span></a> writes them), or null for another type</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">datasets</span></code></p></td>
+<td><p>the SD interface’s datasets, the <code class="docutils literal notranslate"><span class="pre">Var0.0</span></code> members of the first <code class="docutils literal notranslate"><span class="pre">CDF0.0</span></code> Vgroup in their order, each below</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ndgs</span></code></p></td>
+<td><p>the refs of every NDG (tag 720), the DFSD interface’s datasets among them, in the descriptors’ order</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A dataset is an object:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">vgroup</span></code>, <code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
+<td><p>its <code class="docutils literal notranslate"><span class="pre">Var0.0</span></code> Vgroup’s ref and name</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dimensions</span></code></p></td>
+<td><p>its dimension Vgroups (<code class="docutils literal notranslate"><span class="pre">Dim0.0</span></code> or <code class="docutils literal notranslate"><span class="pre">UDim0.0</span></code>), in order: <code class="docutils literal notranslate"><span class="pre">name</span></code>, and <code class="docutils literal notranslate"><span class="pre">unlimited</span></code>, whether it is a <code class="docutils literal notranslate"><span class="pre">UDim0.0</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">attributes</span></code></p></td>
+<td><p>its attribute Vdatas’ refs, in order</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ndg</span></code>, <code class="docutils literal notranslate"><span class="pre">sd</span></code></p></td>
+<td><p>the refs of its NDG and its data element (tag 702); null without one</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">coordinate</span></code></p></td>
+<td><p>true where a <code class="docutils literal notranslate"><span class="pre">CoordVar</span></code> Vdata marks it a coordinate variable, false where an <code class="docutils literal notranslate"><span class="pre">SDSVar</span></code> does, null where neither</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">number_type</span></code></p></td>
+<td><p>its number type element (tag 106): <code class="docutils literal notranslate"><span class="pre">version</span></code>, <code class="docutils literal notranslate"><span class="pre">type</span></code>, <code class="docutils literal notranslate"><span class="pre">width</span></code> and <code class="docutils literal notranslate"><span class="pre">class</span></code>; null without one</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dimension_sizes</span></code></p></td>
+<td><p>the sizes its dimension record (tag 701) gives; null without one</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data</span></code></p></td>
+<td><p>its data’s storage (below)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">element</span></code></p></td>
+<td><p>the IR element that keys its stored array (<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>), its <code class="docutils literal notranslate"><span class="pre">Var0.0</span></code> Vgroup’s; null where the parse describes none</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A storage is null where no descriptor describes the element, else an object with <code class="docutils literal notranslate"><span class="pre">kind</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p><code class="docutils literal notranslate"><span class="pre">kind</span></code></p></th>
+<th class="head"><p>members</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">plain</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">length</span></code>; <code class="docutils literal notranslate"><span class="pre">linked</span></code>, whether its bytes are linked blocks; and <code class="docutils literal notranslate"><span class="pre">segments</span></code>, its bytes, each <code class="docutils literal notranslate"><span class="pre">[offset,</span> <span class="pre">length]</span></code> in the file or <code class="docutils literal notranslate"><span class="pre">[null,</span> <span class="pre">length]</span></code> of zeros, a block never written</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">compressed</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">length</span></code>, the bytes it decodes to; <code class="docutils literal notranslate"><span class="pre">method</span></code> and <code class="docutils literal notranslate"><span class="pre">model</span></code>, the compression’s codes; and <code class="docutils literal notranslate"><span class="pre">segments</span></code>, its stream’s bytes</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">chunked</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">length</span></code>; <code class="docutils literal notranslate"><span class="pre">table</span></code>, its chunk table’s Vdata ref; <code class="docutils literal notranslate"><span class="pre">dimensions</span></code>, each axis’s <code class="docutils literal notranslate"><span class="pre">flag</span></code>, <code class="docutils literal notranslate"><span class="pre">length</span></code> and <code class="docutils literal notranslate"><span class="pre">chunk</span></code> length; <code class="docutils literal notranslate"><span class="pre">fill</span></code>, the header’s fill value’s bytes in hex; and <code class="docutils literal notranslate"><span class="pre">chunks</span></code>, each chunk its table places, in the table’s order: <code class="docutils literal notranslate"><span class="pre">at</span></code>, its coordinates in the grid, the <code class="docutils literal notranslate"><span class="pre">tag</span></code> and <code class="docutils literal notranslate"><span class="pre">ref</span></code> of its element, and <code class="docutils literal notranslate"><span class="pre">data</span></code>, that element’s storage (a chunked one’s <code class="docutils literal notranslate"><span class="pre">kind</span></code> alone)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">external</span></code></p></td>
+<td><p>none</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">special</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">code</span></code>, the special element’s code</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The parser reads what the description gives of every object, whatever a projection makes of it:
+every Vdata’s records’ storage, following its linked blocks, and every chunked dataset’s chunk table
+and chunks. So the checks of <a class="reference internal" href="#checks">§9.3</a> on linked blocks, compressed elements and chunk tables
+apply to each of them, and a broken one rejects the file even where the convention does not present
+the object it belongs to.</p>
 <div class="toctree-wrapper compound">
 </div>
 </section>

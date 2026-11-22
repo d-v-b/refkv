@@ -480,23 +480,18 @@
 that passes the profile’s checks (<a class="reference internal" href="../safetensors.html#checks"><span class="std std-ref">safetensors.md §8.2</span></a>)
 is a stored array, whether or not the profile presents it, keyed by the file’s <code class="docutils literal notranslate"><span class="pre">header</span></code> element, a
 kind of element that may declare several arrays: a tensor’s index is its position among the
-header’s tensors, in the order the header writes them (<code class="docutils literal notranslate"><span class="pre">__metadata__</span></code> is none of them). The facts
-give the key: <code class="docutils literal notranslate"><span class="pre">declared_by</span></code> is the id of the <code class="docutils literal notranslate"><span class="pre">header</span></code> element, and a tensor’s index is its position
-in the facts’ <code class="docutils literal notranslate"><span class="pre">own.tensors</span></code>, which a presented tensor’s entry of the facts’ <code class="docutils literal notranslate"><span class="pre">arrays</span></code> gives as
-<code class="docutils literal notranslate"><span class="pre">index</span></code>.</p>
+header’s tensors, in the order the header writes them (<code class="docutils literal notranslate"><span class="pre">__metadata__</span></code> is none of them). The
+description gives the key: <code class="docutils literal notranslate"><span class="pre">elements.header</span></code>
+(<a class="reference internal" href="../safetensors.html#the-description"><span class="std std-ref">safetensors.md §8.5</span></a>), and a tensor’s index is its position
+in the description’s <code class="docutils literal notranslate"><span class="pre">tensors</span></code>.</p>
 <ul class="simple">
 <li><p><strong>The store form</strong> (<a class="reference internal" href="../safetensors.html#the-store-form"><span class="std std-ref">safetensors.md §9</span></a>)
-describes each shard’s tensors itself, not by graft. A presented shard, described in place, has a
-file’s elements and facts (its entry of the store’s facts’ <code class="docutils literal notranslate"><span class="pre">shards</span></code> holds them as <code class="docutils literal notranslate"><span class="pre">facts</span></code>), and
-its tensors are keyed by its own <code class="docutils literal notranslate"><span class="pre">header</span></code>. A shard that is not presented for its key, whose
-header passed the checks, has no element but its object: its tensors are keyed by that object,
-also a kind of element that may declare several arrays, with the same indexes, and their places
-are ranges of it. A shard whose header fails a check has no descriptions. The store’s facts’
-<code class="docutils literal notranslate"><span class="pre">declared_by</span></code> lists, in the order of <code class="docutils literal notranslate"><span class="pre">own.files</span></code>, the id of the element that keys each shard’s
-descriptions, null for a shard with none.</p></li>
+describes each shard’s tensors itself, not by graft. Every shard whose header passed the checks
+is described in place, whether or not the profile presents it: it has a file’s elements, its
+entry of the store’s description holds its header’s description with them, and its tensors are
+keyed by its own <code class="docutils literal notranslate"><span class="pre">header</span></code>. A shard whose header fails a check has no descriptions.</p></li>
 <li><p><strong>Declarations.</strong> One: the range of the header that holds the entry’s <code class="docutils literal notranslate"><span class="pre">dtype</span></code> value, a JSON
-string as the header writes it, with its quotes and any escapes (of a shard keyed by its
-object, the same bytes as a range of the object). The format fixes the elements’ byte order
+string as the header writes it, with its quotes and any escapes. The format fixes the elements’ byte order
 (little-endian) and their order (the last index varying fastest), which no place declares.</p></li>
 <li><p><strong><code class="docutils literal notranslate"><span class="pre">shape</span></code></strong> is the entry’s <code class="docutils literal notranslate"><span class="pre">shape</span></code>, empty for a scalar. <code class="docutils literal notranslate"><span class="pre">axes</span></code> is absent: a tensor is stored in
 the order of its <code class="docutils literal notranslate"><span class="pre">shape</span></code>.</p></li>
@@ -505,8 +500,7 @@ the order of its <code class="docutils literal notranslate"><span class="pre">sh
 number is one element. There is no <code class="docutils literal notranslate"><span class="pre">pad_from</span></code>: a tensor’s elements pack unbroken into whole
 bytes.</p></li>
 <li><p><strong>The grid.</strong> A tensor is one unit: each axis is <code class="docutils literal notranslate"><span class="pre">Each</span></code> of its length, or an empty <code class="docutils literal notranslate"><span class="pre">List</span></code> for
-an axis of length 0, under <code class="docutils literal notranslate"><span class="pre">short</span></code>. Its row is its data’s element, <code class="docutils literal notranslate"><span class="pre">tensors/&lt;i&gt;</span></code>, or, of a
-shard keyed by its object, the data’s range of the object. A tensor with an axis of length 0
+an axis of length 0, under <code class="docutils literal notranslate"><span class="pre">short</span></code>. Its row is its data’s element, <code class="docutils literal notranslate"><span class="pre">tensors/&lt;i&gt;</span></code>. A tensor with an axis of length 0
 holds no bytes, and has no unit and no row.</p></li>
 <li><p><strong>The chain</strong> is empty for elements of whole bytes. Elements of 4 or 6 bits (<code class="docutils literal notranslate"><span class="pre">F4</span></code>, <code class="docutils literal notranslate"><span class="pre">F6_E2M3</span></code>
 and <code class="docutils literal notranslate"><span class="pre">F6_E3M2</span></code>) are in <code class="docutils literal notranslate"><span class="pre">lsb_first</span></code>, its <code class="docutils literal notranslate"><span class="pre">bits</span></code> their size: the buffer packs them from each

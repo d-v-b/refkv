@@ -1416,6 +1416,99 @@ section 6 in place of its own), and a literal <code class="docutils literal notr
 <p>The run’s summary: <code class="docutils literal notranslate"><span class="pre">messages</span></code>, <code class="docutils literal notranslate"><span class="pre">fields</span></code>, <code class="docutils literal notranslate"><span class="pre">grids</span></code>, <code class="docutils literal notranslate"><span class="pre">arrays</span></code> (each variable’s <code class="docutils literal notranslate"><span class="pre">path</span></code>, <code class="docutils literal notranslate"><span class="pre">shape</span></code> and
 count of <code class="docutils literal notranslate"><span class="pre">fields</span></code>), <code class="docutils literal notranslate"><span class="pre">chunks</span></code>, <code class="docutils literal notranslate"><span class="pre">unpresented</span></code> (the count of each reason), <code class="docutils literal notranslate"><span class="pre">index</span></code>, and the store
 run’s counts.</p>
+</section>
+<section id="the-description">
+<span id="87-the-description"></span><h3>8.7 The description<a class="headerlink" href="#the-description" title="Link to this heading">¶</a></h3>
+<p>This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the store run’s parser returns a <strong>description</strong> of the file: what it found of its messages and
+fields, in the terms of <a class="reference internal" href="#the-source">§2</a>, for a projection to read with the IR and its stored
+arrays (<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>). Its JSON Schema is
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib/description.json">grib/description.json</a>. It holds none of an output’s decisions: which fields
+are presented, for the convention’s reasons <code class="docutils literal notranslate"><span class="pre">packing</span></code>, <code class="docutils literal notranslate"><span class="pre">bitmap</span></code> and <code class="docutils literal notranslate"><span class="pre">values</span></code>
+(<a class="reference internal" href="#what-is-not-presented">§2.6</a>), how they make variables, their names and coordinates
+(<a class="reference internal" href="#the-hierarchy">§3</a>), and the root’s source metadata (<a class="reference internal" href="#the-root">§5.1</a>) are the projection’s.
+Those decisions are refkv’s <strong>plan</strong> of the file, made from the description alone by the function the
+convention’s projection calls; so a file of which no field is presented (<a class="reference internal" href="#checks-and-rejection">§8.4</a>)
+is rejected where the projection makes its plan. A layout that wants another hierarchy makes its own
+from the description.</p>
+<p>It is a JSON object with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">file_key</span></code>, <code class="docutils literal notranslate"><span class="pre">index_key</span></code></p></td>
+<td><p>the file’s key, and the key of the index whose offsets the run read the messages at (<a class="reference internal" href="#finding-the-messages">§8.2</a>), or null</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">messages</span></code></p></td>
+<td><p>each message’s <code class="docutils literal notranslate"><span class="pre">[offset,</span> <span class="pre">length]</span></code>, in the file’s order</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">fields</span></code></p></td>
+<td><p>each field of each message, in the file’s order, below</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">grids</span></code></p></td>
+<td><p>each field’s grid once, by its key: <code class="docutils literal notranslate"><span class="pre">template</span></code>, <code class="docutils literal notranslate"><span class="pre">points</span></code>, <code class="docutils literal notranslate"><span class="pre">nx</span></code>, <code class="docutils literal notranslate"><span class="pre">ny</span></code> (a reduced grid’s longest row and its rows), <code class="docutils literal notranslate"><span class="pre">scan</span></code>, the scanning mode; <code class="docutils literal notranslate"><span class="pre">earth</span></code> (<code class="docutils literal notranslate"><span class="pre">radius</span></code>, or <code class="docutils literal notranslate"><span class="pre">a</span></code> and <code class="docutils literal notranslate"><span class="pre">inverse_flattening</span></code>) and <code class="docutils literal notranslate"><span class="pre">projection</span></code> (by its <code class="docutils literal notranslate"><span class="pre">kind</span></code>, with the angles and lengths of <a class="reference internal" href="#grids">§2.4</a>) where the parser interprets them, else null</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">reads</span></code></p></td>
+<td><p>the parser’s own count: <code class="docutils literal notranslate"><span class="pre">batches</span></code>, its rounds of reads</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A field is an object:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">message</span></code>, <code class="docutils literal notranslate"><span class="pre">field</span></code></p></td>
+<td><p>its message’s index, and its index among the message’s fields</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">reference</span></code>, <code class="docutils literal notranslate"><span class="pre">centre</span></code>, <code class="docutils literal notranslate"><span class="pre">discipline</span></code></p></td>
+<td><p>its reference time in seconds since 1970-01-01T00:00:00Z, its centre (section 1 octets 6–7) and its discipline</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">identity</span></code></p></td>
+<td><p>its identity (<a class="reference internal" href="#identity">§2.2</a>): the discipline, then section 1’s and section 4’s octets of it, in hex, separated by <code class="docutils literal notranslate"><span class="pre">.</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">grid</span></code></p></td>
+<td><p>its grid’s key: section 3 from octet 6, the scanning mode’s bits 3 and 4 cleared, in hex (<a class="reference internal" href="#grids">§2.4</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">product</span></code>, <code class="docutils literal notranslate"><span class="pre">category</span></code>, <code class="docutils literal notranslate"><span class="pre">number</span></code></p></td>
+<td><p>section 4’s template, and the parameter’s category and number</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">surfaces</span></code></p></td>
+<td><p>the two surfaces’ <code class="docutils literal notranslate"><span class="pre">[type,</span> <span class="pre">value]</span></code>, the value null where there is none (<a class="reference internal" href="#dimensions">§2.3</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">step</span></code>, <code class="docutils literal notranslate"><span class="pre">member</span></code>, <code class="docutils literal notranslate"><span class="pre">statistic</span></code>, <code class="docutils literal notranslate"><span class="pre">qualifier</span></code></p></td>
+<td><p>its step in seconds, its ensemble member’s number, its statistic’s <code class="docutils literal notranslate"><span class="pre">[process,</span> <span class="pre">length]</span></code> (the length in seconds, null where its unit has no fixed length, a month or a year), and what else of section 4 names it, each null where it has none (<a class="reference internal" href="#dimensions">§2.3</a>, <a class="reference internal" href="#names">§3.2</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">packing</span></code>, <code class="docutils literal notranslate"><span class="pre">values</span></code></p></td>
+<td><p>section 5’s template and number of values</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bitmap</span></code></p></td>
+<td><p>section 6’s indicator</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">single</span></code></p></td>
+<td><p>whether its message holds it alone</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">parts</span></code></p></td>
+<td><p>its sections 1 to 7 as a message of its own holds them, each <code class="docutils literal notranslate"><span class="pre">[offset,</span> <span class="pre">length]</span></code> in the file (<a class="reference internal" href="#chunks">§8.5</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">element</span></code>, <code class="docutils literal notranslate"><span class="pre">array</span></code>, <code class="docutils literal notranslate"><span class="pre">mask</span></code></p></td>
+<td><p>the key of its values’ stored array, its message’s element and its index among the arrays the message declares, and the index of the bitmap that says which points its values are, or null (<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">unread</span></code></p></td>
+<td><p>what of its grid or product the parser does not interpret, as <a class="reference internal" href="#what-is-not-presented">§2.6</a>’s reasons <code class="docutils literal notranslate"><span class="pre">grid_source</span></code>, <code class="docutils literal notranslate"><span class="pre">reduced</span></code>, <code class="docutils literal notranslate"><span class="pre">grid</span></code>, <code class="docutils literal notranslate"><span class="pre">grid_size</span></code>, <code class="docutils literal notranslate"><span class="pre">gaussian</span></code>, <code class="docutils literal notranslate"><span class="pre">earth</span></code>, <code class="docutils literal notranslate"><span class="pre">projection</span></code>, <code class="docutils literal notranslate"><span class="pre">product</span></code>, <code class="docutils literal notranslate"><span class="pre">statistic</span></code> or <code class="docutils literal notranslate"><span class="pre">time</span></code>; null where it interprets both</p></td>
+</tr>
+</tbody>
+</table>
+</div>
 <div class="toctree-wrapper compound">
 </div>
 </section>

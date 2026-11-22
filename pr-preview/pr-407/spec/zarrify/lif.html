@@ -1978,9 +1978,144 @@ plane’s, and its <code class="docutils literal notranslate"><span class="pre">
 file for each plane at worst.</p>
 <p>The references of an image are ranges of its LOF’s object, named by object URL
 (<a class="reference internal" href="../zarrify.html#files-read-as-stores"><span class="std std-ref">zarrify §1.8</span></a>).</p>
+</section>
+</section>
+<section id="the-description">
+<span id="9-the-description"></span><h2>9. The description<a class="headerlink" href="#the-description" title="Link to this heading">¶</a></h2>
+<p>This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser of a LIF, LOF or LIFEXT file returns a <strong>description</strong> of the file: what it found of
+the file’s known structures, in Leica’s own terms, for a projection to read with the IR and its
+stored arrays (<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>). Its JSON Schema is
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif/description.json">lif/description.json</a>. It holds none of an output’s decisions: the data type
+(<a class="reference internal" href="#data-types">§3.1</a>), the channels’ order and colors (<a class="reference internal" href="#channels">§3.2</a>, <a class="reference internal" href="#image-arrays">§4.3</a>),
+the axes and fields (<a class="reference internal" href="#axes-and-fields">§3.3</a>), the bands (<a class="reference internal" href="#rows-and-bands">§3.4</a>), the scales
+and units (<a class="reference internal" href="#image-arrays">§4.3</a>), the mosaic’s tiles (<a class="reference internal" href="#mosaics">§4.4</a>), the series, the
+root’s source metadata (<a class="reference internal" href="#source-metadata">§5</a>), and which images of a LAS X project are presented
+(<a class="reference internal" href="#id2">§8.4</a>) are refkv’s <strong>plan</strong>, which the projection makes from the description alone,
+with each image’s checks (<a class="reference internal" href="#rejection">§7.3</a>). A LAS X project’s store run returns a description
+of its documents and LOFs, <a class="reference internal" href="#the-description-of-a-las-x-project">below</a>.</p>
+<p>A file’s description is a JSON object with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">file</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">lif</span></code>, <code class="docutils literal notranslate"><span class="pre">lof</span></code> (<a class="reference internal" href="#leica-object-files">§2.5</a>) or <code class="docutils literal notranslate"><span class="pre">lifext</span></code> (<a class="reference internal" href="#lifext-files">§2.6</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">size</span></code></p></td>
+<td><p>the file’s size in bytes</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">xml_characters</span></code></p></td>
+<td><p>the header block’s XML length in characters (<a class="reference internal" href="#blocks">§2.1</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">root</span></code></p></td>
+<td><p>the name of the XML’s root element (<a class="reference internal" href="#the-xml-header">§2.2</a>), of a LOF its XML block’s: <code class="docutils literal notranslate"><span class="pre">Data</span></code> of an older writer’s LOF (<a class="reference internal" href="#leica-object-files">§2.5</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">version</span></code></p></td>
+<td><p>the root’s <code class="docutils literal notranslate"><span class="pre">Version</span></code>, 1 or 2; null of an older writer’s LOF, whose root has none</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">unique_id</span></code></p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">UniqueID</span></code> of the root’s first <code class="docutils literal notranslate"><span class="pre">Element</span></code>; null without one</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">object</span></code></p></td>
+<td><p>of a LOF (<a class="reference internal" href="#leica-object-files">§2.5</a>): <code class="docutils literal notranslate"><span class="pre">versions</span></code>, its two version fields; <code class="docutils literal notranslate"><span class="pre">xml_at</span></code>, the offset of its XML block; <code class="docutils literal notranslate"><span class="pre">xml_characters</span></code>, that block’s XML length in characters; and <code class="docutils literal notranslate"><span class="pre">older</span></code>, whether the XML is an older writer’s, whose root is <code class="docutils literal notranslate"><span class="pre">Data</span></code>. Null for a LIF or LIFEXT file</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">blocks</span></code></p></td>
+<td><p>the memory blocks the walk found (<a class="reference internal" href="#reading">§7.2</a>), in the file’s order, each an object below</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tail</span></code></p></td>
+<td><p>the bytes after the last block (of a LOF, after its XML block): <code class="docutils literal notranslate"><span class="pre">offset</span></code> and <code class="docutils literal notranslate"><span class="pre">length</span></code>; null when there are none</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">images</span></code></p></td>
+<td><p>each image element of the XML (<a class="reference internal" href="#images">§2.3</a>), in document order, each an object below</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A memory block is an object: <code class="docutils literal notranslate"><span class="pre">offset</span></code>, where it starts; <code class="docutils literal notranslate"><span class="pre">id</span></code>, its ID’s text (null when it is not
+well-formed UTF-16, and for a LOF’s one block, which has no ID field); <code class="docutils literal notranslate"><span class="pre">size</span></code>, <code class="docutils literal notranslate"><span class="pre">D</span></code>, its data’s size;
+and <code class="docutils literal notranslate"><span class="pre">data</span></code>, the offset of its data. Its IR struct is <code class="docutils literal notranslate"><span class="pre">blocks/&lt;i&gt;</span></code>, <code class="docutils literal notranslate"><span class="pre">i</span></code> its index in <code class="docutils literal notranslate"><span class="pre">blocks</span></code>
+(<a class="reference internal" href="#elements">§5.4</a>).</p>
+<p>An image is an object:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
+<td><p>the element’s <code class="docutils literal notranslate"><span class="pre">Name</span></code>; null without one</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">path</span></code></p></td>
+<td><p>its path (<a class="reference internal" href="#images">§2.3</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">parent</span></code></p></td>
+<td><p>of a LIFEXT file, the <code class="docutils literal notranslate"><span class="pre">MemoryBlockID</span></code> of the <code class="docutils literal notranslate"><span class="pre">ChildrenOf</span></code> that holds it (<a class="reference internal" href="#lifext-files">§2.6</a>); else null</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">attributes</span></code>, <code class="docutils literal notranslate"><span class="pre">memory</span></code></p></td>
+<td><p>the element’s attributes and its <code class="docutils literal notranslate"><span class="pre">Memory</span></code>’s (<a class="reference internal" href="#the-images">§5.2</a>); <code class="docutils literal notranslate"><span class="pre">memory</span></code> null without one</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dimensions</span></code>, <code class="docutils literal notranslate"><span class="pre">channels</span></code></p></td>
+<td><p>each <code class="docutils literal notranslate"><span class="pre">DimensionDescription</span></code>’s and each <code class="docutils literal notranslate"><span class="pre">ChannelDescription</span></code>’s attributes (<a class="reference internal" href="#dimensions-and-channels">§2.4</a>), in document order, as the XML writes them</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tile_scan</span></code></p></td>
+<td><p>its first <code class="docutils literal notranslate"><span class="pre">Attachment</span></code> named <code class="docutils literal notranslate"><span class="pre">TileScanInfo</span></code> (<a class="reference internal" href="#mosaics">§4.4</a>): <code class="docutils literal notranslate"><span class="pre">attributes</span></code>, the attachment’s, and <code class="docutils literal notranslate"><span class="pre">tiles</span></code>, each child <code class="docutils literal notranslate"><span class="pre">Tile</span></code>’s; null without one</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">block</span></code></p></td>
+<td><p>the first memory block of the ID its <code class="docutils literal notranslate"><span class="pre">MemoryBlockID</span></code> names (of a LOF, the file’s one block), an index into <code class="docutils literal notranslate"><span class="pre">blocks</span></code>; null when the file holds none</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">declared_by</span></code></p></td>
+<td><p>the key of its stored array (<a class="reference internal" href="../stored-array.html#keys"><span class="std std-ref">spec/stored-array.md §2.1</span></a>): the IR element of the XML that declares it, and its index among the images; null of an image that has none (below), which the plan rejects</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Attribute values are text, with references decoded; of a repeated name, the first.</p>
+<p><span id="the-description-of-a-las-x-project"></span><strong>The description of a LAS X project</strong> is a JSON
+object with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">version</span></code></p></td>
+<td><p>the named document’s <code class="docutils literal notranslate"><span class="pre">Version</span></code> (<a class="reference internal" href="#the-documents">§8.1</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">named_key</span></code></p></td>
+<td><p>the named document’s key</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">files</span></code></p></td>
+<td><p>the key of every sibling, as found, in the order they were found (<a class="reference internal" href="#the-siblings">§8.2</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">documents</span></code></p></td>
+<td><p>each document, in the order read, the named one first: <code class="docutils literal notranslate"><span class="pre">key</span></code>; <code class="docutils literal notranslate"><span class="pre">name</span></code>, its element’s <code class="docutils literal notranslate"><span class="pre">Name</span></code> (null without one); <code class="docutils literal notranslate"><span class="pre">attributes</span></code> and <code class="docutils literal notranslate"><span class="pre">memory</span></code>, its element’s and its <code class="docutils literal notranslate"><span class="pre">Memory</span></code>’s attributes (<code class="docutils literal notranslate"><span class="pre">memory</span></code> null without one); <code class="docutils literal notranslate"><span class="pre">image</span></code>, whether the element is an image; <code class="docutils literal notranslate"><span class="pre">entries</span></code>, each entry of its <code class="docutils literal notranslate"><span class="pre">Memory</span></code> with its <code class="docutils literal notranslate"><span class="pre">tag</span></code>, <code class="docutils literal notranslate"><span class="pre">file</span></code>, <code class="docutils literal notranslate"><span class="pre">offset</span></code> and <code class="docutils literal notranslate"><span class="pre">size</span></code> as written (null without one); <code class="docutils literal notranslate"><span class="pre">references</span></code>, each <code class="docutils literal notranslate"><span class="pre">Reference</span></code> with a <code class="docutils literal notranslate"><span class="pre">File</span></code>, as the <code class="docutils literal notranslate"><span class="pre">key</span></code> of the document it names, its <code class="docutils literal notranslate"><span class="pre">uuid</span></code> (null without one) and <code class="docutils literal notranslate"><span class="pre">document</span></code>, that document’s index in <code class="docutils literal notranslate"><span class="pre">documents</span></code>; and <code class="docutils literal notranslate"><span class="pre">lof</span></code>, the LOF it names, an index into <code class="docutils literal notranslate"><span class="pre">lofs</span></code>, or null</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lofs</span></code></p></td>
+<td><p>each LOF a document names, in the order read: <code class="docutils literal notranslate"><span class="pre">key</span></code>, <code class="docutils literal notranslate"><span class="pre">size</span></code>, <code class="docutils literal notranslate"><span class="pre">object</span></code> (its object’s IR element), <code class="docutils literal notranslate"><span class="pre">document</span></code> (the index of the document that names it) and <code class="docutils literal notranslate"><span class="pre">description</span></code>, the LOF’s own description as a file’s, above, whose <code class="docutils literal notranslate"><span class="pre">declared_by</span></code> names elements of the store IR</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The parser checks what the documents and LOFs are (<a class="reference internal" href="#the-documents">§8.1</a>, <a class="reference internal" href="#the-siblings">§8.2</a>);
+the walk of <a class="reference internal" href="#id2">§8.4</a>, each LOF’s image’s checks and its <code class="docutils literal notranslate"><span class="pre">Block</span></code>’s against the LOF are the
+plan’s.</p>
+<p>What the parser still decides:</p>
+<ul class="simple">
+<li><p>The IR’s data of a memory block is the first image’s that names it, and that image’s stored
+array is made where its dimensions and channels are integers; the plan rejects an image whose are
+not, or which shares its block.</p></li>
+</ul>
 <div class="toctree-wrapper compound">
 </div>
-</section>
 </section>
 </section>
 
