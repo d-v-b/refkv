@@ -10,7 +10,7 @@
 //! chunks.
 
 use super::vsi::object_url;
-use super::{along, arr, contiguous, header_json, image_axes, n, Copied};
+use super::{along, contiguous, header_json, image_axes, n, Copied};
 use crate::gz;
 use crate::ir::Ir;
 use crate::nifti::header;
@@ -90,17 +90,6 @@ fn parts<'a>(ir: &'a Ir, description: &J) -> Result<(Cow<'a, [u8]>, u32), String
 pub fn copy_ranges(h: &Header, vox: u64) -> Result<Vec<(u64, u64)>, String> {
     // a pair is not gzipped: only a gzip stream's chunk takes the length
     Ok(contiguous::copy_reads(&cut(h, (vox, 0), false)?.chunks).collect())
-}
-
-/// The output of a header-and-image pair (§7.5
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#75-header-and-image-pairs>), its
-/// store URL `url`: the single file's, of the image file's voxels, with the header file's URL as its
-/// source's. `facts` is the pair's description, with `copied`, the edge chunks the store run read.
-pub fn project_pair(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    let copied: Copied = arr(&facts["copied"]).iter()
-        .map(|c| ((n(&c[0]), n(&c[1])), arr(&c[2]).iter().map(|b| n(b) as u8).collect()))
-        .collect();
-    project(ir, facts, url, &copied)
 }
 
 /// The source's ranges of the edge chunks the projection copies (§7.2
@@ -283,7 +272,12 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<O
     Ok(out)
 }
 
-/// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, facts: &J, url: &str, _copied: &super::Copied) -> Result<Out, String> {
-    project_pair(ir, facts, url)
+/// The projection of the profile's store run (`StoreFormat`; crate::store): the output of a
+/// header-and-image pair (§7.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#75-header-and-image-pairs>), its
+/// store URL `url`: the single file's, of the image file's voxels, with the header file's URL as its
+/// source's. `copied` holds the edge chunks the store run read, by their (offset, length) in the
+/// image file.
+pub fn store_project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+    project(ir, description, url, copied)
 }
