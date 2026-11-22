@@ -148,20 +148,18 @@ with read("weights.npz") as p:
 A description stops at the bytes of an element: the data type, its byte order and the fill value
 are what the source declares, which a profile's routine reads (`npy_array_type` for an NPY
 header), and the caller gives them. Nothing here asks for refkv's own output. `p.description` is
-the profile's description of the input, where its parser returns one: NumPy's
-([npy.md §8.6](../spec/zarrify/npy.md#86-the-description)), FITS's
-([fits.md §9.6](../spec/zarrify/fits.md#96-the-description)), HDF5's, of a file read as a file
-([hdf5.md §8.7](../spec/zarrify/hdf5.md#87-the-description)), netCDF3's
-([netcdf3.md §7.7](../spec/zarrify/netcdf3.md#77-the-description)), ENVI's
-([envi.md §8.7](../spec/zarrify/envi.md#87-the-description)), Zarr v2's
-([zarr2.md §7.3](../spec/zarrify/zarr2.md#73-the-description)), Zarr v3's
-([zarr3.md §7.6](../spec/zarrify/zarr3.md#76-the-description)), TIFF's and QPTIFF's
-([tiff.md §7.6](../spec/zarrify/tiff.md#76-the-description)), NDPI's
-([ndpi.md §7.1](../spec/zarrify/ndpi.md#71-the-description)), MRC's
-([mrc.md §8.5](../spec/zarrify/mrc.md#85-the-description)), and GRIB's
-([grib.md §8.7](../spec/zarrify/grib.md#87-the-description)) do, and the other profiles' is None
-until their projections read the descriptions too. `stored_array` raises `ValueError` for an array it
-cannot write so: one whose storage the IR does not model (a description with no grid, such as a
+the profile's description of the input, where its parser returns one, and None where it does not
+yet. Each profile that returns one specifies it in its own document, in the section of Part 2
+titled "The description" (`spec/zarrify/<profile>.md`), and
+`python/tests/test_description_documented.py` checks that every such profile has that section.
+The documentation site lists them when it is built:
+
+<!-- profiles:descriptions -->
+The list is rendered from each profile's document when the documentation site is built: see it on
+[the site](https://d-v-b.github.io/refkv/docs/build.html#arrays-as-the-source-stores-them).
+<!-- /profiles -->
+
+`stored_array` raises `ValueError` for an array it cannot write so: one whose storage the IR does not model (a description with no grid, such as a
 NumPy `a<n>` array's, which the profile still presents from its header), whose elements are not
 whole bytes, whose units are encoded with a codec `zarr_codecs` has no Zarr codec after `bytes`
 for (it translates the codecs numcodecs decodes, and a Zarr store's own codecs that take bytes;

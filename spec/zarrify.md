@@ -28,41 +28,10 @@ This document holds what every profile shares: the input, the output and how
 outputs compare ([§1](#1-introduction)), and the common parts of the output ([§2](#2-the-zarr-layout)). Each profile
 is a document of its own, `zarrify/<name>.md`, numbered on its own and cited by its name
 ([Profiles](#profiles)); its registry entry, `zarrify/profiles/<name>.json`, holds its identity.
-The table, generated from the registry, lists them:
+The table, rendered from the registry, lists them:
 
 <!-- profiles:spec-table -->
-| profile | input | inputs |
-|---|---|---|
-| [CZI](zarrify/czi.md#part-2-the-profile) | file | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids, in one file or across numbered files |
-| [DICOM](zarrify/dicom.md#part-2-the-profile) | file | DICOM Part 10 files with native, JPEG, lossless JPEG, JPEG-LS, RLE, JPEG 2000 or HTJ2K pixel data, including whole-slide images |
-| [ENVI](zarrify/envi.md#part-2-the-profile) | file | ENVI Standard rasters: a `.hdr` header and its flat binary data file beside it, BSQ, BIL or BIP, raw or gzip |
-| [FITS](zarrify/fits.md#part-2-the-profile) | file | FITS files: images, multi-extension files, binary and ASCII tables |
-| [FLAC](zarrify/flac.md#part-2-the-profile) | file | FLAC files (`.flac`) of a fixed block size, with their metadata blocks and ID3v2 and ID3v1 tags; one sharded array of integer samples, not an image |
-| [GRIB](zarrify/grib.md#part-2-the-profile) | file | GRIB edition 2 files of gridded fields, such as NOAA's and ECMWF's forecasts, whose fields on latitude/longitude, Gaussian, rotated, Lambert conformal, polar stereographic, Mercator, reduced and unstructured grids it presents |
-| [H5J](zarrify/h5j.md#part-2-the-profile) | file | Janelia H5J files (HDF5 whose channels are MP4 files of monochrome HEVC): a confocal stack an image a channel |
-| [HDF4](zarrify/hdf4.md#part-2-the-profile) | file | HDF4 files, HDF-EOS2 ones among them: the scientific datasets of numbers and text the SD interface wrote, plain, linked, deflated or chunked, the writer's Vdata tables, their attributes, and the writer's Vgroups |
-| [HDF5](zarrify/hdf5.md#part-2-the-profile) | file | HDF5 files, NWB files first among them: every group, dataset, attribute, link and object reference the profile can present, in hdmf-zarr's Zarr v3 form |
-| [IMS](zarrify/ims.md#part-2-the-profile) | file | Imaris IMS files (HDF5) |
-| [LIF](zarrify/lif.md#part-2-the-profile) | file | Leica LIF files (LAS X and LAS AF, versions 1 and 2), its object files (LOF) and extension files (LIFEXT), and LAS X projects of XLEF, XLCF, XLIF and XLLF documents and LOFs: every image of the element tree, with interleaved or planar channels, z-stacks, time series and mosaics, uncompressed |
-| [MP3](zarrify/mp3.md#part-2-the-profile) | file | MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image |
-| [MP4](zarrify/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.m4v`, `.mov`) with H.264, HEVC, AV1, VP9 or Motion JPEG video and AAC, HE-AAC, MP3 or PCM audio tracks; a group per track, not an image |
-| [MRC](zarrify/mrc.md#part-2-the-profile) | file | MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks), gzipped or not |
-| [N5](zarrify/n5.md#part-2-the-profile) | store | N5 containers, default-mode blocks |
-| [ND2](zarrify/nd2.md#part-2-the-profile) | file | Nikon ND2, format version 3 and later |
-| [NDPI](zarrify/ndpi.md#part-2-the-profile) | file | Hamamatsu NDPI slides, a TIFF variant with 64-bit offsets |
-| [netCDF3](zarrify/netcdf3.md#part-2-the-profile) | file | netCDF3 files of the three classic formats: their fixed-size and record variables of every type, their dimensions and their attributes |
-| [NIfTI](zarrify/nifti.md#part-2-the-profile) | file | NIfTI-1 and NIfTI-2 single files (`.nii`, `.nii.gz`) and header-and-image pairs (`.hdr`, `.img`) |
-| [NumPy](zarrify/npy.md#part-2-the-profile) | file | NumPy `.npy` files, and `.npz` archives of them (`np.savez`, `np.savez_compressed`), whose stored and deflated members it presents |
-| [NRRD](zarrify/nrrd.md#part-2-the-profile) | file | NRRD files (`.nrrd`) and detached headers with one data file (`.nhdr`), raw or gzip-encoded |
-| [OME-Zarr](zarrify/ome-zarr.md#part-2-the-profile) | store | OME-Zarr 0.4 hierarchies on Zarr v2, migrated to OME-Zarr 0.5 |
-| [Neuroglancer precomputed](zarrify/precomputed.md#part-2-the-profile) | store | Neuroglancer precomputed volumes, unsharded or with identity-hashed shards |
-| [QPTIFF](zarrify/qptiff.md#part-2-the-profile) | file | Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips |
-| [Sentinel-2 SAFE](zarrify/safe.md#part-2-the-profile) | file or store | Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (a store) or a `.SAFE.zip` file |
-| [safetensors](zarrify/safetensors.md#part-2-the-profile) | file or store | safetensors files of a model's tensors (`model.safetensors`), in every data type the library defines, `BF16`, `F8_*`, `F4` and `F6_*` included; and stores of them, such as a model's repository of shards with its index |
-| [TIFF](zarrify/tiff.md#part-2-the-profile) | file | TIFF and BigTIFF, including OME-TIFF across files, Micro-Manager stacks and JPEG-tiled slides such as Aperio SVS |
-| [VSI](zarrify/vsi.md#part-2-the-profile) | file | Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG, JPEG 2000, lossless JPEG, PNG and BMP tiles) |
-| [Zarr v2](zarrify/zarr2.md#part-2-the-profile) | store | Zarr v2 hierarchies |
-| [Zarr v3](zarrify/zarr3.md#part-2-the-profile) | file or store | Zarr v3 hierarchies: a store (a URL or a directory) or a zipped store (`.zip`) |
+The table is rendered from the registry, [zarrify/profiles/](zarrify/profiles/), when the documentation site is built: see it on [the site](https://d-v-b.github.io/refkv/spec/zarrify.html#1-introduction).
 <!-- /profiles -->
 
 The table says which profiles read a single file (a **file input**), which a store of many
@@ -241,34 +210,11 @@ file gzipped whole: `H` is then what those bytes inflate to, at most its first 5
 same order. Any other file that no signature matches is rejected.
 A profile whose `sniff` is null has no signature: the reading of another profile, its registry
 entry's `chosen_by`, chooses it (the TIFF profile's chooses NDPI and QPTIFF, the HDF5 profile's
-IMS). The precedences, generated from the registry, by
+IMS). The precedences, rendered from the registry, by
 profile name:
 
 <!-- profiles:sniff-table -->
-| profile | `sniff` |
-|---|---|
-| CZI ([czi.md §7](zarrify/czi.md#7-czi-profile)) | 50 |
-| DICOM ([dicom.md §7](zarrify/dicom.md#7-dicom-profile)) | 10 |
-| ENVI ([envi.md §8](zarrify/envi.md#8-envi-profile)) | 92 |
-| FITS ([fits.md §9](zarrify/fits.md#9-fits-profile)) | 110 |
-| FLAC ([flac.md §8](zarrify/flac.md#8-flac-profile)) | 95 |
-| GRIB ([grib.md §8](zarrify/grib.md#8-grib-profile)) | 65 |
-| HDF4 ([hdf4.md §9](zarrify/hdf4.md#9-hdf4-profile)) | 68 |
-| HDF5 ([hdf5.md §8](zarrify/hdf5.md#8-hdf5-profile)) | 70 |
-| LIF ([lif.md §7](zarrify/lif.md#7-lif-profile)) | 55 |
-| MP3 ([mp3.md §8](zarrify/mp3.md#8-mp3-profile)) | 100 |
-| MP4 ([mp4.md §8](zarrify/mp4.md#8-mp4-profile)) | 85 |
-| MRC ([mrc.md §8](zarrify/mrc.md#8-mrc-profile)) | 90 |
-| ND2 ([nd2.md §7](zarrify/nd2.md#7-nd2-profile)) | 20 |
-| netCDF3 ([netcdf3.md §7](zarrify/netcdf3.md#7-netcdf3-profile)) | 72 |
-| NIfTI ([nifti.md §7](zarrify/nifti.md#7-nifti-profile)) | 60 |
-| NumPy ([npy.md §8](zarrify/npy.md#8-numpy-profile)) | 75 |
-| NRRD ([nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile)) | 95 |
-| Sentinel-2 SAFE ([safe.md §8](zarrify/safe.md#8-safe-profile)) | 80 |
-| safetensors ([safetensors.md §8](zarrify/safetensors.md#8-safetensors-profile)) | 35 |
-| TIFF ([tiff.md §7](zarrify/tiff.md#7-tiff-profile)) | 40 |
-| VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)) | 30 |
-| Zarr v3 ([zarr3.md §7](zarrify/zarr3.md#7-zarr-v3-profile)) | 78 |
+The precedences are rendered from the registry, [zarrify/profiles/](zarrify/profiles/), when the documentation site is built: see it on [the site](https://d-v-b.github.io/refkv/spec/zarrify.html#12-input).
 <!-- /profiles -->
 
 **Rejection.** A zarrifier MUST reject an input the profile does not
@@ -780,17 +726,7 @@ file and the files beside it (a slide's tile files, a detached header's data fil
 files, a project's documents and LOFs) as a store ([§1.4](#14-store-inputs)).
 
 <!-- profiles:beside-table -->
-| profile | read as a store | the named file | specified in |
-|---|---|---|---|
-| CZI | on demand | CZI file | [czi.md §7.9](zarrify/czi.md#79-several-files) |
-| ENVI | always | header file | [envi.md §8](zarrify/envi.md#8-envi-profile) |
-| GRIB | always | GRIB file | [grib.md §8](zarrify/grib.md#8-grib-profile) |
-| HDF5 | on demand | HDF5 file | [hdf5.md §8.6](zarrify/hdf5.md#86-external-files) |
-| LIF | on demand | named document | [lif.md §8](zarrify/lif.md#8-las-x-documents) |
-| NIfTI | on demand | header file | [nifti.md §7.5](zarrify/nifti.md#75-header-and-image-pairs) |
-| NRRD | always | header file | [nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile) |
-| TIFF | on demand | TIFF file | [tiff.md §7.4](zarrify/tiff.md#74-several-files) |
-| VSI | always | .vsi file | [vsi.md §9](zarrify/vsi.md#9-vsi-profile) |
+The table is rendered from the registry, [zarrify/profiles/](zarrify/profiles/), when the documentation site is built: see it on [the site](https://d-v-b.github.io/refkv/spec/zarrify.html#18-files-read-as-stores).
 <!-- /profiles -->
 
 Such a **file read as a store** is read as follows; the profile's
@@ -1098,39 +1034,10 @@ is the format's Zarr convention, and its registry entry is that document's name 
 [zarrify/profiles/](zarrify/profiles/). A format's document is numbered on its own (its
 Part 2 after its Part 1), and other documents cite its sections by its name
 (`spec/zarrify/<name>.md §n`), so adding a profile adds its own files and renumbers nothing
-else. The profiles, generated from the registry:
+else. The profiles, rendered from the registry:
 
 <!-- profiles:spec-list -->
-- the CZI profile: [spec/zarrify/czi.md §7](zarrify/czi.md#7-czi-profile);
-- the DICOM profile: [spec/zarrify/dicom.md §7](zarrify/dicom.md#7-dicom-profile);
-- the ENVI profile: [spec/zarrify/envi.md §8](zarrify/envi.md#8-envi-profile);
-- the FITS profile: [spec/zarrify/fits.md §9](zarrify/fits.md#9-fits-profile);
-- the FLAC profile: [spec/zarrify/flac.md §8](zarrify/flac.md#8-flac-profile);
-- the GRIB profile: [spec/zarrify/grib.md §8](zarrify/grib.md#8-grib-profile);
-- the H5J profile: [spec/zarrify/h5j.md §8](zarrify/h5j.md#8-h5j-profile);
-- the HDF4 profile: [spec/zarrify/hdf4.md §9](zarrify/hdf4.md#9-hdf4-profile);
-- the HDF5 profile: [spec/zarrify/hdf5.md §8](zarrify/hdf5.md#8-hdf5-profile);
-- the IMS profile: [spec/zarrify/ims.md §7](zarrify/ims.md#7-ims-profile);
-- the LIF profile: [spec/zarrify/lif.md §7](zarrify/lif.md#7-lif-profile);
-- the MP3 profile: [spec/zarrify/mp3.md §8](zarrify/mp3.md#8-mp3-profile);
-- the MP4 profile: [spec/zarrify/mp4.md §8](zarrify/mp4.md#8-mp4-profile);
-- the MRC profile: [spec/zarrify/mrc.md §8](zarrify/mrc.md#8-mrc-profile);
-- the N5 profile: [spec/zarrify/n5.md §8](zarrify/n5.md#8-n5-profile);
-- the ND2 profile: [spec/zarrify/nd2.md §7](zarrify/nd2.md#7-nd2-profile);
-- the NDPI profile: [spec/zarrify/ndpi.md §7](zarrify/ndpi.md#7-ndpi-profile);
-- the netCDF3 profile: [spec/zarrify/netcdf3.md §7](zarrify/netcdf3.md#7-netcdf3-profile);
-- the NIfTI profile: [spec/zarrify/nifti.md §7](zarrify/nifti.md#7-nifti-profile);
-- the NumPy profile: [spec/zarrify/npy.md §8](zarrify/npy.md#8-numpy-profile);
-- the NRRD profile: [spec/zarrify/nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile);
-- the OME-Zarr profile: [spec/zarrify/ome-zarr.md §11](zarrify/ome-zarr.md#11-ome-zarr-profile);
-- the Neuroglancer precomputed profile: [spec/zarrify/precomputed.md §11](zarrify/precomputed.md#11-neuroglancer-precomputed-profile);
-- the QPTIFF profile: [spec/zarrify/qptiff.md §7](zarrify/qptiff.md#7-qptiff-profile);
-- the SAFE profile: [spec/zarrify/safe.md §8](zarrify/safe.md#8-safe-profile);
-- the safetensors profile: [spec/zarrify/safetensors.md §8](zarrify/safetensors.md#8-safetensors-profile);
-- the TIFF profile: [spec/zarrify/tiff.md §7](zarrify/tiff.md#7-tiff-profile);
-- the VSI profile: [spec/zarrify/vsi.md §9](zarrify/vsi.md#9-vsi-profile);
-- the Zarr v2 profile: [spec/zarrify/zarr2.md §7](zarrify/zarr2.md#7-zarr-v2-profile);
-- the Zarr v3 profile: [spec/zarrify/zarr3.md §7](zarrify/zarr3.md#7-zarr-v3-profile).
+The list is rendered from the registry, [zarrify/profiles/](zarrify/profiles/), when the documentation site is built: see it on [the site](https://d-v-b.github.io/refkv/spec/zarrify.html#profiles).
 <!-- /profiles -->
 
 A profile's Part 2 starts by naming its section and the profiles it builds on.
