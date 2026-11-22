@@ -24,31 +24,31 @@ It is a design note. It replaces this note's earlier versions;
 [What changes on main](#what-changes-on-main) says what of the plugin
 implementation stays.
 
-Status (2026-11-20): step 1 of the [order of work](#order-of-work) has landed,
-as `refkv.build` (d-v-b/refkv#283) and the core's `seal` (d-v-b/refkv#284);
-[docs/build.md](../../docs/build.md) is its user document. Since then a run
-parses without projecting: `read` makes no output and `project` makes the
-built-in one when asked, the core's `Run` keeping what it parsed
-(`defer_projection`, `begin_projection`, `project`); and a plugin is given
-the parsed inputs, `write(inputs, options)`, its output sealed as the built-in
-ones are, the base gone from what it is given
-([spec/layout.md](../../spec/layout.md)), though five of the six shipped
-plugins still ask for the built-in output (`project`), which their formats'
-descriptions will let them stop doing. NumPy's projection reads its
-description and the IR's stored arrays, and NumPy has the first
-[rebuild test](#testing-that-the-tools-suffice) (`python/tests/test_rebuild_npy.py`), written with
-`grid`, `filled`, `gzip_member`, `mirror` and `declaration`, the first of
-[group 4](#4-building-and-writing)'s routines to be bound. Steps 2 to 4 (the
-plan's machine, and each format's description and plan) have not otherwise, though
-NumPy's arrays, MP4's tracks and the stored arrays of every format in the
-scope of [ir-format-descriptions.md](ir-format-descriptions.md) are described,
-NumPy's deflated `.npz` members among them; those of the store profiles, MP3 and
-FLAC are not.
+Status (2026-11-22): landed, through d-v-b/refkv#378, which tracks what is
+left. Step 1 is `refkv.build` (d-v-b/refkv#283) and the core's `seal`
+(d-v-b/refkv#284), with [docs/build.md](../../docs/build.md) its user document.
+A run parses without projecting: `read` makes no output, and `project` makes
+the built-in one only when asked (d-v-b/refkv#354). A plugin is given the parsed
+inputs, `write(inputs, options)`, its output sealed as the built-in ones are,
+and the base is gone ([spec/layout.md](../../spec/layout.md), d-v-b/refkv#356).
+Every format document under [spec/zarrify/](../../spec/zarrify/) but those of
+IMS and H5J, files the HDF5 parser reads, specifies a description, checked
+against the format's reference reader; the projections build from the
+descriptions, the stored arrays, the chunk map and refkv's plan; and no
+shipped plugin but `bare` asks for the built-in output.
+The [rebuild test](#testing-that-the-tools-suffice) passes for NumPy, HDF5 and
+TIFF (d-v-b/refkv#359, d-v-b/refkv#368, d-v-b/refkv#382). Where the code departs from this note: a
+format's plan is computed in the core from its description and is not public
+as `refkv.build.plan`; a caller reaches the convention's decisions through the
+routines of `refkv.build` (`hdf5_hierarchy`, `ome_image` and the others), and
+`refkv.zarrify.layouts.plan` is still a plugin's checked options. Every core
+projection takes the parser's description; d-v-b/refkv#378's Phase D removed the parser's
+private facts.
 [The gap](#the-gap) describes main before step 1.
 [Open question 3](#open-questions) is settled: a reader follows symbolic links
 in a file's path and in a `file:` prefix
 ([spec/refkv.md §6.7](../../spec/refkv.md#67-reader-policy), d-v-b/refkv#266).
-The rest of this note is as it was proposed.
+The rest of this note is the design as it was proposed.
 
 **The design criterion: what a built-in projection can build, a caller can
 build with public tools.** Two tests check it
