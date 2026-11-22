@@ -3,8 +3,9 @@
 What the FLAC parser describes as stored arrays ([stored-array.md](../../stored-array.md)), part of [the FLAC profile](../flac.md).
 
 A FLAC file's samples are one stored array,
-keyed by its STREAMINFO block, the value `metadata/0/streaminfo`, with no index. The facts give
-the key: `info_value` is that element's id.
+keyed by its STREAMINFO block, the value `metadata/0/streaminfo`, with no index. The parser's
+description gives the key: its `elements` has that element's id as `streaminfo`
+([flac.md §8.4](../flac.md#84-the-description)).
 
 - **Declarations.** One: the STREAMINFO block, whose fields give the sample rate, the channels,
   the bit depth, the samples in all and the MD5 of the decoded samples.

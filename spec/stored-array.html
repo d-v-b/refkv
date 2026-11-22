@@ -1620,8 +1620,9 @@ value of a pixel with none, is a declaration.</p></li>
 <h3>FLAC: stored arrays<a class="headerlink" href="#flac-stored-arrays" title="Link to this heading">¶</a></h3>
 <p>What the FLAC parser describes as stored arrays (<a class="reference internal" href="#"><span class="std std-doc">stored-array.md</span></a>), part of <a class="reference internal" href="zarrify/flac.html"><span class="std std-doc">the FLAC profile</span></a>.</p>
 <p>A FLAC file’s samples are one stored array,
-keyed by its STREAMINFO block, the value <code class="docutils literal notranslate"><span class="pre">metadata/0/streaminfo</span></code>, with no index. The facts give
-the key: <code class="docutils literal notranslate"><span class="pre">info_value</span></code> is that element’s id.</p>
+keyed by its STREAMINFO block, the value <code class="docutils literal notranslate"><span class="pre">metadata/0/streaminfo</span></code>, with no index. The parser’s
+description gives the key: its <code class="docutils literal notranslate"><span class="pre">elements</span></code> has that element’s id as <code class="docutils literal notranslate"><span class="pre">streaminfo</span></code>
+(<a class="reference internal" href="zarrify/flac.html#the-description"><span class="std std-ref">flac.md §8.4</span></a>).</p>
 <ul class="simple">
 <li><p><strong>Declarations.</strong> One: the STREAMINFO block, whose fields give the sample rate, the channels,
 the bit depth, the samples in all and the MD5 of the decoded samples.</p></li>

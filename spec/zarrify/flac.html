@@ -1931,6 +1931,70 @@ summary, with these members:</p>
 </tbody>
 </table>
 </div>
+</section>
+<section id="the-description">
+<span id="84-the-description"></span><h3>8.4 The description<a class="headerlink" href="#the-description" title="Link to this heading">¶</a></h3>
+<p>This section is not part of the convention: nothing it specifies is written in an output. The
+parser returns, beside the IR, a <strong>description</strong> of the file: what it found of the source, for a
+projection to read with the IR and its stored arrays
+(<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>). It holds none of an output’s
+decisions: the frames of a shard (<a class="reference internal" href="#shards">§8.2</a>), and the array’s data type, shape, chunks
+and codecs (<a class="reference internal" href="#the-array">§4.1</a>) are the projection’s. Its JSON Schema is
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac/description.json"><code class="docutils literal notranslate"><span class="pre">flac/description.json</span></code></a>. It is a JSON object with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">streaminfo</span></code></p></td>
+<td><p>the STREAMINFO block’s fields, a <a class="reference internal" href="#type-flacstreaminfo"><code class="docutils literal notranslate"><span class="pre">FlacStreaminfo</span></code></a></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">frames</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">N</span></code>, the frames</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">block_size</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">B</span></code>, the first frame’s samples per channel, which every frame but the last has (<a class="reference internal" href="#id1">§8.1</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">samples</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">T</span></code>, the frames’ samples per channel</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">blocks</span></code></p></td>
+<td><p>each metadata block, a <a class="reference internal" href="#type-flacblock"><code class="docutils literal notranslate"><span class="pre">FlacBlock</span></code></a>, in file order</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">seek_table</span></code></p></td>
+<td><p>the SEEKTABLE block’s, a <a class="reference internal" href="#type-flacseektable"><code class="docutils literal notranslate"><span class="pre">FlacSeekTable</span></code></a>, or null</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">vorbis_comment</span></code></p></td>
+<td><p>the VORBIS_COMMENT block’s, a <a class="reference internal" href="#type-flacvorbiscomment"><code class="docutils literal notranslate"><span class="pre">FlacVorbisComment</span></code></a>, or null</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">cuesheets</span></code></p></td>
+<td><p>each CUESHEET block’s, a <a class="reference internal" href="#type-flaccuesheet"><code class="docutils literal notranslate"><span class="pre">FlacCuesheet</span></code></a>, in file order</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pictures</span></code></p></td>
+<td><p>each PICTURE block’s fields, a <a class="reference internal" href="#type-flacpicture"><code class="docutils literal notranslate"><span class="pre">FlacPicture</span></code></a>, in file order</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">applications</span></code></p></td>
+<td><p>each APPLICATION block’s, a <a class="reference internal" href="#type-flacapplication"><code class="docutils literal notranslate"><span class="pre">FlacApplication</span></code></a>, in file order</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id3v2</span></code></p></td>
+<td><p>each ID3v2 tag’s header at the start, an <a class="reference internal" href="mp3.html#type-mp3id3v2"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Mp3Id3v2</span></code></span></a>, in order</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">id3v1</span></code></p></td>
+<td><p>the ID3v1 tag’s fields, an <a class="reference internal" href="mp3.html#type-mp3id3v1"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Mp3Id3v1</span></code></span></a>, or null</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">elements</span></code></p></td>
+<td><p>the ids of IR elements (<a class="reference internal" href="#elements">§5.3</a>) by name: <code class="docutils literal notranslate"><span class="pre">frames</span></code>, the first frame’s <code class="docutils literal notranslate"><span class="pre">data</span></code> element, which the others follow; <code class="docutils literal notranslate"><span class="pre">streaminfo</span></code>, the STREAMINFO block’s value, which keys the samples’ stored array (<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>); <code class="docutils literal notranslate"><span class="pre">id3v1</span></code>, the ID3v1 tag’s value, or null; and <code class="docutils literal notranslate"><span class="pre">pictures</span></code>, each picture’s <code class="docutils literal notranslate"><span class="pre">data</span></code> value, in the order of <code class="docutils literal notranslate"><span class="pre">pictures</span></code>, null for a picture of no data</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The root’s source metadata of <a class="reference internal" href="#the-root">§5.1</a> follows from the description: <code class="docutils literal notranslate"><span class="pre">sample_rate</span></code>,
+<code class="docutils literal notranslate"><span class="pre">channels</span></code> and <code class="docutils literal notranslate"><span class="pre">bits_per_sample</span></code> from <code class="docutils literal notranslate"><span class="pre">streaminfo</span></code>, <code class="docutils literal notranslate"><span class="pre">duration</span></code> from <code class="docutils literal notranslate"><span class="pre">samples</span></code> and the sample rate,
+and the other members as the description gives them, each optional one absent when it is null or
+empty; and the <code class="docutils literal notranslate"><span class="pre">refkv.stream</span></code> setup from the bytes of the <code class="docutils literal notranslate"><span class="pre">streaminfo</span></code> element (<a class="reference internal" href="#the-array">§4.1</a>).</p>
 <div class="toctree-wrapper compound">
 </div>
 </section>

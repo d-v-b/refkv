@@ -704,3 +704,34 @@ summary, with these members:
 | `pictures` | the PICTURE blocks |
 | `tags` | those of `"id3v2"` and `"id3v1"` the file has, in that order |
 | `joinRanges` | whether ranges adjacent across inner chunks would be joined: not when the zarrifier records checksums, [spec/zarrify.md §2.1](../zarrify.md#21-virtual-shards) |
+
+### 8.4 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. The
+parser returns, beside the IR, a **description** of the file: what it found of the source, for a
+projection to read with the IR and its stored arrays
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)). It holds none of an output's
+decisions: the frames of a shard ([§8.2](#82-shards)), and the array's data type, shape, chunks
+and codecs ([§4.1](#41-the-array)) are the projection's. Its JSON Schema is
+[`flac/description.json`](flac/description.json). It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `streaminfo` | the STREAMINFO block's fields, a [`FlacStreaminfo`](#type-flacstreaminfo) |
+| `frames` | `N`, the frames |
+| `block_size` | `B`, the first frame's samples per channel, which every frame but the last has ([§8.1](#81-the-stream)) |
+| `samples` | `T`, the frames' samples per channel |
+| `blocks` | each metadata block, a [`FlacBlock`](#type-flacblock), in file order |
+| `seek_table` | the SEEKTABLE block's, a [`FlacSeekTable`](#type-flacseektable), or null |
+| `vorbis_comment` | the VORBIS_COMMENT block's, a [`FlacVorbisComment`](#type-flacvorbiscomment), or null |
+| `cuesheets` | each CUESHEET block's, a [`FlacCuesheet`](#type-flaccuesheet), in file order |
+| `pictures` | each PICTURE block's fields, a [`FlacPicture`](#type-flacpicture), in file order |
+| `applications` | each APPLICATION block's, a [`FlacApplication`](#type-flacapplication), in file order |
+| `id3v2` | each ID3v2 tag's header at the start, an [`Mp3Id3v2`](mp3.md#type-mp3id3v2), in order |
+| `id3v1` | the ID3v1 tag's fields, an [`Mp3Id3v1`](mp3.md#type-mp3id3v1), or null |
+| `elements` | the ids of IR elements ([§5.3](#53-elements)) by name: `frames`, the first frame's `data` element, which the others follow; `streaminfo`, the STREAMINFO block's value, which keys the samples' stored array ([spec/stored-array.md §7](../stored-array.md#7-the-formats)); `id3v1`, the ID3v1 tag's value, or null; and `pictures`, each picture's `data` value, in the order of `pictures`, null for a picture of no data |
+
+The root's source metadata of [§5.1](#51-the-root) follows from the description: `sample_rate`,
+`channels` and `bits_per_sample` from `streaminfo`, `duration` from `samples` and the sample rate,
+and the other members as the description gives them, each optional one absent when it is null or
+empty; and the `refkv.stream` setup from the bytes of the `streaminfo` element ([§4.1](#41-the-array)).

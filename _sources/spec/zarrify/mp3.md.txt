@@ -619,5 +619,8 @@ shape, chunks and codecs ([§4.1](#41-the-array)) are the projection's. Its JSON
 
 The root's source metadata of [§5.1](#51-the-root) follows from the description: `bitrate_mode`
 and `bitrate_kbps` from `kbps`, `samples` and `duration` from `frames`, `samples_per_frame` and
-`sample_rate`, and the other members as the description gives them; and each chunk's lead-in from
-`main_data` and `version` ([§8.2](#82-chunks)).
+`sample_rate`, and the other members as the description gives them. The projection reads them so,
+and makes **refkv's plan** of the file from the description alone: `chunk_frames`, `F`, and
+`leads`, the first frame `l` of each chunk's lead-in, from `main_data` and `version`
+([§8.2](#82-chunks)). The plan belongs to refkv's convention, not to the IR; the array's chunks are
+read from it.

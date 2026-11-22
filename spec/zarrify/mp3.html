@@ -1666,8 +1666,11 @@ shape, chunks and codecs (<a class="reference internal" href="#the-array">§4.1<
 </div>
 <p>The root’s source metadata of <a class="reference internal" href="#the-root">§5.1</a> follows from the description: <code class="docutils literal notranslate"><span class="pre">bitrate_mode</span></code>
 and <code class="docutils literal notranslate"><span class="pre">bitrate_kbps</span></code> from <code class="docutils literal notranslate"><span class="pre">kbps</span></code>, <code class="docutils literal notranslate"><span class="pre">samples</span></code> and <code class="docutils literal notranslate"><span class="pre">duration</span></code> from <code class="docutils literal notranslate"><span class="pre">frames</span></code>, <code class="docutils literal notranslate"><span class="pre">samples_per_frame</span></code> and
-<code class="docutils literal notranslate"><span class="pre">sample_rate</span></code>, and the other members as the description gives them; and each chunk’s lead-in from
-<code class="docutils literal notranslate"><span class="pre">main_data</span></code> and <code class="docutils literal notranslate"><span class="pre">version</span></code> (<a class="reference internal" href="#chunks">§8.2</a>).</p>
+<code class="docutils literal notranslate"><span class="pre">sample_rate</span></code>, and the other members as the description gives them. The projection reads them so,
+and makes <strong>refkv’s plan</strong> of the file from the description alone: <code class="docutils literal notranslate"><span class="pre">chunk_frames</span></code>, <code class="docutils literal notranslate"><span class="pre">F</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">leads</span></code>, the first frame <code class="docutils literal notranslate"><span class="pre">l</span></code> of each chunk’s lead-in, from <code class="docutils literal notranslate"><span class="pre">main_data</span></code> and <code class="docutils literal notranslate"><span class="pre">version</span></code>
+(<a class="reference internal" href="#chunks">§8.2</a>). The plan belongs to refkv’s convention, not to the IR; the array’s chunks are
+read from it.</p>
 <div class="toctree-wrapper compound">
 </div>
 </section>
