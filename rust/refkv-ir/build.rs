@@ -34,6 +34,8 @@ struct StoreRun {
     form: String,
     named: Option<String>,
     case: bool,
+    /// whether the store run's parser returns the profile's description beside the IR
+    described: bool,
 }
 
 impl Entry {
@@ -101,6 +103,10 @@ fn store_formats(all: &[Entry]) -> String {
     for (e, run) in &runs {
         writeln!(text, "            StoreFormat::{} => {},", e.variant(), run.case).unwrap();
     }
+    text.push_str("        }\n    }\n\n    /// Whether what the format's store run returns beside the IR is the profile's description of\n    /// the input: the registry's `store_run` `described`.\n    pub fn described(self) -> bool {\n        match self {\n");
+    for (e, run) in &runs {
+        writeln!(text, "            StoreFormat::{} => {},", e.variant(), run.described).unwrap();
+    }
     text.push_str("        }\n    }\n\n    fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {\n        match self {\n");
     for (e, _) in &runs {
         writeln!(text, "            StoreFormat::{} => crate::{}::store_parser(ir, objects, keys),", e.variant(), e.module()).unwrap();
@@ -129,6 +135,7 @@ fn entries(dir: &Path) -> Vec<Entry> {
                 form: run["form"].as_str().unwrap_or_else(|| panic!("{name}: no store run form")).to_string(),
                 named: run.get("named").and_then(|n| n.as_str()).map(str::to_string),
                 case: run.get("case").and_then(|c| c.as_bool()).unwrap_or(false),
+                described: run.get("described").and_then(|c| c.as_bool()).unwrap_or(false),
             });
             Entry { name, title, kind, sniff, store_run, path }
         })
