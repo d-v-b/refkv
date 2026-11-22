@@ -3,7 +3,7 @@
 
 use crate::check;
 use crate::ir::Ir;
-use crate::nd2::Step;
+use crate::step::Step;
 use serde_json::{Value as J, json};
 
 /// What a parser asked for: its requests, their bytes, and its rounds.

@@ -137,7 +137,7 @@ fn a_motion_jpeg_track_reads_its_first_sample_s_frame_header() {
         let media = mdat as u64 + GROWN as u64..moov as u64 + GROWN as u64;
         let mut parser = Mp4::new(data.len() as u64);
         let mut reads = Vec::new();
-        while let refkv_ir::nd2::Step::Read(ranges) = parser.step().unwrap() {
+        while let refkv_ir::step::Step::Read(ranges) = parser.step().unwrap() {
             for (o, n) in ranges {
                 if media.contains(&o) && n != 16 {
                     reads.push(n);
@@ -192,7 +192,7 @@ fn a_fragment_takes_one_read() {
     }
     let mut parser = Mp4::new(data.len() as u64);
     let mut reads = 0;
-    while let refkv_ir::nd2::Step::Read(ranges) = parser.step().unwrap() {
+    while let refkv_ir::step::Step::Read(ranges) = parser.step().unwrap() {
         for (o, n) in ranges {
             reads += 1;
             parser.feed(o, data[o as usize..(o + n) as usize].to_vec());

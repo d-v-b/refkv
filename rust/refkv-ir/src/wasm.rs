@@ -6,7 +6,8 @@
 //! `Format::from_name`: the profile's in spec/zarrify/profiles/); `vz_step`, `vz_feed`
 //! and `vz_finish` drive it. The `nd2_*` names are round 2's, kept.
 
-use crate::nd2::{Nd2, Step};
+use crate::nd2::Nd2;
+use crate::step::Step;
 use crate::run::AnyParser;
 use std::cell::RefCell;
 

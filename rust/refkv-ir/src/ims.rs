@@ -21,7 +21,7 @@ use crate::check;
 use crate::hdf5::walk::{lenient, visit, Emit, Visit};
 use crate::hdf5::{self, le, Acc, Fail, Links, R, Target, H5};
 use crate::ir::{Ir, NO_INDEX};
-use crate::nd2::Step;
+use crate::step::Step;
 use crate::rules::{self, flag, num, text, Rules, Vars};
 use crate::expr::V;
 use crate::text::{is_decimal, utf8_or_latin1};

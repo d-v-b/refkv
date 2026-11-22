@@ -24,7 +24,7 @@ use crate::expr::V;
 use crate::fed::{Fed, Overlap, uint};
 use crate::gz::inflate_prefix;
 use crate::ir::*;
-use crate::nd2::Step;
+use crate::step::Step;
 use crate::rules::{self, Rules, flag, int, num, text};
 use crate::sans::{self, Asked};
 use crate::zip::{self, DEFLATE_FORM};

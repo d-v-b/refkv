@@ -69,7 +69,7 @@ fn a_long_fragment_chain_is_walked_to_its_end() {
 
 #[test]
 fn rejects_a_dicom_range_asked_for_and_not_fed() {
-    use refkv_ir::nd2::Step;
+    use refkv_ir::step::Step;
     let err = |r: Result<Step, String>| match r {
         Err(m) => m,
         Ok(_) => panic!("stepped on"),

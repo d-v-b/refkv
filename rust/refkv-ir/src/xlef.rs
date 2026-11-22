@@ -17,7 +17,7 @@ use crate::beside::{self, Written};
 use crate::expr::V;
 use crate::ir::{Ir, Res, NO_INDEX};
 use crate::lif::{self, Lif, Tree};
-use crate::nd2::Step;
+use crate::step::Step;
 use crate::rules::{self, Rules, flag, num, text};
 use crate::run::unread_shown;
 use crate::store::{StoreParser, StoreStep};

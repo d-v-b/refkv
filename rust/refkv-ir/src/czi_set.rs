@@ -10,7 +10,7 @@
 use crate::beside::{Tree, MAX_FILES};
 use crate::czi::{Czi, Planes};
 use crate::ir::{Ir, Res};
-use crate::nd2::Step;
+use crate::step::Step;
 use crate::run::unread_shown;
 use crate::store::{StoreParser, StoreStep};
 use serde_json::{json, Value as J};
