@@ -111,11 +111,18 @@ def test_the_description_is_what_ffmpeg_and_libsndfile_read(path):
             demuxed[-1] = (o, n - 128, k)
         assert [(o, n) for o, n, _ in demuxed] == frames
         # each frame's samples, as ffmpeg decodes them: every frame but the last the block size
+        # (older ffmpeg decodes no last frame an ID3v1 tag's bytes come with, which bounds the total)
         counts = [k for _, _, k in demuxed]
-        assert all(k in (None, d["block_size"]) for k in counts[:-1])
-        assert counts[0] in (None, d["block_size"])
-        if None not in counts:
-            assert d["samples"] == sum(k for k in counts if k is not None)
+        whole = [k for k in counts[:-1] if k is not None]
+        assert len(whole) == len(counts) - 1, "ffmpeg decodes every frame but the last"
+        assert all(k == d["block_size"] for k in whole)
+        last = counts[-1]
+        if last is None:
+            assert d["id3v1"] is not None
+            assert sum(whole) < d["samples"] <= sum(whole) + d["block_size"]
+        else:
+            assert d["samples"] == sum(whole) + last
+            assert len(counts) > 1 or last == d["block_size"]
         if d["vorbis_comment"] is not None:
             fields = [c.partition("=") for c in d["vorbis_comment"]["comments"]]
             assert {k.upper(): v for k, _, v in fields} == {k.upper(): v for k, v in container.metadata.items()}
