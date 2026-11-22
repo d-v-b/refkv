@@ -749,7 +749,8 @@ The voxels' stored description is keyed by `header`, or of a gzipped file by `vo
 from the IR's `header` value, or a gzipped file's from `gzip.head`, and makes every decision of
 [§3](#3-data-types), [§4](#4-the-image), [§5](#5-source-metadata) and [§7.2](#72-chunks) from it. A
 pair's store run also reads the edge chunks the projection copies ([§7.5](#75-header-and-image-pairs)),
-which it returns beside the description.
+which it gives the projection apart from the description, by their offset and length in the image
+file.
 
 The parser still makes one decision of the output: the `voxels` element's form names the data type
 of [§3](#3-data-types) ([§5.3](#53-elements)).
