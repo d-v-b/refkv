@@ -2584,7 +2584,10 @@ objects from the table alone: <a class="reference internal" href="#stores">§8.9
 <p>A form is a JSON object: for a data element, <code class="docutils literal notranslate"><span class="pre">recipe</span></code> and, as its format
 gives them, <code class="docutils literal notranslate"><span class="pre">geometry</span></code> (the format’s description of the unit, such as its shape
 and data type) and <code class="docutils literal notranslate"><span class="pre">codec</span></code> (a SAFE tile part has no <code class="docutils literal notranslate"><span class="pre">geometry</span></code>, and a FITS
-table’s rows and heap have no <code class="docutils literal notranslate"><span class="pre">codec</span></code>); for a derived element,
+table’s rows and heap have no <code class="docutils literal notranslate"><span class="pre">codec</span></code>), each in the source’s own terms: never
+an output’s data type, codec or other metadata, which are a projection’s
+(<a class="reference internal" href="stored-array.html#stored-arrays"><span class="std std-ref">stored-array.md §1</span></a>;
+<code class="docutils literal notranslate"><span class="pre">python/tests/test_ir_has_no_zarr.py</span></code> checks every fixture); for a derived element,
 <code class="docutils literal notranslate"><span class="pre">transform</span></code> and, when known, <code class="docutils literal notranslate"><span class="pre">size</span></code>, with <code class="docutils literal notranslate"><span class="pre">skip</span></code> for <code class="docutils literal notranslate"><span class="pre">nd2-lv-zlib</span></code> (the bytes
 of the element before its zlib stream), and, for a <code class="docutils literal notranslate"><span class="pre">deflate</span></code> element whose
 space holds values, <code class="docutils literal notranslate"><span class="pre">prefix</span></code>: the number of bytes, from the start of what its

@@ -1014,7 +1014,10 @@ objects from the table alone: [§8.9](#89-stores).)
 A form is a JSON object: for a data element, `recipe` and, as its format
 gives them, `geometry` (the format's description of the unit, such as its shape
 and data type) and `codec` (a SAFE tile part has no `geometry`, and a FITS
-table's rows and heap have no `codec`); for a derived element,
+table's rows and heap have no `codec`), each in the source's own terms: never
+an output's data type, codec or other metadata, which are a projection's
+([stored-array.md §1](stored-array.md#1-stored-arrays);
+`python/tests/test_ir_has_no_zarr.py` checks every fixture); for a derived element,
 `transform` and, when known, `size`, with `skip` for `nd2-lv-zlib` (the bytes
 of the element before its zlib stream), and, for a `deflate` element whose
 space holds values, `prefix`: the number of bytes, from the start of what its
