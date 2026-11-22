@@ -9,7 +9,7 @@ layout as a reference store, which files it reads and which inputs it rejects, i
 profile, [Part 2](#part-2-the-profile) below. The format is the HDF Group's HDF4, as its library
 writes and reads it (the `hdf4` repository: `hdf/src` for the file layer and the Vdata and Vgroup
 interfaces, `mfhdf/src` for the SD interface), cited here by its source files. The design note is
-[design/plans/hdf4.md](../../design/plans/hdf4.md).
+design/plans/hdf4.md ([#326](https://github.com/d-v-b/refkv/pull/326)).
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `af66c29e-fc1a-44a4-bb71-1055ad5fdb0a` ·
 Schema: [schema.json](hdf4/schema.json)
@@ -21,7 +21,7 @@ Added 2026-11-17.
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 This version covers the first two steps of the plan's order of work
-([design/plans/hdf4.md](../../design/plans/hdf4.md)): the SD interface's datasets of numbers and of
+(design/plans/hdf4.md, in [#326](https://github.com/d-v-b/refkv/pull/326)): the SD interface's datasets of numbers and of
 text, their attributes, the writer's Vdata tables, and the writer's Vgroups. Raster images, external
 elements and the codecs other than deflate are listed with a reason
 ([§8.4](#84-what-is-not-presented)), and their bytes stay in the IR mirror.

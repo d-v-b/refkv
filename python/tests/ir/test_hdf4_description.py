@@ -78,6 +78,16 @@ def attributes(description: dict[str, Any], refs: list[int]) -> list[tuple[str, 
     return [(text(vdatas[r]["name"]), as_pyhdf(vdatas[r])) for r in refs if vdatas.get(r, {}).get("value") is not None]
 
 
+def compression(sds: Any) -> int:
+    """A dataset's compression method as the library gives it: 0 for none. Some builds of the
+    library (pyhdf's Linux and Windows wheels) fail `SDgetcompinfo` on a dataset that is not
+    compressed, where others give 0."""
+    try:
+        return sds.getcompress()[0]
+    except HDF4Error:
+        return 0
+
+
 def assert_same(ours: list[tuple[str, Any]], full: dict[str, Any], at: object) -> None:
     """The description's attributes are pyhdf's (`attributes(full=1)`), in its order."""
     theirs = [(k, v[0]) for k, v in sorted(full.items(), key=lambda kv: kv[1][1])]
@@ -163,7 +173,7 @@ def test_the_description_is_what_the_hdf4_library_reads(path: Path):
                 assert [n for k, n in enumerate(d["dimension_sizes"]) if not (k == 0 and s.isrecord())] == [
                     s.dim(k).info()[1] for k in range(rank) if not (k == 0 and s.isrecord())
                 ], at
-                method = s.getcompress()[0]
+                method = compression(s)
                 data = d["data"]
                 if data is None or data["kind"] == "plain":
                     assert method == 0, at
