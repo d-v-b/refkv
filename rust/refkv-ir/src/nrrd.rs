@@ -347,7 +347,6 @@ pub struct Fields {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#3-data-types-and-encodings>,
     /// an alias such as `short` or `signed short int` as written
     pub type_name: String,
-    pub data_type: String,
     pub item: u64,
     pub encoding: String,
     pub little: Option<bool>,
@@ -417,7 +416,7 @@ pub fn fields(rules: &Rules, h: &Header, header_key: &str) -> Res<Fields> {
     rules.check("type", rules::env([("name", text(&name))]))?;
     let spec = rules.entry("types", &name).ok_or("internal: a type the schema does not name")?;
     let type_name = name;
-    let (data_type, item) = (spec["dtype"].as_str().unwrap_or("uint8").to_string(), spec["bytes"].as_u64().unwrap_or(1));
+    let item = spec["bytes"].as_u64().unwrap_or(1);
 
     let d = required(rules, h, "encoding", "")?;
     let name = shown(trim(d)).to_ascii_lowercase();
@@ -515,7 +514,7 @@ pub fn fields(rules: &Rules, h: &Header, header_key: &str) -> Res<Fields> {
     })?;
     let number = |field: &str| h.field(field).and_then(|d| float(trim(d)));
     Ok(Fields {
-        dimension: n, type_name, data_type, item, encoding, little, sizes, line_skip, byte_skip, data_file,
+        dimension: n, type_name, item, encoding, little, sizes, line_skip, byte_skip, data_file,
         directions, origin, space_units, spacings, units, kinds, min: number("min"), max: number("max"),
     })
 }
@@ -764,7 +763,10 @@ impl Nrrd {
         if f.encoding == "gzip" && f.byte_skip > 0 {
             codec.insert("skip".into(), json!(f.byte_skip));
         }
-        let form = json!({"geometry": {"data_type": f.data_type, "shape": self.stored_shape()}, "codec": codec, "recipe": [["src", 0, null]]});
+        // its type as the header's `type` names it, not an output's data type, which is its
+        // projection's (conventions §8.5
+        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)
+        let form = json!({"geometry": {"type": f.type_name, "shape": self.stored_shape()}, "codec": codec, "recipe": [["src", 0, null]]});
         let data = ir.data(o, "data", NO_INDEX, 0, (self.start, self.length), &form.to_string())?;
         claimed[self.data].push((self.start, self.length));
         for (k, c) in claimed.iter_mut().enumerate() {
