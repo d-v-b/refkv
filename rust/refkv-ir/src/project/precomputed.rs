@@ -1,7 +1,9 @@
 //! The precomputed projection (spec/zarrify/precomputed.md §2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#2-the-info-document>–§8
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#8-other-objects>) from a
-//! valid store IR: `info`, read back from the held object, and the listing's keys. Each scale
+//! valid store IR and the parser's description of the store (§11.4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#114-the-description>):
+//! `info` as parsed, and the listing's keys. Each scale
 //! the parser's rules present becomes an array with the codec `refkv.precomputed`, and each of
 //! its chunk objects (or shards, the box of chunks each holds being known from its name) a
 //! reference to the whole object after a literal header, its position on the chunk grid. Every
@@ -170,13 +172,13 @@ fn ome(scales: &[Scale], data_type: &str, channels: u64, image: bool) -> J {
     m
 }
 
-/// The precomputed hierarchy of a valid store IR, outside `refkv_source`, and its references.
-pub fn project(ir: &Ir, _facts: &J, url: &str) -> Result<Out, String> {
+/// The precomputed hierarchy of a valid store IR and its description, outside `refkv_source`, and
+/// its references.
+pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
     let src = ir.sources();
     let listing: Vec<(String, u64)> = src.objects.iter().map(|&o| (ir.key(o), ir.len[o as usize])).collect();
-    let info_o = src.objects.iter().copied().find(|&o| ir.key(o) == DOCUMENT).ok_or("internal: no info")?;
-    let b = ir.value_bytes(info_o).ok_or("internal: info is not held")?;
-    let info = json::parse(b).map_err(|e| format!("internal: info: {e}"))?.value;
+    let text = description["info"].as_str().ok_or("internal: the description has no info")?;
+    let info = json::parse(text.as_bytes()).map_err(|e| format!("internal: info: {e}"))?.value;
     let data_type = info.get("data_type").and_then(Jv::as_str).unwrap_or("").to_string();
     let channels = info.get("num_channels").and_then(|v| v.int(1, 65535)).unwrap_or(1);
     let image = info.get("type").and_then(Jv::as_str) == Some("image");
@@ -275,6 +277,6 @@ pub fn project(ir: &Ir, _facts: &J, url: &str) -> Result<Out, String> {
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    project(ir, facts, url)
+pub fn store_project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    project(ir, description, url)
 }

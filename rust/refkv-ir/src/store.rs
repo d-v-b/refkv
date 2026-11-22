@@ -98,16 +98,17 @@ impl StoreFormat {
 
     /// The profile's description of the input (the design of d-v-b/refkv#278, "The
     /// description"), from what the run's parser returned beside the IR, `facts`, without the
-    /// run's own counts: Some for a store format whose profile's store run is described
-    /// (`run::FileProfile::store_described`), and always for Zarr v2, Zarr v3 and N5, which have no
-    /// file profile of their own; None otherwise. Each profile with a description specifies it in its
-    /// document's section "The description" (`spec/zarrify/<profile>.md`).
+    /// run's own counts: the facts, of a store format whose profile's registry entry says its store
+    /// run returns them as one (`described`, spec/zarrify/profiles/<name>.json); else where a
+    /// profile whose store parser returns one beside its facts says it is
+    /// (`run::FileProfile::store_description`); None otherwise. Each profile with a description
+    /// specifies it in its document's section "The description" (`spec/zarrify/<profile>.md`).
     pub fn description(self, facts: &J) -> Option<J> {
-        let own = matches!(self, StoreFormat::Zarr2 | StoreFormat::Zarr3 | StoreFormat::N5);
-        if !own && !crate::run::Format::from_name(self.name()).is_some_and(|f| f.profile().store_described()) {
-            return None;
-        }
-        let mut description = facts.clone();
+        let mut description = if self.described() {
+            facts.clone()
+        } else {
+            crate::run::Format::from_name(self.name())?.profile().store_description(facts)?
+        };
         if let Some(m) = description.as_object_mut() {
             m.remove("counts");
             // the bytes a TIFF store run read for its projection's windows
@@ -603,11 +604,11 @@ mod tests {
     use super::*;
 
     /// A store run's description is its facts without the run's counts, of a store format whose
-    /// profile's store run returns one, and none of the others.
+    /// registry entry says its store run returns one, and none of the others.
     #[test]
     fn a_store_format_whose_profile_says_so_gives_its_facts_as_a_description() {
         let facts = json!({"samples": 1, "counts": {"batches": 2}});
-        for name in ["envi", "hdf5", "zarr2", "zarr3", "n5"] {
+        for name in ["envi", "hdf5", "zarr2", "zarr3", "n5", "precomputed"] {
             let want = (name != "hdf5").then(|| json!({"samples": 1}));
             assert_eq!(StoreFormat::from_name(name).unwrap().description(&facts), want, "{name}");
         }
