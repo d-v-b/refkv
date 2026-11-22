@@ -636,8 +636,7 @@ mod tests {
     fn a_store_format_whose_profile_says_so_gives_its_facts_as_a_description() {
         let facts = json!({"samples": 1, "counts": {"batches": 2}});
         for name in ["envi", "hdf5", "zarr2", "zarr3", "n5", "precomputed", "safetensors"] {
-            let want = (name != "hdf5").then(|| json!({"samples": 1}));
-            assert_eq!(StoreFormat::from_name(name).unwrap().description(&facts), want, "{name}");
+            assert_eq!(StoreFormat::from_name(name).unwrap().description(&facts), Some(json!({"samples": 1})), "{name}");
         }
     }
 
