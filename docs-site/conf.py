@@ -10,7 +10,8 @@ each heading the anchor GitHub gives it. As Sphinx reads each document (`read`, 
   registry (spec/zarrify/profiles/<name>.json) and each format's own files (spec/tools/blocks.py),
   so that no list of formats is committed;
 - points a link to a file the site does not render (code, a schema, a directory with no README)
-  at that file on GitHub, and leaves a link to a path that does not exist for MyST to report;
+  at that file on GitHub, and leaves a link to a path that does not exist for MyST to report
+  (but in a record of a past state, and a format's changelog pointer before its first change);
 - adds the navigation (`toctree`): the README lists the guides (docs/*.md), the specification
   (spec/*.md and its bindings) and each entry of the registry's document; a format's document
   lists its user's README and its stored arrays.
@@ -31,6 +32,7 @@ sys.path.insert(0, str(ROOT / "spec" / "tools"))
 
 import blocks  # noqa: E402 (spec/tools, put on the path above)
 import profiles  # noqa: E402
+import sections  # noqa: E402
 
 REPO = "https://github.com/d-v-b/refkv"
 # an HTML anchor, as the documents mark a definition in a paragraph (spec/tools/sections.py reads them)
@@ -75,6 +77,13 @@ def github(path: str, anchor: str) -> str:
     return f"{REPO}/{kind}/main/{path}{anchor}"
 
 
+def pending_changes(path: str) -> bool:
+    """Whether `path` is the changes directory of a format's document that records no change yet,
+    which its changelog pointer names all the same (spec/tools/changelog.py)."""
+    head, name = posixpath.split(path)
+    return head == "spec/zarrify/changes" and (ROOT / "spec" / "zarrify" / f"{name}.md").is_file()
+
+
 def documents(pattern: str) -> list[str]:
     """The documents matching `pattern`, as docnames, a directory's README first."""
     paths = [p.relative_to(ROOT).with_suffix("").as_posix() for p in ROOT.glob(pattern)]
@@ -112,8 +121,12 @@ def page(text: str, here: str, docname: str, sources: set[str]) -> str:
         if not blocks.is_relative(target):
             return target
         path, hash_, anchor = blocks.resolve(target, here).partition("#")
-        # a rendered document, or a path that does not exist: as it is, which MyST reports
-        if path in sources or path.startswith("..") or not (ROOT / path).exists():
+        if path in sources or path.startswith(".."):
+            return target
+        # a path that does not exist stays as it is, which MyST reports, but in a record of a past
+        # state, whose links cite the documents as they were and which sections.py does not check,
+        # and a format's changelog pointer before its first change (spec/tools/changelog.py)
+        if not (ROOT / path).exists() and not sections.excluded(here) and not pending_changes(path):
             return target
         if f"{path}/README.md" in sources:
             return link(f"{path}/README.md{hash_}{anchor}")
