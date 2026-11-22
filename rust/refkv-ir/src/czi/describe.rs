@@ -92,6 +92,7 @@ impl Czi {
         let attachments = self.att.map(|(p, _, k)| json!({"position": p, "entry_count": k, "entries": self.att_entries}));
         json!({
             "size": self.size,
+            "given": self.given,
             "file_header": header,
             "segments": segments.into_iter().map(|s| s.1).collect::<Vec<_>>(),
             "directory": directory,

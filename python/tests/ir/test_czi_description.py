@@ -21,7 +21,9 @@ The description departs from the readers in these ways, each counted where it is
 - the profile reads no value of a metadata XML that is not UTF-8, or whose root is not
   `ImageDocument`, where pylibCZIrw parses it; and an XML pylibCZIrw does not parse (with end tags
   that close no element), which the profile's tag scan reads, is not compared;
-- a run of an image across files (a file whose entries name other parts) has no description yet."""
+- of a part of an image across files, the entries the named file gives come first, and a subblock's
+  copy agrees with its entry whatever FilePart each names (spec/zarrify/czi.md §7.9
+  <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>)."""
 
 import json
 import logging
@@ -39,7 +41,7 @@ import jsonschema
 import numpy as np
 import pytest
 from ir_helpers import ROOT
-from test_czi_stored import FILES, jpeg_frame, writer, written, zstd1_header
+from test_czi_stored import FILES, PART, agree, jpeg_frame, writer, written, zstd1_header
 
 from refkv.build import read
 
@@ -216,8 +218,12 @@ def check_segments(d: dict, c: czifile.CziFile, data: bytes, said: list[str], se
     said += [f"czifile's walk visits a segment at {o}, which the description does not name" for o in missing]
 
 
-def check_entry(e: dict, theirs: czifile.CziDirectoryEntryDV, c: czifile.CziFile, said: list[str],
-                seen: Counter) -> None:
+type Named = tuple[czifile.CziDirectoryEntryDV, bytes]
+"""an entry as czifile reads it, and its bytes"""
+
+
+def check_entry(e: dict, named: Named, said: list[str], seen: Counter) -> None:
+    theirs, raw = named
     seen["entries"] += 1
     mine = (e["schema"], e["pixel_type"], e["file_position"], e["file_part"], e["compression"], e["pyramid_type"])
     them = ("DV", int(theirs.pixel_type), theirs.file_position, theirs.file_part, int(theirs.compression),
@@ -225,15 +231,13 @@ def check_entry(e: dict, theirs: czifile.CziDirectoryEntryDV, c: czifile.CziFile
     if mine != them:
         said.append(f"entry at {theirs.offset}: {mine}, czifile's {them}")
     seen["pyramid types"] += e["pyramid_type"] != 0
-    dims = theirs.read_dimension_entries(c)
-    if len(e["dimensions"]) != theirs.dimensions_count:
-        said.append(f"entry at {theirs.offset}: {len(e['dimensions'])} dimension entries")
-    for m in e["dimensions"]:
-        seen["dimension entries"] += 1
-        t = dims.get(m["dimension"])
-        if t is None or (m["start"], m["size"], m["start_coordinate"], m["stored_size"]) != (
-                t.start, t.size, t.start_coordinate, t.stored_size):
-            said.append(f"entry at {theirs.offset}: dimension {m['dimension']} differs")
+    dims = [czifile.CziDimensionEntryDV1(raw[32 + 20 * k:52 + 20 * k]) for k in range(theirs.dimensions_count)]
+    theirs_dims = [(str(t.dimension), t.start, t.size, t.start_coordinate, t.stored_size) for t in dims]
+    mine_dims = [(m["dimension"], m["start"], m["size"], m["start_coordinate"], m["stored_size"])
+                 for m in e["dimensions"]]
+    seen["dimension entries"] += len(mine_dims)
+    if mine_dims != theirs_dims:
+        said.append(f"entry at {theirs.offset}: dimensions {mine_dims}, czifile's {theirs_dims}")
 
 
 def check_stream(s: dict, e: dict, segment: czifile.CziSubBlockSegmentData, data: bytes, said: list[str],
@@ -273,10 +277,19 @@ def check_stream(s: dict, e: dict, segment: czifile.CziSubBlockSegmentData, data
             said.append(f"subblock at {e['file_position']}: Zstd1 header {zstd1_header(head)}")
 
 
-def check_subblocks(d: dict, c: czifile.CziFile, data: bytes, said: list[str], seen: Counter) -> None:
+def check_subblocks(d: dict, named: list[Named | None], part: int, c: czifile.CziFile, data: bytes, said: list[str],
+                    seen: Counter) -> None:
+    """Each entry's subblock, `named` the entries as czifile reads them (None of one it does not
+    list) in the description's order."""
     elements: dict[int, int] = {}
-    for k, e in enumerate(d["entries"]):
+    for k, (e, n) in enumerate(zip(d["entries"], named, strict=True)):
         s = e["subblock"]
+        if e["file_part"] not in (0, part):
+            # an entry of the named file whose subblock is in a part
+            seen["entries of another file's subblocks"] += 1
+            if s is not None:
+                said.append(f"entry {k}: a subblock in another file")
+            continue
         if s is None:
             said.append(f"entry {k}: no subblock")
             continue
@@ -294,12 +307,10 @@ def check_subblocks(d: dict, c: czifile.CziFile, data: bytes, said: list[str], s
         seen["entries of a subblock an earlier one names"] += again
         if elements.setdefault(pos, s["element"]) != s["element"] or (s["agrees"] is None) != again:
             said.append(f"subblock at {pos}: element {s['element']}, agrees {s['agrees']}")
-        if again:
+        if again or n is None:
             continue
-        entry = c.subblock_directory[k]
         copy = segment.directory_entry
-        mine = data[entry.offset:entry.offset + entry.storage_size]
-        agrees = mine == data[copy.offset:copy.offset + copy.storage_size]
+        agrees = agree(data[copy.offset:copy.offset + copy.storage_size], n[1], part)
         seen["copies that differ"] += not agrees
         if s["agrees"] != agrees:
             said.append(f"subblock at {pos}: agrees {s['agrees']}")
@@ -375,9 +386,12 @@ def check_attachments(d: dict, c: czifile.CziFile, data: bytes, said: list[str],
             said.append(f"attachment {k}: {mine}, czifile's {them}")
 
 
-def check_file(path: Path, d: dict, said: list[str], seen: Counter) -> None:
+def check_file(path: Path, d: dict, part: int, given: list[Named], said: list[str], seen: Counter) -> None:
+    """One file's description against the readers': part `part` of an image (0 of a file or the
+    named file), `given` the named file's entries of its subblocks."""
     data = path.read_bytes()
     seen["files"] += 1
+    seen["parts"] += part > 0
     with czifile.CziFile(path) as c:
         h = c.header
         mine = d["file_header"]
@@ -389,14 +403,33 @@ def check_file(path: Path, d: dict, said: list[str], seen: Counter) -> None:
         if d["size"] != len(data) or mine != them:
             said.append(f"file header {mine}, czifile's {them}")
         check_segments(d, c, data, said, seen)
-        directory = c.subblock_directory
-        if d["directory"] != {"position": h.directory_position, "entry_count": len(directory)}:
+        # czifile's entries of a file with no directory are the copies its walk finds
+        own: list[Named] = [(e, data[e.offset:e.offset + e.storage_size]) for e in c.subblock_directory]
+        has_directory = h.directory_position != 0
+        want = {"position": h.directory_position, "entry_count": len(own)} if has_directory else None
+        if d["directory"] != want:
             said.append(f"directory {d['directory']}")
-        if len(d["entries"]) != len(directory):
-            said.append(f"{len(d['entries'])} entries, czifile's {len(directory)}")
-        for e, theirs in zip(d["entries"], directory, strict=False):
-            check_entry(e, theirs, c, said, seen)
-        check_subblocks(d, c, data, said, seen)
+        if d["given"] != len(given):
+            said.append(f"{d['given']} given entries, {len(given)} of the named file's")
+        rest = d["entries"][len(given):]
+        named: list[Named | None] = list(given)
+        if has_directory:
+            if len(rest) != len(own):
+                said.append(f"{len(rest)} entries, czifile's {len(own)}")
+            named += own[:len(rest)]
+        else:
+            # a part with no directory: the copies its walk finds that the named file does not name
+            seen["parts with no directory"] += 1
+            by_position = {e.file_position: (e, b) for e, b in own}
+            named += [by_position.get(e["file_position"]) for e in rest]
+            said += [f"entry at {e['file_position']}: no subblock there" for e in rest
+                     if e["file_position"] not in by_position]
+        named += [None] * (len(d["entries"]) - len(named))
+        seen["entries the named file gives"] += len(given)
+        for e, n in zip(d["entries"], named, strict=True):
+            if n is not None:
+                check_entry(e, n, said, seen)
+        check_subblocks(d, named, part, c, data, said, seen)
         check_metadata(d, c, path, data, said, seen)
         check_attachments(d, c, data, said, seen)
 
@@ -408,17 +441,25 @@ def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
     seen: Counter = Counter()
     with read(path) as parsed:
         d = parsed.description
-        plain = parsed.plain_file
-    if not plain:
-        # an image across files: its store run has no description yet
-        seen["images across files"] += 1
-        if d is not None:
-            said.append("a description of an image across files")
-        return tuple(said), seen
     assert d is not None
     errors = sorted(e.message[:200] for e in jsonschema.Draft202012Validator(SCHEMA).iter_errors(d))
     said += [f"not of the schema: {e}" for e in errors]
-    check_file(path, d, said, seen)
+    check_file(path, d, 0, [], said, seen)
+    if "files" not in d:
+        return tuple(said), seen
+    # an image across files: the named file's, then each part's
+    seen["images across files"] += 1
+    if d["named_key"] != path.name:
+        said.append(f"named key {d['named_key']!r}")
+    data = path.read_bytes()
+    with czifile.CziFile(path) as c:
+        master = [(e, data[e.offset:e.offset + e.storage_size]) for e in c.subblock_directory]
+    for f in d["files"]:
+        number = PART.search(f["key"])
+        assert number is not None
+        part = int(number[1])
+        given = [(e, b) for e, b in master if e.file_part == part]
+        check_file(path.parent / f["key"], f["description"], part, given, said, seen)
     return tuple(said), seen
 
 
@@ -432,7 +473,8 @@ def test_the_fixtures_reach_every_case_the_comparison_reads():
     seen: Counter = Counter()
     for path in FILES:
         seen += compared(path)[1]
-    wanted = ["files", "images across files", "segments", "segments the walk found", "deleted segments",
+    wanted = ["files", "images across files", "parts", "parts with no directory", "entries the named file gives",
+              "entries of another file's subblocks", "segments", "segments the walk found", "deleted segments",
               "used sizes of 0", "segment ids czifile does not read", "entries", "dimension entries", "pyramid types",
               "subblocks", "copies that differ", "streams that are not their entry's", "streams czifile decodes",
               "JPEG frame headers", "lossless JPEG streams under JpgFile", "Zstd1 headers", "hi-lo packing",

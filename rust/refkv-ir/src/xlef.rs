@@ -9,8 +9,9 @@
 //! driven by a parser of its own (`crate::lif::Lif`, of the file run's kind), a batch at a time:
 //! each one's first 64 KiB, then its XML. Then the values the view shows that the parsers did not
 //! keep. Each LOF's file IR joins the store IR under the LOF's object (`Ir::graft`), a document
-//! is held, and the output's images are found by walking the documents in the order they name
-//! one another.
+//! is held, and the run returns a description of the documents and the LOFs. The output's images,
+//! found by walking the documents in the order they name one another, are refkv's plan's
+//! (`crate::lif::plan::plan_set`).
 
 use crate::beside::{self, Written};
 use crate::expr::V;
@@ -139,7 +140,7 @@ pub struct Xlef {
     doc_of: HashMap<usize, usize>,
     lofs: Vec<Named>,
     lof_of: HashMap<usize, usize>,
-    /// the parsers' (object's index, by, IR, facts), in `lofs`' order
+    /// the parsers' (object's index, by, IR, description), in `lofs`' order
     parsed: Vec<(usize, usize, Ir, J)>,
     /// the values to fill: (index in `parsed`, element, offset, length)
     fill: Vec<(usize, u32, u64, u64)>,
@@ -150,20 +151,10 @@ fn dir_of(key: &str) -> &str {
     key.rfind('/').map_or("", |k| &key[..k])
 }
 
-fn depth() -> String {
+/// The rejection of documents that name documents too deep (spec/zarrify/lif.md §8.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#83-limits>).
+pub(crate) fn depth() -> String {
     format!("budget: documents name documents more than {} levels deep", beside::MAX_DEPTH)
-}
-
-/// Why a document's image is not presented (spec/zarrify/lif.md §8.4
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#84-the-images>).
-fn left_out(doc: &Document) -> String {
-    let Some(first) = doc.entries.first() else {
-        return "its Memory names no file".into();
-    };
-    let suffix = first.file.rfind('.').map_or("", |k| &first.file[k..]).to_ascii_lowercase();
-    let n = doc.entries.len();
-    let (s, verb) = if n == 1 { ("", "is") } else { ("s", "are") };
-    format!("its {n} {}{s} of {suffix} file{s} {verb} not read: the profile presents one Block of a LOF", first.tag)
 }
 
 impl Xlef {
@@ -376,60 +367,49 @@ impl Xlef {
         Ok(asked)
     }
 
-    /// The parsers' IRs and facts, each checked against the document that names it; the reads of
-    /// what the view shows that the parsers did not keep.
+    /// The parsers' IRs and descriptions, each checked against the document that names it; the
+    /// reads of what the view shows that the parsers did not keep.
     fn finish_parsers(&mut self) -> Res<Vec<(usize, u64, u64)>> {
         let mut asked = Vec::new();
         for f in std::mem::take(&mut self.lofs) {
             let Named { index, key, parser, by, .. } = f;
             self.rules.check("lof_file", rules::env([("key", text(&key)), ("lof", flag(parser.is_lof()))]))?;
-            let (ir, facts) = parser.finish()?;
-            self.check_lof(&self.docs[by], &key, &facts)?;
+            let (ir, mut description) = parser.finish()?;
+            if let Some(m) = description.as_object_mut() {
+                for count in ["requests", "requested", "rounds"] {
+                    m.remove(count);
+                }
+            }
+            self.check_lof(&self.docs[by], &key, &description)?;
             let at = self.parsed.len();
             for (e, o, n) in unread_shown(&ir, "lif") {
                 self.fill.push((at, e, o, n));
                 asked.push((index, o, n));
             }
-            self.parsed.push((index, by, ir, facts));
+            self.parsed.push((index, by, ir, description));
         }
         asked.sort_unstable();
         asked.dedup();
         Ok(asked)
     }
 
-    /// A LOF against the `Block` that names it: its `UniqueID`, and that the block's range fits.
-    fn check_lof(&self, doc: &Document, key: &str, facts: &J) -> Res<()> {
-        let images = facts["images"].as_array().map_or(0, Vec::len);
+    /// A LOF against the `Block` that names it: that it has an image where the document is one,
+    /// and its `UniqueID`. Whether the `Block`'s range fits the LOF's block, and the image the
+    /// range, is refkv's plan's (`lif::plan::plan_set`), after the image's own checks.
+    fn check_lof(&self, doc: &Document, key: &str, description: &J) -> Res<()> {
+        let images = description["images"].as_array().map_or(0, Vec::len);
         self.rules.check(
             "lof_image",
             rules::env([("document", text(&doc.key)), ("key", text(key)), ("has", flag(!doc.image || images > 0))]),
         )?;
         let unique = doc.attributes.get("UniqueID").and_then(J::as_str);
-        let theirs = facts["unique"].as_str();
+        let theirs = description["unique_id"].as_str();
         self.rules.check(
             "identity",
             rules::env([
                 ("noun", text("LOF")),
                 ("key", text(key)),
                 ("same", flag(unique.is_none() || theirs.is_none() || unique == theirs)),
-            ]),
-        )?;
-        let e = &doc.entries[0];
-        let offset = lif::integer(e.offset.as_deref()).unwrap_or(0) as u128;
-        let size = lif::integer(e.size.as_deref()).unwrap_or(0) as u128;
-        let held = facts["held"].as_u64().unwrap_or(0) as u128;
-        let need = facts["images"][0]["end"].as_u64().unwrap_or(0) as u128;
-        self.rules.check(
-            "block_fits",
-            rules::env([
-                ("document", text(&doc.key)),
-                ("key", text(key)),
-                ("end", text(&(offset + size).to_string())),
-                ("fits", flag(offset + size <= held)),
-                ("held", text(&held.to_string())),
-                ("size", text(&size.to_string())),
-                ("need", text(&need.to_string())),
-                ("covers", flag(!doc.image || need <= size)),
             ]),
         )
     }
@@ -454,9 +434,12 @@ impl Xlef {
         Ok(())
     }
 
-    /// The documents, the LOFs' IRs and the images, in the order the documents name one another
-    /// (spec/zarrify/lif.md §8.4
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#84-the-images>).
+    /// The documents and the LOFs' IRs, joined into the store IR, and the description of the
+    /// project (spec/zarrify/lif.md §9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#9-the-description>): its
+    /// documents, in the order they were read, and its LOFs, each with its own description. Which
+    /// images the output presents, in the order the documents name one another, is refkv's plan's
+    /// (`lif::plan::plan_set`).
     fn join(&mut self) -> Res<()> {
         let mut ir = self.ir.take().ok_or("internal: no IR")?;
         // a document is held, by the bytes the run keeps; a LOF is described in place
@@ -464,94 +447,47 @@ impl Xlef {
             let index = self.object[&d.key];
             ir.value(self.elems[index], "xml", NO_INDEX, "xml", 0, (0, self.keys[index].1), None)?;
         }
-        let mut lofs: HashMap<usize, (usize, u32, J)> = HashMap::new();
-        let mut blocks = 0u64;
-        let count = self.parsed.len();
-        for (index, by, mut file, mut facts) in std::mem::take(&mut self.parsed) {
+        let mut lofs = Vec::with_capacity(self.parsed.len());
+        let mut lof_of: HashMap<usize, usize> = HashMap::new();
+        for (index, by, mut file, mut description) in std::mem::take(&mut self.parsed) {
             file.sort_values();
             let e = self.elems[index];
             ir.describe_in_place(e)?;
             let at = ir.graft(&file, e)?;
-            // `declared_by`: the key of each image's description, the LOF's XML, by its id in the
+            // `declared_by`: the key of each image's stored array, the LOF's XML, by its id in the
             // store (spec/stored-array.md §2.1
             // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>)
-            for im in facts["images"].as_array_mut().into_iter().flatten() {
+            for im in description["images"].as_array_mut().into_iter().flatten().filter(|im| !im["declared_by"].is_null()) {
                 let key = im["declared_by"][0].as_u64().and_then(|k| at.get(k as usize));
                 im["declared_by"][0] = json!(key.ok_or("internal: a LOF's image names no element of its XML")?);
             }
-            blocks += facts["blocks"].as_u64().unwrap_or(0);
-            lofs.insert(by, (index, e, facts));
+            lof_of.insert(by, lofs.len());
+            let (key, size) = &self.keys[index];
+            lofs.push(json!({"key": key, "size": size, "object": e, "document": by, "description": description}));
         }
-        let mut images = Vec::new();
-        let mut not_presented = Vec::new();
-        let mut series = 0u64;
-        let mut seen = HashSet::from([0usize]);
-        let mut stack: Vec<(usize, usize)> = vec![(0, 0)];
-        self.visit(&stack, &mut lofs, &mut images, &mut not_presented, &mut series)?;
-        while let Some(top) = stack.last_mut() {
-            let Some((k, _)) = self.docs[top.0].references.get(top.1) else {
-                stack.pop();
-                continue;
-            };
-            top.1 += 1;
-            let index = self.known(k).ok_or("internal: a reference names no object")?;
-            let target = self.doc_of[&index];
-            if !seen.insert(target) {
-                continue;
+        let mut documents = Vec::with_capacity(self.docs.len());
+        for (d, doc) in self.docs.iter().enumerate() {
+            let mut references = Vec::with_capacity(doc.references.len());
+            for (k, uuid) in &doc.references {
+                let index = self.known(k).ok_or("internal: a reference names no object")?;
+                references.push(json!({"key": self.keys[index].0, "uuid": uuid, "document": self.doc_of[&index]}));
             }
-            if stack.len() as u32 >= beside::MAX_DEPTH {
-                return Err(depth());
-            }
-            stack.push((target, 0));
-            self.visit(&stack, &mut lofs, &mut images, &mut not_presented, &mut series)?;
+            let entries: Vec<J> =
+                doc.entries.iter().map(|e| json!({"tag": e.tag, "file": e.file, "offset": e.offset, "size": e.size})).collect();
+            documents.push(json!({
+                "key": doc.key, "name": doc.name, "attributes": doc.attributes, "image": doc.image, "memory": doc.memory,
+                "entries": entries, "references": references, "lof": lof_of.get(&d),
+            }));
         }
         let files: Vec<&str> = self.keys[1..].iter().map(|k| k.0.as_str()).collect();
-        // the LOFs that no image's chunks reference, in the order they were found
-        let mut unused: Vec<usize> = lofs.values().map(|l| l.0).collect();
-        unused.sort_unstable();
-        let unused: Vec<J> = unused.iter().map(|&i| json!([self.keys[i].0, self.keys[i].1])).collect();
-        let facts = json!({
-            "unused": unused,
+        let description = json!({
             "version": self.version,
             "named_key": self.keys[0].0,
             "files": files,
-            "not_presented": not_presented,
-            "documents": self.docs.len(),
-            "lofs": count,
-            "blocks": blocks,
-            "images": images,
-            "series": series,
+            "documents": documents,
+            "lofs": lofs,
         });
-        self.finished = Some(crate::sans::finish(true, ir, facts)?);
-        Ok(())
-    }
-
-    /// The document on the top of `stack`: its image's facts, or why it is not presented.
-    fn visit(&self, stack: &[(usize, usize)], lofs: &mut HashMap<usize, (usize, u32, J)>, images: &mut Vec<J>,
-             not_presented: &mut Vec<J>, series: &mut u64) -> Res<()> {
-        let d = stack.last().ok_or("internal: no document")?.0;
-        let doc = &self.docs[d];
-        if !doc.image {
-            return Ok(());
-        }
-        let path: Vec<J> = stack.iter().map(|&(s, _)| self.docs[s].name.clone()).collect();
-        let Some((_, object, mut facts)) = lofs.remove(&d) else {
-            not_presented.push(json!({"path": path, "document": doc.key, "reason": left_out(doc)}));
-            return Ok(());
-        };
-        let mut image = facts["images"][0].take();
-        let meta = &mut image["meta"];
-        meta["image"] = json!(images.len());
-        meta["path"] = J::Array(path);
-        meta["attributes"] = J::Object(doc.attributes.clone());
-        if let Some(m) = &doc.memory {
-            meta["memory"] = J::Object(m.clone());
-        }
-        image["object"] = json!(object);
-        image["name"] = doc.name.clone();
-        *series += image["fields"].as_array().map_or(0, |f| f.len() as u64);
-        self.rules.check("series", rules::env([("count", num(*series as f64))]))?;
-        images.push(image);
+        self.finished = Some(crate::sans::finish(true, ir, description)?);
         Ok(())
     }
 }

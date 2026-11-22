@@ -7,11 +7,18 @@ use common::fixtures;
 use refkv_ir::czi::Czi;
 use refkv_ir::parse_bytes;
 
-// one test per rejected fixture, each the message its check gives
-// one test per case of conformance/zarrify/rejects/czi.json (build.rs), each the message its check gives
+// one test per case of conformance/zarrify/rejects/czi.json (build.rs), each the message its check
+// gives: the parser's, or that of refkv's plan of the image (`czi::plan`)
 macro_rules! reject {
     ($name:ident, $input:literal, $msg:literal) => {
-        common::reject!($name, Czi, concat!("czi/", $input), $msg);
+        #[test]
+        fn $name() {
+            let data = std::fs::read(fixtures().join(concat!("czi/", $input))).unwrap();
+            match parse_bytes::<Czi>(&data).and_then(|(_, d)| refkv_ir::czi::plan::plan(&d)) {
+                Err(m) => assert!(m.starts_with($msg), "{m}"),
+                Ok(_) => panic!("{} was accepted", $input),
+            }
+        }
     };
 }
 include!(concat!(env!("OUT_DIR"), "/rejects_czi.rs"));
@@ -30,9 +37,16 @@ fn a_segment_id_with_bytes_after_its_nul_is_not_the_id() {
     }
 }
 
-/// The IR and the facts of the input `key` of fixtures/czi: a file's by its parser, and, of a
-/// file that names siblings, a store run's, which finds its parts in the directory.
-fn parsed(key: &str) -> Result<(refkv_ir::ir::Ir, serde_json::Value), String> {
+/// The IR, the description and refkv's plan of the input `key` of fixtures/czi (`described`).
+fn parsed(key: &str) -> Result<(refkv_ir::ir::Ir, serde_json::Value, serde_json::Value), String> {
+    let (ir, description) = described(key)?;
+    let plan = refkv_ir::czi::plan::plan(&description)?;
+    Ok((ir, description, plan))
+}
+
+/// The IR and the description of the input `key` of fixtures/czi: a file's by its parser, and, of
+/// a file that names siblings, a store run's, which finds its parts in the directory.
+fn described(key: &str) -> Result<(refkv_ir::ir::Ir, serde_json::Value), String> {
     use refkv_ir::store::{StoreFormat, StoreRun};
     let dir = fixtures().join("czi");
     let data = std::fs::read(dir.join(key)).unwrap();
@@ -60,23 +74,24 @@ fn parsed(key: &str) -> Result<(refkv_ir::ir::Ir, serde_json::Value), String> {
     Ok((ir, facts))
 }
 
-/// Every accepted fixture's facts name its subblocks' descriptions by their keys, the subblocks'
+/// Every accepted fixture's plan names its subblocks' descriptions by their keys, the subblocks'
 /// structs (spec/stored-array.md §7
-/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): `declared_by`
-/// has an id for each entry whose subblock the run read, each description is keyed by one of
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): the
+/// description's entries, the named file's then each part's, have an id for each entry whose
+/// subblock the run read (its subblock's `element`), each description is keyed by one of
 /// them, with no index, and an id that several entries give is one description's. Each cell of a
 /// level and each member of a tile array names, in its `declared_by`, the description of the
 /// subblock that holds its data element, which has a grid and one row. An image across files
 /// names them as its store IR numbers them, each in the file that holds the subblock.
 #[test]
-fn every_accepted_fixtures_facts_name_their_descriptions() {
+fn every_accepted_fixtures_plan_names_their_descriptions() {
     let (mut inputs, mut refused, mut entries, mut elsewhere, mut again, mut placed, mut stores) = (0, 0, 0, 0, 0, 0, 0);
     for e in std::fs::read_dir(fixtures().join("czi")).unwrap() {
         let name = e.unwrap().file_name().into_string().unwrap();
         if name.contains("reject") || !name.ends_with(".czi") {
             continue;
         }
-        let (ir, facts) = match parsed(&name) {
+        let (ir, description, facts) = match parsed(&name) {
             Ok(read) => read,
             // a part of another fixture's image, and the fixture whose part is another image's
             Err(m) => {
@@ -89,7 +104,9 @@ fn every_accepted_fixtures_facts_name_their_descriptions() {
         stores += usize::from(ir.kind[1] == refkv_ir::ir::OBJECT);
         let s = &ir.stored;
         let described = |key: u32| -> Vec<usize> { (0..s.arrays.len()).filter(|&k| s.arrays[k].element == key).collect() };
-        let keys: Vec<Option<u32>> = facts["declared_by"].as_array().unwrap().iter().map(|k| k.as_u64().map(|k| k as u32)).collect();
+        let parts = description["files"].as_array().into_iter().flatten().map(|f| &f["description"]);
+        let all = std::iter::once(&description).chain(parts).flat_map(|d| d["entries"].as_array().unwrap());
+        let keys: Vec<Option<u32>> = all.map(|e| e["subblock"]["element"].as_u64().map(|k| k as u32)).collect();
         let mut named = std::collections::BTreeSet::new();
         for (i, key) in keys.iter().enumerate() {
             let at = format!("{name} entry {i}");

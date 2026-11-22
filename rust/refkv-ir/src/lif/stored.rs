@@ -17,7 +17,7 @@ use std::collections::HashMap;
 pub(super) struct Reached {
     /// each dimension's `NumberOfElements` and `BytesInc`, in the XML's order
     pub dims: Vec<(u64, u64)>,
-    /// the channels' `BytesInc`, ascending, no two alike
+    /// the channels' `BytesInc`, ascending (two alike, which refkv's plan rejects, give no grid)
     pub offsets: Vec<u64>,
     /// the bytes of one sample
     pub item: u64,
@@ -121,15 +121,16 @@ fn block_data(ir: &Ir) -> HashMap<u64, (u32, u64)> {
     out
 }
 
-/// The descriptions of the images, in their order, keyed by `key` with their indexes; their one
-/// chain, of samples stored as they are; and their rows. `limit` is the chunk map's, of the file
+/// The descriptions of the images, in their order, keyed by `key` with their indexes (each image's
+/// index among those the XML declares, beside it); their one chain, of samples stored as they are;
+/// and their rows. `limit` is the chunk map's, of the file
 /// (spec/stored-array.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>):
 /// an image whose rows alone would pass it keeps none there, so they are not built here either.
-pub(super) fn described(ir: &Ir, key: u32, images: &[Reached], limit: u64) -> Res<(Vec<StoredArray>, Vec<Chain>, ChunkMap)> {
+pub(super) fn described(ir: &Ir, key: u32, images: &[(usize, Reached)], limit: u64) -> Res<(Vec<StoredArray>, Vec<Chain>, ChunkMap)> {
     let blocks = block_data(ir);
     let mut arrays = Vec::with_capacity(images.len());
     let mut map = ChunkMap::default();
-    for (k, im) in images.iter().enumerate() {
+    for (a, (k, im)) in images.iter().enumerate() {
         let l = laid(&im.dims, &im.offsets, im.item);
         let rank = l.axes.len();
         let shape: Vec<u64> = l.axes.iter().map(|a| a.n).collect();
@@ -153,7 +154,7 @@ pub(super) fn described(ir: &Ir, key: u32, images: &[Reached], limit: u64) -> Re
                     // a unit that is all of the block's data is the element alone (its recipe is
                     // the identity)
                     let range = ((offset, bytes) != (0, held)).then_some((offset, bytes));
-                    map.push(Row { array: k as u32, coords, element: Some(element), range, ..Row::default() })?;
+                    map.push(Row { array: a as u32, coords, element: Some(element), range, ..Row::default() })?;
                     for (i, a) in index.iter_mut().zip(outer_axes).rev() {
                         *i += 1;
                         if *i < a.n {
@@ -168,7 +169,7 @@ pub(super) fn described(ir: &Ir, key: u32, images: &[Reached], limit: u64) -> Re
         }
         arrays.push(StoredArray {
             element: key,
-            index: Some(k as u64),
+            index: Some(*k as u64),
             declarations: vec![Place::Element { element: key, member: None, range: None }],
             axes: order.iter().enumerate().any(|(i, &s)| s != i as u32).then_some(order),
             shape: Some(shape),

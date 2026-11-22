@@ -5,14 +5,19 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#88-the-source-table>) of
 //! either form: the GeoZarr root and resolution groups, one array per band file whose chunks
 //! are its tiles as standalone codestreams, and, in the directory form, the other objects at
-//! `refkv_source/objects/<k>`. The facts hold what the parser read; the projection checks only
-//! the archive's own limits (reference payloads, output keys).
+//! `refkv_source/objects/<k>`. refkv's **plan** ([`plan`]) makes the convention's decisions from
+//! the parser's description of the product (spec/zarrify/safe.md §8.11
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#811-the-description>): the root's
+//! and each band's source metadata, the objects kept whole, and the counts. The projection checks
+//! only the archive's own limits (reference payloads, output keys).
 
 use super::{arr, n, with_counts};
 use crate::ir::Ir;
 use crate::out::{array_json, convention, declare_array, group_doc, payload_size, root_property, transpose_codec, Out, Part, CONVENTION_KEY, MAX_PAYLOAD};
 use crate::safe::jp2::{self, Codestream};
-use crate::safe::product::{multiscales_cmo, proj_cmo, spatial_cmo, wkt2};
+use crate::safe::product::{band_metadata, multiscales_cmo, proj_cmo, root_metadata, spatial_cmo, wkt2, Geocoding};
+use crate::safe::xmltree::Element;
+use std::collections::HashSet;
 use serde_json::{json, Map, Value as J};
 
 const PROFILE: &str = "safe";
@@ -29,10 +34,10 @@ struct Grid {
     bbox: J,
 }
 
-fn grid(facts: &J, r: u64) -> Grid {
-    let size = arr(&facts["geo"]["sizes"]).iter().find(|s| n(&s[0]) == r).cloned().unwrap_or(J::Null);
+fn grid(d: &J, r: u64) -> Grid {
+    let size = arr(&d["geocoding"]["sizes"]).iter().find(|s| n(&s[0]) == r).cloned().unwrap_or(J::Null);
     let (rows, cols) = (n(&size[1]), n(&size[2]));
-    let pos = arr(&facts["geo"]["positions"]).iter().find(|p| n(&p[0]) == r).cloned().unwrap_or(J::Null);
+    let pos = arr(&d["geocoding"]["positions"]).iter().find(|p| n(&p[0]) == r).cloned().unwrap_or(J::Null);
     let v: Vec<f64> = (0..4).map(|k| pos[1][k].as_f64().unwrap_or(f64::NAN)).collect();
     let (ulx, uly, xdim, ydim) = (v[0], v[1], v[2], v[3]);
     let (x1, y1) = (ulx + xdim * cols as f64, uly + ydim * rows as f64);
@@ -43,40 +48,99 @@ fn grid(facts: &J, r: u64) -> Grid {
     }
 }
 
-fn crs(facts: &J, m: &mut Map<String, J>) {
-    let code = facts["geo"]["code"].as_str().unwrap_or("");
+fn crs(d: &J, m: &mut Map<String, J>) {
+    let code = d["geocoding"]["code"].as_str().unwrap_or("");
     m.insert("proj:code".into(), json!(code));
     if let Some(w) = wkt2(code) {
         m.insert("proj:wkt2".into(), json!(w));
     }
 }
 
-pub fn project(_ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+/// The tile geocoding the description gives.
+fn geocoding(g: &J) -> Geocoding {
+    let text = |v: &J| v.as_str().map(str::to_string);
+    Geocoding {
+        code: g["code"].as_str().unwrap_or("").to_string(),
+        sizes: arr(&g["sizes"]).iter().map(|s| (n(&s[0]), n(&s[1]), n(&s[2]))).collect(),
+        positions: arr(&g["positions"]).iter().map(|p| (n(&p[0]), [0, 1, 2, 3].map(|k| p[1][k].as_f64().unwrap_or(f64::NAN)))).collect(),
+        cs_name: text(&g["cs_name"]),
+        cs_code: text(&g["cs_code"]),
+    }
+}
+
+/// refkv's plan of the product the description `d` describes: `root`, the root's source metadata
+/// (§6.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>);
+/// `meta`, each band's (§6.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#62-band-arrays>),
+/// in the bands' order; `objects`, the other objects a directory's mirror keeps whole, each `[key,
+/// size]` (§8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#87-other-objects>);
+/// and `counts`, the summary's (§8.9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#89-summary>).
+pub fn plan(d: &J) -> J {
+    let metadata = Element::from_json(&d["product_metadata"]["document"]);
+    let tile = Element::from_json(&d["tile_metadata"]["document"]);
+    let l2a = d["level"] == "L2A";
+    let store = d["form"] == "store";
+    let bands = arr(&d["bands"]);
+    let meta: Vec<J> = bands.iter().map(|b| {
+        let siz = crate::hdf5::file::unhex(b["codestream"]["siz"].as_str().unwrap_or(""));
+        band_metadata(&metadata, l2a, b["image_file"].as_str().unwrap_or(""), b["name"].as_str().unwrap_or(""), &crate::mirror::base64(&siz))
+    }).collect();
+    let band_keys: HashSet<&str> = bands.iter().filter_map(|b| b["key"].as_str()).collect();
+    let objects = arr(&d["objects"]);
+    let (mut referenced, mut empty) = (Vec::new(), 0u64);
+    for o in objects {
+        let key = o["key"].as_str().unwrap_or("");
+        if o["marker"] == true || o["held"] == true || band_keys.contains(key) {
+            continue;
+        }
+        if n(&o["size"]) == 0 {
+            empty += 1;
+        } else {
+            referenced.push(json!([key, o["size"]]));
+        }
+    }
+    let counts = json!({
+        "objects": objects.len(), "folderMarkers": objects.iter().filter(|o| o["marker"] == true).count(),
+        "emptyDirs": arr(&d["empty_dirs"]).len(), "heldXml": objects.iter().filter(|o| o["held"] == true).count(),
+        "otherObjects": referenced.len(), "emptyObjects": empty,
+        "tileParts": bands.iter().map(|b| arr(&b["codestream"]["tiles"]).len()).sum::<usize>(),
+        "bandReads": d["reads"]["band_reads"], "batches": d["reads"]["batches"],
+    });
+    json!({
+        "root": root_metadata(&metadata, &tile, &geocoding(&d["geocoding"])),
+        "meta": meta,
+        "objects": if store { referenced } else { Vec::new() },
+        "counts": counts,
+    })
+}
+
+/// The projection of the product the description `d` describes, through refkv's plan ([`plan`]).
+pub fn project(_ir: &Ir, d: &J, url: &str) -> Result<Out, String> {
+    let planned = plan(d);
     let mut out = Out::new(url);
-    let store = facts["form"] == "store";
-    let l2a = facts["level"] == "L2A";
-    let bands = arr(&facts["bands"]);
+    let store = d["form"] == "store";
+    let l2a = d["level"] == "L2A";
+    let bands = arr(&d["bands"]);
     let mut resolutions: Vec<u64> = bands.iter().map(|b| n(&b["resolution"])).collect();
     resolutions.sort_unstable();
     resolutions.dedup();
     // the root (§5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#53-the-root>)
     let mut geo = Map::new();
-    crs(facts, &mut geo);
-    geo.insert("spatial:bbox".into(), grid(facts, resolutions[0]).bbox);
+    crs(d, &mut geo);
+    geo.insert("spatial:bbox".into(), grid(d, resolutions[0]).bbox);
     let mut cmos = vec![convention(PROFILE)];
     if l2a {
         cmos.push(multiscales_cmo());
         geo.insert("spatial:dimensions".into(), json!(["y", "x"]));
         geo.insert("spatial:registration".into(), json!("pixel"));
         let layout: Vec<J> = resolutions.iter().map(|&r| {
-            let g = grid(facts, r);
+            let g = grid(d, r);
             json!({"asset": format!("r{r}m"), "spatial:shape": g.shape, "spatial:transform": g.transform})
         }).collect();
         geo.insert("multiscales".into(), json!({"layout": layout}));
     }
     cmos.extend([proj_cmo(), spatial_cmo()]);
     let mut prop = root_property(PROFILE, url);
-    prop.insert(PROFILE.into(), facts["root"].clone());
+    prop.insert(PROFILE.into(), planned["root"].clone());
     let mut root = Map::new();
     root.insert("zarr_conventions".into(), J::Array(cmos));
     root.insert(CONVENTION_KEY.into(), J::Object(prop));
@@ -84,10 +148,10 @@ pub fn project(_ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     out.json("zarr.json", &group_doc(root));
     // the resolution groups (§5.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#52-resolution-groups>)
     for &r in &resolutions {
-        let g = grid(facts, r);
+        let g = grid(d, r);
         let mut a = Map::new();
         a.insert("zarr_conventions".into(), json!([proj_cmo(), spatial_cmo()]));
-        crs(facts, &mut a);
+        crs(d, &mut a);
         a.insert("spatial:dimensions".into(), json!(["y", "x"]));
         a.insert("spatial:transform".into(), g.transform);
         a.insert("spatial:shape".into(), g.shape);
@@ -98,7 +162,7 @@ pub fn project(_ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     // the band arrays and their chunks (§4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#4-arrays>)
     let mut refs: Vec<(String, Vec<Pre>)> = Vec::new();
     let (mut chunks, mut edges) = (0u64, 0u64);
-    for b in bands {
+    for (b, meta) in bands.iter().zip(arr(&planned["meta"])) {
         let cs = Codestream::from_facts(&b["codestream"]);
         let path = format!("r{}m/{}", n(&b["resolution"]), b["name"].as_str().unwrap_or(""));
         let three = cs.components == 3;
@@ -111,7 +175,7 @@ pub fn project(_ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
             codecs.insert(0, transpose_codec(dims));
         }
         let mut doc = array_json(&shape, if cs.precision <= 8 { "uint8" } else { "uint16" }, json!(chunk), J::Array(codecs), dims);
-        declare_array(&mut doc, PROFILE, b["meta"].clone());
+        declare_array(&mut doc, PROFILE, meta.clone());
         out.json(&format!("{path}/zarr.json"), &doc);
         let key = b["key"].as_str().unwrap_or("").to_string();
         let base = n(&b["base"]);
@@ -127,7 +191,7 @@ pub fn project(_ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         }
     }
     // the other objects, whole (§6.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>)
-    for o in arr(&facts["objects"]) {
+    for o in arr(&planned["objects"]) {
         let (k, size) = (o[0].as_str().unwrap_or("").to_string(), n(&o[1]));
         refs.push((super::store::object_key(&k), vec![Pre::Part(Part::Obj(k, 0, size))]));
     }
@@ -154,13 +218,13 @@ pub fn project(_ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
             return Err(format!("output key {short:?} is in the reserved __vz__/ space"));
         }
     }
-    let summary = json!({"level": facts["level"], "form": facts["form"], "groups": resolutions.len(), "bands": bands.len(),
+    let summary = json!({"level": d["level"], "form": d["form"], "groups": resolutions.len(), "bands": bands.len(),
                          "chunks": chunks, "edgeChunks": edges, "dataSources": out.data.len()});
-    out.summary = with_counts(summary, facts);
+    out.summary = with_counts(summary, &planned);
     Ok(out)
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    project(ir, facts, url)
+pub fn store_project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    project(ir, description, url)
 }

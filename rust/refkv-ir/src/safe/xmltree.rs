@@ -262,6 +262,31 @@ pub fn parse(s: &str, what: &str) -> Result<Element, String> {
 }
 
 impl Element {
+    /// The element as a description gives it (spec/zarrify/safe.md §8.11
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#811-the-description>): its
+    /// `name` as written, `attributes` as `[name, value]` pairs in document order, `text`, its
+    /// character data in pieces, and `children`.
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "name": self.name,
+            "attributes": self.attributes.iter().map(|(n, v)| serde_json::json!([n, v])).collect::<Vec<_>>(),
+            "text": self.text,
+            "children": self.children.iter().map(Element::to_json).collect::<Vec<_>>(),
+        })
+    }
+
+    /// The element a description gives ([`Element::to_json`]).
+    pub fn from_json(v: &serde_json::Value) -> Element {
+        let s = |v: &serde_json::Value| v.as_str().unwrap_or("").to_string();
+        let list = |v: &serde_json::Value| v.as_array().cloned().unwrap_or_default();
+        Element {
+            name: s(&v["name"]),
+            attributes: list(&v["attributes"]).iter().map(|a| (s(&a[0]), s(&a[1]))).collect(),
+            text: list(&v["text"]).iter().map(s).collect(),
+            children: list(&v["children"]).iter().map(Element::from_json).collect(),
+        }
+    }
+
     /// The value of the attribute `name` (as written), the first if repeated.
     pub fn attr(&self, name: &str) -> Option<&str> {
         self.attributes.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str())
@@ -280,6 +305,14 @@ mod tests {
         assert_eq!(e.children.len(), 2);
         assert_eq!(e.children[0].text.concat(), "t&u");
         assert_eq!(e.text.concat(), " v");
+    }
+
+    #[test]
+    fn a_tree_round_trips_through_json() {
+        let e = parse("<a x='1'><b>t</b> v<c y='2'/></a>", "d").unwrap();
+        let back = Element::from_json(&e.to_json());
+        assert_eq!(back.to_json(), e.to_json());
+        assert_eq!((back.children[1].attr("y"), back.text.concat().as_str()), (Some("2"), " v"));
     }
 
     #[test]
