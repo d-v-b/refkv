@@ -682,3 +682,10 @@ It is a JSON object with these members:
 
 A number of `directions`, `origin` or `spacings` that is not finite is null. The array's stored
 description is keyed by `header_file` ([spec/stored-array.md §7](../stored-array.md#7-the-formats)).
+The projection makes every decision of [§3](#3-data-types-and-encodings), [§4](#4-the-image),
+[§5](#5-source-metadata) and [§8.5](#85-chunks) from the description. The store run also reads the
+edge chunks the projection copies ([§8.4](#84-the-data)), which it returns beside the description.
+
+The parser still makes one decision of the output: the `data` element's form names the Zarr data
+type of [§3](#3-data-types-and-encodings) ([§5.3](#53-elements)). It checks the axes' roles
+([§8.2](#82-the-fields)), and the projection names the axes from them.
