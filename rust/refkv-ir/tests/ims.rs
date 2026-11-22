@@ -170,14 +170,14 @@ fn every_accepted_fixtures_images_name_their_descriptions() {
         let (ir, facts) = ims_with_room(&std::fs::read(&p).unwrap(), None);
         let s = &ir.stored;
         let mut keys = std::collections::HashSet::new();
-        for im in facts["images"].as_array().unwrap() {
-            let key = im[5].as_u64().unwrap_or_else(|| panic!("{name}: an image with no key")) as u32;
+        for im in facts["data"].as_array().unwrap() {
+            let key = im["object"].as_u64().unwrap_or_else(|| panic!("{name}: an image with no key")) as u32;
             assert!(keys.insert(key), "{name}: two images name one description");
             let described: Vec<usize> = (0..s.arrays.len()).filter(|&k| s.arrays[k].element == key).collect();
             let [k] = described[..] else { panic!("{name}: {} descriptions of an image", described.len()) };
             assert!(s.arrays[k].grid.is_some(), "{name}");
             let rows = (0..s.map.len()).filter(|&r| s.map.array[r] == k as u32).count();
-            let chunks = im[3].as_u64().map_or(0, |el| ir.members(el as u32).len());
+            let chunks = im["chunks"].as_u64().map_or(0, |el| ir.members(el as u32).len());
             assert_eq!(rows, chunks, "{name}");
             images += 1;
         }

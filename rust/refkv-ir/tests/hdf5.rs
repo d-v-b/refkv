@@ -190,5 +190,5 @@ fn an_imaris_file_is_found_to_be_ims() {
     assert_eq!(Parser::found(&p), Some("ims"));
     let (_, facts) = p.finish().unwrap();
     let (_, direct) = refkv_ir::parse_bytes::<refkv_ir::ims::Ims>(&data).unwrap();
-    assert_eq!(facts["arrays"], direct["arrays"]);
+    assert_eq!(facts["levels"], direct["levels"]);
 }
