@@ -9,8 +9,8 @@ sections 6 holds (indicator 0) and each of its fields (a section 7, with the sec
 in effect at it) is an array, indexed in the order of their sections, a bitmap before its field.
 The file's store parser describes them itself ([stored-array.md §6](../../stored-array.md#6-in-the-ir)). A field's array is the values
 its section 7 codes, in the file's order: how fields stack into a variable, where on its grid a
-bitmap puts a field's values, and which way a grid's rows run are the profile's. The facts give
-the keys: each entry of `fields` has `declared_by`, the id of its message's element, `array`, the
+bitmap puts a field's values, and which way a grid's rows run are the profile's. The description
+([grib.md §8.7](../grib.md#87-the-description)) gives the keys: each entry of `fields` has `element`, the id of its message's element, `array`, the
 index of its values' array, and `mask`, the index of the bitmap that says which points its values
 are (its own, or, under indicator 254, the message's last one before it), or null. Below, an octet
 is numbered from 1 in its section, a section is the element `messages/<i>/sections/<j>`, and `n`
