@@ -8,39 +8,7 @@ convention per source format, each specified in `zarrify/<format>.md` next to
 its JSON Schema `zarrify/<format>/schema.json`. Its changes are in [zarrify/changes/conventions/](zarrify/changes/conventions/), one file per change.
 
 <!-- profiles:conventions-table -->
-| format | convention | UUID |
-|---|---|---|
-| Zeiss CZI | [czi](zarrify/czi.md) | `7a0733c7-d4be-4482-a64f-6904d9354ea5` |
-| DICOM | [dicom](zarrify/dicom.md) | `acf17198-e5a5-48d3-8187-22ec4bb40ea5` |
-| ENVI (NV5 Geospatial) | [envi](zarrify/envi.md) | `e9428528-2fe3-43f2-8c02-3850cfed2f62` |
-| FITS | [fits](zarrify/fits.md) | `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` |
-| FLAC (Free Lossless Audio Codec) | [flac](zarrify/flac.md) | `e9108d07-b24b-432f-a8ce-09d80c8073b4` |
-| WMO FM 92 GRIB edition 2 (WMO-No. 306, Manual on Codes, Volume I.2) | [grib](zarrify/grib.md) | `c9bbe039-8dfa-49f9-a655-756f822a42d6` |
-| Janelia H5J | [h5j](zarrify/h5j.md) | `5bd31fac-d92d-452b-bcb6-15ca89c0f931` |
-| HDF4 (the HDF Group's Hierarchical Data Format 4) | [hdf4](zarrify/hdf4.md) | `af66c29e-fc1a-44a4-bb71-1055ad5fdb0a` |
-| HDF5, NWB | [hdf5](zarrify/hdf5.md) | `6c006834-424b-451b-b786-f8c502ec32af` |
-| Imaris IMS | [ims](zarrify/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
-| Leica LIF | [lif](zarrify/lif.md) | `b099ab1f-f9d4-4276-9006-9ff1193a34b2` |
-| MP3 (MPEG Layer III audio) | [mp3](zarrify/mp3.md) | `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` |
-| MP4 and QuickTime (H.264, HEVC, AV1, VP9 and Motion JPEG video, AAC, HE-AAC, MP3 and PCM audio) | [mp4](zarrify/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
-| MRC2014 | [mrc](zarrify/mrc.md) | `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` |
-| MRC2014, as a dataset ([§9](#9-dataset-layouts)) | [mrc-dataset](zarrify/mrc-dataset.md) | `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` |
-| N5 | [n5](zarrify/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
-| Nikon ND2 | [nd2](zarrify/nd2.md) | `59612f14-e314-4207-ba00-8f422ba71490` |
-| Hamamatsu NDPI | [ndpi](zarrify/ndpi.md) | `6cac71ef-dbb2-4acd-b60c-00389aa4238a` |
-| netCDF classic (CDF-1), 64-bit offset (CDF-2) and 64-bit data (CDF-5) | [netcdf3](zarrify/netcdf3.md) | `b708fd91-025a-4c2e-91e2-543503ea163a` |
-| NIfTI-1 and NIfTI-2 | [nifti](zarrify/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
-| NumPy NPY and NPZ (NEP 1) | [npy](zarrify/npy.md) | `62b1d1ba-8eb3-465c-a333-75e096fce519` |
-| NRRD (Teem) | [nrrd](zarrify/nrrd.md) | `23e0c600-8da6-40f1-81e7-ab246e948e88` |
-| OME-Zarr 0.4 | [ome-zarr](zarrify/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
-| Neuroglancer precomputed | [precomputed](zarrify/precomputed.md) | `c499987a-9518-4b2b-a804-a70a8de1a911` |
-| Akoya QPTIFF | [qptiff](zarrify/qptiff.md) | `329ea136-2f55-4c27-b6f4-8e60ca2109b8` |
-| Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](zarrify/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
-| safetensors (Hugging Face) | [safetensors](zarrify/safetensors.md) | `15e7ce39-d4ca-4514-8144-6e19d2a0341b` |
-| TIFF, OME-TIFF, Aperio SVS | [tiff](zarrify/tiff.md) | `48e9ac4e-1156-4a62-955e-20467d9c2700` |
-| Olympus VSI | [vsi](zarrify/vsi.md) | `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` |
-| Zarr v2 | [zarr2](zarrify/zarr2.md) | `8e792619-d671-4687-ab51-752885dd3ee6` |
-| Zarr v3 | [zarr3](zarrify/zarr3.md) | `95203d0a-6586-426a-b920-3db2f4f1e97e` |
+The table is rendered from the registry, [zarrify/profiles/](zarrify/profiles/), when the documentation site is built: see it on [the site](https://d-v-b.github.io/refkv/spec/conventions.html).
 <!-- /profiles -->
 
 A format's convention specifies the hierarchy's whole **Zarr layout**: which
