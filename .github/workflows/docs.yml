@@ -54,10 +54,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    # one push to gh-pages at a time, this job's and the previews'
-    concurrency:
-      group: gh-pages
-      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -69,6 +65,11 @@ jobs:
           folder: site
           branch: gh-pages
           clean-exclude: pr-preview/
+          # a push that another deploy beat to gh-pages rebases onto it and tries again, as the
+          # previews' do (rossjrw/pr-preview-action passes force: false): a concurrency group would
+          # keep only one pending job, and drop the others
+          force: false
+          attempt-limit: 10
 
   # a pull request's site, at pr-preview/pr-<n>/ of gh-pages, and its removal when it closes
   preview:
@@ -78,9 +79,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    concurrency:
-      group: gh-pages
-      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - if: github.event.action != 'closed'
