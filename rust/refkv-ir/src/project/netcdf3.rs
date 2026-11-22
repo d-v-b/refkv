@@ -308,8 +308,7 @@ pub fn reads(_ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
 }
 
 pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    let (nodes, mut summary) = nodes(description)?;
-    summary["rounds"] = description["rounds"].clone();
+    let (nodes, summary) = nodes(description)?;
     build(ir, &nodes, summary, url, copied, copy_threshold(), None)
 }
 

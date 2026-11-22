@@ -316,13 +316,15 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Mrc>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        crate::project::mrc::project(ir, facts, url, copied)
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::mrc::project(ir, description, url, copied, None)
     }
-    fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
-        crate::project::mrc::reads(ir, facts)
+    /// The dataset layout (`mrc-dataset`) is written unless `layouts` leaves it out.
+    fn project_layouts(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied,
+                       layouts: Option<&[String]>) -> Result<crate::out::Out, String> {
+        crate::project::mrc::project(ir, description, url, copied, layouts)
     }
-    fn described(&self) -> bool {
-        true
+    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+        crate::project::mrc::reads(ir, description)
     }
 }

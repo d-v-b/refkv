@@ -1267,7 +1267,6 @@ pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied) -> Result<
     let mut out = refs.out;
     let mut summary = planned["summary"].clone();
     summary["chunk_entries"] = json!(count);
-    summary["rounds"] = description["rounds"].clone();
     out.summary = summary;
     Ok(out)
 }

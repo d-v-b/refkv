@@ -26,7 +26,7 @@ fn every_array_document_parses_as_zarrs_metadata() {
         for path in paths {
             let data = std::fs::read(&path).unwrap();
             let Ok((ir, facts, _)) = run_bytes(f, &data) else { continue };
-            let Ok(mut out) = refkv_ir::project::project(f, &ir, &facts, "u", &Default::default()) else { continue };
+            let Ok(mut out) = refkv_ir::project::project(f, &ir, &facts, "u", &Default::default(), None) else { continue };
             for (key, doc) in out.take_entries("") {
                 if !key.ends_with("zarr.json") {
                     continue;

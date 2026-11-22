@@ -1,8 +1,8 @@
 //! The QPTIFF image projection (spec/zarrify/qptiff.md §4
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#4-the-image>) from a valid IR:
 //! one array per level, whose chunks are the tiles, or the strips, of each channel's IFD (a
-//! short last strip padded to the chunk by the facts' `pad`: a zero data source, or a literal
-//! tail spliced into its LZW stream); the facts hold the format, the channels' names and
+//! short last strip padded to the chunk by the plan's `pad`: a zero data source, or a literal
+//! tail spliced into its LZW stream); the plan holds the format, the channels' names and
 //! colors (its `omero`), sizes, scales and translation; the windows of its `omero` are sampled
 //! from the coarsest level's chunks, which the run reads (`reads`).
 
@@ -48,18 +48,18 @@ fn omero(channels: &[J], spp: u64, windows: &[Option<J>]) -> J {
 }
 
 /// The channel count: the samples of an image with more than one, else the channel images.
-fn channel_count(facts: &J) -> u64 {
-    let spp = n(&facts["spp"]);
-    if spp > 1 { spp } else { arr(&facts["channels"]).len() as u64 }
+fn channel_count(planned: &J) -> u64 {
+    let spp = n(&planned["spp"]);
+    if spp > 1 { spp } else { arr(&planned["channels"]).len() as u64 }
 }
 
-/// A level's shape and chunk shape (along the facts' axes).
-fn level_shape(facts: &J, lv: &J) -> (Vec<u64>, Vec<u64>) {
-    let spp = n(&facts["spp"]);
-    let c_chunk = if spp > 1 && n(&facts["planar"]) == 1 { spp } else { 1 };
+/// A level's shape and chunk shape (along the plan's axes).
+fn level_shape(planned: &J, lv: &J) -> (Vec<u64>, Vec<u64>) {
+    let spp = n(&planned["spp"]);
+    let c_chunk = if spp > 1 && n(&planned["planar"]) == 1 { spp } else { 1 };
     let (mut shape, mut chunk) = (Vec::with_capacity(3), Vec::with_capacity(3));
-    if strs(&facts["axes"]).first() == Some(&"c") {
-        shape.push(channel_count(facts));
+    if strs(&planned["axes"]).first() == Some(&"c") {
+        shape.push(channel_count(planned));
         chunk.push(c_chunk);
     }
     shape.extend([n(&lv["h"]), n(&lv["w"])]);
@@ -71,32 +71,32 @@ fn level_shape(facts: &J, lv: &J) -> (Vec<u64>, Vec<u64>) {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#43-arrays>): one per
 /// channel of the coarsest level, unless the image is RGB (three samples) or the core does not
 /// decode its compression.
-fn samples(facts: &J) -> Vec<window::Sample> {
-    let levels = arr(&facts["levels"]);
+fn samples(planned: &J) -> Vec<window::Sample> {
+    let levels = arr(&planned["levels"]);
     let Some(last) = levels.len().checked_sub(1) else { return Vec::new() };
-    if n(&facts["spp"]) == 3 || !window::decodable(n(&facts["compression"])) {
+    if n(&planned["spp"]) == 3 || !window::decodable(n(&planned["compression"])) {
         return Vec::new();
     }
-    let (shape, chunk) = level_shape(facts, &levels[last]);
-    let axes = strs(&facts["axes"]);
-    let count = if axes.first() == Some(&"c") { channel_count(facts) } else { 1 };
-    window::samples(&format!("{last}/c/"), &axes, &shape, &chunk, count, n(&facts["bits"]) / 8)
+    let (shape, chunk) = level_shape(planned, &levels[last]);
+    let axes = strs(&planned["axes"]);
+    let count = if axes.first() == Some(&"c") { channel_count(planned) } else { 1 };
+    window::samples(&format!("{last}/c/"), &axes, &shape, &chunk, count, n(&planned["bits"]) / 8)
 }
 
 /// The source's ranges the windows sample (`samples`): their chunks' bytes, which the run
 /// reads after the parser.
 pub fn reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
-    let facts = &plan("qptiff", description)?;
-    tiled::reads(ir, facts, &samples(facts), arrays)
+    let planned = &plan("qptiff", description)?;
+    tiled::reads(ir, planned, &samples(planned), arrays)
 }
 
 /// The levels' arrays and chunks (every level's, or only level `only`'s), and their shapes: a
 /// level's chunks are the tiles, or the strips, of each channel's IFD.
-fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Vec<Vec<u64>>), String> {
-    let has_c = strs(&facts["axes"]).first() == Some(&"c");
+fn arrays(ir: &Ir, planned: &J, url: &str, only: Option<usize>) -> Result<(Out, Vec<Vec<u64>>), String> {
+    let has_c = strs(&planned["axes"]).first() == Some(&"c");
     // a short last strip's zero padding: a prefix of the output's zero data source
-    let mut zeros = tiled::zero_source(facts);
-    tiled::arrays(ir, facts, url, only, |lv| level_shape(facts, lv), |refs, li, lv| {
+    let mut zeros = tiled::zero_source(planned);
+    tiled::arrays(ir, planned, url, only, |lv| level_shape(planned, lv), |refs, li, lv| {
         let (w, h, tw, th) = (n(&lv["w"]), n(&lv["h"]), n(&lv["tw"]), n(&lv["th"]));
         let strips = lv["strips"].as_bool().unwrap_or(false);
         let down = h.div_ceil(th);
@@ -111,7 +111,7 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
             let coords = |s, row, col| {
                 let mut coords = Vec::with_capacity(3);
                 if has_c {
-                    coords.push(tiled::channel(facts, s, c));
+                    coords.push(tiled::channel(planned, s, c));
                 }
                 coords.extend([row, col]);
                 coords
@@ -126,17 +126,17 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
 /// The QPTIFF image: one array per level, its chunks the tiles or strips of each channel.
 /// `copied` holds the bytes of the chunks the windows sample (`reads`).
 pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    let facts = &plan("qptiff", description)?;
-    let channels = arr(&facts["channels"]);
-    let axes = strs(&facts["axes"]);
-    let data_type = tiled::data_type(facts)?;
-    let (mut out, shapes) = arrays(ir, facts, url, None)?;
-    let sampled = tiled::sampled(&out, facts, &samples(facts), |lv| level_shape(facts, lv).1, &data_type, copied);
+    let planned = &plan("qptiff", description)?;
+    let channels = arr(&planned["channels"]);
+    let axes = strs(&planned["axes"]);
+    let data_type = tiled::data_type(planned)?;
+    let (mut out, shapes) = arrays(ir, planned, url, None)?;
+    let sampled = tiled::sampled(&out, planned, &samples(planned), |lv| level_shape(planned, lv).1, &data_type, copied);
     let typed = type_window(&data_type);
-    let windows: Vec<Option<J>> = (0..channel_count(facts) as usize).map(|c| sampled.get(c).cloned().flatten().or_else(|| typed.clone())).collect();
-    let mut ome = tiled::ome(facts, &axes, Some(&facts["name"]))?;
-    ome["omero"] = omero(channels, n(&facts["spp"]), &windows);
-    out.json("zarr.json", &root_json(ome, "qptiff", url, Some(tiled::own(facts))));
+    let windows: Vec<Option<J>> = (0..channel_count(planned) as usize).map(|c| sampled.get(c).cloned().flatten().or_else(|| typed.clone())).collect();
+    let mut ome = tiled::ome(planned, &axes, Some(&planned["name"]))?;
+    ome["omero"] = omero(channels, n(&planned["spp"]), &windows);
+    out.json("zarr.json", &root_json(ome, "qptiff", url, Some(tiled::own(planned))));
     out.summary = json!({"axes": axes, "levels": shapes, "channels": channels.len(), "references": out.refs.len()});
     Ok(out)
 }

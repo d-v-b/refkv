@@ -174,7 +174,8 @@ class Ir:
 
 class Nd2Parser:
     """The ND2 parser: `step()` gives the next batch of ranges (None when done),
-    `feed(offset, bytes)` gives one range's bytes, `finish()` the IR and the facts (JSON)."""
+    `feed(offset, bytes)` gives one range's bytes, `finish()` the IR and the parser's description,
+    with its counts (JSON)."""
 
     def __init__(self, size: int) -> None: ...
     def step(self) -> list[tuple[int, int]] | None: ...
@@ -183,7 +184,7 @@ class Nd2Parser:
     def memory(self) -> int: ...
 
 class TiffParser:
-    """The TIFF parser: as `Nd2Parser` (`finish()` gives the IR and the facts as JSON)."""
+    """The TIFF parser: as `Nd2Parser` (`finish()` gives the IR and the description as JSON)."""
 
     def __init__(self, size: int) -> None: ...
     def step(self) -> list[tuple[int, int]] | None: ...
@@ -204,7 +205,8 @@ class Run:
     span a plain range request, several a multi-range one) and `complete(k,
     parts, seconds)` (each span's bytes, or None for a multi-range request the
     server did not answer with its ranges), until `poll()` gives None; then
-    `finish()` gives the IR, the facts (JSON) and the planner's counts (JSON).
+    `finish()` gives the IR, the parser's description (JSON) and the planner's counts, with the
+    parser's as `parser` (JSON).
 
     The constructor raises ValueError for an unknown `format`; `poll` and `complete` raise
     Rejected when the parser rejects the input."""
@@ -255,9 +257,8 @@ class Run:
         as often as it likes."""
     def begin_projection(self) -> None:
         """Asks for the built-in projection's reads, of a run that left them out and is done."""
-    def description(self) -> str | None:
-        """The profile's description of the source (JSON), of a run that is done; None for a
-        profile whose parser returns none yet."""
+    def description(self) -> str:
+        """The profile's description of the source (JSON), of a run that is done."""
     def ir(self) -> Ir:
         """The IR of a run that is done, shared with the run, which is kept."""
     def fits(self) -> Fits:
@@ -276,7 +277,7 @@ class Run:
         """The zipped Zarr v3 store a run that is done parsed, its IR and description shared with
         the run; ValueError for a run of another format."""
     def mirror(self) -> Mirror:
-        """What makes the mirror of a run that is done: its IR and facts, shared with the run,
+        """What makes the mirror of a run that is done: its IR and description, shared with the run,
         which is kept and may be used while the mirror is made."""
     def project(self, url: str, mirror: bool = True, layouts: list[str] | None = None,
                 checksums: bool = False, written: bool = True) -> Out[FilePart]:
@@ -284,13 +285,13 @@ class Run:
 
 @final
 class Mirror:
-    """What makes the IR mirror of an input a run parsed: its IR and its facts, shared with the
+    """What makes the IR mirror of an input a run parsed: its IR and its description, shared with the
     run and never changed, so `entries()` may be called from any thread, as often as the host
     likes, while the run is used for something else (its output) or after it is gone."""
 
     def entries(self) -> Out[FilePart] | Out[StorePart]:
         """The mirror under `refkv_source` (the url empty), with what the input's convention
-        records beside it from the run's facts, the keys and directories a listing ignored: what
+        records beside it from the run's description, the keys and directories a listing ignored: what
         the built-in output writes there, but for a store's objects; or Rejected."""
 
 class StoreRun:
@@ -330,16 +331,15 @@ class StoreRun:
     def output(self, url: str, mirror: bool = True, checksums: bool = False) -> tuple[Out[StorePart], Ir]: ...
     def finish(self) -> tuple[Ir, str, str]: ...
     def parse(self) -> Ir:
-        """Finishes without an output: the IR, which the run keeps with its facts and counts, so
+        """Finishes without an output: the IR, which the run keeps with its description and counts, so
         that `project(...)` gives the built-in output of it, as often as the host likes."""
-    def description(self) -> str | None:
-        """The profile's description of the input (JSON), of a run `parse` finished; None for a
-        store format whose run returns none yet."""
+    def description(self) -> str:
+        """The profile's description of the input (JSON), of a run `parse` finished."""
     def envi(self) -> Envi:
         """The ENVI raster a run `parse` finished read, its description shared with the run;
         ValueError for a run of a store of another format."""
     def mirror(self) -> Mirror:
-        """What makes the mirror of a run `parse` finished: its IR and facts, shared with the
+        """What makes the mirror of a run `parse` finished: its IR and description, shared with the
         run."""
     def hdf5(self) -> Hdf5:
         """The HDF5 files a run `parse` finished read, its IR and descriptions shared with the
@@ -416,10 +416,6 @@ def _set_chunk_frames(n: int | None = None) -> None:
 def _set_shard_frames(n: int | None = None) -> None:
     """For tests: the frames of a FLAC shard (None: 512), so that small files have several shards
     (spec/zarrify/flac.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#82-shards>)."""
-def project(format: str, ir: Ir, facts: str, url: str) -> Out[FilePart]:  # noqa: A002 (the core's name)
-    """The image projection of an IR (`format` a name of `Format::from_name`; facts as JSON) as
-    Python objects (`out_py`), or Rejected. Raises ValueError for an unknown format, or facts
-    that are not JSON."""
 def grid_chunks(offset: int, shape: list[int], item: int,
                 limit: int) -> tuple[list[int], list[tuple[list[int], int, int, int, bool]]] | None:
     """The C-order array of `shape`, of `item`-byte elements contiguous at `offset`, cut as

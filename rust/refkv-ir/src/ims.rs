@@ -843,13 +843,8 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Ims>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        crate::project::ims::project(ir, facts, url)
-    }
-    /// The parser returns the description of the file (spec/zarrify/ims.md §7.10
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#710-the-description>).
-    fn described(&self) -> bool {
-        true
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::ims::project(ir, description, url)
     }
 }
 

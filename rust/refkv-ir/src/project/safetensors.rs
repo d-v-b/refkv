@@ -49,10 +49,10 @@ fn cut(a: &J, threshold: usize) -> Result<Cut, String> {
 /// The source's ranges of the edge chunks the projection copies (§8.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#83-chunks>).
 pub fn reads(_ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
-    let facts = &plan(description)?;
+    let planned = &plan(description)?;
     let threshold = copy_threshold();
     let mut out = Vec::new();
-    for a in arr(&facts["arrays"]) {
+    for a in arr(&planned["arrays"]) {
         out.extend(contiguous::copy_reads(&cut(a, threshold)?.1));
     }
     Ok(out)
@@ -77,13 +77,13 @@ fn array_doc(a: &J, chunk_shape: &[u64]) -> J {
 /// The hierarchy of a file whose description is `description`, laid out as refkv's plan of it
 /// says (`safetensors::plan::plan`).
 pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    let facts = &plan(description)?;
+    let planned = &plan(description)?;
     let threshold = copy_threshold();
-    let arrays = arr(&facts["arrays"]);
+    let arrays = arr(&planned["arrays"]);
     let cuts = arrays.iter().map(|a| cut(a, threshold)).collect::<Result<Vec<Cut>, String>>()?;
     let mut out = Out::new(url);
-    out.json("zarr.json", &declared_group(Map::new(), "safetensors", Some(url), Some(facts["own"].clone())));
-    for g in arr(&facts["groups"]) {
+    out.json("zarr.json", &declared_group(Map::new(), "safetensors", Some(url), Some(planned["own"].clone())));
+    for g in arr(&planned["groups"]) {
         metadata_group(&mut out, g.as_str().unwrap_or_default(), None);
     }
     let mut summary = Vec::new();
@@ -107,7 +107,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<O
     }
     let mut out = refs.out;
     let mut unpresented: BTreeMap<String, u64> = BTreeMap::new();
-    for t in arr(&facts["own"]["tensors"]) {
+    for t in arr(&planned["own"]["tensors"]) {
         if let Some(r) = t["reason"].as_str() {
             *unpresented.entry(r.to_string()).or_default() += 1;
         }
@@ -128,23 +128,23 @@ pub fn project_store(ir: &Ir, description: &J, url: &str) -> Result<Out, String>
     use super::store::{check_key, object_key};
     let src = ir.sources();
     let listing: Vec<(String, u64)> = src.objects.iter().map(|&o| (ir.key(o), ir.len[o as usize])).collect();
-    let facts = &plan_store(description, &listing)?;
-    let shards = arr(&facts["shards"]);
+    let planned = &plan_store(description, &listing)?;
+    let shards = arr(&planned["shards"]);
     let mut out = Out::new(url);
-    out.json("zarr.json", &declared_group(Map::new(), "safetensors", Some(url), Some(facts["own"].clone())));
-    for d in arr(&facts["dirs"]) {
+    out.json("zarr.json", &declared_group(Map::new(), "safetensors", Some(url), Some(planned["own"].clone())));
+    for d in arr(&planned["dirs"]) {
         metadata_group(&mut out, d.as_str().unwrap_or_default(), None);
     }
     // every shard's tensors, cut as the file form cuts them (no chunk is copied: a padding is a
     // range of the zero data source)
     let mut cuts = Vec::new();
     for s in shards {
-        let f = &s["facts"];
+        let f = &s["planned"];
         cuts.push(arr(&f["arrays"]).iter().map(|a| cut(a, usize::MAX)).collect::<Result<Vec<Cut>, String>>()?);
     }
     let mut summary = Vec::new();
     for (s, shard_cuts) in shards.iter().zip(&cuts) {
-        let (path, f) = (s["path"].as_str().unwrap_or_default(), &s["facts"]);
+        let (path, f) = (s["path"].as_str().unwrap_or_default(), &s["planned"]);
         out.json(&format!("{path}/zarr.json"), &declared_group(Map::new(), "safetensors", None, Some(f["own"].clone())));
         for g in arr(&f["groups"]) {
             metadata_group(&mut out, &format!("{path}/{}", g.as_str().unwrap_or_default()), None);
@@ -162,7 +162,7 @@ pub fn project_store(ir: &Ir, description: &J, url: &str) -> Result<Out, String>
     let mut refs = Refs::new(ir, out);
     let mut chunks_total = 0u64;
     for (s, shard_cuts) in shards.iter().zip(cuts) {
-        let (path, key, f) = (s["path"].as_str().unwrap_or_default(), s["key"].as_str().unwrap_or_default(), &s["facts"]);
+        let (path, key, f) = (s["path"].as_str().unwrap_or_default(), s["key"].as_str().unwrap_or_default(), &s["planned"]);
         for (a, (_, chunks)) in arr(&f["arrays"]).iter().zip(shard_cuts) {
             let tensor = a["path"].as_str().unwrap_or_default();
             let prefix = if arr(&a["shape"]).is_empty() { format!("{path}/{tensor}/c") } else { format!("{path}/{tensor}/c/") };
@@ -181,14 +181,14 @@ pub fn project_store(ir: &Ir, description: &J, url: &str) -> Result<Out, String>
         }
     }
     let mut out = refs.out;
-    for o in arr(&facts["others"]) {
+    for o in arr(&planned["others"]) {
         let (key, size) = (o[0].as_str().unwrap_or_default(), n(&o[1]));
         let k = object_key(key);
         check_key(&k)?;
         out.refs(&k, vec![Part::Obj(key.to_string(), 0, size)]);
     }
-    let unpresented = arr(&facts["own"]["files"]).iter().filter(|f| f.get("reason").is_some()).count();
-    out.summary = json!({"shards": summary, "unpresented": unpresented, "chunks": chunks_total, "others": arr(&facts["others"]).len()});
+    let unpresented = arr(&planned["own"]["files"]).iter().filter(|f| f.get("reason").is_some()).count();
+    out.summary = json!({"shards": summary, "unpresented": unpresented, "chunks": chunks_total, "others": arr(&planned["others"]).len()});
     Ok(out)
 }
 

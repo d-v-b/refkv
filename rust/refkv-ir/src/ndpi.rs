@@ -375,8 +375,8 @@ impl Grid {
         Ok(())
     }
 
-    /// What the projection needs of the grid, as facts (the starts are the IR's).
-    pub fn facts(&self) -> J {
+    /// What refkv's plan gives the projection of the grid (the starts are the IR's).
+    pub fn planned(&self) -> J {
         json!({
             "strip": self.strip, "q": self.q, "r": self.r, "a": self.a, "b": self.b,
             "header": self.header, "sof": [self.h.sof.0, self.h.sof.1],
@@ -384,7 +384,7 @@ impl Grid {
         })
     }
 
-    /// The grid from its facts and the level's McuStarts as the IR holds them (`starts`,
+    /// The grid from its plan (`planned`) and the level's McuStarts as the IR holds them (`starts`,
     /// with McuStartsHighBytes), its strip being `length` bytes long.
     pub fn from_facts(f: &J, starts: Vec<u64>, length: u64) -> Grid {
         let n = |k: &str| f[k].as_u64().unwrap_or(0);
@@ -618,18 +618,13 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<crate::tiff::Tiff>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        crate::project::ndpi::project(ir, facts, url)
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::ndpi::project(ir, description, url)
     }
     /// The projection reads nothing; refkv's plan is made here, so that a run rejects the file
     /// before it is done, as the plan does (`tiff::plan::plan`).
-    fn reads(&self, _ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
-        crate::tiff::plan::plan("ndpi", facts).map(|_| Vec::new())
-    }
-    /// The parser returns a description of the file (spec/zarrify/ndpi.md §7.1
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#71-the-description>).
-    fn described(&self) -> bool {
-        true
+    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+        crate::tiff::plan::plan("ndpi", description).map(|_| Vec::new())
     }
 }
 

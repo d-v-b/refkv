@@ -559,14 +559,15 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Netcdf3>(size)
     }
-    fn project(&self, ir: &Ir, facts: &J, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        crate::project::netcdf3::project(ir, facts, url, copied)
+    fn project(&self, ir: &Ir, description: &J, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::netcdf3::project(ir, description, url, copied)
     }
-    fn reads(&self, ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
-        crate::project::netcdf3::reads(ir, facts)
+    /// The summary holds the parser's `rounds`.
+    fn summary_counts(&self) -> &'static [&'static str] {
+        &["rounds"]
     }
-    fn described(&self) -> bool {
-        true
+    fn reads(&self, ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+        crate::project::netcdf3::reads(ir, description)
     }
 }
 

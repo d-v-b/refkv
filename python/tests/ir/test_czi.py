@@ -270,6 +270,6 @@ def test_the_planner_reads_headers_not_the_whole_file(probes):
         assert st["cap"] in (4, 16)
         assert number(st["bytes"]) <= number(st["cap"]) * number(st["asked"]) + (1 << 16) * number(st["batches"])
         assert len(sequence(facts["entries"])) == 2000
-        assert number(facts["rounds"]) < 12
+        assert number(mapping(st["parser"])["rounds"]) < 12
     finally:
         server.close()

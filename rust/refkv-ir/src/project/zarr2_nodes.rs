@@ -63,13 +63,13 @@ fn presented(shown: &str, node: &J) -> Res<(Array, Option<Jv>)> {
     Ok((array(shown, &doc)?, attrs))
 }
 
-/// The facts the hierarchy is written from (`project/zarr2.rs`), of the store's description:
+/// The plan the hierarchy is written from (`project/zarr2.rs`), of the store's description:
 /// each node presented, with its `zarr.json` and source metadata, the arrays not presented and
 /// why, and the OME layer's, of a store whose root declares OME-NGFF 0.4.
 pub fn hierarchy(ir: &Ir, description: &J) -> Res<J> {
     let s = schema();
     let ome = description["profile"] == "ome-zarr";
-    // each node: its facts, its attributes (an explicit group's, for the OME layer) and M
+    // each node: its plan, its attributes (an explicit group's, for the OME layer) and M
     let mut found: Vec<(J, Option<Jv>, Jv)> = Vec::new();
     let mut arrays: BTreeMap<String, crate::ome_zarr::ArrayInfo> = BTreeMap::new();
     // the arrays left out, and why
@@ -178,18 +178,18 @@ pub fn hierarchy(ir: &Ir, description: &J) -> Res<J> {
     for p in implicit {
         nodes.push(json!({"path": p, "kind": "implicit"}));
     }
-    let mut facts = json!({"nodes": nodes, "documents": description["documents"], "profile": description["profile"]});
+    let mut planned = json!({"nodes": nodes, "documents": description["documents"], "profile": description["profile"]});
     if !left_out.is_empty() {
-        facts["notPresented"] = json!(left_out.len());
+        planned["notPresented"] = json!(left_out.len());
     }
     if !not_ome.is_empty() {
-        facts["notOme"] = json!(not_ome.len());
+        planned["notOme"] = json!(not_ome.len());
     }
     if let Some(l) = layer {
-        facts["xml"] = json!(l.xml);
-        facts["ome"] = l.summary;
+        planned["xml"] = json!(l.xml);
+        planned["ome"] = l.summary;
     }
-    Ok(facts)
+    Ok(planned)
 }
 
 /// The given value of a member (absent when absent or null).

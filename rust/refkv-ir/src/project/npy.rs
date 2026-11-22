@@ -229,13 +229,12 @@ fn array_doc(a: &Presented, c: &Cut) -> J {
 }
 
 pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    let facts = description;
     let threshold = copy_threshold();
     let described = Described::of(ir);
-    let arrays = arr(&facts["arrays"]).iter().map(|a| presented(ir, &described, a)).collect::<Result<Vec<Presented>, String>>()?;
+    let arrays = arr(&description["arrays"]).iter().map(|a| presented(ir, &described, a)).collect::<Result<Vec<Presented>, String>>()?;
     let cuts = arrays.iter().map(|a| cut(a, threshold)).collect::<Result<Vec<Cut>, String>>()?;
     let mut out = Out::new(url);
-    out.json("zarr.json", &declared_group(Map::new(), "npy", Some(url), Some(facts["own"].clone())));
+    out.json("zarr.json", &declared_group(Map::new(), "npy", Some(url), Some(description["own"].clone())));
     let mut summary = Vec::new();
     for (a, c) in arrays.iter().zip(&cuts) {
         let path = a.path;
@@ -259,11 +258,11 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<O
     }
     let mut out = refs.out;
     let mut unpresented: BTreeMap<String, u64> = BTreeMap::new();
-    for m in arr(&facts["own"]["members"]) {
+    for m in arr(&description["own"]["members"]) {
         if let Some(r) = m["reason"].as_str() {
             *unpresented.entry(r.to_string()).or_default() += 1;
         }
     }
-    out.summary = json!({"kind": facts["own"]["kind"], "arrays": summary, "unpresented": unpresented});
+    out.summary = json!({"kind": description["own"]["kind"], "arrays": summary, "unpresented": unpresented});
     Ok(out)
 }

@@ -693,17 +693,12 @@ impl crate::run::FileProfile for Profile {
     fn whole(&self) -> bool {
         false
     }
-    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        crate::project::safe::project(ir, facts, url)
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::safe::project(ir, description, url)
     }
     /// Its empty directories and ignored keys beside the mirror, as a SAFE directory's.
-    fn mirrored(&self, out: &mut crate::out::Out, facts: &serde_json::Value) -> Result<(), String> {
-        crate::project::store::record_ignored(out, facts, "safe")
-    }
-    /// The parser returns a description of the product, of either form (spec/zarrify/safe.md
-    /// §8.11 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#811-the-description>).
-    fn described(&self) -> bool {
-        true
+    fn mirrored(&self, out: &mut crate::out::Out, description: &serde_json::Value) -> Result<(), String> {
+        crate::project::store::record_ignored(out, description, "safe")
     }
 }
 

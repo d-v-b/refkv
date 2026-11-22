@@ -123,7 +123,7 @@ def mirror(parsed: Parsed) -> Written:
     is being made. Raises `refkv.zarrify.Rejected` for an IR whose mirror would pass its budget,
     as `zarrify` does."""
     try:
-        _, entries, refs, _, lazy, _ = parsed._mirrored.entries()  # noqa: SLF001 (the parse's IR and facts)
+        _, entries, refs, _, lazy, _ = parsed._mirrored.entries()  # noqa: SLF001 (the parse's IR and description)
     except _core.Rejected as e:
         raise Rejected(str(e)) from None
     if refs:  # the mirror copies what it holds: a reference would be a change to the core's mirror

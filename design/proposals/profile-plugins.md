@@ -41,8 +41,9 @@ TIFF (d-v-b/refkv#359, d-v-b/refkv#368, d-v-b/refkv#382). Where the code departs
 format's plan is computed in the core from its description and is not public
 as `refkv.build.plan`; a caller reaches the convention's decisions through the
 routines of `refkv.build` (`hdf5_hierarchy`, `ome_image` and the others), and
-`refkv.zarrify.layouts.plan` is still a plugin's checked options. Some core
-projections still take the parser's facts, which d-v-b/refkv#378's Phase D removes.
+`refkv.zarrify.layouts.plan` is still a plugin's checked options. Every core
+projection takes the parser's description; d-v-b/refkv#378's Phase D removed the parser's
+private facts.
 [The gap](#the-gap) describes main before step 1.
 [Open question 3](#open-questions) is settled: a reader follows symbolic links
 in a file's path and in a `file:` prefix

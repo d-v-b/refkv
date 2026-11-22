@@ -35,7 +35,7 @@ pub unsafe extern "C" fn vz_free(p: *mut u8, n: usize) {
     drop(unsafe { Vec::from_raw_parts(p, n, n) });
 }
 
-/// The bytes of the last result (ranges as little-endian u64 pairs, a message, or the facts).
+/// The bytes of the last result (ranges as little-endian u64 pairs, a message, or the description).
 #[unsafe(no_mangle)]
 pub extern "C" fn vz_out() -> *const u8 {
     OUT.with(|o| o.borrow().as_ptr())
@@ -102,13 +102,13 @@ fn step_out(r: Result<Step, String>) -> i64 {
 
 fn finish_out(r: Result<(crate::ir::Ir, serde_json::Value), String>) -> i64 {
     match r {
-        Ok((ir, facts)) => {
+        Ok((ir, description)) => {
             let out = serde_json::json!({
                 "elements": ir.len(),
                 "runs": ir.runs.len(),
                 "check": crate::check::check(&ir).is_ok(),
                 "digest": format!("{:016x}", ir.digest()),
-                "facts": facts,
+                "description": description,
             });
             set_out(out.to_string().into_bytes()) as i64
         }
@@ -163,7 +163,7 @@ pub unsafe extern "C" fn vz_feed(p: *mut AnyParser, offset: u64, data: *mut u8, 
 }
 
 /// Finishes: JSON of the element and run counts, the checker's verdict, the IR's
-/// digest and the facts at `vz_out()`, its length, or minus the length of a
+/// digest and the parser's description at `vz_out()`, its length, or minus the length of a
 /// rejection's message.
 ///
 /// # Safety
@@ -192,7 +192,7 @@ pub unsafe extern "C" fn nd2_feed(p: *mut Nd2, offset: u64, data: *mut u8, n: us
     unsafe { &mut *p }.feed(offset, unsafe { Vec::from_raw_parts(data, n, n) });
 }
 
-/// Finishes: the facts' JSON (with the element count) at `vz_out()`, its length,
+/// Finishes: the description's JSON (with the element count) at `vz_out()`, its length,
 /// or minus the length of a rejection's message.
 ///
 /// # Safety
@@ -201,11 +201,11 @@ pub unsafe extern "C" fn nd2_feed(p: *mut Nd2, offset: u64, data: *mut u8, n: us
 pub unsafe extern "C" fn nd2_finish(p: *mut Nd2) -> i64 {
     let p = unsafe { Box::from_raw(p) };
     match p.finish() {
-        Ok((ir, mut facts)) => {
-            facts["elements"] = serde_json::json!(ir.len());
-            facts["runs"] = serde_json::json!(ir.runs.len());
-            facts["check"] = serde_json::json!(crate::check::check(&ir).is_ok());
-            set_out(facts.to_string().into_bytes()) as i64
+        Ok((ir, mut description)) => {
+            description["elements"] = serde_json::json!(ir.len());
+            description["runs"] = serde_json::json!(ir.runs.len());
+            description["check"] = serde_json::json!(crate::check::check(&ir).is_ok());
+            set_out(description.to_string().into_bytes()) as i64
         }
         Err(e) => -(set_out(e.into_bytes()) as i64),
     }

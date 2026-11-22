@@ -75,41 +75,31 @@ pub trait FileProfile: Sync {
     fn whole(&self) -> bool {
         true
     }
-    /// The image projection: today's hierarchy, without `refkv_source`. `copied` holds the
-    /// bytes of the ranges `reads` gives.
-    fn project(&self, ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String>;
+    /// The image projection: today's hierarchy, without `refkv_source`, from the IR and the
+    /// parser's description of the source (the design of d-v-b/refkv#278, "The description",
+    /// each profile's in its document's section "The description"). `copied` holds the bytes of
+    /// the ranges `reads` gives.
+    fn project(&self, ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String>;
+    /// `project`, with the layouts the output writes beside the image (None: every one), for a
+    /// profile whose projection writes some.
+    fn project_layouts(&self, ir: &Ir, description: &J, url: &str, copied: &Copied, layouts: Option<&[String]>) -> Result<Out, String> {
+        let _ = layouts;
+        self.project(ir, description, url, copied)
+    }
     /// The source's ranges the projection copies into the archive or decodes, which the run
     /// reads after the parser: a projection reads nothing itself.
-    fn reads(&self, ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
-        let _ = (ir, facts);
+    fn reads(&self, ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+        let _ = (ir, description);
         Ok(Vec::new())
     }
-    /// Whether what the profile's parser returns beside the IR is a description of the source
-    /// (the design of d-v-b/refkv#278, "The description"): what the parser found of it, with none
-    /// of an output's decisions that the profile's document does not name there. A profile whose
-    /// parser still returns its projection's private facts has none.
-    fn described(&self) -> bool {
-        false
-    }
-    /// The profile's description of the source, from what its parser returned beside the IR,
-    /// `facts`: those facts without the run's own counts, of a profile whose facts are its
-    /// description (`described`); None for a profile that has none. A profile whose parser returns
-    /// a description beside its projection's facts says where it is.
-    fn description(&self, facts: &J) -> Option<J> {
-        if !self.described() {
-            return None;
-        }
-        let mut description = facts.clone();
-        if let Some(m) = description.as_object_mut() {
-            for count in ["requests", "requested", "rounds"] {
-                m.remove(count);
-            }
-        }
-        Some(description)
+    /// The parser's counts (`requests`, `requested`, `rounds`) the output's summary holds, after
+    /// the projection's members.
+    fn summary_counts(&self) -> &'static [&'static str] {
+        &[]
     }
     /// What the output adds beside the mirror (`output`, when it mirrors).
-    fn mirrored(&self, out: &mut Out, facts: &J) -> Result<(), String> {
-        let _ = (out, facts);
+    fn mirrored(&self, out: &mut Out, description: &J) -> Result<(), String> {
+        let _ = (out, description);
         Ok(())
     }
 }
@@ -186,10 +176,10 @@ impl AnyParser {
 pub struct Run {
     pub format: Format,
     parser: Option<AnyParser>,
-    /// the parser's IR and facts, once it is done; then the values the view shows
-    /// that it did not read are read (`fill`) and held. The IR is shared once the run is done
-    /// (`parsed`), and not changed after
-    parsed: Option<(Arc<Ir>, Arc<serde_json::Value>)>,
+    /// the parser's IR and description, and its counts, once it is done; then the values the
+    /// view shows that it did not read are read (`fill`) and held. The IR is shared once the run
+    /// is done (`parsed`), and not changed after
+    parsed: Option<(Arc<Ir>, Arc<serde_json::Value>, serde_json::Value)>,
     fill: Vec<(u32, u64, u64)>,
     /// the fill batch's ranges, and the planner's (requests, bytes) before and after it
     fill_counts: (u64, (u64, u64), (u64, u64)),
@@ -254,7 +244,7 @@ impl Run {
                     self.done = true;
                     return Ok(None);
                 }
-                if let Some((ir, _)) = self.parsed.as_mut() {
+                if let Some((ir, _, _)) = self.parsed.as_mut() {
                     // the values the view shows, read after the parser
                     let at: std::collections::HashMap<(u64, u64), &Vec<u8>> =
                         got.iter().map(|(o, b)| ((*o, b.len() as u64), b)).collect();
@@ -289,7 +279,8 @@ impl Run {
                     if let Some(found) = p.found() {
                         self.format = Format::from_name(found).ok_or("internal: a parser found no file profile")?;
                     }
-                    let (ir, facts) = p.finish()?;
+                    let (ir, mut description) = p.finish()?;
+                    let counts = parse_counts(&mut description);
                     self.fill = unread_shown(&ir, self.format.name());
                     let ranges: Vec<(u64, u64)> = {
                         let mut r: Vec<(u64, u64)> = self.fill.iter().map(|&(_, o, n)| (o, n)).collect();
@@ -297,7 +288,7 @@ impl Run {
                         r.dedup();
                         r
                     };
-                    self.parsed = Some((Arc::new(ir), Arc::new(facts)));
+                    self.parsed = Some((Arc::new(ir), Arc::new(description), counts));
                     if ranges.is_empty() {
                         return self.read_copies();
                     }
@@ -322,8 +313,8 @@ impl Run {
     /// Begins the batch of the ranges the projection copies (`project::reads`); false when it
     /// copies none.
     fn begin_copies(&mut self) -> Result<bool, String> {
-        let (ir, facts) = self.parsed.as_ref().ok_or("internal: no IR")?;
-        let mut ranges = crate::project::reads(self.format, ir, facts)?;
+        let (ir, description, _) = self.parsed.as_ref().ok_or("internal: no IR")?;
+        let mut ranges = crate::project::reads(self.format, ir, description)?;
         ranges.sort_unstable();
         ranges.dedup();
         if ranges.is_empty() {
@@ -364,7 +355,7 @@ impl Run {
         Ok(())
     }
 
-    /// The IR and the facts of a run that is done, shared: the IR is not changed after.
+    /// The IR and the description of a run that is done, shared: the IR is not changed after.
     pub fn parsed(&self) -> Result<(&Arc<Ir>, &serde_json::Value), String> {
         if !self.done && !self.projecting {
             return Err("the run is not done".into());
@@ -372,14 +363,12 @@ impl Run {
         if self.beside {
             return Err("internal: a file that names siblings has no file run's IR".into());
         }
-        self.parsed.as_ref().map(|(ir, facts)| (ir, &**facts)).ok_or_else(|| "internal: no IR".into())
+        self.parsed.as_ref().map(|(ir, description, _)| (ir, &**description)).ok_or_else(|| "internal: no IR".into())
     }
 
-    /// The profile's description of the source (`FileProfile::described`), without the run's
-    /// own counts; None for a profile that has none yet.
-    pub fn description(&self) -> Result<Option<serde_json::Value>, String> {
-        let (_, facts) = self.parsed()?;
-        Ok(self.format.profile().description(facts))
+    /// The profile's description of the source, without the run's own counts.
+    pub fn description(&self) -> Result<serde_json::Value, String> {
+        Ok(self.parsed()?.1.clone())
     }
 
     /// The planner's counts, with the fill batch's: the summary's `planner`.
@@ -401,13 +390,10 @@ impl Run {
         if !self.done || (self.deferred && !self.projecting) {
             return Err("the run has not read what its projection copies".to_string().into());
         }
-        let (ir, facts) = self.parsed()?;
-        let mut facts = facts.clone();
-        if let Some(l) = layouts {
-            facts["layouts"] = serde_json::json!(l);
-        }
-        facts["checksums"] = checksums.into();
-        output(self.format, ir, &facts, self.stats(), url, mirror, &self.copied, written)
+        let (ir, description) = self.parsed()?;
+        let counts = self.parsed.as_ref().map(|p| &p.2).ok_or_else(|| "internal: no IR".to_string())?;
+        let options = Options { layouts, checksums, written };
+        output(self.format, ir, description, counts, self.stats(), url, mirror, &self.copied, &options)
     }
 
     /// Whether the parser found that the file names siblings, once `poll` gave None: it has no
@@ -425,19 +411,24 @@ impl Run {
         self.planner.complete(k, data, seconds)
     }
 
+    /// The IR, the description and the planner's counts, with the parser's (`parser`).
     pub fn finish(self) -> Result<(Ir, serde_json::Value, serde_json::Value), String> {
-        self.finished().map(|(ir, facts, stats, _)| (ir, facts, stats))
+        self.finished().map(|f| {
+            let mut stats = f.stats;
+            stats["parser"] = f.counts;
+            (f.ir, f.description, stats)
+        })
     }
 
-    /// `finish`, and the bytes of the ranges the projection copies.
-    pub fn finish_copied(self) -> Result<(Ir, serde_json::Value, serde_json::Value, crate::project::Copied), String> {
+    /// `finish`, with the parser's counts and the bytes of the ranges the projection copies.
+    pub fn finish_copied(self) -> Result<Finished, String> {
         if self.deferred && !self.projecting {
             return Err("the run has not read what its projection copies".into());
         }
         self.finished()
     }
 
-    fn finished(self) -> Result<(Ir, serde_json::Value, serde_json::Value, crate::project::Copied), String> {
+    fn finished(self) -> Result<Finished, String> {
         if !self.done {
             return Err("the run is not done".into());
         }
@@ -445,10 +436,45 @@ impl Run {
             return Err("internal: a file that names siblings has no file run's output".into());
         }
         let stats = self.stats();
-        let (ir, facts) = self.parsed.ok_or("internal: no IR")?;
-        let facts = Arc::try_unwrap(facts).unwrap_or_else(|shared| (*shared).clone());
-        Ok((Arc::try_unwrap(ir).unwrap_or_else(|shared| (*shared).clone()), facts, stats, self.copied))
+        let (ir, description, counts) = self.parsed.ok_or("internal: no IR")?;
+        let description = Arc::try_unwrap(description).unwrap_or_else(|shared| (*shared).clone());
+        let ir = Arc::try_unwrap(ir).unwrap_or_else(|shared| (*shared).clone());
+        Ok(Finished { ir, description, counts, stats, copied: self.copied })
     }
+}
+
+/// A finished file run: the IR, the parser's description and its counts (`parse_counts`), the
+/// planner's counts, and the bytes of the ranges the projection copies.
+pub struct Finished {
+    pub ir: Ir,
+    pub description: serde_json::Value,
+    pub counts: serde_json::Value,
+    pub stats: serde_json::Value,
+    pub copied: crate::project::Copied,
+}
+
+/// What an output is made with besides the parse: the layouts written beside the image (None:
+/// every one), whether the host records the ranges' checksums, and whether it writes this
+/// output as it is (`output`).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Options<'a> {
+    pub layouts: Option<&'a [String]>,
+    pub checksums: bool,
+    pub written: bool,
+}
+
+/// The parser's own counts (`requests`, `requested`, `rounds`), which a parser returns with its
+/// description: removed from `description`, and returned.
+pub fn parse_counts(description: &mut serde_json::Value) -> serde_json::Value {
+    let mut counts = serde_json::Map::new();
+    if let Some(m) = description.as_object_mut() {
+        for count in ["requests", "requested", "rounds"] {
+            if let Some(v) = m.remove(count) {
+                counts.insert(count.into(), v);
+            }
+        }
+    }
+    serde_json::Value::Object(counts)
 }
 
 /// The values the view shows (conventions §8.7
@@ -466,28 +492,32 @@ pub fn unread_shown(ir: &Ir, profile: &str) -> Vec<(u32, u64, u64)> {
         .collect()
 }
 
-/// The output of a parse: the image projection of `format`, its arrays sharded as it asked
-/// (`shard::apply_all`; ranges adjacent across inner chunks joined unless the facts' `checksums`
-/// is true: the host records checksums), the mirror under `refkv_source` when `mirror`, and a
-/// summary with the planner's counts, the IR's element count and what the mirror's table
-/// folded. `copied` holds the bytes of the ranges the projection copies (`project::reads`). Last,
+/// The output of a parse: the image projection of `format` from the IR and the description, its
+/// arrays sharded as it asked (`shard::apply_all`; ranges adjacent across inner chunks joined
+/// unless `options.checksums`: the host records checksums), the mirror under `refkv_source` when
+/// `mirror`, and a summary with the parser's counts the profile names
+/// (`FileProfile::summary_counts`), the planner's counts, the IR's element count and what the
+/// mirror's table folded. `copied` holds the bytes of the ranges the projection copies (`project::reads`). Last,
 /// the output is sealed (`seal::out`), the file its source 0: with its checksums when the host
 /// records them and `written`, the host writing this output as it is; an output a host only builds
 /// another from (`refkv.build.read`, a plugin's base) is not held to the payload limit with
 /// checksums, which the output it writes is.
 #[allow(clippy::too_many_arguments)]
-pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_json::Value, url: &str, mirror: bool,
-              copied: &crate::project::Copied, written: bool) -> Result<crate::out::Out, crate::seal::Refusal> {
-    let checksums = facts["checksums"].as_bool().unwrap_or(false);
-    let mut out = crate::project::project(format, ir, facts, url, copied)?;
+pub fn output(format: Format, ir: &Ir, description: &serde_json::Value, counts: &serde_json::Value, stats: serde_json::Value,
+              url: &str, mirror: bool, copied: &crate::project::Copied, options: &Options) -> Result<crate::out::Out, crate::seal::Refusal> {
+    let Options { layouts, checksums, written } = *options;
+    let mut out = crate::project::project(format, ir, description, url, copied, layouts)?;
     crate::shard::apply_all(&mut out, !checksums)?;
     if let Some(m) = out.summary.as_object_mut() {
+        for &k in format.profile().summary_counts() {
+            m.insert(k.into(), counts[k].clone());
+        }
         m.insert("format".into(), format.name().into());
         m.insert("planner".into(), stats);
         m.insert("elements".into(), ir.len().into());
     }
     if mirror {
-        let folded = mirrored(format, ir, facts, &mut out)?;
+        let folded = mirrored(format, ir, description, &mut out)?;
         if let Some(m) = out.summary.as_object_mut() {
             m.insert("folded".into(), folded.json());
         }
@@ -497,29 +527,29 @@ pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_j
 }
 
 /// Writes to `out` the mirror of a file's IR under `refkv_source`, and what its profile records
-/// beside it from the parser's facts (the entries a Zarr v3 or SAFE zip's listing ignored): what
-/// `output` writes there, and what the table folded.
-pub fn mirrored(format: Format, ir: &Ir, facts: &serde_json::Value, out: &mut crate::out::Out) -> Result<crate::mirror::Folded, String> {
+/// beside it from the parser's description (the entries a Zarr v3 or SAFE zip's listing
+/// ignored): what `output` writes there, and what the table folded.
+pub fn mirrored(format: Format, ir: &Ir, description: &serde_json::Value, out: &mut crate::out::Out) -> Result<crate::mirror::Folded, String> {
     let folded = crate::mirror::mirror(ir, out, format.name())?;
-    format.profile().mirrored(out, facts)?;
+    format.profile().mirrored(out, description)?;
     Ok(folded)
 }
 
 impl Run {
-    /// The IR and the facts of a run that is done, shared with the run: what `mirrored` reads,
-    /// for a host that makes the mirror while the run is used elsewhere.
+    /// The IR and the description of a run that is done, shared with the run: what `mirrored`
+    /// reads, for a host that makes the mirror while the run is used elsewhere.
     pub fn shared(&self) -> Result<(Arc<Ir>, Arc<serde_json::Value>), String> {
         self.parsed()?;
-        self.parsed.as_ref().map(|(ir, facts)| (Arc::clone(ir), Arc::clone(facts))).ok_or_else(|| "internal: no IR".into())
+        self.parsed.as_ref().map(|(ir, description, _)| (Arc::clone(ir), Arc::clone(description))).ok_or_else(|| "internal: no IR".into())
     }
 
     /// Finishes, projects and mirrors: the output (`output`), for a host that records the
     /// ranges' checksums when `checksums`.
     pub fn into_output(self, url: &str, mirror: bool, checksums: bool) -> Result<crate::out::Out, crate::seal::Refusal> {
         let format = self.format;
-        let (ir, mut facts, stats, copied) = self.finish_copied()?;
-        facts["checksums"] = checksums.into();
-        output(format, &ir, &facts, stats, url, mirror, &copied, true)
+        let f = self.finish_copied()?;
+        let options = Options { layouts: None, checksums, written: true };
+        output(format, &f.ir, &f.description, &f.counts, f.stats, url, mirror, &f.copied, &options)
     }
 }
 
@@ -605,8 +635,8 @@ mod tests {
         assert!(run.poll().unwrap().is_none());
         assert!(Arc::ptr_eq(run.parsed().unwrap().0, &held));
         // the run is kept: it finishes with the IR it shared
-        let (ir, _, stats, copied) = run.finish_copied().unwrap();
-        assert_eq!((ir.len(), copied.len(), &stats["fill"]["ranges"]), (0, 0, &serde_json::json!(0)));
+        let f = run.finish_copied().unwrap();
+        assert_eq!((f.ir.len(), f.copied.len(), &f.stats["fill"]["ranges"]), (0, 0, &serde_json::json!(0)));
     }
 
     #[test]

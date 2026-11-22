@@ -1021,10 +1021,9 @@ impl crate::run::FileProfile for Profile {
     fn project(&self, ir: &Ir, description: &J, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::hdf4::project(ir, description, url, copied)
     }
-    /// The parser returns a description of the file (spec/zarrify/hdf4.md §9.6
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#96-the-description>).
-    fn described(&self) -> bool {
-        true
+    /// The summary holds the parser's `rounds`.
+    fn summary_counts(&self) -> &'static [&'static str] {
+        &["rounds"]
     }
 }
 

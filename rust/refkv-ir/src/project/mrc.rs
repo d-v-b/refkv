@@ -148,9 +148,9 @@ fn valid(v: f64) -> bool {
     v.is_finite() && v > 0.0
 }
 
-/// The output of the file `description` describes; `description` also holds the run's options,
-/// `layouts` among them.
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+/// The output of the file `description` describes, with the layouts `layouts` names beside the
+/// image (None: every one).
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, layouts: Option<&[String]>) -> Result<Out, String> {
     let (raw, data) = parts(ir, description)?;
     let h = header(&raw);
     let (offset, form) = (ir.start[data as usize], ir.form_id(data).ok_or("internal: the data has no form")?);
@@ -225,7 +225,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<O
     }
     // the dataset layout, unless the run's layouts leave it out (spec/zarrify/mrc.md §8
     // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#8-mrc-profile>)
-    let dataset = description["layouts"].as_array().is_none_or(|l| l.iter().any(|v| v == DATASET));
+    let dataset = layouts.is_none_or(|l| l.iter().any(|v| v == DATASET));
     let mut out = Out::new(url);
     let mut root = root_json(ome, "mrc", url, Some(J::Object(own.clone())));
     if dataset {

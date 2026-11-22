@@ -870,12 +870,7 @@ impl crate::run::FileProfile for Profile {
     fn whole(&self) -> bool {
         false
     }
-    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        crate::project::flac::project(ir, facts, url, copied)
-    }
-    /// The parser returns its description of the file (spec/zarrify/flac.md §8.4
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#84-the-description>).
-    fn described(&self) -> bool {
-        true
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::flac::project(ir, description, url, copied)
     }
 }

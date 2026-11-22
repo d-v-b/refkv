@@ -78,7 +78,7 @@ pub fn kept(profile: &str) -> &'static [&'static str] {
 }
 
 /// After the mirror: the members [`kept`] beside the mirror's `ir` in `refkv_source`'s source
-/// metadata, from the facts, each only when it is not empty: a SAFE product's empty
+/// metadata, from the description, each only when it is not empty: a SAFE product's empty
 /// directories (`empty_dirs`, as its parser sorted them), then the recorded ignored keys
 /// (spec/zarrify.md §1.4
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>; `ignored`), in
@@ -91,9 +91,9 @@ pub fn kept(profile: &str) -> &'static [&'static str] {
 /// either: like the mirror, they are what such an output leaves out. Facts that carry a member
 /// the profile does not keep are refused, with or without the mirror: that is a format
 /// missing from [`kept`], whose keys would otherwise be lost.
-pub fn record_ignored(out: &mut Out, facts: &J, profile: &str) -> Result<(), String> {
-    let strings = |m: &str| -> Vec<&str> { facts[m].as_array().into_iter().flatten().filter_map(J::as_str).collect() };
-    // a member the facts carry that the profile does not keep would be lost: refuse it
+pub fn record_ignored(out: &mut Out, description: &J, profile: &str) -> Result<(), String> {
+    let strings = |m: &str| -> Vec<&str> { description[m].as_array().into_iter().flatten().filter_map(J::as_str).collect() };
+    // a member the description carries that the profile does not keep would be lost: refuse it
     for m in ["empty_dirs", "ignored"] {
         if !kept(profile).contains(&m) && !strings(m).is_empty() {
             return Err(format!("internal: the {profile} convention keeps no {m}"));

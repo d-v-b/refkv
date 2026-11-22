@@ -194,15 +194,15 @@ pub fn project_set(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
     project_named(ir, &crate::czi::plan::plan(description)?, url, &named)
 }
 
-/// The hierarchy of the plan `facts` at the store or file URL `url`, whose root names the input
+/// The hierarchy of the plan `planned` at the store or file URL `url`, whose root names the input
 /// `named`.
-fn project_named(ir: &Ir, facts: &J, url: &str, named: &str) -> Result<Out, String> {
-    let values = &facts["values"];
-    let images = arr(&facts["images"]);
-    let tiles = arr(&facts["tiles"]);
+fn project_named(ir: &Ir, planned: &J, url: &str, named: &str) -> Result<Out, String> {
+    let values = &planned["values"];
+    let images = arr(&planned["images"]);
+    let tiles = arr(&planned["tiles"]);
     let mut out = Out::new(url);
     out.lazy.push(format!("{TILES}/"));
-    bioformats2raw(&mut out, "czi", named, facts["root"].clone(), images.len(), !images.is_empty());
+    bioformats2raw(&mut out, "czi", named, planned["root"].clone(), images.len(), !images.is_empty());
     let mut refs = Refs::new(ir, out);
     for (k, im) in images.iter().enumerate() {
         let axes = strs(&im["axes"]);
@@ -254,7 +254,7 @@ fn project_named(ir: &Ir, facts: &J, url: &str, named: &str) -> Result<Out, Stri
             }).collect())
         })
         .collect();
-    out.summary = json!({"subblocks": facts["subblocks"], "images": summary_images, "tiles": tiles.len()});
+    out.summary = json!({"subblocks": planned["subblocks"], "images": summary_images, "tiles": tiles.len()});
     Ok(out)
 }
 

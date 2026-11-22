@@ -3,13 +3,13 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>) from a valid IR:
 //! one array per level, whose chunk is the level's strip (with the level's size in its SOF0 when
 //! the frame's differs), or, with McuStarts, `a × b` of the
-//! strip's restart intervals as a JPEG stream of their own (`ndpi::Grid`); the facts hold the
+//! strip's restart intervals as a JPEG stream of their own (`ndpi::Grid`); the plan holds the
 //! sizes, the grids, scales and translation, and the IR the McuStarts values. A JPEG XR level's
 //! chunks are its tiles (the members of its IFD's `tiles`), or its strip, each as it is, of the
 //! data type and samples its streams' pixel format gives. Its `omero` is the RGB samples the
 //! streams decode to, or the one channel, labeled with the slide's Fluorescence, each with its
 //! type's whole range for a window. A level's planes are stacked along a `z` axis, each with
-//! chunks of its own, when the facts' axes have one.
+//! chunks of its own, when the plan's axes have one.
 
 use super::{arr, n, strs, tiled};
 use crate::ir::Ir;
@@ -18,7 +18,7 @@ use crate::out::{array_json, omero_channel, omero_json, root_json, sample_channe
 use crate::refs::Refs;
 use serde_json::{json, Value as J};
 
-/// A tag's integer values from its facts (`{value, type, high}`), as the IR holds them.
+/// A tag's integer values from its plan (`{value, type, high}`), as the IR holds them.
 fn values(ir: &Ir, f: &J) -> Option<Vec<u64>> {
     let v = f["value"].as_u64()? as u32;
     let typ = f["type"].as_u64()? as u16;
@@ -26,15 +26,15 @@ fn values(ir: &Ir, f: &J) -> Option<Vec<u64>> {
 }
 
 pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
-    let facts = &crate::tiff::plan::plan("ndpi", description)?;
-    let axes = strs(&facts["axes"]);
-    let (data_type, samples) = (facts["data_type"].as_str().unwrap_or("uint8"), n(&facts["samples"]));
-    let codec = facts["codec"].as_str().unwrap_or("imagecodecs_jpeg");
+    let planned = &crate::tiff::plan::plan("ndpi", description)?;
+    let axes = strs(&planned["axes"]);
+    let (data_type, samples) = (planned["data_type"].as_str().unwrap_or("uint8"), n(&planned["samples"]));
+    let codec = planned["codec"].as_str().unwrap_or("imagecodecs_jpeg");
     let mut codecs = if samples > 1 { vec![transpose_codec(&axes)] } else { vec![] };
     codecs.push(json!({"name": codec}));
     let codecs = J::Array(codecs);
     let mut refs = Refs::new(ir, Out::new(url));
-    let levels = arr(&facts["levels"]);
+    let levels = arr(&planned["levels"]);
     let mut shapes = Vec::with_capacity(levels.len());
     // planes stacked along `z`, each with chunks of its own (spec/zarrify/ndpi.md §4
     // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>)
@@ -100,14 +100,14 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
         shapes.push(shape);
     }
     let mut out = refs.out;
-    let mut ome = tiled::ome(facts, &axes, None)?;
+    let mut ome = tiled::ome(planned, &axes, None)?;
     let window = type_window(data_type);
     ome["omero"] = omero_json(if samples == 1 {
-        vec![omero_channel(facts["label"].as_str().unwrap_or("C0"), "FFFFFF", window.as_ref())]
+        vec![omero_channel(planned["label"].as_str().unwrap_or("C0"), "FFFFFF", window.as_ref())]
     } else {
         sample_channels("", samples, true, &vec![window; samples as usize])
     });
-    let own = facts["own"].as_object().filter(|o| !o.is_empty()).map(|o| J::Object(o.clone()));
+    let own = planned["own"].as_object().filter(|o| !o.is_empty()).map(|o| J::Object(o.clone()));
     out.json("zarr.json", &root_json(ome, "ndpi", url, own));
     let references = out.refs.len();
     out.summary = json!({"axes": axes, "levels": shapes, "references": references, "codec": codec});

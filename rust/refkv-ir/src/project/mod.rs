@@ -1,6 +1,6 @@
 //! The image projections (design/ARCHITECTURE.md §3.4
 //! <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#34-projections>): a valid IR and
-//! its facts into
+//! its description into
 //! today's Zarr hierarchy (spec/zarrify/tiff.md §4
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#4-the-image>,
 //! spec/zarrify/czi.md §4
@@ -42,18 +42,19 @@ pub type Copied = std::collections::HashMap<(u64, u64), Vec<u8>>;
 /// and length, and the padding's length.
 pub type CopiedChunk = (String, u64, u64, u64);
 
-/// The image projection of `format`: today's hierarchy, without `refkv_source`. `copied`
-/// holds the bytes of the ranges `reads` gives.
-pub fn project(format: Format, ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    format.profile().project(ir, facts, url, copied)
+/// The image projection of `format`: today's hierarchy, without `refkv_source`, from the IR and
+/// the parser's description. `copied` holds the bytes of the ranges `reads` gives, and `layouts`
+/// names the layouts written beside the image (None: every one).
+pub fn project(format: Format, ir: &Ir, description: &J, url: &str, copied: &Copied, layouts: Option<&[String]>) -> Result<Out, String> {
+    format.profile().project_layouts(ir, description, url, copied, layouts)
 }
 
 /// The source's ranges the projection of `format` copies into the archive (NIfTI's and
 /// MRC's edge chunks whose padding does not fit in a reference) or decodes (the TIFF and
 /// QPTIFF chunks their `omero` windows sample), which the run reads after the parser: a
 /// projection reads nothing itself.
-pub fn reads(format: Format, ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
-    format.profile().reads(ir, facts)
+pub fn reads(format: Format, ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+    format.profile().reads(ir, description)
 }
 
 /// The source's ranges the OME image of `profile` (`tiff`, `qptiff`, `ndpi` or `ims`, `ome_image`)
@@ -110,7 +111,7 @@ pub fn ome_image(profile: &str, ir: &Ir, description: &J, copied: &Copied, check
     Ok((nodes, out))
 }
 
-// ---- reading the facts (JSON the parsers wrote)
+// ---- reading the descriptions and plans (JSON)
 
 /// A fixed-size character field: its bytes up to the first NUL, as a text value
 /// (conventions §6
@@ -145,7 +146,7 @@ pub(crate) fn float_json(bits: u64, width: usize, v: f64) -> J {
     }
 }
 
-/// A count or index of the facts (an integer, or a number written as a float).
+/// A count or index of a description or plan (an integer, or a number written as a float).
 /// A header value as the root's source metadata writes it (spec/zarrify/mrc.md §5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#5-source-metadata>,
 /// spec/zarrify/nifti.md §5
@@ -183,12 +184,12 @@ fn n(v: &J) -> u64 {
     v.as_u64().or_else(|| v.as_f64().map(|f| f as u64)).unwrap_or(0)
 }
 
-/// An array of the facts (empty when absent).
+/// An array of a description or plan (empty when absent).
 fn arr(v: &J) -> &[J] {
     v.as_array().map(|a| a.as_slice()).unwrap_or(&[])
 }
 
-/// An object of the facts (empty when absent).
+/// An object of a description or plan (empty when absent).
 fn obj(v: &J) -> Map<String, J> {
     v.as_object().cloned().unwrap_or_default()
 }
@@ -243,9 +244,9 @@ fn translation(axes: &[&str], [x, y, z]: [J; 3]) -> J {
     }).collect())
 }
 
-/// A store projection's summary with the facts' `counts` (the parser's) after its own members.
-fn with_counts(mut summary: J, facts: &J) -> J {
-    if let (Some(m), Some(c)) = (summary.as_object_mut(), facts["counts"].as_object()) {
+/// A store projection's summary with refkv's plan's `counts` after its own members.
+fn with_counts(mut summary: J, plan: &J) -> J {
+    if let (Some(m), Some(c)) = (summary.as_object_mut(), plan["counts"].as_object()) {
         m.extend(c.clone());
     }
     summary

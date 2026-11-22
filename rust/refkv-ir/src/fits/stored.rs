@@ -5,7 +5,7 @@
 //! tile a unit in the chain of its compression, and its table's rows and heap. A quantized image's
 //! pixels are the integers its tiles store: its scales, zeros and dither, in its header and its
 //! table's rows, are declarations, which the profile reads to make the floats. Built from the
-//! facts and the IR the parser made, before the IR is finished: it reads no byte the parser did
+//! description and the IR the parser made, before the IR is finished: it reads no byte the parser did
 //! not.
 
 use super::{card, field_of, parse_card, parse_cards, str_of, tile_at, Card, Value, CARD};
@@ -40,7 +40,7 @@ fn element(h: &J, name: &str) -> Option<u32> {
     h["elements"][name].as_u64().map(|v| v as u32)
 }
 
-/// Whether a row of the binary table whose facts are `t` is its columns' fields: every TFORMn one
+/// Whether a row of the binary table whose description is `t` is its columns' fields: every TFORMn one
 /// the parser reads, and their bytes NAXIS1 in all. Of any other table, readers do not agree on
 /// where a row is: the standard's rows are NAXIS1 bytes each, and astropy's the fields' bytes.
 fn fields_fill_rows(t: &J) -> bool {
@@ -264,7 +264,7 @@ impl Built {
     }
 }
 
-/// The descriptions of the arrays of the HDUs whose facts are `hdus`, their chains and their rows.
+/// The descriptions of the arrays of the HDUs whose descriptions are `hdus`, their chains and their rows.
 pub(super) fn described(ir: &Ir, hdus: &[J]) -> Res<(Vec<StoredArray>, Vec<Chain>, ChunkMap)> {
     let mut b = Built::default();
     for h in hdus {

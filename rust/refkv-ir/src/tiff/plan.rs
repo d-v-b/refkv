@@ -1561,7 +1561,7 @@ impl Src<'_> {
                 .map(|&i| {
                     let mut p = out[i].take();
                     if let Some(g) = &grids[i] {
-                        p["grid"] = g.facts();
+                        p["grid"] = g.planned();
                     }
                     // a tiled JPEG XR level's chunks are its IFD's tiles
                     if let Some(k) = p["tiles_ifd"].as_u64() {

@@ -4,7 +4,7 @@
   "uuid": "e9428528-2fe3-43f2-8c02-3850cfed2f62",
   "version": 0,
   "kind": "file",
-  "store_run": {"form": "always", "named": "header file", "section": "8-envi-profile", "described": true},
+  "store_run": {"form": "always", "named": "header file", "section": "8-envi-profile"},
   "sniff": 92,
   "chosen_by": null,
   "suffixes": [

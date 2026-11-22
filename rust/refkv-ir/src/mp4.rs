@@ -1625,19 +1625,14 @@ impl crate::run::FileProfile for Profile {
     fn whole(&self) -> bool {
         false
     }
-    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        crate::project::mp4::project(ir, facts, url, copied)
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::mp4::project(ir, description, url, copied)
     }
     /// Nothing to copy; refkv's plan of the file (`project::mp4::plan`) is made here, so that a run
     /// rejects a file with no track to zarrify before it is done, as the profile's other checks do.
-    fn reads(&self, _ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
-        crate::project::mp4::plan(facts)?;
+    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+        crate::project::mp4::plan(description)?;
         Ok(Vec::new())
-    }
-    /// The parser returns its description of the file (spec/zarrify/mp4.md §8.5
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#85-the-description>).
-    fn described(&self) -> bool {
-        true
     }
 }
 

@@ -3,7 +3,7 @@
 //! §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#4-the-image>, and NDPI's
 //! levels): one array per level whose chunks are the tiles of each plane's IFD, the samples'
 //! data type and codecs, the `omero` windows sampled from the coarsest level, and the image's
-//! OME-NGFF object with the facts' translation at every level.
+//! OME-NGFF object with the plan's translation at every level.
 
 use super::contiguous::Zeros;
 use super::{arr, key, n, obj, strs, translations, truthy, window, Copied};
@@ -18,28 +18,28 @@ pub const MAX_NAME: usize = 256;
 
 /// The data type of the samples (spec/zarrify/tiff.md §4.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>).
-pub fn data_type(facts: &J) -> Result<String, String> {
-    crate::routines::tiff_data_type_of(n(&facts["sample_format"]), n(&facts["bits"]))
+pub fn data_type(planned: &J) -> Result<String, String> {
+    crate::routines::tiff_data_type_of(n(&planned["sample_format"]), n(&planned["bits"]))
 }
 
 /// Whether the samples are packed, of 1 or 12 bits, so that their type's range is not theirs, and
 /// the core does not sample their windows (spec/zarrify/tiff.md §4.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>).
-pub fn packed(facts: &J) -> bool {
-    matches!(n(&facts["bits"]), 1 | 12)
+pub fn packed(planned: &J) -> bool {
+    matches!(n(&planned["bits"]), 1 | 12)
 }
 
 /// Whether a pixel's samples are interleaved (more than one, PlanarConfiguration 1): a chunk
 /// then holds them all.
-pub fn contig(facts: &J) -> bool {
-    n(&facts["spp"]) > 1 && n(&facts["planar"]) == 1
+pub fn contig(planned: &J) -> bool {
+    n(&planned["spp"]) > 1 && n(&planned["planar"]) == 1
 }
 
 /// A tile's coordinate along `c`: 0 for interleaved samples, the sample plane `s` for planar
 /// ones, else the channel `c` of its IFD.
-pub fn channel(facts: &J, s: u64, c: u64) -> u64 {
-    if n(&facts["spp"]) > 1 {
-        if contig(facts) { 0 } else { s }
+pub fn channel(planned: &J, s: u64, c: u64) -> u64 {
+    if n(&planned["spp"]) > 1 {
+        if contig(planned) { 0 } else { s }
     } else {
         c
     }
@@ -48,15 +48,15 @@ pub fn channel(facts: &J, s: u64, c: u64) -> u64 {
 /// The levels' arrays and chunks (every level's, or only level `only`'s), and their shapes:
 /// each level's zarr.json, of the shape and chunk shape `shape(level)`, then its chunks
 /// (`tiles(refs, index, level)`).
-pub fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>, shape: impl Fn(&J) -> (Vec<u64>, Vec<u64>),
+pub fn arrays(ir: &Ir, planned: &J, url: &str, only: Option<usize>, shape: impl Fn(&J) -> (Vec<u64>, Vec<u64>),
               mut tiles: impl FnMut(&mut Refs, usize, &J) -> Result<(), String>) -> Result<(Out, Vec<Vec<u64>>), String> {
-    let axes = strs(&facts["axes"]);
+    let axes = strs(&planned["axes"]);
     // `x` in stored order: the last axis, or the one before the samples when they are interleaved
-    let x = axes.len() - if contig(facts) { 2 } else { 1 };
-    let samples = if contig(facts) { n(&facts["spp"]) } else { 1 };
-    let data_type = data_type(facts)?;
+    let x = axes.len() - if contig(planned) { 2 } else { 1 };
+    let samples = if contig(planned) { n(&planned["spp"]) } else { 1 };
+    let data_type = data_type(planned)?;
     let mut refs = Refs::new(ir, Out::new(url));
-    let levels = arr(&facts["levels"]);
+    let levels = arr(&planned["levels"]);
     let mut shapes = Vec::with_capacity(levels.len());
     for (li, lv) in levels.iter().enumerate() {
         if only.is_some_and(|l| l != li) {
@@ -65,13 +65,13 @@ pub fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>, shape: impl Fn
         let (shape, chunk) = shape(lv);
         // in the array's order, whose axes end `y`, `x` with the samples before them
         let (rows, columns) = (chunk[chunk.len() - 2], chunk[chunk.len() - 1]);
-        let mut codecs = if contig(facts) { vec![transpose_codec(&axes)] } else { vec![] };
-        if facts["eer"].is_object() {
-            let e = &facts["eer"];
+        let mut codecs = if contig(planned) { vec![transpose_codec(&axes)] } else { vec![] };
+        if planned["eer"].is_object() {
+            let e = &planned["eer"];
             codecs.push(json!({"name": "imagecodecs_eer", "configuration": {"shape": [rows, columns], "skipbits": e["skipbits"], "horzbits": e["horzbits"], "vertbits": e["vertbits"]}}));
         } else {
-            codecs.extend(tiff_codecs(n(&facts["compression"]), n(&facts["predictor"]), n(&facts["bits"]), n(&facts["spp"]),
-                                      facts["little"].as_bool().unwrap_or(false), x, columns * samples));
+            codecs.extend(tiff_codecs(n(&planned["compression"]), n(&planned["predictor"]), n(&planned["bits"]), n(&planned["spp"]),
+                                      planned["little"].as_bool().unwrap_or(false), x, columns * samples));
         }
         let codecs = J::Array(codecs);
         let doc = if lv["rectilinear"].as_bool().unwrap_or(false) {
@@ -147,14 +147,14 @@ pub fn chunk_rows(lv: &J) -> u64 {
 
 /// The output's one zero data source (spec/zarrify.md §1.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>) of a TIFF's or QPTIFF's
-/// padded strips: as many zero bytes as the most any strip of the facts' levels is padded with.
-pub fn zero_source(facts: &J) -> Zeros {
-    let most = arr(&facts["levels"]).iter().flat_map(|lv| arr(&lv["pad"]["zeros"])).map(|p| n(&p["zeros"])).max();
+/// padded strips: as many zero bytes as the most any strip of the plan's levels is padded with.
+pub fn zero_source(planned: &J) -> Zeros {
+    let most = arr(&planned["levels"]).iter().flat_map(|lv| arr(&lv["pad"]["zeros"])).map(|p| n(&p["zeros"])).max();
     Zeros::sized(most.unwrap_or(0))
 }
 
 /// How a level's short last strip is padded to the chunk (spec/zarrify/tiff.md §4.5
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): the facts' `pad`,
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): the plan's `pad`,
 /// zero bytes after plane `p`'s uncompressed strip `k`, or a literal tail spliced into its LZW
 /// stream.
 pub struct Padding {
@@ -204,42 +204,42 @@ impl Padding {
 
 /// The source's ranges the windows sample (`samples`, of the coarsest level): their chunks'
 /// bytes, from that level's references (`arrays`), which the run reads after the parser.
-pub fn reads(ir: &Ir, facts: &J, samples: &[window::Sample], arrays: impl Fn(&Ir, &J, &str, Option<usize>) -> Result<(Out, Vec<Vec<u64>>), String>)
+pub fn reads(ir: &Ir, planned: &J, samples: &[window::Sample], arrays: impl Fn(&Ir, &J, &str, Option<usize>) -> Result<(Out, Vec<Vec<u64>>), String>)
              -> Result<Vec<(u64, u64)>, String> {
     if samples.is_empty() {
         return Ok(Vec::new());
     }
-    let last = arr(&facts["levels"]).len() - 1;
-    Ok(window::reads(&arrays(ir, facts, "", Some(last))?.0, samples))
+    let last = arr(&planned["levels"]).len() - 1;
+    Ok(window::reads(&arrays(ir, planned, "", Some(last))?.0, samples))
 }
 
 /// The windows `samples` give, decoded from the chunks of `out` whose bytes `copied` holds (a
 /// chunk the coarsest level's chunk shape, `chunk(level)`); none without samples.
-pub fn sampled(out: &Out, facts: &J, samples: &[window::Sample], chunk: impl Fn(&J) -> Vec<u64>, data_type: &str, copied: &Copied) -> Vec<Option<J>> {
-    match arr(&facts["levels"]).last() {
+pub fn sampled(out: &Out, planned: &J, samples: &[window::Sample], chunk: impl Fn(&J) -> Vec<u64>, data_type: &str, copied: &Copied) -> Vec<Option<J>> {
+    match arr(&planned["levels"]).last() {
         Some(lv) if !samples.is_empty() => {
-            let size = chunk(lv).iter().product::<u64>() * (n(&facts["bits"]) / 8);
-            let little = facts["little"].as_bool().unwrap_or(false);
-            window::windows(out, samples, copied, n(&facts["compression"]), n(&facts["predictor"]), data_type, little, size)
+            let size = chunk(lv).iter().product::<u64>() * (n(&planned["bits"]) / 8);
+            let little = planned["little"].as_bool().unwrap_or(false);
+            window::windows(out, samples, copied, n(&planned["compression"]), n(&planned["predictor"]), data_type, little, size)
         }
         _ => Vec::new(),
     }
 }
 
-/// The image's OME-NGFF object: the facts' axes, units and scales, with the facts' translation
+/// The image's OME-NGFF object: the plan's axes, units and scales, with the plan's translation
 /// at every level when it has one.
-pub fn ome(facts: &J, axes: &[&str], name: Option<&J>) -> Result<J, String> {
-    let tr = &facts["translation"];
-    let trs = J::Array(if truthy(tr) { vec![tr.clone(); arr(&facts["levels"]).len()] } else { vec![] });
-    image_ome(axes, &obj(&facts["units"]), arr(&facts["scales"]), name, translations(&trs))
+pub fn ome(planned: &J, axes: &[&str], name: Option<&J>) -> Result<J, String> {
+    let tr = &planned["translation"];
+    let trs = J::Array(if truthy(tr) { vec![tr.clone(); arr(&planned["levels"]).len()] } else { vec![] });
+    image_ome(axes, &obj(&planned["units"]), arr(&planned["scales"]), name, translations(&trs))
 }
 
 /// The root's source metadata: the byte order, and whether the file is a BigTIFF.
-pub fn own(facts: &J) -> J {
-    let little = facts["little"].as_bool().unwrap_or(false);
-    let mut own = json!({"byte_order": if little { "little" } else { "big" }, "bigtiff": facts["bigtiff"]});
-    if !facts["micromanager"].is_null() {
-        own["micromanager"] = facts["micromanager"].clone();
+pub fn own(planned: &J) -> J {
+    let little = planned["little"].as_bool().unwrap_or(false);
+    let mut own = json!({"byte_order": if little { "little" } else { "big" }, "bigtiff": planned["bigtiff"]});
+    if !planned["micromanager"].is_null() {
+        own["micromanager"] = planned["micromanager"].clone();
     }
     own
 }

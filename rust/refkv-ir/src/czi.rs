@@ -1515,18 +1515,13 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Czi>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        crate::project::czi::project(ir, facts, url)
-    }
-    /// The parser returns the description of the file (spec/zarrify/czi.md §7.10
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#710-the-description>).
-    fn described(&self) -> bool {
-        true
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::czi::project(ir, description, url)
     }
     /// Nothing to copy; refkv's plan is made here, so that an image its checks reject is rejected
     /// before the run is done (`czi::plan`).
-    fn reads(&self, _ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
-        plan::plan(facts)?;
+    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+        plan::plan(description)?;
         Ok(Vec::new())
     }
 }

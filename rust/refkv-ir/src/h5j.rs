@@ -250,13 +250,8 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<crate::hdf5::file::H5jParser>(size)
     }
-    fn project(&self, ir: &Ir, facts: &J, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        crate::project::h5j::project(ir, facts, url)
-    }
-    /// The parser returns the description of the file (spec/zarrify/h5j.md §8.6
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#86-the-description>).
-    fn described(&self) -> bool {
-        true
+    fn project(&self, ir: &Ir, description: &J, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::h5j::project(ir, description, url)
     }
 }
 

@@ -129,7 +129,7 @@ fn shard_path(key: &str) -> Result<String, String> {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#97-the-description>) and
 /// whose listing is `listing` (each key and size): `own`, the store's source metadata (§9.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#92-source-metadata>);
-/// `shards`, each presented shard's `key`, `path` and `facts`, its file plan; `dirs`, the groups
+/// `shards`, each presented shard's `key`, `path` and `planned`, its file plan; `dirs`, the groups
 /// above them; and `others`, each object referenced whole, `[key, size]`.
 pub fn plan_store(description: &J, listing: &[(String, u64)]) -> Result<J, String> {
     let shards = list(&description["shards"]);
@@ -147,11 +147,11 @@ pub fn plan_store(description: &J, listing: &[(String, u64)]) -> Result<J, Strin
         };
         match path {
             Ok(path) => {
-                let facts = plan(&s["header"])?;
+                let planned = plan(&s["header"])?;
                 let names = list(&s["header"]["tensors"]).iter().filter_map(|t| t["name"].as_str().map(str::to_string)).collect();
                 tensors_of.insert(key.to_string(), names);
                 files.push(json!({"key": key, "path": path}));
-                presented.push(json!({"key": key, "path": path, "facts": facts}));
+                presented.push(json!({"key": key, "path": path, "planned": planned}));
             }
             Err(why) => files.push(json!({"key": key, "reason": why})),
         }
