@@ -1,5 +1,8 @@
 """Helpers shared by the test modules (a plain module: test modules import it, not conftest)."""
 
+from functools import cache
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -8,7 +11,29 @@ from obstore.store import LocalStore
 from virtualizarr import open_virtual_dataset
 from virtualizarr.parsers import HDFParser
 
+from refkv.build import NoIrError, Parsed, read
 from refkv.uri import file_uri
+from refkv.zarrify.common import Rejected
+
+FIXTURES = Path(__file__).parents[2] / "fixtures"
+
+
+@cache
+def accepted_fixtures() -> tuple[tuple[Path, Parsed], ...]:
+    """Each fixture of `fixtures/<dir>/` that its profile accepts, with what `read` made of it,
+    closed (its profile, IR and description stay readable): read once a session, for the tests
+    that check something of every fixture. A fixture directory holds files of other profiles too,
+    such as an ND2 file's NumPy sidecars, so a test groups them by `Parsed.profile`."""
+    out = []
+    for path in sorted(FIXTURES.glob("*/*")):
+        if "reject" in path.name or path.name.startswith(".") or path.parent.name == "generators":
+            continue
+        try:
+            with read(str(path)) as p:
+                out.append((path, p))
+        except (Rejected, NoIrError):  # a fixture its profile refuses, or an input with no IR
+            continue
+    return tuple(out)
 
 
 def make_netcdf(path, t0: int, nt: int = 4) -> xr.Dataset:

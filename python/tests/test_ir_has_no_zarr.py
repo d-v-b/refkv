@@ -36,22 +36,20 @@ fixtures, and zarr's and numcodecs' registries. A profile that still writes outp
 strict xfail in `OFFENDERS` below, which the PR that fixes it removes."""
 
 import json
+import re
 from collections import defaultdict
 from collections.abc import Iterator
 from functools import cache
-from pathlib import Path
 from typing import Any
 
 import numcodecs.registry
 import pytest
+from helpers import FIXTURES, accepted_fixtures
 from zarr.core.dtype import data_type_registry, get_data_type_from_json
 from zarr.registry import get_codec_class
 
 from refkv import _core
-from refkv.build import NoIrError, read
-from refkv.zarrify.common import Rejected
 
-FIXTURES = Path(__file__).parents[2] / "fixtures"
 PROFILES = sorted(e["name"] for e in json.loads(_core.registry()))
 TYPE_KEYS = frozenset({"data_type", "dtype", "type"})
 CODEC_KEYS = frozenset({"codec", "codecs", "compressor"})
@@ -153,8 +151,10 @@ def found(v: Any, where: str, under: str | None = None) -> Iterator[tuple[str, A
 
 
 def declared(text: str, source: bytes) -> bool:
-    """Whether the source's value bytes hold `text` verbatim."""
-    return text.encode() in source
+    """Whether the source's value bytes hold `text` verbatim, as a token of its own: not within
+    a longer name (`int16` within `uint16`)."""
+    edge = rb"[A-Za-z0-9_.]"
+    return re.search(rb"(?<!" + edge + rb")" + re.escape(text.encode()) + rb"(?!" + edge + rb")", source) is not None
 
 
 def problems(p: Any) -> list[str]:
@@ -179,17 +179,10 @@ def problems(p: Any) -> list[str]:
 @cache
 def offending() -> dict[str, dict[str, list[str]]]:
     """By the profile that read it, each accepted fixture with what output metadata it has (an
-    empty list for none): a fixture directory holds files of other profiles too, such as an ND2
-    file's NumPy sidecars."""
+    empty list for none)."""
     out: dict[str, dict[str, list[str]]] = defaultdict(dict)
-    for path in sorted(FIXTURES.glob("*/*")):
-        if "reject" in path.name or path.name.startswith(".") or path.parent.name == "generators":
-            continue
-        try:
-            with read(str(path)) as p:
-                out[p.profile][str(path.relative_to(FIXTURES))] = problems(p)
-        except (Rejected, NoIrError):  # a fixture its profile refuses, or an input with no IR
-            continue
+    for path, p in accepted_fixtures():
+        out[p.profile][str(path.relative_to(FIXTURES))] = problems(p)
     return out
 
 
@@ -204,6 +197,11 @@ def test_rules_find_output_metadata():
     }
     assert [w for w, _ in found(form, "f")] == [
         "f.geometry.data_type", "f.geometry.dtype", "f.codec[0]", "f.chain.codecs", "f.attributes.multiscales"]
+
+
+def test_declared_is_a_whole_token():
+    source = b'<Pixels Type="uint16"/>\0type: int8'
+    assert [t for t in ("uint16", "int16", "int8", "uint8") if declared(t, source)] == ["uint16", "int8"]
 
 
 def test_some_fixture_is_read():
