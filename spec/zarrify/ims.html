@@ -2109,6 +2109,53 @@ of dataset <code class="docutils literal notranslate"><span class="pre">(r,</spa
 </table>
 </div>
 <p>The address 0 or the undefined address names no collection.</p>
+</section>
+<section id="the-description">
+<span id="710-the-description"></span><h3>7.10 The description<a class="headerlink" href="#the-description" title="Link to this heading">¶</a></h3>
+<p>This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a <strong>description</strong> of the file: what the profile reads of the Imaris layout
+(<a class="reference internal" href="#the-imaris-layout">§2.2</a>) and its metadata (<a class="reference internal" href="#metadata">§3</a>), in Imaris’s and HDF5’s own
+terms, for a projection to read with the IR and its stored arrays
+(<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>). Its JSON Schema is
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims/description.json">ims/description.json</a>. It holds none of an output’s decisions: the data
+type, axes, shapes, chunks and codecs (<a class="reference internal" href="#the-imaris-layout">§2.2</a>, <a class="reference internal" href="#output">§4</a>), the unit,
+extents and time step (<a class="reference internal" href="#metadata">§3</a>), the scales, translations, name and the <code class="docutils literal notranslate"><span class="pre">omero</span></code> channels’
+labels, colors and windows (<a class="reference internal" href="#output">§4</a>) are the projection’s.</p>
+<p>It is a JSON object with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">levels</span></code></p></td>
+<td><p>each level <code class="docutils literal notranslate"><span class="pre">r</span></code>, in order: <code class="docutils literal notranslate"><span class="pre">image_size</span></code>, its <code class="docutils literal notranslate"><span class="pre">(Zr,</span> <span class="pre">Yr,</span> <span class="pre">Xr)</span></code>; <code class="docutils literal notranslate"><span class="pre">chunk</span></code>, its datasets’ chunk shape (z, y, x); and <code class="docutils literal notranslate"><span class="pre">filters</span></code>, their filter ids in pipeline order</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">datatype</span></code></p></td>
+<td><p>the datasets’ datatype: <code class="docutils literal notranslate"><span class="pre">class</span></code> (0 or 1), <code class="docutils literal notranslate"><span class="pre">size</span></code> in bytes, <code class="docutils literal notranslate"><span class="pre">signed</span></code> (bit 3 of a fixed-point datatype’s bit fields) and <code class="docutils literal notranslate"><span class="pre">byte_order</span></code> (<code class="docutils literal notranslate"><span class="pre">little</span></code> or <code class="docutils literal notranslate"><span class="pre">big</span></code>, by bit 0)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">times</span></code>, <code class="docutils literal notranslate"><span class="pre">channels</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">T</span></code> and <code class="docutils literal notranslate"><span class="pre">C</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data</span></code></p></td>
+<td><p>each dataset <code class="docutils literal notranslate"><span class="pre">(r,</span> <span class="pre">t,</span> <span class="pre">c)</span></code>, in the order read: <code class="docutils literal notranslate"><span class="pre">level</span></code>, <code class="docutils literal notranslate"><span class="pre">time</span></code> and <code class="docutils literal notranslate"><span class="pre">channel</span></code>; <code class="docutils literal notranslate"><span class="pre">chunks</span></code>, the id of the IR element whose members are its chunks, null when it has none allocated; <code class="docutils literal notranslate"><span class="pre">grid</span></code>, its chunk grid’s size (z, y, x); and <code class="docutils literal notranslate"><span class="pre">object</span></code>, the id of its object’s IR element, which keys its stored array, null when the IR has none</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">info</span></code></p></td>
+<td><p>the metadata’s attributes as <a class="reference internal" href="#metadata">§3</a> reads them: <code class="docutils literal notranslate"><span class="pre">image</span></code>, of <code class="docutils literal notranslate"><span class="pre">Image</span></code>, <code class="docutils literal notranslate"><span class="pre">ext_min</span></code> and <code class="docutils literal notranslate"><span class="pre">ext_max</span></code> (each axis’s decimal or null), <code class="docutils literal notranslate"><span class="pre">unit</span></code> and <code class="docutils literal notranslate"><span class="pre">name</span></code> (text or null); <code class="docutils literal notranslate"><span class="pre">channels</span></code>, of each <code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">c</span></code> (none when <code class="docutils literal notranslate"><span class="pre">C</span></code> is more than 64): <code class="docutils literal notranslate"><span class="pre">name</span></code>, <code class="docutils literal notranslate"><span class="pre">color_mode</span></code>, <code class="docutils literal notranslate"><span class="pre">color_table_length</span></code> (text or null), <code class="docutils literal notranslate"><span class="pre">color</span></code> (3 decimals or null), <code class="docutils literal notranslate"><span class="pre">color_range</span></code> (2 decimals or null), and <code class="docutils literal notranslate"><span class="pre">color_table</span></code>, the color table’s text, null when it is absent or was not read (the base color decides the color first, or <code class="docutils literal notranslate"><span class="pre">ColorTableLength</span></code> is not an integer); <code class="docutils literal notranslate"><span class="pre">time_points</span></code>, when <code class="docutils literal notranslate"><span class="pre">T</span> <span class="pre">&gt;</span> <span class="pre">1</span></code>, <code class="docutils literal notranslate"><span class="pre">first</span></code> and <code class="docutils literal notranslate"><span class="pre">last</span></code>, the texts of <code class="docutils literal notranslate"><span class="pre">TimePoint1</span></code> and <code class="docutils literal notranslate"><span class="pre">TimePoint&lt;T&gt;</span></code>, else null</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">objects</span></code></p></td>
+<td><p>the number of objects the walk visited (<a class="reference internal" href="#the-walk">the convention §5.3</a>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A text is the attribute’s text by <a class="reference internal" href="#attributes-as-text">§2.1</a>, at any length: the 256-byte
+limit on names and labels (<a class="reference internal" href="#output">§4</a>) is the projection’s.</p>
+<p>refkv’s projection makes every decision of <a class="reference internal" href="#metadata">§3</a> and <a class="reference internal" href="#output">§4</a> from the
+description, through its plan of the image; the parser makes none, and checks only what
+<a class="reference internal" href="#the-imaris-layout">§2.2</a>–<a class="reference internal" href="#output">§4</a> reject.</p>
 <div class="toctree-wrapper compound">
 </div>
 </section>

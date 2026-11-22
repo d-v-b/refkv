@@ -2020,7 +2020,8 @@ source metadata (<a class="reference internal" href="#source-metadata">§5</a>) 
 from the IR’s <code class="docutils literal notranslate"><span class="pre">header</span></code> value, or a gzipped file’s from <code class="docutils literal notranslate"><span class="pre">gzip.head</span></code>, and makes every decision of
 <a class="reference internal" href="#data-types">§3</a>, <a class="reference internal" href="#the-image">§4</a>, <a class="reference internal" href="#source-metadata">§5</a> and <a class="reference internal" href="#chunks">§7.2</a> from it. A
 pair’s store run also reads the edge chunks the projection copies (<a class="reference internal" href="#header-and-image-pairs">§7.5</a>),
-which it returns beside the description.</p>
+which it gives the projection apart from the description, by their offset and length in the image
+file.</p>
 <p>The parser still makes one decision of the output: the <code class="docutils literal notranslate"><span class="pre">voxels</span></code> element’s form names the data type
 of <a class="reference internal" href="#data-types">§3</a> (<a class="reference internal" href="#elements">§5.3</a>).</p>
 <div class="toctree-wrapper compound">

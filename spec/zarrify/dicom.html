@@ -2629,7 +2629,8 @@ terms, for a projection to read with the IR and its stored arrays
 (<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>). Its JSON Schema is
 <a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom/description.json">dicom/description.json</a>. It holds none of an output’s decisions: the axes,
 shape, chunks and data type (<a class="reference internal" href="#the-image">§3</a>, <a class="reference internal" href="#output">§4</a>), the frames’ axis, the scales and
-units, the omero window and a whole-slide image’s arrangement are the projection’s.</p>
+units, the omero window, a whole-slide image’s arrangement and the root’s source metadata
+(<a class="reference internal" href="#source-metadata">§5</a>) are the projection’s.</p>
 <p>It is a JSON object with these members:</p>
 <div class="table-wrapper colwidths-auto docutils container">
 <table class="docutils align-default">
@@ -2657,6 +2658,12 @@ units, the omero window and a whole-slide image’s arrangement are the projecti
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pixel_data</span></code></p></td>
 <td><p>the top-level Pixel Data: <code class="docutils literal notranslate"><span class="pre">vr</span></code> (null in implicit VR), <code class="docutils literal notranslate"><span class="pre">offset</span></code> and <code class="docutils literal notranslate"><span class="pre">length</span></code>, its value’s (4294967295 when undefined), <code class="docutils literal notranslate"><span class="pre">end</span></code>, where it ends, <code class="docutils literal notranslate"><span class="pre">encapsulated</span></code>, and its <code class="docutils literal notranslate"><span class="pre">structure</span></code> (below)</p></td>
 </tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dicom_json</span></code></p></td>
+<td><p>the file in the DICOM JSON Model (PS3.18 §F.2), as <a class="reference internal" href="#the-root">§5.1</a> translates it: <code class="docutils literal notranslate"><span class="pre">preamble</span></code>, the preamble in base64 where it is not all zeros, else null; and <code class="docutils literal notranslate"><span class="pre">meta</span></code> and <code class="docutils literal notranslate"><span class="pre">dataset</span></code>, the File Meta Information’s and the dataset’s attributes by tag, sorted, every member kept, the Per-Frame Functional Groups Sequence among them. A value kept out of the JSON names its element’s path in <code class="docutils literal notranslate"><span class="pre">BulkDataURI</span></code> (such as <code class="docutils literal notranslate"><span class="pre">dataset/00282000</span></code>), not under the source node</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">trailing</span></code></p></td>
+<td><p>the bytes after the last element that parses (<a class="reference internal" href="#the-root">§5.1</a>): <code class="docutils literal notranslate"><span class="pre">offset</span></code> and <code class="docutils literal notranslate"><span class="pre">bytes</span></code>; null for none</p></td>
+</tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">elements</span></code></p></td>
 <td><p>the ids of its IR elements (<a class="reference internal" href="#elements">§5.4</a>) that key its stored arrays (<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>): <code class="docutils literal notranslate"><span class="pre">pixel_data</span></code>, the top-level Pixel Data’s; <code class="docutils literal notranslate"><span class="pre">palette_tables</span></code>, the red, green and blue tables’ (empty without a palette); and <code class="docutils literal notranslate"><span class="pre">nested</span></code>, each element that keys the Pixel Data of its items, with <code class="docutils literal notranslate"><span class="pre">count</span></code>, how many</p></td>
 </tr>
@@ -2681,12 +2688,15 @@ encapsulated pixel data it is <code class="docutils literal notranslate"><span c
 the Basic Offset Table’s first; <code class="docutils literal notranslate"><span class="pre">offset_table</span></code>, whether that table is not empty; <code class="docutils literal notranslate"><span class="pre">bounds</span></code>, where
 frame <code class="docutils literal notranslate"><span class="pre">f</span></code>’s fragments are, <code class="docutils literal notranslate"><span class="pre">bounds[f]</span></code> to <code class="docutils literal notranslate"><span class="pre">bounds[f</span> <span class="pre">+</span> <span class="pre">1]</span></code> among the items after the table;
 <code class="docutils literal notranslate"><span class="pre">delimiter</span></code>, where the sequence’s delimiter is; and <code class="docutils literal notranslate"><span class="pre">extended_offset_table</span></code>, the frames’ data
-(offset, length) and whether their item headers precede them, or null.</p>
+(offset, length), whether their item headers precede them, and <code class="docutils literal notranslate"><span class="pre">skips</span></code>, whether it leaves bytes
+between the frames unreferenced, or null.</p>
 <p>refkv’s projection makes every decision of <a class="reference internal" href="#the-image">§3</a> and <a class="reference internal" href="#output">§4</a> from the
-description, through its plan of the image. The parser still makes two decisions of the output: the
-root’s source metadata (<a class="reference internal" href="#source-metadata">§5</a>), which it translates from bytes that the IR does
-not hold and returns beside the description, and the elements of the frames that its IR names
-(<a class="reference internal" href="#elements">§5.4</a>).</p>
+description, through its plan of the image, and the root’s source metadata
+(<a class="reference internal" href="#the-root">§5.1</a>) from <code class="docutils literal notranslate"><span class="pre">dicom_json</span></code>, <code class="docutils literal notranslate"><span class="pre">pixel_data</span></code> and <code class="docutils literal notranslate"><span class="pre">trailing</span></code>: it leaves out the Per-Frame
+Functional Groups Sequence and the members that would make the root large, puts each
+<code class="docutils literal notranslate"><span class="pre">BulkDataURI</span></code> under the source node, and adds the members that name the pixel data’s extra,
+unreferenced and fragment bytes and the trailing bytes. The parser still makes one decision of the
+output: the elements of the frames that its IR names (<a class="reference internal" href="#elements">§5.4</a>).</p>
 </section>
 </section>
 <section id="the-store-form">

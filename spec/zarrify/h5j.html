@@ -857,12 +857,14 @@ array’s end along <code class="docutils literal notranslate"><span class="pre"
 <section id="elements">
 <span id="53-elements"></span><h3>5.3 Elements<a class="headerlink" href="#elements" title="Link to this heading">¶</a></h3>
 <p>The IR (<a class="reference internal" href="../conventions.html#the-ir-mirror"><span class="std std-ref">conventions §8</span></a>) is the HDF5 file’s IR
-(<a class="reference internal" href="hdf5.html#the-ir-mirror"><span class="std std-ref">hdf5.md §7.3</span></a>), but that the contiguous data of each channel the
-profile zarrifies is not one <code class="docutils literal notranslate"><span class="pre">data</span></code> element: it is a struct <code class="docutils literal notranslate"><span class="pre">data</span></code> of the same extent whose
-children are the elements of its MP4 file’s IR (<a class="reference internal" href="mp4.html#elements"><span class="std std-ref">mp4.md §5.3</span></a>) but that file’s
-root, each extent moved <code class="docutils literal notranslate"><span class="pre">a</span></code> bytes on (<code class="docutils literal notranslate"><span class="pre">a</span></code> where the dataset’s bytes start). So the mirror holds the
-MP4 file’s boxes, and its samples are <code class="docutils literal notranslate"><span class="pre">data</span></code> elements, <code class="docutils literal notranslate"><span class="pre">data/samples/&lt;T&gt;/&lt;j&gt;</span></code> under the dataset’s
-object. A channel the profile doesn’t zarrify keeps its <code class="docutils literal notranslate"><span class="pre">data</span></code> element.</p>
+(<a class="reference internal" href="hdf5.html#the-ir-mirror"><span class="std std-ref">hdf5.md §7.3</span></a>), but that the contiguous data of each channel whose
+bytes the MP4 profile reads as a file, zarrified or not, is not one <code class="docutils literal notranslate"><span class="pre">data</span></code> element: it is a struct
+<code class="docutils literal notranslate"><span class="pre">data</span></code> of the same extent whose children are the elements of its MP4 file’s IR
+(<a class="reference internal" href="mp4.html#elements"><span class="std std-ref">mp4.md §5.3</span></a>) but that file’s root, each extent moved <code class="docutils literal notranslate"><span class="pre">a</span></code> bytes on (<code class="docutils literal notranslate"><span class="pre">a</span></code> where
+the dataset’s bytes start). So the mirror holds the MP4 file’s boxes, and its samples are <code class="docutils literal notranslate"><span class="pre">data</span></code>
+elements, <code class="docutils literal notranslate"><span class="pre">data/samples/&lt;T&gt;/&lt;j&gt;</span></code> under the dataset’s object. A channel whose bytes don’t read as an
+MP4 file (the first four reasons of <a class="reference internal" href="#channels">§8.2</a>, not the fifth, refkv’s MP4 convention
+zarrifying none of its tracks) keeps its <code class="docutils literal notranslate"><span class="pre">data</span></code> element.</p>
 </section>
 <section id="equivalence">
 <span id="54-equivalence"></span><h3>5.4 Equivalence<a class="headerlink" href="#equivalence" title="Link to this heading">¶</a></h3>
@@ -929,13 +931,17 @@ HDF5, an H5J file among them.</p>
 <section id="channels">
 <span id="82-channels"></span><h3>8.2 Channels<a class="headerlink" href="#channels" title="Link to this heading">¶</a></h3>
 <p>A channel is each object <code class="docutils literal notranslate"><span class="pre">/Channels/Channel_&lt;n&gt;</span></code>, in order of <code class="docutils literal notranslate"><span class="pre">n</span></code>. It is zarrified unless one of
-these holds, checked in this order; the first that holds is its <strong>reason</strong> (<a class="reference internal" href="#the-root">§5.1</a>),
-and the channel keeps its dataset’s <code class="docutils literal notranslate"><span class="pre">data</span></code> element (<a class="reference internal" href="#elements">§5.3</a>):</p>
+these holds, checked in this order; the first that holds is its <strong>reason</strong> (<a class="reference internal" href="#the-root">§5.1</a>).
+A channel with one of the first four, whose bytes don’t read as an MP4 file, keeps its dataset’s
+<code class="docutils literal notranslate"><span class="pre">data</span></code> element (<a class="reference internal" href="#elements">§5.3</a>):</p>
 <ul class="simple">
 <li><p>it is no dataset: <code class="docutils literal notranslate"><span class="pre">not</span> <span class="pre">a</span> <span class="pre">dataset</span> <span class="pre">of</span> <span class="pre">bytes</span></code>;</p></li>
 <li><p>its data type is not <code class="docutils literal notranslate"><span class="pre">uint8</span></code>, or it has other than one dimension;</p></li>
 <li><p>its storage is not contiguous (compact, chunked, external or not allocated);</p></li>
-<li><p>the MP4 profile rejects its bytes, read as a file: <code class="docutils literal notranslate"><span class="pre">its</span> <span class="pre">MP4</span> <span class="pre">file:</span> </code> and the rejection;</p></li>
+<li><p>the MP4 profile’s parser rejects its bytes, read as a file, or finds that the file names other
+files: <code class="docutils literal notranslate"><span class="pre">its</span> <span class="pre">MP4</span> <span class="pre">file:</span> </code> and the rejection, or <code class="docutils literal notranslate"><span class="pre">its</span> <span class="pre">MP4</span> <span class="pre">file</span> <span class="pre">names</span> <span class="pre">other</span> <span class="pre">files</span></code>;</p></li>
+<li><p>refkv’s MP4 convention zarrifies none of its tracks (<a class="reference internal" href="mp4.html#tracks"><span class="std std-ref">mp4.md §8.2</span></a>):
+<code class="docutils literal notranslate"><span class="pre">its</span> <span class="pre">MP4</span> <span class="pre">file:</span> </code> and the rejection;</p></li>
 <li><p>the MP4 file has other than one track;</p></li>
 <li><p>the MP4 profile doesn’t zarrify the track (<a class="reference internal" href="mp4.html#tracks"><span class="std std-ref">mp4.md §8.2</span></a>): its reason;</p></li>
 <li><p>the track is not H.264, HEVC, AV1 or VP9 video;</p></li>
@@ -986,6 +992,44 @@ members:</p>
 </tbody>
 </table>
 </div>
+</section>
+<section id="the-description">
+<span id="86-the-description"></span><h3>8.6 The description<a class="headerlink" href="#the-description" title="Link to this heading">¶</a></h3>
+<p>This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a <strong>description</strong> of the file: the HDF5 profile’s
+(<a class="reference internal" href="hdf5.html#the-description"><span class="std std-ref">hdf5.md §8.7</span></a>), with one more member, <code class="docutils literal notranslate"><span class="pre">h5j</span></code>, whose <code class="docutils literal notranslate"><span class="pre">channels</span></code> are
+each channel <code class="docutils literal notranslate"><span class="pre">/Channels/Channel_&lt;n&gt;</span></code>, in order of <code class="docutils literal notranslate"><span class="pre">n</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code>, <code class="docutils literal notranslate"><span class="pre">path</span></code></p></td>
+<td><p>its name, <code class="docutils literal notranslate"><span class="pre">Channel_&lt;n&gt;</span></code>, and its dataset’s path, <code class="docutils literal notranslate"><span class="pre">Channels/Channel_&lt;n&gt;</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">offset</span></code>, <code class="docutils literal notranslate"><span class="pre">length</span></code></p></td>
+<td><p>where its contiguous data is in the file, and its bytes</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">attributes</span></code></p></td>
+<td><p>its dataset’s attributes, as the HDF5 hierarchy presents them</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">unread</span></code></p></td>
+<td><p>why its bytes are not read as an MP4 file (the first four reasons of <a class="reference internal" href="#channels">§8.2</a>), or null</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">mp4</span></code></p></td>
+<td><p>the MP4 profile’s description of its bytes read as a file (<a class="reference internal" href="mp4.html#the-description"><span class="std std-ref">mp4.md §8.5</span></a>), each IR element it names (a track’s <code class="docutils literal notranslate"><span class="pre">trak</span></code> and <code class="docutils literal notranslate"><span class="pre">first</span></code>) the H5J file’s IR’s (<a class="reference internal" href="#elements">§5.3</a>), or null when <code class="docutils literal notranslate"><span class="pre">unread</span></code> is not</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>It holds none of an output’s decisions: which channels are zarrified and each one’s reason
+(<a class="reference internal" href="#channels">§8.2</a>), the padding, and the arrays’ data types, shapes, chunks and codecs
+(<a class="reference internal" href="#the-layout">§4</a>) are the projection’s, made from the description through refkv’s plan of the
+file. The profile’s check of <a class="reference internal" href="#checks">§8.3</a> that some channel is zarrified, which chooses the
+profile (<a class="reference internal" href="#choosing-the-profile">§8.1</a>), applies that plan.</p>
 <div class="toctree-wrapper compound">
 </div>
 </section>
