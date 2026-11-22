@@ -989,12 +989,6 @@ impl crate::run::FileProfile for Profile {
     fn project(&self, _: &Ir, _: &J, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
         Err("a NRRD input is zarrified as a store run".into())
     }
-    /// The store run returns the description of the input (§8.7
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#87-the-description>), with the
-    /// edge chunks it read and its counts.
-    fn store_described(&self) -> bool {
-        true
-    }
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
