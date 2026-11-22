@@ -1185,7 +1185,7 @@ impl Czi {
             }
             return Ok(());
         };
-        let (dtype, p, q) = coding::pixel_type(e.pt).unwrap();
+        let (_, p, q) = coding::pixel_type(e.pt).unwrap();
         let length = if e.comp == coding::UNCOMPRESSED { cw * ch * q } else { n - skip };
         if e.comp == coding::ZSTD1 {
             self.ir.value(s, "zstd1_header", NO_INDEX, &format!("bytes[{skip}]"), 0, (start, skip), None)?;
@@ -1198,12 +1198,18 @@ impl Czi {
                 if p > 1 {
                     shape.push(json!(p));
                 }
-                let f = json!({
-                    "geometry": {"shape": shape, "dtype": dtype, "pixel_type": e.pt, "compression": e.comp},
-                    "codec": coding::codec_chain(e.pt, e.comp, flag),
+                // in the file's terms: its pixel type, its compression, and what its codec header
+                // says (a JpgFile stream's being lossless, Zstd1's hi-lo packing); the data type
+                // and codecs are an output's (conventions §8.5
+                // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)
+                let mut f = json!({
+                    "geometry": {"shape": shape, "pixel_type": e.pt, "compression": e.comp},
                     "recipe": [["src", 0, null]],
-                })
-                .to_string();
+                });
+                if flag {
+                    f["codec"] = if e.comp == coding::JPEG { json!({"lossless": true}) } else { json!({"hi_lo_byte_unpacking": true}) };
+                }
+                let f = f.to_string();
                 self.forms.insert(key, f.clone());
                 f
             }

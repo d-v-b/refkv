@@ -841,7 +841,7 @@ file), and holds `header`, a value of type
 | `subblocks/<i>/sizes` | value | `{metadata_size:<i4,attachment_size:<i4,data_size:<i8}` | its sizes |
 | `subblocks/<i>/entry`, `subblocks/<i>/dimensions` | value | as the directory's | its own copy of its entry |
 | `subblocks/<i>/metadata` | value | `ascii[m]` | its metadata |
-| `subblocks/<i>/data` | data | | a placed subblock's pixels ([§3.2](#32-conforming-and-unplaced-subblocks)): after a Zstd1 header, or the first `w × h × q` bytes of uncompressed data; form geometry `{"shape": [h, w(, samples)], "dtype", "pixel_type", "compression"}`, codec the chain of [§3.1](#31-pixel-types-and-codecs) |
+| `subblocks/<i>/data` | data | | a placed subblock's pixels ([§3.2](#32-conforming-and-unplaced-subblocks)): after a Zstd1 header, or the first `w × h × q` bytes of uncompressed data; form geometry `{"shape": [h, w(, samples)], "pixel_type", "compression"}`, in the file's terms, and a codec only when its codec header says more: `{"lossless": true}` for a lossless JpgFile stream, `{"hi_lo_byte_unpacking": true}` for Zstd1's hi-lo packing; the data type and codecs of [§3.1](#31-pixel-types-and-codecs) are the projection's ([conventions §8.5](../conventions.md#85-forms-and-recipes)) |
 | `subblocks/<i>/data` | value | `bytes[n]` | an unplaced subblock's data |
 | `subblocks/<i>/zstd1_header` | value | `bytes[n]` | a Zstd1 subblock's header |
 | `subblocks/<i>/trailing` | value | `bytes[n]` | uncompressed data after the pixels |

@@ -82,7 +82,7 @@
         "entry": "its copy of its entry",
         "dimensions": "",
         "metadata": "ascii[m]",
-        "data": "data (placed: geometry, codec, recipe; uncompressed pixels, or a Zstd1 payload after its header) or bytes[n]",
+        "data": "data (placed: geometry {shape, pixel_type, compression}, recipe, and a codec only for a lossless JpgFile stream or Zstd1 hi-lo packing; uncompressed pixels, or a Zstd1 payload after its header) or bytes[n]",
         "zstd1_header": "bytes",
         "trailing": "bytes (uncompressed data past the pixels)",
         "attachment": "bytes[a]"
