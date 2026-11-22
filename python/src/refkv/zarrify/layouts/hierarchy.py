@@ -36,8 +36,10 @@ try:
 except ImportError as e:  # the extra is not installed
     raise ImportError("refkv.zarrify.layouts.hierarchy needs zarr-metadata: pip install refkv[layouts]") from e
 
-from refkv.build import Hdf5Hierarchy, OmeImage, Parsed, Projected, SealError, Written, mirror, seal
+from refkv.build import Parsed, Projected, SealError, Written, mirror, seal
 from refkv.build import Value as Reference
+from refkv.build.routines.hdf5 import Hdf5Hierarchy
+from refkv.build.routines.ome import OmeImage
 from refkv.zarrify.common import Rejected
 from refkv.zarrify.layouts import (
     DOCUMENTS,

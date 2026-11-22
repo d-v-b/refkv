@@ -48,7 +48,8 @@ import struct
 from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
-from refkv.build import Hdf5Hierarchy, Parsed, Value, Written, filled, hdf5_hierarchy
+from refkv.build import Parsed, Value, Written, filled
+from refkv.build.routines.hdf5 import Hdf5Hierarchy, hdf5_hierarchy
 from refkv.zarrify import Rejected
 from refkv.zarrify.coding import hdf5_attributes, hdf5_value
 from refkv.zarrify.layouts import chunk_coords, dump

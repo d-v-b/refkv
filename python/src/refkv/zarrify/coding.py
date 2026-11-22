@@ -27,7 +27,8 @@ from refkv import _core
 from refkv.ir.kind import Kind
 
 if TYPE_CHECKING:
-    from refkv.build import Hdf5Hierarchy, Parsed, Projected
+    from refkv.build import Parsed, Projected
+    from refkv.build.routines.hdf5 import Hdf5Hierarchy
     from refkv.ir import Value
 
 __all__ = ["NoCodec", "czi_codecs", "dicom_codecs", "gzip_codecs", "hdf5_attributes", "hdf5_value", "npy_array_type",

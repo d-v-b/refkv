@@ -7,6 +7,16 @@
       "message": "the ftyp box at 0 has 4 bytes, too few for its 8 bytes of fields"
     },
     {
+      "test": "edge_reject_mp4_h264_untimed",
+      "input": "edge_reject_mp4_h264_untimed.mp4",
+      "message": "no track can be zarrified: track 1 (avc1): its stts box and track fragments do not give each of its 20 samples a time"
+    },
+    {
+      "test": "edge_reject_mp4_mjpeg_untimed",
+      "input": "edge_reject_mp4_mjpeg_untimed.mp4",
+      "message": "no track can be zarrified: track 1 (mp4v): its stts box and track fragments do not give each of its 10 samples a time"
+    },
+    {
       "test": "mov_reject_pcm_s24_only",
       "input": "mov_reject_pcm_s24_only.mov",
       "message": "no track can be zarrified: track 1 (in24): 24-bit PCM is not supported: the bytes codec has no data type for it"

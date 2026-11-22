@@ -562,18 +562,24 @@ def test_a_coding_routine_refuses_what_the_profile_rejects():
 
 
 def test_examples_import_only_refkv_s_public_api():
-    """Each shipped example imports only the standard library, refkv's public modules and their
-    public names, so that it can be copied out of refkv and changed."""
+    """Each shipped example imports only the standard library, refkv's public modules (a format's
+    routines module of `refkv.build.routines` among them) and their public names, so that it can be
+    copied out of refkv and changed."""
+    def routine(module: str) -> bool:  # a format's routines module, not one they share
+        package, _, name = module.rpartition(".")
+        return package == "refkv.build.routines" and not name.startswith("_")
+
     public = {"refkv", "refkv.build", "refkv.ir", "refkv.zarrify", "refkv.zarrify.layouts",
               "refkv.zarrify.layouts.hierarchy", "refkv.zarrify.coding"}
     for path in (ROOT / "python" / "src" / "refkv" / "zarrify" / "layouts" / "examples").glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text())):
             if isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] == "refkv":
-                assert node.module in public, f"{path.name}: {node.module}"
+                assert routine(node.module) or node.module in public, f"{path.name}: {node.module}"
                 assert not any(a.name.startswith("_") for a in node.names), f"{path.name}: {node.module}"
             elif isinstance(node, ast.Import):
                 for a in node.names:
-                    assert a.name.split(".")[0] != "refkv" or a.name in public, f"{path.name}: {a.name}"
+                    assert a.name.split(".")[0] != "refkv" or routine(a.name) or a.name in public, \
+                        f"{path.name}: {a.name}"
 
 
 # ---- the errors: one test each
