@@ -81,7 +81,6 @@ OFFENDERS: dict[str, str] = {
 
     "nifti": "NIfTI's data forms give a Zarr data type (`geometry.data_type`)",
 
-    "npy": "NPY's data forms give a Zarr data type (`geometry.data_type`)",
 
     "nrrd": "NRRD's data forms give a Zarr data type (`geometry.data_type`)",
 
