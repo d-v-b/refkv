@@ -832,11 +832,13 @@ stored arrays ([spec/stored-array.md §7](../stored-array.md#7-the-formats)). It
 [lif/description.json](lif/description.json). It holds none of an output's decisions: the data type
 ([§3.1](#31-data-types)), the channels' order and colors ([§3.2](#32-channels), [§4.3](#43-image-arrays)),
 the axes and fields ([§3.3](#33-axes-and-fields)), the bands ([§3.4](#34-rows-and-bands)), the scales
-and units ([§4.3](#43-image-arrays)), the mosaic's tiles ([§4.4](#44-mosaics)), the series and the
-root's source metadata ([§5](#5-source-metadata)) are the projection's. A LAS X project's input
-([§8](#8-las-x-documents)), a store run's, has none yet.
+and units ([§4.3](#43-image-arrays)), the mosaic's tiles ([§4.4](#44-mosaics)), the series, the
+root's source metadata ([§5](#5-source-metadata)), and which images of a LAS X project are presented
+([§8.4](#84-the-images)) are refkv's **plan**, which the projection makes from the description alone,
+with each image's checks ([§7.3](#73-rejection)). A LAS X project's store run returns a description
+of its documents and LOFs, [below](#the-description-of-a-las-x-project).
 
-It is a JSON object with these members:
+A file's description is a JSON object with these members:
 
 | member | value |
 |---|---|
@@ -866,12 +868,28 @@ An image is an object:
 | `attributes`, `memory` | the element's attributes and its `Memory`'s ([§5.2](#52-the-images)); `memory` null without one |
 | `dimensions`, `channels` | each `DimensionDescription`'s and each `ChannelDescription`'s attributes ([§2.4](#24-dimensions-and-channels)), in document order, as the XML writes them |
 | `tile_scan` | its first `Attachment` named `TileScanInfo` ([§4.4](#44-mosaics)): `attributes`, the attachment's, and `tiles`, each child `Tile`'s; null without one |
-| `block` | the memory block its `MemoryBlockID` names (of a LOF, the file's one block), an index into `blocks` |
-| `declared_by` | the key of its stored array ([spec/stored-array.md §2.1](../stored-array.md#21-keys)): the IR element of the XML that declares it, and its index among the images |
+| `block` | the first memory block of the ID its `MemoryBlockID` names (of a LOF, the file's one block), an index into `blocks`; null when the file holds none |
+| `declared_by` | the key of its stored array ([spec/stored-array.md §2.1](../stored-array.md#21-keys)): the IR element of the XML that declares it, and its index among the images; null of an image that has none (below), which the plan rejects |
 
 Attribute values are text, with references decoded; of a repeated name, the first.
 
-What the projection makes from it, and the parser still decides:
+<a id="the-description-of-a-las-x-project"></a>**The description of a LAS X project** is a JSON
+object with these members:
 
-- The parser still makes each image's layout and checks ([§7.3](#73-rejection)) beside the
-  description, for its projection.
+| member | value |
+|---|---|
+| `version` | the named document's `Version` ([§8.1](#81-the-documents)) |
+| `named_key` | the named document's key |
+| `files` | the key of every sibling, as found, in the order they were found ([§8.2](#82-the-siblings)) |
+| `documents` | each document, in the order read, the named one first: `key`; `name`, its element's `Name` (null without one); `attributes` and `memory`, its element's and its `Memory`'s attributes (`memory` null without one); `image`, whether the element is an image; `entries`, each entry of its `Memory` with its `tag`, `file`, `offset` and `size` as written (null without one); `references`, each `Reference` with a `File`, as the `key` of the document it names, its `uuid` (null without one) and `document`, that document's index in `documents`; and `lof`, the LOF it names, an index into `lofs`, or null |
+| `lofs` | each LOF a document names, in the order read: `key`, `size`, `object` (its object's IR element), `document` (the index of the document that names it) and `description`, the LOF's own description as a file's, above, whose `declared_by` names elements of the store IR |
+
+The parser checks what the documents and LOFs are ([§8.1](#81-the-documents), [§8.2](#82-the-siblings));
+the walk of [§8.4](#84-the-images), each LOF's image's checks and its `Block`'s against the LOF are the
+plan's.
+
+What the parser still decides:
+
+- The IR's data of a memory block is the first image's that names it, and that image's stored
+  array is made where its dimensions and channels are integers; the plan rejects an image whose are
+  not, or which shares its block.
