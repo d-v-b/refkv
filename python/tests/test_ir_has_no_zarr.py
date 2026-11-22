@@ -60,8 +60,8 @@ METADATA_KEYS = frozenset({
 })
 
 # Each profile whose parser still writes Zarr output metadata, with what it writes. The PR that
-# fixes a profile removes its entry; a blank line keeps each entry apart from the next, so that
-# PRs removing different entries do not conflict.
+# fixes a profile removes its entry's line and no other: the blank lines keep each entry apart from
+# the next, so that PRs removing different entries do not conflict.
 OFFENDERS: dict[str, str] = {
     "czi": "CZI's subblock forms give a Zarr data type (`geometry.dtype`) and a Zarr codec chain (`codec`)",
 
