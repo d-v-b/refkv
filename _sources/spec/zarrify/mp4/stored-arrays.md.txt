@@ -4,8 +4,9 @@ What the MP4 parser describes as stored arrays ([stored-array.md](../../stored-a
 
 Every track whose handler is `vide` or `soun` has
 descriptions, whether or not the profile zarrifies it, keyed by its `trak` box, a kind of element
-that may declare several arrays: each of a track's has an index. The facts give the key: each such
-track's `declared_by` is the id of its `trak` box. A track's samples are its tables', then its
+that may declare several arrays: each of a track's has an index. The parser's description gives the
+key: each such track's `elements` has the id of its `trak` box as `trak`
+([mp4.md §8.5](../mp4.md#85-the-description)). A track's samples are its tables', then its
 track fragments', in decode order ([mp4.md §3](../mp4.md#3-tracks-and-samples)), each
 the element `samples/<T>/<j>`.
 

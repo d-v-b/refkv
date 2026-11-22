@@ -1994,7 +1994,10 @@ and codecs (<a class="reference internal" href="#the-array">§4.1</a>) are the p
 <p>The root’s source metadata of <a class="reference internal" href="#the-root">§5.1</a> follows from the description: <code class="docutils literal notranslate"><span class="pre">sample_rate</span></code>,
 <code class="docutils literal notranslate"><span class="pre">channels</span></code> and <code class="docutils literal notranslate"><span class="pre">bits_per_sample</span></code> from <code class="docutils literal notranslate"><span class="pre">streaminfo</span></code>, <code class="docutils literal notranslate"><span class="pre">duration</span></code> from <code class="docutils literal notranslate"><span class="pre">samples</span></code> and the sample rate,
 and the other members as the description gives them, each optional one absent when it is null or
-empty; and the <code class="docutils literal notranslate"><span class="pre">refkv.stream</span></code> setup from the bytes of the <code class="docutils literal notranslate"><span class="pre">streaminfo</span></code> element (<a class="reference internal" href="#the-array">§4.1</a>).</p>
+empty; and the <code class="docutils literal notranslate"><span class="pre">refkv.stream</span></code> setup from the bytes of the <code class="docutils literal notranslate"><span class="pre">streaminfo</span></code> element (<a class="reference internal" href="#the-array">§4.1</a>).
+The projection reads them so, and makes <strong>refkv’s plan</strong> of the file from the description alone:
+<code class="docutils literal notranslate"><span class="pre">shard_frames</span></code>, <code class="docutils literal notranslate"><span class="pre">F</span></code> (<a class="reference internal" href="#shards">§8.2</a>), and <code class="docutils literal notranslate"><span class="pre">data_type</span></code>, the array’s data type, from
+<code class="docutils literal notranslate"><span class="pre">bits_per_sample</span></code> (<a class="reference internal" href="#the-array">§4.1</a>). The plan belongs to refkv’s convention, not to the IR.</p>
 <div class="toctree-wrapper compound">
 </div>
 </section>
