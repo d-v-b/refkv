@@ -464,11 +464,11 @@ impl Vsi {
         // names each unit by the element it made of it
         let (arrays, chains, map) = self.described(&ir, header, &made, &tiles_of)?;
         ir.describe(arrays, chains, map)?;
-        // the description of the slide (`describe`), and the run's counts
-        let mut facts = self.description(header, &made, &tiles_of);
-        facts["counts"] = json!({"ifds": self.ifds.len(), "tileFiles": self.files.len(), "tiles": self.files.iter().map(|f| f.tiles.len()).sum::<usize>(), "batches": self.batches});
+        // the description of the slide (`describe`); the run's counts are apart
+        // (`StoreParser::counts`)
+        let description = self.description(header, &made, &tiles_of);
         self.ir = Some(ir);
-        Ok(facts)
+        Ok(description)
     }
 
     fn advance(&mut self) -> Res<StoreStep> {
@@ -561,12 +561,19 @@ impl StoreParser for Vsi {
         Ok(Some(e))
     }
 
+    /// The run's counts, which the summary holds (spec/zarrify/vsi.md §9.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#95-summary>): the IFDs read,
+    /// the tile files, their tiles and the read batches.
+    fn counts(&self) -> J {
+        json!({"ifds": self.ifds.len(), "tileFiles": self.files.len(), "tiles": self.files.iter().map(|f| f.tiles.len()).sum::<usize>(), "batches": self.batches})
+    }
+
     fn finish(mut self: Box<Self>) -> Res<(Ir, J)> {
         if self.phase != Phase::Done {
             return Err("internal: the parse is not done".into());
         }
-        let facts = self.emit()?;
-        Ok((self.ir.take().unwrap(), facts))
+        let description = self.emit()?;
+        Ok((self.ir.take().unwrap(), description))
     }
 }
 
