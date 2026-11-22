@@ -107,14 +107,6 @@ pub trait FileProfile: Sync {
         }
         Some(description)
     }
-    /// The profile's description of a store of its format whose store parser returns it beside its
-    /// projection's facts, where it is in `facts`; None for a profile whose store run returns no
-    /// description, or returns its facts as one (its registry entry's `described`,
-    /// `store::StoreFormat::description`).
-    fn store_description(&self, facts: &J) -> Option<J> {
-        let _ = facts;
-        None
-    }
     /// What the output adds beside the mirror (`output`, when it mirrors).
     fn mirrored(&self, out: &mut Out, facts: &J) -> Result<(), String> {
         let _ = (out, facts);

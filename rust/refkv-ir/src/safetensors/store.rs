@@ -3,9 +3,12 @@
 //! store of safetensors files, such as a model's repository of shards, sans-IO. Each
 //! `.safetensors` object's header is read and checked as the file form reads it (`check`), and the
 //! object is described in place: its length, its header and its tensors' data are its elements,
-//! read at its URL. Each `*.safetensors.index.json`, and each `config.json` beside a shard, is
-//! read whole as a JSON document and held. A shard whose header fails a check is not presented,
-//! with the check's message, and the store is not rejected.
+//! read at its URL, whether or not the hierarchy presents it. Beside the IR, the parser returns a
+//! description of the store (spec/zarrify/safetensors.md §9.7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#97-the-description>), from
+//! which the projection makes refkv's plan (`plan.rs`). Each `*.safetensors.index.json`, and each `config.json` beside a shard, is
+//! read whole as a JSON document and held. A shard whose header fails a check is described by the
+//! check's message, and the store is not rejected.
 //!
 //! Rounds: every shard's first 64 KiB and every document whole, then the rest of each header
 //! longer than the first read.
@@ -16,8 +19,8 @@ use crate::ir::{Ir, Res};
 use crate::json;
 use crate::rules::{self, Rules};
 use crate::store::{StoreParser, StoreStep};
-use serde_json::{json, Map, Value as J};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use serde_json::{json, Value as J};
+use std::collections::{BTreeSet, HashMap};
 
 /// The key of a shard.
 pub fn is_shard(key: &str) -> bool {
@@ -32,19 +35,6 @@ fn is_index(key: &str) -> bool {
 /// The directory of a key: its prefix before its last `/` (the root's, empty).
 fn dir_of(key: &str) -> &str {
     key.rfind('/').map_or("", |i| &key[..i])
-}
-
-/// The path of a shard's group, its key, or why it has none: a key segment that is not a Zarr
-/// node name, or a first segment `refkv_source` (spec/zarrify/safetensors.md §9.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#91-the-hierarchy>).
-fn shard_path(key: &str) -> Result<String, String> {
-    if key.split('/').any(|p| p.starts_with("__") || p == "zarr.json") {
-        return Err("name: a segment of its key is not a Zarr node name".into());
-    }
-    if key.split('/').next() == Some(crate::out::SOURCE_NODE) {
-        return Err(format!("reserved: its key starts with {}", crate::out::SOURCE_NODE));
-    }
-    Ok(key.to_string())
 }
 
 /// A shard: its listing index, and once read, its header's length, its checked header, or why it
@@ -97,77 +87,35 @@ impl SafetensorsStore {
         })
     }
 
-    /// The shards' and documents' elements, the facts (spec/zarrify/safetensors.md §9
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#9-the-store-form>),
+    /// The shards' and documents' elements, the description of the store (spec/zarrify/safetensors.md
+    /// §9.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#97-the-description>),
     /// and, on the finished IR, the descriptions of every tensor whose shard's header passed its
     /// checks (spec/stored-array.md §7
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>). A presented
-    /// shard's facts are a file's, with its `declared_by`; the store's `declared_by` lists, in the
-    /// order of `own.files`, the element that keys each shard's descriptions: its `header`; its
-    /// object, for a shard that is not presented; or null for one whose header failed a check.
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>). Every such
+    /// shard is described in place, whether or not the hierarchy presents it, and its tensors are
+    /// keyed by its `header`; a shard whose header fails a check has the check's message.
     fn emit(&mut self) -> Res<J> {
         let mut ir = self.ir.take().ok_or("internal: no IR")?;
         let keys = &self.keys;
-        // a shard whose key is another shard's directory has no group (S3 allows `a` and `a/b`)
-        let shard_dirs: BTreeSet<String> = self.shards.iter()
-            .flat_map(|s| keys[s.k].0.match_indices('/').map(|(i, _)| keys[s.k].0[..i].to_string()).collect::<Vec<_>>())
-            .collect();
-        let mut files = Vec::new();
-        let mut presented = Vec::new();
-        let mut tensors_of: HashMap<String, (String, BTreeSet<String>)> = HashMap::new();
-        // every checked header's tensors, described once the IR is finished, and the element that
-        // keys each shard's descriptions, in the order of `files`
         let mut reached = Vec::new();
-        let mut declared_by: Vec<Option<u32>> = Vec::new();
         // each shard as the description gives it, in the listing's order
-        let mut described = Vec::new();
-        for s in &mut self.shards {
-            let key = &keys[s.k].0;
-            // what the format's checks found, before the hierarchy's decisions
-            let mut entry = json!({"key": key, "object": self.elems[s.k]});
-            match (&s.header, &s.reason) {
-                (Some(h), None) => entry["header"] = h.describe(None),
-                (_, Some(why)) => entry["error"] = json!(why),
-                (None, None) => entry["error"] = json!("internal: a shard neither checked nor refused"),
-            }
-            if s.reason.is_none() && shard_dirs.contains(key) {
-                s.reason = Some("path: its key is another shard's directory".into());
-            }
-            let path = match (&s.reason, shard_path(key)) {
-                (None, Ok(p)) => p,
-                (None, Err(why)) => {
-                    s.reason = Some(why);
-                    String::new()
-                }
-                _ => String::new(),
-            };
+        let mut shards = Vec::new();
+        for s in &self.shards {
             let e = self.elems[s.k];
-            let Some(h) = s.header.as_ref().filter(|_| s.reason.is_none()) else {
-                files.push(json!({"key": key, "reason": s.reason.clone().unwrap_or_default()}));
-                // a shard that is not presented for its key has a checked header all the same: its
-                // tensors are described, by its object
-                let tensors = s.header.as_ref().map(|h| h.in_object(self.rules, e)).transpose()?;
-                declared_by.push(tensors.as_ref().map(|t| t.key));
-                reached.extend(tensors);
-                described.push(entry);
-                continue;
-            };
-            ir.describe_in_place(e)?;
-            let (facts, tensors) = h.emit(self.rules, &mut ir, e)?;
-            entry["header"] = facts["description"].clone();
-            described.push(entry);
-            declared_by.push(Some(tensors.key));
-            reached.push(tensors);
-            let names: BTreeSet<String> = facts["own"]["tensors"].as_array().into_iter().flatten()
-                .filter_map(|t| t["name"].as_str().map(str::to_string)).collect();
-            tensors_of.insert(key.clone(), (path.clone(), names));
-            files.push(json!({"key": key, "path": path}));
-            presented.push(json!({"key": key, "path": path, "facts": facts}));
+            let mut entry = json!({"key": keys[s.k].0, "object": e});
+            match (&s.header, &s.reason) {
+                (Some(h), None) => {
+                    ir.describe_in_place(e)?;
+                    let (header, tensors) = h.emit(self.rules, &mut ir, e)?;
+                    reached.push(tensors);
+                    entry["header"] = header;
+                }
+                (_, Some(why)) => entry["error"] = json!(why),
+                (None, None) => return Err("internal: a shard neither checked nor refused".into()),
+            }
+            shards.push(entry);
         }
         // the documents: each index and configuration read whole and held, or why not
-        let mut indexes = Vec::new();
-        let mut configs = Vec::new();
-        let mut held = BTreeSet::new();
         let mut documents = Vec::new();
         for d in &self.docs {
             let (key, size) = (&keys[d.k].0, keys[d.k].1);
@@ -175,101 +123,20 @@ impl SafetensorsStore {
                 Some(b) => json::parse(b),
                 None => Err(format!("a JSON document of {size} bytes is longer than {}", json::MAX_DOCUMENT)),
             };
-            let doc = match parsed {
+            match parsed {
                 Ok(doc) => {
                     json::hold(&mut ir, self.elems[d.k], size, &doc.members)?;
-                    held.insert(d.k);
                     documents.push(json!({"key": key, "object": self.elems[d.k], "json": doc.value.text()}));
-                    Some(doc.value)
                 }
-                Err(e) => {
-                    documents.push(json!({"key": key, "object": self.elems[d.k], "error": e}));
-                    let record = json!({"key": key, "problem": e});
-                    if is_index(key) { indexes.push(record) } else { configs.push(record) }
-                    continue;
-                }
-            };
-            let value: J = doc.and_then(|v| serde_json::from_str(&v.text()).ok()).unwrap_or(J::Null);
-            if is_index(key) {
-                indexes.push(index_record(key, &value, &tensors_of));
-            } else {
-                configs.push(json!({"key": key, "config": value}));
+                Err(e) => documents.push(json!({"key": key, "object": self.elems[d.k], "error": e})),
             }
-        }
-        let presented_keys: BTreeSet<&str> = presented.iter().filter_map(|p| p["key"].as_str()).collect();
-        let others: Vec<J> = (0..keys.len())
-            .filter(|&k| !held.contains(&k) && !presented_keys.contains(keys[k].0.as_str()) && keys[k].1 > 0)
-            .map(|k| json!([keys[k].0, keys[k].1]))
-            .collect();
-        let dirs: BTreeSet<&str> = presented.iter().filter_map(|p| p["path"].as_str())
-            .flat_map(|p| p.match_indices('/').map(move |(i, _)| &p[..i])).collect();
-        let mut own = Map::new();
-        own.insert("files".into(), J::Array(files));
-        if !indexes.is_empty() {
-            own.insert("indexes".into(), J::Array(indexes));
-        }
-        if !configs.is_empty() {
-            own.insert("configs".into(), J::Array(configs));
         }
         crate::check::finish(&mut ir)?;
         let (arrays, chains, map) = stored::described(&reached)?;
         ir.describe(arrays, chains, map)?;
         self.ir = Some(ir);
-        // the description of the store (spec/zarrify/safetensors.md §9.7
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#97-the-description>)
-        let description = json!({"shards": described, "documents": documents});
-        Ok(json!({"profile": "safetensors", "own": own, "shards": presented, "dirs": dirs, "others": others, "declared_by": declared_by,
-                  "description": description}))
+        Ok(json!({"shards": shards, "documents": documents}))
     }
-}
-
-/// An index's record (spec/zarrify/safetensors.md §9.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#92-source-metadata>): its
-/// `metadata`, and how its `weight_map` disagrees with the shards beside it, which the shards'
-/// headers decide.
-fn index_record(key: &str, value: &J, tensors_of: &HashMap<String, (String, BTreeSet<String>)>) -> J {
-    let dir = dir_of(key);
-    let mut problems = Vec::new();
-    let mut listed: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
-    match value["weight_map"].as_object() {
-        None => problems.push("it has no weight_map object".to_string()),
-        Some(map) => {
-            for (tensor, file) in map {
-                let Some(file) = file.as_str() else {
-                    problems.push(format!("{tensor:?} names no file"));
-                    continue;
-                };
-                let shard = if dir.is_empty() { file.to_string() } else { format!("{dir}/{file}") };
-                match tensors_of.get(&shard) {
-                    None => problems.push(format!("{tensor:?} is in {file:?}, which is not a presented shard")),
-                    Some((_, names)) if !names.contains(tensor) => problems.push(format!("{tensor:?} is not in {file:?}")),
-                    Some(_) => {
-                        listed.entry(file).or_default().insert(tensor.as_str());
-                    }
-                }
-            }
-            for (file, set) in &listed {
-                let shard = if dir.is_empty() { file.to_string() } else { format!("{dir}/{file}") };
-                if let Some((_, names)) = tensors_of.get(&shard) {
-                    let missing = names.iter().filter(|n| !set.contains(n.as_str())).count();
-                    if missing > 0 {
-                        problems.push(format!("{missing} tensors of {file:?} are not in its weight_map"));
-                    }
-                }
-            }
-        }
-    }
-    let count = problems.len();
-    problems.truncate(20);
-    let mut r = json!({"key": key, "agrees": count == 0});
-    if let Some(m) = value.get("metadata") {
-        r["metadata"] = m.clone();
-    }
-    if count > 0 {
-        r["problems"] = json!(problems);
-        r["problem_count"] = json!(count);
-    }
-    r
 }
 
 impl StoreParser for SafetensorsStore {
@@ -341,8 +208,8 @@ impl StoreParser for SafetensorsStore {
         if self.phase != Phase::Done {
             return Err("internal: the parse is not done".into());
         }
-        let facts = self.emit()?;
-        Ok((self.ir.take().ok_or("internal: no IR")?, facts))
+        let description = self.emit()?;
+        Ok((self.ir.take().ok_or("internal: no IR")?, description))
     }
 
     fn profile(&self) -> Option<&'static str> {
