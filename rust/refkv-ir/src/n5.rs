@@ -11,8 +11,11 @@
 //! and checked by the schema (`schema/n5.json`: the roles `candidate`, `document` and
 //! `dataset`); each is held, one value per top-level member (`ascii[n]`, the value's JSON
 //! text), the rest gaps (`json::hold`: a document of more than 4096 members is one value `json`).
-//! Every other object stays referenced. The facts are the nodes, for the
-//! projection (`project/n5.rs`), which reads the documents back from the IR.
+//! Every other object stays referenced. Beside the IR, the parser returns a description of the
+//! store (spec/zarrify/n5.md §8.3
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#83-the-description>): each node,
+//! by path and kind, with its document as parsed, from which the projection (`project/n5.rs`)
+//! makes the hierarchy.
 
 use crate::ir::{Ir, Res};
 use crate::rules::{self, num, text, Vars};
@@ -209,9 +212,19 @@ impl StoreParser for N5 {
             json::hold(&mut ir, o, n, &doc.members)?;
         }
         crate::check::finish(&mut ir)?;
-        let nodes: Vec<J> = nodes.iter().map(|(p, d)| json!([p, if *d { "array" } else { "group" }])).collect();
-        Ok((ir, json!({"nodes": nodes})))
+        Ok((ir, description(&nodes, &docs)))
     }
+}
+
+/// The description of a store whose nodes are `nodes` (each its path and whether it is a
+/// dataset), read in that order, `docs` their documents (spec/zarrify/n5.md §8.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#83-the-description>).
+fn description(nodes: &[(String, bool)], docs: &[(usize, Doc)]) -> J {
+    let nodes: Vec<J> = nodes.iter().zip(docs).map(|((path, dataset), (_, doc))| json!({
+        "path": path, "kind": if *dataset { "dataset" } else { "group" }, "json": doc.value.text(),
+    })).collect();
+    let documents: Vec<String> = nodes.iter().map(|n| document_key(n["path"].as_str().unwrap_or(""))).collect();
+    json!({"nodes": nodes, "documents": documents})
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).

@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2/description.json",
+  "title": "The description of an ND2 file",
+  "description": "What the ND2 profile's parser returns beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#75-the-description): the members of the file's attributes and picture metadata as read, the experiment's loops as flattened, and the chunks the IR holds decoded. None of an output's decisions.",
+  "type": "object",
+  "required": ["attributes", "loops", "picture", "chunks"],
+  "additionalProperties": false,
+  "properties": {
+    "attributes": {
+      "description": "SLxImageAttributes's members as the convention's metadata (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#3-metadata) reads them, absent ones at their defaults.",
+      "type": "object",
+      "required": ["uiWidth", "uiHeight", "uiWidthBytes", "uiComp", "uiBpcInMemory", "uiBpcSignificant", "eCompression", "uiTileWidth", "uiTileHeight"],
+      "additionalProperties": false,
+      "properties": {
+        "uiWidth": {"$ref": "#/$defs/integer"},
+        "uiHeight": {"$ref": "#/$defs/integer"},
+        "uiWidthBytes": {"$ref": "#/$defs/integer"},
+        "uiComp": {"$ref": "#/$defs/integer"},
+        "uiBpcInMemory": {"$ref": "#/$defs/integer"},
+        "uiBpcSignificant": {"type": "number"},
+        "eCompression": {"$ref": "#/$defs/integer"},
+        "uiTileWidth": {"$ref": "#/$defs/integer"},
+        "uiTileHeight": {"$ref": "#/$defs/integer"}
+      }
+    },
+    "loops": {
+      "description": "The experiment's loops, flattened by the convention's rules (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#3-metadata): none without SLxExperiment.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "count", "depth"],
+        "properties": {
+          "kind": {"enum": ["t", "z", "p"]},
+          "count": {"$ref": "#/$defs/integer"},
+          "depth": {"$ref": "#/$defs/integer"}
+        },
+        "oneOf": [
+          {
+            "properties": {"kind": {"const": "t"}, "count": true, "depth": true, "period": {"type": "number", "description": "ms"}},
+            "required": ["period"],
+            "additionalProperties": false
+          },
+          {
+            "properties": {"kind": {"const": "z"}, "count": true, "depth": true, "step": {"type": "number", "minimum": 0, "description": "µm"}, "flip": {"type": "boolean", "description": "whether dZStep is negative"}},
+            "required": ["step", "flip"],
+            "additionalProperties": false
+          },
+          {
+            "properties": {
+              "kind": {"const": "p"}, "count": true, "depth": true,
+              "stage": {
+                "description": "each valid point's dPosX and dPosY (µm), null where absent",
+                "type": "array",
+                "items": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": ["number", "null"]}}
+              }
+            },
+            "required": ["stage"],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "picture": {
+      "description": "SLxPictureMetadata's members as the convention's metadata (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#3-metadata) reads them, absent ones at their defaults (null without one); null where the chunk or the member is absent.",
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["bCalibrated", "dCalibration", "dAspect", "dStgLgCT11", "dStgLgCT12", "dStgLgCT21", "dStgLgCT22", "dXPos", "dYPos", "sPicturePlanes"],
+          "additionalProperties": false,
+          "properties": {
+            "bCalibrated": {"type": "boolean"},
+            "dCalibration": {"type": ["number", "null"]},
+            "dAspect": {"type": "number"},
+            "dStgLgCT11": {"type": "number"},
+            "dStgLgCT12": {"type": "number"},
+            "dStgLgCT21": {"type": "number"},
+            "dStgLgCT22": {"type": "number"},
+            "dXPos": {"type": ["number", "null"]},
+            "dYPos": {"type": ["number", "null"]},
+            "sPicturePlanes": {
+              "description": "{} where absent",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "uiCount": {"$ref": "#/$defs/integer"},
+                "sPlaneNew": {
+                  "description": "plane a<i> for each i below uiCount the file has",
+                  "type": "object",
+                  "propertyNames": {"pattern": "^a(0|[1-9][0-9]*)$"},
+                  "additionalProperties": {
+                    "type": "object",
+                    "required": ["sDescription", "uiColor", "uiCompCount"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "sDescription": {"type": "string"},
+                      "uiColor": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+                      "uiCompCount": {"$ref": "#/$defs/integer"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "chunks": {
+      "description": "The chunks the IR holds decoded for the source metadata (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks), in the chunk map's order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "element", "records"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"$ref": "#/$defs/text"},
+          "element": {"$ref": "#/$defs/integer"},
+          "records": {"$ref": "#/$defs/integer", "description": "the LV records and byte-array bytes its decoding spent; 0 for an XML variant"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "integer": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "text": {
+      "oneOf": [
+        {"type": "string"},
+        {"type": "object", "required": ["latin1"], "additionalProperties": false, "properties": {"latin1": {"type": "string"}}}
+      ]
+    }
+  }
+}

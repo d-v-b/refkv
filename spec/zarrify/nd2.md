@@ -816,3 +816,21 @@ entry `<p>/0/c/<coords>` with its ranges ([§7.3](#73-frames), an
 [`Nd2FrameChunk`](#type-nd2framechunk)); coords are its `t`, 0 for
 `c`, its `z` (each only when its axis is present), then 0, 0. With row
 blocks, block `j` is the entry with coords ..., `j`, 0.
+
+### 7.5 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a **description** of the file, for a projection to read with the IR and its
+stored arrays ([spec/stored-array.md §7](../stored-array.md#7-the-formats)). Its JSON Schema is
+[nd2/description.json](nd2/description.json). It holds none of an output's decisions: the number of
+positions and frames, the axes, the data type and codecs, the row blocks, the calibration, scales,
+units and stage translations, the channels and their window ([§4](#4-the-image)), and which decoded
+chunks the root's source metadata holds ([§5.1](#51-decoded-chunks)) are the projection's. It is a
+JSON object:
+
+| member | value |
+|---|---|
+| `attributes` | `SLxImageAttributes`'s members as [§3](#3-metadata) reads them (`uiWidth`, `uiHeight`, `uiWidthBytes`, `uiComp`, `uiBpcInMemory`, `uiBpcSignificant`, `eCompression`, `uiTileWidth`, `uiTileHeight`), an absent member at its default; an integer exactly, a number as a number |
+| `loops` | the experiment's loops, flattened by [§3](#3-metadata)'s rules (none without `SLxExperiment`): each `kind` (`t`, `z` or `p`), `count` and `depth`, and a time loop's `period` (ms), a z loop's `step` (µm) and `flip` (whether `dZStep` is negative), or a position loop's `stage`, each valid point's `[dPosX, dPosY]` (µm), an absent coordinate null |
+| `picture` | `SLxPictureMetadata`'s members as [§3](#3-metadata) reads them (`bCalibrated`, `dCalibration`, `dAspect`, `dStgLgCT11` to `dStgLgCT22`, `dXPos`, `dYPos`, `sPicturePlanes`), an absent member at its default or null without one, `sPicturePlanes` `{}` where absent; of its planes, `uiCount` and `sPlaneNew`, plane `a<i>` for each `i` below `uiCount` the file has, with `sDescription`, `uiColor` (modulo 2^32) and `uiCompCount`; null where the chunk or the member is absent |
+| `chunks` | the chunks the IR holds decoded for the source metadata ([§5.1](#51-decoded-chunks)), in the chunk map's order: each `name` (text, [conventions §6](../conventions.md#6-source-metadata-as-json)), `element`, the IR element of its decoding (`lv` or `xml`, [§5.3](#53-elements)), and `records`, the LV records and byte-array bytes its decoding spent (0 for an XML variant) |
