@@ -2,8 +2,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): every tensor
 //! of a checked header, presented or not, keyed by the header's element with the tensor's position
 //! in the header as its index. A tensor is one unit, its data, stored as is; a packed one (4 or 6
-//! bits an element) in a `lsb_first` chain. A shard the store form does not describe in place has
-//! no elements of its own: its tensors are keyed by its object, their places ranges of it.
+//! bits an element) in a `lsb_first` chain. The store form describes every checked shard in place,
+//! so a shard's tensors are keyed by its own `header`, as a file's are.
 
 use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Grid, Param, Place, Row, StoredArray};
 use crate::ir::Res;
@@ -22,12 +22,10 @@ pub(super) struct Tensor {
     pub element: Option<u32>,
 }
 
-/// A checked header's tensors, in its order, with the element that keys their descriptions and
-/// where the header starts in that element's bytes: the `header` element (0), or, of a shard with
-/// no elements, its object (8).
+/// A checked header's tensors, in its order, with the element that keys their descriptions: the
+/// `header` element.
 pub(super) struct Tensors {
     pub key: u32,
-    pub header_at: u64,
     pub tensors: Vec<Tensor>,
 }
 
@@ -176,13 +174,12 @@ pub(super) fn described(files: &[Tensors]) -> Res<(Vec<StoredArray>, Vec<Chain>,
             match (t.at.1, t.element) {
                 (0, _) => {}
                 (_, Some(e)) => map.push(Row { element: Some(e), ..row })?,
-                // no element is the tensor's data alone: its range of the object
-                (_, None) => map.push(Row { element: Some(f.key), range: Some(t.at), ..row })?,
+                (_, None) => return Err("internal: a tensor of bytes without its data's element".into()),
             }
             arrays.push(StoredArray {
                 element: f.key,
                 index: Some(index as u64),
-                declarations: vec![Place::Element { element: f.key, member: None, range: Some((f.header_at + t.dtype.0, t.dtype.1)) }],
+                declarations: vec![Place::Element { element: f.key, member: None, range: Some(t.dtype) }],
                 // one unit of the whole tensor: an axis of length 0 has none, and declares no length
                 grid: Some(Grid {
                     axes: t.shape.iter().map(|&n| if n == 0 { AxisUnits::List(Vec::new()) } else { AxisUnits::Each(n) }).collect(),
@@ -242,13 +239,12 @@ mod tests {
 
     /// A tensor of whole bytes is one unit, its data's element, in an empty chain; a packed one a
     /// unit in `lsb_first` of its bits; a scalar one unit of no coordinates; a tensor of no bytes
-    /// no unit, its empty axis listing none; and a tensor keyed by an object a range of it, its
-    /// `dtype` value 8 bytes further in than in its header.
+    /// no unit, its empty axis listing none.
     #[test]
     fn describes_each_tensor_as_one_unit() {
         let tensor = |shape: &[u64], bits, at, element| Tensor { dtype: (10, 5), shape: shape.to_vec(), bits, at, element };
         let files = [
-            Tensors { key: 2, header_at: 0, tensors: vec![
+            Tensors { key: 2, tensors: vec![
                 tensor(&[2, 3], 32, (100, 24), Some(3)),
                 tensor(&[4, 2], 4, (124, 4), Some(4)),
                 tensor(&[], 64, (128, 8), Some(5)),
@@ -256,7 +252,6 @@ mod tests {
                 tensor(&[4], 6, (136, 3), Some(6)),
                 tensor(&[8], 4, (139, 4), Some(7)),
             ] },
-            Tensors { key: 9, header_at: 8, tensors: vec![tensor(&[5], 8, (60, 5), None)] },
         ];
         let (arrays, chains, map) = described(&files).unwrap();
         let lsb = |bits: u64| vec![Codec { name: "lsb_first".into(), parameters: BTreeMap::from([("bits".to_string(), Param::Value(json!(bits)))]) }];
@@ -269,12 +264,10 @@ mod tests {
             (2, Some(3), vec![0, 3], Some(16), vec![0]),
             (2, Some(4), vec![4], Some(6), vec![2]),
             (2, Some(5), vec![8], Some(4), vec![1]),
-            (9, Some(0), vec![5], Some(8), vec![0]),
         ]);
         for a in &arrays {
             assert_eq!((&a.axes, a.pad_from, a.unit_parameters.len()), (&None, None, 0));
-            let at = if a.element == 9 { 18 } else { 10 };
-            assert_eq!(a.declarations, vec![Place::Element { element: a.element, member: None, range: Some((at, 5)) }]);
+            assert_eq!(a.declarations, vec![Place::Element { element: a.element, member: None, range: Some((10, 5)) }]);
         }
         let grids: Vec<_> = arrays.iter().map(|a| a.grid.clone().unwrap()).collect();
         assert!(grids.iter().all(|g| g.edge == Edge::Short));
@@ -288,7 +281,6 @@ mod tests {
             (2, vec![], Some(5), None),
             (4, vec![0], Some(6), None),
             (5, vec![0], Some(7), None),
-            (6, vec![0], Some(9), Some((60, 5))),
         ]);
     }
 }

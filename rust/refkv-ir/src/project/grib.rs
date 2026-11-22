@@ -2,8 +2,10 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#3-the-hierarchy>–§4
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#4-georeferencing>, and the
 //! chunks of the profile's §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#85-chunks>)
-//! from a valid store IR and its facts: a group per grid, holding its coordinates and an array per
-//! variable, whose chunks are the file's messages, one field each.
+//! from a valid store IR and the parser's description of the file (spec/zarrify/grib.md §8.7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#87-the-description>): a group
+//! per grid, holding its coordinates and an array per variable, whose chunks are the file's
+//! messages, one field each. refkv's plan ([`plan`]) decides which fields are presented.
 
 use super::vsi::object_url;
 use super::{arr, n, with_counts};
@@ -21,7 +23,7 @@ const PROFILE: &str = "grib";
 const COORD_CHUNK: u64 = 1 << 17;
 const DEGREE: &str = "ANGLEUNIT[\"degree\",0.0174532925199433]";
 
-/// A finite f64 of the facts.
+/// A finite f64 of the description.
 fn f(v: &J) -> f64 {
     v.as_f64().unwrap_or(f64::NAN)
 }
@@ -72,7 +74,7 @@ struct Variable<'a> {
 
 /// The CRS's WKT2 (spec/zarrify/grib.md §4
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#4-georeferencing>), from a
-/// grid's facts: its Earth and projection.
+/// grid's description: its Earth and projection.
 fn wkt2(g: &J) -> Option<String> {
     let e = &g["earth"];
     let ellipsoid = if let Some(r) = e["radius"].as_f64() {
@@ -359,14 +361,66 @@ fn chunk_parts(field: &J, messages: &[J], key: &str) -> Vec<Part> {
     out
 }
 
-pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+/// refkv's plan of the file the description `d` describes (spec/zarrify/grib.md §2.6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#26-what-is-not-presented>): its
+/// fields, each with the `reason` it is not presented, if any (what of it the parser does not
+/// interpret, else the convention's: a packing the codec does not decode, a predefined or missing
+/// bitmap, or values that are not its grid's points); the root's source metadata, `own`; and the
+/// summary's `counts`. A file with no field presented is rejected.
+pub fn plan(d: &J) -> Result<J, String> {
+    let rules = crate::rules::of(PROFILE);
+    let mut fields: Vec<J> = Vec::with_capacity(arr(&d["fields"]).len());
+    // whether a field before it in its message gave a bitmap, which indicator 254 reuses
+    let (mut message, mut had_bitmap) = (u64::MAX, false);
+    for x in arr(&d["fields"]) {
+        if n(&x["message"]) != message {
+            (message, had_bitmap) = (n(&x["message"]), false);
+        }
+        let bitmap = n(&x["bitmap"]);
+        let points = n(&d["grids"][x["grid"].as_str().unwrap_or("")]["points"]);
+        let reason = x["unread"].as_str().or_else(|| {
+            if !crate::grib::meta::DECODED.contains(&n(&x["packing"])) {
+                Some("packing")
+            } else if (1..=253).contains(&bitmap) || (bitmap == 254 && !had_bitmap) {
+                Some("bitmap")
+            } else if bitmap == 255 && n(&x["values"]) != points {
+                Some("values")
+            } else {
+                None
+            }
+        });
+        had_bitmap |= bitmap == 0;
+        let mut f = x.clone();
+        if let Some(m) = f.as_object_mut() {
+            m.remove("unread");
+            if let Some(r) = reason {
+                m.insert("reason".into(), json!(r));
+            }
+        }
+        fields.push(f);
+    }
+    let presented = fields.iter().filter(|f| f.get("reason").is_none()).count();
+    let reasons: BTreeSet<&str> = fields.iter().filter_map(|f| f["reason"].as_str()).collect();
+    let reasons: Vec<&str> = reasons.into_iter().collect();
+    let env = crate::rules::env([("count", crate::rules::num(presented as f64)), ("fields", crate::rules::num(fields.len() as f64)), ("reasons", crate::rules::text(&reasons.join(", ")))]);
+    rules.check("fields", env)?;
+    let unpresented: Vec<J> = fields.iter().filter(|f| f.get("reason").is_some())
+        .map(|f| json!({"message": f["message"], "field": f["field"], "reason": f["reason"]})).collect();
+    let own = json!({"messages": arr(&d["messages"]).len(), "fields": fields.len(), "index": d["index_key"], "unpresented": unpresented});
+    Ok(json!({"fields": fields, "own": own, "counts": {"batches": d["reads"]["batches"]}}))
+}
+
+/// The projection of the file the description `d` describes, through refkv's plan ([`plan`]).
+pub fn project(ir: &Ir, d: &J, url: &str) -> Result<Out, String> {
+    let planned = plan(d)?;
+    let facts = d;
     let file_key = facts["file_key"].as_str().unwrap_or("").to_string();
     let file_url = object_url(url, &file_key);
     let messages = arr(&facts["messages"]);
-    let fields: Vec<&J> = arr(&facts["fields"]).iter().filter(|x| x.get("reason").is_none()).collect();
+    let fields: Vec<&J> = arr(&planned["fields"]).iter().filter(|x| x.get("reason").is_none()).collect();
     let mut out = Out::new(url);
     let mut prop = root_property(PROFILE, &file_url);
-    prop.insert(PROFILE.into(), facts["own"].clone());
+    prop.insert(PROFILE.into(), planned["own"].clone());
     let mut root = Map::new();
     root.insert("zarr_conventions".into(), json!([convention(PROFILE)]));
     root.insert(CONVENTION_KEY.into(), J::Object(prop));
@@ -641,7 +695,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         super::store::check_key(k)?;
     }
     let mut unpresented: BTreeMap<String, u64> = BTreeMap::new();
-    for x in arr(&facts["fields"]) {
+    for x in arr(&planned["fields"]) {
         if let Some(r) = x["reason"].as_str() {
             *unpresented.entry(r.to_string()).or_default() += 1;
         }
@@ -649,11 +703,11 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     out.summary = with_counts(json!({
         "messages": messages.len(), "fields": arr(&facts["fields"]).len(), "grids": grids.len(), "arrays": summary,
         "chunks": count, "unpresented": unpresented, "index": facts["index_key"],
-    }), facts);
+    }), &planned);
     Ok(out)
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    project(ir, facts, url)
+pub fn store_project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    project(ir, description, url)
 }

@@ -574,3 +574,46 @@ The output's one source is the GRIB file's object URL, with a `size` pin
 The run's summary: `messages`, `fields`, `grids`, `arrays` (each variable's `path`, `shape` and
 count of `fields`), `chunks`, `unpresented` (the count of each reason), `index`, and the store
 run's counts.
+
+### 8.7 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the store run's parser returns a **description** of the file: what it found of its messages and
+fields, in the terms of [§2](#2-the-source), for a projection to read with the IR and its stored
+arrays ([spec/stored-array.md §7](../stored-array.md#7-the-formats)). Its JSON Schema is
+[grib/description.json](grib/description.json). It holds none of an output's decisions: which fields
+are presented, for the convention's reasons `packing`, `bitmap` and `values`
+([§2.6](#26-what-is-not-presented)), how they make variables, their names and coordinates
+([§3](#3-the-hierarchy)), and the root's source metadata ([§5.1](#51-the-root)) are the projection's.
+Those decisions are refkv's **plan** of the file, made from the description alone by the function the
+convention's projection calls; so a file of which no field is presented ([§8.4](#84-checks-and-rejection))
+is rejected where the projection makes its plan. A layout that wants another hierarchy makes its own
+from the description.
+
+It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `file_key`, `index_key` | the file's key, and the key of the index whose offsets the run read the messages at ([§8.2](#82-finding-the-messages)), or null |
+| `messages` | each message's `[offset, length]`, in the file's order |
+| `fields` | each field of each message, in the file's order, below |
+| `grids` | each field's grid once, by its key: `template`, `points`, `nx`, `ny` (a reduced grid's longest row and its rows), `scan`, the scanning mode; `earth` (`radius`, or `a` and `inverse_flattening`) and `projection` (by its `kind`, with the angles and lengths of [§2.4](#24-grids)) where the parser interprets them, else null |
+| `reads` | the parser's own count: `batches`, its rounds of reads |
+
+A field is an object:
+
+| member | value |
+|---|---|
+| `message`, `field` | its message's index, and its index among the message's fields |
+| `reference`, `centre`, `discipline` | its reference time in seconds since 1970-01-01T00:00:00Z, its centre (section 1 octets 6–7) and its discipline |
+| `identity` | its identity ([§2.2](#22-identity)): the discipline, then section 1's and section 4's octets of it, in hex, separated by `.` |
+| `grid` | its grid's key: section 3 from octet 6, the scanning mode's bits 3 and 4 cleared, in hex ([§2.4](#24-grids)) |
+| `product`, `category`, `number` | section 4's template, and the parameter's category and number |
+| `surfaces` | the two surfaces' `[type, value]`, the value null where there is none ([§2.3](#23-dimensions)) |
+| `step`, `member`, `statistic`, `qualifier` | its step in seconds, its ensemble member's number, its statistic's `[process, length]` (the length in seconds, null where its unit has no fixed length, a month or a year), and what else of section 4 names it, each null where it has none ([§2.3](#23-dimensions), [§3.2](#32-names)) |
+| `packing`, `values` | section 5's template and number of values |
+| `bitmap` | section 6's indicator |
+| `single` | whether its message holds it alone |
+| `parts` | its sections 1 to 7 as a message of its own holds them, each `[offset, length]` in the file ([§8.5](#85-chunks)) |
+| `element`, `array`, `mask` | the key of its values' stored array, its message's element and its index among the arrays the message declares, and the index of the bitmap that says which points its values are, or null ([spec/stored-array.md §7](../stored-array.md#7-the-formats)) |
+| `unread` | what of its grid or product the parser does not interpret, as [§2.6](#26-what-is-not-presented)'s reasons `grid_source`, `reduced`, `grid`, `grid_size`, `gaussian`, `earth`, `projection`, `product`, `statistic` or `time`; null where it interprets both |

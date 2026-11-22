@@ -305,7 +305,7 @@ def test_copy_transposes_an_array_to_the_same_values(source, array_path, order):
         entries = copy(pr, array_path, order=order)
         copied = seal(entries, [p])
         out = {"zarr.json": group(), **copy(pr, array_path, order=order, to="x")}
-        assert check(out, [p]) == []
+        assert check(out, [p], bases=[pr]) == []
     assert np.array_equal(decoded(copied), np.transpose(decoded(store, array_path), order))
     assert doc_of(entries["zarr.json"])["attributes"] == {}
     assert out.keys() == {"zarr.json", *(f"x/{k}" for k in entries)}
@@ -448,7 +448,19 @@ def test_the_cuts_of_a_value_join_to_it(parts, start, stop):
                                     str(FIXTURES / "tiff" / "strips_rgb_contig_deflate_short.tif")])
 def test_check_finds_nothing_in_refkv_s_own_output(source):
     with opened(source) as (p, pr):
-        assert check(pr.entries(), [p]) == []
+        assert check(pr.entries(), [p], bases=[pr]) == []
+
+
+def test_check_without_bases_does_not_bear_out_refkv_s_declarations():
+    """`check` makes no output of refkv's itself: refkv's own output checked without it as a base
+    keeps declarations that nothing given bears out."""
+    with opened(TIFF) as (p, pr):
+        assert {x.code for x in check(pr.entries(), [p])} == {"refkv"}
+
+
+def test_check_refuses_bases_that_are_not_refkv_s_outputs():
+    with opened(TIFF) as (p, pr), pytest.raises(TypeError, match="bases"):
+        check(pr.entries(), [p], bases=pr)  # type: ignore[arg-type]
 
 
 def bad(p, pr):
@@ -481,7 +493,7 @@ def bad(p, pr):
                                   "refkv", "chunk", "consolidated"])
 def test_check_reports_each_problem_by_its_code(code):
     with opened(TIFF) as (p, pr):
-        assert code in {x.code for x in check(bad(p, pr)[code], [p])}
+        assert code in {x.code for x in check(bad(p, pr)[code], [p], bases=[pr])}
 
 
 def test_check_reports_a_chunk_of_the_wrong_size():
@@ -491,7 +503,7 @@ def test_check_reports_a_chunk_of_the_wrong_size():
         doc = doc_of(copy(pr, "counts")["zarr.json"])
         whole_chunk = p.reference(i, member)
         out = {"zarr.json": group(), "s/zarr.json": dump(doc), "s/c/0": cut(whole_chunk, 0, whole_chunk.size - 1)}
-        assert "size" in {x.code for x in check(out, [p])}
+        assert "size" in {x.code for x in check(out, [p], bases=[pr])}
 
 
 def test_the_coding_routines_give_the_codecs_of_refkv_s_own_output():
@@ -835,7 +847,7 @@ def test_plugin_code_refkv_runs_after_write_is_the_plugin_s(raised, error):
 ])
 def test_check_reports_malformed_documents_rather_than_raising(extra):
     with opened(TIFF) as (p, pr):
-        assert {x.code for x in check(pr.entries(mirror=False) | extra, [p])} & {"zarr", "json", "chunk"}
+        assert {x.code for x in check(pr.entries(mirror=False) | extra, [p], bases=[pr])} & {"zarr", "json", "chunk"}
 
 
 def test_a_chunk_is_its_elements_bytes():
@@ -888,7 +900,7 @@ def test_check_finds_a_copy_by_its_transposes():
     """A copy of an array of axes of one length (all 2s) is found by its transposes, not by
     trying permutations, and a datetime array's chunks are sized by its element's 8 bytes."""
     with opened(str(FIXTURES / "nifti" / "nifti_n2_le_complex128_5d.nii")) as (n, nr):
-        assert check({"zarr.json": group(), **copy(nr, "0", order=[4, 1, 3, 0, 2], to="x")}, [n]) == []
+        assert check({"zarr.json": group(), **copy(nr, "0", order=[4, 1, 3, 0, 2], to="x")}, [n], bases=[nr]) == []
     dt = {"name": "numpy.datetime64", "configuration": {"unit": "ns", "scale_factor": 1}}
     out = {"zarr.json": group(), **array([4], dt, [4], [{"name": "bytes", "configuration": {"endian": "little"}}],
                                          {(0,): bytes(16)}, to="a")}
@@ -917,7 +929,7 @@ def test_check_reports_a_copy_that_leaves_a_chunk_out_and_a_dot_node():
     with opened(str(FIXTURES / "tiff" / "bilevel_tiled.tif")) as (p, pr):
         full = copy(pr, "0", to="img")
         assert {x.code for x in check({"zarr.json": group(), **{k: v for k, v in full.items()
-                                                                if k != "img/c/1/1"}}, [p])} == {"copy"}
+                                                                if k != "img/c/1/1"}}, [p], bases=[pr])} == {"copy"}
         assert "zarr" in {x.code for x in check({"zarr.json": group(), "a/../zarr.json": group()}, [p])}
 
 
@@ -966,8 +978,8 @@ def test_an_integer_fill_value_past_2_53_is_exact(tmp_path):
         f.create_dataset("count", shape=(4,), dtype="u8", chunks=(2,), fillvalue=np.uint64(2**63 + 5))[:2] = [1, 2]
     with opened(path) as (p, pr):
         assert fill_value(pr.document("count/zarr.json")) == 2**63 + 5
-        assert check(pr.entries(), [p]) == []
-        assert check({"zarr.json": group(), **copy(pr, "count", to="c")}, [p]) == []
+        assert check(pr.entries(), [p], bases=[pr]) == []
+        assert check({"zarr.json": group(), **copy(pr, "count", to="c")}, [p], bases=[pr]) == []
 
 
 def test_a_plugin_s_output_names_its_source_by_any_url_zarrify_takes():

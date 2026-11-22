@@ -1,7 +1,8 @@
 //! The LIF image projection (spec/zarrify/lif.md §4
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#4-output>, and the source
 //! metadata of §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#5-source-metadata>)
-//! from a valid IR and the parser's layout: one image per field of each image element, whose
+//! from a valid IR, the parser's description and refkv's plan of it (`lif::plan`), which holds
+//! each image's checks and layout: one image per field of each image element, whose
 //! chunks are bands of a plane of its memory block. A LAS X project (spec/zarrify/lif.md §8
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#8-las-x-documents>) has the same
 //! images, whose memory blocks are in the LOFs of a store IR.
@@ -51,55 +52,60 @@ fn image_name(name: &J, field: Option<(&str, usize)>) -> J {
     }
 }
 
-pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    let series = n(&facts["series"]);
+/// A LIF, LOF or LIFEXT file's output, from its IR, the parser's description and refkv's plan of
+/// it (`lif::plan::plan`).
+pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    let plan = crate::lif::plan::plan(description)?;
+    let series = n(&plan["series"]);
     let mut out = Out::new(url);
-    let mut own = json!({"version": facts["version"]});
-    if let Some(file) = facts["file"].as_str() {
+    let mut own = json!({"version": plan["version"]});
+    if let Some(file) = description["file"].as_str().filter(|&f| f != "lif") {
         own["file"] = json!(file);
     }
     bioformats2raw(&mut out, "lif", url, own, series as usize, series > 0);
     let mut refs = Refs::new(ir, out);
-    let chunks = images(ir, facts, &mut refs)?;
+    let chunks = images(ir, &plan, &mut refs)?;
     let mut out = refs.out;
-    out.summary = json!({"version": facts["version"], "images": arr(&facts["images"]).len(), "series": series,
-                         "blocks": facts["blocks"], "chunks": chunks});
+    out.summary = json!({"version": plan["version"], "images": arr(&plan["images"]).len(), "series": series,
+                         "blocks": arr(&description["blocks"]).len(), "chunks": chunks});
     Ok(out)
 }
 
-/// A LAS X project's output, from its store IR: the root names the named document and records
-/// every sibling and every image it leaves out (spec/zarrify/lif.md §5.1
+/// A LAS X project's output, from its store IR, the store run's description and refkv's plan of
+/// it (`lif::plan::plan_set`): the root names the named document and records every sibling and
+/// every image it leaves out (spec/zarrify/lif.md §5.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#51-the-root>).
-pub fn project_set(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    let series = n(&facts["series"]);
+pub fn project_set(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    let plan = crate::lif::plan::plan_set(description)?;
+    let series = n(&plan["series"]);
     let mut out = Out::new(url);
-    let mut own = json!({"version": facts["version"], "file": "set", "files": facts["files"]});
-    if !arr(&facts["not_presented"]).is_empty() {
-        own["not_presented"] = facts["not_presented"].clone();
+    let mut own = json!({"version": description["version"], "file": "set", "files": description["files"]});
+    if !arr(&plan["not_presented"]).is_empty() {
+        own["not_presented"] = plan["not_presented"].clone();
     }
-    let named = object_url(url, facts["named_key"].as_str().unwrap_or(""));
+    let named = object_url(url, description["named_key"].as_str().unwrap_or(""));
     bioformats2raw(&mut out, "lif", &named, own, series as usize, series > 0);
     let mut refs = Refs::new(ir, out);
-    let chunks = images(ir, facts, &mut refs)?;
+    let chunks = images(ir, &plan, &mut refs)?;
     let mut out = refs.out;
     // a LOF no image uses: still a source, as an object nothing else uses (spec/zarrify/lif.md §8.2
     // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#82-the-siblings>)
-    for lof in arr(&facts["unused"]) {
+    for lof in arr(&plan["unused"]) {
         let key = lof[0].as_str().unwrap_or("");
         out.refs(&object_key(key), vec![Part::Obj(key.to_string(), 0, n(&lof[1]))]);
     }
-    out.summary = json!({"version": facts["version"], "images": arr(&facts["images"]).len(), "series": series,
-                         "documents": facts["documents"], "lofs": facts["lofs"], "blocks": facts["blocks"],
-                         "notPresented": arr(&facts["not_presented"]).len(), "chunks": chunks});
+    out.summary = json!({"version": description["version"], "images": arr(&plan["images"]).len(), "series": series,
+                         "documents": arr(&description["documents"]).len(), "lofs": arr(&description["lofs"]).len(),
+                         "blocks": plan["blocks"], "notPresented": arr(&plan["not_presented"]).len(), "chunks": chunks});
     Ok(out)
 }
 
-/// Each image of the facts: its groups and arrays, and its chunks' references; the chunks.
-fn images(ir: &Ir, facts: &J, refs: &mut Refs) -> Result<u64, String> {
+/// Each image of the plan: its groups and arrays, and its chunks' references; the chunks.
+fn images(ir: &Ir, plan: &J, refs: &mut Refs) -> Result<u64, String> {
     let file_blocks = if ir.store { HashMap::new() } else { block_data(ir, 0) };
     let mut s = 0u64;
     let mut chunks = 0u64;
-    for im in arr(&facts["images"]) {
+    for im in arr(&plan["images"]) {
         // in a store IR, the LOF that holds its block
         let object = im["object"].as_u64().map(|e| e as u32);
         let lof_blocks = object.map(|e| block_data(ir, e));

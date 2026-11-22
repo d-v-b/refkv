@@ -690,10 +690,11 @@ it, and the rebuild test does the same. The references budget of
 presentation; a caller's output is not held to it, as a plugin's is not
 today.
 
-`hierarchy.check(written, inputs)`, the problems a Zarr reader would trip on, is a
+`hierarchy.check(written, inputs, bases=())`, the problems a Zarr reader would trip on, is a
 separate function for a caller's tests; for its `refkv` code (a declaration
-its subtree does not bear out) it runs `project` on the input the
-declaration names and compares the subtree with refkv's. An output keeping refkv's declarations claims to
+its subtree does not bear out) it compares the subtree with the input's IR
+mirror and with the refkv outputs (`project` of an input) the caller gives as
+`bases`. It runs `project` itself nowhere (landed with d-v-b/refkv#378). An output keeping refkv's declarations claims to
 follow refkv's convention, Structure only with it; `seal` does not check the
 claim. Structure only binds refkv's conventions; a caller's output that does
 not keep refkv's declarations claims nothing of them, whatever it read.

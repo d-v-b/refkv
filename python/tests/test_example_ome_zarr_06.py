@@ -127,9 +127,9 @@ def test_the_output_is_an_ome_zarr_06_image_of_the_arrays_of_refkv_s_own_output(
     options = plugin.options(given)
     with read(str(FIXTURES / source), checksums=checksums) as parsed:
         entries = plugin.write([parsed], options)
-        assert [p for p in check(entries, [parsed]) if p.code not in ALLOWED] == []
+        b = project(parsed)  # every level is a copy of an array of refkv's own output
+        assert [p for p in check(entries, [parsed], bases=[b]) if p.code not in ALLOWED] == []
         sealed = seal(entries, [parsed])
-        b = project(parsed)
         mirror = b.entries(f"{MIRROR}/")
     assert [list(entries), encode_entries(sealed.mapping).hex()] == elsewhere[CASES.index((source, given, checksums))]
 

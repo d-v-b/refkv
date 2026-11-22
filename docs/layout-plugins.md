@@ -127,7 +127,11 @@ plugin's to get right. `check(output, inputs)`, in `refkv.zarrify.layouts.hierar
 plugin's tests find out: it returns `Problem(key, code, message)` for what `zarrify` refuses (the
 first problem `seal` finds, under its code: `key`, `value`, `range`, `payload`, `checksums`,
 `inputs`, `open`, `archive`) and for what a reader would trip on (`document`, `orphan`, `chunk`,
-`json`, `zarr`, `consolidated`, `parent`, `copy`, `size`, `refkv`). A test reads a file with
+`json`, `zarr`, `consolidated`, `parent`, `copy`, `size`, `refkv`). The last two compare the
+output with refkv's own outputs the plugin built it from, which its test gives as `bases`
+(`check(output, inputs, bases=[project(parsed)])`) when it copies an array of one (`copy`) or keeps
+refkv's declarations (`refkv`); `check` never runs refkv's projection itself, and a plugin that
+builds its output from the description alone gives none. A test reads a file with
 `refkv.build.read`:
 
 ```python

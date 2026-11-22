@@ -13,6 +13,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>), presented or
 //! not, keyed by its `header` element (`stored`).
 
+pub mod plan;
 pub mod store;
 mod stored;
 
@@ -23,7 +24,6 @@ use crate::rules::{self, Rules, flag, num, text};
 use crate::sans::{self, Asked};
 use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value as J, json};
-use std::collections::BTreeSet;
 
 /// The header's member that is not a tensor.
 const METADATA: &str = "__metadata__";
@@ -117,16 +117,13 @@ fn parse_header(t: &str) -> Result<J, String> {
     crate::json::parse_binary64(t).ok_or_else(|| "number out of range".into())
 }
 
-/// A tensor of the header, in its order: its entry's members, and, once checked, its data's
-/// range in the file, its path when presented, else its reason.
+/// A tensor of the header, in its order: its entry's members.
 struct Tensor {
     name: String,
     dtype: String,
     shape: Vec<u64>,
     offsets: (u64, u64),
     extra: Map<String, J>,
-    path: Option<String>,
-    reason: Option<&'static str>,
 }
 
 /// An integer from 0 to 2^53 − 1, as the header writes `shape` and `data_offsets`.
@@ -143,26 +140,7 @@ fn entry(name: &str, value: &J) -> Result<Tensor, &'static str> {
     let offsets: Option<Vec<u64>> = m.get("data_offsets").and_then(J::as_array).and_then(|a| a.iter().map(safe_int).collect());
     let offsets = offsets.filter(|o| o.len() == 2).ok_or("has no data_offsets of two integers from 0 to 2^53 - 1")?;
     let extra = m.iter().filter(|(k, _)| !matches!(k.as_str(), "dtype" | "shape" | "data_offsets")).map(|(k, v)| (k.clone(), v.clone())).collect();
-    Ok(Tensor { name: name.to_string(), dtype: dtype.to_string(), shape, offsets: (offsets[0], offsets[1]), extra, path: None, reason: None })
-}
-
-/// A tensor's path, its name with `/` between node names, or why it has none
-/// (spec/zarrify/safetensors.md §4.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#41-paths>).
-fn tensor_path(name: &str) -> Result<String, &'static str> {
-    let parts: Vec<&str> = name.split('/').collect();
-    if parts.iter().any(|p| p.is_empty() || *p == "." || *p == ".." || p.starts_with("__") || *p == "zarr.json") {
-        return Err("name");
-    }
-    if parts[0] == crate::out::SOURCE_NODE {
-        return Err("reserved");
-    }
-    Ok(name.to_string())
-}
-
-/// The proper prefixes of a path that end before one of its `/`: the groups that hold it.
-fn groups_of(path: &str) -> impl Iterator<Item = &str> {
-    path.match_indices('/').map(move |(i, _)| &path[..i])
+    Ok(Tensor { name: name.to_string(), dtype: dtype.to_string(), shape, offsets: (offsets[0], offsets[1]), extra })
 }
 
 /// The bytes of a file the first read takes: its length and, in every file surveyed, its header.
@@ -180,8 +158,8 @@ pub fn header_length(rules: &Rules, size: u64, first: &[u8]) -> Result<u64, Stri
     Ok(n)
 }
 
-/// A checked header: its length and bytes, its `__metadata__`, its tensors in the header's order
-/// (each with its path or its reason), and their order in the buffer.
+/// A checked header: its length and bytes, its `__metadata__`, its tensors in the header's order,
+/// and their order in the buffer.
 pub struct Header {
     n: u64,
     raw: Vec<u8>,
@@ -192,8 +170,7 @@ pub struct Header {
 
 /// The header `raw`, of `n` bytes, of a file of `size` bytes, read by the profile's checks in
 /// their order (spec/zarrify/safetensors.md §8.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#82-checks>), with each
-/// tensor's path (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#41-paths>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#82-checks>).
 pub fn check(r: &Rules, size: u64, n: u64, raw: Vec<u8>) -> Result<Header, String> {
     let header = std::str::from_utf8(&raw).ok();
     r.check("text", rules::env([("utf8", flag(header.is_some())), ("brace", flag(raw.first() == Some(&b'{')))]))?;
@@ -241,19 +218,6 @@ pub fn check(r: &Rules, size: u64, n: u64, raw: Vec<u8>) -> Result<Header, Strin
         ]))?;
     }
     r.check("buffer", rules::env([("end", num(start as f64)), ("buffer", num((size - 8 - n) as f64))]))?;
-    for t in tensors.iter_mut() {
-        match tensor_path(&t.name) {
-            Ok(p) => t.path = Some(p),
-            Err(why) => t.reason = Some(why),
-        }
-    }
-    let held: BTreeSet<String> = tensors.iter().filter_map(|t| t.path.as_deref()).flat_map(groups_of).map(str::to_string).collect();
-    for t in tensors.iter_mut() {
-        if t.path.as_ref().is_some_and(|p| held.contains(p)) {
-            t.path = None;
-            t.reason = Some("path");
-        }
-    }
     Ok(Header { n, raw, metadata, tensors, order })
 }
 
@@ -272,20 +236,13 @@ impl Header {
         self.tensors.iter().zip(spans).map(tensor).collect()
     }
 
-    /// The tensors of a shard the store form does not describe in place, which has no element but
-    /// its object `object`: their descriptions are keyed by it, and their places are ranges of it.
-    fn in_object(&self, r: &Rules, object: u32) -> Result<stored::Tensors, String> {
-        Ok(stored::Tensors { key: object, header_at: 8, tensors: self.reached(r)? })
-    }
-
     /// Its elements under `parent` (the IR's root, or a store's object described in place),
     /// at offsets from the file's start: the length, the header, and every tensor's data, in the
-    /// buffer's order; the facts the projection reads: the source metadata (`own`), each
-    /// presented tensor (`arrays`), and the groups their paths make (`groups`); and what the
-    /// tensors' descriptions are built from. The facts give each description's key
-    /// (spec/stored-array.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>):
-    /// `declared_by` is the `header` element, and a tensor's index is its position in
-    /// `own.tensors`, which a presented tensor's entry of `arrays` gives as `index`.
+    /// buffer's order; the description of the header with them (spec/zarrify/safetensors.md §8.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#85-the-description>);
+    /// and what the tensors' descriptions are built from, keyed by the `header` element, a
+    /// tensor's index its position in the header (spec/stored-array.md §2.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>).
     fn emit(&self, r: &Rules, ir: &mut Ir, parent: u32) -> Result<(J, stored::Tensors), String> {
         let (n, tensors) = (self.n, &self.tensors);
         let length = ir.value(parent, "length", NO_INDEX, "<u8", 0, (0, 8), Some(&n.to_le_bytes()))?;
@@ -307,46 +264,12 @@ impl Header {
             });
             data[i] = Some(ir.data(parent, "tensors/", i as u64, 0, (8 + n + begin, end - begin), &form.to_string())?);
         }
-        let groups: BTreeSet<&str> = tensors.iter().filter_map(|t| t.path.as_deref()).flat_map(groups_of).collect();
-        let mut arrays = Vec::new();
-        let mut listed = Vec::new();
-        for (i, (t, d)) in tensors.iter().zip(&data).enumerate() {
-            let mut j = Map::new();
-            j.insert("name".into(), json!(t.name));
-            j.insert("dtype".into(), json!(t.dtype));
-            j.insert("shape".into(), json!(t.shape));
-            j.insert("data_offsets".into(), json!([t.offsets.0, t.offsets.1]));
-            if !t.extra.is_empty() {
-                j.insert("extra".into(), J::Object(t.extra.clone()));
-            }
-            match (&t.path, t.reason) {
-                (Some(p), _) => {
-                    j.insert("path".into(), json!(p));
-                    let ty = r.entry("types", &t.dtype).ok_or("internal: an unknown data type")?;
-                    arrays.push(json!({
-                        "path": p, "index": i, "data": d, "offset": 8 + n + t.offsets.0, "length": t.offsets.1 - t.offsets.0,
-                        "dtype": t.dtype, "data_type": ty["dtype"], "bits": ty["bits"], "fill": ty["fill"], "shape": t.shape,
-                    }));
-                }
-                (None, why) => {
-                    j.insert("reason".into(), json!(why.unwrap_or("name")));
-                }
-            }
-            listed.push(J::Object(j));
-        }
-        let mut own = Map::new();
-        own.insert("header_length".into(), json!(n));
-        if let Some(m) = &self.metadata {
-            own.insert("metadata".into(), m.clone());
-        }
-        own.insert("tensors".into(), J::Array(listed));
         let description = self.describe(Some(json!({"length": length, "header": header, "tensors": data})));
         let mut reached = self.reached(r)?;
         for (t, d) in reached.iter_mut().zip(data) {
             t.element = d;
         }
-        let facts = json!({"own": own, "arrays": arrays, "groups": groups, "declared_by": header, "description": description});
-        Ok((facts, stored::Tensors { key: header, header_at: 0, tensors: reached }))
+        Ok((description, stored::Tensors { key: header, tensors: reached }))
     }
 
     /// The description of the header (spec/zarrify/safetensors.md §8.5
@@ -384,7 +307,7 @@ pub struct Safetensors {
     ir: Ir,
     rules: &'static Rules,
     asked: Asked,
-    facts: J,
+    description: J,
     /// the header's tensors, described at finish
     reached: Option<stored::Tensors>,
 }
@@ -393,7 +316,7 @@ impl Safetensors {
     pub fn new(size: u64) -> Self {
         Safetensors {
             size, phase: Phase::Start, fed: Fed::new(Overlap::MergeKeep), ir: Ir::new(size), rules: rules::of("safetensors"),
-            asked: Asked::default(), facts: J::Null, reached: None,
+            asked: Asked::default(), description: J::Null, reached: None,
         }
     }
 
@@ -414,11 +337,10 @@ impl Safetensors {
                     Some(raw) => {
                         let header = check(self.rules, size, n, raw.to_vec())?;
                         self.phase = Phase::Done;
-                        let (mut facts, reached) = header.emit(self.rules, &mut self.ir, 0)?;
+                        let (mut description, reached) = header.emit(self.rules, &mut self.ir, 0)?;
                         self.reached = Some(reached);
-                        facts["copy_threshold"] = json!(crate::out::copy_threshold());
-                        self.asked.put(&mut facts);
-                        self.facts = facts;
+                        self.asked.put(&mut description);
+                        self.description = description;
                         return Ok(Step::Done);
                     }
                     None => {
@@ -432,12 +354,15 @@ impl Safetensors {
         Ok(self.asked.ask(reads))
     }
 
-    /// The finished IR, with the tensors it reaches described, and the facts.
+    /// The finished IR, with the tensors it reaches described, and the description of the file
+    /// (spec/zarrify/safetensors.md §8.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#85-the-description>),
+    /// from which the projection makes refkv's plan (`plan.rs`).
     pub fn finish(self) -> Result<(Ir, J), String> {
-        let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
+        let (mut ir, description) = sans::finish(self.phase == Phase::Done, self.ir, self.description)?;
         let (arrays, chains, map) = stored::described(self.reached.as_slice())?;
         ir.describe(arrays, chains, map)?;
-        Ok((ir, facts))
+        Ok((ir, description))
     }
 }
 
@@ -460,17 +385,10 @@ impl crate::run::FileProfile for Profile {
     fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
         crate::project::safetensors::reads(ir, facts)
     }
-    /// The parser's description of the file, beside its projection's facts
-    /// (spec/zarrify/safetensors.md §8.5
+    /// The parser returns the description of the file (spec/zarrify/safetensors.md §8.5
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#85-the-description>).
-    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
-        facts.get("description").cloned()
-    }
-    /// The store run's description of the store, beside its projection's facts
-    /// (spec/zarrify/safetensors.md §9.7
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#97-the-description>).
-    fn store_description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
-        facts.get("description").cloned()
+    fn described(&self) -> bool {
+        true
     }
 }
 
