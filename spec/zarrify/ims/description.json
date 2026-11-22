@@ -1,0 +1,357 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/ims/description.json",
+  "title": "The description of an Imaris file",
+  "description": "What refkv's IMS parser found of the file, beside the IR (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#710-the-description). It holds none of an output's decisions.",
+  "type": "object",
+  "properties": {
+    "levels": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "image_size": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/uint"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "chunk": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/uint"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "filters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/uint"
+            }
+          }
+        },
+        "required": [
+          "image_size",
+          "chunk",
+          "filters"
+        ],
+        "additionalProperties": false
+      },
+      "description": "each resolution level's image size (Z, Y, X), chunk shape and filter ids"
+    },
+    "datatype": {
+      "type": "object",
+      "properties": {
+        "class": {
+          "enum": [
+            0,
+            1
+          ]
+        },
+        "size": {
+          "enum": [
+            1,
+            2,
+            4
+          ]
+        },
+        "signed": {
+          "type": "boolean"
+        },
+        "byte_order": {
+          "enum": [
+            "little",
+            "big"
+          ]
+        }
+      },
+      "required": [
+        "class",
+        "size",
+        "signed",
+        "byte_order"
+      ],
+      "additionalProperties": false
+    },
+    "times": {
+      "$ref": "#/$defs/uint"
+    },
+    "channels": {
+      "$ref": "#/$defs/uint"
+    },
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "$ref": "#/$defs/uint"
+          },
+          "time": {
+            "$ref": "#/$defs/uint"
+          },
+          "channel": {
+            "$ref": "#/$defs/uint"
+          },
+          "chunks": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/uint"
+              }
+            ]
+          },
+          "grid": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/uint"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "object": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/uint"
+              }
+            ]
+          }
+        },
+        "required": [
+          "level",
+          "time",
+          "channel",
+          "chunks",
+          "grid",
+          "object"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "info": {
+      "type": "object",
+      "properties": {
+        "image": {
+          "type": "object",
+          "properties": {
+            "ext_min": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "ext_max": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "unit": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "name": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "required": [
+            "ext_min",
+            "ext_max",
+            "unit",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "channels": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "color": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  }
+                ]
+              },
+              "color_mode": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "color_table_length": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "color_table": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "color_range": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  }
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "color",
+              "color_mode",
+              "color_table_length",
+              "color_table",
+              "color_range"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "time_points": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "first": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "last": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "first",
+                "last"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "image",
+        "channels",
+        "time_points"
+      ],
+      "additionalProperties": false
+    },
+    "objects": {
+      "$ref": "#/$defs/uint"
+    }
+  },
+  "required": [
+    "levels",
+    "datatype",
+    "times",
+    "channels",
+    "data",
+    "info",
+    "objects"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "uint": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}
