@@ -1,7 +1,8 @@
 //! The CZI image projection (spec/zarrify/czi.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#4-output>) from a valid IR: each
-//! image level's cells and each tile array's members name the IR's data elements. Row
-//! bands come from the facts: `rows` a band holds and `per` bands a tile row
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#4-output>) from a valid IR and the
+//! parser's description, through refkv's plan (`czi::plan`): each image level's cells and each tile
+//! array's members name the IR's data elements. Row bands come from the plan: `rows` a band holds
+//! and `per` bands a tile row
 //! (spec/zarrify/czi.md §4.3
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#43-image-arrays>, with the
 //! parser's band floor).
@@ -179,21 +180,22 @@ fn cell_refs(refs: &mut Refs, path: &str, axes: &[&str], compression: i32, q: u6
     Ok(())
 }
 
-/// The CZI hierarchy: the root, an image group per series with an array per level,
-/// and the tile arrays under `tiles`.
-pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    project_named(ir, facts, url, url)
+/// The CZI hierarchy of the file the description `description` describes: the root, an image group
+/// per series with an array per level, and the tile arrays under `tiles`.
+pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    project_named(ir, &crate::czi::plan::plan(description)?, url, url)
 }
 
 /// The image of the CZI store run (spec/zarrify/czi.md §7.9
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>): as `project`,
 /// its references ranges of the files that hold the subblocks, its root naming the named file.
-pub fn project_set(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    let named = super::vsi::object_url(url, facts["named_key"].as_str().unwrap_or(""));
-    project_named(ir, facts, url, &named)
+pub fn project_set(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    let named = super::vsi::object_url(url, description["named_key"].as_str().unwrap_or(""));
+    project_named(ir, &crate::czi::plan::plan(description)?, url, &named)
 }
 
-/// The hierarchy at the store or file URL `url`, whose root names the input `named`.
+/// The hierarchy of the plan `facts` at the store or file URL `url`, whose root names the input
+/// `named`.
 fn project_named(ir: &Ir, facts: &J, url: &str, named: &str) -> Result<Out, String> {
     let values = &facts["values"];
     let images = arr(&facts["images"]);
@@ -257,6 +259,6 @@ fn project_named(ir: &Ir, facts: &J, url: &str, named: &str) -> Result<Out, Stri
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    project_set(ir, facts, url)
+pub fn store_project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    project_set(ir, description, url)
 }

@@ -6,6 +6,18 @@
   "type": "object",
   "properties": {
     "size": {"$ref": "#/$defs/uint"},
+    "given": {"$ref": "#/$defs/uint", "description": "how many of the entries, first, are the named file's entries of this part's subblocks; 0 but of a part"},
+    "named_key": {"type": "string", "description": "of an image across files: the named file's key"},
+    "files": {
+      "description": "of an image across files: each part's key and description, in order",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {"key": {"type": "string"}, "description": {"$ref": "#"}},
+        "required": ["key", "description"],
+        "additionalProperties": false
+      }
+    },
     "file_header": {
       "type": "object",
       "properties": {
@@ -52,7 +64,7 @@
       ]
     }
   },
-  "required": ["size", "file_header", "segments", "directory", "entries", "metadata", "attachments"],
+  "required": ["size", "given", "file_header", "segments", "directory", "entries", "metadata", "attachments"],
   "additionalProperties": false,
   "$defs": {
     "uint": {"type": "integer", "minimum": 0},
