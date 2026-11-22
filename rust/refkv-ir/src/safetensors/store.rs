@@ -119,8 +119,17 @@ impl SafetensorsStore {
         // keys each shard's descriptions, in the order of `files`
         let mut reached = Vec::new();
         let mut declared_by: Vec<Option<u32>> = Vec::new();
+        // each shard as the description gives it, in the listing's order
+        let mut described = Vec::new();
         for s in &mut self.shards {
             let key = &keys[s.k].0;
+            // what the format's checks found, before the hierarchy's decisions
+            let mut entry = json!({"key": key, "object": self.elems[s.k]});
+            match (&s.header, &s.reason) {
+                (Some(h), None) => entry["header"] = h.describe(None),
+                (_, Some(why)) => entry["error"] = json!(why),
+                (None, None) => entry["error"] = json!("internal: a shard neither checked nor refused"),
+            }
             if s.reason.is_none() && shard_dirs.contains(key) {
                 s.reason = Some("path: its key is another shard's directory".into());
             }
@@ -140,10 +149,13 @@ impl SafetensorsStore {
                 let tensors = s.header.as_ref().map(|h| h.in_object(self.rules, e)).transpose()?;
                 declared_by.push(tensors.as_ref().map(|t| t.key));
                 reached.extend(tensors);
+                described.push(entry);
                 continue;
             };
             ir.describe_in_place(e)?;
             let (facts, tensors) = h.emit(self.rules, &mut ir, e)?;
+            entry["header"] = facts["description"].clone();
+            described.push(entry);
             declared_by.push(Some(tensors.key));
             reached.push(tensors);
             let names: BTreeSet<String> = facts["own"]["tensors"].as_array().into_iter().flatten()
@@ -156,6 +168,7 @@ impl SafetensorsStore {
         let mut indexes = Vec::new();
         let mut configs = Vec::new();
         let mut held = BTreeSet::new();
+        let mut documents = Vec::new();
         for d in &self.docs {
             let (key, size) = (&keys[d.k].0, keys[d.k].1);
             let parsed = match &d.bytes {
@@ -166,9 +179,11 @@ impl SafetensorsStore {
                 Ok(doc) => {
                     json::hold(&mut ir, self.elems[d.k], size, &doc.members)?;
                     held.insert(d.k);
+                    documents.push(json!({"key": key, "object": self.elems[d.k], "json": doc.value.text()}));
                     Some(doc.value)
                 }
                 Err(e) => {
+                    documents.push(json!({"key": key, "object": self.elems[d.k], "error": e}));
                     let record = json!({"key": key, "problem": e});
                     if is_index(key) { indexes.push(record) } else { configs.push(record) }
                     continue;
@@ -200,7 +215,11 @@ impl SafetensorsStore {
         let (arrays, chains, map) = stored::described(&reached)?;
         ir.describe(arrays, chains, map)?;
         self.ir = Some(ir);
-        Ok(json!({"profile": "safetensors", "own": own, "shards": presented, "dirs": dirs, "others": others, "declared_by": declared_by}))
+        // the description of the store (spec/zarrify/safetensors.md §9.7
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#97-the-description>)
+        let description = json!({"shards": described, "documents": documents});
+        Ok(json!({"profile": "safetensors", "own": own, "shards": presented, "dirs": dirs, "others": others, "declared_by": declared_by,
+                  "description": description}))
     }
 }
 
