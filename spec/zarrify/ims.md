@@ -1042,3 +1042,29 @@ The elements that name a collection's object:
 | a region reference (class 7, kind 1) | 12 | a collection's address (8 bytes) and an object's index (4) |
 
 The address 0 or the undefined address names no collection.
+
+### 7.10 The description
+
+This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a **description** of the file: what the profile reads of the Imaris layout
+([§2.2](#22-the-imaris-layout)) and its metadata ([§3](#3-metadata)), in Imaris's and HDF5's own
+terms, for a projection to read with the IR and its stored arrays
+([spec/stored-array.md §7](../stored-array.md#7-the-formats)). Its JSON Schema is
+[ims/description.json](ims/description.json). It holds none of an output's decisions: the data
+type, axes, shapes, chunks and codecs ([§2.2](#22-the-imaris-layout), [§4](#4-output)), the unit,
+extents and time step ([§3](#3-metadata)), the scales, translations, name and the `omero` channels'
+labels, colors and windows ([§4](#4-output)) are the projection's.
+
+It is a JSON object with these members:
+
+| member | value |
+|---|---|
+| `levels` | each level `r`, in order: `image_size`, its `(Zr, Yr, Xr)`; `chunk`, its datasets' chunk shape (z, y, x); and `filters`, their filter ids in pipeline order |
+| `datatype` | the datasets' datatype: `class` (0 or 1), `size` in bytes, `signed` (bit 3 of a fixed-point datatype's bit fields) and `byte_order` (`little` or `big`, by bit 0) |
+| `times`, `channels` | `T` and `C` |
+| `data` | each dataset `(r, t, c)`, in the order read: `level`, `time` and `channel`; `chunks`, the id of the IR element whose members are its chunks, null when it has none allocated; `grid`, its chunk grid's size (z, y, x); and `object`, the id of its object's IR element, which keys its stored array, null when the IR has none |
+| `info` | the metadata's attributes as [§3](#3-metadata) reads them: `image`, of `Image`, `ext_min` and `ext_max` (each axis's decimal or null), `unit` and `name` (text or null); `channels`, of each `Channel c` (none when `C` is more than 64): `name`, `color_mode`, `color_table_length` (text or null), `color` (3 decimals or null), `color_range` (2 decimals or null), and `color_table`, the color table's text, null when it is absent or was not read (the base color decides the color first, or `ColorTableLength` is not an integer); `time_points`, when `T > 1`, `first` and `last`, the texts of `TimePoint1` and `TimePoint<T>`, else null |
+| `objects` | the objects of the walk ([the convention §5.3](#53-the-walk)) |
+
+A text is the attribute's text by [§2.1](#21-attributes-as-text), at any length: the 256-byte
+limit on names and labels ([§4](#4-output)) is the projection's.

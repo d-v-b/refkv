@@ -322,6 +322,16 @@ impl Ims {
         Ok(lenient(self.attr_text(attrs, name))?.flatten())
     }
 
+    /// A Data dataset's datatype, as the description gives it (spec/zarrify/ims.md §7.10
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#710-the-description>): its
+    /// class, size, sign and byte order.
+    fn datatype_description(dt: &hdf5::Datatype) -> J {
+        json!({
+            "class": dt.cls, "size": dt.size, "signed": dt.cls == 0 && dt.bits & 8 != 0,
+            "byte_order": if dt.bits & 1 != 0 { "big" } else { "little" },
+        })
+    }
+
     /// (Zarr data type, byte order or None for one byte, integer range) of a Data dataset.
     fn data_type(&self, dt: &hdf5::Datatype) -> R<(String, Option<&'static str>, Option<(i64, i64)>)> {
         let order = if dt.bits & 1 != 0 { "big" } else { "little" };
@@ -394,9 +404,16 @@ impl Ims {
         let images = top.take(self.datasets(&dataset, &level0, &first_time, levels, times, channels));
         let meta = if top.stopped() { None } else { top.take(self.metadata(&root, times, channels)) };
         top.done()?;
-        let (level_info, data_type, chunk_list) = images.unwrap();
-        let meta = meta.unwrap();
-        let facts = self.output(&level_info, &data_type, meta, levels, times, channels)?;
+        let (level_info, data_type, chunk_list, datatype) = images.unwrap();
+        let (meta, info) = meta.unwrap();
+        let mut facts = self.output(&level_info, &data_type, meta, levels, times, channels)?;
+        // the description (spec/zarrify/ims.md §7.10
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#710-the-description>)
+        facts["levels"] = level_info.iter().map(|(sizes, chunk, filters)| json!({"image_size": sizes, "chunk": chunk, "filters": filters})).collect();
+        facts["datatype"] = datatype;
+        facts["times"] = json!(times);
+        facts["channels"] = json!(channels);
+        facts["info"] = info;
         self.image_sets = chunk_list;
         self.images = level_info.len() as u64 * times * channels;
         self.facts = Some(facts);
@@ -406,9 +423,10 @@ impl Ims {
     /// Levels' (sizes, chunk, filters), the data type, and each dataset's chunks.
     #[allow(clippy::type_complexity)]
     fn datasets(&mut self, dataset: &Links, level0: &Rc<Links>, first_time: &Rc<Links>, levels: u64, times: u64, channels: u64)
-                -> R<(Vec<Level>, (String, Option<&'static str>, Option<(i64, i64)>), Vec<Image>)> {
+                -> R<(Vec<Level>, (String, Option<&'static str>, Option<(i64, i64)>), Vec<Image>, J)> {
         let mut acc = Acc::default();
         let mut data_type: Option<(String, Option<&'static str>, Option<(i64, i64)>)> = None;
+        let mut datatype = J::Null;
         let mut level_info = Vec::new();
         let mut chunk_list = Vec::new();
         'levels: for r in 0..levels as usize {
@@ -471,6 +489,9 @@ impl Ims {
                                 }
                                 continue;
                             }
+                            if data_type.is_none() {
+                                datatype = Self::datatype_description(&ds.datatype);
+                            }
                             data_type.get_or_insert(dt);
                             info.get_or_insert(this.unwrap());
                             let ch = self.h.chunks(at, &ds, false);
@@ -490,7 +511,7 @@ impl Ims {
             level_info.push(info.unwrap_or(([1, 1, 1], [1, 1, 1], Vec::new())));
         }
         acc.done()?;
-        Ok((level_info, data_type.unwrap(), chunk_list))
+        Ok((level_info, data_type.unwrap(), chunk_list, datatype))
     }
 
     /// A channel group's image size and Data dataset (spec/zarrify/ims.md §2.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#22-the-imaris-layout>).
@@ -514,7 +535,7 @@ impl Ims {
     }
 
     /// The metadata groups' attributes (spec/zarrify/ims.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#3-metadata>), and the channels' colors.
-    fn metadata(&mut self, root: &Links, times: u64, channels: u64) -> R<Meta> {
+    fn metadata(&mut self, root: &Links, times: u64, channels: u64) -> R<(Meta, J)> {
         let meta = if root.has("DataSetInfo") {
             let (_, l) = self.opened(root, "DataSetInfo")?;
             Some(l)
@@ -547,6 +568,8 @@ impl Ims {
         }
         let unit_text = self.attr_text(im, "Unit")?;
         let mut name = self.attr_text(im, "Name")?;
+        let image_info = json!({"ext_min": ext_min, "ext_max": ext_max, "unit": unit_text, "name": name});
+        let mut channel_info = Vec::new();
         if name.as_ref().is_some_and(|n| n.len() > self.rules.limit("max_name") as usize) {
             name = None;
         }
@@ -558,11 +581,12 @@ impl Ims {
             let (attrs, links) = g.unwrap();
             let a = attrs.as_deref();
             let label = self.attr_text(a, "Name")?;
+            let mut read = json!({"name": label});
             labels.push(match label {
                 Some(l) if !l.is_empty() && l.len() <= self.rules.limit("max_name") as usize => l,
                 _ => format!("Channel {c}"),
             });
-            let color = self.channel_color(a, links.as_deref());
+            let color = self.channel_color(a, links.as_deref(), &mut read);
             match acc.take(color) {
                 Some(col) => colors.push(col),
                 None => colors.push(String::new()),
@@ -570,15 +594,21 @@ impl Ims {
             if acc.stopped() {
                 break;
             }
-            ranges.push(decimals(self.attr_text(a, "ColorRange")?.as_deref(), 2));
+            let range = decimals(self.attr_text(a, "ColorRange")?.as_deref(), 2);
+            read["color_range"] = json!(range);
+            channel_info.push(read);
+            ranges.push(range);
         }
         acc.done()?;
         let (time_attrs, _) = time.unwrap();
         let mut period = None;
+        let mut time_points = J::Null;
         if times > 1 {
             let ta = time_attrs.as_deref();
-            let first = timestamp(self.attr_text(ta, "TimePoint1")?.as_deref());
-            let last = timestamp(self.attr_text(ta, &format!("TimePoint{times}"))?.as_deref());
+            let (first, last) = (self.attr_text(ta, "TimePoint1")?, self.attr_text(ta, &format!("TimePoint{times}"))?);
+            time_points = json!({"first": first, "last": last});
+            let first = timestamp(first.as_deref());
+            let last = timestamp(last.as_deref());
             if let (Some(f), Some(l)) = (first, last) {
                 let elapsed = (l.0 - f.0) as f64 + (l.1 - f.1);
                 if elapsed > 0.0 {
@@ -586,7 +616,8 @@ impl Ims {
                 }
             }
         }
-        Ok(Meta { ext_min, ext_max, unit_text, name, labels, colors, ranges, period })
+        let info = json!({"image": image_info, "channels": channel_info, "time_points": time_points});
+        Ok((Meta { ext_min, ext_max, unit_text, name, labels, colors, ranges, period }, info))
     }
 
     /// A group's attributes and links, or none if it is missing.
@@ -602,16 +633,28 @@ impl Ims {
     }
 
     /// A channel's omero color (spec/zarrify/ims.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#4-output>).
-    fn channel_color(&mut self, attrs: Option<&hdf5::Attrs>, links: Option<&Links>) -> R<String> {
-        let base = unit_rgb(decimals(self.attr_text(attrs, "Color")?.as_deref(), 3).as_deref());
+    /// What it read goes in `read`: `color`, `color_mode`, `color_table_length` and
+    /// `color_table` (null when the color is decided without it).
+    fn channel_color(&mut self, attrs: Option<&hdf5::Attrs>, links: Option<&Links>, read: &mut J) -> R<String> {
+        let color = decimals(self.attr_text(attrs, "Color")?.as_deref(), 3);
+        let base = unit_rgb(color.as_deref());
         let mode = self.optional_text(attrs, "ColorMode")?;
+        let length_text = self.optional_text(attrs, "ColorTableLength")?;
+        read["color"] = json!(color);
+        read["color_mode"] = json!(mode);
+        read["color_table_length"] = json!(length_text);
+        read["color_table"] = J::Null;
         let table_first = mode.as_deref().is_some_and(|m| m.trim_matches(WS) == "TableColor");
         if base.is_some() && !table_first {
             return Ok(base.unwrap());
         }
-        let length = integer(self.optional_text(attrs, "ColorTableLength")?.as_deref());
+        let length = integer(length_text.as_deref());
         let table = match length {
-            Some(l) => decimals(self.color_table(attrs, links)?.as_deref(), 3 * l),
+            Some(l) => {
+                let t = self.color_table(attrs, links)?;
+                read["color_table"] = json!(t);
+                decimals(t.as_deref(), 3 * l)
+            }
             None => None,
         };
         let top = table.as_ref().and_then(|t| unit_rgb(Some(&t[t.len() - 3..])));
@@ -917,13 +960,14 @@ impl Ims {
         // the image's datasets, by the structs that hold their chunks (None: no chunk allocated),
         // each with the key of its stored-array description: its object's struct
         let struct_of: HashMap<u64, u32> = order.iter().copied().zip(structs.iter().copied()).collect();
-        let mut images = Vec::new();
+        let (mut images, mut data) = (Vec::new(), Vec::new());
         for im in &self.image_sets {
             let el = match e.chunks_of.get(&im.at) {
                 Some(&x) => json!(x),
                 None if im.allocated => return Err(format!("internal: the chunks of the dataset at {} are not described", im.at)),
                 None => J::Null,
             };
+            data.push(json!({"level": im.r, "time": im.t, "channel": im.c, "chunks": el, "grid": im.grid, "object": struct_of.get(&im.at)}));
             images.push(json!([im.r, im.t, im.c, el, im.grid, struct_of.get(&im.at)]));
         }
         let crate::hdf5::walk::Emit { mut ir, rec, data_of, .. } = e;
@@ -933,6 +977,7 @@ impl Ims {
         crate::hdf5::stored::describe(&mut ir, &mut self.h, &em, &self.visited, &HashMap::new(), None, &[])?;
         let mut facts = self.facts.take().unwrap_or(J::Null);
         facts["images"] = J::Array(images);
+        facts["data"] = J::Array(data);
         facts["objects"] = json!(order.len());
         facts["requests"] = json!(self.requests);
         facts["requested"] = json!(self.requested);
@@ -968,6 +1013,16 @@ impl crate::run::FileProfile for Profile {
     }
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::ims::project(ir, facts, url)
+    }
+    fn described(&self) -> bool {
+        true
+    }
+    /// The parser's description of the file (spec/zarrify/ims.md §7.10
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#710-the-description>): its
+    /// members of what it returns, without the facts its projection still reads.
+    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
+        let keep = ["levels", "datatype", "times", "channels", "info", "data", "objects"];
+        Some(J::Object(keep.iter().map(|&k| (k.to_string(), facts[k].clone())).collect()))
     }
 }
 
