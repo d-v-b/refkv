@@ -577,7 +577,7 @@ length ([§4](#4-tables)):
 | `stream` | derived | | a compressed file, whole, `(0, size)`, its form `{"transform": "gunzip", "size": U}` (`"bunzip2"` for bzip2), `U` the decoded file's bytes. The elements below are then under it, their paths starting `stream/`, their extents in its space ([conventions §8.1](../conventions.md#81-elements)) |
 | `hdus/<i>` | struct | | HDU `i`: from its first header byte to the end of its padding |
 | `hdus/<i>/header` | value | `{card:ascii[80]}[36k]` | the header's blocks, the `END` card and the blank padding cards included |
-| `hdus/<i>/data` | data | | an image's `D` bytes, when `D > 0`: its form's geometry is `{"data_type": T, "shape": S}` ([§3.1](#31-the-array)), its codec `{"endian": "big"}`, its recipe `[["src", 0, null]]` |
+| `hdus/<i>/data` | data | | an image's `D` bytes, when `D > 0`: its form's geometry is `{"bitpix": B, "shape": S}` ([§3.1](#31-the-array)), `B` its BITPIX, in place of a data type (an output's data type is its projection's, [conventions §8.5](../conventions.md#85-forms-and-recipes)), its codec `{"endian": "big"}`, its recipe `[["src", 0, null]]` |
 | `hdus/<i>/rows` | data | | a table's `N1 × N2` bytes, when not 0, as a `struct` or as bytes: geometry `{"rows": N2, "row_bytes": N1}`, recipe `[["src", 0, null]]` |
 | `hdus/<i>/gap` | value | `bytes[g]` | the `g` bytes between the rows and the heap, when `g > 0` |
 | `hdus/<i>/heap` | data | | a table's heap, when `H > 0`: geometry `{"bytes": H}`, recipe `[["src", 0, null]]` |

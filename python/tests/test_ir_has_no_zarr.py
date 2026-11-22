@@ -69,7 +69,6 @@ OFFENDERS: dict[str, str] = {
 
     "envi": "ENVI's band forms give a Zarr data type (`geometry.data_type`)",
 
-    "fits": "FITS's image forms give a Zarr data type (`geometry.data_type`)",
 
     "flac": "FLAC's frame forms give a Zarr data type (`geometry.data_type`)",
 

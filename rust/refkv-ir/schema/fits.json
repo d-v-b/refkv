@@ -99,7 +99,7 @@
     },
     "hdus/<i>/data": {
       "kind": "data",
-      "form": "{geometry: {data_type, shape: [NAXISn, ..., NAXIS1]}, codec: {endian: big}, recipe: [[src, 0, null]]}",
+      "form": "{geometry: {bitpix: BITPIX, shape: [NAXISn, ..., NAXIS1]}, codec: {endian: big}, recipe: [[src, 0, null]]}",
       "extent": "an image's D bytes, when D > 0"
     },
     "hdus/<i>/rows": {
