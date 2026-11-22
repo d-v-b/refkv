@@ -486,7 +486,8 @@ type. This document is not a convention: nothing it specifies is written in an o
 mirror does not record it.</p>
 <p>Version: 0 (draft) · Schema: <a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/stored-array.json">stored-array.json</a></p>
 <p>Added 2026-11-08. The design is design/proposals/ir-array-model.md (d-v-b/refkv#289); where the
-two differ, this document governs.</p>
+two differ, this document governs.
+Changed 2026-11-22: every projection reads the descriptions (d-v-b/refkv#378).</p>
 <p>The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be interpreted as described in
 RFC 2119.</p>
 <section id="stored-arrays">
@@ -499,6 +500,11 @@ not interpret something, it falls back to a more general representation: bytes, 
 source holds them (<a class="reference internal" href="#places-and-parameters">§2.2</a>); the source’s own id and parameters (the
 codec <code class="docutils literal notranslate"><span class="pre">source</span></code>, <a class="reference internal" href="#the-list">§3.2</a>); an array whose storage it does not model (a description
 with no grid, <a class="reference internal" href="#the-grid">§2.3</a>).</p>
+<p>The descriptions and the chunk map are given to every projection alike: refkv’s own, which
+reads them with the format’s description (the format’s known structures, specified in its
+document under <a class="reference external" href="https://github.com/d-v-b/refkv/tree/main/spec/zarrify">zarrify/</a>) and decides the output through the plan its convention makes
+from them, and a layout plugin’s (<a class="reference internal" href="layout.html#the-inputs"><span class="std std-ref">layout.md §2</span></a>), which reads the same
+parsed input and none of refkv’s output or plan.</p>
 <p>Every array a parser reaches has a description, whether or not its profile presents it. A format
 whose parser describes its arrays has a paragraph in <a class="reference internal" href="#the-formats">§7</a>, which lists the
 structures that are its stored arrays and what each of their declarations is, and says what of
@@ -1183,11 +1189,9 @@ them to the IR, which, in order: sorts the descriptions by <code class="docutils
 arrays fall back follows from the source alone; fits the map to its limit (below); drops from the chain table the
 chains no description names, keeping the others’ order, and renumbers the descriptions’ positions
 in it; fits the descriptions to their limit (below), which falls back the same way and drops the
-chains it leaves unnamed; sorts the rows; and checks them (<a class="reference internal" href="#checks">§5</a>). They are
-not in the facts a projection reads, which keep their arrays until each format’s projection reads
-the descriptions. NumPy’s does: its parser returns no facts of an array but its header’s text and
-its description’s key, and its projection takes the array’s shape, order and data from the
-description and the chunk map.</p>
+chains it leaves unnamed; sorts the rows; and checks them (<a class="reference internal" href="#checks">§5</a>). Each
+format’s projection reads them where its parser builds them, with the format’s description and the plan refkv’s convention
+makes from it (<a class="reference internal" href="#stored-arrays">§1</a>), and so may any layout, from the parsed input.</p>
 <p><strong>Only two things change ids afterwards.</strong></p>
 <ul>
 <li><p><strong>A graft</strong> carries a file IR’s descriptions and rows into the store it joins, in order:</p>
