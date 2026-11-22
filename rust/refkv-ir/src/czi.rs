@@ -24,6 +24,8 @@
 
 #[path = "czi/stored.rs"]
 mod stored;
+#[path = "czi/describe.rs"]
+mod describe;
 
 use crate::array::Place;
 use crate::coding::{self, Head};
@@ -286,6 +288,10 @@ pub struct Czi {
     window: u64,
     /// whether the file was read to its end: not so of a run that ended for its file's siblings
     walked: bool,
+    /// the segments the walk found that nothing references: (offset, id, AllocatedSize, UsedSize)
+    walk_found: Vec<(u64, String, i64, i64)>,
+    /// the attachment directory's entries, as the description holds them
+    att_entries: Vec<J>,
     facts: Option<J>,
     /// data forms by (pixel type, compression, form flag, coded width, coded height)
     forms: HashMap<(i32, i32, bool, u64, u64), String>,
@@ -355,6 +361,8 @@ impl Czi {
             walk_prev: None,
             window: 1 << 16,
             walked: false,
+            walk_found: Vec::new(),
+            att_entries: Vec::new(),
             facts: None,
             forms: HashMap::new(),
             asked: sans::Asked::default(),
@@ -678,6 +686,7 @@ impl Czi {
                         for i in 0..k as usize {
                             let e = &raw[128 * i..128 * i + 128];
                             let a1 = &e[..2] == b"A1";
+                            self.att_entries.push(describe::attachment_entry(e));
                             if !alias {
                                 self.ir.value(a, "entries/", i as u64, if a1 { ATT_ENTRY } else { "bytes[128]" }, 0, (ap + 288 + 128 * i as u64, 128), Some(e))?;
                             }
@@ -757,7 +766,9 @@ impl Czi {
                         return Ok(s);
                     }
                     if matches!(self.role, Role::Alone) {
-                        self.facts = Some(self.layout()?);
+                        let mut facts = self.layout()?;
+                        facts["description"] = self.description();
+                        self.facts = Some(facts);
                     }
                     self.walked = true;
                     self.phase = Phase::Done;
@@ -1422,6 +1433,7 @@ impl Czi {
                         break;
                     }
                     let k = self.walk_k;
+                    self.walk_found.push((o, seg_id(&h[..16]), a, u));
                     let s = self.ir.struct_(0, "segments/", k, 0, Some((o, 32 + a as u64)))?;
                     self.ir.value(s, "header", NO_INDEX, HEADER, 0, (o, 32), Some(&h))?;
                     let n = if u != 0 { u.min(a) } else { a };
@@ -1987,6 +1999,11 @@ impl crate::run::FileProfile for Profile {
     }
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::czi::project(ir, facts, url)
+    }
+    /// The parser's description of the file, beside its projection's facts
+    /// (spec/zarrify/czi.md §7.10 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#710-the-description>).
+    fn description(&self, facts: &serde_json::Value) -> Option<serde_json::Value> {
+        facts.get("description").cloned()
     }
 }
 

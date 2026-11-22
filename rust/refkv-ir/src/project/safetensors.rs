@@ -1,7 +1,9 @@
 //! The safetensors projection (spec/zarrify/safetensors.md §4
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#4-the-hierarchy>) from a
-//! valid IR: a root group with the source metadata the parser decided, a group for each prefix
-//! of a tensor's path, and an array per presented tensor, its chunks cut from its `data` element
+//! valid IR and the parser's description of the file (§8.5
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#85-the-description>),
+//! through refkv's plan of it (`safetensors::plan`): a root group with the source metadata, a group
+//! for each prefix of a tensor's path, and an array per presented tensor, its chunks cut from its `data` element
 //! as conventions §7
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
 //! contiguous values; a packed tensor's (4 or 6 bits an element) cut by elements and mapped to
@@ -10,7 +12,8 @@
 
 use super::{arr, contiguous, Copied};
 use crate::ir::Ir;
-use crate::out::{array_json, declared_group, grid_chunks, metadata_group, Chunk, Out, Part};
+use crate::out::{array_json, copy_threshold, declared_group, grid_chunks, metadata_group, Chunk, Out, Part};
+use crate::safetensors::plan::{plan, plan_store};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 use std::collections::BTreeMap;
@@ -45,8 +48,9 @@ fn cut(a: &J, threshold: usize) -> Result<Cut, String> {
 
 /// The source's ranges of the edge chunks the projection copies (§8.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#83-chunks>).
-pub fn reads(_ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
-    let threshold = contiguous::threshold(facts);
+pub fn reads(_ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+    let facts = &plan(description)?;
+    let threshold = copy_threshold();
     let mut out = Vec::new();
     for a in arr(&facts["arrays"]) {
         out.extend(contiguous::copy_reads(&cut(a, threshold)?.1));
@@ -70,8 +74,11 @@ fn array_doc(a: &J, chunk_shape: &[u64]) -> J {
     doc
 }
 
-pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    let threshold = contiguous::threshold(facts);
+/// The hierarchy of a file whose description is `description`, laid out as refkv's plan of it
+/// says (`safetensors::plan::plan`).
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+    let facts = &plan(description)?;
+    let threshold = copy_threshold();
     let arrays = arr(&facts["arrays"]);
     let cuts = arrays.iter().map(|a| cut(a, threshold)).collect::<Result<Vec<Cut>, String>>()?;
     let mut out = Out::new(url);
@@ -115,9 +122,13 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
 /// above a shard; a group per presented shard at its key, declaring the convention with the
 /// shard's own source metadata, holding its tensors as the file form lays them out, each chunk a
 /// range of the shard's object (padded from the zero data source); and every other object,
-/// referenced whole under `refkv_source/objects/`.
-pub fn project_store(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+/// referenced whole under `refkv_source/objects/`; laid out as refkv's plan of the store's
+/// description says (`safetensors::plan::plan_store`).
+pub fn project_store(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
     use super::store::{check_key, object_key};
+    let src = ir.sources();
+    let listing: Vec<(String, u64)> = src.objects.iter().map(|&o| (ir.key(o), ir.len[o as usize])).collect();
+    let facts = &plan_store(description, &listing)?;
     let shards = arr(&facts["shards"]);
     let mut out = Out::new(url);
     out.json("zarr.json", &declared_group(Map::new(), "safetensors", Some(url), Some(facts["own"].clone())));
@@ -182,6 +193,6 @@ pub fn project_store(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    project_store(ir, facts, url)
+pub fn store_project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+    project_store(ir, description, url)
 }

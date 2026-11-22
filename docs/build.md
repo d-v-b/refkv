@@ -205,7 +205,9 @@ with read("volume.npy") as p:
 ```
 
 A declaration is a claim: an output that keeps it says its subtree follows refkv's convention.
-`seal` does not check that; `refkv.zarrify.layouts.hierarchy.check` does.
+`seal` does not check that; `refkv.zarrify.layouts.hierarchy.check` does, against the IR mirror
+(`mirror`) and against refkv's own outputs the caller gives it as `bases`: it never runs refkv's
+projection itself.
 
 `python/tests/test_rebuild_npy.py` is the test of these tools: a NumPy projection written with
 them, and with `npy_array_type` and `gzip_codecs`, writes what `zarrify` writes for every NumPy

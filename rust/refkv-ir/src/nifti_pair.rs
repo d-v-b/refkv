@@ -46,7 +46,6 @@ pub struct NiftiPair {
     copies: Vec<(u64, u64)>,
     copied: Vec<(u64, u64, Vec<u8>)>,
     got: HashMap<(usize, u64), Vec<u8>>,
-    copy_threshold: usize,
 }
 
 /// The image file's key of the header file `key`: `.hdr` as `.img`, in the same case, or None for another name.
@@ -81,7 +80,6 @@ impl NiftiPair {
             copies: Vec::new(),
             copied: Vec::new(),
             got: HashMap::new(),
-            copy_threshold: crate::out::copy_threshold(),
         })
     }
 
@@ -116,13 +114,14 @@ impl NiftiPair {
             ]),
         )?;
         let h = crate::nifti::header(&self.head, self.version);
-        let threshold = json!({"copy_threshold": self.copy_threshold});
-        self.copies = crate::project::nifti::copy_ranges(&h, self.vox, &threshold)?;
+        self.copies = crate::project::nifti::copy_ranges(&h, self.vox)?;
         Ok(())
     }
 
     /// The IR (spec/zarrify/nifti.md §7.5
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#75-header-and-image-pairs>) and the facts.
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#75-header-and-image-pairs>), and the
+    /// pair's description (§7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#76-the-description>)
+    /// with the edge chunks the run read.
     fn emit(&mut self) -> Res<J> {
         let mut ir = self.ir.take().ok_or("internal: no IR")?;
         let (header_file, image_file) = (self.elems[0], self.elems[1]);
@@ -131,11 +130,13 @@ impl NiftiPair {
         let length = h.raw.len() as u64;
         let header = ir.value(header_file, "header", NO_INDEX, &h.record_type(), 0, (0, length), Some(h.raw))?;
         let mut end = length;
-        let mut extended = false;
+        let mut elements = json!({"header": header});
+        let mut extender_bytes = None;
         if size >= length + 4 {
             let extender = &self.head[length as usize..length as usize + 4];
-            extended = extender[0] != 0;
-            ir.value(header_file, "extender", NO_INDEX, "u1[4]", 0, (length, 4), Some(extender))?;
+            let extended = extender[0] != 0;
+            extender_bytes = Some(extender.to_vec());
+            elements["extender"] = json!(ir.value(header_file, "extender", NO_INDEX, "u1[4]", 0, (length, 4), Some(extender))?);
             end = length + 4;
             if extended {
                 let mut k = 0;
@@ -165,11 +166,16 @@ impl NiftiPair {
         let described = stored::Voxels { key: header, header: Some(header), data: voxels, dims: std::mem::take(&mut self.dims), bits: self.bits, skip: None };
         let (arrays, chains, map) = stored::described(&described)?;
         ir.describe(arrays, chains, map)?;
+        elements["extensions"] = json!(crate::nifti::extensions(&ir, header_file));
+        elements["voxels"] = json!(voxels);
+        let mut description = crate::nifti::describe(&h, self.version, extender_bytes.as_deref(), (self.vox, self.total), elements, None);
+        description["header_key"] = json!(self.keys[0].0);
+        description["data_key"] = json!(self.keys[1].0);
         self.ir = Some(ir);
         let copied: Vec<J> = self.copied.iter().map(|(o, n, b)| json!([o, n, b])).collect();
-        Ok(json!({"version": self.version, "header": header, "voxels": voxels, "extended": extended, "declared_by": header,
-                  "start": self.vox, "length": self.total, "header_key": self.keys[0].0, "data_key": self.keys[1].0,
-                  "copied": copied, "copy_threshold": self.copy_threshold}))
+        // the description, and the edge chunks the run read for the projection, which it leaves out
+        description["copied"] = json!(copied);
+        Ok(description)
     }
 }
 
