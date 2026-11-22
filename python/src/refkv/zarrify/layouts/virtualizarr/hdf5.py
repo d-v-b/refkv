@@ -5,8 +5,7 @@
 path (`refkv.build.hdf5_hierarchy`, made from the parser's description: no output of refkv's),
 with its `dimension_names` (its dimension scales, else the names netCDF-4 gives an axis without
 one), and `[]` for a scalar. Attributes are the source's, as `coding.hdf5_attributes` gives them,
-without the
-bookkeeping `HDFParser` hides (`CLASS`, `NAME`, `DIMENSION_LIST`, `REFERENCE_LIST`,
+without the bookkeeping `HDFParser` hides (`CLASS`, `NAME`, `DIMENSION_LIST`, `REFERENCE_LIST`,
 `_Netcdf4Dimid`, `_Netcdf4Coordinates`, `_nc3_strict`, `_NCProperties`) nor any whose value is
 `"DIMENSION_SCALE"`; an array of one element is that element, an array of fixed-length strings a
 list of strings, a null attribute `""`, and a numeric dataset's `_FillValue` is encoded as xarray's
@@ -23,7 +22,7 @@ Where `HDFParser`'s presentation is a defect rather than a contract, the layout 
   every such axis `phony_dim_<axis>`, which gives one name two sizes in a group that xarray then
   refuses to open;
 - the chunks of variable-length strings, which `HDFParser` reads at parse time and inlines;
-- refkv's chunk grid, where refkv splits a large contiguous dataset or HDU into chunks within its
+- refkv's chunk grid, where refkv splits a large contiguous dataset into chunks within its
   payload limit or `HDFParser` trims an oversized chunk, and the `numcodecs.zlib` level (refkv
   writes 1; a decoder ignores it, and the IR does not hold the filter's client data);
 - a one-element array of fixed-length strings on a dataset with dimension names is its string,

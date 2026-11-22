@@ -40,8 +40,9 @@ Beside the examples, refkv supports one layout, which it keeps working from rele
   array its `_ARRAY_DIMENSIONS` as `dimension_names`, and writes no refkv declarations and no
   `refkv_source` mirror. It runs without the `layouts` extra. Its option `{"nonfinite": "text"}`
   writes a NaN or infinite attribute as text (`"NaN"`) rather than the bare token zarr-python
-  writes. The module's docstring lists where it keeps refkv's presentation because VirtualiZarr's
-  is a defect, such as `phony_dim_<axis>` names that give one dimension two sizes.
+  writes. Each profile's module of the package lists where it keeps refkv's presentation because
+  VirtualiZarr's is a defect, such as `phony_dim_<axis>` names that give one dimension two sizes
+  (`virtualizarr/hdf5.py`).
 
 ```sh
 python -m refkv.zarrify data.nc out.vzip --layout refkv.virtualizarr

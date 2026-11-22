@@ -1,6 +1,6 @@
 """The layout `refkv.virtualizarr` (python/src/refkv/zarrify/layouts/virtualizarr/) against
 VirtualiZarr's own parsers: over HDF5, netCDF-4, netCDF3, FITS, ENVI and zipped Zarr v3 files, every document is
-the one VirtualiZarr's `ManifestStore` serves but for the differences the module's docstring keeps,
+the one VirtualiZarr's `ManifestStore` serves but for the differences its profile's module's docstring keeps,
 every chunk reference is one of refkv's own output, and every array reads as VirtualiZarr's does;
 a tile-compressed FITS image reads as astropy reads it; and each way its options or an input are
 refused."""
