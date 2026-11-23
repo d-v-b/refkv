@@ -108,6 +108,7 @@ def scope_keys(location: str, scope: Scope) -> list[str] | None:
     entries = [scope] if isinstance(scope, (str, os.PathLike)) else list(scope)
     keys: list[str] = []
     try:
+        location.encode("utf-8")
         url = rule("is_url", location=location)
     except UnicodeEncodeError:  # a local path not in UTF-8 (surrogate-escaped), which no URL is
         url = False

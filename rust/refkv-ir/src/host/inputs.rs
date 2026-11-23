@@ -61,15 +61,11 @@ pub fn input(location: &str, windows: bool, allow_file_hosts: bool) -> Result<In
 /// name, as Python's `os.path.split` gives them (`ntpath`'s when `windows`).
 pub fn split_input(location: &str, title: &str, windows: bool) -> Result<(String, String), Fail> {
     if is_url(location) {
-        if location.contains(['?', '#']) {
-            return rejected(format!("{title} input {location:?} has a query or a fragment"));
-        }
-        let k = location.rfind('/').unwrap_or(0);
-        let key = String::from_utf8(percent_decode(&location[k + 1..])).or_else(|_| rejected(format!("{title} input {location:?}: its file name is not percent-encoded UTF-8")))?;
-        if key.is_empty() || key.contains('/') {
+        if !location.contains('/') {
+            // `file:x.vsi`: a URL with no path names no file (`input` refuses it too)
             return rejected(format!("{title} input {location:?} names no file"));
         }
-        return Ok((location[..=k].to_string(), key));
+        return split_url(location, title);
     }
     let sep = |c: char| c == '/' || (windows && c == '\\');
     // ntpath keeps a drive (`C:`, or a UNC path's `\\server\share`) with the directory
@@ -87,6 +83,22 @@ pub fn split_input(location: &str, title: &str, windows: bool) -> Result<(String
     Ok((dir, name.to_string()))
 }
 
+/// (the directory, the named file's key) of an input at the URL or URI reference `location` (a host
+/// with no local paths, such as a browser, names every input so, relative ones included): the
+/// directory is `location` up to and including its last `/` (empty when it has none), and the key
+/// its last segment, percent-decoded, which must be UTF-8; a rejection for a query or a fragment.
+pub fn split_url(location: &str, title: &str) -> Result<(String, String), Fail> {
+    if location.contains(['?', '#']) {
+        return rejected(format!("{title} input {location:?} has a query or a fragment"));
+    }
+    let k = location.rfind('/').map_or(0, |k| k + 1);
+    let key = String::from_utf8(percent_decode(&location[k..])).or_else(|_| rejected(format!("{title} input {location:?}: its file name is not percent-encoded UTF-8")))?;
+    if key.is_empty() || key.contains('/') {
+        return rejected(format!("{title} input {location:?} names no file"));
+    }
+    Ok((location[..k].to_string(), key))
+}
+
 /// The scope of the file input at the URL `location` (spec/zarrify.md §1.9
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
 /// **Scope**) as the keys a store run's `scope` takes: each entry of `scope` is a URL, the input's
@@ -95,7 +107,7 @@ pub fn split_input(location: &str, title: &str, windows: bool) -> Result<(String
 /// every key being in it. A usage error for an entry outside the directory. (A local input's scope
 /// is the host's: its entries are paths, made absolute and looked at.)
 pub fn scope_keys(location: &str, scope: &[String]) -> Result<Option<Vec<String>>, Fail> {
-    let (d, named) = split_input(location, "the", false)?;
+    let (d, named) = split_url(location, "the")?;
     let outside = |e: &str| usage(format!("scope \"{e}\" is not the input's directory \"{d}\" or below it"));
     let mut keys = Vec::new();
     for e in scope {
@@ -156,6 +168,17 @@ mod tests {
     }
 
     #[test]
+    fn splits_urls() {
+        let s = |l: &str| split_url(l, "NRRD").unwrap();
+        assert_eq!(s("data/scan.nhdr"), ("data/".into(), "scan.nhdr".into()));
+        assert_eq!(s("/abs/a%20b.vsi"), ("/abs/".into(), "a b.vsi".into()));
+        assert_eq!(s("x.vsi"), ("".into(), "x.vsi".into()));
+        assert_eq!(s("blob:https://h/id"), ("blob:https://h/".into(), "id".into()));
+        let k = scope_keys("data/scan.nhdr", &["data/scan.raw".into(), "datafoo".into()]);
+        assert!(matches!(k, Err(Fail::Usage(_))));
+    }
+
+    #[test]
     fn rejects_an_input_url_with_a_query() {
         assert!(matches!(split_input("https://h/a/x.vsi?q", "VSI", false), Err(Fail::Rejected(_))));
     }
@@ -168,6 +191,11 @@ mod tests {
     #[test]
     fn rejects_an_input_url_whose_name_is_not_utf8() {
         assert!(matches!(split_input("https://h/a/%FF.vsi", "VSI", false), Err(Fail::Rejected(_))));
+    }
+
+    #[test]
+    fn rejects_a_file_url_with_no_path() {
+        assert!(matches!(split_input("file:x.vsi", "VSI", false), Err(Fail::Rejected(_))));
     }
 
     #[test]

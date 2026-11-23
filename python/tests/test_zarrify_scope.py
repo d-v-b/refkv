@@ -4,6 +4,7 @@ input that needs a file outside it is rejected, naming it, before that file is o
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -154,3 +155,11 @@ def test_the_command_refuses_a_scope_outside_the_input_directory(tmp_path: Path)
                         str(tmp_path.parent)], capture_output=True, text=True, check=False)
     assert p.returncode == 2, p.stderr
     assert "is not the input's directory" in p.stderr
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a POSIX path of bytes that are not UTF-8")
+def test_a_local_input_not_in_utf8_takes_the_local_scope(tmp_path: Path):
+    """A local path not in UTF-8 (surrogate-escaped, as os.fsdecode gives it) is never a URL."""
+    named = os.fsdecode(bytes(tmp_path) + b"/\xff.nhdr")
+    (tmp_path / "sub").mkdir()
+    assert scope_keys(named, [str(tmp_path / "sub")]) == ["sub/"]
