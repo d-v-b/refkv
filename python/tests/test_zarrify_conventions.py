@@ -18,6 +18,7 @@ import importlib.util
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -26,8 +27,12 @@ from jsonschema import Draft7Validator, Draft202012Validator
 from refkv._narrow import at, mapping, sequence, string
 from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
-from refkv.zarrify.common import CONVENTION_KEY, PROFILES, UUIDS, Output, convention, declare, same
+from refkv.zarrify.common import CONVENTION_KEY, PROFILES, UUIDS, Output, convention
 from refkv.zarrify.profiles import REGISTRY
+
+# the frozen reference twins (conformance/zarrify/reference/refkv_reference): `declare` and `same`
+sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "zarrify" / "reference"))
+from refkv_reference._legacy_common import declare, same
 
 ROOT = Path(__file__).parents[2]
 FIXTURES = ROOT / "fixtures"

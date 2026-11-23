@@ -15,39 +15,13 @@ machinery, one module per concern, whose names this package gathers.
   not gathered here, since it reads through `refkv.ir.planner`.
 
 The Rust core parses every store format (rust/refkv-ir/src/zarr2.rs, n5.rs, safe/, vsi/), driven
-by `refkv.ir.store`. What is left here of the formats is what the frozen reference profiles
-(conformance/zarrify/reference) share with the shipped code: `hierarchy`, the nodes and chunk
-objects of a Zarr v2 or N5 store, `blosc`, the blosc codec of their compressors, and `output`,
-their output (`StoreOutput`).
+by `refkv.ir.store`, and writes their outputs (`refkv.ir.store.StoreIrOutput`).
 """
 
 from __future__ import annotations
 
-from refkv.zarrify.store.blosc import BLOSC_NAMES, MAX_BLOCK, blosc_codec
 from refkv.zarrify.store.documents import MAX_DEPTH, MAX_DOCUMENT, MAX_SAFE, as_int, is_number, num, parse_json
-from refkv.zarrify.store.hierarchy import (
-    PathTrie,
-    canonical_index,
-    classify,
-    depth,
-    directories_of,
-    find_chunks,
-    grid,
-    implicit_groups,
-    join,
-    parent_of,
-)
 from refkv.zarrify.store.listing import Element, next_link, parse_hub_revision, parse_hub_tree, parse_listing, parse_xml
-from refkv.zarrify.store.output import (
-    EMPTY_KEY,
-    GROUP_IMPLICIT,
-    OBJECTS,
-    SOURCE_GROUP,
-    StoreOutput,
-    doc_key,
-    object_key,
-    source_metadata,
-)
 from refkv.zarrify.store.stores import (
     PREFETCH_BYTES,
     WORKERS,
@@ -76,17 +50,11 @@ from refkv.zarrify.store.urls import (
 )
 
 __all__ = [
-    "BLOSC_NAMES",
-    "EMPTY_KEY",
-    "GROUP_IMPLICIT",
     "HUB",
-    "MAX_BLOCK",
     "MAX_DEPTH",
     "MAX_DOCUMENT",
     "MAX_SAFE",
-    "OBJECTS",
     "PREFETCH_BYTES",
-    "SOURCE_GROUP",
     "WORKERS",
     "DirStore",
     "Element",
@@ -95,41 +63,26 @@ __all__ = [
     "HubStore",
     "ListingFailed",
     "Opener",
-    "PathTrie",
     "Read",
     "Response",
     "Store",
     "StoreLimit",
-    "StoreOutput",
     "as_int",
-    "blosc_codec",
-    "canonical_index",
     "check_store_url",
     "choose_profile",
-    "classify",
-    "depth",
-    "directories_of",
-    "doc_key",
-    "find_chunks",
-    "grid",
     "hub_endpoint",
     "hub_page",
     "hub_repo",
-    "implicit_groups",
     "is_number",
-    "join",
     "listing_endpoint",
     "next_link",
     "num",
-    "object_key",
     "object_url",
     "open_store",
-    "parent_of",
     "parse_hub_revision",
     "parse_hub_tree",
     "parse_json",
     "parse_listing",
     "parse_xml",
     "query_encode",
-    "source_metadata",
 ]
