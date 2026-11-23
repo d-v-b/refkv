@@ -789,9 +789,11 @@ impl Flac {
         self.rules.check("total", rules::env([("samples", num(samples as f64)), ("total", num(si.total as f64))]))?;
         let (first_o, last) = (self.frames[0].0, self.frames[self.frames.len() - 1]);
         let s = self.ir.struct_(0, "frames", NO_INDEX, 0, Some((first_o, last.0 + last.1 - first_o)))?;
-        let dtype = data_type(si.bits);
+        // no data type: `bits_per_sample` gives the samples' width, and an output's data type is
+        // its plan's (conventions §8.5
+        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)
         let form = |n: u64| json!({
-            "geometry": {"samples": n, "channels": si.channels, "data_type": dtype},
+            "geometry": {"samples": n, "channels": si.channels},
             "codec": {"name": "flac", "sample_rate": si.rate, "bits_per_sample": si.bits},
             "recipe": [["src", 0, null]],
         }).to_string();

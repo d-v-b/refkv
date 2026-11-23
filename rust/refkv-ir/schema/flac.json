@@ -24,7 +24,7 @@
     "metadata/<k>/cuesheet": {"kind": "value", "type": "bytes[n]", "extent": "a CUESHEET block's body, opaque (decoded in the root)"},
     "metadata/<k>/fields": {"kind": "value", "type": "bytes[f]", "extent": "a PICTURE block's fields before its picture, opaque (decoded in the root)"},
     "frames": {"kind": "struct", "about": "the frames; its extent from the first frame's start to the last frame's end"},
-    "frames/<j>": {"kind": "data", "form": "{geometry: {samples: B, channels: C, data_type: T}, codec: {name: flac, sample_rate, bits_per_sample}, recipe: [[src, 0, null]]}", "extent": "(offset, L): frame j, j from 0, header and footer included"},
+    "frames/<j>": {"kind": "data", "form": "{geometry: {samples: B, channels: C}, codec: {name: flac, sample_rate, bits_per_sample}, recipe: [[src, 0, null]]}", "extent": "(offset, L): frame j, j from 0, header and footer included"},
     "id3v1": {"kind": "value", "type": "{tag:ascii[3],title:cstr[30],artist:cstr[30],album:cstr[30],year:ascii[4],comment:cstr[30],genre:u1}", "extent": "(size - 128, 128), when the file ends with TAG there"}
   },
   "roles": {
