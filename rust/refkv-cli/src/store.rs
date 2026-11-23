@@ -393,10 +393,10 @@ impl Store {
 
 /// Performs the object reads a store run asks for until it is done, at most `workers` at a time.
 fn drive(run: &mut StoreRun, store: &Store, workers: usize) -> Result<(), Fail> {
-    while let Some(reqs) = run.poll().map_err(Fail::Rejected)? {
+    while let Some(reqs) = run.poll().map_err(Fail::from)? {
         let results = crate::run::map(&reqs, if reqs.len() == 1 { 1 } else { workers }, |q| store.fetch(&q.key, &q.spans));
         for (k, parts) in results.into_iter().enumerate() {
-            run.complete(k, parts?).map_err(Fail::Rejected)?;
+            run.complete(k, parts?).map_err(Fail::from)?;
         }
     }
     Ok(())
@@ -410,8 +410,8 @@ pub fn run_store(store: &Store, fmt: &str, checksums: bool) -> Result<refkv_ir::
     let l = store.listing();
     let workers = l.workers.max(1);
     let format = StoreFormat::from_name(fmt).ok_or_else(|| Fail::Other(format!("no store format {fmt:?}")))?;
-    let mut run = StoreRun::new(format, l.sorted.clone(), workers).map_err(Fail::Rejected)?;
-    run.ignore(l.ignored.clone(), l.folders.clone()).map_err(Fail::Rejected)?;
+    let mut run = StoreRun::new(format, l.sorted.clone(), workers).map_err(Fail::from)?;
+    run.ignore(l.ignored.clone(), l.folders.clone()).map_err(Fail::from)?;
     drive(&mut run, store, workers)?;
     let mut out = run.into_output(&l.url, true, checksums)?;
     if let Some(m) = out.summary.as_object_mut() {

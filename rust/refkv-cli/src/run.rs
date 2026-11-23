@@ -91,12 +91,12 @@ pub fn new_run(fmt: Format, t: &Transport, connections: Option<usize>, byte_cost
 /// Performs the requests a run asks for until it is done: a remote source's at most `conc` at a
 /// time, a local file's one after the other.
 pub fn drive(run: &mut Run, t: &Transport, conc: usize) -> Result<(), Fail> {
-    while let Some(reqs) = run.poll().map_err(Fail::Rejected)? {
+    while let Some(reqs) = run.poll().map_err(Fail::from)? {
         let workers = if t.remote() && reqs.len() > 1 { conc } else { 1 };
         let results = map(&reqs, workers, |q| t.fetch(&q.spans));
         for (k, r) in results.into_iter().enumerate() {
             let (parts, dt) = r?;
-            run.complete(k, parts, dt).map_err(Fail::Rejected)?;
+            run.complete(k, parts, dt).map_err(Fail::from)?;
         }
     }
     Ok(())
@@ -150,7 +150,7 @@ pub fn zarrify_file(location: &str, url: Option<&str>, t: &Transport, connection
     let fmt = run.format;
     if run.beside() {
         let store = refkv_ir::store::StoreFormat::from_name(fmt.name())
-            .ok_or_else(|| Fail::Rejected(format!("internal: the {} profile reads no siblings", fmt.name())))?;
+            .ok_or_else(|| Fail::Other(format!("internal: the {} profile reads no siblings", fmt.name())))?;
         return Ok(Zarrified::Beside(store));
     }
     let name = match url {

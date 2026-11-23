@@ -55,7 +55,7 @@ fn accepted_fixtures_are_valid_irs_that_rebuild() {
                     assert!(rebuilt(&ir, &data) == data, "{path:?} does not rebuild");
                     accepted += 1;
                 }
-                Err(m) if m.contains("a file that names siblings") => {}
+                Err(m) if m.to_string().contains("a file that names siblings") => {}
                 Err(m) => assert!(rejected, "{path:?} was rejected: {m}"),
             }
         }

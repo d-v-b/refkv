@@ -55,7 +55,7 @@ fn parse_pair(key: &str, data: &[u8], beside: impl Fn(&str) -> Option<Vec<u8>>) 
             run.complete(k, q.spans.iter().map(|&(a, b)| object[a as usize..b as usize].to_vec()).collect())?;
         }
     }
-    run.finish()
+    Ok(run.finish()?)
 }
 
 include!(concat!(env!("OUT_DIR"), "/rejects_nifti.rs"));

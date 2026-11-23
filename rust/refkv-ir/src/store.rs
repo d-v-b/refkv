@@ -24,7 +24,8 @@
 //! **Budget.** Requests at most `2^20 + 4 × objects`, bytes at most `2^24 + 2 × Z` (Z the
 //! listed sizes' sum); a range outside its object is refused.
 
-use crate::ir::{Ir, Res};
+use crate::error::{Error, Res};
+use crate::ir::Ir;
 use crate::out::Chunking;
 use serde_json::{json, Value as J};
 use std::collections::HashMap;
@@ -49,7 +50,7 @@ pub enum StoreStep {
 /// A store format's sans-IO parser: it starts from the IR of the listing (`ir`, with
 /// `objects[k]` the element of listed key `k`) and adds the held objects' elements.
 pub trait StoreParser: Send + Sync {
-    fn step(&mut self) -> Res<StoreStep>;
+    fn step(&mut self) -> crate::ir::Res<StoreStep>;
     fn feed(&mut self, object: usize, offset: u64, data: &[u8]);
     /// The empty objects whose keys end in `/` (each with its `/`), which the listing ignores
     /// and does not record (spec/zarrify.md §1.4
@@ -60,7 +61,7 @@ pub trait StoreParser: Send + Sync {
     /// The IR (finished: `check::finish`) and the parser's description of the input (the design of
     /// d-v-b/refkv#278, "The description"; each profile's in its document's section "The
     /// description"), which its projection reads.
-    fn finish(self: Box<Self>) -> Res<(Ir, J)>;
+    fn finish(self: Box<Self>) -> crate::ir::Res<(Ir, J)>;
     /// The bytes the parser read for the convention's projection apart from what it describes
     /// (edge chunks it copies, windows it samples), by their (offset, length) in the object that
     /// holds them, asked before [`StoreParser::finish`]: the projection's `copied`, as a file
@@ -81,7 +82,7 @@ pub trait StoreParser: Send + Sync {
     /// A probed key (`StoreStep::Probe`), in the order asked: `index` is its listing index when
     /// it exists (`size` its size), and the parser adds it to the IR as an object, whose element
     /// it returns; None for a key that does not exist.
-    fn found(&mut self, key: &str, index: usize, size: Option<u64>) -> Res<Option<u32>> {
+    fn found(&mut self, key: &str, index: usize, size: Option<u64>) -> crate::ir::Res<Option<u32>> {
         let _ = (key, index, size);
         Err("internal: this store format probes no keys".into())
     }
@@ -89,7 +90,7 @@ pub trait StoreParser: Send + Sync {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
     /// **Case**), told before its [`StoreParser::found`]: `found`'s key is `key`, and is not called
     /// when that key is an object already.
-    fn resolved(&mut self, written: &str, key: &str) -> Res<()> {
+    fn resolved(&mut self, written: &str, key: &str) -> crate::ir::Res<()> {
         let _ = (written, key);
         Err("internal: this store format's keys are found as written".into())
     }
@@ -195,13 +196,13 @@ impl StoreRun {
     /// with the convention's chunking.
     #[allow(clippy::type_complexity)]
     pub fn with(format: StoreFormat, keys: Vec<(String, u64)>, concurrency: usize,
-                make: &dyn Fn(Ir, Vec<u32>, &[(String, u64)]) -> Res<Box<dyn StoreParser>>) -> Res<StoreRun> {
+                make: &dyn Fn(Ir, Vec<u32>, &[(String, u64)]) -> crate::ir::Res<Box<dyn StoreParser>>) -> Res<StoreRun> {
         Self::build(format, keys, concurrency, Chunking::default(), make)
     }
 
     #[allow(clippy::type_complexity)]
     fn build(format: StoreFormat, keys: Vec<(String, u64)>, concurrency: usize, chunking: Chunking,
-             make: &dyn Fn(Ir, Vec<u32>, &[(String, u64)]) -> Res<Box<dyn StoreParser>>) -> Res<StoreRun> {
+             make: &dyn Fn(Ir, Vec<u32>, &[(String, u64)]) -> crate::ir::Res<Box<dyn StoreParser>>) -> Res<StoreRun> {
         let mut ir = Ir::new_store();
         let objects = ir.listing(&keys)?;
         let parser = make(ir, objects.clone(), &keys)?;
@@ -247,12 +248,12 @@ impl StoreRun {
     /// names the file "<key>"`, as it does a key the host found by listing (**Case**) outside it.
     pub fn scope(&mut self, within: Vec<String>) -> Res<()> {
         if self.stats.batches > 0 || self.done {
-            return Err("internal: the scope given after the first poll".into());
+            return Err(Error::internal("the scope given after the first poll"));
         }
         for e in &within {
             let key = e.strip_suffix('/').unwrap_or(e);
             if key.is_empty() || key.split('/').any(|s| s.is_empty() || s == "." || s == "..") {
-                return Err(format!("internal: the scope's {e:?} is not a key or a directory's"));
+                return Err(Error::internal(format!("the scope's {e:?} is not a key or a directory's")));
             }
         }
         self.scope = Some(within);
@@ -275,9 +276,9 @@ impl StoreRun {
     /// says ([`crate::project::store::record_ignored`]).
     pub fn ignore(&mut self, keys: Vec<String>, folders: Vec<String>) -> Res<()> {
         if self.stats.batches > 0 || self.done {
-            return Err("internal: the ignored keys given after the first poll".into());
+            return Err(Error::internal("the ignored keys given after the first poll"));
         }
-        let p = self.parser.as_mut().ok_or("internal: no parser")?;
+        let p = self.parser.as_mut().ok_or_else(|| Error::internal("no parser"))?;
         p.folders(&folders);
         self.ignored = keys;
         self.ignored.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
@@ -303,10 +304,10 @@ impl StoreRun {
             }
             // a batch of probes: those outside the scope are the run's to answer, and the host is
             // given the batch only when one is in it
-            let p = self.parser.as_ref().ok_or("internal: no parser")?;
+            let p = self.parser.as_ref().ok_or_else(|| Error::internal("no parser"))?;
             self.outside = self.probes.iter().map(|k| !self.within(k)).collect();
             if let Some((k, _)) = self.probes.iter().zip(&self.outside).find(|&(k, &o)| o && !p.optional(k)) {
-                return Err(format!("out of scope: the input names the file \"{k}\""));
+                return Err(Error::OutOfScope { key: k.clone() });
             }
             self.skip()?;
             if self.answered < self.probes.len() {
@@ -321,7 +322,7 @@ impl StoreRun {
             return Ok(None);
         }
         if self.answered < self.probes.len() {
-            return Err("poll before every probe of the batch was answered".into());
+            return Err(Error::Internal("poll before every probe of the batch was answered".into()));
         }
         self.probes.clear();
         self.outside.clear();
@@ -329,11 +330,11 @@ impl StoreRun {
         // a batch is pending until served, even one of empty ranges only (no request)
         if !self.round.is_empty() || !self.asked.is_empty() {
             if self.got.iter().any(|g| g.is_none()) {
-                return Err("poll before every request of the batch completed".into());
+                return Err(Error::Internal("poll before every request of the batch completed".into()));
             }
             self.serve()?;
         }
-        let p = self.parser.as_mut().ok_or("internal: no parser")?;
+        let p = self.parser.as_mut().ok_or_else(|| Error::internal("no parser"))?;
         match p.step()? {
             StoreStep::Done => {
                 self.done = true;
@@ -345,17 +346,17 @@ impl StoreRun {
             }
             StoreStep::Probe(keys) => {
                 if keys.is_empty() {
-                    return Err("internal: a batch of no probes".into());
+                    return Err(Error::internal("a batch of no probes"));
                 }
                 let mut seen: std::collections::HashSet<&str> = self.keys.iter().map(|k| k.0.as_str()).collect();
                 for k in &keys {
                     if k.is_empty() || k.split('/').any(|s| s.is_empty() || s == "." || s == "..") || !seen.insert(k.as_str()) {
-                        return Err(format!("internal: the probed key {k:?} is listed already, or is not a key"));
+                        return Err(Error::internal(format!("the probed key {k:?} is listed already, or is not a key")));
                     }
                 }
                 self.probed += keys.len() as u64;
                 if self.probed > crate::beside::MAX_FILES {
-                    return Err(format!("budget: the input names more than {} files", crate::beside::MAX_FILES));
+                    return Err(Error::budget(format!("the input names more than {} files", crate::beside::MAX_FILES)));
                 }
                 self.stats.batches += 1;
                 self.outside = vec![false; keys.len()];
@@ -393,10 +394,10 @@ impl StoreRun {
     /// **Case**): `key` is the object's key, which may be an object of the run already.
     pub fn found_as(&mut self, size: u64, key: &str) -> Res<()> {
         if key.is_empty() || key.split('/').any(|s| s.is_empty() || s == "." || s == "..") {
-            return Err(format!("internal: the key {key:?} a probe was found at is not a key"));
+            return Err(Error::internal(format!("the key {key:?} a probe was found at is not a key")));
         }
         if !self.within(key) {
-            return Err(format!("out of scope: the input names the file \"{key}\""));
+            return Err(Error::OutOfScope { key: key.to_string() });
         }
         self.answer(Some(size), Some(key))?;
         self.skip()
@@ -405,13 +406,13 @@ impl StoreRun {
     fn answer(&mut self, size: Option<u64>, at: Option<&str>) -> Res<()> {
         let k = self.answered;
         if k >= self.probes.len() {
-            return Err("a probe answered that was not asked".into());
+            return Err(Error::Internal("a probe answered that was not asked".into()));
         }
         let written = self.probes[k].clone();
         self.answered += 1;
         let key = at.map_or_else(|| written.clone(), str::to_string);
         let index = self.keys.len();
-        let p = self.parser.as_mut().ok_or("internal: no parser")?;
+        let p = self.parser.as_mut().ok_or_else(|| Error::internal("no parser"))?;
         if key != written {
             p.resolved(&written, &key)?;
         }
@@ -432,13 +433,13 @@ impl StoreRun {
 
     fn begin(&mut self, ranges: Vec<(usize, u64, u64)>) -> Res<()> {
         if ranges.is_empty() {
-            return Err("internal: a batch of no reads".into());
+            return Err(Error::internal("a batch of no reads"));
         }
         let mut by: std::collections::BTreeMap<usize, Vec<(u64, u64)>> = Default::default();
         for &(k, o, n) in &ranges {
-            let (key, size) = self.keys.get(k).ok_or(format!("internal: a read of object {k}, which the listing has not"))?;
+            let (key, size) = self.keys.get(k).ok_or_else(|| Error::internal(format!("a read of object {k}, which the listing has not")))?;
             if o.checked_add(n).is_none_or(|e| e > *size) {
-                return Err(format!("{key}: a read of [{o}, {}) outside its {size} bytes", o.saturating_add(n)));
+                return Err(Error::rejected(format!("{key}: a read of [{o}, {}) outside its {size} bytes", o.saturating_add(n))));
             }
             by.entry(k).or_default().push((o, n));
             self.stats.asked += n;
@@ -467,10 +468,10 @@ impl StoreRun {
             }
         }
         if self.stats.requests > self.reads_limit {
-            return Err(format!("budget: more than {} object reads", self.reads_limit));
+            return Err(Error::budget(format!("more than {} object reads", self.reads_limit)));
         }
         if self.stats.bytes > self.bytes_limit {
-            return Err(format!("budget: more than {} bytes read", self.bytes_limit));
+            return Err(Error::budget(format!("more than {} bytes read", self.bytes_limit)));
         }
         self.got = vec![None; self.round.len()];
         Ok(())
@@ -483,9 +484,9 @@ impl StoreRun {
 
     /// Request `k` of the last poll: each span's bytes.
     pub fn complete(&mut self, k: usize, parts: Vec<Vec<u8>>) -> Res<()> {
-        let q = self.round.get(k).ok_or(format!("no request {k}"))?;
+        let q = self.round.get(k).ok_or_else(|| Error::Internal(format!("no request {k}")))?;
         if parts.len() != q.spans.len() || parts.iter().zip(&q.spans).any(|(p, s)| p.len() as u64 != s.1 - s.0) {
-            return Err(format!("{}: the bytes given are not those of the spans asked", q.key));
+            return Err(Error::Failed(format!("{}: the bytes given are not those of the spans asked", q.key)));
         }
         self.got[k] = Some(parts);
         Ok(())
@@ -504,13 +505,13 @@ impl StoreRun {
             }
             spans.entry(q.object).or_default().extend(q.spans.into_iter().zip(parts));
         }
-        let p = self.parser.as_mut().ok_or("internal: no parser")?;
+        let p = self.parser.as_mut().ok_or_else(|| Error::internal("no parser"))?;
         for (k, o, n) in std::mem::take(&mut self.asked) {
             if n == 0 {
                 p.feed(k, o, &[]);
                 continue;
             }
-            let (s, b) = spans[&k].iter().find(|(s, _)| s.0 <= o && o + n <= s.1).ok_or("internal: a range no span holds")?;
+            let (s, b) = spans[&k].iter().find(|(s, _)| s.0 <= o && o + n <= s.1).ok_or_else(|| Error::internal("a range no span holds"))?;
             p.feed(k, o, &b[(o - s.0) as usize..(o - s.0 + n) as usize]);
         }
         Ok(())
@@ -520,9 +521,9 @@ impl StoreRun {
     /// run read for the convention's projection ([`Read`]), which `store_output` takes with them.
     pub fn finish(mut self) -> Res<(Ir, J, J, Read)> {
         if !self.done {
-            return Err("the run is not done".into());
+            return Err(Error::Internal("the run is not done".into()));
         }
-        let mut p = self.parser.take().ok_or("internal: no parser")?;
+        let mut p = self.parser.take().ok_or_else(|| Error::internal("no parser"))?;
         let read = Read { copied: p.copied(), counts: p.counts(), chunking: self.chunking };
         let (mut ir, mut description) = p.finish()?;
         if let Some(m) = description.as_object_mut().filter(|_| !self.ignored.is_empty()) {
@@ -541,7 +542,7 @@ impl StoreRun {
         }
         let mut held = Vec::with_capacity(want.len());
         for (k, o) in want {
-            let b = self.whole.get(&k).ok_or(format!("internal: the held object {:?} was not read whole", self.keys[k].0))?;
+            let b = self.whole.get(&k).ok_or_else(|| Error::internal(format!("the held object {:?} was not read whole", self.keys[k].0)))?;
             held.push((o, b.as_slice()));
         }
         ir.hold_all(held)?;
@@ -560,7 +561,7 @@ impl StoreRun {
     /// Finishes and mirrors: the output (the format's projection, and the mirror under
     /// `refkv_source` when `mirror`), sealed for a host that records the ranges' checksums when
     /// `checksums`.
-    pub fn into_output(self, url: &str, mirror: bool, checksums: bool) -> Result<crate::out::Out, crate::seal::Refusal> {
+    pub fn into_output(self, url: &str, mirror: bool, checksums: bool) -> Res<crate::out::Out> {
         let format = self.format;
         let (ir, description, stats, read) = self.finish()?;
         store_output(format, &ir, &description, stats, &read, url, mirror, checksums)
@@ -577,7 +578,7 @@ impl StoreRun {
 /// records the ranges' checksums when `checksums`.
 #[allow(clippy::too_many_arguments)]
 pub fn store_output(format: StoreFormat, ir: &Ir, description: &J, stats: J, read: &Read, url: &str, mirror: bool, checksums: bool)
-                    -> Result<crate::out::Out, crate::seal::Refusal> {
+                    -> Res<crate::out::Out> {
     let mut out = format.project(ir, description, url, &read.copied, &read.chunking)?;
     crate::shard::refuse(&out)?;
     let mut summary = std::mem::take(&mut out.summary);
@@ -613,7 +614,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, description: &J, stats: J, rea
 /// its listing ignored, which the run's description holds and its convention records beside the mirror
 /// (`project::store::record_ignored`): what `store_output` writes there but for the store's
 /// objects, which its projection writes; and what the table folded.
-pub fn mirrored(format: StoreFormat, ir: &Ir, description: &J, out: &mut crate::out::Out) -> Result<crate::mirror::Folded, String> {
+pub fn mirrored(format: StoreFormat, ir: &Ir, description: &J, out: &mut crate::out::Out) -> Res<crate::mirror::Folded> {
     let profile = description["profile"].as_str().unwrap_or(format.profile());
     let folded = crate::mirror::mirror(ir, out, profile)?;
     crate::project::store::record_ignored(out, description, profile)?;
@@ -648,7 +649,7 @@ mod tests {
     }
 
     impl StoreParser for Prober {
-        fn step(&mut self) -> Res<StoreStep> {
+        fn step(&mut self) -> crate::ir::Res<StoreStep> {
             if self.next >= self.until.saturating_mul(self.batch) {
                 return Ok(StoreStep::Done);
             }
@@ -660,10 +661,10 @@ mod tests {
             self.optional.contains(&key)
         }
         fn feed(&mut self, _: usize, _: u64, _: &[u8]) {}
-        fn found(&mut self, _: &str, _: usize, _: Option<u64>) -> Res<Option<u32>> {
+        fn found(&mut self, _: &str, _: usize, _: Option<u64>) -> crate::ir::Res<Option<u32>> {
             Ok(None)
         }
-        fn finish(mut self: Box<Self>) -> Res<(Ir, J)> {
+        fn finish(mut self: Box<Self>) -> crate::ir::Res<(Ir, J)> {
             Ok((self.ir.take().unwrap(), J::Null))
         }
     }
@@ -677,7 +678,7 @@ mod tests {
         for _ in 0..crate::beside::MAX_FILES {
             run.found(None).unwrap();
         }
-        assert_eq!(run.poll().err().as_deref(), Some("budget: the input names more than 65536 files"));
+        assert_eq!(run.poll().err(), Some(Error::budget("the input names more than 65536 files")));
     }
 
     /// A run of a parser that probes two keys a step for two steps (`k0` to `k3`), `optional` of
@@ -730,14 +731,14 @@ mod tests {
         assert!(run.poll().unwrap().is_some());
         run.found(None).unwrap();
         run.found(None).unwrap();
-        assert_eq!(run.poll().err().as_deref(), Some("out of scope: the input names the file \"k3\""));
+        assert_eq!(run.poll().err(), Some(Error::OutOfScope { key: "k3".into() }));
     }
 
     #[test]
     fn a_key_found_by_listing_outside_the_scope_is_rejected() {
         let mut run = scoped(&["k0", "k1"], &[]);
         assert!(run.poll().unwrap().is_some());
-        assert_eq!(run.found_as(1, "K0").err().as_deref(), Some("out of scope: the input names the file \"K0\""));
+        assert_eq!(run.found_as(1, "K0").err(), Some(Error::OutOfScope { key: "K0".into() }));
     }
 
     #[test]
@@ -745,7 +746,7 @@ mod tests {
         let mut run = StoreRun::with(StoreFormat::Nrrd, vec![("a".into(), 1)], 1, &|ir, _, _| Ok(Box::new(Prober::new(1, ir))))
             .unwrap();
         assert!(run.poll().unwrap().is_some());
-        assert_eq!(run.scope(Vec::new()).err().as_deref(), Some("internal: the scope given after the first poll"));
+        assert_eq!(run.scope(Vec::new()).err(), Some(Error::internal("the scope given after the first poll")));
     }
 
     #[test]

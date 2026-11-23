@@ -5,6 +5,7 @@
 //! and `refkv.build.seal` calls it for an output a caller builds. It reads nothing: the hosts read
 //! the ranges' checksums after it, and it measures each checksum at its largest.
 
+use crate::error::Error;
 use crate::out::{Out, Part, MAX_PAYLOAD};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -84,33 +85,16 @@ impl fmt::Display for SealError {
     }
 }
 
-/// Why a built-in output is not written: a rejection of the input, or a failure of the
-/// zarrifier (spec/zarrify.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
-#[derive(Clone, Debug, PartialEq)]
-pub enum Refusal {
-    Rejected(String),
-    Failed(String),
-}
-
-impl From<String> for Refusal {
-    fn from(e: String) -> Refusal {
-        Refusal::Rejected(e)
-    }
-}
-
-impl From<SealError> for Refusal {
-    fn from(e: SealError) -> Refusal {
+/// A refusal as the core's error (`crate::error::Error`): a payload over the limit only with its
+/// checksums is a failure of refkv's on an input it accepted, an output no projection should make
+/// is a bug, and any other refusal rejects the input (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
+impl From<SealError> for Error {
+    fn from(e: SealError) -> Error {
         match e.code {
-            Code::Checksums | Code::Internal => Refusal::Failed(e.to_string()),
-            _ => Refusal::Rejected(e.to_string()),
-        }
-    }
-}
-
-impl From<Refusal> for String {
-    fn from(r: Refusal) -> String {
-        match r {
-            Refusal::Rejected(e) | Refusal::Failed(e) => e,
+            Code::Checksums => Error::Failed(e.to_string()),
+            Code::Internal => Error::Internal(e.to_string()),
+            _ => Error::Rejected(e.to_string()),
         }
     }
 }
@@ -598,7 +582,7 @@ mod tests {
         let limits = Limits { checksums: true, ..Limits::default() };
         let e = seal(&urls, &[], None, &[], vec![v], &limits).unwrap_err();
         assert_eq!((e.code, e.key.as_deref()), (Code::Checksums, Some("k")));
-        assert!(matches!(Refusal::from(e), Refusal::Failed(_)));
+        assert!(matches!(Error::from(e), Error::Failed(_)));
     }
 
     #[test]
@@ -619,7 +603,7 @@ mod tests {
             o.refs(key, vec![part]);
             let e = out(&mut o, None, &objects, false).unwrap_err();
             assert_eq!((e.code, e.key.as_deref()), (Code::Internal, Some(key)), "{key:?} {document}");
-            assert!(matches!(Refusal::from(e), Refusal::Failed(_)));
+            assert!(matches!(Error::from(e), Error::Internal(_)));
         }
     }
 

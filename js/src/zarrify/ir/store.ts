@@ -13,7 +13,7 @@ import type { Range, Source } from "../../protobuf.ts";
 import type { ArchiveDesc, EntryDesc } from "../../writer.ts";
 import type { Profile } from "../profiles.ts";
 import { compareKeys, objectUrls, type Store, StoreError } from "../store.ts";
-import { bytesEntries, decodeRaw, type RawOutput, refusal } from "./run.ts";
+import { bytesEntries, decodeRaw, type RawOutput } from "./run.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
 /** A store format of the core: a profile with a `store_run` in the registry (spec/zarrify/profiles/). */
@@ -25,8 +25,10 @@ export type StoreProfile = Profile;
 const utf8 = new TextEncoder();
 const text = (b: Uint8Array) => new TextDecoder().decode(b);
 
-function rejection(w: IrExports, r: number, format: StoreProfile): StoreError {
-  return new StoreError(text(out(w, -r)), format);
+/** The store run's error: a StoreError naming `format` for a rejection of the store, or a plain
+ * Error for a failure of refkv's (`vz_failed`), which is no rejection. */
+function rejection(w: IrExports, r: number, format: StoreProfile): Error {
+  return w.vz_failed() !== 0 ? new Error(text(out(w, -r))) : new StoreError(text(out(w, -r)), format);
 }
 
 /** Zarrifies the listed `store` with the core's store format `format`: the keys its listing
@@ -100,7 +102,7 @@ export async function zarrifyStoreIr(
     // bit 0: mirror; bit 1: the ranges will carry checksums, which the core's seal measures
     const flags = (options.mirror === false ? 0 : 1) | (options.checksums ? 2 : 0);
     const n = Number(w.vz_store_output(p, put(w, u), u.length, flags));
-    if (n < 0) throw refusal(w, n, (w, r) => rejection(w, r, decided));
+    if (n < 0) throw rejection(w, n, decided);
     const raw = decodeRaw(out(w, n));
     return { ...storeDesc(raw, new Map(listing)), summary: { ...raw.summary, listingRequests: store.requests } };
   } finally {

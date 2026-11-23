@@ -165,7 +165,8 @@ def test_a_run_that_defers_its_projection_reads_for_an_output_only_once_asked():
     asked = json.loads(run.stats())["ranges"]
     ir = run.ir()
     assert len(ir) > 0
-    with pytest.raises(_core.Rejected, match="has not read what its projection copies"):
+    # a host's misuse of the run is a failure of refkv's, not a rejection of the input
+    with pytest.raises(_core.Failed, match="has not read what its projection copies"):
         run.project("u")
 
     run.begin_projection()

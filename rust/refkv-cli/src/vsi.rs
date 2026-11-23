@@ -224,11 +224,11 @@ pub fn zarrify_vsi(location: &str, url: Option<&str>, t: Transport, client: &Arc
     let workers = concurrency(&t, connections)?;
     let mut files = Files::open(location, url, t, client, format)?;
     let listing = vec![(files.keys[0].clone(), files.sizes[&files.keys[0]])];
-    let mut run = StoreRun::new(format, listing, workers).map_err(Fail::Rejected)?;
+    let mut run = StoreRun::new(format, listing, workers).map_err(Fail::from)?;
     if let Some(within) = scope {
-        run.scope(within).map_err(Fail::Rejected)?;
+        run.scope(within).map_err(Fail::from)?;
     }
-    while let Some(reqs) = run.poll().map_err(Fail::Rejected)? {
+    while let Some(reqs) = run.poll().map_err(Fail::from)? {
         if reqs.is_empty() {
             // a batch of probes: each key answered with its size, or None when it does not exist
             let keys = run.probes();
@@ -238,7 +238,7 @@ pub fn zarrify_vsi(location: &str, url: Option<&str>, t: Transport, client: &Arc
                     Some((size, _)) => run.found(Some(size)),
                     None => run.found(None),
                 }
-                .map_err(Fail::Rejected)?;
+                .map_err(Fail::from)?;
             }
             continue;
         }
@@ -246,7 +246,7 @@ pub fn zarrify_vsi(location: &str, url: Option<&str>, t: Transport, client: &Arc
             q.spans.iter().map(|&(a, b)| files.read_range(&q.key, a, b - a)).collect::<Result<Vec<_>, Fail>>()
         });
         for (k, parts) in results.into_iter().enumerate() {
-            run.complete(k, parts?).map_err(Fail::Rejected)?;
+            run.complete(k, parts?).map_err(Fail::from)?;
         }
     }
     let mut out = run.into_output(&files.url, true, checksums)?;

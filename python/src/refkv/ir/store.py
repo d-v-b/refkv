@@ -391,7 +391,7 @@ async def run_store_async(store: Store, fmt: str = "zarr2", mirror: bool = True,
     output's checks, the profile the run decided (`ome-zarr` once the 0.4 test passed). The output
     is sealed for ranges that carry checksums when `checksums` and `written` (the output is written
     as it is, not only built from: `refkv._core.Failed` for a payload over the limit only with
-    them). `scope`,
+    them, as for a bug of refkv's or a response that does not match its request). `scope`,
     when given, is the input's scope (`StoreRun.scope`): `store` is asked to probe no key outside
     it. The calls that block (the core's, on a listing of millions of objects) run on a thread.
     This is `parse_store_async` (with `chunking`), then `StoreParse.output`."""

@@ -1,6 +1,7 @@
 //! The read planner's policy (src/plan.rs): one test over the servers it plans
 //! for, and one per error.
 
+use refkv_ir::error::Error;
 use refkv_ir::plan::{plan_spans, Planner, Request, CEILING};
 
 /// Serves a planner's rounds from `data`, `seconds` per request (a multi-range
@@ -153,7 +154,7 @@ fn started() -> Planner {
 fn rejects_a_response_of_the_wrong_length() {
     let mut p = started();
     let r: Vec<Request> = p.requests();
-    assert_eq!(p.complete(0, Some(vec![vec![0; 3]]), 0.1).unwrap_err(), "a response of the wrong length");
+    assert_eq!(p.complete(0, Some(vec![vec![0; 3]]), 0.1).unwrap_err(), Error::Failed("a response of the wrong length".into()));
     assert!(!r.is_empty());
 }
 
@@ -166,14 +167,14 @@ fn rejects_a_request_completed_twice() {
     assert!(r.len() > 1);
     let n = (r[0].spans[0].1 - r[0].spans[0].0) as usize;
     p.complete(0, Some(vec![vec![0; n]]), 0.1).unwrap();
-    assert_eq!(p.complete(0, Some(vec![vec![0; n]]), 0.1).unwrap_err(), "a request completed twice");
+    assert_eq!(p.complete(0, Some(vec![vec![0; n]]), 0.1).unwrap_err(), Error::Internal("a request completed twice".into()));
 }
 
 #[test]
 fn rejects_an_unanswered_range_request() {
     let mut p = started();
     p.requests();
-    assert_eq!(p.complete(0, None, 0.1).unwrap_err(), "a range request was not answered");
+    assert_eq!(p.complete(0, None, 0.1).unwrap_err(), Error::Failed("a range request was not answered".into()));
 }
 
 #[test]
@@ -191,12 +192,12 @@ fn rejects_past_the_read_budget() {
         assert_eq!(r.len(), 1);
         p.take().unwrap();
     }
-    assert!(err.unwrap().starts_with("budget: more than"));
+    assert!(matches!(err, Some(Error::Budget(m)) if m.starts_with("budget: more than")));
 }
 
 #[test]
 fn rejects_taking_an_incomplete_batch() {
     let mut p = started();
     p.requests();
-    assert_eq!(p.take().unwrap_err(), "the batch is not complete");
+    assert_eq!(p.take().unwrap_err(), Error::Internal("the batch is not complete".into()));
 }

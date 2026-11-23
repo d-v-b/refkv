@@ -350,13 +350,13 @@ fn sniff_finds_a_nrrd_header() {
 #[test]
 fn a_nrrd_file_run_is_refused() {
     let data = std::fs::read(fixtures().join("nrrd_raw_uint8_2d.nrrd")).unwrap();
-    assert_eq!(refkv_ir::run::run_bytes(Format::Nrrd, &data).err().as_deref(), Some("a NRRD file is zarrified as a store run, with its data file"));
+    assert_eq!(refkv_ir::run::run_bytes(Format::Nrrd, &data).err().map(String::from).as_deref(), Some("a NRRD file is zarrified as a store run, with its data file"));
 }
 
 #[test]
 fn a_listing_of_more_than_the_header_file_is_refused() {
     let r = StoreRun::new(StoreFormat::Nrrd, vec![("a.nhdr".into(), 100), ("a.raw".into(), 100)], 1);
-    assert!(r.err().unwrap().starts_with("a NRRD run starts from the header file alone"));
+    assert!(r.err().unwrap().to_string().starts_with("a NRRD run starts from the header file alone"));
 }
 
 macro_rules! reject {

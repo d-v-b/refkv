@@ -22,14 +22,12 @@ pyo3::create_exception!(refkv._core, Rejected, PyException);
 pyo3::create_exception!(refkv._core, Failed, PyValueError);
 pyo3::create_exception!(refkv._core, SealRefused, PyValueError);
 
-/// The core's refusal of an output: Rejected, or Failed for a failure of the zarrifier, such as a
-/// payload over the limit only with its checksums (spec/zarrify.md §1.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
-fn refused(r: refkv_ir::seal::Refusal) -> PyErr {
-    match r {
-        refkv_ir::seal::Refusal::Rejected(e) => Rejected::new_err(e),
-        refkv_ir::seal::Refusal::Failed(e) => Failed::new_err(e),
-    }
+/// The core's error, by its variant (`refkv_ir::error::Error`): Rejected for a rejection of the
+/// input, Failed for a failure of refkv's on an input it accepted, such as a payload over the limit
+/// only with its checksums (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), or a bug.
+fn refused(e: refkv_ir::error::Error) -> PyErr {
+    if e.is_rejection() { Rejected::new_err(e.to_string()) } else { Failed::new_err(e.to_string()) }
 }
 pyo3::create_exception!(refkv._core, Violation, PyException);
 pyo3::create_exception!(refkv._core, NoCodec, PyValueError);
@@ -561,12 +559,12 @@ impl PyRun {
     }
     fn poll(&mut self, py: Python<'_>) -> PyResult<Option<Vec<Vec<(u64, u64)>>>> {
         let r = self.get()?;
-        let got = py.detach(|| r.poll()).map_err(Rejected::new_err)?;
+        let got = py.detach(|| r.poll()).map_err(refused)?;
         Ok(got.map(|v| v.into_iter().map(|q| q.spans).collect()))
     }
     #[pyo3(signature = (k, parts, seconds))]
     fn complete(&mut self, k: usize, parts: Option<Vec<Vec<u8>>>, seconds: f64) -> PyResult<()> {
-        self.get()?.complete(k, parts, seconds).map_err(Rejected::new_err)
+        self.get()?.complete(k, parts, seconds).map_err(refused)
     }
     /// A request the host made itself (n bytes in `seconds`), for the cost model.
     fn observe(&mut self, n: u64, seconds: f64) -> PyResult<()> {
@@ -617,7 +615,7 @@ impl PyRun {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
         let (format, chunking) = (r.format, r.chunking());
         let (o, ir) = py
-            .detach(|| -> Result<_, refkv_ir::seal::Refusal> {
+            .detach(|| -> refkv_ir::error::Res<_> {
                 let f = r.finish_copied()?;
                 let options = refkv_ir::run::Options { layouts: layouts.as_deref(), checksums, written, chunking };
                 Ok((refkv_ir::run::output(format, &f.ir, &f.description, &f.counts, f.stats, url, mirror, &f.copied, &options)?, f.ir))
@@ -627,7 +625,7 @@ impl PyRun {
     }
     fn finish(&mut self, py: Python<'_>) -> PyResult<(PyIr, String, String)> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
-        let (ir, description, stats) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
+        let (ir, description, stats) = py.detach(|| r.finish()).map_err(refused)?;
         Ok((PyIr::new(ir), description.to_string(), stats.to_string()))
     }
     /// Leaves the built-in projection's reads out of the run, before its first poll
@@ -640,29 +638,29 @@ impl PyRun {
     }
     /// Asks for the built-in projection's reads (`Run::begin_projection`).
     fn begin_projection(&mut self) -> PyResult<()> {
-        self.get()?.begin_projection().map_err(Rejected::new_err)
+        self.get()?.begin_projection().map_err(refused)
     }
     /// The profile's description of the source (JSON), of a run that is done (`Run::description`).
     fn description(&mut self) -> PyResult<String> {
-        Ok(self.get()?.description().map_err(PyValueError::new_err)?.to_string())
+        Ok(self.get()?.description().map_err(refused)?.to_string())
     }
     /// The IR of a run that is done, shared with the run, which is kept.
     fn ir(&mut self) -> PyResult<PyIr> {
-        let (ir, _) = self.get()?.parsed().map_err(PyValueError::new_err)?;
+        let (ir, _) = self.get()?.parsed().map_err(refused)?;
         Ok(PyIr::of(Arc::clone(ir)))
     }
     /// The input as its format's own class gives it (`formats`), its IR and description shared
     /// with the run; None for a format that has none.
     fn view(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         let r = self.get()?;
-        let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
+        let (ir, description) = r.shared().map_err(refused)?;
         formats::view(py, r.format.name(), &formats::View { ir, description, store: false, held: None, chunking: r.chunking() })
     }
     /// What makes the mirror of a run that is done (`Mirror`): its IR and description, shared with the
     /// run, which is kept and may be used while the mirror is made.
     fn mirror(&mut self) -> PyResult<PyMirror> {
         let r = self.get()?;
-        let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
+        let (ir, description) = r.shared().map_err(refused)?;
         Ok(PyMirror { of: MirrorOf::File(r.format), ir, description })
     }
     /// `output`, of a run that is kept (`Run::project`): the output alone, in `out_py`'s form.
@@ -704,7 +702,7 @@ impl PyMirror {
                 MirrorOf::File(f) => refkv_ir::run::mirrored(f, &self.ir, &self.description, &mut o),
                 MirrorOf::Store(f) => refkv_ir::store::mirrored(f, &self.ir, &self.description, &mut o),
             }.map(|_| o)
-        }).map_err(Rejected::new_err)?;
+        }).map_err(refused)?;
         out_py(py, &o)
     }
 }
@@ -736,7 +734,7 @@ impl PyStoreRun {
     fn new(format: &str, listing: Vec<(String, u64)>, concurrency: usize, chunking: Option<PyChunking>) -> PyResult<Self> {
         let f = refkv_ir::store::StoreFormat::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no store format {format:?}")))?;
         let chunking = chunking.map(|c| c.0).unwrap_or_default();
-        let r = refkv_ir::store::StoreRun::with_chunking(f, listing, concurrency, chunking).map_err(Rejected::new_err)?;
+        let r = refkv_ir::store::StoreRun::with_chunking(f, listing, concurrency, chunking).map_err(refused)?;
         Ok(PyStoreRun { r: Some(r), parsed: None, chunking })
     }
     /// How the run's parser and projection cut the store's arrays, given at its start.
@@ -747,11 +745,11 @@ impl PyStoreRun {
     #[allow(clippy::type_complexity)]
     fn poll(&mut self, py: Python<'_>) -> PyResult<Option<Vec<(usize, String, Vec<(u64, u64)>)>>> {
         let r = self.get()?;
-        let got = py.detach(|| r.poll()).map_err(Rejected::new_err)?;
+        let got = py.detach(|| r.poll()).map_err(refused)?;
         Ok(got.map(|v| v.into_iter().map(|q| (q.object, q.key, q.spans)).collect()))
     }
     fn complete(&mut self, k: usize, parts: Vec<Vec<u8>>) -> PyResult<()> {
-        self.get()?.complete(k, parts).map_err(Rejected::new_err)
+        self.get()?.complete(k, parts).map_err(refused)
     }
     /// The run's counts (JSON).
     fn stats(&mut self) -> PyResult<String> {
@@ -766,12 +764,12 @@ impl PyStoreRun {
     /// The answer to the next probe of the batch: the key's size, or None when it does not exist.
     #[pyo3(signature = (size))]
     fn found(&mut self, size: Option<u64>) -> PyResult<()> {
-        self.get()?.found(size).map_err(Rejected::new_err)
+        self.get()?.found(size).map_err(refused)
     }
     /// The answer to the next probe of the batch, found at another key by listing
     /// (`StoreRun::found_as`): its size and that key.
     fn found_as(&mut self, size: u64, key: &str) -> PyResult<()> {
-        self.get()?.found_as(size, key).map_err(Rejected::new_err)
+        self.get()?.found_as(size, key).map_err(refused)
     }
     /// The keys the listing ignores, before the first poll (`StoreRun::ignore`): `keys`, the
     /// relative keys the store reader ignored and recorded (`Store.ignored`), which the
@@ -779,12 +777,12 @@ impl PyStoreRun {
     /// (`Store.folders`), which a SAFE directory's parser reads as directories.
     #[pyo3(signature = (keys, folders=Vec::new()))]
     fn ignore(&mut self, keys: Vec<String>, folders: Vec<String>) -> PyResult<()> {
-        self.get()?.ignore(keys, folders).map_err(Rejected::new_err)
+        self.get()?.ignore(keys, folders).map_err(refused)
     }
     /// The scope of the input, before the first poll (`StoreRun::scope`): the keys besides the
     /// listing's the host may be asked to probe, each a key or a directory's key followed by `/`.
     fn scope(&mut self, within: Vec<String>) -> PyResult<()> {
-        self.get()?.scope(within).map_err(Rejected::new_err)
+        self.get()?.scope(within).map_err(refused)
     }
     /// The profile the run's store is decided to be so far (`StoreRun::profile`).
     fn profile(&mut self) -> PyResult<String> {
@@ -797,7 +795,7 @@ impl PyStoreRun {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
         let format = r.format;
         let (o, ir) = py
-            .detach(|| -> Result<_, refkv_ir::seal::Refusal> {
+            .detach(|| -> refkv_ir::error::Res<_> {
                 let (ir, description, stats, read) = r.finish()?;
                 Ok((refkv_ir::store::store_output(format, &ir, &description, stats, &read, url, mirror, checksums)?, ir))
             })
@@ -806,7 +804,7 @@ impl PyStoreRun {
     }
     fn finish(&mut self, py: Python<'_>) -> PyResult<(PyIr, String, String)> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
-        let (ir, description, stats, _) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
+        let (ir, description, stats, _) = py.detach(|| r.finish()).map_err(refused)?;
         Ok((PyIr::new(ir), description.to_string(), stats.to_string()))
     }
     /// Finishes without an output: the IR, which the run keeps with its description and counts, so
@@ -814,7 +812,7 @@ impl PyStoreRun {
     fn parse(&mut self, py: Python<'_>) -> PyResult<PyIr> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
         let format = r.format;
-        let (ir, description, stats, read) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
+        let (ir, description, stats, read) = py.detach(|| r.finish()).map_err(refused)?;
         let ir = Arc::new(ir);
         self.parsed = Some((format, Arc::clone(&ir), Arc::new(description), (stats, Arc::new(read))));
         Ok(PyIr::of(ir))

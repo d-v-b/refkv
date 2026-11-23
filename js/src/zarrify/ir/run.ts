@@ -26,16 +26,11 @@ export interface IrOutput extends ArchiveDesc {
 const utf8 = new TextEncoder();
 const text = (b: Uint8Array) => new TextDecoder().decode(b);
 
-/** The run's rejection (a negative result: minus its message's length) as an ImageError. */
-export function rejection(w: IrExports, r: number): ImageError {
-  return new ImageError(text(out(w, -r)));
-}
-
-/** The core's refusal of an output: a rejection (`reject`), or a failure of the zarrifier, such as
- * a payload over the limit only with its checksums (spec/zarrify.md §1.2
- * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), which is no rejection. */
-export function refusal<E extends Error>(w: IrExports, r: number, reject: (w: IrExports, r: number) => E): Error {
-  return w.vz_failed() !== 0 ? new Error(text(out(w, -r))) : reject(w, r);
+/** The run's error (a negative result: minus its message's length): an ImageError for a
+ * rejection of the file, or a plain Error for a failure of refkv's (`vz_failed`: a bug, or a
+ * payload over the limit only with its checksums), which is no rejection. */
+export function rejection(w: IrExports, r: number): Error {
+  return w.vz_failed() !== 0 ? new Error(text(out(w, -r))) : new ImageError(text(out(w, -r)));
 }
 
 /** Zarrifies `source` (the file at `url`) as `format`; the output's format is the run's
@@ -86,7 +81,7 @@ export async function zarrifyIr(
     // bit 0: mirror; bit 1: the ranges will carry checksums, so a shard's are not joined
     const flags = (options.mirror === false ? 0 : 1) | (options.checksums ? 2 : 0);
     const n = Number(w.vz_run_output(p, put(w, u), u.length, flags));
-    if (n < 0) throw refusal(w, n, rejection);
+    if (n < 0) throw rejection(w, n);
     const o = decodeOutput(out(w, n));
     return { format: (o.summary.format as IrFormat | undefined) ?? format, ...o };
   } finally {
