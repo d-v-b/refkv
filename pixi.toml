@@ -1,0 +1,12 @@
+[workspace]
+name = "refkv-dev"
+channels = ["conda-forge"]
+platforms = ["win-64", "linux-64", "osx-arm64"]
+
+# The toolchain for building the browser demo (js/build.mjs, rust/refkv-ir/wasm/build.sh)
+[dependencies]
+rust = ">=1.85"
+rust-std-wasm32-unknown-unknown = "*"
+nodejs = ">=24"
+binaryen = "*"
+just = "*"
