@@ -26,12 +26,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 from described import Described, described
+from refkv_reference._legacy_common import grid_chunks
 from test_nrrd_stored import FILES
 
 from refkv._narrow import JSON, at, integer, mapping, sequence, string
 from refkv.ir.store import StoreIrOutput
 from refkv.ir.stored import Each, Source
-from refkv.zarrify.common import grid_chunks
 
 # the most bytes of a chunk of raw data (spec/zarrify/nrrd.md §4.1
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#41-the-array>)

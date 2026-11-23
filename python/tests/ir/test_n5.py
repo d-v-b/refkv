@@ -18,14 +18,14 @@ from xml.sax.saxutils import escape
 import pytest
 from ir_helpers import LEGACY_SOURCE, as_current, current_names
 from refkv_reference import virtualize as frozen
+from refkv_reference._legacy_common import same
+from refkv_reference._legacy_store import StoreOutput
 from refkv_reference.revision import STORES_REVISION
 
 from refkv import _core
 from refkv.ir.store import StoreIrOutput, zarrify_store
 from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
-from refkv.zarrify.common import same
-from refkv.zarrify.store import StoreOutput
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "n5"
 STORES = sorted(p for p in FIXTURES.iterdir() if p.is_dir())

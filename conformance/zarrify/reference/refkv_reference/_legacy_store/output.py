@@ -19,8 +19,9 @@ from refkv.policy import Policy
 from refkv.reader import Registry
 from refkv.refstore import ReferenceStore
 from refkv.vzip.archive import VZipWriter
-from refkv.zarrify.common import CONVENTION_KEY, Rejected, declare, reference_store
-from refkv.zarrify.store.hierarchy import join
+from refkv.zarrify.common import CONVENTION_KEY, Rejected, reference_store
+from refkv_reference._legacy_common import declare
+from refkv_reference._legacy_store.hierarchy import join
 from refkv.zarrify.store.urls import object_url
 
 GROUP_IMPLICIT: dict[str, object] = {"zarr_format": 3, "node_type": "group", "attributes": {}}
