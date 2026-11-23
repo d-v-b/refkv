@@ -285,7 +285,7 @@ its deflate stream inflates to.
 | `""` | struct | | the root: the whole file, `(0, size)` |
 | `…/preamble` | value | `{magic:bytes[6],major:u1,minor:u1,header_length:<u2}`, or `<u4` for `header_length` | its preamble, `(o, p)` |
 | `…/header` | value | `ascii[n]` | its header, `(o + p, n)`, when `n > 0` |
-| `…/data` | data | | its data, `(o + p + n, B)`, when it is presented and `B > 0`; its form's geometry is `{"data_type": D, "shape": S, "order": "C" \| "F"}` (`D` the Zarr data type, `S` the header's shape), its codec `{"endian": "little" \| "big" \| null}`, and its recipe `[["src", 0, null]]` |
+| `…/data` | data | | its data, `(o + p + n, B)`, when it is presented and `B > 0`; its form is its recipe alone, `{"recipe": [["src", 0, null]]}`: its type, order and shape are its header's, and an output's data type and codec are its projection's ([conventions §8.5](../conventions.md#85-forms-and-recipes)) |
 | `end`, `end_comment`, `zip64_locator`, `zip64_end`, `central_directory/**` | | | a `.npz` archive's end records and central directory, as [safe.md §6.3](safe.md#63-the-source-metadata-node) names the zip form's |
 | `entries/<i>` | struct | | a `.npz` archive's central directory entry `i`: its local header and data, `[lho, ds + cs)` |
 | `entries/<i>/local_header`, `…/name`, `…/extra` | value | | as [safe.md §6.3](safe.md#63-the-source-metadata-node) names them |

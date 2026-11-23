@@ -1589,28 +1589,26 @@ indexes. Every chunk struct holds <code class="docutils literal notranslate"><sp
 </table>
 </div>
 <p>A chunk whose bytes an earlier element claims is an alias of it.</p>
-<p><strong>The form of <code class="docutils literal notranslate"><span class="pre">pixels</span></code>.</strong> With <code class="docutils literal notranslate"><span class="pre">R</span> <span class="pre">=</span> <span class="pre">uiWidth</span> <span class="pre">×</span> <span class="pre">uiComp</span> <span class="pre">×</span> <span class="pre">uiBpcInMemory</span> <span class="pre">/</span> <span class="pre">8</span></code> and <code class="docutils literal notranslate"><span class="pre">D</span></code> the
-<code class="docutils literal notranslate"><span class="pre">data_type</span></code> (<a class="reference internal" href="#output">§4.3</a>), it is
-<code class="docutils literal notranslate"><span class="pre">{&quot;geometry&quot;:{&quot;shape&quot;:[uiHeight,uiWidth,uiComp],&quot;dtype&quot;:D},&quot;codec&quot;:C,&quot;recipe&quot;:P}</span></code>, with</p>
+<p><strong>The form of <code class="docutils literal notranslate"><span class="pre">pixels</span></code>.</strong> With <code class="docutils literal notranslate"><span class="pre">R</span> <span class="pre">=</span> <span class="pre">uiWidth</span> <span class="pre">×</span> <span class="pre">uiComp</span> <span class="pre">×</span> <span class="pre">uiBpcInMemory</span> <span class="pre">/</span> <span class="pre">8</span></code>, it is
+<code class="docutils literal notranslate"><span class="pre">{&quot;geometry&quot;:{&quot;shape&quot;:[uiHeight,uiWidth,uiComp],&quot;bits&quot;:uiBpcInMemory},&quot;codec&quot;:{&quot;compression&quot;:&quot;zlib&quot;},&quot;recipe&quot;:P}</span></code>
+for a compressed frame and the same without <code class="docutils literal notranslate"><span class="pre">codec</span></code> for an uncompressed one, in the file’s terms:
+the data type and codecs of <a class="reference internal" href="#output">§4.3</a> are the projection’s
+(<a class="reference internal" href="../conventions.html#forms-and-recipes"><span class="std std-ref">conventions §8.5</span></a>). <code class="docutils literal notranslate"><span class="pre">P</span></code> is</p>
 <div class="table-wrapper colwidths-auto docutils container">
 <table class="docutils align-default">
 <thead>
 <tr class="row-odd"><th class="head"><p>frame</p></th>
-<th class="head"><p><code class="docutils literal notranslate"><span class="pre">C</span></code></p></th>
 <th class="head"><p><code class="docutils literal notranslate"><span class="pre">P</span></code></p></th>
 </tr>
 </thead>
 <tbody>
 <tr class="row-even"><td><p>compressed</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">[&quot;zlib&quot;,&quot;bytes&quot;]</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[[&quot;src&quot;,0,d</span> <span class="pre">−</span> <span class="pre">8]]</span></code>, <code class="docutils literal notranslate"><span class="pre">d</span></code> its chunk’s data length</p></td>
 </tr>
 <tr class="row-odd"><td><p>uncompressed, <code class="docutils literal notranslate"><span class="pre">uiWidthBytes</span> <span class="pre">=</span> <span class="pre">R</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">[&quot;bytes&quot;]</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[[&quot;src&quot;,0,uiHeight</span> <span class="pre">×</span> <span class="pre">R]]</span></code></p></td>
 </tr>
 <tr class="row-even"><td><p>uncompressed, padded rows</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">[&quot;bytes&quot;]</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[[&quot;rows&quot;,0,uiWidthBytes,R,uiHeight]]</span></code> (<a class="reference internal" href="../conventions.html#forms-and-recipes"><span class="std std-ref">conventions §8.5</span></a>)</p></td>
 </tr>
 </tbody>

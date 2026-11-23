@@ -773,11 +773,11 @@ as [§7.3](#73-datasets-and-sequences) and **Sequences that the profile does not
 | `<d>/FFFCFFFC~<k>` | value | | the `k`-th later Data Set Trailing Padding of `<d>` (padding is never a duplicate) |
 | `<s>/<i>` | struct | | item `i` of a sequence `<s>`: `header` (`{group:Eu2,element:Eu2,length:Eu4}`), its dataset's elements, and `end` (the item delimiter) when its length is undefined |
 | `dataset/7FE00010` | struct | | the top-level Pixel Data: `header` (`{H}`), then its value (below) |
-| `dataset/7FE00010/frames/<f>` | data | | native pixel data: frame `f`, its `F` bytes ([§7.5](#75-frames)), or for 1-bit frames that do not all start on a byte, the one element `frames/0`, every frame's bits; its form's codec is `{"name": "packbits"}` for Bits Allocated 1 |
+| `dataset/7FE00010/frames/<f>` | data | | native pixel data: frame `f`, its `F` bytes ([§7.5](#75-frames)), or for 1-bit frames that do not all start on a byte, the one element `frames/0`, every frame's bits; its form's codec is `{"transfer_syntax": T}`, as a fragment's is |
 | `dataset/7FE00010/padding` | value | `bytes[1]` | native pixel data's one byte `00` past the frames |
 | `…/offset_table` | struct | | encapsulated pixel data's first item: `header` and `offsets` (`Eu4[k]`, or `bytes[n]` when its length is not a multiple of 4) |
 | `…/fragment_headers/<j>` | value | `{group:Eu2,element:Eu2,length:Eu4}` | the item header of fragment `j` (after the offset table), or, with an Extended Offset Table, of frame `j` when the frames' headers are item headers |
-| `dataset/7FE00010/fragments/<j>` | data | | fragment `j`'s data, when not empty (with an Extended Offset Table, frame `j`'s); its form's geometry is `{"rows", "columns", "samples", "bits_allocated", "pixel_representation", "photometric"}`, its codec `{"name": "bytes", "endian"}`, `{"name": "jpeg"}`, `{"name": "ljpeg"}`, `{"name": "jpegls"}`, `{"name": "dicomrle"}`, `{"name": "jpeg2k"}` or `{"name": "htj2k"}`, its recipe the whole range |
+| `dataset/7FE00010/fragments/<j>` | data | | fragment `j`'s data, when not empty (with an Extended Offset Table, frame `j`'s); its form's geometry is `{"rows", "columns", "samples", "bits_allocated", "pixel_representation", "photometric"}`, its codec `{"transfer_syntax": T}`, `T` the Transfer Syntax UID (the Zarr codecs that decode it are the projection's, [conventions §8.5](../conventions.md#85-forms-and-recipes)), its recipe the whole range |
 | `<d>/7FE00010/fragments/<j>` | value | `bytes[n]` | the fragments of Pixel Data nested in an item (an icon image) |
 | `…/end` | value | `{group:Eu2,element:Eu2,length:Eu4}` | the fragment sequence's delimiter |
 | `pixel_extra` | value | `bytes[n]` | native pixel data past the frames, when not one byte `00` |

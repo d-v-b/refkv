@@ -385,7 +385,7 @@ Paths are relative to the IR's root, whose path is `""`
 | `""` | struct | | the root: the whole file, `(0, size)` |
 | `header` | value | record | `(0, 1024)`: the header as one record, a field per field of [§2](#2-the-header) in its order and named as there: `Ei4` or `Ef4` for its type (`[k]` for `T[k]`), `u1[4]` for `machst`, `bytes[k]` for `bytes[k]`, `cstr[k]` for `char[k]`, and `{text:cstr[80]}[10]` for `label` |
 | `extended` | value | `bytes[n]` | `(1024, n)`, when `n > 0`: the extended header, opaque |
-| `data` | data | | `(1024 + n, B)`, `B` the data's size ([§8.1](#81-header)): the data; its form's geometry is `{"data_type": D, "samples": 1}`, with `"bits": 4` for mode 101 ([§3](#3-data-types)), its codec `{"endian": "little" \| "big"}`, and its recipe `[["src", 0, null]]` |
+| `data` | data | | `(1024 + n, B)`, `B` the data's size ([§8.1](#81-header)): the data; its form's geometry is `{"mode": M, "samples": 1}`, `M` the header's mode, with `"bits": 4` for mode 101 ([§3](#3-data-types)), in place of a data type (an output's data type is its projection's, [conventions §8.5](../conventions.md#85-forms-and-recipes)), its codec `{"endian": "little" \| "big"}`, and its recipe `[["src", 0, null]]` |
 | `gaps/<offset>` | gap | | bytes no other element claims: those after the data |
 
 A file gzipped whole ([§8.4](#84-gzipped-files)) has one element beside the root: `data`, of extent
