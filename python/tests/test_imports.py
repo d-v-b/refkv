@@ -12,6 +12,7 @@
   saved."""
 
 import ast
+import importlib
 import shutil
 import subprocess
 import sys
@@ -184,3 +185,28 @@ def test_the_layers_below_zarrify_import_without_it(module):
     code = f"import sys, {module}; print(sorted(n for n in sys.modules if n.startswith('refkv.zarrify')))"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "[]", out.stdout
+
+
+@pytest.mark.parametrize(("old", "new"), [("refkv.zarrify.store", "refkv.host"),
+                                          ("refkv.zarrify.profiles", "refkv.profiles")])
+def test_a_moved_module_s_names_import_from_its_old_path(old, new):
+    """A module that moved below refkv.zarrify (d-v-b/refkv#459) leaves its public names, those of
+    its `__all__`, importable from where they were, as the same objects."""
+    moved, kept = importlib.import_module(new), importlib.import_module(old)
+    assert moved.__all__
+    assert set(kept.__all__) == set(moved.__all__)
+    assert all(getattr(kept, name) is getattr(moved, name) for name in moved.__all__)
+
+
+def test_moved_names_import_from_their_old_modules():
+    """The names refkv.zarrify.common and refkv.zarrify.layouts gave that moved below
+    refkv.zarrify (d-v-b/refkv#459) are still theirs, as the same objects."""
+    common, layouts = (importlib.import_module(f"refkv.zarrify.{m}") for m in ("common", "layouts"))
+    moved = {"Rejected": "errors", "Output": "ir.output", "Part": "ir.output", "PAGE_SIZE": "ir.output",
+             "reference_store": "ir.output", "reading_own_files": "ir.output", "MAX_PAYLOAD": "entries",
+             "UA": "ir.planner", "EtagLog": "ir.planner", "STRONG_ETAG": "ir.planner"}
+    for name, home in moved.items():
+        assert getattr(common, name) is getattr(importlib.import_module(f"refkv.{home}"), name), name
+    entries = importlib.import_module("refkv.entries")
+    for name in ("MAX_PAYLOAD", "MIRROR", "chunk_coords", "chunk_key", "dump"):
+        assert getattr(layouts, name) is getattr(entries, name), name

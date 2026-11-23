@@ -268,7 +268,7 @@ class StoreIrOutput:
     def to_store(self, *, policy: Policy | None = None, registry: Registry | None = None,
                  info: dict[str, object] | None = None) -> ReferenceStore:
         """The output as a `refkv.ReferenceStore`, which `save_vzip` writes as the archive
-        `write` writes, byte for byte (`refkv.zarrify.common.reference_store`)."""
+        `write` writes, byte for byte (`refkv.ir.output.reference_store`)."""
         objects, data, table = self._numbered()
         sources = [Source(url=object_url(self.url, k), size=self.sizes.get(k)) for k in objects] + \
             [Source(data=v) for v in data]

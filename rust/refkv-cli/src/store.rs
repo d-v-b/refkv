@@ -546,7 +546,7 @@ pub struct HttpStore {
     pub listing: Listing,
 }
 
-/// A request's failure, for the retries of python/src/refkv/zarrify/common.py's `_retry`.
+/// A request's failure, for the retries of python/src/refkv/host/http.py's `_retry`.
 enum Failure {
     Status(u16),
     Network(String),
