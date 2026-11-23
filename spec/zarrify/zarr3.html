@@ -1202,7 +1202,7 @@ whose root has <code class="docutils literal notranslate"><span class="pre">.zar
 <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code> as an other object (<a class="reference internal" href="zarr2.html#other-objects"><span class="std std-ref">zarr2.md §5</span></a>), as it did before this
 profile; zarr-python 3 would open such a store as Zarr v3, and a store that holds both versions
 is left to the version its existing profile reads. In each host the choosers test the keys as
-<code class="docutils literal notranslate"><span class="pre">choose_profile</span></code> in <code class="docutils literal notranslate"><span class="pre">python/src/refkv/zarrify/store/stores.py</span></code> does.</p>
+<code class="docutils literal notranslate"><span class="pre">choose_profile</span></code> in <code class="docutils literal notranslate"><span class="pre">python/src/refkv/host/stores.py</span></code> does.</p>
 <p><strong>Zipped form.</strong> The <strong>signature</strong> (<a class="reference internal" href="../zarrify.html#input"><span class="std std-ref">spec/zarrify.md §1.2</span></a>, tested at the
 precedence of <a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/profiles/zarr3.json">profiles/zarr3.json</a>, after NumPy’s <code class="docutils literal notranslate"><span class="pre">.npz</span></code> and before SAFE’s
 zip form): bytes 0–3 of <code class="docutils literal notranslate"><span class="pre">H</span></code> are <code class="docutils literal notranslate"><span class="pre">50</span> <span class="pre">4B</span> <span class="pre">03</span> <span class="pre">04</span></code>, a ZIP local file header, and its name (bytes from
