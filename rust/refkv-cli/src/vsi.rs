@@ -53,7 +53,7 @@ fn lexical(path: &Path) -> PathBuf {
 /// when the scope holds the input's directory, every key being in it. A URL input's is the core's
 /// (`host::scope_keys`); a local one's is made from its absolute paths here.
 pub fn scope_keys(location: &str, scope: &[String]) -> Result<Option<Vec<String>>, Fail> {
-    if refkv_ir::host::url_scheme(location).is_some() {
+    if refkv_ir::host::is_url(location) {
         return Ok(refkv_ir::host::scope_keys(location, scope)?);
     }
     let outside = |e: &str, d: &str| Fail::Usage(format!("scope \"{e}\" is not the input's directory \"{d}\" or below it"));

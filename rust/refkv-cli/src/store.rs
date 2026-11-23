@@ -457,3 +457,21 @@ pub fn input(location: &str) -> Result<(String, bool), Fail> {
         }
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inputs() {
+        assert_eq!(input("https://h/s/").unwrap(), ("https://h/s/".to_string(), true));
+        assert_eq!(input("HTTP://h/x.tif").unwrap(), ("HTTP://h/x.tif".to_string(), false));
+        let (path, dir) = input(&format!("file://{}", std::env::temp_dir().display())).unwrap();
+        assert!(dir && std::path::Path::new(&path).is_dir());
+    }
+
+    #[test]
+    fn refuses_a_url_of_another_scheme() {
+        assert!(matches!(input("s3://bucket/x.tif"), Err(Fail::Other(_))));
+    }
+}
