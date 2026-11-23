@@ -1,5 +1,5 @@
-"""Writes GRIB edition 2 files to fixtures/grib/ for the `refkv.grib` codec (spec/conventions.md
-§12 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#12-grib-messages>) and the GRIB
+"""Writes GRIB edition 2 files to fixtures/grib/ for the `refkv.grib` codec (spec/zarrify/grib.md
+§3.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#34-the-codec-refkvgrib>) and the GRIB
 profile (spec/zarrify/grib.md), with the values each field decodes to.
 
 Synthetic messages, on a 16 × 12 grid (Ni = 16 points along a row, Nj = 12 rows), each changing

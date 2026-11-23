@@ -21,7 +21,7 @@ output.
 
 **Status.** Implemented, but for the Neuroglancer fork and the demo (step 5):
 [spec/zarrify/grib.md](../../spec/zarrify/grib.md) and
-[conventions §12](../../spec/conventions.md#12-grib-messages) state what was decided. The
+[grib §3.4](../../spec/zarrify/grib.md#34-the-codec-refkvgrib) state what was decided. The
 implementation departs from this plan in these places:
 
 - **Point order.** The codec keeps the file's row order and directions, normalizing only the
@@ -749,5 +749,5 @@ These are recommended answers. The convention states whatever is decided.
     **Decided** (after version 0): the first, hayro-jpeg2000, for the
     reversible 5/3 codestreams of up to 20 bits that RAP, CFSv2, GFS-Wave,
     GEFS-Wave and the NAM Puerto Rico and Hawaii nests write (JasPer, lossless,
-    at most 19 bits on 2026-10-29); [conventions §12](../../spec/conventions.md#12-grib-messages) says why 9/7 is not
+    at most 19 bits on 2026-10-29); [grib §3.4](../../spec/zarrify/grib.md#34-the-codec-refkvgrib) says why 9/7 is not
     decoded.

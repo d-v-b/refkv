@@ -1145,8 +1145,8 @@ fn h5_bitshuffle_decode<'py>(py: Python<'py>, chunk: &[u8], elementsize: usize, 
     Ok(PyBytes::new(py, &out))
 }
 
-/// The `refkv.grib` codec (spec/conventions.md §12
-/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#12-grib-messages>): the values
+/// The `refkv.grib` codec (spec/zarrify/grib.md §3.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#34-the-codec-refkvgrib>): the values
 /// of a field of the GRIB message `chunk`, as little-endian float64 in C order over
 /// `chunk_shape`, NaN where missing, from the codec's configuration (JSON).
 #[pyfunction]

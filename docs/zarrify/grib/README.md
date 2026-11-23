@@ -107,4 +107,4 @@ uv run docs/zarrify/grib/example.py
 ```
 
 The profile is [spec/zarrify/grib.md](../../../spec/zarrify/grib.md), and the codec
-[spec/conventions.md §12](../../../spec/conventions.md#12-grib-messages).
+[spec/zarrify/grib.md §3.4](../../../spec/zarrify/grib.md#34-the-codec-refkvgrib).

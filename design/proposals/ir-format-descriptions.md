@@ -567,7 +567,7 @@ it uses, and edits no shared file. How the helper decodes where imagecodecs lack
   management 2, whose two substitutes eccodes merges, decoded in Python, as PNG packing is; PNG
   packing, on which eccodes aborts for 1, 2 and 4 bits, decoded in Python (`png_decode` of section
   7, whose samples of b bits come scaled to 8 and are divided back by 255 / (2^b − 1), then the
-  arithmetic of [conventions §12](../../spec/conventions.md#12-grib-messages));
+  arithmetic of [grib §3.4](../../spec/zarrify/grib.md#34-the-codec-refkvgrib));
 - `jpeg`: the stream's SOF read first and compared with the unit, raising where the frame does not
   match it as step 0 says; the SOF set to the unit's shape only in the case that allows a smaller
   frame (a baseline frame, interleaved or of one component at 1×1 sampling, fewer rows or columns
@@ -685,8 +685,8 @@ the rule. A name also covers two framings where their standard tells them apart 
   TIFF's document names it there.
 - `dicom_rle` rebuilds each sample from its byte planes, so it makes planar samples of Bits
   Allocated / 8 bytes, little-endian.
-- `grib_unpack` makes 64-bit floats, little-endian, by step 2's unpacking of [conventions
-  §12](../../spec/conventions.md#12-grib-messages) (its float operations included), the values
+- `grib_unpack` makes 64-bit floats, little-endian, by step 2's unpacking of [grib
+  §3.4](../../spec/zarrify/grib.md#34-the-codec-refkvgrib) (its float operations included), the values
   section 7 codes, in their stored order, with no reordering: alternate rows reversed under bit 0x10
   stay reversed, and the scanning mode is a declaration for the plan. For a field with no bitmap,
   those are every point, the array's storage order: columns first (bit 0x20) is shape `[Ni, Nj]`
@@ -695,7 +695,7 @@ the rule. A name also covers two framings where their standard tells them apart 
   ([§GRIB](#grib)); placing them on the grid, and the value a masked point shows, is the plan's.
   Complex packing's missing values (templates 5.2 and 5.3, octet 23 not 0) come out as section 5's
   own primary and secondary substitutes, converted exactly to float64; the NaN that
-  [conventions §12](../../spec/conventions.md#12-grib-messages) gives them, like a masked point's,
+  [grib §3.4](../../spec/zarrify/grib.md#34-the-codec-refkvgrib) gives them, like a masked point's,
   is the plan's output.
 
 `source` stays the fallback: old-style JPEG, a compression or filter refkv has no name for, and a
@@ -922,7 +922,7 @@ Medium-large (about 500 lines).
   eccodes does not apply, is read by eccodes with multi-field support on, its values the coded
   values in order. The three fixtures on which eccodes aborts (the PNG packings of 1, 2 and 4 bits)
   compare against `fixtures/grib/expected` mapped back to coded values in stored order (the points
-  the bitmap masks dropped and [conventions §12](../../spec/conventions.md#12-grib-messages)'s
+  the bitmap masks dropped and [grib §3.4](../../spec/zarrify/grib.md#34-the-codec-refkvgrib)'s
   ordering undone), since those arrays hold the codec's placed output.
 
 ### Gzipped files

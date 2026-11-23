@@ -89,8 +89,8 @@ def chunk_bytes(parts: list, directory: Path) -> bytes:
 
 
 def ordered(values: np.ndarray, ni: int, nj: int, scan: int) -> np.ndarray:
-    """ecCodes' values, in the file's order, in the codec's (spec/conventions.md §12
-    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#12-grib-messages>): a grid with
+    """ecCodes' values, in the file's order, in the codec's (spec/zarrify/grib.md §3.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#34-the-codec-refkvgrib>): a grid with
     no rows' as they are."""
     if ni == ROWLESS:
         return values

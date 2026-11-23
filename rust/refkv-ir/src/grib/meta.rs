@@ -377,8 +377,8 @@ pub fn grid(s3: &[u8]) -> Result<Grid, String> {
     g.nx = uint(s3, o(31), 4);
     g.ny = uint(s3, o(35), 4);
     g.scan = s3[o(scan_at)];
-    // the codec puts the points in one order whatever bits 3 and 4 say (conventions §12
-    // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#12-grib-messages>), so two grids
+    // the codec puts the points in one order whatever bits 3 and 4 say (grib §3.4
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#34-the-codec-refkvgrib>), so two grids
     // that differ in those bits alone are one
     g.key[o(scan_at) - o(6)] &= !0x30;
     g.earth = earth(s3);
@@ -657,8 +657,8 @@ pub struct Packing {
     pub template: u64,
 }
 
-/// The packing templates `refkv.grib` decodes (conventions §12
-/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#12-grib-messages>).
+/// The packing templates `refkv.grib` decodes (grib §3.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#34-the-codec-refkvgrib>).
 pub const DECODED: [u64; 7] = [0, 2, 3, 4, 40, 41, 42];
 
 pub fn packing(s5: &[u8]) -> Result<Packing, String> {

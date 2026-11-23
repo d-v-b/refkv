@@ -2,7 +2,7 @@
 
 Written by [`fixtures/generators/grib/write_fixtures.py`](../generators/grib/write_fixtures.py),
 which says what each file covers. `expected/` holds the values eccodes decodes each field to, in
-the order of the `refkv.grib` codec ([spec/conventions.md §12](../../spec/conventions.md#12-grib-messages)).
+the order of the `refkv.grib` codec ([spec/zarrify/grib.md §3.4](../../spec/zarrify/grib.md#34-the-codec-refkvgrib)).
 
 The `grib_*` files whose names do not name a feed are synthetic: eccodes 2.50.0 wrote them, or
 the generator assembled them from sections eccodes wrote.

@@ -1,7 +1,7 @@
 """`refkv.grib`: a chunk that is one GRIB edition 2 message, of which one field (`field`, from 0)
 is decoded into its grid's values, binary64 then the array's float64 or float32, NaN where its
-bitmap or its complex packing's missing values leave a point out (spec/conventions.md §12
-<https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#12-grib-messages>), decoded by the
+bitmap or its complex packing's missing values leave a point out (spec/zarrify/grib.md §3.4
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#34-the-codec-refkvgrib>), decoded by the
 Rust core. It has no encoder.
 """
 

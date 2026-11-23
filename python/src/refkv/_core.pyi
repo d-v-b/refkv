@@ -379,8 +379,8 @@ def fits_tiles_decode(chunk: bytes, config: str, chunk_shape: Sequence[int]) -> 
     `chunk_shape`, from the chunk's bytes and the codec's configuration (JSON). Raises
     ValueError for a bad configuration or chunk."""
 def grib_decode(chunk: bytes, config: str, chunk_shape: Sequence[int]) -> bytes:
-    """The `refkv.grib` codec (spec/conventions.md §12
-    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#12-grib-messages>): the values
+    """The `refkv.grib` codec (spec/zarrify/grib.md §3.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#34-the-codec-refkvgrib>): the values
     of a field of the GRIB message `chunk`, as little-endian float64 in C order over
     `chunk_shape`, NaN where missing, from the codec's configuration (JSON). Raises
     ValueError for a bad configuration or message."""

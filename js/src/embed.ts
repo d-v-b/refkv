@@ -105,8 +105,8 @@ export async function decodeFitsTiles(chunk: Uint8Array, configuration: unknown,
   }
 }
 
-/** Decodes a chunk of the `refkv.grib` codec (spec/conventions.md §12
- * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#12-grib-messages>), a GRIB
+/** Decodes a chunk of the `refkv.grib` codec (spec/zarrify/grib.md §3.4
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#34-the-codec-refkvgrib>), a GRIB
  * message, with the codec's `configuration` into the values of the chunk shape `shape` (its
  * field's grid), NaN where missing, as the Rust core decodes it (refkv.zarr's codec too):
  * binary64, rounded to nearest for a `float32` array. */
