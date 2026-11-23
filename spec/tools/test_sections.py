@@ -1,5 +1,5 @@
-"""Tests of spec/tools/sections.py: the anchors, the resolution of references, the
-rewrite, and the check (one test of what it accepts, one per problem it reports)."""
+"""Tests of spec/tools/sections.py: the anchors, where references are found, and the check
+(one test of what it accepts, one per problem it reports)."""
 
 from __future__ import annotations
 
@@ -74,12 +74,10 @@ def repo(tmp_path, monkeypatch):
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text(text, encoding="utf-8")
     monkeypatch.setattr(sections, "ROOT", tmp_path)
-    monkeypatch.setattr(sections, "OVERRIDES_FILE", tmp_path / "none.tsv")
-    for f in (sections.headings, sections.anchors, sections.repo_md_files, sections.overrides):
+    for f in (sections.headings, sections.anchors):
         f.cache_clear()
-    monkeypatch.setattr(sections, "repo_md_files", lambda: frozenset(files))
     yield tmp_path
-    for f in (sections.headings, sections.anchors, sections.overrides):
+    for f in (sections.headings, sections.anchors):
         f.cache_clear()
 
 
@@ -109,135 +107,6 @@ def test_headings():
     ]
     parts = [(h.number, h.part) for h in sections.headings("spec/zarrify/tiff.md") if h.number]
     assert parts == [("3", 1), ("4", 1), ("3", 2), ("3.1", 2)]
-
-
-@pytest.mark.parametrize(
-    ("path", "text", "status", "target"),
-    [
-        # a qualifier names the document
-        ("python/src/refkv/x.py", "# spec/refkv.md §1.1\n", "ok", "spec/refkv.md#11-output-and-equivalence"),
-        ("python/src/refkv/x.py", "# SPEC.md §1.1\n", "ok", "spec/refkv.md#11-output-and-equivalence"),
-        ("python/src/refkv/x.py", "# (spec §1.1)\n", "ok", "spec/refkv.md#11-output-and-equivalence"),
-        # the specification is two documents, numbered as one
-        ("python/src/refkv/x.py", "# SPEC.md §9.1\n", "ok", "spec/bindings/vzip.md#91-structure"),
-        ("python/src/refkv/vzip/x.py", "# §9.1 here\n", "ok", "spec/bindings/vzip.md#91-structure"),
-        ("python/src/refkv/x.py", "# (spec §4)\n", "ambiguous", ""),
-        # a record of a past round cites the snapshot of its revision
-        ("design/conformance/archive/r1/x.md", "SPEC.md §1.1\n", "ok", "spec/history/archive/SPEC.r1.md#11-old"),
-        ("js/src/x.ts", "// conventions §3\n", "ok", "spec/conventions.md#3-arrays"),
-        # spec/zarrify.md's §3 and on are the profiles (the registry's numbers)
-        ("python/src/refkv/zarrify/x.py", "# spec/zarrify/tiff.md §4\n", "ok", "spec/zarrify/tiff.md#4-the-image"),
-        # a format's document by its path, or by its name, is its convention
-        ("rust/refkv-ir/src/xml.rs", "// spec/zarrify/tiff.md §3\n", "ok", "spec/zarrify/tiff.md#3-ome-xml"),
-        ("spec/zarrify.md", "decimal (TIFF §3)\n", "ok", "spec/zarrify/tiff.md#3-ome-xml"),
-        ("python/src/refkv/zarrify/tiff/x.py", "# the profile §3\n", "ok", "spec/zarrify/tiff.md#3-tiff-profile"),
-        # a bare reference takes the file's document; a format's code, its format's
-        ("python/src/refkv/reader.py", "# §2 here\n", "ambiguous", ""),
-        ("python/src/refkv/zarrify/tiff/x.py", "# §4\n", "ok", "spec/zarrify/tiff.md#4-the-image"),
-        ("python/src/refkv/zarrify/tiff/x.py", "# §3\n", "ambiguous", ""),
-        ("python/src/refkv/zarrify/tiff/x.py", "# §1.2\n", "review", "spec/zarrify.md#12-input"),
-        # a chain keeps the qualifier
-        ("js/src/x.ts", "// spec/zarrify.md §1.2, spec/zarrify/tiff.md §4\n", "ok", "spec/zarrify/tiff.md#4-the-image"),
-        # other standards, links, and what cannot be settled
-        ("python/src/refkv/x.py", "# RFC 3986 §5.2.2\n", "external", ""),
-        ("python/src/refkv/x.py", "# RFC 9110 §5.6.7 and §1.1\n", "external", ""),
-        ("python/src/refkv/x.py", f"# §1.1 <{URL}spec/refkv.md#11-output-and-equivalence>\n", "linked", ""),
-        ("spec/refkv.md", "[§1.1](#11-output-and-equivalence)\n", "linked", ""),
-        ("python/src/refkv/x.py", "# spec/refkv.md §7\n", "unresolved", ""),
-        ("python/src/refkv/x.py", "# nothing.md §1\n", "unresolved", ""),
-        ("somewhere/else.py", "# §1\n", "unresolved", ""),
-    ],
-)
-@pytest.mark.usefixtures("repo")
-def test_resolve(path, text, status, target):
-    ref = sections.analyze(path, text)[-1]
-    got = f"{ref.target.doc}#{ref.target.anchor}" if ref.target else ""
-    assert (ref.status, got) == (status, target)
-
-
-def test_resolve_by_part(repo):
-    """In a format's document, a bare reference means the part it is in first."""
-    got = []
-    for text in (FORMAT + "\nas §3 says\n", FORMAT.replace("## 4. The image", "## 4. The image\n\nas §3 says")):
-        (repo / "spec/zarrify/tiff.md").write_text(text)
-        sections.headings.cache_clear()
-        target = sections.analyze("spec/zarrify/tiff.md", text)[0].target
-        assert target is not None
-        got.append(target.anchor)
-    assert got == ["3-tiff-profile", "3-ome-xml"]
-
-
-def test_override(repo, monkeypatch):
-    row = ["python/src/refkv/zarrify/tiff/x.py", "1", "§3", "0", "spec/zarrify/tiff.md#3-ome-xml", ""]
-    (repo / "o.tsv").write_text("# a comment\n" + "\t".join(row) + "\n")
-    monkeypatch.setattr(sections, "OVERRIDES_FILE", repo / "o.tsv")
-    sections.overrides.cache_clear()
-    ref = sections.analyze("python/src/refkv/zarrify/tiff/x.py", "# §3\n")[0]
-    assert ref.target is not None
-    assert (ref.status, ref.target.anchor) == ("ok", "3-ome-xml")
-
-
-@pytest.mark.usefixtures("repo")
-def test_rewrite():
-    cases = [
-        (
-            "spec/refkv.md",
-            "See §1.1 and spec/zarrify.md §1.2.\n",
-            "See [§1.1](#11-output-and-equivalence) and [spec/zarrify.md §1.2](zarrify.md#12-input).\n",
-        ),
-        (
-            "spec/zarrify/tiff.md",
-            FORMAT + "\nconventions §3\n",
-            FORMAT + "\n[conventions §3](../conventions.md#3-arrays)\n",
-        ),
-        (
-            "python/src/refkv/x.py",
-            "x = 1  # spec §1.1\n",
-            f"x = 1  # spec §1.1 <{URL}spec/refkv.md#11-output-and-equivalence>\n",
-        ),
-        (
-            "python/src/refkv/x.py",
-            'raise ValueError("bad (spec §1)")\n',
-            f'raise ValueError("bad (spec §1 <{URL}spec/refkv.md#1-introduction>)")\n',
-        ),
-        # a comment line made too long is wrapped, the URL whole
-        (
-            "js/src/x.ts",
-            "  // " + "word " * 14 + "(spec/refkv.md §1.1) more\n",
-            "  // " + "word " * 14 + "(spec/refkv.md §1.1\n"
-            f"  // <{URL}spec/refkv.md#11-output-and-equivalence>) more\n",
-        ),
-        (
-            "python/src/refkv/x.py",
-            'def f():\n    """' + "word " * 14 + '(spec §1.1)."""\n',
-            'def f():\n    """' + "word " * 14 + "(spec §1.1\n"
-            f'    <{URL}spec/refkv.md#11-output-and-equivalence>)."""\n',
-        ),
-        # and its last piece joins the next line of the same text, when they fit
-        (
-            "python/src/refkv/x.py",
-            'def f():\n    """' + "word " * 14 + '(spec §1.1) a\n    b c."""\n',
-            'def f():\n    """' + "word " * 14 + "(spec §1.1\n"
-            f'    <{URL}spec/refkv.md#11-output-and-equivalence>) a b c."""\n',
-        ),
-        # a one-line JSDoc comment made too long becomes a block
-        (
-            "js/src/x.ts",
-            "  /** " + "word " * 14 + "(spec §1.1). */\n",
-            "  /**\n   * " + "word " * 14 + "(spec §1.1\n"
-            f"   * <{URL}spec/refkv.md#11-output-and-equivalence>).\n   */\n",
-        ),
-        # but not when it closes the docstring
-        (
-            "python/src/refkv/x.py",
-            'def f():\n    """' + "word " * 14 + '(spec §1.1)."""\n    return 1\n',
-            'def f():\n    """' + "word " * 14 + "(spec §1.1\n"
-            f'    <{URL}spec/refkv.md#11-output-and-equivalence>)."""\n    return 1\n',
-        ),
-    ]
-    for path, text, want in cases:
-        refs = sections.analyze(path, text)
-        assert sections.rewrite(text, refs) == want, path
 
 
 def test_regions():

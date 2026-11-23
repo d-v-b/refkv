@@ -153,8 +153,6 @@ virtualizarr = [
 manifest-path = "../rust/refkv-python/Cargo.toml"
 module-name = "refkv._core"
 python-source = "src"
-# the module's earlier name, which a checkout built before it moved may still hold
-exclude = ["src/refkv/_ir*"]
 # The sdist keeps maturin's default generator, which takes `cargo package`'s file lists of
 # the bindings' crate and of the core (its path dependency), both outside this directory, so
 # the sdist builds on its own. The "git" generator archives this directory alone, and leaves
