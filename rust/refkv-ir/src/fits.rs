@@ -904,7 +904,9 @@ impl Fits {
         };
         if kind == "image" && total > 0 {
             let shape: Vec<u64> = axes.iter().rev().copied().collect();
-            let form = json!({"geometry": {"data_type": spec["dtype"], "shape": shape}, "codec": {"endian": "big"}, "recipe": [["src", 0, null]]});
+            // its type as BITPIX gives it, not an output's data type, which is its projection's
+            // (conventions §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)
+            let form = json!({"geometry": {"bitpix": bitpix, "shape": shape}, "codec": {"endian": "big"}, "recipe": [["src", 0, null]]});
             elements["data"] = json!(self.ir.data(s, "data", NO_INDEX, space, (data_offset, total), &form.to_string())?);
         } else if let Some(c) = &comp {
             // the main table (held once read), the gap; the heap's chunks follow the table
