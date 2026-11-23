@@ -16,6 +16,7 @@ import { type Profile, REGISTRY } from "../profiles.ts";
 import { objectUrl, type Store, StoreError } from "../store.ts";
 import { HttpSource, type HttpSourceOptions, type RangeSource } from "./source.ts";
 import { zarrifyStoreIr } from "./store.ts";
+import { rule, RuleError } from "./wasm.ts";
 
 /** The formats whose input is read with the files beside it: each one's title, as a rejection
  * names it. */
@@ -29,20 +30,16 @@ export const ON_DEMAND: ReadonlySet<string> = new Set(
   REGISTRY.filter((e) => e.store_run?.form === "on_demand").map((e) => e.name));
 
 /** [the directory's URL (ending in `/`), the named file's key (its last segment,
- * percent-decoded)] of an input of the format `title` names (VSI, NRRD). */
+ * percent-decoded)] of an input of the format `title` names (VSI, NRRD): the core's rule
+ * (`refkv_ir::host::split_input`), a rejection as an ImageError. */
 export function splitVsiUrl(url: string, title = "VSI"): [string, string] {
-  const base = url.split(/[?#]/, 1)[0];
-  if (base !== url) throw new ImageError(`${title} input ${JSON.stringify(url)} has a query or a fragment`);
-  const k = base.lastIndexOf("/");
-  const name = base.slice(k + 1);
-  let key: string;
   try {
-    key = decodeURIComponent(name);
-  } catch {
-    throw new ImageError(`${title} input ${JSON.stringify(url)}: its file name is not percent-encoded UTF-8`);
+    // the browser has no local paths: every input is a URL reference, relative ones included
+    return rule<[string, string]>("split_input", { location: url, title, url: true });
+  } catch (e) {
+    if (e instanceof RuleError) throw new ImageError(e.message);
+    throw e;
   }
-  if (k < 0 || !key || key.includes("/")) throw new ImageError(`${title} input ${JSON.stringify(url)} names no file`);
-  return [base.slice(0, k + 1), key];
 }
 
 /** Opens the http(s) object at `url` as a range source, or undefined when the server answers
@@ -75,23 +72,15 @@ export interface VsiOptions {
  * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>, Scope)
  * as the keys the core's store run takes: each entry a URL, the input URL's directory or a file
  * or directory below it. A directory's key ends in `/`; the input itself, always in scope, adds no
- * key. Undefined when the scope holds the input's directory, every key being in it. The twin of
- * python/src/refkv/host/beside.py's `scope_keys`. */
+ * key. Undefined when the scope holds the input's directory, every key being in it: the core's rule
+ * (`refkv_ir::host::scope_keys`), an entry outside the directory a RangeError. */
 export function scopeKeys(url: string, scope: readonly string[]): string[] | undefined {
-  const [dir, named] = splitVsiUrl(url, "the");
-  const keys: string[] = [];
-  for (const e of scope) {
-    if (!e.startsWith(dir)) throw new RangeError(`scope "${e}" is not the input's directory "${dir}" or below it`);
-    let key: string;
-    try {
-      key = decodeURIComponent(e.slice(dir.length));
-    } catch {
-      throw new RangeError(`scope "${e}" is not percent-encoded UTF-8`);
-    }
-    if (key === "") return undefined;
-    if (key !== named) keys.push(key);
+  try {
+    return rule<string[] | null>("scope_keys", { location: url, scope: [...scope] }) ?? undefined;
+  } catch (e) {
+    if (!(e instanceof RuleError)) throw e;
+    throw e.kind === "rejected" ? new ImageError(e.message) : new RangeError(e.message);
   }
-  return keys;
 }
 
 /** The files of a VSI or NRRD input as a store the run probes: `objects` holds the named file

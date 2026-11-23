@@ -21,8 +21,8 @@ import threading
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import override
-from urllib.parse import unquote
 
+from refkv._rules import rule
 from refkv.errors import Rejected
 from refkv.host.stores import Store
 from refkv.host.urls import check_store_url, object_url
@@ -85,17 +85,14 @@ def found_key(key: str, listdir: Callable[[str], list[str] | None]) -> str | Non
 def split_input(location: str, title: str = "VSI") -> tuple[str, str]:
     """(the directory, the named file's key) of an input of the format `title` (VSI, NRRD): for
     a URL the directory is the URL up to its last `/` and the key the last segment,
-    percent-decoded; for a local path, its directory (empty for a bare name) and its name."""
-    if url_scheme(location) is not None:
-        base = location.split("?", 1)[0].split("#", 1)[0]
-        if "?" in location or "#" in location:
-            raise Rejected(f"{title} input {location!r} has a query or a fragment")
-        d, _, name = base.rpartition("/")
-        key = unquote(name)
-        if not key or "/" in key:
-            raise Rejected(f"{title} input {location!r} names no file")
-        return d + "/", key
-    return os.path.split(location)
+    percent-decoded; for a local path, its directory (empty for a bare name) and its name. The
+    core's rule (`refkv_ir::host::split_input`)."""
+    try:
+        location.encode("utf-8")
+    except UnicodeEncodeError:  # a local path not in UTF-8 (surrogate-escaped), which no JSON holds:
+        return os.path.split(location)  # the core's local rule is os.path.split's twin
+    d, key = rule("split_input", location=location, title=title, windows=os.name == "nt")
+    return d, key
 
 
 type Scope = str | os.PathLike[str] | Iterable[str | os.PathLike[str]]
@@ -110,17 +107,13 @@ def scope_keys(location: str, scope: Scope) -> list[str] | None:
     key. None when the scope holds the input's directory, every key being in it."""
     entries = [scope] if isinstance(scope, (str, os.PathLike)) else list(scope)
     keys: list[str] = []
-    if url_scheme(location) is not None:
-        d, named = split_input(location, "the")
-        for e in (os.fspath(x) for x in entries):
-            if not e.startswith(d):
-                raise ValueError(f'scope "{e}" is not the input\'s directory "{d}" or below it')
-            key = unquote(e[len(d):])
-            if key == "":
-                return None
-            if key != named:
-                keys.append(key)
-        return keys
+    try:
+        location.encode("utf-8")
+        url = rule("is_url", location=location)
+    except UnicodeEncodeError:  # a local path not in UTF-8 (surrogate-escaped), which no URL is
+        url = False
+    if url:  # the core's rule (`refkv_ir::host::scope_keys`)
+        return rule("scope_keys", location=location, scope=[os.fspath(x) for x in entries])
     # absolute and with `.` and `..` taken out, links not followed (as the Rust CLI's `lexical`)
     named = Path(os.path.normpath(Path(location).absolute()))
     for e in entries:

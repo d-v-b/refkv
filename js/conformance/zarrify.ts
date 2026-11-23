@@ -17,6 +17,7 @@
 
 import fs from "node:fs";
 import { isStoreUrl, zarrifySource, zarrifyStore } from "../src/zarrify/index.ts";
+import { ir } from "../src/zarrify/ir/wasm.ts";
 import { openHttpSource } from "../src/zarrify/ir/source.ts";
 import { openHttpStore, storeFetch } from "../src/zarrify/store.ts";
 import { RefkvError } from "../src/archive.ts";
@@ -63,6 +64,7 @@ let requests = 0;
 const t0 = performance.now();
 try {
   let virtual;
+  await ir(); // the host rules (`isStoreUrl`) are the core's
   if (isStoreUrl(url)) {
     const policy = { allowPrivateHosts };
     const send = storeFetch(url, policy, { "User-Agent": UA });

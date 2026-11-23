@@ -10,7 +10,7 @@ import type { ArchiveDesc, EntryDesc } from "../../writer.ts";
 import { ImageError } from "../common.ts";
 import type { Profile } from "../profiles.ts";
 import type { RangeSource, Span } from "./source.ts";
-import { ir, type IrExports, out, put } from "./wasm.ts";
+import { ir, type IrExports, out, put, rule } from "./wasm.ts";
 
 /** The formats of the core's file runs (`Format::from_name` in rust/refkv-ir/src/run.rs): the
  * names of the registry's file profiles, `FILE_FORMATS`. (`vsi`, `nrrd` and `grib` are sniffed as
@@ -207,13 +207,12 @@ export function decodeRaw(b: Uint8Array): RawOutput {
   return { url, summary, lazy, data, entries, refs };
 }
 
-/** An output's bytes entry: the hierarchy's documents stored, and the source metadata
- * node's documents (and those under the other lazy prefixes) and copied bytes compressed,
- * as the Python host writes them. */
-export function bytesEntry(key: string, value: Uint8Array, lazy: string[]): EntryDesc {
-  const document = key === "zarr.json" || key.endsWith("/zarr.json");
-  const compress = !document || lazy.some((prefix) => key.startsWith(prefix));
-  return compress ? { key, bytes: value, compress } : { key, bytes: value };
+/** An output's bytes entries: the hierarchy's documents (the late ones, the core's rule
+ * `refkv_ir::host::late`) stored, and the source metadata node's documents (and those under the
+ * other lazy prefixes) and copied bytes compressed, as every host writes them. */
+export function bytesEntries(entries: [string, Uint8Array][], lazy: string[]): EntryDesc[] {
+  const late = rule<boolean[]>("late", { keys: entries.map(([k]) => k), lazy });
+  return entries.map(([key, bytes], i) => (late[i] ? { key, bytes } : { key, bytes, compress: true }));
 }
 
 /** A run's output (`Out::encode`) as the writer's archive description: source 0 the
@@ -223,7 +222,7 @@ export function bytesEntry(key: string, value: Uint8Array, lazy: string[]): Entr
 export function decodeOutput(b: Uint8Array): ArchiveDesc & { summary: Record<string, unknown> } {
   const raw = decodeRaw(b);
   const sources: Source[] = [{ url: raw.url }, ...raw.data.map((data) => ({ data }))];
-  const entries: EntryDesc[] = raw.entries.map(([key, value]) => bytesEntry(key, value, raw.lazy));
+  const entries: EntryDesc[] = bytesEntries(raw.entries, raw.lazy);
   for (const [key, parts] of raw.refs) {
     const ranges: Range[] = parts.map((p) => {
       if (p.kind === 0) return { source: 0, offset: p.offset, length: p.length };
