@@ -1,0 +1,4 @@
+[
+  {"input": "czi_gray16_tczyx.czi"},
+  {"input": "czi_clipped_raw.czi", "why": "a run-length rectilinear grid"}
+]

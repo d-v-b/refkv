@@ -1,0 +1,4 @@
+[
+  {"input": "zarr3_hierarchy.zip", "why": "a zipped Zarr v3 store"},
+  {"input": "zarr3_hierarchy", "why": "the store, a local directory"}
+]

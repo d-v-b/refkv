@@ -1,0 +1,4 @@
+[
+  {"input": "lif_2d_uint8.lif"},
+  {"input": "lif_xlef_tree.xlef", "why": "a file read as a store"}
+]

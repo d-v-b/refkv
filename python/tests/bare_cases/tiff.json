@@ -1,0 +1,5 @@
+[
+  {"input": "bilevel_tiled.tif"},
+  {"input": "strips_uint8.tif"},
+  {"input": "strips_uint8.tif", "checksums": true}
+]

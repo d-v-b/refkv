@@ -29,53 +29,26 @@ NAME = "refkv.example.bare"
 ALLOWED: set[str] = set()  # the check codes the module's docstring names: none
 UUIDS = {uuid.lower() for uuid, *_ in PROFILES.values()}
 
-# a fixture or two of each file and store profile (a store a local directory, named by its file:
-# URLs), the module a reader needs to decode its arrays, and whether the call asks for checksums
-CASES = [
-    ("czi/czi_gray16_tczyx.czi", None, False),
-    ("czi/czi_clipped_raw.czi", None, False),  # a run-length rectilinear grid
-    ("dicom/dicom_bigendian_mono16.dcm", None, False),
-    ("envi/envi_bil_int16_big.hdr", None, False),  # a file read as a store, transposed
-    ("envi/envi_gzip_header_offset.hdr", None, False),
-    ("fits/fits_bintable.fits", None, False),
-    ("fits/fits_gzip_image.fits.gz", None, False),
-    ("flac/flac_mono_16.flac", "av", False),
-    ("grib/grib_complex.grib2", None, False),
-    ("h5j/h5j_two_channels.h5j", "av", False),
-    ("hdf4/hdf4_layouts.hdf", None, False),
-    ("hdf4/hdf4_groups.hdf", None, False),
-    ("netcdf3/netcdf3_classic.nc", None, False),
-    ("hdf5/hdf5_attributes.h5", None, False),
-    ("hdf5/hdf5_compounds.h5", None, False),
-    ("ims/ims_2d_no_metadata.ims", None, False),
-    ("lif/lif_2d_uint8.lif", None, False),
-    ("lif/lif_xlef_tree.xlef", None, False),  # a file read as a store
-    ("mp3/mp3_mpeg1_stereo_cbr.mp3", "av", False),
-    ("mp4/mov_h264_aac.mov", "av", False),
-    ("mrc/mrc_chunk_rows.mrc", None, False),  # with a dataset layout
-    ("nd2/nd2_padded_rgb.nd2", None, False),
-    ("ndpi/ndpi_levels.ndpi", None, False),
-    ("nifti/nifti_dims_2d.nii", None, False),
-    ("npy/npy_c_float64.npy", None, False),
-    ("nrrd/nrrd_gzip_3d.nrrd", None, False),
-    ("nrrd/nrrd_detached_raw.nhdr", None, False),
-    ("qptiff/qptiff_fl_uint8_lzw.qptiff", "imagecodecs", False),
-    ("safe/safe_l1c.SAFE.zip", "imagecodecs", False),
-    ("safetensors/st_dtypes.safetensors", "ml_dtypes", False),
-    ("tiff/bilevel_tiled.tif", None, False),
-    ("tiff/strips_uint8.tif", None, False),
-    ("vsi/vsi_png.vsi", "imagecodecs", False),
-    ("zarr3/zarr3_hierarchy.zip", None, False),  # a zipped Zarr v3 store
-    ("zarr3/zarr3_hierarchy", None, False),  # the stores, local directories
-    ("zarr2/zarr2_hierarchy", None, False),
-    ("ome-zarr/ome_zarr_image_2d", None, False),
-    ("n5/n5_cosem", None, False),
-    ("precomputed/precomputed_float32", None, False),
-    ("safe/safe_l1c", "imagecodecs", False),
-    ("safetensors/st_store_model", "ml_dtypes", False),
-    ("tiff/strips_uint8.tif", None, True),
-    ("mrc/mrc_chunk_rows.mrc", None, True),
-]
+# a fixture or two of each file and store profile, from its case table, bare_cases/<fixture
+# directory>.json, so that a profile's cases are its own file: a list of objects, each the
+# `input` in that directory (a store a local directory, named by its file: URLs), the module a
+# reader needs to decode its arrays (`needs`, if any), whether the call asks for checksums
+# (`checksums`, false if absent), the paths of the dataset layouts refkv's output declares
+# (`layouts`, none if absent), and what the case adds (`why`, optional)
+KEYS = {"input", "needs", "checksums", "layouts", "why"}
+
+
+def _cases():
+    out = []
+    for table in sorted((Path(__file__).parent / "bare_cases").glob("*.json")):
+        for c in json.loads(table.read_text(encoding="utf-8")):
+            assert "input" in c, f"bare_cases/{table.name}: a case with no input"
+            assert set(c) <= KEYS, f"bare_cases/{table.name}: a case's keys {sorted(set(c) - KEYS)} are not of {KEYS}"
+            out.append((f"{table.stem}/{c['input']}", c.get("needs"), c.get("checksums", False), c.get("layouts", [])))
+    return out
+
+
+CASES = _cases()
 OPTIONS = [{}, {"dataset": False}]
 
 
@@ -123,14 +96,16 @@ def _profile(path):
 
 
 def test_the_cases_cover_every_profile():
-    profiles = {_profile(str(FIXTURES / f)) for f, _, _ in CASES}
-    assert profiles == BASE_PROFILES
+    profiles = {_profile(str(FIXTURES / f)) for f, *_ in CASES}
+    assert sorted(BASE_PROFILES - profiles) == [], "a profile with no case: add bare_cases/<fixture directory>.json"
+    assert sorted(profiles - BASE_PROFILES) == []
 
 
 @pytest.mark.parametrize("options", OPTIONS, ids=["dataset", "no-dataset"])
-@pytest.mark.parametrize(("fixture", "needs", "checksums"), CASES,
-                         ids=[f + (" checksums" if c else "") for f, _, c in CASES])
-def test_bare_is_refkv_s_own_output_without_its_declarations(tmp_path, fixture, needs, options, checksums):
+@pytest.mark.parametrize(("fixture", "needs", "checksums", "layouts"), CASES,
+                         ids=[f + (" checksums" if c else "") for f, _, c, _ in CASES])
+def test_bare_is_refkv_s_own_output_without_its_declarations(tmp_path, fixture, needs, options, checksums,
+                                                             layouts):
     """`check` finds nothing; the output is the entries of refkv's own output but the mirror's
     (and, with `dataset: false`, the dataset layout's), each document's attributes as
     `Projected.attributes` gives them; zarr reads every array as that output's, in memory and
@@ -155,8 +130,7 @@ def test_bare_is_refkv_s_own_output_without_its_declarations(tmp_path, fixture, 
     assert pr.datasets == root.get("layouts", {})
     assert pr.mirror == MIRROR
     assert sorted(store.mapping) == sorted(k for k in whole.mapping if not k.startswith(tuple(left_out)))
-    if fixture.startswith("mrc/") and not options.get("dataset", True):
-        assert not any(k.startswith("dataset/") for k in store.mapping)
+    assert sorted(root.get("layouts", {}).values()) == sorted(layouts)
 
     for key, doc in docs.items():
         node = key.rpartition("/")[0]
