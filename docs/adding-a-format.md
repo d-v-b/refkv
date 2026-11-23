@@ -794,6 +794,19 @@ just typecheck
 
 `just preflight` runs the last three together, with `just sections` against `origin/main`, and builds the documentation site (`just docs`), which fails on any warning; run it before every push.
 
+`just preflight` also runs `just independence`, which lists each file your
+branch changes outside your format's own paths and the few files shared on
+purpose ([spec/tools/independence.py](../spec/tools/independence.py)). A path
+is your format's when one of its components is named for it
+(`rust/refkv-ir/src/<p>.rs`, `spec/zarrify/changes/<p>/`, `test_<p>_stored.py`,
+`fixtures/<p>_series/`). Your format is the one your commits' scopes name
+(`feat(<p>): ...`). The report is a warning: it never fails preflight or CI,
+where it shows as annotations on the PR's diff. For each file it lists,
+either move what you wrote into your format's own files (a file of your
+own, or a rule that names no format), or say in the PR why the shared file
+had to change. A new format should need neither; `just independence
+origin/main --strict` fails on any report.
+
 ```bash
 just test
 ```

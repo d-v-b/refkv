@@ -116,6 +116,12 @@ sections base="":
     uv run python spec/tools/stored_formats.py check
     uv run python spec/tools/changelog.py check {{ if base != "" { "--base " + base } else { "" } }}
 
+# Report the files the branch changes, since its merge base with `base`, outside the paths of the
+# formats it changes and the files shared on purpose (spec/tools/independence.py); it warns, and
+# fails only with --strict
+independence base="origin/main" *args:
+    uv run python spec/tools/independence.py --base {{base}} {{args}}
+
 # Lint every Python file of the repository with ruff (pyproject.toml's [tool.ruff]: every rule, less
 # the ones it names with their reasons)
 lint:
@@ -127,11 +133,13 @@ typecheck:
     uv run pyrefly check
 
 # Run before every push what CI's `sections` job runs (.github/workflows/ci.yml): the section checks
-# against a freshly fetched origin/main, lint and typecheck; and the documentation site's build
+# and the format independence report against a freshly fetched origin/main, lint and typecheck; and
+# the documentation site's build
 # (.github/workflows/docs.yml)
 preflight:
     git fetch --no-tags origin main
     just sections origin/main
+    just independence origin/main
     just lint
     just typecheck
     just docs
