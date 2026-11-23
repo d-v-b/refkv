@@ -134,14 +134,25 @@ def cases(files: list[str], stores: list[str], base: str, modes: set[str],
         out += [(f"local {p}", [p], False, {}) for p in encoded]
         # inputs by their `file:` URLs, read as the local paths they name (spec/zarrify.md §1.2
         # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): a file, a store
-        # directory, and a file read with the one beside it, its scope a `file:` URL too
+        # directory, and a file read with the one beside it, its scope a `file:` URL too; and in RFC
+        # 8089's minimal form (`file:/x`), a VSI slide under a percent-encoded directory scoped to
+        # its tile directory, and the NRRD scoped to its data file, whose keys the URL form gives
         nrrd = FIXTURES / "nrrd" / "nrrd_detached_raw.nhdr"
+        vsi = Path(encoded[1])
+
+        def minimal(p: Path, slash: str = "") -> str:
+            return "file:/" + p.absolute().as_uri().removeprefix("file:///") + slash
+
         out += [
             ("local file: a file", [(FIXTURES / files[0]).absolute().as_uri()], False, {}),
             ("local file: a store", [(FIXTURES / stores[0]).absolute().as_uri() + "/", "--url",
                                      f"https://data.example/{urllib.parse.quote(stores[0])}/"], False, {}),
             ("local file: a scope", [nrrd.absolute().as_uri(), "--scope", nrrd.parent.absolute().as_uri() + "/"],
              False, {}),
+            ("local file:/ a scope of a subdirectory",
+             [minimal(vsi), "--scope", minimal(vsi.parent / "_vsi_raw_bgr_", "/")], False, {}),
+            ("local file:/ a scope of a file",
+             [minimal(nrrd), "--scope", minimal(nrrd.with_suffix(".raw"))], False, {}),
         ]
     for i, f in enumerate(files):
         if "local" in modes:
