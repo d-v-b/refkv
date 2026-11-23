@@ -24,7 +24,8 @@ from refkv.reader import Stats
 from refkv.vzip.store import VZipStore
 
 HERE = Path(__file__).resolve().parent
-BENCH = HERE.parent / "target" / "release" / "examples" / ("bench.exe" if sys.platform == "win32" else "bench")
+# the workspace's target directory (rust/Cargo.toml), which `just phkv-bench` builds the example into
+BENCH = HERE.parents[1] / "target" / "release" / "examples" / ("bench.exe" if sys.platform == "win32" else "bench")
 
 
 def key(i: int) -> str:
