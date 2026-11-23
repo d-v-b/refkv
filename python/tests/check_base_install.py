@@ -177,7 +177,7 @@ with tempfile.TemporaryDirectory() as d:
         points = {e.name: e for e in importlib.metadata.distribution("refkv").entry_points
                   if e.group == "zarr.codecs"}
         modules = {f"refkv.zarr.codecs.{p.stem}" for p in (package / "zarr" / "codecs").glob("*.py")
-                   if p.stem != "__init__"}
+                   if not p.stem.startswith("_")}  # a module named _<x> holds what codecs share
         assert sorted(e.module for e in points.values()) == sorted(modules), points
         for name, point in points.items():
             assert zarr.registry.get_codec_class(name) is point.load(), name
