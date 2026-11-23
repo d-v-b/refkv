@@ -330,7 +330,7 @@ considered for delivering both Python and the browser were:
 |---|---|---|
 | Keep two hand-written implementations | Ongoing: every change twice | What we had |
 | Pyodide in a browser worker, running the Python core | Low; drops about 14 k lines of TypeScript | Python is stdlib-only and synchronous; worker XHR allows sync reads. Needs a cold-start measurement (6–10 MB runtime) |
-| Rust core, WASM and PyO3 | High: a rewrite | Fastest; `conformance/impls/zarrify/rust` is a seed. **Chosen** |
+| Rust core, WASM and PyO3 | High: a rewrite | Fastest; the round-4 Rust zarrifier (since removed) was a seed. **Chosen** |
 | TypeScript core called from Python | Low | Python users then need Node |
 
 The recommendation at the time, to measure Pyodide's cold start and make Python the

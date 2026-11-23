@@ -503,7 +503,6 @@ CONTEXTS: list[tuple[str, str]] = [
     ("design/ARCHITECTURE.md", "self"),
     ("design/conformance/archive/**", "history:archive"),
     ("design/conformance/virtualize/**", "history:virtualize"),
-    ("conformance/impls/zarrify/**", "spec/history/virtualize/VIRTUALIZE.r4.md"),
     ("conformance/impls/**", "spec/history/archive/SPEC.r7.md"),
     ("conformance/vzip/**", "spec"),
     ("conformance/zarrify/**", "spec/zarrify.md"),
@@ -576,8 +575,6 @@ def snapshots(path: str) -> dict[str, str] | None:
         which = "archive"
     elif matches(path, "design/conformance/virtualize/**") and m:
         spec, harness, which = f"VIRTUALIZE.r{m.group(1)}", None, "virtualize"
-    elif matches(path, "conformance/impls/zarrify/**"):
-        spec, harness, which = "VIRTUALIZE.r4", None, "virtualize"
     elif matches(path, "conformance/impls/**"):
         spec, harness, which = "SPEC.r7", "HARNESS.r7", "archive"
     else:
