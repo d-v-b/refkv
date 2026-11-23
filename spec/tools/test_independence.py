@@ -4,9 +4,12 @@ import subprocess
 
 import independence
 import pytest
-from independence import Change, declared, owner, report
+from independence import Change, declared, owner, report, spellings
 
-NAMES = ["dicom", "grib", "mp3", "mrc", "mrc-dataset", "nifti", "npy", "ome-zarr", "tiff", "zarr2"]
+TITLES = {"dicom": "DICOM", "grib": "GRIB", "mp3": "MP3", "mrc": "MRC", "mrc-dataset": "MRC dataset", "nifti": "NIfTI",
+          "npy": "NumPy", "ome-zarr": "OME-Zarr", "safe": "Sentinel-2 SAFE", "tiff": "TIFF", "zarr2": "Zarr v2"}
+NAMES = sorted(TITLES)
+SPELLED = spellings([{"name": n, "title": t, "kind": "file"} for n, t in TITLES.items()])
 
 
 def test_what_is_not_reported():
@@ -41,27 +44,45 @@ def test_what_is_not_reported():
     assert declared(["fix(npy): a", "test(ir): b"], NAMES) is None
     assert declared(["chore: merge main"], NAMES) is None
     # An output manifest's change belongs to its changed rows' profiles, or a refused input's directory.
-    npy_in_grib = Change("conformance/outputs/manifests/grib.jsonl", True,
-                         (("grib/expected/a.0.npy", "npy"), ("grib/expected/b.0.npy", "npy")))
-    refused = Change("conformance/outputs/manifests/dicom_series.jsonl", True, (("dicom_series/bad.dcm", None),))
+    npy_in_grib = Change("conformance/outputs/manifests/grib.jsonl",
+                         rows=(("grib/expected/a.0.npy", "npy"), ("grib/expected/b.0.npy", "npy")))
+    refused = Change("conformance/outputs/manifests/dicom_series.jsonl", rows=(("dicom_series/bad.dcm", None),))
     format_branch = [
-        Change("rust/refkv-ir/src/npy/mod.rs", True),
-        Change("spec/zarrify/npy.md", True),
+        Change("rust/refkv-ir/src/npy/mod.rs"),
+        Change("spec/zarrify/npy.md"),
         npy_in_grib,
-        Change("rust/refkv-ir/src/run.rs", True),  # shared on purpose
-        Change("python/tests/test_ir_has_no_zarr.py", False),  # only removes lines: an entry leaves a list
+        Change("rust/refkv-ir/src/run.rs", ("    npy: Npy,",)),  # shared on purpose
+        Change("python/tests/test_ir_has_no_zarr.py"),  # only removes lines: an entry leaves a list
+        # a file of no format, whose added lines name no profile (thread-safe, safe_l1c, safetensors, tiff_set
+        # and the titles that hold Zarr are no spellings): shared machinery
+        Change("python/src/refkv/ir/store.py", ("# thread-safe: a safe_l1c or safetensors run, or a tiff_set,",
+                                                "# read as OME-Zarr or Zarr v2, or Neuroglancer precomputed")),
     ]
-    assert report(format_branch, {"npy"}, NAMES) == ({"npy"}, [])
-    assert report([*format_branch, refused], None, NAMES) == ({"npy", "dicom"}, [])
+    assert report(format_branch, {"npy"}, NAMES, SPELLED) == ({"npy"}, [])
+    assert report([*format_branch, refused], None, NAMES, SPELLED) == ({"npy", "dicom"}, [])
     # A format's own fixture that another profile reads (GRIB's expected .npy files) is its own too.
-    grib_branch = [Change("rust/refkv-ir/src/grib/mod.rs", True),
-                   Change("conformance/outputs/manifests/grib.jsonl", True,
-                          (("grib/grib_new.grib2", "grib"), ("grib/expected/grib_new.0.npy", "npy")))]
-    assert report(grib_branch, {"grib"}, NAMES) == ({"grib"}, [])
-    assert report(grib_branch, None, NAMES) == ({"grib"}, [])
-    assert report(grib_branch[1:], None, NAMES) == ({"grib"}, [])
-    # A branch of no format changes what it likes.
-    assert report([Change("justfile", True), Change("docs/build.md", True)], None, NAMES) == (set(), [])
+    grib_branch = [Change("rust/refkv-ir/src/grib/mod.rs"),
+                   Change("conformance/outputs/manifests/grib.jsonl",
+                          rows=(("grib/grib_new.grib2", "grib"), ("grib/expected/grib_new.0.npy", "npy")))]
+    assert report(grib_branch, {"grib"}, NAMES, SPELLED) == ({"grib"}, [])
+    assert report(grib_branch, None, NAMES, SPELLED) == ({"grib"}, [])
+    assert report(grib_branch[1:], None, NAMES, SPELLED) == ({"grib"}, [])
+    # A branch of no format changes what it likes, so long as no line it adds names a format.
+    assert report([Change("justfile", ("ci: x",)), Change("docs/build.md", ("A rule.",))], None, NAMES,
+                  SPELLED) == (set(), [])
+    # The profiles a line names: name, name in capitals, title of one word, as whole words, case and all.
+    assert {line: independence.mentions(line, SPELLED) for line in [
+        'for name in ["dicom", "npy"]:', "NumPy's and NIfTI's, and an NPY file", "a SAFE product, mrc-dataset",
+        "Tiff, Dicom, nifti_pair, refkv.grib", "OME-Zarr, Zarr v2, ome-zarr, zarr2",
+    ]} == {
+        'for name in ["dicom", "npy"]:': {"dicom", "npy"},
+        "NumPy's and NIfTI's, and an NPY file": {"npy", "nifti"},
+        "a SAFE product, mrc-dataset": {"safe", "mrc-dataset"},
+        "Tiff, Dicom, nifti_pair, refkv.grib": {"grib"},
+        "OME-Zarr, Zarr v2, ome-zarr, zarr2": {"ome-zarr", "zarr2"},
+    }
+    assert independence.added_lines("diff --git a/x b/x\n+++ b/x\n@@ -1 +1,2 @@\n-old\n+new\n++plus\n") == (
+        "new", "+plus")
     assert independence.manifest_rows(
         '--- a/x\n+++ b/x\n@@ -1 +1 @@\n-{"input": "grib/a.npy", "plain": {"profile": "npy"}}\n'
         '+{"input": "grib/a.npy", "plain": {"profile": "npy"}}\n+{"input": "grib/b.grib", "plain": {"error": "E"}}\n'
@@ -69,21 +90,23 @@ def test_what_is_not_reported():
 
 
 def test_a_file_of_another_format():
-    assert report([Change("rust/refkv-ir/src/npy/mod.rs", True), Change("rust/refkv-ir/src/mp3.rs", False)],
-                  {"npy"}, NAMES)[1] == [
+    assert report([Change("rust/refkv-ir/src/npy/mod.rs"), Change("rust/refkv-ir/src/mp3.rs")],
+                  {"npy"}, NAMES, SPELLED)[1] == [
         ("rust/refkv-ir/src/mp3.rs", "a file of mp3, which is not one of this branch's formats (npy)")]
 
 
 def test_a_manifest_row_of_another_format():
     rows = (("grib/a.grib", "grib"), ("grib/expected/a.0.npy", "npy"))
-    assert report([Change("rust/refkv-ir/src/npy/mod.rs", True),
-                   Change("conformance/outputs/manifests/grib.jsonl", True, rows)], {"npy"}, NAMES)[1] == [
+    assert report([Change("rust/refkv-ir/src/npy/mod.rs"),
+                   Change("conformance/outputs/manifests/grib.jsonl", rows=rows)], {"npy"}, NAMES, SPELLED)[1] == [
         ("conformance/outputs/manifests/grib.jsonl", "a file of grib, which is not one of this branch's formats (npy)")]
 
 
-def test_a_central_file():
-    assert report([Change("rust/refkv-ir/src/npy/mod.rs", True), Change("docs/build.md", True)], None, NAMES)[1] == [
-        ("docs/build.md", independence.CENTRAL)]
+def test_a_central_file_gains_a_format():
+    # whatever the branch's formats: here none
+    added = ("A rule.", "The description, where a parser returns one: NumPy's and DICOM's.")
+    assert report([Change("docs/build.md", added)], None, NAMES, SPELLED)[1] == [
+        ("docs/build.md", independence.CENTRAL.format(formats="dicom, npy", line=added[1]))]
 
 
 def git_repo(tmp_path, monkeypatch):
@@ -114,20 +137,24 @@ def git_repo(tmp_path, monkeypatch):
 def test_the_branch_s_changes_from_git(tmp_path, monkeypatch, capsys):
     commit = git_repo(tmp_path, monkeypatch)
     commit("fix(npy): a", {"rust/src/npy.rs": b"y\n", "docs/list.md": b"a\n", "docs/logo.png": None,
+                           "docs/icon.png": b"\x00\x02", "docs/new.md": b"A rule.\nAs NumPy's does.\n",
                            "conformance/outputs/manifests/grib.jsonl":
                                b'{"input": "grib/expected/a.0.npy", "plain": {"profile": "npy"}}\n'})
-    assert sorted(independence.changes("main", "HEAD"), key=lambda c: c.path) == [
-        Change("conformance/outputs/manifests/grib.jsonl", True,
-               (("grib/a.grib2", "grib"), ("grib/expected/a.0.npy", "npy"))),
-        Change("docs/list.md", False),
-        Change("docs/logo.png", False),  # a binary file, removed
-        Change("rust/src/npy.rs", True),
+    assert sorted(independence.changes("main", "HEAD", ["grib", "npy"]), key=lambda c: c.path) == [
+        Change("conformance/outputs/manifests/grib.jsonl",
+               rows=(("grib/a.grib2", "grib"), ("grib/expected/a.0.npy", "npy"))),
+        Change("docs/icon.png"),  # a binary file adds no lines
+        Change("docs/list.md"),  # a line removed
+        Change("docs/logo.png"),
+        Change("docs/new.md", ("A rule.", "As NumPy's does.")),
+        Change("rust/src/npy.rs"),  # a file of a format: its lines are not read
     ]
     independence.main(["--base", "main"])
     assert capsys.readouterr().out.splitlines() == [
         "independence: the branch's formats (named by its commits' scopes): npy",
         "  conformance/outputs/manifests/grib.jsonl: a file of grib, which is not one of this branch's formats (npy)",
-        ("independence: 1 file(s) outside the branch's formats and the files shared on purpose; name each in the PR "
+        "  docs/new.md: " + independence.CENTRAL.format(formats="npy", line="As NumPy's does."),
+        ("independence: 2 file(s) of another format, or shared and gaining a format's name; name each in the PR "
          "with why, or move what it says into the format's own files")]
 
 

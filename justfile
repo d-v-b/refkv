@@ -116,8 +116,8 @@ sections base="":
     uv run python spec/tools/stored_formats.py check
     uv run python spec/tools/changelog.py check {{ if base != "" { "--base " + base } else { "" } }}
 
-# Report the files the branch changes, since its merge base with `base`, outside the paths of the
-# formats it changes and the files shared on purpose (spec/tools/independence.py); it warns, and
+# Report the files of other formats the branch changes, since its merge base with `base`, and the
+# shared files to which it adds a line naming a format (spec/tools/independence.py); it warns, and
 # fails only with --strict
 independence base="origin/main" *args:
     uv run python spec/tools/independence.py --base {{base}} {{args}}

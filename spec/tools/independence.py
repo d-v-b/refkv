@@ -1,4 +1,4 @@
-"""Reports the files a branch changes outside its formats' own paths and the files shared on purpose.
+"""Reports the files of other formats a branch changes, and the shared files it adds a format's name to.
 
     uv run python spec/tools/independence.py [--base origin/main] [--head HEAD] [--strict] [--github]
 
@@ -25,13 +25,22 @@ and a GRIB fixture's expected `.npy` file, which records the NPY profile, is GRI
 is no profile (`refactor(ir): ...`, `docs: ...`), changes what several formats share, so a branch
 with one, or with no commit that names a profile, has as formats every format whose paths it
 changes (a manifest's rows count by their fixture directories, unless their profile is one of
-those formats already).
+those formats already). They decide only which formats' files are the branch's own: what a shared
+file gains is read the same whatever they are.
 
-**Reported:** a file of a format that is not one of the branch's formats, and a file of no format
-that is not in `SHARED` below, which the branch adds lines to while it has formats at all. So a
-branch of no format (shared machinery, tooling, docs) is never reported, nor is a change that only
-removes lines from a file of no format, such as a fixed format's entry leaving a table of strict
-xfails: taking a format off a list is the cure, not the problem.
+**Reported:** a file of a format that is not one of the branch's formats; and a file of no format,
+not in `SHARED` below, when a line the branch adds to it names a profile, whatever the branch's
+formats. A line names one when it holds the profile's name, its name in capitals or its title of
+one word (`fits` or `FITS`, `npy`, `NPY` or `NumPy`, `SAFE`), as a whole word, case and all: words
+split at anything but letters, digits, `_` and `-`, so `safe_l1c`, `safetensors`, `tiff_set` and
+`thread-safe` name nothing, and `mrc-dataset` is not `mrc`. A title of several words
+(`Neuroglancer precomputed`) is no spelling, nor is one that holds `Zarr` (`OME-Zarr`, `Zarr v3`),
+which names refkv's output as often as the profile; their names (`precomputed`, `ome-zarr`,
+`zarr3`) still are.
+One more format added to a shared list, in prose or in code, is a line naming it; a change to
+shared machinery that names no format is not reported, whichever formats the branch also changes,
+and neither is a change that only removes lines, such as a fixed format's entry leaving a table of
+strict xfails: taking a format off a list is the cure, not the problem.
 
 **Warns, unless `--strict`.** Shared machinery lands with its first user (#378), so a format's PR
 can rightly change a file every format uses, and a branch that changes several formats' code at
@@ -56,8 +65,9 @@ import profiles
 ROOT = Path(__file__).resolve().parents[2]
 MANIFESTS = "conformance/outputs/manifests/"
 CONVENTIONAL = re.compile(r"^[a-z]+(?:\(([^)]*)\))?!?: ")
-CENTRAL = ("a file of no format, and not shared on purpose: if it lists formats, split it into a file per format "
-           "or state a rule that names none (docs/adding-a-format.md, section 8)")
+CENTRAL = ("a file of no format, not shared on purpose, to which the branch adds a line naming {formats}: {line!r}; "
+           "if it lists formats, split it into a file per format or state a rule that names none "
+           "(docs/adding-a-format.md, section 8)")
 
 # The files of no format that a format's PR may edit, each with why it is shared on purpose: a
 # change here is a change to machinery every format uses, or to a file derived from the registry,
@@ -74,11 +84,12 @@ SHARED: dict[str, str] = {
 
 @dataclass(frozen=True)
 class Change:
-    """One file of a branch's diff: its path, whether the branch adds lines to it, and, for an output
-    manifest, the fixture inputs of the rows it changes, as (input, profile or None for a refusal)."""
+    """One file of a branch's diff: its path; for a file of no format, the lines the branch adds to it;
+    and, for an output manifest, the fixture inputs of the rows it changes, as (input, profile or None
+    for a refusal)."""
 
     path: str
-    adds: bool
+    added: tuple[str, ...] = ()
     rows: tuple[tuple[str, str | None], ...] = ()
 
 
@@ -99,6 +110,22 @@ def owner(path: str, names: list[str]) -> str | None:
         if found := named(component, names):
             return found
     return None
+
+
+def spellings(entries: list[dict]) -> dict[str, str]:
+    """Each word that names a profile of the registry `entries`: its name, its name in capitals, and
+    its title when that is one word and does not hold `Zarr`."""
+    out = {}
+    for e in entries:
+        title = [e["title"]] if " " not in e["title"] and "Zarr" not in e["title"] else []
+        for word in (e["name"], e["name"].upper(), *title):
+            out[word] = e["name"]
+    return out
+
+
+def mentions(line: str, spelled: dict[str, str]) -> set[str]:
+    """The profiles a line names, by `spellings`, as whole words."""
+    return {spelled[w] for w in (w.strip("-") for w in re.findall(r"[\w-]+", line)) if w in spelled}
 
 
 def directory(change: Change, row: tuple[str, str | None], names: list[str]) -> str | None:
@@ -135,8 +162,9 @@ def declared(subjects: list[str], names: list[str]) -> set[str] | None:
     return out or None
 
 
-def report(changes: list[Change], scopes: set[str] | None, names: list[str]) -> tuple[set[str], list[tuple[str, str]]]:
-    """The branch's formats, and each reported file with why."""
+def report(changes: list[Change], scopes: set[str] | None, names: list[str],
+           spelled: dict[str, str]) -> tuple[set[str], list[tuple[str, str]]]:
+    """The branch's formats, and each reported file with why (`spelled`: `spellings` of the registry)."""
     formats = branch_formats(changes, scopes, names)
     found = []
     for c in changes:
@@ -148,8 +176,12 @@ def report(changes: list[Change], scopes: set[str] | None, names: list[str]) -> 
             why = (f"a file of {', '.join(sorted(of - formats))}, which is not one of this branch's formats "
                    f"({', '.join(sorted(formats))})")
             found.append((c.path, why))
-        elif not c.rows and not of and formats and c.adds and c.path not in SHARED:
-            found.append((c.path, CENTRAL))
+        elif not c.rows and not of and c.path not in SHARED:
+            named_in = [(line, m) for line in c.added if (m := mentions(line, spelled))]
+            if named_in:
+                line, m = named_in[0]
+                text = line.strip() if len(line.strip()) <= 80 else line.strip()[:77] + "..."
+                found.append((c.path, CENTRAL.format(formats=", ".join(sorted(m)), line=text)))
     return formats, found
 
 
@@ -157,19 +189,27 @@ def git(*args: str) -> str:
     return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=True).stdout
 
 
-def changes(base: str, head: str) -> list[Change]:
-    """The files changed between `base` and `head` (moves as a removal and an addition)."""
+def changes(base: str, head: str, names: list[str]) -> list[Change]:
+    """The files changed between `base` and `head` (moves as a removal and an addition); a binary
+    file adds no lines."""
     out = []
-    deleted = set(git("diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", base, head).split("\0"))
-    for field in git("diff", "--numstat", "--no-renames", "-z", base, head).split("\0"):
-        if not field:
+    for path in git("diff", "--name-only", "--no-renames", "-z", base, head).split("\0"):
+        if not path:
             continue
-        added, _, path = field.split("\t", 2)  # a binary file's counts are "-"
-        rows: tuple[tuple[str, str | None], ...] = ()
         if path.startswith(MANIFESTS) and path.endswith(".jsonl"):
-            rows = manifest_rows(git("diff", "-U0", "--no-renames", base, head, "--", path))
-        out.append(Change(path, added != "0" and path not in deleted, rows))
+            out.append(Change(path, rows=manifest_rows(git("diff", "-U0", "--no-renames", base, head, "--", path))))
+        elif owner(path, names) is None:
+            out.append(Change(path, added=added_lines(git("diff", "-U0", "--no-renames", base, head, "--", path))))
+        else:
+            out.append(Change(path))
     return out
+
+
+def added_lines(diff: str) -> tuple[str, ...]:
+    """The lines a file's diff adds (after its header, which ends at its first hunk)."""
+    lines = diff.splitlines()
+    start = next((i for i, line in enumerate(lines) if line.startswith("@@")), len(lines))
+    return tuple(line[1:] for line in lines[start:] if line.startswith("+"))
 
 
 def manifest_rows(diff: str) -> tuple[tuple[str, str | None], ...]:
@@ -192,11 +232,12 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--strict", action="store_true", help="exit 1 when anything is reported")
     p.add_argument("--github", action="store_true", help="also print each finding as a GitHub annotation")
     a = p.parse_args(argv)
-    names = [e["name"] for e in profiles.load()]
+    entries = profiles.load()
+    names = [e["name"] for e in entries]
     since = git("merge-base", a.base, a.head).strip()
     subjects = git("log", "--no-merges", "--format=%s", f"{since}..{a.head}").splitlines()
     scopes = declared(subjects, names)
-    formats, found = report(changes(since, a.head), scopes, names)
+    formats, found = report(changes(since, a.head, names), scopes, names, spellings(entries))
     how = "named by its commits' scopes" if scopes else "whose files it changes, as it changes shared machinery"
     print(f"independence: the branch's formats ({how}): {', '.join(sorted(formats)) or 'none'}")
     for path, why in found:
@@ -204,7 +245,7 @@ def main(argv: list[str] | None = None) -> None:
         if a.github:
             print(f"::warning file={path},title=format independence::{why}")
     if found:
-        print(f"independence: {len(found)} file(s) outside the branch's formats and the files shared on purpose; "
+        print(f"independence: {len(found)} file(s) of another format, or shared and gaining a format's name; "
               "name each in the PR with why, or move what it says into the format's own files")
         if a.strict:
             sys.exit(1)

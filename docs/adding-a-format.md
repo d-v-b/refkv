@@ -801,9 +801,11 @@ just typecheck
 
 `just preflight` runs the last three together, with `just sections` against `origin/main`, and builds the documentation site (`just docs`), which fails on any warning; run it before every push.
 
-`just preflight` also runs `just independence`, which lists each file your
-branch changes outside your format's own paths and the few files shared on
-purpose ([spec/tools/independence.py](../spec/tools/independence.py)). A path
+`just preflight` also runs `just independence`
+([spec/tools/independence.py](../spec/tools/independence.py)), which lists each
+file of another format your branch changes, and each file of no format (but a
+few shared on purpose) to which it adds a line naming a format, by its name or
+its title: one more format added to a shared list, in prose or in code. A path
 is your format's when one of its components is named for it
 (`rust/refkv-ir/src/<p>.rs`, `spec/zarrify/changes/<p>/`, `test_<p>_stored.py`,
 `fixtures/<p>_series/`). Your format is the one your commits' scopes name
