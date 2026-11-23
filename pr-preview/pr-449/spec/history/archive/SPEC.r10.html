@@ -1,0 +1,2130 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../../../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../../../genindex.html"><link rel="search" title="Search" href="../../../search.html">
+        <link rel="canonical" href="https://d-v-b.github.io/refkv/spec/history/archive/SPEC.r10.html">
+
+    <!-- Generated with Sphinx 9.1.1 and Furo 2025.12.19 -->
+        <title>vzip: a ZIP container for byte-range references - refkv</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../../../README.html"><div class="brand">refkv</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../../../README.html">
+  
+  <span class="sidebar-brand-text">refkv</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../../../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/README.html">refkv documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/adding-a-format.html">Adding a file format</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/build.html">Building an output from the IR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/combining-stores.html">Combining stores</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/layout-plugins.html">Writing a layout plugin</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/tiff-stack.html">A stack of TIFF files as one array</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/virtual-datasets.html">Virtual datasets with xarray</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Specification</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../TECHNIQUES.html">Mapping image formats to Zarr: techniques</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../conventions.html">refkv’s Zarr conventions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../layout.html">Layouts written by plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../provenance.html">refkv’s provenance convention</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../refkv.html">refkv: a reference value type for key-value stores</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../refkv.html#part-1-reference-values">Part 1. Reference values</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../stored-array.html">Stored arrays in the IR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify.html">Zarrifying files and stores as Zarr in refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../bindings/phkv.html">phkv: the perfect-hash binding of refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../bindings/phkv.html#part-3-the-perfect-hash-binding">Part 3. The perfect-hash binding</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../bindings/vzip.html">vzip: the ZIP binding of refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../bindings/vzip.html#part-2-the-zip-binding">Part 2. The ZIP binding</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Formats</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/czi.html">CZI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/czi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/czi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/czi/README.html">CZI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/czi/stored-arrays.html">CZI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/dicom.html">DICOM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/dicom.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/dicom.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/dicom/README.html">DICOM, including whole-slide images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/dicom/stored-arrays.html">DICOM: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/envi.html">ENVI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/envi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/envi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/envi/README.html">ENVI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/envi/stored-arrays.html">ENVI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/fits.html">FITS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/fits.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/fits.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/fits/README.html">FITS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/fits/stored-arrays.html">FITS: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/flac.html">FLAC</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/flac.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/flac.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-5" name="toctree-checkbox-5" role="switch" type="checkbox"/><label for="toctree-checkbox-5"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/flac/README.html">FLAC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/flac/stored-arrays.html">FLAC: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/grib.html">GRIB</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/grib.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/grib.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-6" name="toctree-checkbox-6" role="switch" type="checkbox"/><label for="toctree-checkbox-6"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/grib/README.html">GRIB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/grib/stored-arrays.html">GRIB: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/h5j.html">H5J</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/h5j.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/h5j.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-7" name="toctree-checkbox-7" role="switch" type="checkbox"/><label for="toctree-checkbox-7"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/h5j/README.html">H5J</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/h5j/stored-arrays.html">H5J: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/hdf4.html">HDF4</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/hdf4.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/hdf4.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-8" name="toctree-checkbox-8" role="switch" type="checkbox"/><label for="toctree-checkbox-8"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/hdf4/README.html">HDF4 and HDF-EOS2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/hdf4/stored-arrays.html">HDF4: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/hdf5.html">HDF5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/hdf5.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/hdf5.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-9" name="toctree-checkbox-9" role="switch" type="checkbox"/><label for="toctree-checkbox-9"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/hdf5/README.html">HDF5 and NWB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/hdf5/stored-arrays.html">HDF5: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/ims.html">IMS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/ims.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/ims.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-10" name="toctree-checkbox-10" role="switch" type="checkbox"/><label for="toctree-checkbox-10"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/ims/README.html">Imaris IMS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/ims/stored-arrays.html">IMS: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/lif.html">LIF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/lif.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/lif.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-11" name="toctree-checkbox-11" role="switch" type="checkbox"/><label for="toctree-checkbox-11"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/lif/README.html">LIF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/lif/stored-arrays.html">LIF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/mp3.html">MP3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/mp3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/mp3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-12" name="toctree-checkbox-12" role="switch" type="checkbox"/><label for="toctree-checkbox-12"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/mp3/README.html">MP3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/mp3/stored-arrays.html">MP3: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/mp4.html">MP4</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/mp4.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/mp4.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-13" name="toctree-checkbox-13" role="switch" type="checkbox"/><label for="toctree-checkbox-13"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/mp4/README.html">MP4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/mp4/stored-arrays.html">MP4: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/mrc.html">MRC</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/mrc.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/mrc.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-14" name="toctree-checkbox-14" role="switch" type="checkbox"/><label for="toctree-checkbox-14"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/mrc/README.html">MRC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/mrc/stored-arrays.html">MRC: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/mrc-dataset.html">MRC as a dataset</a><input aria-label="Toggle navigation of MRC as a dataset" class="toctree-checkbox" id="toctree-checkbox-15" name="toctree-checkbox-15" role="switch" type="checkbox"/><label for="toctree-checkbox-15"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul class="simple">
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/n5.html">N5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/n5.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/n5.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-16" name="toctree-checkbox-16" role="switch" type="checkbox"/><label for="toctree-checkbox-16"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/n5/README.html">N5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/n5/stored-arrays.html">N5: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/nd2.html">ND2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/nd2.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/nd2.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-17" name="toctree-checkbox-17" role="switch" type="checkbox"/><label for="toctree-checkbox-17"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/nd2/README.html">Nikon ND2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/nd2/stored-arrays.html">ND2: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/ndpi.html">NDPI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/ndpi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/ndpi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-18" name="toctree-checkbox-18" role="switch" type="checkbox"/><label for="toctree-checkbox-18"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/ndpi/README.html">Hamamatsu NDPI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/ndpi/stored-arrays.html">NDPI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/netcdf3.html">netCDF3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/netcdf3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/netcdf3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-19" name="toctree-checkbox-19" role="switch" type="checkbox"/><label for="toctree-checkbox-19"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/netcdf3/README.html">netCDF3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/netcdf3/stored-arrays.html">netCDF3: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/nifti.html">NIfTI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/nifti.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/nifti.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-20" name="toctree-checkbox-20" role="switch" type="checkbox"/><label for="toctree-checkbox-20"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/nifti/README.html">NIfTI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/nifti/stored-arrays.html">NIfTI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/npy.html">NumPy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/npy.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/npy.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-21" name="toctree-checkbox-21" role="switch" type="checkbox"/><label for="toctree-checkbox-21"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/npy/README.html">NumPy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/npy/stored-arrays.html">NumPy: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/nrrd.html">NRRD</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/nrrd.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/nrrd.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-22" name="toctree-checkbox-22" role="switch" type="checkbox"/><label for="toctree-checkbox-22"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/nrrd/README.html">NRRD</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/nrrd/stored-arrays.html">NRRD: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/ome-zarr.html">OME-Zarr</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/ome-zarr.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/ome-zarr.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-23" name="toctree-checkbox-23" role="switch" type="checkbox"/><label for="toctree-checkbox-23"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/ome-zarr/README.html">OME-Zarr 0.4 to 0.5, in place</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/ome-zarr/stored-arrays.html">OME-Zarr: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/precomputed.html">Neuroglancer precomputed</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/precomputed.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/precomputed.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-24" name="toctree-checkbox-24" role="switch" type="checkbox"/><label for="toctree-checkbox-24"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/precomputed/README.html">Neuroglancer precomputed</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/precomputed/stored-arrays.html">Neuroglancer precomputed: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/qptiff.html">QPTIFF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/qptiff.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/qptiff.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-25" name="toctree-checkbox-25" role="switch" type="checkbox"/><label for="toctree-checkbox-25"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/qptiff/README.html">Akoya QPTIFF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/qptiff/stored-arrays.html">QPTIFF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/safe.html">SAFE</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/safe.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/safe.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-26" name="toctree-checkbox-26" role="switch" type="checkbox"/><label for="toctree-checkbox-26"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/safe/README.html">Sentinel-2 SAFE</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/safe/stored-arrays.html">SAFE: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/safetensors.html">safetensors</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/safetensors.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/safetensors.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-27" name="toctree-checkbox-27" role="switch" type="checkbox"/><label for="toctree-checkbox-27"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/safetensors/README.html">safetensors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/safetensors/stored-arrays.html">safetensors: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/tiff.html">TIFF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/tiff.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/tiff.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-28" name="toctree-checkbox-28" role="switch" type="checkbox"/><label for="toctree-checkbox-28"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/tiff/README.html">TIFF, OME-TIFF and Aperio SVS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/tiff/stored-arrays.html">TIFF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/vsi.html">VSI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/vsi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/vsi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-29" name="toctree-checkbox-29" role="switch" type="checkbox"/><label for="toctree-checkbox-29"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/vsi/README.html">VSI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/vsi/stored-arrays.html">VSI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/zarr2.html">Zarr v2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/zarr2.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/zarr2.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-30" name="toctree-checkbox-30" role="switch" type="checkbox"/><label for="toctree-checkbox-30"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/zarr2/README.html">Zarr v2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/zarr2/stored-arrays.html">Zarr v2: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/zarr3.html">Zarr v3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zarrify/zarr3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../zarrify/zarr3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-31" name="toctree-checkbox-31" role="switch" type="checkbox"/><label for="toctree-checkbox-31"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../docs/zarrify/zarr3/README.html">Zarr v3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../zarrify/zarr3/stored-arrays.html">Zarr v3: stored arrays</a></li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r10.md?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/d-v-b/refkv/edit/main/spec/history/archive/SPEC.r10.md" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="vzip-a-zip-container-for-byte-range-references">
+<h1>vzip: a ZIP container for byte-range references<a class="headerlink" href="#vzip-a-zip-container-for-byte-range-references" title="Link to this heading">¶</a></h1>
+<p>Format version: 0 (<strong>provisional</strong>) · Specification revision: 10</p>
+<section id="introduction">
+<span id="1-introduction"></span><h2>1. Introduction<a class="headerlink" href="#introduction" title="Link to this heading">¶</a></h2>
+<p>A vzip archive is a ZIP file that stores a key-value mapping in which every
+value is either</p>
+<ul class="simple">
+<li><p><strong>bytes</strong>: stored in the archive, or</p></li>
+<li><p>a <strong>reference</strong>: a description of how to assemble the value from byte ranges
+of other objects (external objects named by URL, other entries of the same
+archive, or literal bytes).</p></li>
+</ul>
+<p>The motivating use is “virtual” Zarr datasets, whose chunks live inside other
+files (HDF5, netCDF, TIFF, …). Nothing in this specification depends on
+Zarr; keys are opaque strings.</p>
+<p>A vzip archive is always a valid ZIP file. A ZIP reader that knows nothing
+about vzip sees every key as an ordinary file. For a reference, that file
+contains the encoded reference (or nothing) rather than the referenced bytes.</p>
+<section id="conventions">
+<span id="11-conventions"></span><h3>1.1 Conventions<a class="headerlink" href="#conventions" title="Link to this heading">¶</a></h3>
+<p>The key words MUST, MUST NOT, REQUIRED, SHOULD, SHOULD NOT, MAY, and OPTIONAL
+are to be interpreted as described in RFC 2119.</p>
+<p>All multi-byte integers in ZIP structures and in the archive comment are
+unsigned little-endian. <code class="docutils literal notranslate"><span class="pre">u16</span></code>, <code class="docutils literal notranslate"><span class="pre">u32</span></code>, <code class="docutils literal notranslate"><span class="pre">u64</span></code> denote unsigned integers of 16,
+32, 64 bits.</p>
+<p>“APPNOTE” means the PKWARE .ZIP File Format Specification, version 6.3.10 or
+later. Where this document is silent about ZIP structures, APPNOTE applies.</p>
+<p>Byte ranges are written <code class="docutils literal notranslate"><span class="pre">[a,</span> <span class="pre">b)</span></code>: start inclusive, end exclusive. Strings are
+compared by their UTF-8 bytes, lexicographically (“UTF-8 order”).</p>
+</section>
+<section id="conformance">
+<span id="12-conformance"></span><h3>1.2 Conformance<a class="headerlink" href="#conformance" title="Link to this heading">¶</a></h3>
+<p>This document places requirements on <strong>writers</strong> (programs that create
+archives) and <strong>readers</strong> (programs that read them). A <strong>valid archive</strong>
+satisfies every requirement placed on writers.</p>
+<p>Reader behaviour is fully specified for valid archives, and for the invalid
+archives that <a class="reference internal" href="#reading">§8</a> classifies. <a class="reference internal" href="#violations-readers-need-not-detect">§8.6</a> lists the writer violations that readers
+are not required to detect; for those, the results are unspecified.</p>
+</section>
+<section id="versioning">
+<span id="13-versioning"></span><h3>1.3 Versioning<a class="headerlink" href="#versioning" title="Link to this heading">¶</a></h3>
+<p>vzip has an integer <strong>format version</strong>, written in every archive’s comment as
+the magic <code class="docutils literal notranslate"><span class="pre">vzip/&lt;version&gt;</span></code> (<a class="reference internal" href="#end-of-central-directory-record-and-archive-comment">§3.4</a>). This document specifies format version
+<strong>0</strong>.</p>
+<ul>
+<li><p><strong>What a version is:</strong> a format version fixes the meaning of every valid
+archive. Readers implement a set of versions and MUST reject an archive
+whose version they don’t implement, as an archive error. Readers MUST NOT
+guess at an unknown version, even a higher one.</p></li>
+<li><p><strong>Revisions of this document:</strong> the document itself has revisions, such as
+“version 0, revision 5”. A revision may:</p>
+<ul class="simple">
+<li><p>clarify text;</p></li>
+<li><p>resolve an ambiguity by choosing one of the readings implementations
+already used;</p></li>
+<li><p>fix a contradiction;</p></li>
+<li><p>add conformance tests.</p></li>
+</ul>
+<p>A revision does not change the result of any operation on a valid archive
+whose result was already fully determined by the previous revision.</p>
+</li>
+<li><p><strong>What needs a new version:</strong> anything else, such as new message fields,
+new pins, new source kinds, or changed layout rules. This is necessary
+because readers skip unknown protobuf fields (<a class="reference internal" href="#encoding">§5.1</a>): a field added within a
+version would be silently ignored by older readers. For a field like a pin,
+that would turn “fail closed” into “fail open”.</p></li>
+<li><p><strong>Writers</strong> SHOULD write the lowest format version that can express the
+archive, so that the most readers can read it.</p></li>
+<li><p><strong>Conformance:</strong> a conformance suite states the format version and the
+spec revision it tests.</p></li>
+<li><p><strong>The recorded revision:</strong> every archive records, in its source table
+(<a class="reference internal" href="#source-table">§6</a>), the revision of this document its writer followed (the whole number:
+9 for revision 9, 9.1 or 9.2). Readers MUST NOT reject an archive because
+of its recorded revision, or because it has none; they MAY report it. It
+tells apart archives written under different revisions of a format
+version, which matters while that version is provisional and revisions may
+still change results.</p></li>
+</ul>
+<p><strong>Releases.</strong> Until vzip’s first release, every archive is format version 0
+and records its revision as above. The release rule is:</p>
+<ol class="arabic simple">
+<li><p>At the first release, the text of this document becomes format version
+1, and the commit is tagged <code class="docutils literal notranslate"><span class="pre">vzip-format-v1</span></code> in the specification’s
+repository.</p></li>
+<li><p>After that, every <strong>breaking change</strong> (any change that <a class="reference internal" href="#versioning">§1.3</a> says needs a
+new version, and any change to the result of an operation on a valid
+archive) increments the format version written in the magic (<a class="reference internal" href="#end-of-central-directory-record-and-archive-comment">§3.4</a>), and
+the commit that makes it is tagged <code class="docutils literal notranslate"><span class="pre">vzip-format-v&lt;N&gt;</span></code>. Changes that are
+not breaking are revisions of the current version, and need no tag.</p></li>
+<li><p>Readers MUST reject an archive whose format version they don’t implement
+(<a class="reference internal" href="#end-of-central-directory-record-and-archive-comment">§3.4</a>), which is what keeps every breaking change from being read with
+the wrong meaning.</p></li>
+</ol>
+<p><strong>Status.</strong> A format version is in one of three states:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>status</p></th>
+<th class="head"><p>meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>draft</p></td>
+<td><p>Anything may change.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>provisional</strong></p></td>
+<td><p>The format is believed complete, and implementers may rely on it. Revisions may still change it in response to feedback from outside the project. Every such change is listed, with its reason, in the <a class="reference internal" href="REVISIONS.html"><span class="std std-doc">changelog</span></a>. An incompatible change (one that changes the result of an operation on an archive that was valid before) must also be announced there as incompatible, with the conformance suite updated to match. Incompatible changes are avoided wherever a compatible one would do.</p></td>
+</tr>
+<tr class="row-even"><td><p>final</p></td>
+<td><p>No incompatible change is ever made. Changes of that kind become the next format version.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Format version 0 is provisional</strong> as of revision 8. Its draft history,
+revisions 1–7, was driven by seven rounds of independent implementations
+(see the changelog). It becomes final once it has gone through a period of
+outside review with no incompatible change needed.</p>
+<p><strong>Feedback</strong> — ambiguities, implementation reports, test cases, objections —
+is welcome as issues or pull requests on the specification’s repository. A
+report is most useful when it names the section, the input, and the
+behaviour each reading would produce.</p>
+</section>
+<section id="prior-work-informative">
+<span id="14-prior-work-informative"></span><h3>1.4 Prior work (informative)<a class="headerlink" href="#prior-work-informative" title="Link to this heading">¶</a></h3>
+<p>vzip is a binary container for a model of references that other projects
+established. This section credits them; nothing in it is normative.</p>
+<ul>
+<li><p><strong>kerchunk.</strong> Virtual Zarr originates with
+<a class="reference external" href="https://github.com/fsspec/kerchunk">kerchunk</a> (Martin Durant and
+contributors, fsspec). kerchunk records where the chunks of HDF5, netCDF,
+GRIB, TIFF and FITS files live, and fsspec’s <code class="docutils literal notranslate"><span class="pre">ReferenceFileSystem</span></code> serves
+them so that Zarr can read the files in place. vzip’s data model (<a class="reference internal" href="#data-model">§2</a>)
+is the one defined by kerchunk’s
+<a class="reference external" href="https://fsspec.github.io/kerchunk/spec.html">reference specification</a>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>kerchunk reference specification</p></th>
+<th class="head"><p>vzip</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>a string value: inline data</p></td>
+<td><p>a <code class="docutils literal notranslate"><span class="pre">bytes</span></code> entry (<a class="reference internal" href="#bytes-entries">§4.2</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">[url,</span> <span class="pre">offset,</span> <span class="pre">length]</span></code></p></td>
+<td><p>a reference with one source range (<a class="reference internal" href="#range">§5.2</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p>a <code class="docutils literal notranslate"><span class="pre">base64:</span></code> string: inline binary data</p></td>
+<td><p>a literal range (<a class="reference internal" href="#range">§5.2</a>), or a <code class="docutils literal notranslate"><span class="pre">data</span></code> source (<a class="reference internal" href="#source-table">§6</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">templates</span></code> shared by many URLs</p></td>
+<td><p>the source table (<a class="reference internal" href="#source-table">§6</a>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>kerchunk’s version 1 specification anticipated “future possible binary
+storage” of references. This document specifies one. kerchunk’s Parquet
+layout showed how compactly references can be stored.</p>
+</li>
+<li><p><strong>VirtualiZarr.</strong>
+<a class="reference external" href="https://github.com/zarr-developers/VirtualiZarr">VirtualiZarr</a> (started
+by Tom Nicholas, a zarr-developers project, grown out of kerchunk) recast
+virtual Zarr as chunk manifests: a path, offset and length for every chunk
+of a Zarr array. Those manifests are what a vzip archive’s references
+record, and the reference implementation’s converters take VirtualiZarr
+datasets as input. The need for a Zarr-native on-disk manifest format,
+raised in
+<a class="reference external" href="https://github.com/zarr-developers/zarr-specs/issues/287">zarr-specs#287</a>,
+motivated this work.</p></li>
+<li><p><strong>Icechunk.</strong> Source pins (<a class="reference internal" href="#pins">§6.1</a>) adapt <a class="reference external" href="https://icechunk.io/">Icechunk</a>’s
+checks of virtual chunks against the ETag or modification time of the
+object they reference.</p></li>
+</ul>
+<p>What vzip contributes is the container: a single ZIP file, a binary
+encoding, and a specification with a conformance suite that is independent of
+any one language or library.</p>
+</section>
+</section>
+<section id="data-model">
+<span id="2-data-model"></span><h2>2. Data model<a class="headerlink" href="#data-model" title="Link to this heading">¶</a></h2>
+<p>An archive defines a partial function from <strong>keys</strong> to <strong>values</strong>:</p>
+<ul class="simple">
+<li><p>A <strong>key</strong> is a non-empty Unicode string, stored as UTF-8 (<a class="reference internal" href="#keys">§3.3</a>).</p></li>
+<li><p>A <strong>value</strong> is a finite byte sequence (possibly empty).</p></li>
+</ul>
+<p>Each key present in the archive has a <strong>kind</strong>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>kind</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bytes</span></code></p></td>
+<td><p>the (decompressed) body of the key’s ZIP entry</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">reference</span></code></p></td>
+<td><p>the bytes described by the entry’s reference payload (<a class="reference internal" href="#messages">§5</a>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A key that is not present has kind <code class="docutils literal notranslate"><span class="pre">missing</span></code> and no value. Asking for a
+missing key is not an error.</p>
+<p>Keys beginning with the <strong>reserved prefix</strong> <code class="docutils literal notranslate"><span class="pre">__vz__/</span></code> are <strong>hidden</strong>. They
+hold data used by the format itself or by references (<a class="reference internal" href="#source-table">§6</a>, <a class="reference internal" href="#page-index-optional">§7</a>), and they are
+not part of the archive’s public mapping (<a class="reference internal" href="#operations">§8.2</a>). Two hidden keys are defined
+by this specification and are written by the writer itself: <code class="docutils literal notranslate"><span class="pre">__vz__/sources</span></code>
+(<a class="reference internal" href="#source-table">§6</a>) and <code class="docutils literal notranslate"><span class="pre">__vz__/index</span></code> (<a class="reference internal" href="#page-index-optional">§7</a>). They are the <strong>format entries</strong>.</p>
+</section>
+<section id="zip-container">
+<span id="3-zip-container"></span><h2>3. ZIP container<a class="headerlink" href="#zip-container" title="Link to this heading">¶</a></h2>
+<section id="structure">
+<span id="31-structure"></span><h3>3.1 Structure<a class="headerlink" href="#structure" title="Link to this heading">¶</a></h3>
+<p>A valid archive is a single-disk ZIP archive conforming to APPNOTE that
+also satisfies the following:</p>
+<ol class="arabic simple">
+<li><p>The archive begins at file offset 0. There is no prepended data, and all
+offsets in this document are absolute file offsets.</p></li>
+<li><p>Every entry has exactly one local file header and one central directory
+record, and no two central directory records have the same file name.</p></li>
+<li><p>Every entry uses compression method 0 (STORED) or 8 (DEFLATE). DEFLATE
+bodies are raw DEFLATE streams (RFC 1951) with no zlib or gzip wrapper.</p></li>
+<li><p>Every local file header has an extra field length of 0. The body of an
+entry therefore starts at <code class="docutils literal notranslate"><span class="pre">local_header_offset</span> <span class="pre">+</span> <span class="pre">30</span> <span class="pre">+</span> <span class="pre">file_name_length</span></code>,
+computed from the central directory record alone (the <strong>body offset</strong>).</p></li>
+<li><p>No entry is encrypted (general purpose bit 0 clear), and general purpose
+bit 3 (data descriptor) is clear. General purpose bit 11 (UTF-8 file
+names) is set in both headers of every entry.</p></li>
+<li><p>The CRC-32, compressed size and uncompressed size in both headers are
+correct for the entry’s body.</p></li>
+<li><p>Every entry’s compressed and uncompressed sizes are less than 0xFFFFFFFF.
+Entries of 4 GiB or more cannot be stored, because they would need a ZIP64
+extra field in the local header, which rule 4 forbids.</p></li>
+<li><p>Central directory records have no file comment (comment length 0).</p></li>
+<li><p>The archive has no central directory encryption, digital signature or
+archive extra data record.</p></li>
+<li><p>The archive comment is the vzip comment (<a class="reference internal" href="#end-of-central-directory-record-and-archive-comment">§3.4</a>).</p></li>
+</ol>
+</section>
+<section id="zip64">
+<span id="32-zip64"></span><h3>3.2 ZIP64<a class="headerlink" href="#zip64" title="Link to this heading">¶</a></h3>
+<p>A writer MUST use ZIP64 structures exactly where a value is too large for its
+field, and nowhere else:</p>
+<ul class="simple">
+<li><p>In a central directory record, a local header offset of 0xFFFFFFFF or more
+is stored as 0xFFFFFFFF, with the actual value in a ZIP64 extended
+information extra field (<code class="docutils literal notranslate"><span class="pre">0x0001</span></code>) containing only that value. Sizes never
+need ZIP64 (<a class="reference internal" href="#structure">§3.1</a> rule 7).</p></li>
+<li><p>If the number of entries is 0xFFFF or more, or the central directory’s size
+or offset is 0xFFFFFFFF or more, the writer writes a zip64 end of central
+directory record (44 bytes after its size field, so its size field is 44;
+no extensible data sector; “version needed to extract” 45) and a zip64 end
+of central directory locator (total number of disks 1). In the end of central directory record, each field
+whose value is too large is set to all ones (0xFFFF or 0xFFFFFFFF); the
+other fields hold their actual values.</p></li>
+</ul>
+<p>In a central directory record, the ZIP64 extra block (<code class="docutils literal notranslate"><span class="pre">0x0001</span></code>) holds the
+64-bit local header offset when the 32-bit field is all ones. In a valid
+vzip archive that is the only value it can hold, because sizes never reach
+0xFFFFFFFF (<a class="reference internal" href="#structure">§3.1</a> rule 7), so the block is exactly 8 bytes. A record has an
+entry error if:</p>
+<ul class="simple">
+<li><p>its compressed or uncompressed size field is 0xFFFFFFFF;</p></li>
+<li><p>its offset field is all ones and it has no <code class="docutils literal notranslate"><span class="pre">0x0001</span></code> block, or one shorter
+than 8 bytes;</p></li>
+<li><p>it has more than one <code class="docutils literal notranslate"><span class="pre">0x0001</span></code> block, whatever its offset.</p></li>
+</ul>
+<p>A <code class="docutils literal notranslate"><span class="pre">0x0001</span></code> block on a record whose offset is not all ones is otherwise
+ignored. When the offset comes from a block longer than 8 bytes, it is the
+block’s first 8 bytes; the rest is ignored.</p>
+<p>Readers MUST ignore the entry counts of the end records, beyond using them to
+decide whether ZIP64 records are used.</p>
+<p>Readers MUST support these structures. A reader uses the zip64 end of central
+directory record if and only if at least one of the end of central directory
+record’s entry counts (fields “entries on this disk” and “total entries”), its
+central directory size, or its central directory offset is all ones. Then:</p>
+<ul class="simple">
+<li><p>a zip64 locator MUST immediately precede the end of central directory
+record;</p></li>
+<li><p>the zip64 record it points to MUST lie within the file, have the right
+signature and a size field of 44;</p></li>
+<li><p>all four values (both entry counts, the directory’s size and offset) are
+taken from the zip64 record.</p></li>
+</ul>
+<p>Otherwise the bytes before the end of central directory record are not
+examined. A locator signature appearing there, for example inside a file
+name in an archive without one, has no meaning. Any failure of these rules
+is an archive error.</p>
+<p>Readers MUST ignore disk-number fields, “version made by” and “version
+needed to extract” values, timestamps, and internal and external
+attributes.</p>
+</section>
+<section id="keys">
+<span id="33-keys"></span><h3>3.3 Keys<a class="headerlink" href="#keys" title="Link to this heading">¶</a></h3>
+<p>The key of an entry is its file name, decoded as UTF-8. A key MUST NOT be
+empty and MUST be valid UTF-8. Keys are otherwise unrestricted; for example,
+<code class="docutils literal notranslate"><span class="pre">a/../b</span></code> and <code class="docutils literal notranslate"><span class="pre">x/</span></code> are ordinary distinct keys (<a class="reference internal" href="#security-considerations">§10</a>).</p>
+<p>Keys are compared and sorted as byte strings (UTF-8 order), never as
+decoded text. In particular:</p>
+<ul class="simple">
+<li><p>A leading U+FEFF (byte order mark) is part of the key. Decoders that strip
+it must be told not to.</p></li>
+<li><p>UTF-8 order is code point order, which differs from UTF-16 code unit order
+for characters above U+FFFF. For example, <code class="docutils literal notranslate"><span class="pre">&quot;\u{1F600}&quot;</span></code> (😀) sorts after
+<code class="docutils literal notranslate"><span class="pre">&quot;\u{FF5E}&quot;</span></code> (～) in UTF-8 order but before it in UTF-16 order. Several
+languages’ default string sort uses UTF-16 order.</p></li>
+</ul>
+<p>A central directory record whose file name is empty or not valid UTF-8 is
+ignored by readers: it names no key and appears in no operation (<a class="reference internal" href="#violations-readers-need-not-detect">§8.6</a>).</p>
+</section>
+<section id="end-of-central-directory-record-and-archive-comment">
+<span id="34-end-of-central-directory-record-and-archive-comment"></span><h3>3.4 End of central directory record and archive comment<a class="headerlink" href="#end-of-central-directory-record-and-archive-comment" title="Link to this heading">¶</a></h3>
+<p>The ZIP archive comment of a vzip archive is one of:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>length</p></th>
+<th class="head"><p>layout</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>22</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">magic</span></code>, <code class="docutils literal notranslate"><span class="pre">sources_offset:</span> <span class="pre">u64</span></code>, <code class="docutils literal notranslate"><span class="pre">sources_size:</span> <span class="pre">u64</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>38</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">magic</span></code>, <code class="docutils literal notranslate"><span class="pre">sources_offset:</span> <span class="pre">u64</span></code>, <code class="docutils literal notranslate"><span class="pre">sources_size:</span> <span class="pre">u64</span></code>, <code class="docutils literal notranslate"><span class="pre">index_offset:</span> <span class="pre">u64</span></code>, <code class="docutils literal notranslate"><span class="pre">index_size:</span> <span class="pre">u64</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">magic</span></code> is the 6 ASCII bytes <code class="docutils literal notranslate"><span class="pre">vzip/0</span></code>: the prefix <code class="docutils literal notranslate"><span class="pre">vzip/</span></code> followed by the
+format version as one decimal digit (<a class="reference internal" href="#versioning">§1.3</a>). A future version 10 or above
+will need a different comment layout, which that version will define.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">sources_offset</span></code> and <code class="docutils literal notranslate"><span class="pre">sources_size</span></code> are the body offset and the compressed
+size of the <code class="docutils literal notranslate"><span class="pre">__vz__/sources</span></code> entry.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">index_offset</span></code> and <code class="docutils literal notranslate"><span class="pre">index_size</span></code>, if present, are the same for
+<code class="docutils literal notranslate"><span class="pre">__vz__/index</span></code>. The 38-byte form is used if and only if the archive has a
+page index (<a class="reference internal" href="#page-index-optional">§7</a>).</p></li>
+</ul>
+<p>Because the comment has one of two lengths, the end of central directory
+record starts either 44 or 60 bytes before the end of the file. A reader
+locates it as follows:</p>
+<ol class="arabic simple">
+<li><p>If offset <code class="docutils literal notranslate"><span class="pre">file_size</span> <span class="pre">−</span> <span class="pre">60</span></code> holds the 4-byte signature <code class="docutils literal notranslate"><span class="pre">0x06054B50</span></code> and
+that record’s comment length field is 38, the end of central directory
+record is there.</p></li>
+<li><p>Otherwise, if offset <code class="docutils literal notranslate"><span class="pre">file_size</span> <span class="pre">−</span> <span class="pre">44</span></code> holds the signature and a comment
+length of 22, it is there.</p></li>
+<li><p>Otherwise the file is not a vzip archive.</p></li>
+</ol>
+<p>The reader then checks that the comment starts with <code class="docutils literal notranslate"><span class="pre">vzip/</span></code> and a version
+the reader implements (<code class="docutils literal notranslate"><span class="pre">vzip/0</span></code> for this document). It does not fall back
+from step 1 to step 2 when the magic doesn’t match. If no record is found, or
+the comment does not start with <code class="docutils literal notranslate"><span class="pre">vzip/</span></code>, the file is not a vzip archive.
+If it starts with <code class="docutils literal notranslate"><span class="pre">vzip/</span></code> and a version the reader doesn’t implement, the
+archive is of an unsupported version. Either way, opening it is an archive
+error (<a class="reference internal" href="#errors">§8.4</a>).</p>
+<p>In a valid archive, step 1 cannot match a record that isn’t the real one. A
+record found there would take its comment length from the real record’s
+disk-number field, which is 0 in a single-disk archive (<a class="reference internal" href="#structure">§3.1</a>). An invalid
+archive whose disk-number field is 38 can make step 1 match a fake record;
+readers then reject it (magic mismatch, no fallback), which is the intended
+result.</p>
+<p>Readers MUST read <code class="docutils literal notranslate"><span class="pre">__vz__/sources</span></code> and <code class="docutils literal notranslate"><span class="pre">__vz__/index</span></code> through the comment’s
+offsets and sizes. They need not consult those entries’ central directory
+records. Writers MUST make the two agree.</p>
+</section>
+</section>
+<section id="entries">
+<span id="4-entries"></span><h2>4. Entries<a class="headerlink" href="#entries" title="Link to this heading">¶</a></h2>
+<section id="classification">
+<span id="41-classification"></span><h3>4.1 Classification<a class="headerlink" href="#classification" title="Link to this heading">¶</a></h3>
+<p>The kind of a present key is decided by its central directory record alone.
+The record’s extra field is parsed per APPNOTE as a sequence of
+<code class="docutils literal notranslate"><span class="pre">(header_id:</span> <span class="pre">u16,</span> <span class="pre">data_size:</span> <span class="pre">u16,</span> <span class="pre">data[data_size])</span></code> blocks that exactly fills
+the declared extra field length. Let <code class="docutils literal notranslate"><span class="pre">R</span></code> be the number of blocks whose header
+ID is 0x7A76 or 0x7A77:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>condition</p></th>
+<th class="head"><p>kind</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">R</span> <span class="pre">=</span> <span class="pre">0</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bytes</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">R</span> <span class="pre">=</span> <span class="pre">1</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">reference</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">R</span> <span class="pre">&gt;</span> <span class="pre">1</span></code>, or the extra field does not parse</p></td>
+<td><p>entry error (<a class="reference internal" href="#errors">§8.4</a>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Other header IDs (such as <code class="docutils literal notranslate"><span class="pre">0x0001</span></code>) MAY appear and do not affect the kind.
+The format entries MUST be <code class="docutils literal notranslate"><span class="pre">bytes</span></code> entries with method 8. Readers locate and
+inflate them through the comment (<a class="reference internal" href="#end-of-central-directory-record-and-archive-comment">§3.4</a>).</p>
+</section>
+<section id="bytes-entries">
+<span id="42-bytes-entries"></span><h3>4.2 Bytes entries<a class="headerlink" href="#bytes-entries" title="Link to this heading">¶</a></h3>
+<p>The value of a <code class="docutils literal notranslate"><span class="pre">bytes</span></code> entry is its body, inflated if the entry uses method 8.</p>
+</section>
+<section id="reference-entries">
+<span id="43-reference-entries"></span><h3>4.3 Reference entries<a class="headerlink" href="#reference-entries" title="Link to this heading">¶</a></h3>
+<p>The data of the 0x7A76 or 0x7A77 block is the <strong>reference payload</strong>:</p>
+<ul class="simple">
+<li><p>header ID 0x7A76: an encoded <code class="docutils literal notranslate"><span class="pre">Range</span></code> (<a class="reference internal" href="#range">§5.2</a>), describing a value made of that
+one range.</p></li>
+<li><p>header ID 0x7A77: an encoded <code class="docutils literal notranslate"><span class="pre">Concat</span></code> (<a class="reference internal" href="#concat">§5.3</a>), describing a value made of zero
+or more ranges.</p></li>
+</ul>
+<p>Writers MUST use 0x7A76 when a reference has exactly one range, and 0x7A77
+otherwise. Readers MUST accept a 0x7A77 payload with any number of parts.</p>
+<p>A reference entry MUST use method 0; a reference entry with method 8 is an
+entry error. Extra field blocks may appear in any order. Its body MUST be either empty or byte-identical to the reference
+payload. Writers SHOULD make it identical, so that ZIP tools which ignore
+extra fields still see the payload. Readers MUST take the payload from the
+central directory, and MUST NOT read or check the body except in the raw view
+(<a class="reference internal" href="#operations">§8.2</a>).</p>
+<p>A reference payload MUST NOT exceed 65519 bytes; a reader treats a longer
+one as malformed (a payload error, <a class="reference internal" href="#errors">§8.4</a>), even though it may fit in the
+extra field. That limit leaves room in
+the 65535-byte extra field for the payload’s own block header and a ZIP64
+block, whether or not the entry ends up needing one, so a writer can check a
+reference before deciding where to put it.</p>
+</section>
+</section>
+<section id="messages">
+<span id="5-messages"></span><h2>5. Messages<a class="headerlink" href="#messages" title="Link to this heading">¶</a></h2>
+<section id="encoding">
+<span id="51-encoding"></span><h3>5.1 Encoding<a class="headerlink" href="#encoding" title="Link to this heading">¶</a></h3>
+<p>Messages use the Protocol Buffers binary wire format with proto3 semantics.
+Appendix A gives the schema, which is normative together with these rules.</p>
+<p>Decoding:</p>
+<ul class="simple">
+<li><p>A decoder MUST skip fields whose field number is not in the schema, for
+wire types VARINT (0), I64 (1), LEN (2) and I32 (5).</p></li>
+<li><p>The following make the message malformed:</p>
+<ul>
+<li><p>wire types 3, 4, 6 and 7;</p></li>
+<li><p>field number 0, or above 2^29 − 1;</p></li>
+<li><p>truncated input, or a LEN field extending past the end of its enclosing
+message;</p></li>
+<li><p>a varint longer than 10 bytes, or whose value exceeds 2^64 − 1;</p></li>
+<li><p>a known field whose wire type differs from the one its type uses (VARINT
+for integers, LEN for strings, bytes and messages);</p></li>
+<li><p>a <code class="docutils literal notranslate"><span class="pre">uint32</span></code> field whose value exceeds 2^32 − 1;</p></li>
+<li><p>a string that is not valid UTF-8.</p></li>
+</ul>
+</li>
+<li><p>Fields may appear in any order. If a non-repeated field appears more than
+once, the last occurrence wins, but every occurrence must be valid: an
+invalid earlier occurrence (for example a <code class="docutils literal notranslate"><span class="pre">uint32</span></code> overflow or a string
+that is not UTF-8) makes the message malformed even though it is
+overridden. “Valid UTF-8” is as defined in RFC 3629: overlong forms and
+encoded surrogates are invalid. If more than one member of a <code class="docutils literal notranslate"><span class="pre">oneof</span></code>
+appears, the last one on the wire wins. Non-minimal varints are accepted.
+(The schema has no singular message fields, so protobuf’s rule of merging
+repeated occurrences of an embedded message never applies.) Field 2 of
+<code class="docutils literal notranslate"><span class="pre">Range</span></code> is reserved: it is skipped like any unknown field.</p></li>
+</ul>
+<p>Implementations built on a protobuf library get most of these rules for
+free, but typically must add checks for three of them: groups (wire types 3
+and 4) on unknown fields, <code class="docutils literal notranslate"><span class="pre">uint32</span></code> overflow (libraries truncate), and UTF-8
+validity of strings (some runtimes don’t check).</p>
+<p>Encoding:</p>
+<ul class="simple">
+<li><p>Encoders MUST emit fields in field-number order, use minimal varints, and
+not emit a scalar field equal to its default value (0 or empty), with two
+exceptions: a set <code class="docutils literal notranslate"><span class="pre">oneof</span></code> member and a set <code class="docutils literal notranslate"><span class="pre">optional</span></code> field are always
+emitted, even when empty. With these rules each message has exactly one
+encoding, so implementations can compare encodings byte for byte.</p></li>
+<li><p>Every element of a repeated message field is emitted, including one whose
+own encoding is empty. For example, a <code class="docutils literal notranslate"><span class="pre">Concat</span></code> part that is a <code class="docutils literal notranslate"><span class="pre">Range</span></code> with
+all fields 0 is written <code class="docutils literal notranslate"><span class="pre">0a</span> <span class="pre">00</span></code>.</p></li>
+<li><p>An <code class="docutils literal notranslate"><span class="pre">int64</span></code> is encoded as the 64-bit two’s complement of its value, as a
+varint, so a negative value always takes 10 bytes. For example, −1 is
+<code class="docutils literal notranslate"><span class="pre">ff</span> <span class="pre">ff</span> <span class="pre">ff</span> <span class="pre">ff</span> <span class="pre">ff</span> <span class="pre">ff</span> <span class="pre">ff</span> <span class="pre">ff</span> <span class="pre">ff</span> <span class="pre">01</span></code>.</p></li>
+</ul>
+</section>
+<section id="range">
+<span id="52-range"></span><h3>5.2 Range<a class="headerlink" href="#range" title="Link to this heading">¶</a></h3>
+<div class="highlight-proto notranslate"><div class="highlight"><pre><span></span><span class="kd">message</span><span class="w"> </span><span class="nc">Range</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kt">uint32</span><span class="w"> </span><span class="na">source</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">  </span><span class="k">reserved</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span>
+<span class="w">  </span><span class="kt">uint64</span><span class="w"> </span><span class="na">offset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span>
+<span class="w">  </span><span class="kt">uint64</span><span class="w"> </span><span class="na">length</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span>
+<span class="w">  </span><span class="k">optional</span><span class="w"> </span><span class="kt">bytes</span><span class="w"> </span><span class="na">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span>
+<span class="w">  </span><span class="k">optional</span><span class="w"> </span><span class="kt">uint32</span><span class="w"> </span><span class="na">crc32c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">6</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>A Range describes a byte sequence of a known <strong>size</strong>:</p>
+<ul class="simple">
+<li><p><strong>Literal range</strong>: field 5 (<code class="docutils literal notranslate"><span class="pre">data</span></code>) is present, even with zero length. The
+bytes are <code class="docutils literal notranslate"><span class="pre">data</span></code>, and the size is <code class="docutils literal notranslate"><span class="pre">len(data)</span></code>. In a literal range,
+<code class="docutils literal notranslate"><span class="pre">source</span></code>, <code class="docutils literal notranslate"><span class="pre">offset</span></code> and <code class="docutils literal notranslate"><span class="pre">length</span></code> MUST all have the value 0; otherwise the
+payload is malformed. Only the values are checked: a field explicitly
+encoded as 0 is accepted, like any non-canonical encoding (<a class="reference internal" href="#encoding">§5.1</a>).</p></li>
+<li><p><strong>Source range</strong>: field 5 is absent. The bytes are
+<code class="docutils literal notranslate"><span class="pre">[offset,</span> <span class="pre">offset</span> <span class="pre">+</span> <span class="pre">length)</span></code> of the <strong>source value</strong> of source table entry
+number <code class="docutils literal notranslate"><span class="pre">source</span></code> (<a class="reference internal" href="#source-table">§6</a>), and the size is <code class="docutils literal notranslate"><span class="pre">length</span></code>. <code class="docutils literal notranslate"><span class="pre">source</span></code> MUST be less than
+the number of sources, and <code class="docutils literal notranslate"><span class="pre">offset</span> <span class="pre">+</span> <span class="pre">length</span></code> MUST NOT exceed 2^64 − 1;
+otherwise the payload is malformed.</p></li>
+</ul>
+<p>The size is known without I/O.</p>
+<p><strong>Checksum.</strong> A source range MAY carry field 6, <code class="docutils literal notranslate"><span class="pre">crc32c</span></code>: the CRC-32C of its
+bytes, that is of bytes <code class="docutils literal notranslate"><span class="pre">[offset,</span> <span class="pre">offset</span> <span class="pre">+</span> <span class="pre">length)</span></code> of the source value. A
+literal range with field 6 present is malformed. CRC-32C is the CRC of
+RFC 3720 §B.4 (iSCSI): the Castagnoli polynomial 0x1EDC6F41, reflected
+input and output, initial value and final XOR 0xFFFFFFFF. Its check value,
+for the nine ASCII bytes <code class="docutils literal notranslate"><span class="pre">123456789</span></code>, is 0xE3069283; for the empty sequence
+it is 0. Readers check it after they read the range (<a class="reference internal" href="#resolving-a-reference">§8.3</a>), so it detects a
+changed source wherever the range can be read, including where pins
+cannot be checked because the reader cannot see the response’s headers (a
+browser reading a cross-origin object, <a class="reference internal" href="#reading-over-http">§6.2</a>). It covers only the bytes of
+the range: a change elsewhere in the object goes unnoticed.</p>
+</section>
+<section id="concat">
+<span id="53-concat"></span><h3>5.3 Concat<a class="headerlink" href="#concat" title="Link to this heading">¶</a></h3>
+<div class="highlight-proto notranslate"><div class="highlight"><pre><span></span><span class="kd">message</span><span class="w"> </span><span class="nc">Concat</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">repeated</span><span class="w"> </span><span class="n">Range</span><span class="w"> </span><span class="na">parts</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>A Concat describes the concatenation of its parts, in order. Its size is the
+sum of the parts’ sizes, which MUST NOT exceed 2^64 − 1. A Concat with no
+parts describes the empty value.</p>
+</section>
+</section>
+<section id="source-table">
+<span id="6-source-table"></span><h2>6. Source table<a class="headerlink" href="#source-table" title="Link to this heading">¶</a></h2>
+<p>The entry <code class="docutils literal notranslate"><span class="pre">__vz__/sources</span></code> (method 8) holds a <code class="docutils literal notranslate"><span class="pre">SourceTable</span></code>:</p>
+<div class="highlight-proto notranslate"><div class="highlight"><pre><span></span><span class="kd">message</span><span class="w"> </span><span class="nc">Source</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">oneof</span><span class="w"> </span><span class="n">kind</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="na">url</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="na">key</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">bytes</span><span class="w">  </span><span class="na">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="w">  </span><span class="c1">// Pins (§6.1); allowed only on `url` sources.</span>
+<span class="w">  </span><span class="k">optional</span><span class="w"> </span><span class="kt">uint64</span><span class="w"> </span><span class="na">size</span><span class="w">               </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span>
+<span class="w">  </span><span class="k">optional</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="na">etag</span><span class="w">               </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span>
+<span class="w">  </span><span class="k">optional</span><span class="w"> </span><span class="kt">int64</span><span class="w">  </span><span class="na">modified_not_after</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">6</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">message</span><span class="w"> </span><span class="nc">SourceTable</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">repeated</span><span class="w"> </span><span class="n">Source</span><span class="w"> </span><span class="na">sources</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">  </span><span class="k">optional</span><span class="w"> </span><span class="kt">uint32</span><span class="w"> </span><span class="na">revision</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">revision</span></code> is the revision of this document the writer followed (<a class="reference internal" href="#versioning">§1.3</a>).
+Writers MUST write it; readers only report it.</p>
+<p>Sources are numbered from 0 in wire order. When the table is read (<a class="reference internal" href="#opening">§8.1</a>),
+any of the following is an archive error:</p>
+<ul class="simple">
+<li><p>the table is malformed;</p></li>
+<li><p>a Source has no <code class="docutils literal notranslate"><span class="pre">kind</span></code> member;</p></li>
+<li><p>a <code class="docutils literal notranslate"><span class="pre">url</span></code> or a <code class="docutils literal notranslate"><span class="pre">key</span></code> is empty;</p></li>
+<li><p>a pin appears on a <code class="docutils literal notranslate"><span class="pre">key</span></code> or <code class="docutils literal notranslate"><span class="pre">data</span></code> source;</p></li>
+<li><p>an <code class="docutils literal notranslate"><span class="pre">etag</span></code> pin is not a strong entity tag (<a class="reference internal" href="#pins">§6.1</a>).</p></li>
+</ul>
+<p>The <strong>source value</strong> of each kind:</p>
+<ul>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">url</span></code></strong>: the bytes of an external object.</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">url</span></code> MUST match the <code class="docutils literal notranslate"><span class="pre">URI-reference</span></code> rule of RFC 3986 §4.1 exactly. It
+is therefore ASCII only, with every other byte percent-encoded (non-ASCII
+characters as their UTF-8 bytes). For example, a file named <code class="docutils literal notranslate"><span class="pre">a</span> <span class="pre">b.bin</span></code> is
+referenced as <code class="docutils literal notranslate"><span class="pre">a%20b.bin</span></code>, and <code class="docutils literal notranslate"><span class="pre">é.bin</span></code> as <code class="docutils literal notranslate"><span class="pre">%C3%A9.bin</span></code>.</p></li>
+<li><p>It is resolved against the archive’s base URI using the strict algorithm
+of RFC 3986 §5.2.2: a reference with a scheme is used as it is, even if
+the scheme matches the base’s.</p></li>
+<li><p>When an archive is opened from a local path, its base URI is built in
+two steps:</p>
+<ul class="simple">
+<li><p>Make the path absolute and normalise it. A relative path is joined to
+the process’s current directory as the operating system reports it
+(<code class="docutils literal notranslate"><span class="pre">getcwd</span></code>, not <code class="docutils literal notranslate"><span class="pre">$PWD</span></code>). Empty segments (<code class="docutils literal notranslate"><span class="pre">//</span></code>) and <code class="docutils literal notranslate"><span class="pre">.</span></code> segments are
+removed, <code class="docutils literal notranslate"><span class="pre">..</span></code> segments are removed lexically together with the segment
+before them, and symbolic links are not resolved.</p></li>
+<li><p>Form <code class="docutils literal notranslate"><span class="pre">file://</span></code> followed by the path’s bytes: its UTF-8 bytes, or the
+raw bytes on systems where paths are not text. Each byte that is not an
+unreserved character, a sub-delim, <code class="docutils literal notranslate"><span class="pre">:</span></code>, <code class="docutils literal notranslate"><span class="pre">&#64;</span></code> or <code class="docutils literal notranslate"><span class="pre">/</span></code> is written as <code class="docutils literal notranslate"><span class="pre">%</span></code>
+and two uppercase hex digits. For example, <code class="docutils literal notranslate"><span class="pre">/data/my</span> <span class="pre">file.vzip</span></code> becomes
+<code class="docutils literal notranslate"><span class="pre">file:///data/my%20file.vzip</span></code>. A <code class="docutils literal notranslate"><span class="pre">..</span></code> segment at the root is removed,
+so <code class="docutils literal notranslate"><span class="pre">/../a</span></code> becomes <code class="docutils literal notranslate"><span class="pre">/a</span></code>.</p></li>
+</ul>
+</li>
+<li><p>When opened from a URL, the base URI is that URL.</p></li>
+<li><p>A <code class="docutils literal notranslate"><span class="pre">file:</span></code> URI maps to a local path as follows:</p>
+<ul class="simple">
+<li><p>the scheme and the host <code class="docutils literal notranslate"><span class="pre">localhost</span></code> are case-insensitive;</p></li>
+<li><p>its authority MUST be absent (<code class="docutils literal notranslate"><span class="pre">file:/x</span></code>), empty (<code class="docutils literal notranslate"><span class="pre">file:///x</span></code>) or
+exactly <code class="docutils literal notranslate"><span class="pre">localhost</span></code> (in any case): no userinfo, no port, and no
+percent-encoding;</p></li>
+<li><p>its path MUST be absolute (start with <code class="docutils literal notranslate"><span class="pre">/</span></code>);</p></li>
+<li><p>it MUST have no query component, not even an empty one (<code class="docutils literal notranslate"><span class="pre">?</span></code>);</p></li>
+<li><p>any fragment is ignored;</p></li>
+<li><p>its path is percent-decoded to bytes, which MUST NOT contain <code class="docutils literal notranslate"><span class="pre">/</span></code> from
+a decoded <code class="docutils literal notranslate"><span class="pre">%2F</span></code> or a NUL byte. The bytes are used as the local path
+as they are; they need not be UTF-8;</p></li>
+<li><p>after decoding, no path segment may be <code class="docutils literal notranslate"><span class="pre">.</span></code> or <code class="docutils literal notranslate"><span class="pre">..</span></code>. Resolution has
+already removed literal dot segments, so this only rejects encoded ones
+such as <code class="docutils literal notranslate"><span class="pre">%2E%2E</span></code>, which would otherwise escape the directory after
+decoding.</p></li>
+</ul>
+<p>This mapping is for POSIX paths; other systems follow RFC 8089.</p>
+</li>
+</ul>
+<p>Readers MUST support <code class="docutils literal notranslate"><span class="pre">file:</span></code>, SHOULD support <code class="docutils literal notranslate"><span class="pre">http:</span></code> and <code class="docutils literal notranslate"><span class="pre">https:</span></code> (byte
+ranges via HTTP Range requests), and MAY support other schemes. It is a
+resolution error if the reference is not a valid URI reference, uses an
+unsupported scheme, or violates the <code class="docutils literal notranslate"><span class="pre">file:</span></code> rules, if the reader’s policy
+refuses the URL (<a class="reference internal" href="#reader-policy">§8.7</a>), or if the object cannot be read (<a class="reference internal" href="#reading-over-http">§6.2</a> for HTTP). Readers check URL syntax only when they resolve a
+range of the source, not at open; writers check it when writing (<a class="reference internal" href="#requirements">§9.1</a>). A reference with only a fragment (such as <code class="docutils literal notranslate"><span class="pre">#x</span></code>) resolves to the
+archive itself; that is valid but rarely useful.</p>
+</li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">key</span></code></strong>: the value of the bytes entry of this archive with that key. The
+key MAY be hidden. It is a resolution error if the key is missing, is a
+reference entry, has an entry error, or is a format entry. References
+therefore never chain.</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">data</span></code></strong>: the bytes of <code class="docutils literal notranslate"><span class="pre">data</span></code>. Writers SHOULD use this for small byte
+strings shared by many ranges, such as a decoding header. Bytes used by a
+single range belong in a literal range instead.</p></li>
+</ul>
+<p>Readers MUST NOT resolve sources except as <a class="reference internal" href="#resolving-a-reference">§8.3</a> requires. An archive whose
+source table names an unreachable URL is fully readable, except for the
+ranges that use that URL.</p>
+<section id="pins">
+<span id="61-pins"></span><h3>6.1 Pins<a class="headerlink" href="#pins" title="Link to this heading">¶</a></h3>
+<p>A reference names bytes the archive does not control. If the object behind a
+<code class="docutils literal notranslate"><span class="pre">url</span></code> is replaced, for example a forecast file re-published under the same
+name, the reference silently returns bytes from the new object. HDF5 and
+netCDF files regenerated with the same layout decode cleanly to the wrong
+values. <strong>Pins</strong> let a writer record what it saw, so that a reader detects
+the change.</p>
+<p>A <code class="docutils literal notranslate"><span class="pre">url</span></code> source may carry any combination of three pins. Each one asserts
+something about the object at resolution time:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>pin</p></th>
+<th class="head"><p>assertion</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">size</span></code></p></td>
+<td><p>the object’s total size in bytes equals <code class="docutils literal notranslate"><span class="pre">size</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">etag</span></code></p></td>
+<td><p>the object’s current entity tag equals <code class="docutils literal notranslate"><span class="pre">etag</span></code>, by strong comparison (RFC 9110 §8.8.3.2)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">modified_not_after</span></code></p></td>
+<td><p>the object’s last modification time, in whole seconds since the Unix epoch (UTC, rounded down, i.e. towards negative infinity), is less than or equal to <code class="docutils literal notranslate"><span class="pre">modified_not_after</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A pin is present if its field is present on the wire, even with the value 0
+(the fields are <code class="docutils literal notranslate"><span class="pre">optional</span></code>). Implementations built on protobuf libraries
+must use the library’s presence tracking for them, not compare with 0.</p>
+<p><code class="docutils literal notranslate"><span class="pre">etag</span></code> holds a strong entity tag exactly as it appears in an HTTP <code class="docutils literal notranslate"><span class="pre">ETag</span></code>
+header, including its double quotes, for example <code class="docutils literal notranslate"><span class="pre">&quot;abc123&quot;</span></code>. It MUST match
+<code class="docutils literal notranslate"><span class="pre">DQUOTE</span> <span class="pre">*etagc</span> <span class="pre">DQUOTE</span></code>, where <code class="docutils literal notranslate"><span class="pre">etagc</span></code> is any ASCII character from <code class="docutils literal notranslate"><span class="pre">!</span></code> to <code class="docutils literal notranslate"><span class="pre">~</span></code>
+except <code class="docutils literal notranslate"><span class="pre">&quot;</span></code> (RFC 9110 §8.8.3, without <code class="docutils literal notranslate"><span class="pre">obs-text</span></code>). Anything else, including a
+weak tag (<code class="docutils literal notranslate"><span class="pre">W/&quot;...&quot;</span></code>), is an archive error (<a class="reference internal" href="#source-table">§6</a>).</p>
+<p>Before returning any byte read from a pinned source, a reader MUST check
+every pin on that source. A pin that fails, or that the reader cannot check
+for that scheme, is a resolution error. A reader MUST NOT skip a pin it
+does not understand: pins fail closed. The one exception is a pin that the
+response’s headers would check but that the reader cannot see, which an
+application may allow the reader to skip (<a class="reference internal" href="#reader-policy">§8.7</a>). Checks, by scheme:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>pin</p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">http:</span></code>/<code class="docutils literal notranslate"><span class="pre">https:</span></code></p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">file:</span></code></p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">size</span></code></p></td>
+<td><p>the object’s size, from the response (<a class="reference internal" href="#reading-over-http">§6.2</a>)</p></td>
+<td><p>the file’s size</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">etag</span></code></p></td>
+<td><p>send <code class="docutils literal notranslate"><span class="pre">If-Match:</span> <span class="pre">&lt;etag&gt;</span></code> with the range request; a 412 response fails the pin</p></td>
+<td><p>cannot be checked: resolution error</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">modified_not_after</span></code></p></td>
+<td><p>send <code class="docutils literal notranslate"><span class="pre">If-Unmodified-Since:</span> <span class="pre">&lt;HTTP-date</span> <span class="pre">of</span> <span class="pre">the</span> <span class="pre">pin&gt;</span></code> with the range request; a 412 response fails the pin</p></td>
+<td><p>the file’s modification time, rounded down to whole seconds (as above)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Over HTTP the checks ride on the range requests the reader makes anyway, so
+pins cost no extra requests. A reader that checks a pin once per source
+SHOULD do so per opening of the archive, not cache the result across opens.</p>
+<p>Writers SHOULD:</p>
+<ul class="simple">
+<li><p>pin <code class="docutils literal notranslate"><span class="pre">size</span></code> on every <code class="docutils literal notranslate"><span class="pre">url</span></code> source whose size they know. It costs nothing
+to check over HTTP (the size is in every range response) and catches
+appends and most rewrites. Modification times have one-second
+resolution, so a rewrite within the same second as <code class="docutils literal notranslate"><span class="pre">modified_not_after</span></code> is
+not detected, while <code class="docutils literal notranslate"><span class="pre">size</span></code> may catch it;</p></li>
+<li><p>pin <code class="docutils literal notranslate"><span class="pre">etag</span></code> when they saw a strong entity tag for the object, from a
+response that also gave them the bytes they describe;</p></li>
+<li><p>take <code class="docutils literal notranslate"><span class="pre">modified_not_after</span></code> from the object itself (its <code class="docutils literal notranslate"><span class="pre">Last-Modified</span></code>
+value, or its file modification time), not from the writer’s clock. A
+value from the writer’s clock fails whenever the server’s clock or the
+object’s timestamp is ahead of it;</p></li>
+<li><p>add a <code class="docutils literal notranslate"><span class="pre">crc32c</span></code> (<a class="reference internal" href="#range">§5.2</a>) to ranges whose bytes they read anyway, or when
+asked to: it is the only check that does not depend on headers;</p></li>
+<li><p>pin only <code class="docutils literal notranslate"><span class="pre">size</span></code> in archives meant to be copied together with their data
+(<a class="reference internal" href="#source-table">§6</a>, relative URLs). Copying an object changes its modification time and
+may change its entity tag.</p></li>
+</ul>
+</section>
+<section id="reading-over-http">
+<span id="62-reading-over-http"></span><h3>6.2 Reading over HTTP<a class="headerlink" href="#reading-over-http" title="Link to this heading">¶</a></h3>
+<p>This section applies to readers that support <code class="docutils literal notranslate"><span class="pre">http:</span></code> and <code class="docutils literal notranslate"><span class="pre">https:</span></code>.</p>
+<ul>
+<li><p><strong>Requests:</strong> a read of bytes <code class="docutils literal notranslate"><span class="pre">[a,</span> <span class="pre">b)</span></code> of an HTTP object is a GET with
+<code class="docutils literal notranslate"><span class="pre">Range:</span> <span class="pre">bytes=a-(b−1)</span></code> and <code class="docutils literal notranslate"><span class="pre">Accept-Encoding:</span> <span class="pre">identity</span></code>. A reader SHOULD
+combine reads of nearby ranges of the same object into one request
+(<a class="reference internal" href="#resolving-a-reference">§8.3</a>). It
+MUST NOT make any other request to resolve a range or check its pins: no
+HEAD, and no request for the whole object.</p></li>
+<li><p><strong>Pins</strong> add <code class="docutils literal notranslate"><span class="pre">If-Match</span></code> and <code class="docutils literal notranslate"><span class="pre">If-Unmodified-Since</span></code> headers to those same
+requests (<a class="reference internal" href="#pins">§6.1</a>). Servers and proxies may ignore those headers, so a reader
+also checks every successful (200 or 206) response itself:</p>
+<ul>
+<li><p>an <code class="docutils literal notranslate"><span class="pre">etag</span></code> pin requires the response’s <code class="docutils literal notranslate"><span class="pre">ETag</span></code> header to equal the pin
+(strong comparison);</p></li>
+<li><p>a <code class="docutils literal notranslate"><span class="pre">modified_not_after</span></code> pin requires its <code class="docutils literal notranslate"><span class="pre">Last-Modified</span></code> header to be an
+IMF-fixdate (RFC 9110 §5.6.7, e.g. <code class="docutils literal notranslate"><span class="pre">Sun,</span> <span class="pre">06</span> <span class="pre">Nov</span> <span class="pre">1994</span> <span class="pre">08:49:37</span> <span class="pre">GMT</span></code>) no
+later than the pin.</p>
+<p>The two obsolete HTTP-date formats are not accepted. RFC 850 dates
+resolve two-digit years against the reader’s clock, so accepting them
+would make results depend on when the reader runs. The day name must be
+the correct one for the date. Day and month names are case-sensitive,
+as written in RFC 9110. A second of <code class="docutils literal notranslate"><span class="pre">60</span></code> (a leap second) is accepted and
+counts as the following second.</p>
+</li>
+</ul>
+<p>A missing or unparseable header means the pin cannot be checked, which is
+a resolution error.</p>
+</li>
+<li><p><strong>Responses:</strong></p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>response</p></th>
+<th class="head"><p>meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>206 with one <code class="docutils literal notranslate"><span class="pre">Content-Range:</span> <span class="pre">bytes</span> <span class="pre">a-z/total</span></code></p></td>
+<td><p>the requested bytes. <code class="docutils literal notranslate"><span class="pre">total</span></code> is the object’s size. It is a resolution error if the returned range is not the one requested, if <code class="docutils literal notranslate"><span class="pre">z</span></code> is not less than <code class="docutils literal notranslate"><span class="pre">total</span></code>, or if the body’s length is not <code class="docutils literal notranslate"><span class="pre">z</span> <span class="pre">−</span> <span class="pre">a</span> <span class="pre">+</span> <span class="pre">1</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p>206 with <code class="docutils literal notranslate"><span class="pre">Content-Range:</span> <span class="pre">bytes</span> <span class="pre">a-z/*</span></code></p></td>
+<td><p>the requested bytes, with the same range and body-length checks; the size is unknown, so a <code class="docutils literal notranslate"><span class="pre">size</span></code> pin cannot be checked (resolution error)</p></td>
+</tr>
+<tr class="row-even"><td><p>200</p></td>
+<td><p>the server ignored <code class="docutils literal notranslate"><span class="pre">Range</span></code> and sent the whole object. The reader takes the requested bytes from the body; the size is the body’s length. Readers MUST accept this. If the body is shorter than the end of the requested range, it is a resolution error.</p></td>
+</tr>
+<tr class="row-odd"><td><p>412</p></td>
+<td><p>a pin failed: resolution error</p></td>
+</tr>
+<tr class="row-even"><td><p>416</p></td>
+<td><p>the object is shorter than the requested range: resolution error</p></td>
+</tr>
+<tr class="row-odd"><td><p>206 without exactly one valid <code class="docutils literal notranslate"><span class="pre">Content-Range</span></code>, including <code class="docutils literal notranslate"><span class="pre">multipart/byteranges</span></code></p></td>
+<td><p>resolution error</p></td>
+</tr>
+<tr class="row-even"><td><p>any other status</p></td>
+<td><p>resolution error</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Header rules for the final 200 or 206 response:</p>
+<ul class="simple">
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">Content-Range</span></code></strong> follows RFC 9110 §14.4: the unit <code class="docutils literal notranslate"><span class="pre">bytes</span></code> is
+case-insensitive and is followed by exactly one space.</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">Content-Encoding</span></code>:</strong> if any value, trimmed and compared
+case-insensitively, is anything but <code class="docutils literal notranslate"><span class="pre">identity</span></code>, it is a resolution error.
+Repeated <code class="docutils literal notranslate"><span class="pre">Content-Encoding</span></code> fields combine into one list (RFC 9110
+§5.3), so two <code class="docutils literal notranslate"><span class="pre">identity</span></code> fields are the list <code class="docutils literal notranslate"><span class="pre">identity,</span> <span class="pre">identity</span></code>,
+which is also an error. Redirects, 412 and 416 responses are not
+checked for <code class="docutils literal notranslate"><span class="pre">Content-Encoding</span></code>.</p></li>
+<li><p><strong>Repeated fields:</strong> more than one <code class="docutils literal notranslate"><span class="pre">Content-Range</span></code>, <code class="docutils literal notranslate"><span class="pre">ETag</span></code> or
+<code class="docutils literal notranslate"><span class="pre">Last-Modified</span></code> field is a resolution error. So is more than one
+<code class="docutils literal notranslate"><span class="pre">Location</span></code> field on a redirect.</p></li>
+<li><p><strong>Chunked transfer coding</strong> is part of HTTP/1.1 framing, not of the
+representation, and readers MUST accept it.</p></li>
+</ul>
+</li>
+<li><p><strong>Redirects:</strong> readers MUST follow redirects:</p>
+<ul class="simple">
+<li><p>statuses 301, 302, 303, 307 and 308. A reader follows at most 5
+redirects, so it makes at most 6 requests for one range; a redirect
+received in reply to the 6th request is a resolution error;</p></li>
+<li><p>the <code class="docutils literal notranslate"><span class="pre">Location</span></code> header is resolved against the URL that was requested
+(RFC 3986 §5.2.2); a redirect without a <code class="docutils literal notranslate"><span class="pre">Location</span></code> header, or with one
+that is not a valid URI reference, is a resolution error;</p></li>
+<li><p>only to <code class="docutils literal notranslate"><span class="pre">http:</span></code> or <code class="docutils literal notranslate"><span class="pre">https:</span></code>; a redirect to any other scheme is a
+resolution error;</p></li>
+<li><p>only to a URL the reader’s policy allows (<a class="reference internal" href="#reader-policy">§8.7</a>); a redirect to any other
+URL is a resolution error, and the reader SHOULD detect it before it
+sends the request. A reader that cannot see a redirect before it is
+followed (a browser’s <code class="docutils literal notranslate"><span class="pre">fetch</span></code>) checks the final URL instead;</p></li>
+<li><p>each hop re-sends <code class="docutils literal notranslate"><span class="pre">Range</span></code>, <code class="docutils literal notranslate"><span class="pre">Accept-Encoding</span></code> and the pin headers. Pins
+and the size apply to the final response.</p></li>
+</ul>
+</li>
+<li><p><strong>URLs:</strong> an <code class="docutils literal notranslate"><span class="pre">http:</span></code> or <code class="docutils literal notranslate"><span class="pre">https:</span></code> URL is a resolution error if it has
+userinfo (<code class="docutils literal notranslate"><span class="pre">user&#64;</span></code>), an empty or absent host (<code class="docutils literal notranslate"><span class="pre">http:/x</span></code> and <code class="docutils literal notranslate"><span class="pre">http:///x</span></code>
+included), or a port above 65535. An empty port (<code class="docutils literal notranslate"><span class="pre">host:</span></code>) means the
+default port. These rules apply to every URL requested, including
+redirect targets.</p></li>
+<li><p><strong>Memory:</strong> a 200 response delivers the whole object. A reader MAY refuse
+to read a body larger than a documented resource limit (<a class="reference internal" href="#security-considerations">§10</a>); that is a
+request error.</p></li>
+<li><p><strong>Timestamps:</strong> <code class="docutils literal notranslate"><span class="pre">If-Unmodified-Since</span></code> carries <code class="docutils literal notranslate"><span class="pre">modified_not_after</span></code> as an
+IMF-fixdate (RFC 9110 §5.6.7). A value outside the years 1–9999 cannot be
+sent, so the pin cannot be checked: resolution error.</p></li>
+</ul>
+</section>
+</section>
+<section id="page-index-optional">
+<span id="7-page-index-optional"></span><h2>7. Page index (optional)<a class="headerlink" href="#page-index-optional" title="Link to this heading">¶</a></h2>
+<p>A page index lets a reader find the central directory record of a key by
+reading one bounded slice of the central directory, instead of the whole
+directory. An archive has a page index if and only if its comment has the
+38-byte form; then it has an entry <code class="docutils literal notranslate"><span class="pre">__vz__/index</span></code> (method 8) holding a
+<code class="docutils literal notranslate"><span class="pre">CdIndex</span></code>. An archive with a 22-byte comment MUST NOT have an entry named
+<code class="docutils literal notranslate"><span class="pre">__vz__/index</span></code>.</p>
+<div class="highlight-proto notranslate"><div class="highlight"><pre><span></span><span class="kd">message</span><span class="w"> </span><span class="nc">CdIndex</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kd">message</span><span class="w"> </span><span class="nc">Page</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="na">first_key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">uint64</span><span class="w"> </span><span class="na">offset</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">uint64</span><span class="w"> </span><span class="na">length</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="w">  </span><span class="kd">message</span><span class="w"> </span><span class="nc">Pinned</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="na">key</span><span class="w">         </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">uint64</span><span class="w"> </span><span class="na">data_offset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">uint64</span><span class="w"> </span><span class="na">size</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">uint64</span><span class="w"> </span><span class="na">csize</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">uint32</span><span class="w"> </span><span class="na">method</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="w">  </span><span class="k">repeated</span><span class="w"> </span><span class="n">Page</span><span class="w">   </span><span class="na">pages</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">  </span><span class="k">repeated</span><span class="w"> </span><span class="n">Pinned</span><span class="w"> </span><span class="na">pinned</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<section id="layout">
+<span id="71-layout"></span><h3>7.1 Layout<a class="headerlink" href="#layout" title="Link to this heading">¶</a></h3>
+<p>In an archive with a page index:</p>
+<ol class="arabic">
+<li><p>The central directory consists of the <strong>body records</strong> (the records of
+every entry except the two format entries), sorted in UTF-8 order of
+their file names. These are followed by the two format entries’ records,
+in either order.</p></li>
+<li><p>The pages partition the body records:</p>
+<ul class="simple">
+<li><p>page <code class="docutils literal notranslate"><span class="pre">i</span></code> covers bytes <code class="docutils literal notranslate"><span class="pre">[offset_i,</span> <span class="pre">offset_i</span> <span class="pre">+</span> <span class="pre">length_i)</span></code> of the central
+directory, with offsets relative to its first byte;</p></li>
+<li><p>the first page starts at 0, each later page starts where the previous one
+ends, and the last page ends where the format entries’ records begin;</p></li>
+<li><p>pages are non-empty and hold whole records;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">first_key</span></code> is the key of a page’s first record, so <code class="docutils literal notranslate"><span class="pre">first_key</span></code> values
+strictly increase in UTF-8 order;</p></li>
+<li><p>if there are no body records, there are no pages.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pinned</span></code> lists zero or more <code class="docutils literal notranslate"><span class="pre">bytes</span></code> entries, other than the format entries,
+with no key listed twice. Pinned entries may be hidden. Each one gives:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">data_offset</span></code>: the entry’s body offset;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">size</span></code> and <code class="docutils literal notranslate"><span class="pre">csize</span></code>: its uncompressed and compressed sizes;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">method</span></code>: its method.</p></li>
+</ul>
+<p>These MUST match the entry’s central directory record. Writers SHOULD pin
+the small entries that readers fetch when opening, such as Zarr metadata
+documents (<a class="reference internal" href="#recommended-layout-informative">§9.2</a>).</p>
+</li>
+</ol>
+</section>
+<section id="lookup">
+<span id="72-lookup"></span><h3>7.2 Lookup<a class="headerlink" href="#lookup" title="Link to this heading">¶</a></h3>
+<p>In an archive with a page index, readers MUST determine whether a key is
+present as follows:</p>
+<ul class="simple">
+<li><p>The format entries are known from the comment (<a class="reference internal" href="#end-of-central-directory-record-and-archive-comment">§3.4</a>).</p></li>
+<li><p>A pinned key is a present <code class="docutils literal notranslate"><span class="pre">bytes</span></code> entry, described by its <code class="docutils literal notranslate"><span class="pre">Pinned</span></code> values.</p></li>
+<li><p>To find any other key <code class="docutils literal notranslate"><span class="pre">k</span></code>, select the last page whose <code class="docutils literal notranslate"><span class="pre">first_key</span></code> is less
+than or equal to <code class="docutils literal notranslate"><span class="pre">k</span></code> in UTF-8 order. If there is no such page, <code class="docutils literal notranslate"><span class="pre">k</span></code> is
+missing. Otherwise <code class="docutils literal notranslate"><span class="pre">k</span></code> is present if and only if that page contains a record
+named <code class="docutils literal notranslate"><span class="pre">k</span></code>.</p></li>
+</ul>
+<p>A reader that reads the whole central directory anyway gets the same result
+for every valid archive. Readers are not required to check that the
+central directory matches <a class="reference internal" href="#layout">§7.1</a> (<a class="reference internal" href="#violations-readers-need-not-detect">§8.6</a>).</p>
+<p>The page index itself is checked at open (<a class="reference internal" href="#opening">§8.1</a>). It is <strong>malformed</strong>, an
+archive error, if any of the following hold:</p>
+<ul class="simple">
+<li><p>it does not decode;</p></li>
+<li><p>a page has length 0, or lies outside the central directory;</p></li>
+<li><p>the pages are not contiguous from offset 0;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">first_key</span></code> values do not strictly increase in UTF-8 order;</p></li>
+<li><p>a page’s <code class="docutils literal notranslate"><span class="pre">first_key</span></code> or a pinned <code class="docutils literal notranslate"><span class="pre">key</span></code> is empty;</p></li>
+<li><p>a pinned key is listed twice or is a format entry;</p></li>
+<li><p>a pinned <code class="docutils literal notranslate"><span class="pre">method</span></code> is not 0 or 8;</p></li>
+<li><p>a pinned body (<code class="docutils literal notranslate"><span class="pre">data_offset</span></code>, <code class="docutils literal notranslate"><span class="pre">csize</span></code>) lies outside the file.</p></li>
+</ul>
+</section>
+</section>
+<section id="reading">
+<span id="8-reading"></span><h2>8. Reading<a class="headerlink" href="#reading" title="Link to this heading">¶</a></h2>
+<section id="opening">
+<span id="81-opening"></span><h3>8.1 Opening<a class="headerlink" href="#opening" title="Link to this heading">¶</a></h3>
+<p>Opening an archive reads and checks the following. Any failure is an
+archive error:</p>
+<ul>
+<li><p><strong>The end records:</strong></p>
+<ul class="simple">
+<li><p>the end of central directory record is found as in <a class="reference internal" href="#end-of-central-directory-record-and-archive-comment">§3.4</a>, and the magic
+is <code class="docutils literal notranslate"><span class="pre">vzip/0</span></code>;</p></li>
+<li><p>the zip64 records are used when, and only when, <a class="reference internal" href="#zip64">§3.2</a> says so; their
+signatures are correct and they lie within the file;</p></li>
+<li><p>the central directory (offset and size) lies within the file.</p></li>
+</ul>
+<p>Here and throughout, “lies within the file” means the region
+<code class="docutils literal notranslate"><span class="pre">[offset,</span> <span class="pre">offset</span> <span class="pre">+</span> <span class="pre">size)</span></code> is inside <code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">file</span> <span class="pre">size]</span></code>. Readers do not check
+whether regions overlap each other or the end records.</p>
+<p>A resource limit (<a class="reference internal" href="#reader-policy">§8.7</a>, <a class="reference internal" href="#security-considerations">§10</a>) reached while opening, for example while
+inflating a format entry, or a source table with more sources than the
+reader allows, is an archive error.</p>
+<p>The same corruption of a central directory record is an archive error in
+an archive without a page index (the whole directory is parsed at open),
+and an entry error, or nothing at all, in one with a page index (only the
+pages that are read are parsed). This is intentional: it is the cost of
+opening large archives without reading their whole directory.</p>
+</li>
+<li><p><strong>The format entries:</strong> the bodies the comment locates lie within the
+file and inflate cleanly (below). Their uncompressed sizes are not checked,
+since readers need not read their records. The source table is valid (<a class="reference internal" href="#source-table">§6</a>). The page index,
+if there is one, is not malformed (<a class="reference internal" href="#lookup">§7.2</a>).</p></li>
+<li><p><strong>The central directory, for an archive without a page index:</strong> it parses
+as a sequence of records, each with the right signature and with its
+variable-length fields inside the directory, ending exactly at its
+declared size.</p>
+<ul class="simple">
+<li><p>A problem confined to a single record’s contents is not an archive
+error. Such problems include its extra field, method or flags, and a
+local header offset of 0xFFFFFFFF without a ZIP64 extra block holding
+the offset; they are entry errors (<a class="reference internal" href="#errors">§8.4</a>), in archives with or without a
+page index.</p></li>
+<li><p>An <code class="docutils literal notranslate"><span class="pre">__vz__/index</span></code> record is an archive error here (<a class="reference internal" href="#page-index-optional">§7</a>).</p></li>
+</ul>
+</li>
+</ul>
+<p>A body <strong>inflates cleanly</strong> if it is a single complete raw DEFLATE stream
+(its final block ends it) and the stream ends exactly at the end of the
+body: no bytes follow it, and none are missing. For a bytes entry it must
+also inflate to the record’s uncompressed size. Some libraries ignore
+trailing bytes by default, so implementations must check for them
+explicitly.</p>
+<p>A reader MAY read more, but MUST NOT report an error at open that this
+section does not list.</p>
+</section>
+<section id="operations">
+<span id="82-operations"></span><h3>8.2 Operations<a class="headerlink" href="#operations" title="Link to this heading">¶</a></h3>
+<p>A conforming reader provides the following operations on an opened archive:</p>
+<ul>
+<li><p><strong>classify(key)</strong> → <code class="docutils literal notranslate"><span class="pre">bytes</span></code> | <code class="docutils literal notranslate"><span class="pre">reference</span></code> | <code class="docutils literal notranslate"><span class="pre">missing</span></code>. Hidden keys
+classify as <code class="docutils literal notranslate"><span class="pre">missing</span></code>. It looks only at the central directory record
+(<a class="reference internal" href="#classification">§4.1</a>), so a reference with a malformed payload still classifies as
+<code class="docutils literal notranslate"><span class="pre">reference</span></code>.</p></li>
+<li><p><strong>get(key, request)</strong> → a byte sequence, <em>missing</em>, or an error. Hidden
+keys are <em>missing</em>. <code class="docutils literal notranslate"><span class="pre">request</span></code> is one of:</p>
+<ul class="simple">
+<li><p><em>whole</em>: the whole value;</p></li>
+<li><p><em>range(start, end)</em> with <code class="docutils literal notranslate"><span class="pre">start</span> <span class="pre">&lt;=</span> <span class="pre">end</span></code>: bytes <code class="docutils literal notranslate"><span class="pre">[min(start,</span> <span class="pre">n),</span> <span class="pre">min(end,</span> <span class="pre">n))</span></code>
+of the value, where <code class="docutils literal notranslate"><span class="pre">n</span></code> is the value’s size;</p></li>
+<li><p><em>offset(start)</em>: bytes <code class="docutils literal notranslate"><span class="pre">[min(start,</span> <span class="pre">n),</span> <span class="pre">n)</span></code>;</p></li>
+<li><p><em>suffix(count)</em>: bytes <code class="docutils literal notranslate"><span class="pre">[max(n</span> <span class="pre">−</span> <span class="pre">count,</span> <span class="pre">0),</span> <span class="pre">n)</span></code>.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">start</span> <span class="pre">&gt;</span> <span class="pre">end</span></code> is a request error, whether or not the key is present.</p>
+</li>
+<li><p><strong>list(prefix)</strong> → every non-hidden present key that starts with <code class="docutils literal notranslate"><span class="pre">prefix</span></code>
+(compared on UTF-8 bytes), sorted in UTF-8 order. The empty prefix lists
+all keys. Keys with entry errors are listed. In an archive with a page
+index, “present” is as defined by <a class="reference internal" href="#lookup">§7.2</a>:</p>
+<ul class="simple">
+<li><p>pinned keys are listed;</p></li>
+<li><p>a record found in a page is listed only if lookup would find it there,
+which in a valid archive is every record;</p></li>
+<li><p>page <code class="docutils literal notranslate"><span class="pre">i</span></code> covers the keys from <code class="docutils literal notranslate"><span class="pre">first_key</span></code> of page <code class="docutils literal notranslate"><span class="pre">i</span></code> up to, but not
+including, <code class="docutils literal notranslate"><span class="pre">first_key</span></code> of page <code class="docutils literal notranslate"><span class="pre">i</span> <span class="pre">+</span> <span class="pre">1</span></code>; the last page has no upper bound;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list(prefix)</span></code> reads every page whose range includes at least one key
+starting with <code class="docutils literal notranslate"><span class="pre">prefix</span></code>, including pages that turn out to hold only
+hidden keys, and fails with an entry error if one of them cannot be
+parsed.</p></li>
+</ul>
+<p>Exactly, with byte strings compared in UTF-8 order: page <code class="docutils literal notranslate"><span class="pre">i</span></code> with range
+<code class="docutils literal notranslate"><span class="pre">[lo,</span> <span class="pre">hi)</span></code> is read if and only if</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">hi</span></code> is absent or <code class="docutils literal notranslate"><span class="pre">prefix</span> <span class="pre">&lt;</span> <span class="pre">hi</span></code>, and</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lo</span> <span class="pre">&lt;=</span> <span class="pre">prefix</span></code>, or <code class="docutils literal notranslate"><span class="pre">lo</span></code> starts with <code class="docutils literal notranslate"><span class="pre">prefix</span></code>.</p></li>
+</ul>
+<p>(Every key starting with <code class="docutils literal notranslate"><span class="pre">prefix</span></code> is at least <code class="docutils literal notranslate"><span class="pre">prefix</span></code>, and the keys
+starting with <code class="docutils literal notranslate"><span class="pre">prefix</span></code> form one contiguous run in UTF-8 order.) Example:
+for pages with first keys <code class="docutils literal notranslate"><span class="pre">a/0</span></code>, <code class="docutils literal notranslate"><span class="pre">a/5</span></code>, <code class="docutils literal notranslate"><span class="pre">b/0</span></code> and the prefix <code class="docutils literal notranslate"><span class="pre">a/</span></code>, the
+first page is read (<code class="docutils literal notranslate"><span class="pre">a/0</span></code> starts with <code class="docutils literal notranslate"><span class="pre">a/</span></code>), and so is the second (<code class="docutils literal notranslate"><span class="pre">a/5</span></code>
+starts with <code class="docutils literal notranslate"><span class="pre">a/</span></code>). The third page is not read: <code class="docutils literal notranslate"><span class="pre">b/0</span></code> doesn’t start with
+<code class="docutils literal notranslate"><span class="pre">a/</span></code>, and <code class="docutils literal notranslate"><span class="pre">a/</span></code> is less than <code class="docutils literal notranslate"><span class="pre">b/0</span></code>.</p>
+<p>A page <strong>cannot be parsed</strong> if it is not a sequence of whole central
+directory records with correct signatures that exactly fills the page.</p>
+</li>
+<li><p><strong>raw(key)</strong> → the inflated body of the key’s entry, or <em>missing</em>. In this
+view every present entry is visible, including hidden and format entries,
+and a reference entry yields its body (empty, or its payload). This is the
+view of a ZIP tool that knows nothing about vzip. The two format entries
+are read through the comment’s offsets and sizes (<a class="reference internal" href="#end-of-central-directory-record-and-archive-comment">§3.4</a>), like everywhere
+else; <code class="docutils literal notranslate"><span class="pre">raw(&quot;__vz__/index&quot;)</span></code> is <em>missing</em> in an archive without a page
+index.</p></li>
+</ul>
+</section>
+<section id="resolving-a-reference">
+<span id="83-resolving-a-reference"></span><h3>8.3 Resolving a reference<a class="headerlink" href="#resolving-a-reference" title="Link to this heading">¶</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">get</span></code> on a reference entry proceeds as follows:</p>
+<ol class="arabic simple">
+<li><p>Decode the payload. If it is malformed (<a class="reference internal" href="#messages">§5</a>), the <code class="docutils literal notranslate"><span class="pre">get</span></code> fails, whatever
+the request.</p></li>
+<li><p>Compute the requested window <code class="docutils literal notranslate"><span class="pre">[a,</span> <span class="pre">b)</span></code> of the value (<a class="reference internal" href="#operations">§8.2</a>).</p></li>
+<li><p>For each range whose bytes overlap <code class="docutils literal notranslate"><span class="pre">[a,</span> <span class="pre">b)</span></code> in a non-empty interval, take
+those bytes from the range:</p>
+<ul class="simple">
+<li><p>A literal range needs no I/O.</p></li>
+<li><p>A source range reads bytes <code class="docutils literal notranslate"><span class="pre">[offset</span> <span class="pre">+</span> <span class="pre">i,</span> <span class="pre">offset</span> <span class="pre">+</span> <span class="pre">j)</span></code> of its source value,
+where <code class="docutils literal notranslate"><span class="pre">[i,</span> <span class="pre">j)</span></code> is the overlap relative to the range’s start. The read is
+a resolution error if the source cannot be resolved (<a class="reference internal" href="#source-table">§6</a>), if the
+reader’s policy refuses it (<a class="reference internal" href="#reader-policy">§8.7</a>), if a pin on the source fails or
+cannot be checked (<a class="reference internal" href="#pins">§6.1</a>), or if the source value is shorter than
+<code class="docutils literal notranslate"><span class="pre">offset</span> <span class="pre">+</span> <span class="pre">j</span></code>.</p></li>
+<li><p>A source range with a <code class="docutils literal notranslate"><span class="pre">crc32c</span></code> (<a class="reference internal" href="#range">§5.2</a>) is read whole, <code class="docutils literal notranslate"><span class="pre">[offset,</span> <span class="pre">offset</span> <span class="pre">+</span> <span class="pre">length)</span></code>, whatever part of it the window needs. If the CRC-32C of the
+bytes read differs from <code class="docutils literal notranslate"><span class="pre">crc32c</span></code>, it is a resolution error. The reader
+returns the window’s part only after the check.</p></li>
+</ul>
+</li>
+<li><p>Ranges that do not overlap the window are not resolved and cause no
+error, even if their source is missing or too short. This includes every
+zero-length range.</p></li>
+</ol>
+<p><strong>Coalescing.</strong> A reader SHOULD combine reads of step 3 that fall in the
+same source value and lie close together into one read that also covers the
+bytes between them, and take each range’s bytes from that read. Otherwise a
+reference made of many short ranges of one object, such as one range per row
+of an image whose rows are padded, costs one request per range. The bytes
+between the ranges are read but never returned. How close counts as “close”
+is up to the reader; the implementations in the specification’s repository
+combine reads at most 64 KiB apart.</p>
+<p>Coalescing never changes the result of a <code class="docutils literal notranslate"><span class="pre">get</span></code>: a combined read ends at the
+end of one of the ranges it covers, so it fails only where that range’s own
+read would. Apart from such gaps, readers SHOULD fetch only the bytes in
+step 3. A reader MUST NOT return bytes for a request it could not resolve
+completely.</p>
+</section>
+<section id="errors">
+<span id="84-errors"></span><h3>8.4 Errors<a class="headerlink" href="#errors" title="Link to this heading">¶</a></h3>
+<p>There are six classes of error. Each says which operations it makes fail.</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>class</p></th>
+<th class="head"><p>causes</p></th>
+<th class="head"><p>effect</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>archive error</strong></p></td>
+<td><p>everything <a class="reference internal" href="#opening">§8.1</a> checks</p></td>
+<td><p>opening fails</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>entry error</strong></p></td>
+<td><p>the key’s record violates <a class="reference internal" href="#classification">§4.1</a> (unparseable extra field, several reference blocks), uses a method other than 0 and 8, has bit 0 set, is a reference entry with method 8 (<a class="reference internal" href="#reference-entries">§4.3</a>), or breaks the ZIP64 block rules (<a class="reference internal" href="#zip64">§3.2</a>); or the page that lookup (<a class="reference internal" href="#lookup">§7.2</a>) selects for the key cannot be parsed. In that last case the key is reported as an entry error even if it isn’t in the page, because the reader cannot tell.</p></td>
+<td><p>classify, get and raw fail for that key; other keys are unaffected</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>body error</strong></p></td>
+<td><p>an entry’s body (<code class="docutils literal notranslate"><span class="pre">[body</span> <span class="pre">offset,</span> <span class="pre">body</span> <span class="pre">offset</span> <span class="pre">+</span> <span class="pre">compressed</span> <span class="pre">size)</span></code>, judged as a whole even for a small window) lies outside the file; a DEFLATE body does not inflate cleanly (<a class="reference internal" href="#opening">§8.1</a>); a STORED entry’s compressed and uncompressed sizes differ. This applies to bytes entries for get and raw, and to reference entries for raw.</p></td>
+<td><p>get and raw of that key fail; a range of a <code class="docutils literal notranslate"><span class="pre">key</span></code> source naming it fails with a resolution error</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>payload error</strong></p></td>
+<td><p>the reference payload is malformed (<a class="reference internal" href="#messages">§5</a>)</p></td>
+<td><p>get fails for that key</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>resolution error</strong></p></td>
+<td><p><a class="reference internal" href="#source-table">§6</a>, <a class="reference internal" href="#pins">§6.1</a>, <a class="reference internal" href="#resolving-a-reference">§8.3</a> step 3, a URL the reader’s policy refuses (<a class="reference internal" href="#reader-policy">§8.7</a>)</p></td>
+<td><p>get fails for the requests that need the range</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>request error</strong></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">start</span> <span class="pre">&gt;</span> <span class="pre">end</span></code>; a request exceeding a resource limit the reader documents (<a class="reference internal" href="#reader-policy">§8.7</a>, <a class="reference internal" href="#security-considerations">§10</a>), such as the requests one get may make</p></td>
+<td><p>that operation fails</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Resource limits are implementation-defined. Conformance suites do not test
+them, and the classes of errors they cause may differ between readers.</p>
+<p>Each operation checks in this order, and reports the first failure. A
+resource limit is the one exception: it may be reported at whatever step the
+reader reaches it.</p>
+<ol class="arabic simple">
+<li><p>the request (request error);</p></li>
+<li><p>whether the key is hidden: hidden keys are <em>missing</em> for classify and get;</p></li>
+<li><p>the lookup of the key’s record, and that record’s entry error;</p></li>
+<li><p>for get of a bytes entry, or raw: the body (body error). A DEFLATE body
+is always inflated and checked in full, even for a small window, so
+corruption anywhere in it is reported. A STORED body is read only within
+the window.</p></li>
+<li><p>for get of a reference: the payload (payload error), then the ranges, in
+order (resolution errors). Payload checks cover every range, including
+zero-length ranges and ranges outside the window: a <code class="docutils literal notranslate"><span class="pre">source</span></code> index out of
+bounds is a payload error even when that range would not be resolved.</p></li>
+</ol>
+</section>
+<section id="error-reporting">
+<span id="85-error-reporting"></span><h3>8.5 Error reporting<a class="headerlink" href="#error-reporting" title="Link to this heading">¶</a></h3>
+<p>A failed operation returns no bytes. A missing key is not an error. Readers
+SHOULD report the class of an error along with its message.</p>
+</section>
+<section id="violations-readers-need-not-detect">
+<span id="86-violations-readers-need-not-detect"></span><h3>8.6 Violations readers need not detect<a class="headerlink" href="#violations-readers-need-not-detect" title="Link to this heading">¶</a></h3>
+<p>For archives that break these writer requirements, reader results are
+unspecified:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="#structure">§3.1</a> rules 1, 2, 4, 5 (except bit 0), 6, 7 and 8: readers use body offsets
+computed from the central directory, need not read local headers, and need
+not verify CRC-32 values. Duplicate names are included here. A reader that
+does verify a CRC-32 and finds a mismatch reports a body error.</p></li>
+<li><p><a class="reference internal" href="#zip64">§3.2</a>: whether ZIP64 structures were used only where needed.</p></li>
+<li><p><a class="reference internal" href="#end-of-central-directory-record-and-archive-comment">§3.4</a> and <a class="reference internal" href="#classification">§4.1</a>: whether the format entries’ records agree with the comment,
+are <code class="docutils literal notranslate"><span class="pre">bytes</span></code> entries, and use method 8.</p></li>
+<li><p><a class="reference internal" href="#reference-entries">§4.3</a>: whether a reference entry’s body is empty or equal to its payload.
+Readers MUST still ignore the body, except in the raw view.</p></li>
+<li><p><a class="reference internal" href="#layout">§7.1</a>: whether the central directory matches the page index (beyond the
+checks in <a class="reference internal" href="#lookup">§7.2</a>), and whether pinned values match their records.</p></li>
+<li><p><a class="reference internal" href="#source-table">§6</a>: whether the source table records the revision (<a class="reference internal" href="#versioning">§1.3</a>).</p></li>
+</ul>
+</section>
+<section id="reader-policy">
+<span id="87-reader-policy"></span><h3>8.7 Reader policy<a class="headerlink" href="#reader-policy" title="Link to this heading">¶</a></h3>
+<p>An archive names the objects its references read, and a reader resolves
+them with whatever access it has: local files, private networks, ambient
+credentials. An archive from an untrusted place could therefore make a
+reader read, and return, data its user never meant to expose. Readers MUST
+apply a <strong>policy</strong> to every <code class="docutils literal notranslate"><span class="pre">url</span></code> source they resolve, and to every URL they
+request on its behalf (redirect targets included). The application chooses
+the policy; this section says what it contains and what readers do with
+it. A URL the policy refuses is a resolution error for the ranges that need
+it; the other limits are resource limits (<a class="reference internal" href="#errors">§8.4</a>).</p>
+<ol class="arabic">
+<li><p><strong>Schemes.</strong> An archive is <strong>local</strong> if its base URI (<a class="reference internal" href="#source-table">§6</a>) has the
+scheme <code class="docutils literal notranslate"><span class="pre">file</span></code>, that is, if it was opened from a local path, and
+<strong>remote</strong> otherwise. Schemes are compared without regard to case. By
+default a reader allows:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">http</span></code> and <code class="docutils literal notranslate"><span class="pre">https</span></code> URLs, for every archive;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">file</span></code> URLs, for a local archive only.</p></li>
+</ul>
+<p>Every other scheme, such as <code class="docutils literal notranslate"><span class="pre">s3</span></code>, <code class="docutils literal notranslate"><span class="pre">gs</span></code> or <code class="docutils literal notranslate"><span class="pre">data</span></code>, is refused unless the
+application allows that scheme. An application MAY also allow <code class="docutils literal notranslate"><span class="pre">file</span></code>
+URLs for a remote archive, but a reader MUST NOT let the setting that
+allows other schemes do it: it is a separate setting, whose name says
+that it is unsafe. So by default a remote archive cannot name
+<code class="docutils literal notranslate"><span class="pre">file:///etc/passwd</span></code>, and no archive can name an <code class="docutils literal notranslate"><span class="pre">s3:</span></code> bucket the reader
+has credentials for.</p>
+</li>
+<li><p><strong>Prefixes.</strong> An application MAY give a list of URL <strong>prefixes</strong>. When it
+does, the list replaces rule 1: a URL is allowed if and only if it
+matches one of the prefixes. A URL <code class="docutils literal notranslate"><span class="pre">u</span></code> matches a prefix <code class="docutils literal notranslate"><span class="pre">p</span></code> if <code class="docutils literal notranslate"><span class="pre">u</span></code> starts
+with <code class="docutils literal notranslate"><span class="pre">p</span></code> (compared as strings, exactly) and either <code class="docutils literal notranslate"><span class="pre">p</span></code> ends with <code class="docutils literal notranslate"><span class="pre">/</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">u</span></code> equals <code class="docutils literal notranslate"><span class="pre">p</span></code>, or the character of <code class="docutils literal notranslate"><span class="pre">u</span></code> after <code class="docutils literal notranslate"><span class="pre">p</span></code> is <code class="docutils literal notranslate"><span class="pre">/</span></code>, <code class="docutils literal notranslate"><span class="pre">?</span></code> or <code class="docutils literal notranslate"><span class="pre">#</span></code>. So
+<code class="docutils literal notranslate"><span class="pre">https://data.example/a</span></code> matches <code class="docutils literal notranslate"><span class="pre">https://data.example/a/x.bin</span></code> but not
+<code class="docutils literal notranslate"><span class="pre">https://data.example/ab</span></code>, and <code class="docutils literal notranslate"><span class="pre">https://data.example</span></code> does not match
+<code class="docutils literal notranslate"><span class="pre">https://data.example.evil.test/</span></code>. A URL whose path holds <code class="docutils literal notranslate"><span class="pre">%2E</span></code>, <code class="docutils literal notranslate"><span class="pre">%2F</span></code>
+or <code class="docutils literal notranslate"><span class="pre">%5C</span></code> (in either case) matches no prefix, since a server may decode
+them into a dot segment or a separator that the comparison did not see.
+Prefixes should be written as resolution produces URLs (<a class="reference internal" href="#source-table">§6</a>), with a
+lowercase scheme and host; a URL that is spelled differently does not
+match, which fails closed. A prefix list does not lift rule 3.</p></li>
+<li><p><strong>Hosts.</strong> An IP address belongs to the first of these classes that
+contains it:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>class</p></th>
+<th class="head"><p>addresses</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>loopback</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">127.0.0.0/8</span></code>, <code class="docutils literal notranslate"><span class="pre">::1/128</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>private</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10.0.0.0/8</span></code>, <code class="docutils literal notranslate"><span class="pre">172.16.0.0/12</span></code>, <code class="docutils literal notranslate"><span class="pre">192.168.0.0/16</span></code>, <code class="docutils literal notranslate"><span class="pre">fc00::/7</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>link-local</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">169.254.0.0/16</span></code>, <code class="docutils literal notranslate"><span class="pre">fe80::/10</span></code> (this includes cloud metadata services)</p></td>
+</tr>
+<tr class="row-odd"><td><p>special</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.0.0.0/8</span></code>, <code class="docutils literal notranslate"><span class="pre">100.64.0.0/10</span></code>, <code class="docutils literal notranslate"><span class="pre">192.0.0.0/24</span></code>, <code class="docutils literal notranslate"><span class="pre">192.0.2.0/24</span></code>, <code class="docutils literal notranslate"><span class="pre">198.18.0.0/15</span></code>, <code class="docutils literal notranslate"><span class="pre">198.51.100.0/24</span></code>, <code class="docutils literal notranslate"><span class="pre">203.0.113.0/24</span></code>, <code class="docutils literal notranslate"><span class="pre">224.0.0.0/3</span></code>; <code class="docutils literal notranslate"><span class="pre">::/8</span></code>, <code class="docutils literal notranslate"><span class="pre">64:ff9b:1::/48</span></code>, <code class="docutils literal notranslate"><span class="pre">100::/63</span></code>, <code class="docutils literal notranslate"><span class="pre">2001::/23</span></code>, <code class="docutils literal notranslate"><span class="pre">2001:db8::/32</span></code>, <code class="docutils literal notranslate"><span class="pre">3fff::/20</span></code>, <code class="docutils literal notranslate"><span class="pre">5f00::/16</span></code>, <code class="docutils literal notranslate"><span class="pre">fec0::/10</span></code>, <code class="docutils literal notranslate"><span class="pre">ff00::/8</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>public</p></td>
+<td><p>every other address</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An IPv6 address that embeds an IPv4 address belongs to that address’s
+class: an IPv4-mapped address (<code class="docutils literal notranslate"><span class="pre">::ffff:0:0/96</span></code>) and a NAT64 address
+(<code class="docutils literal notranslate"><span class="pre">64:ff9b::/96</span></code>) embed their last 32 bits, and a 6to4 address
+(<code class="docutils literal notranslate"><span class="pre">2002::/16</span></code>) the 32 bits after its first 16. So <code class="docutils literal notranslate"><span class="pre">::ffff:127.0.0.1</span></code> is
+loopback. The special class holds the unspecified, shared, reserved,
+documentation, benchmarking, multicast and broadcast ranges. With the
+embedding rule, the non-public classes include every range that the
+IANA special-purpose address registries mark as not globally
+reachable.</p>
+<p>A reader MUST NOT send a request, redirects included, to an address of
+a non-public class, whatever the archive’s own location (a local
+archive, or one on such a host, is no exception), unless the
+application allows <strong>private hosts</strong>. That permission is a setting
+whose name says that it is unsafe, and it allows every class. A refused
+address is a resolution error. The rule applies to the address the
+request is actually sent to, not to the host name in the URL:</p>
+<ul class="simple">
+<li><p>a reader that resolves names itself MUST resolve the name, check each
+address, and connect only to an address it has checked, keeping the
+URL’s host for the <code class="docutils literal notranslate"><span class="pre">Host</span></code> header and the TLS server name (or check
+the connected socket’s peer address before it sends the request). A
+connection kept alive from an earlier request is checked again before
+it is reused. A host that is an IP literal is checked as the address it
+denotes, however it is written: a URL parser that accepts decimal,
+octal or hexadecimal IPv4 forms such as <code class="docutils literal notranslate"><span class="pre">2130706433</span></code> or <code class="docutils literal notranslate"><span class="pre">0x7f.1</span></code>
+yields the address <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>;</p></li>
+<li><p><strong>proxies:</strong> a request sent through a proxy cannot be checked, since
+the proxy connects. While this rule applies, a reader MUST refuse to
+send a request through a proxy (resolution error) unless the
+application allows <strong>unchecked proxies</strong>, a second setting whose name
+says that it is unsafe; the error names that setting. With it, the
+reader checks the addresses the name resolves to where the reader
+runs, which catches literal addresses but not DNS rebinding. A request
+that the reader’s proxy settings exempt (for example through
+<code class="docutils literal notranslate"><span class="pre">no_proxy</span></code>) is sent directly, and checked. When the application allows
+private hosts, the rule does not apply, and proxies are used as
+configured;</p></li>
+<li><p>a reader that cannot see addresses at all (a browser’s <code class="docutils literal notranslate"><span class="pre">fetch</span></code>)
+checks the host as written in the URL, before the request and on the
+final URL after redirects (<a class="reference internal" href="#reading-over-http">§6.2</a>): an IP literal by its class, and
+<code class="docutils literal notranslate"><span class="pre">localhost</span></code> and names under <code class="docutils literal notranslate"><span class="pre">.localhost</span></code> as loopback. For names that
+resolve to other classes, and for redirect hops it cannot see, it
+relies on the platform: browsers that implement Private Network
+Access refuse such requests from public pages unless the private
+server consents. It cannot see the browser’s proxy either.</p></li>
+</ul>
+<p>The archive’s own location is not checked: the application chose it.</p>
+</li>
+<li><p><strong>Sources.</strong> A reader MUST have a maximum number of sources. Opening an
+archive whose source table has more is an archive error.</p></li>
+<li><p><strong>Requests per value.</strong> A reader MUST have a maximum number of reads of
+<code class="docutils literal notranslate"><span class="pre">url</span></code> sources that one <code class="docutils literal notranslate"><span class="pre">get</span></code> may make, counted after coalescing (<a class="reference internal" href="#resolving-a-reference">§8.3</a>),
+with each read counting once however many redirects it follows. A <code class="docutils literal notranslate"><span class="pre">get</span></code>
+that would need more is a request error, reported before any of its
+reads is made.</p></li>
+<li><p><strong>Inflation.</strong> A reader MUST have a maximum size for an inflated format
+entry (<a class="reference internal" href="#data-model">§2</a>), and MUST stop inflating a format entry as soon as its output
+passes that size, so that a small DEFLATE body cannot make it allocate
+more. Passing it is an archive error. A <code class="docutils literal notranslate"><span class="pre">bytes</span></code> entry’s body is bounded
+by the uncompressed size of its record (it must inflate to exactly that,
+<a class="reference internal" href="#opening">§8.1</a>), and readers SHOULD stop inflating it once its output passes that
+size.</p></li>
+<li><p><strong>Unverifiable pins.</strong> An application MAY allow the reader to skip a pin
+that the response’s headers would check (<a class="reference internal" href="#reading-over-http">§6.2</a>) when the reader cannot see
+those headers: a browser reading a cross-origin object whose server does
+not expose <code class="docutils literal notranslate"><span class="pre">Content-Range</span></code>, <code class="docutils literal notranslate"><span class="pre">ETag</span></code> or <code class="docutils literal notranslate"><span class="pre">Last-Modified</span></code>. A pin that the
+reader can check, and that fails, still fails, and every <code class="docutils literal notranslate"><span class="pre">crc32c</span></code> is
+still checked. Without that permission, such a pin fails (<a class="reference internal" href="#pins">§6.1</a>).</p></li>
+</ol>
+<p>The limits of rules 4–6 are implementation-defined, and readers MUST
+document them. The readers in the specification’s repository use these
+defaults:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p></p></th>
+<th class="head"><p>default</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>schemes (rule 1)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">http</span></code> and <code class="docutils literal notranslate"><span class="pre">https</span></code> for every archive, <code class="docutils literal notranslate"><span class="pre">file</span></code> for a local one; no other scheme</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">file</span></code> for a remote archive</p></td>
+<td><p>refused</p></td>
+</tr>
+<tr class="row-even"><td><p>prefixes</p></td>
+<td><p>none (rule 1 applies)</p></td>
+</tr>
+<tr class="row-odd"><td><p>hosts (rule 3)</p></td>
+<td><p>public addresses only, for every archive</p></td>
+</tr>
+<tr class="row-even"><td><p>proxies while rule 3 applies</p></td>
+<td><p>refused</p></td>
+</tr>
+<tr class="row-odd"><td><p>sources per archive</p></td>
+<td><p>4,194,304 (2^22)</p></td>
+</tr>
+<tr class="row-even"><td><p>reads per <code class="docutils literal notranslate"><span class="pre">get</span></code></p></td>
+<td><p>1024</p></td>
+</tr>
+<tr class="row-odd"><td><p>inflated format entry</p></td>
+<td><p>256 MiB</p></td>
+</tr>
+<tr class="row-even"><td><p>unverifiable pins</p></td>
+<td><p>fail</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>They name the unsafe settings <code class="docutils literal notranslate"><span class="pre">allow_files_from_remote_archives</span></code>,
+<code class="docutils literal notranslate"><span class="pre">allow_private_hosts</span></code> and <code class="docutils literal notranslate"><span class="pre">allow_unchecked_proxy</span></code> (Python), and
+<code class="docutils literal notranslate"><span class="pre">allowFilesFromRemoteArchives</span></code>, <code class="docutils literal notranslate"><span class="pre">allowPrivateHosts</span></code> and
+<code class="docutils literal notranslate"><span class="pre">allowUncheckedProxy</span></code> (TypeScript). The reference command-line tool takes
+<code class="docutils literal notranslate"><span class="pre">--allow-private-hosts</span></code>, which the conformance harness passes, since its
+archives’ sources are served over HTTP on the loopback interface.</p>
+</section>
+</section>
+<section id="writing">
+<span id="9-writing"></span><h2>9. Writing<a class="headerlink" href="#writing" title="Link to this heading">¶</a></h2>
+<section id="requirements">
+<span id="91-requirements"></span><h3>9.1 Requirements<a class="headerlink" href="#requirements" title="Link to this heading">¶</a></h3>
+<p>A writer produces an archive from a list of entries (each either bytes or a
+list of ranges) and a source table. It MUST produce a valid archive, and it
+MUST reject its input, producing no archive, if:</p>
+<ul class="simple">
+<li><p>a key is empty, not valid UTF-8, duplicated, or a format entry’s key;</p></li>
+<li><p>a range’s <code class="docutils literal notranslate"><span class="pre">source</span></code> is not less than the number of sources (this includes
+every source range when there are no sources);</p></li>
+<li><p>a <code class="docutils literal notranslate"><span class="pre">url</span></code> source is empty or does not match RFC 3986 <code class="docutils literal notranslate"><span class="pre">URI-reference</span></code>;</p></li>
+<li><p>a <code class="docutils literal notranslate"><span class="pre">key</span></code> source is empty, or names a key that is absent, is a reference
+entry, or is a format entry;</p></li>
+<li><p>a source range of a <code class="docutils literal notranslate"><span class="pre">key</span></code> or <code class="docutils literal notranslate"><span class="pre">data</span></code> source extends past the end of that
+source’s value, that is, <code class="docutils literal notranslate"><span class="pre">offset</span> <span class="pre">+</span> <span class="pre">length</span></code> is greater than the value’s
+size. This includes a zero-length range whose offset is past the end. The
+writer knows these values; <code class="docutils literal notranslate"><span class="pre">url</span></code> sources are not checked;</p></li>
+<li><p>a pin is on a <code class="docutils literal notranslate"><span class="pre">key</span></code> or <code class="docutils literal notranslate"><span class="pre">data</span></code> source, or an <code class="docutils literal notranslate"><span class="pre">etag</span></code> pin is not a strong
+entity tag in double quotes (<a class="reference internal" href="#pins">§6.1</a>);</p></li>
+<li><p>a literal range has a <code class="docutils literal notranslate"><span class="pre">crc32c</span></code> (<a class="reference internal" href="#range">§5.2</a>);</p></li>
+<li><p>a reference payload exceeds 65519 bytes (<a class="reference internal" href="#reference-entries">§4.3</a>);</p></li>
+<li><p>a source range’s <code class="docutils literal notranslate"><span class="pre">offset</span> <span class="pre">+</span> <span class="pre">length</span></code>, or a reference’s total size, exceeds
+2^64 − 1 (<a class="reference internal" href="#range">§5.2</a>, <a class="reference internal" href="#concat">§5.3</a>);</p></li>
+<li><p>a key’s UTF-8 encoding is longer than 65535 bytes;</p></li>
+<li><p>a bytes entry’s uncompressed or compressed size is 0xFFFFFFFF or more
+(<a class="reference internal" href="#structure">§3.1</a> rule 7);</p></li>
+<li><p>a pinned entry is not a bytes entry, is a format entry, or is listed
+twice.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">__vz__/index</span></code> MUST follow every pinned entry: it records their body
+offsets, so writing it earlier would shift them by its own size. The page
+offsets it records are relative to the central directory, which always
+follows every entry, so they don’t constrain where the index goes.</p>
+</section>
+<section id="recommended-layout-informative">
+<span id="92-recommended-layout-informative"></span><h3>9.2 Recommended layout (informative)<a class="headerlink" href="#recommended-layout-informative" title="Link to this heading">¶</a></h3>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span><span class="n">entries</span> <span class="o">...</span><span class="p">]</span>                     <span class="nb">bytes</span> <span class="ow">and</span> <span class="n">reference</span> <span class="n">entries</span>
+<span class="p">[</span><span class="n">__vz__</span><span class="o">/</span><span class="n">sources</span><span class="p">]</span>                  <span class="n">DEFLATE</span>
+<span class="p">[</span><span class="n">pinned</span> <span class="n">entries</span><span class="p">]</span>                  <span class="n">small</span> <span class="n">entries</span> <span class="n">readers</span> <span class="n">fetch</span> <span class="n">when</span> <span class="n">opening</span> <span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">g</span><span class="o">.</span> <span class="n">zarr</span><span class="o">.</span><span class="n">json</span><span class="p">)</span>
+<span class="p">[</span><span class="n">__vz__</span><span class="o">/</span><span class="n">index</span><span class="p">]</span>                    <span class="k">if</span> <span class="n">paged</span>
+<span class="p">[</span><span class="n">central</span> <span class="n">directory</span><span class="p">]</span>
+<span class="p">[</span><span class="n">zip64</span> <span class="n">end</span> <span class="n">records</span><span class="p">]</span>               <span class="k">if</span> <span class="n">needed</span>
+<span class="p">[</span><span class="n">end</span> <span class="n">of</span> <span class="n">central</span> <span class="n">directory</span> <span class="o">+</span> <span class="n">vzip</span> <span class="n">comment</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>With this layout a reader can open an archive with two range requests. It
+reads the last 64 KiB, which holds the end records and comment, and then the
+bytes from <code class="docutils literal notranslate"><span class="pre">sources_offset</span></code> to the end of the index (for a paged archive) or
+to the end of the file (for an unpaged one).</p>
+<p>For reproducible output, writers SHOULD use the DOS date 1980-01-01 00:00 and
+“version made by” 20, and SHOULD use “version needed to extract” 45 for
+records with a ZIP64 extra field and 20 otherwise. Readers MUST NOT depend on
+any of these values.</p>
+</section>
+</section>
+<section id="security-considerations">
+<span id="10-security-considerations"></span><h2>10. Security considerations<a class="headerlink" href="#security-considerations" title="Link to this heading">¶</a></h2>
+<ul>
+<li><p>A reader resolves the URLs an archive names with the reader’s own access.
+The policy of <a class="reference internal" href="#reader-policy">§8.7</a> limits what that access reaches by default:</p>
+<ul class="simple">
+<li><p>a remote archive cannot read local files, and no archive can use other
+schemes, such as an <code class="docutils literal notranslate"><span class="pre">s3:</span></code> bucket the reader holds credentials for
+(rule 1);</p></li>
+<li><p>no archive, local or remote, can reach loopback, private, link-local
+(which includes cloud metadata services) or other special addresses
+(rule 3). A reader that resolves names checks the address it connects
+to, so DNS rebinding does not get past the check, and it does not send
+requests through a proxy, whose connections it cannot check.</p></li>
+</ul>
+<p>It does not cover:</p>
+<ul class="simple">
+<li><p>public hosts: any archive can make the reader send requests to any
+public host. The requests carry no credentials of the reader’s, but
+they reveal that the archive was read;</p></li>
+<li><p>readers that cannot see addresses: a browser checks hosts written as
+IP literals or <code class="docutils literal notranslate"><span class="pre">localhost</span></code>, and relies on Private Network Access for
+names that resolve to private addresses and for redirect hops;</p></li>
+<li><p>applications that set an unsafe setting. With unchecked proxies, a
+name that resolves to a public address where the reader runs, and to
+a private one where the proxy runs, is not detected. With private
+hosts, an archive from an untrusted place, local files included, can
+send requests to services on the reader’s machine and network; an
+application that needs private hosts for some archives SHOULD give
+those a prefix list (rule 2) as well.</p></li>
+</ul>
+<p>Applications that read archives from untrusted places SHOULD give a
+prefix list (<a class="reference internal" href="#reader-policy">§8.7</a> rule 2).</p>
+</li>
+<li><p>One reference can name thousands of ranges, and a source table millions
+of sources; the limits of <a class="reference internal" href="#reader-policy">§8.7</a> bound the requests one <code class="docutils literal notranslate"><span class="pre">get</span></code> makes and the
+memory an archive takes to open.</p></li>
+<li><p>Keys are not file names. Tools that extract an archive to disk MUST NOT
+trust keys such as <code class="docutils literal notranslate"><span class="pre">../x</span></code> or <code class="docutils literal notranslate"><span class="pre">/etc/passwd</span></code>.</p></li>
+<li><p>A reference can describe a value of up to 2^64 − 1 bytes, and a DEFLATE
+body can expand greatly. Readers SHOULD bound the memory a single request
+can use, and document the bound; a request beyond it is a request error.</p></li>
+<li><p>Pins (<a class="reference internal" href="#pins">§6.1</a>) and range checksums (<a class="reference internal" href="#range">§5.2</a>) detect accidental replacement of
+a referenced object, not tampering: the archive itself is not signed, a
+<code class="docutils literal notranslate"><span class="pre">modified_not_after</span></code> pin cannot see a rewrite within the same second, and
+CRC-32C is not a cryptographic hash.</p></li>
+</ul>
+</section>
+<section id="appendix-a-complete-schema">
+<h2>Appendix A: Complete schema<a class="headerlink" href="#appendix-a-complete-schema" title="Link to this heading">¶</a></h2>
+<div class="highlight-proto notranslate"><div class="highlight"><pre><span></span><span class="k">syntax</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">"proto3"</span><span class="p">;</span>
+<span class="kn">package</span><span class="w"> </span><span class="nn">vzip.v0</span><span class="p">;</span>
+
+<span class="kd">message</span><span class="w"> </span><span class="nc">Range</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kt">uint32</span><span class="w"> </span><span class="na">source</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">  </span><span class="k">reserved</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span>
+<span class="w">  </span><span class="kt">uint64</span><span class="w"> </span><span class="na">offset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span>
+<span class="w">  </span><span class="kt">uint64</span><span class="w"> </span><span class="na">length</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span>
+<span class="w">  </span><span class="k">optional</span><span class="w"> </span><span class="kt">bytes</span><span class="w"> </span><span class="na">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span>
+<span class="w">  </span><span class="k">optional</span><span class="w"> </span><span class="kt">uint32</span><span class="w"> </span><span class="na">crc32c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">6</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">message</span><span class="w"> </span><span class="nc">Concat</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">repeated</span><span class="w"> </span><span class="n">Range</span><span class="w"> </span><span class="na">parts</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">message</span><span class="w"> </span><span class="nc">Source</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">oneof</span><span class="w"> </span><span class="n">kind</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="na">url</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="na">key</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">bytes</span><span class="w">  </span><span class="na">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="w">  </span><span class="k">optional</span><span class="w"> </span><span class="kt">uint64</span><span class="w"> </span><span class="na">size</span><span class="w">               </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span>
+<span class="w">  </span><span class="k">optional</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="na">etag</span><span class="w">               </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span>
+<span class="w">  </span><span class="k">optional</span><span class="w"> </span><span class="kt">int64</span><span class="w">  </span><span class="na">modified_not_after</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">6</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">message</span><span class="w"> </span><span class="nc">SourceTable</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">repeated</span><span class="w"> </span><span class="n">Source</span><span class="w"> </span><span class="na">sources</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">  </span><span class="k">optional</span><span class="w"> </span><span class="kt">uint32</span><span class="w"> </span><span class="na">revision</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">message</span><span class="w"> </span><span class="nc">CdIndex</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kd">message</span><span class="w"> </span><span class="nc">Page</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="na">first_key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">uint64</span><span class="w"> </span><span class="na">offset</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">uint64</span><span class="w"> </span><span class="na">length</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="w">  </span><span class="kd">message</span><span class="w"> </span><span class="nc">Pinned</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="na">key</span><span class="w">         </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">uint64</span><span class="w"> </span><span class="na">data_offset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">uint64</span><span class="w"> </span><span class="na">size</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">uint64</span><span class="w"> </span><span class="na">csize</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">uint32</span><span class="w"> </span><span class="na">method</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="w">  </span><span class="k">repeated</span><span class="w"> </span><span class="n">Page</span><span class="w">   </span><span class="na">pages</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">  </span><span class="k">repeated</span><span class="w"> </span><span class="n">Pinned</span><span class="w"> </span><span class="na">pinned</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="appendix-b-constants">
+<h2>Appendix B: Constants<a class="headerlink" href="#appendix-b-constants" title="Link to this heading">¶</a></h2>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>name</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>single-range extra ID</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0x7A76</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>concat extra ID</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0x7A77</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>reserved prefix</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">__vz__/</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>source table key</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">__vz__/sources</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>page index key</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">__vz__/index</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>comment magic</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">vzip/0</span></code> (6 bytes)</p></td>
+</tr>
+<tr class="row-even"><td><p>comment lengths</p></td>
+<td><p>22 (no page index), 38 (page index)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          
+          
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; the refkv authors
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">vzip: a ZIP container for byte-range references</a><ul>
+<li><a class="reference internal" href="#introduction">1. Introduction</a><ul>
+<li><a class="reference internal" href="#conventions">1.1 Conventions</a></li>
+<li><a class="reference internal" href="#conformance">1.2 Conformance</a></li>
+<li><a class="reference internal" href="#versioning">1.3 Versioning</a></li>
+<li><a class="reference internal" href="#prior-work-informative">1.4 Prior work (informative)</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#data-model">2. Data model</a></li>
+<li><a class="reference internal" href="#zip-container">3. ZIP container</a><ul>
+<li><a class="reference internal" href="#structure">3.1 Structure</a></li>
+<li><a class="reference internal" href="#zip64">3.2 ZIP64</a></li>
+<li><a class="reference internal" href="#keys">3.3 Keys</a></li>
+<li><a class="reference internal" href="#end-of-central-directory-record-and-archive-comment">3.4 End of central directory record and archive comment</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#entries">4. Entries</a><ul>
+<li><a class="reference internal" href="#classification">4.1 Classification</a></li>
+<li><a class="reference internal" href="#bytes-entries">4.2 Bytes entries</a></li>
+<li><a class="reference internal" href="#reference-entries">4.3 Reference entries</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#messages">5. Messages</a><ul>
+<li><a class="reference internal" href="#encoding">5.1 Encoding</a></li>
+<li><a class="reference internal" href="#range">5.2 Range</a></li>
+<li><a class="reference internal" href="#concat">5.3 Concat</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#source-table">6. Source table</a><ul>
+<li><a class="reference internal" href="#pins">6.1 Pins</a></li>
+<li><a class="reference internal" href="#reading-over-http">6.2 Reading over HTTP</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#page-index-optional">7. Page index (optional)</a><ul>
+<li><a class="reference internal" href="#layout">7.1 Layout</a></li>
+<li><a class="reference internal" href="#lookup">7.2 Lookup</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#reading">8. Reading</a><ul>
+<li><a class="reference internal" href="#opening">8.1 Opening</a></li>
+<li><a class="reference internal" href="#operations">8.2 Operations</a></li>
+<li><a class="reference internal" href="#resolving-a-reference">8.3 Resolving a reference</a></li>
+<li><a class="reference internal" href="#errors">8.4 Errors</a></li>
+<li><a class="reference internal" href="#error-reporting">8.5 Error reporting</a></li>
+<li><a class="reference internal" href="#violations-readers-need-not-detect">8.6 Violations readers need not detect</a></li>
+<li><a class="reference internal" href="#reader-policy">8.7 Reader policy</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#writing">9. Writing</a><ul>
+<li><a class="reference internal" href="#requirements">9.1 Requirements</a></li>
+<li><a class="reference internal" href="#recommended-layout-informative">9.2 Recommended layout (informative)</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#security-considerations">10. Security considerations</a></li>
+<li><a class="reference internal" href="#appendix-a-complete-schema">Appendix A: Complete schema</a></li>
+<li><a class="reference internal" href="#appendix-b-constants">Appendix B: Constants</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/scripts/furo.js?v=46bd48cc"></script>
+    </body>
+</html>
