@@ -1004,9 +1004,10 @@ fn grib_decode<'py>(py: Python<'py>, chunk: &[u8], config: &str, chunk_shape: Ve
 /// JSON. Raises NoCodec for parameters the format's section rejects, Rejected for an input a host
 /// rule rejects, ValueError for parameters that are not the routine's.
 #[pyfunction]
-fn coding(name: &str, params: &str) -> PyResult<String> {
-    let p: serde_json::Value = serde_json::from_str(params).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    match refkv_ir::routines::call(name, &p) {
+fn coding(py: Python<'_>, name: &str, params: &str) -> PyResult<String> {
+    // without the GIL: a host rule may take a whole listing
+    let r = py.detach(|| serde_json::from_str::<serde_json::Value>(params).map(|p| refkv_ir::routines::call(name, &p)));
+    match r.map_err(|e| PyValueError::new_err(e.to_string()))? {
         Ok(v) => Ok(v.to_string()),
         Err(refkv_ir::routines::Refused::NoCodec(m)) => Err(NoCodec::new_err(m)),
         Err(refkv_ir::routines::Refused::Bad(m)) => Err(PyValueError::new_err(m)),
