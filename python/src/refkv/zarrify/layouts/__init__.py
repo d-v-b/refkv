@@ -45,7 +45,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 from refkv.entries import (
-    CRC_FIELD,
     MAX_PAYLOAD,
     MIRROR,
     chunk_coords,
