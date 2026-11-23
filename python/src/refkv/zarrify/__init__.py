@@ -332,6 +332,10 @@ def is_store(location: str) -> bool:
     whose path ends in `/`, or a local directory, by its path or its `file:` URL (the core's
     `refkv_ir::host::input`, under the default policy's `file:` rules)."""
     try:
+        location.encode("utf-8")
+    except UnicodeEncodeError:  # a local path not in UTF-8 (surrogate-escaped), which no URL is
+        return Path(location).is_dir()
+    try:
         r = _host_rule("input", location=location, windows=os.name == "nt", allow_file_hosts=False)
     except ValueError:  # a `file:` URL that names no local path: read as a file, which fails there
         return False

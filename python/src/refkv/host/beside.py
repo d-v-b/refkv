@@ -87,6 +87,10 @@ def split_input(location: str, title: str = "VSI") -> tuple[str, str]:
     a URL the directory is the URL up to its last `/` and the key the last segment,
     percent-decoded; for a local path, its directory (empty for a bare name) and its name. The
     core's rule (`refkv_ir::host::split_input`)."""
+    try:
+        location.encode("utf-8")
+    except UnicodeEncodeError:  # a local path not in UTF-8 (surrogate-escaped), which no JSON holds:
+        return os.path.split(location)  # the core's local rule is os.path.split's twin
     d, key = rule("split_input", location=location, title=title, windows=os.name == "nt")
     return d, key
 

@@ -36,9 +36,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import itertools
 import json
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -249,8 +250,13 @@ class StoreIrOutput:
                 # (no interning, for millions of chunks) writes the same table, one source per
                 # reference in order of the entries' keys, its size pinned
                 keys = sorted(self.refs, key=lambda k: k.encode())
-                urls = object_urls(self.url, [whole[k] for k in keys])
-                w.add_url_refs(((k, u, self.sizes[whole[k]]) for k, u in zip(keys, urls, strict=True)), pin_size=True)
+                # the URLs made a batch at a time, so that millions of chunks are never all in memory
+                def url_refs() -> Iterator[tuple[str, str, int]]:
+                    for batch in itertools.batched(keys, 1 << 16):
+                        urls = object_urls(self.url, [whole[k] for k in batch])
+                        yield from ((k, u, self.sizes[whole[k]]) for k, u in zip(batch, urls, strict=True))
+
+                w.add_url_refs(url_refs(), pin_size=True)
             else:
                 objects, data, refs = self._numbered()
                 for i, (k, u) in enumerate(zip(objects, object_urls(self.url, objects), strict=True)):
