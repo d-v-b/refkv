@@ -30,7 +30,8 @@ impl PyOmeImage {
     }
     /// The ranges of the file the image samples for its `omero` windows
     /// (`project::ome_image_reads`), `(offset, length)`, which the caller reads and gives
-    /// `image`; or Rejected where refkv's plan rejects the input.
+    /// `image`; or Rejected where refkv's plan rejects the input, and Failed for a failure of
+    /// refkv's.
     fn reads(&self, py: Python<'_>) -> PyResult<Vec<(u64, u64)>> {
         py.detach(|| refkv_ir::project::ome_image_reads(self.profile, &self.ir, &self.description)).map_err(refused)
     }

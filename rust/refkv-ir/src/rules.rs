@@ -133,8 +133,8 @@ impl Rules {
                 for c in r.get("constraints").and_then(|c| c.as_array()).into_iter().flatten() {
                     let req = c["require"].as_str().ok_or_else(|| Error::Internal(format!("{name}: a constraint lacks require")))?;
                     let msg = c["message"].as_str().ok_or_else(|| Error::Internal(format!("{name}: a constraint lacks message")))?;
-                    // a limit's constraint declares it (`"kind": "budget"`), so that its rejection is a
-                    // `crate::error::Error::Budget`
+                    // a limit's constraint declares it (`"kind": "budget"`), its message without the
+                    // `budget: ` that its rejection, a `crate::error::Error::Budget`, puts before it
                     let budget = c.get("kind").and_then(J::as_str) == Some("budget");
                     constraints.push((expr::parse(req).map_err(|e| Error::Internal(format!("{name}: {e}")))?, msg.to_string(), budget));
                 }
@@ -182,7 +182,7 @@ impl Rules {
             let scope = Layered(&*env, &self.consts);
             if !expr::eval(e, &scope).truthy() {
                 let m = format(msg, &scope);
-                return Err(if *budget { Error::Budget(m) } else { Error::Rejected(m) });
+                return Err(if *budget { Error::budget(m) } else { Error::Rejected(m) });
             }
         }
         Ok(())
@@ -208,4 +208,32 @@ pub fn flag(b: bool) -> V {
 
 pub fn text(s: &str) -> V {
     V::Str(s.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    /// A limit's message is written without `budget: `, which its rejection (`Error::budget`)
+    /// puts before it: no schema's message starts with it, and every constraint that names a kind
+    /// names `budget`.
+    #[test]
+    fn a_limit_declares_its_kind_and_not_its_prefix() {
+        let mut budgets = 0;
+        for (name, text) in super::SCHEMAS {
+            let json: serde_json::Value = serde_json::from_str(text).unwrap();
+            for (role, r) in json["roles"].as_object().into_iter().flatten() {
+                for c in r["constraints"].as_array().into_iter().flatten() {
+                    let message = c["message"].as_str().unwrap_or("");
+                    assert!(!message.starts_with("budget:"), "{name} {role}: {message}");
+                    match c.get("kind") {
+                        None => {}
+                        Some(k) => {
+                            assert_eq!(k, "budget", "{name} {role}");
+                            budgets += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(budgets > 0);
+    }
 }

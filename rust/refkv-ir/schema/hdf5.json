@@ -43,19 +43,19 @@
       "about": "the walk (spec/zarrify/hdf5.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#83-checks>), after each level",
       "given": {"objects": "the objects reached so far", "depth": "the levels walked", "more": "the next level has objects"},
       "constraints": [
-        {"require": "objects <= max_objects", "message": "budget: more than {max_objects} objects", "kind": "budget"},
-        {"require": "!more || depth < walk_depth", "message": "budget: objects more than {walk_depth} links deep", "kind": "budget"}
+        {"require": "objects <= max_objects", "message": "more than {max_objects} objects", "kind": "budget"},
+        {"require": "!more || depth < walk_depth", "message": "objects more than {walk_depth} links deep", "kind": "budget"}
       ]
     },
     "storage": {
       "about": "the bytes of a dataset of strings or references, which the profile reads",
       "given": {"bytes": "its elements' bytes"},
-      "constraints": [{"require": "bytes <= max_storage_bytes", "message": "budget: a dataset of strings or references of more than {max_storage_bytes} bytes", "kind": "budget"}]
+      "constraints": [{"require": "bytes <= max_storage_bytes", "message": "a dataset of strings or references of more than {max_storage_bytes} bytes", "kind": "budget"}]
     },
     "strings": {
       "about": "the strings of the datasets presented",
       "given": {"strings": "the strings so far"},
-      "constraints": [{"require": "strings <= max_strings", "message": "budget: more than {max_strings} strings", "kind": "budget"}]
+      "constraints": [{"require": "strings <= max_strings", "message": "more than {max_strings} strings", "kind": "budget"}]
     }
   }
 }

@@ -108,14 +108,14 @@ fn unread(key: &str, n: u64) -> Option<String> {
 /// Each candidate's document as the description gives it (spec/zarrify/zarr3.md
 /// §7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#76-the-description>): its
 /// JSON as parsed, or why it does not parse, or why it was not read.
-fn candidates_described(cands: &[String], docs: &HashMap<String, crate::error::Res<Vec<u8>>>) -> Vec<J> {
+fn candidates_described(cands: &[String], docs: &HashMap<String, crate::error::Res<Vec<u8>>>) -> Res<Vec<J>> {
     cands.iter().map(|p| match docs.get(p) {
-        Some(Ok(b)) => match json::parse(b) {
+        Some(Ok(b)) => Ok(match json::parse(b) {
             Ok(d) => json!({"path": p, "json": d.value.text()}),
             Err(e) => json!({"path": p, "error": format!("{}: {e}", doc_key(p))}),
-        },
-        Some(Err(why)) => json!({"path": p, "unread": why.to_string()}),
-        None => json!({"path": p, "unread": format!("internal: {} was not read", doc_key(p))}),
+        }),
+        Some(Err(why)) => Ok(json!({"path": p, "unread": why.to_string()})),
+        None => Err(Error::internal(format!("{} was not read", doc_key(p)))),
     }).collect()
 }
 
@@ -242,7 +242,7 @@ impl StoreParser for Zarr3Store {
         }
         let held = held(&self.cands, &docs);
         let documents: Vec<String> = held.keys().map(|p| doc_key(p)).collect();
-        let description = json!({"form": "store", "profile": PROFILE, "candidates": candidates_described(&self.cands, &docs), "documents": documents});
+        let description = json!({"form": "store", "profile": PROFILE, "candidates": candidates_described(&self.cands, &docs)?, "documents": documents});
         let layouts = layouts(&self.cands, &docs);
         let Zarr3Store { mut ir, objects, keys, docs: read, .. } = *self;
         let index: HashMap<&str, usize> = read.iter().map(|(p, k)| (p.as_str(), *k)).collect();
@@ -535,7 +535,7 @@ impl Zarr3Zip {
         }
         let documents: Vec<String> = held.keys().map(|p| doc_key(p)).collect();
         let description = json!({
-            "form": "zip", "profile": PROFILE, "candidates": candidates_described(&self.cands, &self.docs), "documents": documents,
+            "form": "zip", "profile": PROFILE, "candidates": candidates_described(&self.cands, &self.docs)?, "documents": documents,
             "objects": objects, "compressed": compressed, "ignored": self.ignored,
             "counts": {"entries": self.entries.len(), "objects": self.objects.len(), "superseded": self.superseded, "emptyObjects": empty},
         });

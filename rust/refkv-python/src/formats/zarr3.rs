@@ -22,7 +22,7 @@ impl PyZarr {
     /// The Zarr convention's hierarchy but for refkv's declarations and its `refkv_source/`
     /// objects (`project::zarr2::hierarchy`, `project::zarr3::hierarchy`): its nodes as JSON, each
     /// its path, kind and source metadata `S` as JSON text, and its documents and chunks in
-    /// `out_py`'s form (the url empty); or Rejected.
+    /// `out_py`'s form (the url empty); or Rejected, and Failed for a failure of refkv's.
     fn hierarchy<'py>(&self, py: Python<'py>) -> PyResult<(String, Bound<'py, PyAny>)> {
         let (nodes, out) = py
             .detach(|| if self.version == 3 {

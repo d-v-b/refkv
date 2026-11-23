@@ -165,7 +165,7 @@ macro_rules! reject {
                 zip(&std::fs::read(&path).unwrap()).map(|_| ())
             };
             match got {
-                Err(m) => assert_eq!(m, $msg),
+                Err(m) => assert_eq!(m.to_string(), $msg),
                 Ok(_) => panic!("{} was accepted", $file),
             }
         }

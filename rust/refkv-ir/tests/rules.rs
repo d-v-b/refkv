@@ -67,6 +67,7 @@ const SCHEMA: &str = r#"{
     "thing": {
       "derive": {"allowed": "at(kinds, kind)", "twice": "n * 2"},
       "constraints": [
+        {"require": "n < 100", "message": "{n} things, more than 99", "kind": "budget"},
         {"require": "in(type, allowed)", "message": "type {type} is not {kind}"},
         {"require": "twice <= max", "message": "{n} is more than half of {max}"}
       ]
@@ -82,6 +83,9 @@ fn roles_derive_then_check_in_order() {
         (3.0, 5.0, Err(refkv_ir::error::Error::rejected("type 3 is not a"))),
         (2.0, 6.0, Err(refkv_ir::error::Error::rejected("6 is more than half of 10"))),
         (3.0, 6.0, Err(refkv_ir::error::Error::rejected("type 3 is not a"))), // the first constraint that fails
+        // a limit's constraint (`"kind": "budget"`) rejects with a budget, its message after `budget: `
+        (1.0, -100.0, Ok(())),
+        (1.0, 100.0, Err(refkv_ir::error::Error::Budget("budget: 100 things, more than 99".into()))),
     ];
     for (t, n, want) in cases {
         let mut env = rules::env([("type", rules::num(t)), ("n", rules::num(n)), ("kind", rules::text("a"))]);

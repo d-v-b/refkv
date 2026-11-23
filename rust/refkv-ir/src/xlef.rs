@@ -355,7 +355,7 @@ impl Xlef {
         let mut asked = Vec::new();
         for f in &mut self.lofs {
             while !f.done {
-                match f.parser.step().map_err(|m| format!("the LOF {:?}: {m}", f.key))? {
+                match f.parser.step().map_err(|e| e.context(|m| format!("the LOF {:?}: {m}", f.key)))? {
                     Step::Read(r) => {
                         asked.extend(r.into_iter().map(|(o, n)| (f.index, o, n)));
                         break;

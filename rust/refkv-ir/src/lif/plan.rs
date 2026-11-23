@@ -554,7 +554,7 @@ pub fn plan_set(d: &J) -> crate::error::Res<J> {
         let key = l["key"].as_str().unwrap_or("");
         let entry = &docs[n(&l["document"]) as usize]["entries"][0];
         let offset = integer(entry["offset"].as_str()).unwrap_or(0);
-        let (images, _) = images(&l["description"], offset).map_err(|m| format!("the LOF {key:?}: {m}"))?;
+        let (images, _) = images(&l["description"], offset).map_err(|e| e.context(|m| format!("the LOF {key:?}: {m}")))?;
         planned.push(images);
     }
     // each LOF against the Block that names it

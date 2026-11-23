@@ -83,7 +83,7 @@
       "given": {"key": "its key", "size": "its size", "total": "the size of the documents so far"},
       "constraints": [
         {"require": "size <= max_document", "message": "the document \"{key}\" of {size} bytes is longer than 2^27 bytes"},
-        {"require": "total <= max_documents", "message": "budget: the documents are more than 2^28 bytes", "kind": "budget"}
+        {"require": "total <= max_documents", "message": "the documents are more than 2^28 bytes", "kind": "budget"}
       ]
     },
     "document": {

@@ -445,7 +445,7 @@ impl Hdf5 {
                 Ok(())
             })();
             let r = r.map_err(|f| match f {
-                Fail::Bad(m) => Fail::Bad(Error::rejected(format!("{}: {m}", self.path(at)))),
+                Fail::Bad(m) => Fail::Bad(m.context(|m| format!("{}: {m}", self.path(at)))),
                 f => f,
             });
             acc.take(r);
@@ -667,7 +667,7 @@ impl Hdf5 {
 
     /// The attributes of an object, in ascending byte order of their names: each one's name, and
     /// its datatype, dimensions and value, or that it is shared, or why it does not read.
-    fn attributes_description(&self, attrs: &super::Attrs) -> J {
+    fn attributes_description(&self, attrs: &super::Attrs) -> R<J> {
         let mut list: Vec<&super::Attr> = attrs.list.iter().collect();
         list.sort_by(|a, b| a.name.cmp(&b.name));
         let mut out = Vec::with_capacity(list.len());
@@ -709,7 +709,8 @@ impl Hdf5 {
             if let Err(f) = r {
                 let m = match f {
                     Fail::Bad(m) => m,
-                    Fail::Miss => "internal: an attribute's message is not read".into(),
+                    // its bytes were read with the header's: a bug, not a reason to record
+                    Fail::Miss => return Err(Fail::Bad(Error::internal("an attribute's message is not read"))),
                 };
                 e = Map::new();
                 e.insert("name".into(), json!(name));
@@ -717,7 +718,7 @@ impl Hdf5 {
             }
             out.push(J::Object(e));
         }
-        J::Array(out)
+        Ok(J::Array(out))
     }
 
     /// An object of the file as the description gives it: its address, the segments of its
@@ -740,7 +741,7 @@ impl Hdf5 {
         o.insert("segments".into(), J::Array(segs.iter().map(|s| text_json(s)).collect()));
         o.insert("kind".into(), json!(kind));
         let attrs = self.h.attributes(at)?;
-        o.insert("attributes".into(), self.attributes_description(&attrs));
+        o.insert("attributes".into(), self.attributes_description(&attrs)?);
         if group {
             let links = self.h.links(at)?;
             let mut list: Vec<&(Vec<u8>, Target)> = links.list.iter().collect();
@@ -874,7 +875,7 @@ impl Hdf5 {
         }
         if let Some(b) = self.storage.get(&at) {
             let values = match present(&dt) {
-                Ok(Present::Strings) => self.string_spans(at, b),
+                Ok(Present::Strings) => self.string_spans(at, b)?,
                 Ok(Present::Records(fields)) => match self.record_texts(at, &fields, b, dt.size) {
                     Ok(texts) => json!({"elements": hex(b), "texts": texts}),
                     Err(Fail::Bad(m)) => json!({"invalid": m.to_string()}),
@@ -920,7 +921,7 @@ impl Hdf5 {
     /// The strings of a dataset of variable-length strings (its elements' bytes `b`): each one's
     /// (offset, length) in the file, (0, 0) for an empty one, and their count; or why one does not
     /// read.
-    fn string_spans(&self, at: u64, b: &[u8]) -> J {
+    fn string_spans(&self, at: u64, b: &[u8]) -> R<J> {
         let base = self.h.src.base;
         let r = (|| -> R<Vec<J>> {
             let mut spans = Vec::with_capacity(b.len() / 8);
@@ -942,9 +943,10 @@ impl Hdf5 {
             Ok(spans)
         })();
         match r {
-            Ok(spans) => json!({"spans": spans, "count": b.len() / 16}),
-            Err(Fail::Bad(m)) => json!({"invalid": m.to_string()}),
-            Err(Fail::Miss) => json!({"invalid": "internal: a string's heap is not read"}),
+            Ok(spans) => Ok(json!({"spans": spans, "count": b.len() / 16})),
+            Err(Fail::Bad(m)) => Ok(json!({"invalid": m.to_string()})),
+            // the heaps were read before: a bug, not a reason to record
+            Err(Fail::Miss) => Err(Fail::Bad(Error::internal("a string's heap is not read"))),
         }
     }
 

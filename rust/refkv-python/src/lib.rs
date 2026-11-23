@@ -651,7 +651,7 @@ impl PyMirror {
     /// The mirror under `refkv_source` (`out_py`'s form, the url empty), with what the input's
     /// convention records beside it from the run's description, the keys and directories a listing
     /// ignored (`run::mirrored`, `store::mirrored`: what the built-in output writes there, but
-    /// for a store's objects); or Rejected.
+    /// for a store's objects); or Rejected, and Failed for a failure of refkv's.
     fn entries<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let o = py.detach(|| {
             let mut o = refkv_ir::out::Out::new("");
@@ -799,7 +799,7 @@ impl PyStoreRun {
 /// The rebuild of a store's mirror (conventions §8.9
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>) from an archive's
 /// entries (`get(key)`: bytes or None): every object as (key, size, bytes), the bytes of a held
-/// object rebuilt from its leaves, None for a referenced or empty one; or Rejected.
+/// object rebuilt from its leaves, None for a referenced or empty one; or Rejected, and Failed for a failure of refkv's.
 #[pyfunction]
 #[allow(clippy::type_complexity)]
 fn rebuild_store<'py>(py: Python<'py>, get: Bound<'py, PyAny>) -> PyResult<Vec<(String, u64, Option<Bound<'py, PyBytes>>)>> {

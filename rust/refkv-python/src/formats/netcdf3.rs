@@ -19,7 +19,7 @@ pub struct PyNetcdf3 {
 impl PyNetcdf3 {
     /// The netCDF3 convention's hierarchy (`project::netcdf3::hierarchy`): its nodes as JSON, its
     /// documents and chunks in `out_py`'s form (the url empty) but for the edge chunks it copies,
-    /// and those, each `(key, offset, length, padding)` of the file; or Rejected.
+    /// and those, each `(key, offset, length, padding)` of the file; or Rejected, and Failed for a failure of refkv's.
     #[allow(clippy::type_complexity)]
     fn hierarchy<'py>(&self, py: Python<'py>) -> PyResult<(String, Bound<'py, PyAny>, Vec<(String, u64, u64, u64)>)> {
         let (nodes, out, copies) = py
