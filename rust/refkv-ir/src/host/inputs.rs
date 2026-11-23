@@ -61,6 +61,10 @@ pub fn input(location: &str, windows: bool, allow_file_hosts: bool) -> Result<In
 /// name, as Python's `os.path.split` gives them (`ntpath`'s when `windows`).
 pub fn split_input(location: &str, title: &str, windows: bool) -> Result<(String, String), Fail> {
     if is_url(location) {
+        if !location.contains('/') {
+            // `file:x.vsi`: a URL with no path names no file (`input` refuses it too)
+            return rejected(format!("{title} input {location:?} names no file"));
+        }
         return split_url(location, title);
     }
     let sep = |c: char| c == '/' || (windows && c == '\\');
@@ -187,6 +191,11 @@ mod tests {
     #[test]
     fn rejects_an_input_url_whose_name_is_not_utf8() {
         assert!(matches!(split_input("https://h/a/%FF.vsi", "VSI", false), Err(Fail::Rejected(_))));
+    }
+
+    #[test]
+    fn rejects_a_file_url_with_no_path() {
+        assert!(matches!(split_input("file:x.vsi", "VSI", false), Err(Fail::Rejected(_))));
     }
 
     #[test]
