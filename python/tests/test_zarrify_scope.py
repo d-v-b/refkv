@@ -4,6 +4,7 @@ input that needs a file outside it is rejected, naming it, before that file is o
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -120,9 +121,10 @@ def test_a_scope_outside_the_input_directory_is_refused(tmp_path: Path, scope: s
         zarrify(str(tmp_path / "d" / "a.nhdr"), scope=str(tmp_path / "d" / scope) if scope.startswith(".") else scope)
 
 
-@pytest.mark.parametrize("base", ["https://data.test", "s3://bucket"])
+@pytest.mark.parametrize("base", ["https://data.test", "s3://bucket", "file:///data", "file:/data"])
 def test_a_remote_scope_gives_keys_below_the_input_directory(base: str):
-    """An input at a URL of any scheme, as a registered store reads it, has its scope as URLs."""
+    """An input at a URL of any scheme, as a registered store reads it, has its scope as URLs; so
+    does a `file:` input, in either form."""
     keys = scope_keys(f"{base}/d/a.nhdr", [f"{base}/d/a.nhdr", f"{base}/d/f/", f"{base}/d/b%20c.raw"])
     assert keys == ["f/", "b c.raw"]
 
@@ -153,3 +155,11 @@ def test_the_command_refuses_a_scope_outside_the_input_directory(tmp_path: Path)
                         str(tmp_path.parent)], capture_output=True, text=True, check=False)
     assert p.returncode == 2, p.stderr
     assert "is not the input's directory" in p.stderr
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a POSIX path of bytes that are not UTF-8")
+def test_a_local_input_not_in_utf8_takes_the_local_scope(tmp_path: Path):
+    """A local path not in UTF-8 (surrogate-escaped, as os.fsdecode gives it) is never a URL."""
+    named = os.fsdecode(bytes(tmp_path) + b"/\xff.nhdr")
+    (tmp_path / "sub").mkdir()
+    assert scope_keys(named, [str(tmp_path / "sub")]) == ["sub/"]

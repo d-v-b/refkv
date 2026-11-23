@@ -12,8 +12,8 @@
 import type { Range, Source } from "../../protobuf.ts";
 import type { ArchiveDesc, EntryDesc } from "../../writer.ts";
 import type { Profile } from "../profiles.ts";
-import { compareKeys, objectUrl, type Store, StoreError } from "../store.ts";
-import { bytesEntry, decodeRaw, type RawOutput } from "./run.ts";
+import { compareKeys, objectUrls, type Store, StoreError } from "../store.ts";
+import { bytesEntries, decodeRaw, type RawOutput } from "./run.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
 /** A store format of the core: a profile with a `store_run` in the registry (spec/zarrify/profiles/). */
@@ -193,7 +193,7 @@ export function storeDesc(raw: RawOutput, sizes: Map<string, number>): ArchiveDe
     for (const x of parts) if (x.kind === 3 && !objects.has(x.key)) objects.set(x.key, objects.size);
   }
   const data = new Map<number, number>();
-  const entries: EntryDesc[] = raw.entries.map(([key, value]) => bytesEntry(key, value, raw.lazy));
+  const entries: EntryDesc[] = bytesEntries(raw.entries, raw.lazy);
   for (const [key, parts] of refs) {
     const ranges: Range[] = parts.map((x) => {
       if (x.kind === 3) return { source: objects.get(x.key)!, offset: x.offset, length: x.length };
@@ -206,9 +206,10 @@ export function storeDesc(raw: RawOutput, sizes: Map<string, number>): ArchiveDe
     });
     entries.push({ key, ranges });
   }
-  const sources: Source[] = [...objects.keys()].map((k) => {
+  const urls = objectUrls(raw.url, [...objects.keys()]);
+  const sources: Source[] = [...objects.keys()].map((k, i) => {
     const size = sizes.get(k);
-    return { url: objectUrl(raw.url, k), ...(size !== undefined ? { size: BigInt(size) } : {}) };
+    return { url: urls[i], ...(size !== undefined ? { size: BigInt(size) } : {}) };
   });
   for (const i of data.keys()) sources.push({ data: raw.data[i - 1] });
   return { sources, entries };

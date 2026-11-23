@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub const NOT_SUPPORTED: &str = "not a file of any supported format";
 
 /// Requests at a time to a remote host, by default (a browser has 6).
-const CONNECTIONS: usize = 8;
+const CONNECTIONS: usize = refkv_ir::host::CONNECTIONS;
 
 /// `f` of each item, in the items' order, with at most `workers` threads at a time.
 pub fn map<T: Sync, R: Send>(items: &[T], workers: usize, f: impl Fn(&T) -> R + Sync) -> Vec<R> {

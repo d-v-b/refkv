@@ -132,6 +132,17 @@ def cases(files: list[str], stores: list[str], base: str, modes: set[str],
     out = []
     if "local" in modes:
         out += [(f"local {p}", [p], False, {}) for p in encoded]
+        # inputs by their `file:` URLs, read as the local paths they name (spec/zarrify.md §1.2
+        # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): a file, a store
+        # directory, and a file read with the one beside it, its scope a `file:` URL too
+        nrrd = FIXTURES / "nrrd" / "nrrd_detached_raw.nhdr"
+        out += [
+            ("local file: a file", [(FIXTURES / files[0]).absolute().as_uri()], False, {}),
+            ("local file: a store", [(FIXTURES / stores[0]).absolute().as_uri() + "/", "--url",
+                                     f"https://data.example/{urllib.parse.quote(stores[0])}/"], False, {}),
+            ("local file: a scope", [nrrd.absolute().as_uri(), "--scope", nrrd.parent.absolute().as_uri() + "/"],
+             False, {}),
+        ]
     for i, f in enumerate(files):
         if "local" in modes:
             out.append((f"local {f}", [f"fixtures/{f}"], False, {}))
@@ -166,6 +177,7 @@ def cases(files: list[str], stores: list[str], base: str, modes: set[str],
             ("a private source", [f, "--url", "http://127.0.0.1/x.tif"]),
             ("a source that is no URI reference", [f, "--url", "a b.tif"]),
             ("a missing file", ["fixtures/no such file.tif"]),
+            ("a URL of another scheme", ["s3://bucket/x.tif"]),
             ("a missing object", [base + "f/tiff/none.tif", "--allow-private-hosts"]),
             ("a store with nothing", [base + "f/none/", "--allow-private-hosts"]),
             ("a store URL without its slash", [s, "--url", "https://data.example/s"]),

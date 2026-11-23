@@ -11,6 +11,7 @@ import urllib.parse
 from collections.abc import Callable
 from email.message import Message
 
+from refkv._rules import DEFAULTS
 from refkv.errors import ResolutionError
 from refkv.policy import Policy
 from refkv.reader import _check_http_url, new_connection
@@ -21,14 +22,15 @@ __all__ = ["REDIRECTS", "follow"]
 
 def _retry[T](f: Callable[[], T]) -> T:
     """Calls f, retrying transient network errors with backoff."""
-    for attempt in range(5):
+    attempts: int = DEFAULTS["attempts"]
+    for attempt in range(attempts):
         try:
             return f()
         except urllib.error.HTTPError as e:
-            if e.code not in (429, 500, 502, 503, 504) or attempt == 4:
+            if e.code not in DEFAULTS["retry"] or attempt == attempts - 1:
                 raise
         except (urllib.error.URLError, ConnectionError, TimeoutError):
-            if attempt == 4:
+            if attempt == attempts - 1:
                 raise
         time.sleep(2**attempt)
     raise AssertionError("unreachable")
@@ -69,7 +71,7 @@ class _ThreadConnections:
             conns.popitem()[1].close()
 
 
-REDIRECTS = (301, 302, 303, 307, 308)
+REDIRECTS: tuple[int, ...] = tuple(DEFAULTS["redirects"])
 
 
 def follow[M: Message | None](base: str, url: str, send: Callable[[str], tuple[int, M, bytes]],
@@ -77,7 +79,8 @@ def follow[M: Message | None](base: str, url: str, send: Callable[[str], tuple[i
     """(url, status, headers, body) of the request `send(url)` makes, following at
     most 5 redirects: the policy checks `url`, and each redirect's target before it
     is requested, for the input at `base`. `send` does not follow redirects."""
-    for hop in range(6):
+    most: int = DEFAULTS["max_redirects"]
+    for hop in range(most + 1):
         policy.check(url)
         status, msg, body = send(url)
         if status not in REDIRECTS:
@@ -92,7 +95,7 @@ def follow[M: Message | None](base: str, url: str, send: Callable[[str], tuple[i
         if urllib.parse.urlsplit(new).scheme.lower() not in ("http", "https"):
             raise ResolutionError(f"redirect to a non-http URL: {new}")
         _check_http_url(new)
-        if hop == 5:
-            raise ResolutionError(f"{base}: more than 5 redirects")
+        if hop == most:
+            raise ResolutionError(f"{base}: more than {most} redirects")
         url = new
     raise AssertionError("unreachable")

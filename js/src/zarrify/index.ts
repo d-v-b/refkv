@@ -9,11 +9,11 @@
 
 import { blockReader, type ByteReader, ImageError } from "./common.ts";
 import { type IrFormat, NamesSiblings, zarrifyIr } from "./ir/run.ts";
-import { ir, out, put } from "./ir/wasm.ts";
+import { ir, out, put, rule, RuleError } from "./ir/wasm.ts";
 import { type RangeSource, readerSource } from "./ir/source.ts";
 import { type StoreProfile, zarrifyStoreIr } from "./ir/store.ts";
 import { BESIDE, type BesideFormat, ON_DEMAND, scopeKeys, zarrifyVsi } from "./ir/vsi.ts";
-import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store } from "./store.ts";
+import { chooseProfile, closeStore, objectUrls, openHttpStore, type Store } from "./store.ts";
 import type { Policy } from "../archive.ts";
 import { crc32c } from "../deflate.ts";
 import type { ArchiveDesc } from "../writer.ts";
@@ -102,6 +102,7 @@ interface Input {
 }
 
 async function zarrifyWith(url: string, input: Input, pins: PinOptions): Promise<ImageDesc> {
+  await ir(); // the scope rule is the core's
   // the scope's keys, before anything is read
   const within = pins.scope === undefined ? undefined : scopeKeys(url, pins.scope);
   // a VSI file is read with its tile files, and a NRRD header with its data file, as a store
@@ -121,7 +122,9 @@ async function zarrifyWith(url: string, input: Input, pins: PinOptions): Promise
     };
     const { store, ...desc } = await zarrifyVsi(url, input.source, options, beside);
     if (pins.checksums) {
-      const keys = new Map([...store.objects.keys()].map((k) => [objectUrl(store.url, k), k]));
+      const names = [...store.objects.keys()];
+      const urls = objectUrls(store.url, names);
+      const keys = new Map(names.map((k, i) => [urls[i], k]));
       await addChecksums(desc, (u, o, n) => store.readRange!(keys.get(u)!, o, n));
     }
     return { format: beside, ...desc };
@@ -155,10 +158,15 @@ export async function irFormat(head: Uint8Array): Promise<IrFormat | undefined> 
 /**
  * Is `url` a store input (§1.2
  * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): a URL whose path ends in
- * `/`?
+ * `/`? The core's rule (`refkv_ir::host::input`); the instance must be instantiated (`ir()`).
  */
 export function isStoreUrl(url: string): boolean {
-  return url.split(/[?#]/, 1)[0].endsWith("/");
+  try {
+    return rule<{ kind: string }>("input", { location: url }).kind === "store";
+  } catch (e) {
+    if (e instanceof RuleError) return false; // a `file:` URL that names no path: refused later, as a file
+    throw e;
+  }
 }
 
 /** Zarrifies a store by the profile its root keys select (§1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>): a listed one, or the
@@ -182,7 +190,9 @@ export async function zarrifyStore(
   const pins = options;
   const desc = await zarrifyStoreProfile(store, pins.checksums === true);
   if (pins.checksums) {
-    const keys = new Map([...store.objects.keys()].map((k) => [objectUrl(store.url, k), k]));
+    const names = [...store.objects.keys()];
+    const urls = objectUrls(store.url, names);
+    const keys = new Map(names.map((k, i) => [urls[i], k]));
     await addChecksums(desc, async (u, o, n) => {
       const key = keys.get(u)!;
       return store.readRange ? store.readRange(key, o, n) : (await store.read(key)).subarray(o, o + n);

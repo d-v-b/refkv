@@ -2,7 +2,9 @@
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>, §1.5
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): a store URL's
 checks, the URL of each object, the listing endpoint and key prefix of an S3-style store, and
-the repository, revision and directory of a Hub store.
+the repository, revision and directory of a Hub store. The rules are the Rust core's
+(rust/refkv-ir/src/host/urls.rs); a local directory's `file:` URL, which this module checks
+against the file system, is the host's.
 """
 
 from __future__ import annotations
@@ -12,46 +14,35 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from refkv._rules import DEFAULTS, rule
 from refkv.errors import Rejected
 from refkv.uri import file_path, file_uri, is_uri_reference
 
 _SPLIT = re.compile(r"^(?:([^:/?#]+):)?(?://([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#(.*))?\Z")
-_UNRESERVED = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
-_PATH_SAFE = _UNRESERVED | frozenset(b"!$&'()*+,;=:@/")
-
-
-def _pct(data: bytes, safe: frozenset[int]) -> str:
-    return "".join(chr(b) if b in safe else f"%{b:02X}" for b in data)
 
 
 def object_url(store_url: str, key: str) -> str:
     """The URL of the object with relative key `key` (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>)."""
-    return store_url + _pct(key.encode(), _PATH_SAFE)
+    return rule("object_url", store_url=store_url, key=key)
+
+
+def object_urls(store_url: str, keys: list[str]) -> list[str]:
+    """`object_url` of each key, in one call of the core."""
+    return rule("object_urls", store_url=store_url, keys=keys)
 
 
 def query_encode(s: str) -> str:
     """`enc` of §1.5
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>: every byte but
     the unreserved ones percent-encoded."""
-    return _pct(s.encode(), _UNRESERVED)
+    return rule("query_encode", s=s)
 
 
 def check_store_url(url: str) -> tuple[str, str, str]:
     """(scheme, authority, path) of a valid store URL (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), or Rejected."""
-    m = _SPLIT.match(url)
-    if not is_uri_reference(url) or m is None:
-        raise Rejected(f"{url!r} is not a valid URI")
-    scheme, authority, path, query, fragment = m.groups()
-    if scheme is None or scheme.lower() not in ("http", "https"):
-        raise Rejected(f"store URL {url!r} is not http or https")
-    if authority is None or "@" in authority:
-        raise Rejected(f"store URL {url!r} has no authority, or has userinfo")
-    if query is not None or fragment is not None:
-        raise Rejected(f"store URL {url!r} has a query or a fragment")
-    if not path.endswith("/"):
-        raise Rejected(f"store URL {url!r} does not end in /")
+    scheme, authority, path = rule("check_store_url", url=url)
     return scheme, authority, path
 
 
@@ -91,49 +82,22 @@ def check_directory_url(url: str, path: str) -> None:
                        f"named by its own file: URL ({directory_url(path)}), or by the http(s) URL it is served from")
 
 
-def _percent_decode(s: str) -> bytes:
-    out = bytearray()
-    i = 0
-    while i < len(s):
-        if s[i] == "%":
-            out.append(int(s[i + 1 : i + 3], 16))
-            i += 3
-        else:
-            out.append(ord(s[i]))
-            i += 1
-    return bytes(out)
-
-
 def listing_endpoint(url: str) -> tuple[str, str]:
     """(endpoint, prefix P) of a store URL (§1.5
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)."""
-    scheme, authority, path = check_store_url(url)
-    host = authority[: authority.index("]") + 1] if authority.startswith("[") else authority.rsplit(":", 1)[0]
-    host = host.lower()
-    labels = host.split(".")
-    virtual = host.endswith(".amazonaws.com") and any(
-        lab == "s3" or lab.startswith("s3-") for lab in labels[1:])
-    if virtual:
-        endpoint, prefix_path = f"{scheme}://{authority}/", path[1:]
-    else:
-        if path == "/":
-            raise Rejected(f"path-style store URL {url!r} names no bucket")
-        bucket, _, rest = path[1:].partition("/")
-        if not bucket:
-            raise Rejected(f"path-style store URL {url!r} has an empty bucket")
-        endpoint, prefix_path = f"{scheme}://{authority}/{bucket}/", rest
-    try:
-        prefix = _percent_decode(prefix_path).decode("utf-8")
-    except UnicodeDecodeError:
-        raise Rejected(f"the key prefix of {url!r} is not UTF-8") from None
+    endpoint, prefix = rule("listing_endpoint", url=url)
     return endpoint, prefix
 
 
-HUB = "https://huggingface.co"
+def listing_url(endpoint: str, prefix: str, token: str | None) -> str:
+    """The URL of a ListObjectsV2 request (§1.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): the first
+    page's, or with `token`, the page after the response that gave it."""
+    return rule("listing_url", endpoint=endpoint, prefix=prefix, token=token)
+
+
+HUB: str = DEFAULTS["hub"]
 """The Hugging Face Hub's endpoint, unless the application gives another (`HF_ENDPOINT`)."""
-
-_HUB_NAME = re.compile(r"[A-Za-z0-9._-]+\Z")
-
 
 def hub_endpoint(endpoint: str | None = None) -> str:
     """The Hub's endpoint `E` (§1.5
@@ -141,15 +105,8 @@ def hub_endpoint(endpoint: str | None = None) -> str:
     the environment's `HF_ENDPOINT`, else `HUB`, without a trailing `/` (as `huggingface_hub`
     reads it). A ValueError if it is not an http(s) URL with an authority, without userinfo, a
     query or a fragment."""
-    e = (endpoint if endpoint is not None else os.environ.get("HF_ENDPOINT") or HUB).rstrip("/")
-    m = _SPLIT.match(e)
-    if m is None or not is_uri_reference(e):
-        raise ValueError(f"the Hub endpoint {e!r} is not a valid URI")
-    scheme, authority, _, query, fragment = m.groups()
-    if scheme is None or scheme.lower() not in ("http", "https") or not authority or "@" in authority \
-            or query is not None or fragment is not None:
-        raise ValueError(f"the Hub endpoint {e!r} is not an http(s) URL without userinfo, query or fragment")
-    return e
+    e = endpoint if endpoint is not None else os.environ.get("HF_ENDPOINT") or HUB
+    return rule("hub_endpoint", endpoint=e)
 
 
 @dataclass(frozen=True)
@@ -166,73 +123,39 @@ class HubRepo:
     revision: str
     directory: str
 
+    def _json(self) -> dict[str, str]:
+        return {"endpoint": self.endpoint, "kind": self.kind, "owner": self.owner, "name": self.name,
+                "revision": self.revision, "directory": self.directory}
+
     @property
     def api(self) -> str:
         """`A`: the repository's API URL."""
         return f"{self.endpoint}/api/{self.kind}/{self.owner}/{self.name}"
 
     def revision_url(self) -> str:
-        return f"{self.api}/revision/{query_encode(self.revision)}?expand%5B%5D=sha&expand%5B%5D=gated"
+        return rule("hub_urls", repo=self._json(), commit=None)["revision_url"]
 
     def tree_url(self, commit: str) -> str:
-        d = "/" + _pct(self.directory[:-1].encode(), _PATH_SAFE) if self.directory else ""
-        return f"{self.api}/tree/{commit}{d}?recursive=true"
+        return rule("hub_urls", repo=self._json(), commit=commit)["tree_url"]
 
     def base(self, commit: str) -> str:
         """The store's base (§1.4
         <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>) at `commit`."""
-        kind = "/datasets/" if self.kind == "datasets" else "/"
-        return f"{self.endpoint}{kind}{self.owner}/{self.name}/resolve/{commit}/{object_url('', self.directory)}"
-
-
-def _under(url: str, endpoint: str) -> str | None:
-    """The rest of `url`'s path after `endpoint`'s and a `/`, when `url` has `endpoint`'s scheme
-    and authority (in any case) and its path starts so; else None."""
-    m, e = _SPLIT.match(url), _SPLIT.match(endpoint)
-    if m is None or e is None or m.group(1) is None or m.group(2) is None:
-        return None
-    if (m.group(1).lower(), m.group(2).lower()) != (e.group(1).lower(), e.group(2).lower()):
-        return None
-    path, base = m.group(3), e.group(3) + "/"
-    return path[len(base):] if path.startswith(base) else None
+        return rule("hub_urls", repo=self._json(), commit=commit)["base"]
 
 
 def hub_repo(url: str, endpoint: str) -> HubRepo | None:
     """The Hub store that the store URL `url` names under `endpoint` (§1.5
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), None if `url`
     is not under it, or Rejected if it is but does not name one."""
-    rest = _under(url, endpoint)
-    if rest is None:
+    r = rule("hub_repo", url=url, endpoint=endpoint)
+    if r is None:
         return None
-    check_store_url(url)
-    segments = rest.split("/")
-    kind = "models"
-    if segments[0] == "datasets":
-        kind, segments = "datasets", segments[1:]
-    # owner, name, "tree", rev, dir segments..., "" (the trailing /)
-    if len(segments) < 5 or segments[2] != "tree" or segments[-1] != "" or \
-            not all(_HUB_NAME.match(n) and n not in (".", "..") for n in segments[:2]) or \
-            any(not x for x in segments[3:-1]):
-        raise Rejected(f"Hub store URL {url!r} is not <owner>/<repo>/tree/<rev>/[<dir>/] "
-                       "(or that after datasets/)")
-    try:
-        revision = _percent_decode(segments[3]).decode("utf-8")
-        directory = "".join(_percent_decode(x).decode("utf-8") + "/" for x in segments[4:-1])
-    except UnicodeDecodeError:
-        raise Rejected(f"the revision or directory of {url!r} is not UTF-8") from None
-    if any(x in (".", "..") for x in directory.split("/")[:-1]):
-        raise Rejected(f"the directory of {url!r} has a segment . or ..")
-    return HubRepo(endpoint, kind, segments[0], segments[1], revision, directory)
+    return HubRepo(r["endpoint"], r["kind"], r["owner"], r["name"], r["revision"], r["directory"])
 
 
 def hub_page(url: str, endpoint: str) -> bool:
     """Whether the file input `url` would be a Hub store if it ended in `/` (§1.5
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): a web page
     that is rejected without being read."""
-    split = _SPLIT.match(url)
-    if split is None or split.group(4) is not None or split.group(5) is not None or url.endswith("/"):
-        return False
-    try:
-        return hub_repo(url + "/", endpoint) is not None
-    except Rejected:
-        return False
+    return rule("hub_page", url=url, endpoint=endpoint)

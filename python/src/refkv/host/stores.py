@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Literal, Protocol, override
 
 from refkv._narrow import JSON, integer, string
+from refkv._rules import DEFAULTS, rule
 from refkv.errors import Rejected
 from refkv.host.documents import MAX_DOCUMENT, parse_json
 from refkv.host.http import _retry, _ThreadConnections, follow
@@ -34,8 +35,8 @@ from refkv.host.urls import (
     hub_endpoint,
     hub_repo,
     listing_endpoint,
+    listing_url,
     object_url,
-    query_encode,
 )
 from refkv.ir.planner import UA, Objects, registered
 from refkv.policy import Policy
@@ -54,19 +55,8 @@ class StoreLimit(OSError):  # noqa: N818 (public name)
     rejection."""
 
 
-def _ignored(rel: str) -> bool:
-    return rel == "" or rel.endswith("/") or any(s in ("", ".", "..") for s in rel.split("/"))
-
-
-def _folder_marker(rel: str, size: int) -> bool:
-    """An ignored object whose key is not recorded (§1.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>): an empty one
-    whose relative key is empty or ends in /."""
-    return size == 0 and (rel == "" or rel.endswith("/"))
-
-
-WORKERS = 16
-PREFETCH_BYTES = 64 << 20
+WORKERS: int = DEFAULTS["workers"]
+PREFETCH_BYTES: int = DEFAULTS["prefetch_bytes"]
 
 type Read = tuple[Literal[True], bytes] | tuple[Literal[False], Exception]
 """The result of reading an object: (True, its bytes), or (False, the exception the read raised)."""
@@ -253,19 +243,23 @@ class Store:
             raise r[1]
         return parse_json(r[1])
 
-    def _add(self, listed: list[tuple[str, int]], prefix: str, seen: set[str]) -> None:
-        for key, size in listed:
-            if key in seen:
-                raise Rejected(f"key {key!r} is listed twice")
-            seen.add(key)
-            rel = key[len(prefix):]
-            if not _ignored(rel):
-                self.objects[rel] = size
-            elif not _folder_marker(rel, size):
-                self.ignored.append(rel)
-            elif rel and not _ignored(rel[:-1]):
-                self.folders.append(rel)
-        self.listed = len(seen)
+    def _add(self, listed: list[tuple[str, int]]) -> None:
+        """Adds one page of the listing (key, size); `_finish` classifies them all."""
+        if not hasattr(self, "_listed"):
+            self._listed: list[tuple[str, int]] = []
+        self._listed.extend(listed)
+        self.listed = len(self._listed)
+
+    def _finish(self, prefix: str) -> None:
+        """The listing's objects, recorded ignored keys and folder markers, each key relative to
+        `prefix`: the core's `store_listing` (§1.4
+        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), which
+        rejects a key listed twice."""
+        r = rule("store_listing", listed=getattr(self, "_listed", []), prefix=prefix)
+        self.objects = dict(map(tuple, r["objects"]))
+        self.ignored = r["ignored"]
+        self.folders = r["folders"]
+        self._listed = []
 
 
 class Response(Protocol):
@@ -320,18 +314,15 @@ class HttpStore(Store):
         """Lists the store with S3 ListObjectsV2 (§1.5
         <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)."""
         self.endpoint, self.prefix = listing_endpoint(self.location)
-        seen: set[str] = set()
         tokens: set[str] = set()
         token = None
         while True:
-            q = f"?list-type=2&prefix={query_encode(self.prefix)}"
-            if token is not None:
-                q += f"&continuation-token={query_encode(token)}"
-            _, _, body = self._get_listing(self.endpoint + q)
+            _, _, body = self._get_listing(listing_url(self.endpoint, self.prefix, token))
             listed, token = parse_listing(body, self.prefix)
-            self._add(listed, self.prefix, seen)
+            self._add(listed)
             self._check_limit()
             if token is None:
+                self._finish(self.prefix)
                 break
             if token in tokens:  # the listing would repeat itself (§1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
                 raise Rejected(f"the listing gives the continuation token {token[:80]!r} again")
@@ -452,20 +443,20 @@ class HubStore(HttpStore):
         _, _, body = self._get_listing(repo.revision_url())
         self.commit = parse_hub_revision(body)
         self.location = self.url = repo.base(self.commit)
-        seen: set[str] = set()
         link: str | None = repo.tree_url(self.commit)
         requested: set[str] = set()
         while link is not None:
             requested.add(link)
             answered, msg, body = self._get_listing(link)
             listed, entries = parse_hub_tree(body, repo.directory)
-            self._add(listed, repo.directory, seen)
+            self._add(listed)
             self._check_limit()
             link = next_link((msg.get_all("Link") or []) if msg is not None else [], answered, repo.endpoint)
             if link is not None and not entries:  # a page that lists nothing could be followed forever
                 raise Rejected("a Hub tree page with a next link lists nothing")
             if link in requested:
                 raise Rejected(f"the Hub tree's next link {link[:200]!r} was requested already")
+        self._finish(repo.directory)
 
 
 class RegisteredStore(Store):
@@ -487,13 +478,13 @@ class RegisteredStore(Store):
         self.folders = []
         path = path.strip("/")
         self.prefix = path + "/" if path else ""
-        seen: set[str] = set()
         for batch in store.list(path or None):
             listed = [(string(m.get("path"), "path"), integer(m.get("size"), "size")) for m in batch]
             # a listing by path segments: `a` lists `a/b`, not `ab`
-            self._add([(k, n) for k, n in listed if k.startswith(self.prefix)], self.prefix, seen)
+            self._add([(k, n) for k, n in listed if k.startswith(self.prefix)])
             if max_objects is not None and self.listed > max_objects:
                 raise StoreLimit(f"the store lists more than {max_objects} objects")
+        self._finish(self.prefix)
 
     @override
     def read(self, key: str) -> bytes:
@@ -540,7 +531,8 @@ class DirStore(Store):
                 except UnicodeEncodeError:  # a name that is not UTF-8 (surrogate-escaped)
                     continue
                 listed.append((rel, st.st_size))
-        self._add(listed, "", set())
+        self._add(listed)
+        self._finish("")
 
     @override
     def read(self, key: str) -> bytes:

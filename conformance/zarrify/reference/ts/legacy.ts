@@ -22,13 +22,15 @@ import {
 } from "../../../../js/src/zarrify/common.ts";
 import type { Range } from "../../../../js/src/protobuf.ts";
 import {
-  compareKeys, docKey, type Json, objectUrl, OBJECTS as CURRENT_OBJECTS, SOURCE_GROUP as CURRENT_GROUP,
+  compareKeys, docKey, type Json, OBJECTS as CURRENT_OBJECTS, SOURCE_GROUP as CURRENT_GROUP,
   StoreError, type StoreResult,
 } from "../../../../js/src/zarrify/store.ts";
+import { objectUrl } from "./legacy_store.ts";
 import type { ArchiveDesc, EntryDesc } from "../../../../js/src/writer.ts";
 
 export * from "../../../../js/src/zarrify/common.ts";
 export * from "../../../../js/src/zarrify/store.ts";
+export { objectUrl, parseXml, type XmlElement } from "./legacy_store.ts";
 
 export const SOURCE_NODE = "vzip_source";
 export const CONVENTION_KEY = "vzip_virtualized";

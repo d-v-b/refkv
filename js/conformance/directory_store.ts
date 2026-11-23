@@ -3,9 +3,13 @@
 // regular files at any depth, without symbolic links or names that are not UTF-8.
 
 import fs from "node:fs";
-import { addListed, checkStoreUrl, type Store } from "../src/zarrify/store.ts";
+import { checkStoreUrl, setListing, type Store } from "../src/zarrify/store.ts";
+import { ir } from "../src/zarrify/ir/wasm.ts";
 
-/** The directory `root`, read as the store served at `storeUrl` (ending in "/"). */
+await ir(); // the host rules that list a directory are the core's
+
+/** The directory `root`, read as the store served at `storeUrl` (ending in "/"); the core's host
+ * rules list it, so the IR core must be instantiated (`await ir()`). */
 export function directoryStore(root: string, storeUrl: string): Store {
   checkStoreUrl(storeUrl);
   const listed: [string, number][] = [];
@@ -47,6 +51,6 @@ export function directoryStore(root: string, storeUrl: string): Store {
       }
     },
   };
-  addListed(store, listed, "", new Set());
+  setListing(store, listed, "");
   return store;
 }
