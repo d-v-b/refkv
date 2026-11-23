@@ -1,0 +1,917 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Mapping image formats to Zarr: techniques" href="../spec/TECHNIQUES.html"><link rel="prev" title="A stack of TIFF files as one array" href="tiff-stack.html">
+        <link rel="canonical" href="https://d-v-b.github.io/refkv/docs/virtual-datasets.html">
+
+    <!-- Generated with Sphinx 9.1.1 and Furo 2025.12.19 -->
+        <title>Virtual datasets with xarray - refkv</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../README.html"><div class="brand">refkv</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../README.html">
+  
+  <span class="sidebar-brand-text">refkv</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Guides</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="README.html">refkv documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="adding-a-format.html">Adding a file format</a></li>
+<li class="toctree-l1"><a class="reference internal" href="build.html">Building an output from the IR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="combining-stores.html">Combining stores</a></li>
+<li class="toctree-l1"><a class="reference internal" href="layout-plugins.html">Writing a layout plugin</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tiff-stack.html">A stack of TIFF files as one array</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Virtual datasets with xarray</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Specification</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../spec/TECHNIQUES.html">Mapping image formats to Zarr: techniques</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/conventions.html">refkv’s Zarr conventions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/layout.html">Layouts written by plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/provenance.html">refkv’s provenance convention</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/refkv.html">refkv: a reference value type for key-value stores</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/refkv.html#part-1-reference-values">Part 1. Reference values</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/stored-array.html">Stored arrays in the IR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify.html">Zarrifying files and stores as Zarr in refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/bindings/phkv.html">phkv: the perfect-hash binding of refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/bindings/phkv.html#part-3-the-perfect-hash-binding">Part 3. The perfect-hash binding</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/bindings/vzip.html">vzip: the ZIP binding of refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/bindings/vzip.html#part-2-the-zip-binding">Part 2. The ZIP binding</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Formats</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/czi.html">CZI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/czi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/czi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/czi/README.html">CZI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/czi/stored-arrays.html">CZI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/dicom.html">DICOM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/dicom.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/dicom.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/dicom/README.html">DICOM, including whole-slide images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/dicom/stored-arrays.html">DICOM: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/envi.html">ENVI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/envi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/envi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/envi/README.html">ENVI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/envi/stored-arrays.html">ENVI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/fits.html">FITS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/fits.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/fits.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/fits/README.html">FITS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/fits/stored-arrays.html">FITS: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/flac.html">FLAC</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/flac.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/flac.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-5" name="toctree-checkbox-5" role="switch" type="checkbox"/><label for="toctree-checkbox-5"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/flac/README.html">FLAC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/flac/stored-arrays.html">FLAC: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/grib.html">GRIB</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/grib.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/grib.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-6" name="toctree-checkbox-6" role="switch" type="checkbox"/><label for="toctree-checkbox-6"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/grib/README.html">GRIB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/grib/stored-arrays.html">GRIB: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/h5j.html">H5J</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/h5j.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/h5j.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-7" name="toctree-checkbox-7" role="switch" type="checkbox"/><label for="toctree-checkbox-7"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/h5j/README.html">H5J</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/h5j/stored-arrays.html">H5J: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/hdf4.html">HDF4</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/hdf4.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/hdf4.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-8" name="toctree-checkbox-8" role="switch" type="checkbox"/><label for="toctree-checkbox-8"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/hdf4/README.html">HDF4 and HDF-EOS2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/hdf4/stored-arrays.html">HDF4: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/hdf5.html">HDF5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/hdf5.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/hdf5.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-9" name="toctree-checkbox-9" role="switch" type="checkbox"/><label for="toctree-checkbox-9"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/hdf5/README.html">HDF5 and NWB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/hdf5/stored-arrays.html">HDF5: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/ims.html">IMS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/ims.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/ims.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-10" name="toctree-checkbox-10" role="switch" type="checkbox"/><label for="toctree-checkbox-10"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/ims/README.html">Imaris IMS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/ims/stored-arrays.html">IMS: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/lif.html">LIF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/lif.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/lif.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-11" name="toctree-checkbox-11" role="switch" type="checkbox"/><label for="toctree-checkbox-11"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/lif/README.html">LIF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/lif/stored-arrays.html">LIF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/mp3.html">MP3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/mp3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/mp3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-12" name="toctree-checkbox-12" role="switch" type="checkbox"/><label for="toctree-checkbox-12"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/mp3/README.html">MP3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/mp3/stored-arrays.html">MP3: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/mp4.html">MP4</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/mp4.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/mp4.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-13" name="toctree-checkbox-13" role="switch" type="checkbox"/><label for="toctree-checkbox-13"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/mp4/README.html">MP4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/mp4/stored-arrays.html">MP4: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/mrc.html">MRC</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/mrc.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/mrc.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-14" name="toctree-checkbox-14" role="switch" type="checkbox"/><label for="toctree-checkbox-14"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/mrc/README.html">MRC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/mrc/stored-arrays.html">MRC: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/mrc-dataset.html">MRC as a dataset</a><input aria-label="Toggle navigation of MRC as a dataset" class="toctree-checkbox" id="toctree-checkbox-15" name="toctree-checkbox-15" role="switch" type="checkbox"/><label for="toctree-checkbox-15"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul class="simple">
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/n5.html">N5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/n5.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/n5.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-16" name="toctree-checkbox-16" role="switch" type="checkbox"/><label for="toctree-checkbox-16"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/n5/README.html">N5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/n5/stored-arrays.html">N5: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/nd2.html">ND2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/nd2.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/nd2.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-17" name="toctree-checkbox-17" role="switch" type="checkbox"/><label for="toctree-checkbox-17"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/nd2/README.html">Nikon ND2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/nd2/stored-arrays.html">ND2: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/ndpi.html">NDPI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/ndpi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/ndpi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-18" name="toctree-checkbox-18" role="switch" type="checkbox"/><label for="toctree-checkbox-18"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/ndpi/README.html">Hamamatsu NDPI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/ndpi/stored-arrays.html">NDPI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/netcdf3.html">netCDF3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/netcdf3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/netcdf3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-19" name="toctree-checkbox-19" role="switch" type="checkbox"/><label for="toctree-checkbox-19"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/netcdf3/README.html">netCDF3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/netcdf3/stored-arrays.html">netCDF3: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/nifti.html">NIfTI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/nifti.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/nifti.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-20" name="toctree-checkbox-20" role="switch" type="checkbox"/><label for="toctree-checkbox-20"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/nifti/README.html">NIfTI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/nifti/stored-arrays.html">NIfTI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/npy.html">NumPy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/npy.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/npy.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-21" name="toctree-checkbox-21" role="switch" type="checkbox"/><label for="toctree-checkbox-21"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/npy/README.html">NumPy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/npy/stored-arrays.html">NumPy: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/nrrd.html">NRRD</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/nrrd.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/nrrd.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-22" name="toctree-checkbox-22" role="switch" type="checkbox"/><label for="toctree-checkbox-22"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/nrrd/README.html">NRRD</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/nrrd/stored-arrays.html">NRRD: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/ome-zarr.html">OME-Zarr</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/ome-zarr.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/ome-zarr.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-23" name="toctree-checkbox-23" role="switch" type="checkbox"/><label for="toctree-checkbox-23"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/ome-zarr/README.html">OME-Zarr 0.4 to 0.5, in place</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/ome-zarr/stored-arrays.html">OME-Zarr: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/precomputed.html">Neuroglancer precomputed</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/precomputed.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/precomputed.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-24" name="toctree-checkbox-24" role="switch" type="checkbox"/><label for="toctree-checkbox-24"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/precomputed/README.html">Neuroglancer precomputed</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/precomputed/stored-arrays.html">Neuroglancer precomputed: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/qptiff.html">QPTIFF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/qptiff.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/qptiff.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-25" name="toctree-checkbox-25" role="switch" type="checkbox"/><label for="toctree-checkbox-25"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/qptiff/README.html">Akoya QPTIFF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/qptiff/stored-arrays.html">QPTIFF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/safe.html">SAFE</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/safe.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/safe.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-26" name="toctree-checkbox-26" role="switch" type="checkbox"/><label for="toctree-checkbox-26"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/safe/README.html">Sentinel-2 SAFE</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/safe/stored-arrays.html">SAFE: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/safetensors.html">safetensors</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/safetensors.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/safetensors.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-27" name="toctree-checkbox-27" role="switch" type="checkbox"/><label for="toctree-checkbox-27"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/safetensors/README.html">safetensors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/safetensors/stored-arrays.html">safetensors: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/tiff.html">TIFF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/tiff.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/tiff.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-28" name="toctree-checkbox-28" role="switch" type="checkbox"/><label for="toctree-checkbox-28"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/tiff/README.html">TIFF, OME-TIFF and Aperio SVS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/tiff/stored-arrays.html">TIFF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/vsi.html">VSI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/vsi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/vsi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-29" name="toctree-checkbox-29" role="switch" type="checkbox"/><label for="toctree-checkbox-29"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/vsi/README.html">VSI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/vsi/stored-arrays.html">VSI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/zarr2.html">Zarr v2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/zarr2.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/zarr2.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-30" name="toctree-checkbox-30" role="switch" type="checkbox"/><label for="toctree-checkbox-30"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/zarr2/README.html">Zarr v2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/zarr2/stored-arrays.html">Zarr v2: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/zarr3.html">Zarr v3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../spec/zarrify/zarr3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../spec/zarrify/zarr3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-31" name="toctree-checkbox-31" role="switch" type="checkbox"/><label for="toctree-checkbox-31"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/zarr3/README.html">Zarr v3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../spec/zarrify/zarr3/stored-arrays.html">Zarr v3: stored arrays</a></li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/d-v-b/refkv/blob/main/docs/virtual-datasets.md?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/d-v-b/refkv/edit/main/docs/virtual-datasets.md" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="virtual-datasets-with-xarray">
+<h1>Virtual datasets with xarray<a class="headerlink" href="#virtual-datasets-with-xarray" title="Link to this heading">¶</a></h1>
+<p>Many netCDF or HDF5 files become one virtual dataset, which
+<a class="reference external" href="https://virtualizarr.readthedocs.io/">VirtualiZarr</a> builds and refkv saves as
+one small archive that records where each chunk lives in the original files.
+xarray opens the archive as an ordinary lazy dataset, and reads each chunk
+from the file it came from: no data is copied.</p>
+<section id="install">
+<h2>Install<a class="headerlink" href="#install" title="Link to this heading">¶</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"refkv[virtualizarr]"</span><span class="w"> </span>xarray<span class="w"> </span>h5py<span class="w"> </span>h5netcdf<span class="w"> </span>fsspec<span class="w"> </span>aiohttp
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">virtualizarr</span></code> extra installs VirtualiZarr, which
+<code class="docutils literal notranslate"><span class="pre">refkv.ReferenceStore.from_virtualizarr</span></code> and <code class="docutils literal notranslate"><span class="pre">refkv.virtualizarr</span></code> need, and with it xarray and
+obspec_utils; the <code class="docutils literal notranslate"><span class="pre">zarr</span></code> extra, zarr-python, with which <code class="docutils literal notranslate"><span class="pre">refkv.zarr</span></code> opens
+a store for <code class="docutils literal notranslate"><span class="pre">xr.open_zarr</span></code>; and the <code class="docutils literal notranslate"><span class="pre">obstore</span></code> extra, obstore, whose <code class="docutils literal notranslate"><span class="pre">S3Store</span></code>
+reads the bucket. refkv itself imports neither xarray nor obstore. The rest are
+for the example: h5py for VirtualiZarr’s HDF5 parser, and h5netcdf, fsspec
+and aiohttp for xarray to read a netCDF file over HTTPS and check the
+archive’s values; xarray brings pandas. Without the extras, refkv reads and
+writes archives, local or at <code class="docutils literal notranslate"><span class="pre">http(s)</span></code> URLs, and holds a <code class="docutils literal notranslate"><span class="pre">ReferenceStore</span></code>
+built from a mapping, without Zarr or obstore; <code class="docutils literal notranslate"><span class="pre">refkv[zarr]</span></code> alone adds
+<code class="docutils literal notranslate"><span class="pre">refkv.zarr</span></code>, and <code class="docutils literal notranslate"><span class="pre">refkv[obstore]</span></code> alone the stores for <code class="docutils literal notranslate"><span class="pre">registry=</span></code>. (In a clone of this repository,
+<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span></code> installs all of these.)</p>
+</section>
+<section id="an-example-five-years-of-sea-surface-temperature">
+<h2>An example: five years of sea surface temperature<a class="headerlink" href="#an-example-five-years-of-sea-surface-temperature" title="Link to this heading">¶</a></h2>
+<p><a class="reference external" href="https://www.ncei.noaa.gov/products/optimum-interpolation-sst">NOAA OISST v2.1</a> is one
+netCDF file per day on a public S3 bucket. The example zarrifies the 1st of
+each month from 2015 to 2019, 60 files, and saves them as <code class="docutils literal notranslate"><span class="pre">oisst.vzip</span></code>. It
+then reopens the archive with xarray, computes the yearly mean temperature
+over the Niño 3.4 region, and checks one day against the netCDF file. It
+runs in 1 to 1.5 minutes, about 40 s of it to zarrify the files, and reads
+about 7 MB of metadata and 40 MB of data. The file is
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/docs/examples/oisst.py">examples/oisst.py</a>:</p>
+<!-- include: examples/oisst.py -->
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""Five years of NOAA OISST v2.1 as one virtual dataset, saved as a vzip archive.</span>
+
+<span class="sd">The daily netCDF files stay on AWS: the archive records where each chunk lives,</span>
+<span class="sd">and xarray reads the chunks from those files. This takes the 1st of each month,</span>
+<span class="sd">60 files: 1 to 1.5 minutes in all, about 40 s of it to zarrify them.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">concurrent.futures</span><span class="w"> </span><span class="kn">import</span> <span class="n">ThreadPoolExecutor</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">partial</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">fsspec</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">virtualizarr</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">vz</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">xarray</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">xr</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">obspec_utils.readers</span><span class="w"> </span><span class="kn">import</span> <span class="n">BlockStoreReader</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">obspec_utils.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">ObjectStoreRegistry</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">obstore.store</span><span class="w"> </span><span class="kn">import</span> <span class="n">S3Store</span>  <span class="c1"># refkv[obstore], which refkv[virtualizarr] includes</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">virtualizarr.parsers</span><span class="w"> </span><span class="kn">import</span> <span class="n">HDFParser</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">refkv</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">refkv.zarr</span>
+
+<span class="n">bucket</span> <span class="o">=</span> <span class="s2">"noaa-cdr-sea-surface-temp-optimum-interpolation-pds"</span>
+<span class="n">days</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">date_range</span><span class="p">(</span><span class="s2">"2015-01-01"</span><span class="p">,</span> <span class="s2">"2019-12-31"</span><span class="p">,</span> <span class="n">freq</span><span class="o">=</span><span class="s2">"MS"</span><span class="p">)</span>  <span class="c1"># freq="D" for every day</span>
+<span class="n">urls</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">"s3://</span><span class="si">{</span><span class="n">bucket</span><span class="si">}</span><span class="s2">/data/v2.1/avhrr/</span><span class="si">{</span><span class="n">d</span><span class="si">:</span><span class="s2">%Y%m</span><span class="si">}</span><span class="s2">/oisst-avhrr-v02r01.</span><span class="si">{</span><span class="n">d</span><span class="si">:</span><span class="s2">%Y%m%d</span><span class="si">}</span><span class="s2">.nc"</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">days</span><span class="p">]</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">EightThreads</span><span class="p">(</span><span class="n">ThreadPoolExecutor</span><span class="p">):</span>  <span class="c1"># parallel= takes a class, which VirtualiZarr instantiates</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">max_workers</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+
+
+<span class="c1"># 1. Zarrify the files, 8 at a time, reading only their metadata, and concatenate along time.</span>
+<span class="n">registry</span> <span class="o">=</span> <span class="n">ObjectStoreRegistry</span><span class="p">({</span><span class="sa">f</span><span class="s2">"s3://</span><span class="si">{</span><span class="n">bucket</span><span class="si">}</span><span class="s2">"</span><span class="p">:</span> <span class="n">S3Store</span><span class="p">(</span><span class="n">bucket</span><span class="p">,</span> <span class="n">region</span><span class="o">=</span><span class="s2">"us-east-1"</span><span class="p">,</span> <span class="n">skip_signature</span><span class="o">=</span><span class="kc">True</span><span class="p">)})</span>
+<span class="n">parser</span> <span class="o">=</span> <span class="n">HDFParser</span><span class="p">(</span><span class="n">reader_factory</span><span class="o">=</span><span class="n">partial</span><span class="p">(</span><span class="n">BlockStoreReader</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">2</span><span class="o">**</span><span class="mi">16</span><span class="p">))</span>
+<span class="n">vds</span> <span class="o">=</span> <span class="n">vz</span><span class="o">.</span><span class="n">open_virtual_mfdataset</span><span class="p">(</span>
+    <span class="n">urls</span><span class="p">,</span> <span class="n">registry</span><span class="o">=</span><span class="n">registry</span><span class="p">,</span> <span class="n">parser</span><span class="o">=</span><span class="n">parser</span><span class="p">,</span> <span class="n">parallel</span><span class="o">=</span><span class="n">EightThreads</span><span class="p">,</span> <span class="n">combine_attrs</span><span class="o">=</span><span class="s2">"drop_conflicts"</span>
+<span class="p">)</span>
+
+<span class="c1"># 2. Save it as a vzip archive, naming the files by their public HTTPS URLs.</span>
+<span class="n">store</span> <span class="o">=</span> <span class="n">refkv</span><span class="o">.</span><span class="n">ReferenceStore</span><span class="o">.</span><span class="n">from_virtualizarr</span><span class="p">(</span><span class="n">vds</span><span class="p">,</span> <span class="n">rewrite_urls</span><span class="o">=</span><span class="n">refkv</span><span class="o">.</span><span class="n">public_s3_url</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">store</span><span class="o">.</span><span class="n">save_vzip</span><span class="p">(</span><span class="s2">"oisst.vzip"</span><span class="p">))</span>
+
+<span class="c1"># 3. Reopen it with xarray: the yearly mean SST over the Nino 3.4 region, weighted by area.</span>
+<span class="n">stats</span> <span class="o">=</span> <span class="n">refkv</span><span class="o">.</span><span class="n">Stats</span><span class="p">()</span>
+<span class="n">ds</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">open_zarr</span><span class="p">(</span><span class="n">refkv</span><span class="o">.</span><span class="n">zarr</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"oisst.vzip"</span><span class="p">,</span> <span class="n">stats</span><span class="o">=</span><span class="n">stats</span><span class="p">))</span>
+<span class="n">nino34</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">sst</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">lat</span><span class="o">=</span><span class="nb">slice</span><span class="p">(</span><span class="o">-</span><span class="mi">5</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span> <span class="n">lon</span><span class="o">=</span><span class="nb">slice</span><span class="p">(</span><span class="mi">190</span><span class="p">,</span> <span class="mi">240</span><span class="p">))</span><span class="o">.</span><span class="n">load</span><span class="p">()</span>  <span class="c1"># read each chunk once</span>
+<span class="n">mean</span> <span class="o">=</span> <span class="n">nino34</span><span class="o">.</span><span class="n">weighted</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">cos</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">deg2rad</span><span class="p">(</span><span class="n">nino34</span><span class="o">.</span><span class="n">lat</span><span class="p">)))</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="s2">"lat"</span><span class="p">,</span> <span class="s2">"lon"</span><span class="p">,</span> <span class="s2">"zlev"</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">mean</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">"time.year"</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="o">.</span><span class="n">to_series</span><span class="p">()</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"read </span><span class="si">{</span><span class="n">stats</span><span class="o">.</span><span class="n">external_bytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mf">1e6</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2"> MB in </span><span class="si">{</span><span class="n">stats</span><span class="o">.</span><span class="n">external_requests</span><span class="si">}</span><span class="s2"> requests to the netCDF files"</span><span class="p">)</span>
+
+<span class="c1"># 4. Check the last day against the netCDF file itself (float32: see troubleshooting).</span>
+<span class="k">with</span> <span class="n">fsspec</span><span class="o">.</span><span class="n">filesystem</span><span class="p">(</span><span class="s2">"https"</span><span class="p">)</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">refkv</span><span class="o">.</span><span class="n">public_s3_url</span><span class="p">(</span><span class="n">urls</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]))</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+    <span class="n">direct</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">open_dataset</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">engine</span><span class="o">=</span><span class="s2">"h5netcdf"</span><span class="p">)</span><span class="o">.</span><span class="n">sst</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">lat</span><span class="o">=</span><span class="nb">slice</span><span class="p">(</span><span class="o">-</span><span class="mi">5</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span> <span class="n">lon</span><span class="o">=</span><span class="nb">slice</span><span class="p">(</span><span class="mi">190</span><span class="p">,</span> <span class="mi">240</span><span class="p">))</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_array_equal</span><span class="p">(</span><span class="n">nino34</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">time</span><span class="o">=</span><span class="n">direct</span><span class="o">.</span><span class="n">time</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"float32"</span><span class="p">),</span> <span class="n">direct</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"the archive's values equal the netCDF file's on"</span><span class="p">,</span> <span class="n">days</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">date</span><span class="p">())</span>
+</pre></div>
+</div>
+<p>It prints:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>oisst.vzip: 312 keys, 240 of them references to 60 sources; 63,376 bytes
+year
+2015    28.34
+2016    27.49
+2017    26.90
+2018    27.04
+2019    27.61
+Name: sst, dtype: float64
+read 40 MB in 60 requests to the netCDF files
+the archive's values equal the netCDF file's on 2019-12-01
+</pre></div>
+</div>
+<p>What each step does:</p>
+<ol class="arabic simple">
+<li><p><strong>Zarrify.</strong> <code class="docutils literal notranslate"><span class="pre">open_virtual_mfdataset</span></code> reads each file’s HDF5 metadata,
+records each chunk as a byte range, and concatenates the files along
+time. The <code class="docutils literal notranslate"><span class="pre">S3Store</span></code> reads the public bucket without credentials, the
+<code class="docutils literal notranslate"><span class="pre">HDFParser</span></code> reads in 64 kB blocks rather than whole files
+(<a class="reference internal" href="#troubleshooting">troubleshooting</a>), and <code class="docutils literal notranslate"><span class="pre">EightThreads</span></code> reads 8 files
+at a time (<a class="reference internal" href="#scaling-up">scaling up</a>). <code class="docutils literal notranslate"><span class="pre">combine_attrs=&quot;drop_conflicts&quot;</span></code>
+drops the attributes that differ between files (<code class="docutils literal notranslate"><span class="pre">id</span></code>, <code class="docutils literal notranslate"><span class="pre">date_created</span></code>,
+<code class="docutils literal notranslate"><span class="pre">date_modified</span></code>, <code class="docutils literal notranslate"><span class="pre">time_coverage_*</span></code>), rather than keeping the first file’s.</p></li>
+<li><p><strong>Save.</strong> <code class="docutils literal notranslate"><span class="pre">from_virtualizarr</span></code> turns the virtual dataset into a store:
+Zarr metadata, the coordinates as bytes, and each chunk as a reference.
+<code class="docutils literal notranslate"><span class="pre">rewrite_urls=refkv.public_s3_url</span></code> names each file by its public HTTPS URL
+(<a class="reference internal" href="#publishing">publishing</a>). <code class="docutils literal notranslate"><span class="pre">save_vzip</span></code> writes the archive and summarizes it.</p></li>
+<li><p><strong>Compute.</strong> <code class="docutils literal notranslate"><span class="pre">refkv.zarr.open</span></code> opens the archive as a read-only Zarr store
+for <code class="docutils literal notranslate"><span class="pre">xr.open_zarr</span></code>, which reads chunks from the netCDF files, at most 8
+requests at a time. The files’ chunking stays: a chunk of <code class="docutils literal notranslate"><span class="pre">sst</span></code> is a whole day’s global
+field, 720×1440, about 0.65 MB, so even one grid cell costs that per day
+(a year of one cell read 239 MB). The mean is weighted by cos(latitude),
+each cell’s relative area; within ±5° that moves it by at most 0.01 °C.</p></li>
+<li><p><strong>Check.</strong> The netCDF file gives the same values, once the archive’s
+float64 is cast to float32, which is exact
+(<a class="reference internal" href="#troubleshooting">troubleshooting</a>).</p></li>
+</ol>
+</section>
+<section id="zarrifying-with-refkv-for-virtualizarr">
+<h2>Zarrifying with refkv, for VirtualiZarr<a class="headerlink" href="#zarrifying-with-refkv-for-virtualizarr" title="Link to this heading">¶</a></h2>
+<p>VirtualiZarr builds a virtual dataset with a parser for the file’s format. refkv’s
+<code class="docutils literal notranslate"><span class="pre">refkv.virtualizarr.RefkvParser</span></code> is one parser for every format refkv can zarrify
+(<a class="reference internal" href="zarrify/README.html"><span class="std std-doc">the list</span></a>): it zarrifies the file, read through the registry
+VirtualiZarr gives it, and hands VirtualiZarr the result as a <code class="docutils literal notranslate"><span class="pre">ManifestStore</span></code>. The file is
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/docs/examples/refkv_parser.py">examples/refkv_parser.py</a>:</p>
+<!-- include: examples/refkv_parser.py -->
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""A netCDF file opened as a VirtualiZarr virtual dataset through refkv's parser.</span>
+
+<span class="sd">RefkvParser zarrifies the file with refkv and hands VirtualiZarr the result as a ManifestStore,</span>
+<span class="sd">so open_virtual_dataset takes any file refkv can zarrify. This writes a small netCDF file into</span>
+<span class="sd">the current directory, so it runs offline.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">virtualizarr</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">vz</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">xarray</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">xr</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">obspec_utils.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">ObjectStoreRegistry</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">obstore.store</span><span class="w"> </span><span class="kn">import</span> <span class="n">LocalStore</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">refkv.virtualizarr</span><span class="w"> </span><span class="kn">import</span> <span class="n">RefkvParser</span>
+
+<span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"temperature.nc"</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
+<span class="n">expected</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">Dataset</span><span class="p">(</span>
+    <span class="p">{</span><span class="s2">"t"</span><span class="p">:</span> <span class="p">((</span><span class="s2">"time"</span><span class="p">,</span> <span class="s2">"x"</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mf">12.0</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="p">{</span><span class="s2">"units"</span><span class="p">:</span> <span class="s2">"K"</span><span class="p">})},</span>
+    <span class="n">coords</span><span class="o">=</span><span class="p">{</span><span class="s2">"time"</span><span class="p">:</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">]},</span>
+<span class="p">)</span>
+<span class="n">expected</span><span class="o">.</span><span class="n">to_netcdf</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">engine</span><span class="o">=</span><span class="s2">"h5netcdf"</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="p">{</span><span class="s2">"t"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"chunksizes"</span><span class="p">:</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">)}})</span>
+
+<span class="n">registry</span> <span class="o">=</span> <span class="n">ObjectStoreRegistry</span><span class="p">({</span><span class="s2">"file://"</span><span class="p">:</span> <span class="n">LocalStore</span><span class="p">()})</span>
+<span class="k">with</span> <span class="n">vz</span><span class="o">.</span><span class="n">open_virtual_dataset</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">as_uri</span><span class="p">(),</span> <span class="n">registry</span><span class="o">=</span><span class="n">registry</span><span class="p">,</span> <span class="n">parser</span><span class="o">=</span><span class="n">RefkvParser</span><span class="p">(),</span>
+                             <span class="n">loadable_variables</span><span class="o">=</span><span class="p">[</span><span class="s2">"time"</span><span class="p">])</span> <span class="k">as</span> <span class="n">vds</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">vds</span><span class="p">[</span><span class="s2">"t"</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">manifest</span><span class="o">.</span><span class="n">dict</span><span class="p">()[</span><span class="s2">"0.0"</span><span class="p">])</span>  <span class="c1"># the first chunk: a byte range of the file</span>
+
+<span class="c1"># The parser's ManifestStore is also a Zarr store, which xarray reads directly.</span>
+<span class="n">ds</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">open_zarr</span><span class="p">(</span><span class="n">RefkvParser</span><span class="p">()(</span><span class="n">path</span><span class="o">.</span><span class="n">as_uri</span><span class="p">(),</span> <span class="n">registry</span><span class="p">),</span> <span class="n">zarr_format</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">consolidated</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_array_equal</span><span class="p">(</span><span class="n">ds</span><span class="p">[</span><span class="s2">"t"</span><span class="p">],</span> <span class="n">expected</span><span class="p">[</span><span class="s2">"t"</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"the virtual dataset's values equal the file's"</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>It prints the first chunk’s manifest entry, a byte range of the file, then
+<code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">virtual</span> <span class="pre">dataset's</span> <span class="pre">values</span> <span class="pre">equal</span> <span class="pre">the</span> <span class="pre">file's</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">RefkvParser</span></code> takes <code class="docutils literal notranslate"><span class="pre">group=</span></code> and <code class="docutils literal notranslate"><span class="pre">skip_variables=</span></code>, as VirtualiZarr’s parsers do, <code class="docutils literal notranslate"><span class="pre">policy=</span></code>, the
+<code class="docutils literal notranslate"><span class="pre">refkv.Policy</span></code> refkv reads the file and its chunks under, and <code class="docutils literal notranslate"><span class="pre">layout=</span></code>, the
+<a class="reference internal" href="layout-plugins.html"><span class="std std-doc">layout plugin</span></a> to zarrify with. Its default is the <code class="docutils literal notranslate"><span class="pre">refkv.virtualizarr</span></code>
+layout, which presents an HDF5, netCDF-4, netCDF3, FITS, ENVI, Zarr v2 or zipped Zarr v3 file
+as VirtualiZarr’s own parsers present it: the same array names, dimension names and attributes, without refkv’s
+declarations. A file of another format, which that layout does not read, or one the layout
+refuses (a FITS image with <code class="docutils literal notranslate"><span class="pre">BSCALE</span> <span class="pre">=</span> <span class="pre">0</span></code>), is written as refkv’s
+own output, and <code class="docutils literal notranslate"><span class="pre">layout=None</span></code> asks for refkv’s own output for every file. Either way the file is
+read once: a layout and refkv’s own output are two projections of the one parse. The
+parser leaves out refkv’s <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> group, which describes the file, not its data. Given an
+ENVI raster’s data file, as VirtualiZarr names it, the parser reads the <code class="docutils literal notranslate"><span class="pre">.hdr</span></code> header beside it,
+which is how refkv names the raster, found as <code class="docutils literal notranslate"><span class="pre">ENVIParser</span></code> finds it.</p>
+<p><code class="docutils literal notranslate"><span class="pre">refkv.virtualizarr.manifest_store(store,</span> <span class="pre">registry)</span></code> is the conversion on its own: the
+<code class="docutils literal notranslate"><span class="pre">ManifestStore</span></code> of any reference store, a <code class="docutils literal notranslate"><span class="pre">zarrify</span></code> result or a saved archive <code class="docutils literal notranslate"><span class="pre">refkv.open</span></code>
+opened, with the same <code class="docutils literal notranslate"><span class="pre">group=</span></code> and <code class="docutils literal notranslate"><span class="pre">skip_variables=</span></code>. A manifest entry is one byte range, so a
+chunk that is one range of a file becomes an entry, and the rest is inlined into the manifest:
+bytes values, references whose bytes are all in the store, and chunks made from several ranges
+(a netCDF variable-length string chunk, a JPEG tile with its shared tables), which are read
+during the conversion. Each file a manifest names is checked against the store’s policy first,
+since VirtualiZarr reads it later without refkv. The pins and checksums a store keeps for its
+sources have no place in a manifest, and are dropped.</p>
+<p><code class="docutils literal notranslate"><span class="pre">just</span> <span class="pre">virtualizarr-parity</span></code> (conformance/virtualizarr/test_parity.py) compares <code class="docutils literal notranslate"><span class="pre">RefkvParser</span></code>
+with VirtualiZarr’s own parsers on generated files, for each array’s shape, data type, fill
+value, dimension names, attributes, chunk byte ranges and values; the differences that remain
+are listed there, each with the item of
+<a class="reference external" href="https://github.com/d-v-b/refkv/issues/271">refkv#271</a> that tracks it.</p>
+</section>
+<section id="scaling-up">
+<h2>Scaling up<a class="headerlink" href="#scaling-up" title="Link to this heading">¶</a></h2>
+<ul>
+<li><p><strong>Every day.</strong> <code class="docutils literal notranslate"><span class="pre">freq=&quot;D&quot;</span></code> takes every day. A year of daily files took
+156 s to zarrify with 8 threads, about 0.4 s per file, against about
+1.2 s per file one at a time. <code class="docutils literal notranslate"><span class="pre">parallel=</span></code> takes an executor class and
+instantiates it with no arguments, hence the <code class="docutils literal notranslate"><span class="pre">EightThreads</span></code> subclass,
+which keeps the host to 8 connections.</p></li>
+<li><p><strong>Reuse the archive.</strong> That is the point of saving it: steps 3 and 4 rerun
+from <code class="docutils literal notranslate"><span class="pre">refkv.zarr.open(&quot;oisst.vzip&quot;)</span></code> without zarrifying again, so guard steps
+1 and 2 with <code class="docutils literal notranslate"><span class="pre">if</span> <span class="pre">not</span> <span class="pre">Path(&quot;oisst.vzip&quot;).exists():</span></code> while you iterate.</p></li>
+<li><p><strong>The page index.</strong> Without one, a reader loads the whole central
+directory at open, about 125 bytes per key. A year of daily OISST is
+1,837 keys in a 263 kB archive: no index needed. At 259,200 keys, the
+directory was 18.8 MB, and a page index cut opening to 2 requests and
+115 kB (<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/design/COMPARISON.md#opening">design/COMPARISON.md</a>). Once the
+directory passes a few MB, tens of thousands of keys, save with
+<code class="docutils literal notranslate"><span class="pre">store.save_vzip(&quot;oisst.vzip&quot;,</span> <span class="pre">page_size=65536)</span></code>
+(<a class="reference internal" href="../spec/bindings/vzip.html#page-index-optional"><span class="std std-ref">spec §12, Page index</span></a>).</p></li>
+<li><p><strong>The perfect-hash binding.</strong> For a store of hundreds of thousands of keys,
+<code class="docutils literal notranslate"><span class="pre">store.save_phkv(&quot;oisst.phkv&quot;)</span></code> writes the draft phkv binding instead
+(<a class="reference internal" href="../spec/bindings/phkv.html"><span class="std std-doc">spec</span></a>): a perfect hash of the keys, so that opening
+the file and reading the first key takes 3 requests of about 516 KiB at 10^5
+and 10^6 keys, and each later key one or two, fewer than a paged archive takes
+(<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/rust/refkv-phkv/bench/RESULTS.md">benchmarks</a>).
+<code class="docutils literal notranslate"><span class="pre">refkv.open(&quot;oisst.phkv&quot;,</span> <span class="pre">binding=&quot;phkv&quot;)</span></code> and
+<code class="docutils literal notranslate"><span class="pre">refkv.zarr.open(&quot;oisst.phkv&quot;,</span> <span class="pre">binding=&quot;phkv&quot;)</span></code> read it with the same options
+as an archive. It is not a ZIP file, so ZIP tools cannot open it.</p></li>
+<li><p><strong>Requests.</strong> <code class="docutils literal notranslate"><span class="pre">refkv.zarr.open(...,</span> <span class="pre">max_concurrency=16)</span></code> allows more requests in
+flight, and <code class="docutils literal notranslate"><span class="pre">max_concurrency=None</span></code> removes the cap. Respect the host’s
+limits.</p></li>
+<li><p><strong>Many small chunks.</strong> Chunks read at the same time share requests when they lie
+at most the policy’s coalescing gap apart in one source file (<code class="docutils literal notranslate"><span class="pre">Policy.max_coalesce_gap</span></code>, 64 KiB
+by default), but zarr asks for only
+<code class="docutils literal notranslate"><span class="pre">async.concurrency</span></code> chunks at once (10 by default), which limits how many can
+share one. Raising it makes both fewer requests and a faster read, and opens no
+more connections, since <code class="docutils literal notranslate"><span class="pre">max_concurrency</span></code> bounds those. The setting is zarr’s, and
+applies to the other stores of the process too:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="n">zarr</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">set</span><span class="p">({</span><span class="s2">"async.concurrency"</span><span class="p">:</span> <span class="mi">1024</span><span class="p">}):</span>
+    <span class="n">plane</span> <span class="o">=</span> <span class="n">array</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>At the default, the requests fall by up to tenfold but the read takes about as long.</p>
+</li>
+</ul>
+</section>
+<section id="publishing">
+<h2>Publishing<a class="headerlink" href="#publishing" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">rewrite_urls=refkv.public_s3_url</span></code> gives HTTPS URLs that any reader can read
+without credentials: refkv in Python, the <a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/js/README.md">JavaScript reader</a>,
+and a browser (if the bucket allows cross-origin requests). Serve the archive
+over HTTPS, and anyone can open it with
+<code class="docutils literal notranslate"><span class="pre">xr.open_zarr(refkv.zarr.open(&quot;https://example.org/oisst.vzip&quot;))</span></code>.
+<code class="docutils literal notranslate"><span class="pre">save(...,</span> <span class="pre">relative_to=&quot;https://example.org/data/&quot;)</span></code> writes URLs under that
+prefix relative to the archive, so the two can move together.</p>
+<p>For private data, every reference store takes <code class="docutils literal notranslate"><span class="pre">registry=</span></code>: the
+<code class="docutils literal notranslate"><span class="pre">ObjectStoreRegistry</span></code> you gave VirtualiZarr, or a mapping of URL prefixes to
+stores, such as obstore’s (<code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">&quot;refkv[obstore]&quot;</span></code>, which the
+<code class="docutils literal notranslate"><span class="pre">virtualizarr</span></code> extra includes). Readers need the same stores, so tell <code class="docutils literal notranslate"><span class="pre">save_vzip</span></code>
+their policy:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">obstore.store</span><span class="w"> </span><span class="kn">import</span> <span class="n">S3Store</span>
+
+<span class="n">registry</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"s3://my-bucket"</span><span class="p">:</span> <span class="n">S3Store</span><span class="p">(</span><span class="s2">"my-bucket"</span><span class="p">,</span> <span class="n">region</span><span class="o">=</span><span class="s2">"us-west-2"</span><span class="p">)}</span>
+<span class="n">store</span> <span class="o">=</span> <span class="n">refkv</span><span class="o">.</span><span class="n">ReferenceStore</span><span class="o">.</span><span class="n">from_virtualizarr</span><span class="p">(</span><span class="n">vds</span><span class="p">,</span> <span class="n">registry</span><span class="o">=</span><span class="n">registry</span><span class="p">)</span>
+<span class="n">store</span><span class="o">.</span><span class="n">save_vzip</span><span class="p">(</span><span class="s2">"private.vzip"</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="n">refkv</span><span class="o">.</span><span class="n">Policy</span><span class="p">(</span><span class="n">schemes</span><span class="o">=</span><span class="p">{</span><span class="s2">"s3"</span><span class="p">}))</span>
+<span class="n">ds</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">open_zarr</span><span class="p">(</span><span class="n">refkv</span><span class="o">.</span><span class="n">zarr</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"private.vzip"</span><span class="p">,</span> <span class="n">registry</span><span class="o">=</span><span class="n">registry</span><span class="p">))</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">refkv.zarrify.zarrify</span></code> takes the same <code class="docutils literal notranslate"><span class="pre">registry=</span></code>, to read the input itself
+from the bucket: a file, the files it names beside it, or a store (a URL
+ending in <code class="docutils literal notranslate"><span class="pre">/</span></code>), each read with the registered store. The result reads its
+sources with that registry too.</p>
+<p>A local input may be its path or its <code class="docutils literal notranslate"><span class="pre">file:</span></code> URL, as VirtualiZarr passes it,
+with or without a <code class="docutils literal notranslate"><span class="pre">file://</span></code> store in the registry: a file, or a local Zarr v2,
+Zarr v3 or N5 directory, whose chunks are then references to the directory’s
+files, named by their <code class="docutils literal notranslate"><span class="pre">file:</span></code> URLs. The store <code class="docutils literal notranslate"><span class="pre">zarrify</span></code> returns reads those
+files, the input’s own, below its directory, and no other local file; a store
+saved from it is read as below.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">refkv.zarrify</span><span class="w"> </span><span class="kn">import</span> <span class="n">zarrify</span>
+
+<span class="n">store</span> <span class="o">=</span> <span class="n">zarrify</span><span class="p">(</span><span class="s2">"s3://my-bucket/oisst/oisst-avhrr-v02r01.20240101.nc"</span><span class="p">,</span> <span class="n">registry</span><span class="o">=</span><span class="n">registry</span><span class="p">)</span>
+<span class="n">store</span><span class="o">.</span><span class="n">save_vzip</span><span class="p">(</span><span class="s2">"oisst.vzip"</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="n">refkv</span><span class="o">.</span><span class="n">Policy</span><span class="p">(</span><span class="n">schemes</span><span class="o">=</span><span class="p">{</span><span class="s2">"s3"</span><span class="p">}))</span>
+</pre></div>
+</div>
+<p>By default, refkv reads <code class="docutils literal notranslate"><span class="pre">http(s)</span></code> URLs, and never builds an <code class="docutils literal notranslate"><span class="pre">s3://</span></code>, <code class="docutils literal notranslate"><span class="pre">gs://</span></code> or
+<code class="docutils literal notranslate"><span class="pre">az://</span></code> store itself, so it cannot pick up your cloud credentials by accident.
+For a private bucket, register its store, as above; that allows its URLs.</p>
+<p>A store’s <code class="docutils literal notranslate"><span class="pre">file:</span></code> sources are refused too, even when you open it from a local
+path, since a store’s location says nothing about who wrote it, and a store from
+someone else could otherwise read your files. To read a store’s local files, name
+them, or allow the scheme for a store you trust:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">store</span> <span class="o">=</span> <span class="n">refkv</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"sidecar.vzip"</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="n">refkv</span><span class="o">.</span><span class="n">Policy</span><span class="p">(</span><span class="n">prefixes</span><span class="o">=</span><span class="p">(</span><span class="s2">"file:///data/"</span><span class="p">,)))</span>
+<span class="n">store</span> <span class="o">=</span> <span class="n">refkv</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"sidecar.vzip"</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="n">refkv</span><span class="o">.</span><span class="n">Policy</span><span class="p">(</span><span class="n">schemes</span><span class="o">=</span><span class="p">{</span><span class="s2">"file"</span><span class="p">}))</span>
+</pre></div>
+</div>
+<p>A prefix list replaces the default, so add <code class="docutils literal notranslate"><span class="pre">&quot;https://&quot;</span></code> to it if the store also
+reads the web. A file a symbolic link leads to must be under the prefix too.
+<code class="docutils literal notranslate"><span class="pre">schemes={&quot;file&quot;}</span></code> allows every file you can read. A store
+<code class="docutils literal notranslate"><span class="pre">refkv.zarrify.zarrify</span></code> has just built reads the files it found without either,
+as if its prefix list were their directory; once saved, it needs one. The rules are in
+<a class="reference internal" href="../spec/refkv.html#reader-policy"><span class="std std-ref">spec §6.7, Reader policy</span></a>.</p>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><strong>The values are float64, the netCDF file’s float32.</strong> Zarr attributes
+are JSON, so <code class="docutils literal notranslate"><span class="pre">scale_factor</span></code> and <code class="docutils literal notranslate"><span class="pre">add_offset</span></code> lose their float32 dtype, and
+xarray decodes a packed int16 variable as float64 (CF’s rule;
+<a class="reference external" href="https://github.com/pydata/xarray/issues/8713">pydata/xarray#8713</a>). Every
+Zarr store does this, <code class="docutils literal notranslate"><span class="pre">to_zarr</span></code>’s and VirtualiZarr’s included.
+Cast with <code class="docutils literal notranslate"><span class="pre">ds[&quot;sst&quot;].astype(&quot;float32&quot;)</span></code>; for OISST this is exact, since
+an int16 times a float32 scale factor is exact in float64. Or compare
+packed values with <code class="docutils literal notranslate"><span class="pre">xr.open_zarr(...,</span> <span class="pre">mask_and_scale=False)</span></code>.</p></li>
+<li><p><strong>Zarrifying downloads whole files.</strong> <code class="docutils literal notranslate"><span class="pre">HDFParser()</span></code> reads in 1 MiB
+blocks by default, the whole of a 1.7 MB OISST file. Give it smaller
+blocks, as the example does, with <code class="docutils literal notranslate"><span class="pre">BlockStoreReader</span></code> from
+<code class="docutils literal notranslate"><span class="pre">obspec_utils.readers</span></code>.</p></li>
+<li><p><strong>Zarrifying is slow, or opens too many connections.</strong> Pass
+<code class="docutils literal notranslate"><span class="pre">parallel=</span></code> a capped executor class (<a class="reference internal" href="#scaling-up">scaling up</a>).</p></li>
+<li><p><strong>The attributes describe only the first file</strong> (its <code class="docutils literal notranslate"><span class="pre">id</span></code>,
+<code class="docutils literal notranslate"><span class="pre">time_coverage_start</span></code>). Pass <code class="docutils literal notranslate"><span class="pre">combine_attrs=&quot;drop_conflicts&quot;</span></code>.</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">scheme</span> <span class="pre">'s3'</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">allowed</span></code></strong> (reading) or <strong><code class="docutils literal notranslate"><span class="pre">not</span> <span class="pre">saving</span> <span class="pre">...:</span> <span class="pre">the</span> <span class="pre">default</span> <span class="pre">reader</span> <span class="pre">policy</span> <span class="pre">refuses</span> <span class="pre">...</span></code></strong> (saving). The references name
+<code class="docutils literal notranslate"><span class="pre">s3://</span></code> URLs, which the default policy refuses. For a public
+bucket, pass <code class="docutils literal notranslate"><span class="pre">rewrite_urls=refkv.public_s3_url</span></code> to <code class="docutils literal notranslate"><span class="pre">from_virtualizarr</span></code>. For
+a private one, pass <code class="docutils literal notranslate"><span class="pre">registry=</span></code> to read, and
+<code class="docutils literal notranslate"><span class="pre">policy=refkv.Policy(schemes={&quot;s3&quot;})</span></code> to <code class="docutils literal notranslate"><span class="pre">save_vzip</span></code> (<a class="reference internal" href="#publishing">publishing</a>).</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">no</span> <span class="pre">store</span> <span class="pre">is</span> <span class="pre">registered</span> <span class="pre">for</span> <span class="pre">s3://...</span></code>.</strong> The policy allows the scheme,
+but no store serves the URL; pass <code class="docutils literal notranslate"><span class="pre">registry={&quot;s3://bucket&quot;:</span> <span class="pre">S3Store(...)}</span></code>,
+with obstore’s <code class="docutils literal notranslate"><span class="pre">S3Store</span></code> (<code class="docutils literal notranslate"><span class="pre">refkv[obstore]</span></code>).</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">an</span> <span class="pre">archive</span> <span class="pre">reads</span> <span class="pre">a</span> <span class="pre">local</span> <span class="pre">file</span> <span class="pre">only</span> <span class="pre">when</span> <span class="pre">it</span> <span class="pre">is</span> <span class="pre">allowed</span></code>.</strong> The store names a
+<code class="docutils literal notranslate"><span class="pre">file:</span></code> source, which no store reads by default, however it was opened. Pass
+one of the policies the message gives, if you trust the store with those files.</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">host</span> <span class="pre">is</span> <span class="pre">a</span> <span class="pre">loopback</span> <span class="pre">address</span></code></strong> (or private, link-local, special),
+opening an archive or reading a source. refkv refuses requests to
+addresses on your machine and network by default, an archive’s own
+included (<a class="reference internal" href="../spec/refkv.html#reader-policy"><span class="std std-ref">spec §6.7</span></a> rule 3). For an
+archive you serve yourself, such as <code class="docutils literal notranslate"><span class="pre">http://localhost:8000/data.vzip</span></code>, pass
+<code class="docutils literal notranslate"><span class="pre">policy=refkv.Policy(allow_private_hosts=True)</span></code>.</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">request</span> <span class="pre">would</span> <span class="pre">go</span> <span class="pre">through</span> <span class="pre">the</span> <span class="pre">proxy</span> <span class="pre">...</span></code>.</strong> refkv checks the
+address each request goes to, and cannot check one a proxy connects to.
+This holds for an archive’s own URL as well as for its sources, so behind
+a proxy (<code class="docutils literal notranslate"><span class="pre">http_proxy</span></code>, <code class="docutils literal notranslate"><span class="pre">https_proxy</span></code>) opening an <code class="docutils literal notranslate"><span class="pre">https://</span></code> archive fails
+too. Exempt the host with <code class="docutils literal notranslate"><span class="pre">no_proxy</span></code>, or pass
+<code class="docutils literal notranslate"><span class="pre">policy=refkv.Policy(allow_unchecked_proxy=True)</span></code>.</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">value</span> <span class="pre">needs</span> <span class="pre">more</span> <span class="pre">than</span> <span class="pre">2147483648</span> <span class="pre">bytes</span> <span class="pre">...</span></code>.</strong> A reader refuses a
+<code class="docutils literal notranslate"><span class="pre">get</span></code> of more bytes than its policy allows, 2 GiB by default
+(<a class="reference internal" href="../spec/refkv.html#reader-policy"><span class="std std-ref">spec §6.7</span></a> rule 5). VirtualiZarr and
+kerchunk present a contiguous HDF5 or netCDF variable as one chunk, which
+can be larger. For a store you trust, pass
+<code class="docutils literal notranslate"><span class="pre">policy=refkv.Policy(max_get_bytes=...)</span></code> with a larger bound.</p></li>
+</ul>
+<p>The docstrings say more: <code class="docutils literal notranslate"><span class="pre">help(refkv.ReferenceStore)</span></code>, <code class="docutils literal notranslate"><span class="pre">help(refkv.zarr.open)</span></code>
+and <code class="docutils literal notranslate"><span class="pre">help(refkv.vzip.VZipStore)</span></code> (its <code class="docutils literal notranslate"><span class="pre">registry=</span></code> and <code class="docutils literal notranslate"><span class="pre">max_concurrency=</span></code>), and
+<code class="docutils literal notranslate"><span class="pre">help(refkv.Policy)</span></code>. Without zarr, a store answers <code class="docutils literal notranslate"><span class="pre">get</span></code>, <code class="docutils literal notranslate"><span class="pre">classify</span></code>, <code class="docutils literal notranslate"><span class="pre">raw</span></code>
+and <code class="docutils literal notranslate"><span class="pre">list</span></code> itself: <code class="docutils literal notranslate"><span class="pre">refkv.open(&quot;oisst.vzip&quot;).get(&quot;zarr.json&quot;)</span></code>.</p>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="../spec/TECHNIQUES.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Mapping image formats to Zarr: techniques</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="tiff-stack.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">A stack of TIFF files as one array</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; the refkv authors
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Virtual datasets with xarray</a><ul>
+<li><a class="reference internal" href="#install">Install</a></li>
+<li><a class="reference internal" href="#an-example-five-years-of-sea-surface-temperature">An example: five years of sea surface temperature</a></li>
+<li><a class="reference internal" href="#zarrifying-with-refkv-for-virtualizarr">Zarrifying with refkv, for VirtualiZarr</a></li>
+<li><a class="reference internal" href="#scaling-up">Scaling up</a></li>
+<li><a class="reference internal" href="#publishing">Publishing</a></li>
+<li><a class="reference internal" href="#troubleshooting">Troubleshooting</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/scripts/furo.js?v=46bd48cc"></script>
+    </body>
+</html>
