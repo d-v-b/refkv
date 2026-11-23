@@ -83,9 +83,13 @@ the Convention Metadata Object (CMO)
 }
 ```
 
-with no other members. At version 0, which has no tag, the URLs name the
-development branch instead: `.../refs/heads/main/spec/zarrify/<p>/schema.json`
-and `.../blob/main/spec/zarrify/<p>.md`. `T` is the format's title, the `title` of its
+with no other members. At version 0, which has no tag, the URLs are instead the documentation
+site's names for the convention, which follow the development branch:
+`https://d-v-b.github.io/refkv/conventions/<p>/schema.json` and
+`https://d-v-b.github.io/refkv/conventions/<p>/`. They name the convention, not a file of the
+repository: the site MUST serve them (the schema, and the document's page or a redirect to it)
+wherever the files live, and its build fails when it does not; a tag's files never change. So
+no CMO's URLs break. `T` is the format's title, the `title` of its
 entry in the profile registry ([zarrify/profiles/](zarrify/profiles/)`<p>.json`: `TIFF`,
 `Zarr v2`, `Sentinel-2 SAFE`, ...). The UUID is the same for every version; the version is in
 the URLs. All conventions nest their property under one key, `refkv_zarrified`, which is
@@ -98,8 +102,8 @@ other type tables):
 | member | type | presence | value |
 |---|---|---|---|
 | `uuid` | string | required | the convention's UUID, from the table above |
-| `schema_url` | string | required | the URL of `zarrify/<p>/schema.json` at the tag `zarrify-<p>-v<N>` (at version 0, at `main`) |
-| `spec_url` | string | required | the URL of `zarrify/<p>.md` at the same tag (at version 0, at `main`) |
+| `schema_url` | string | required | the URL of `zarrify/<p>/schema.json` at the tag `zarrify-<p>-v<N>` (at version 0, on the documentation site) |
+| `spec_url` | string | required | the URL of `zarrify/<p>.md` at the same tag (at version 0, its page on the documentation site) |
 | `name` | string | required | `"refkv_zarrified"` |
 | `description` | string | required | `"The Zarr layout of a <T> source zarrified by refkv, and the source's metadata"`, `T` the format's title |
 
