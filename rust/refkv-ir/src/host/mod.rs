@@ -18,7 +18,7 @@ pub mod listing;
 pub mod urls;
 
 pub use archive::{late, Layout, PAGE_SIZE};
-pub use inputs::{input, is_url, scope_keys, split_input, url_scheme, Input};
+pub use inputs::{input, is_url, scope_keys, split_input, split_url, url_scheme, Input};
 pub use listing::{folder_marker, ignored, next_link, parse_hub_revision, parse_hub_tree, parse_listing, store_listing, Listing};
 pub use urls::{check_store_url, hub_endpoint, hub_page, hub_repo, listing_endpoint, listing_url, object_url, query_encode, HubRepo, HUB};
 
@@ -189,7 +189,9 @@ pub fn call(name: &str, p: &J) -> Option<Result<J, Fail>> {
         })(),
         "is_url" => s(p, "location").map(|l| J::Bool(is_url(l))),
         "split_input" => (|| {
-            let (d, k) = split_input(s(p, "location")?, s(p, "title")?, flag(p, "windows")?)?;
+            // `url`: the host has no local paths (a browser): every location is a URL reference
+            let (loc, title) = (s(p, "location")?, s(p, "title")?);
+            let (d, k) = if flag(p, "url")? { split_url(loc, title)? } else { split_input(loc, title, flag(p, "windows")?)? };
             Ok(json!([d, k]))
         })(),
         "scope_keys" => (|| Ok(scope_keys(s(p, "location")?, &strings(p, "scope")?)?.map_or(J::Null, |k| json!(k))))(),
