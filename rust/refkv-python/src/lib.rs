@@ -1006,9 +1006,9 @@ fn grib_decode<'py>(py: Python<'py>, chunk: &[u8], config: &str, chunk_shape: Ve
 #[pyfunction]
 fn coding(py: Python<'_>, name: &str, params: &str) -> PyResult<String> {
     // without the GIL: a host rule may take a whole listing
-    let r = py.detach(|| serde_json::from_str::<serde_json::Value>(params).map(|p| refkv_ir::routines::call(name, &p)));
+    let r = py.detach(|| serde_json::from_str::<serde_json::Value>(params).map(|p| refkv_ir::routines::call(name, &p).map(|v| v.to_string())));
     match r.map_err(|e| PyValueError::new_err(e.to_string()))? {
-        Ok(v) => Ok(v.to_string()),
+        Ok(v) => Ok(v),
         Err(refkv_ir::routines::Refused::NoCodec(m)) => Err(NoCodec::new_err(m)),
         Err(refkv_ir::routines::Refused::Bad(m)) => Err(PyValueError::new_err(m)),
         Err(refkv_ir::routines::Refused::Rejected(m)) => Err(Rejected::new_err(m)),
