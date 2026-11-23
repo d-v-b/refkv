@@ -30,7 +30,6 @@ ir-build:
 # and its Zarr v2 and N5 store formats, from Node
 ir-wasm:
     rust/refkv-ir/wasm/build.sh
-    node rust/refkv-ir/wasm/nd2.mjs fixtures/nd2/nd2_tz_uint16.nd2
     node rust/refkv-ir/wasm/run.mjs $(uv run python spec/tools/profiles.py sample)
     node rust/refkv-ir/wasm/store.mjs fixtures/zarr2/zarr2_hierarchy > /dev/null
     node rust/refkv-ir/wasm/store.mjs --format n5 fixtures/n5/n5_cosem > /dev/null

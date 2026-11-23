@@ -4,9 +4,8 @@
 //!
 //! `vz_new(format, n, size)` makes a parser of the format named by the UTF-8 `format` (a name of
 //! `Format::from_name`: the profile's in spec/zarrify/profiles/); `vz_step`, `vz_feed`
-//! and `vz_finish` drive it. The `nd2_*` names are round 2's, kept.
+//! and `vz_finish` drive it.
 
-use crate::nd2::Nd2;
 use crate::step::Step;
 use crate::run::AnyParser;
 use std::cell::RefCell;
@@ -171,44 +170,6 @@ pub unsafe extern "C" fn vz_feed(p: *mut AnyParser, offset: u64, data: *mut u8, 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vz_finish(p: *mut AnyParser) -> i64 {
     finish_out(unsafe { Box::from_raw(p) }.finish())
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn nd2_new(size: u64) -> *mut Nd2 {
-    Box::into_raw(Box::new(Nd2::new(size)))
-}
-
-/// # Safety
-/// `p` must come from `nd2_new`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn nd2_step(p: *mut Nd2) -> i64 {
-    step_out(unsafe { &mut *p }.step())
-}
-
-/// # Safety
-/// `p` from `nd2_new`; `data` and `n` from `vz_alloc(n)` (consumed).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn nd2_feed(p: *mut Nd2, offset: u64, data: *mut u8, n: usize) {
-    unsafe { &mut *p }.feed(offset, unsafe { Vec::from_raw_parts(data, n, n) });
-}
-
-/// Finishes: the description's JSON (with the element count) at `vz_out()`, its length,
-/// or minus the length of a rejection's message.
-///
-/// # Safety
-/// `p` from `nd2_new` (consumed).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn nd2_finish(p: *mut Nd2) -> i64 {
-    let p = unsafe { Box::from_raw(p) };
-    match p.finish() {
-        Ok((ir, mut description)) => {
-            description["elements"] = serde_json::json!(ir.len());
-            description["runs"] = serde_json::json!(ir.runs.len());
-            description["check"] = serde_json::json!(crate::check::check(&ir).is_ok());
-            set_out(description.to_string().into_bytes()) as i64
-        }
-        Err(e) => -(set_out(e.into_bytes()) as i64),
-    }
 }
 
 // ---- runs: a parser, the read planner, the projection and the mirror
