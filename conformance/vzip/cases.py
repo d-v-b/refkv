@@ -21,10 +21,10 @@ from pathlib import Path
 import pbref
 from http_server import etag_for
 from model import standard_queries
+from python_writer import VZipWriter
 
 from refkv._narrow import sequence
 from refkv.pb import Concat, Range, Source
-from refkv.vzip.archive import VZipWriter
 
 H = lambda b: b.hex() if isinstance(b, bytes) else b.encode().hex()  # noqa: E731
 ERROR = {"ok": False}

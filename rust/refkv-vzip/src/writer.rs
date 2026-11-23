@@ -99,8 +99,10 @@ struct ArchiveKeys<'a> {
 }
 
 impl Keys for ArchiveKeys<'_> {
+    /// An entry the archive has, or one of the format entries, which `finish` writes after the
+    /// check (a key source naming one is refused as that)
     fn has(&self, key: &str) -> bool {
-        self.sizes.contains_key(key)
+        self.sizes.contains_key(key) || key == SOURCES_KEY || key == INDEX_KEY
     }
 
     fn is_ref(&self, key: &str) -> bool {
@@ -366,8 +368,10 @@ impl<W: Write> Writer<W> {
     /// The writer's requirements on the source table (spec/refkv.md §7
     /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>).
     fn check_sources(&self) -> Result<(), Error> {
-        // the late entries are written by now
-        let sizes: HashMap<&str, u64> = self.cd.iter().map(|r| (r.name.as_str(), r.size)).collect();
+        // every entry but the format entries, the late ones included, which are not written yet
+        let written = self.cd.iter().map(|r| (r.name.as_str(), r.size));
+        let late = self.late.iter().map(|(k, d, _)| (k.as_str(), d.len() as u64));
+        let sizes: HashMap<&str, u64> = written.chain(late).collect();
         self.sources.check(&ArchiveKeys { sizes: &sizes, refs: &self.ref_names }, &[SOURCES_KEY, INDEX_KEY])
     }
 
@@ -457,6 +461,14 @@ impl<W: Write> Writer<W> {
     /// Writes the source table, the late entries, the page index, the central directory and the
     /// end records, and gives the output back.
     pub fn close(self) -> Result<W, Error> {
+        self.finish(None).map(|(w, _)| w)
+    }
+
+    /// As [`Self::close`], also giving the uncompressed size of each format entry written (the
+    /// source table, and the page index when the archive has one), which a reader bounds by its
+    /// largest format entry (spec/bindings/vzip.md §13.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#131-opening>).
+    pub fn close_with_sizes(self) -> Result<(W, Vec<(String, u64)>), Error> {
         self.finish(None)
     }
 
@@ -467,10 +479,13 @@ impl<W: Write> Writer<W> {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#21-hybrid-profile>) needs.
     /// `build` is called again if its body's size changes whether the entry needs ZIP64.
     pub fn close_with_trailer(self, name: &str, build: &mut dyn FnMut(&Layout) -> Result<Vec<u8>, Error>) -> Result<W, Error> {
-        self.finish(Some((name, build)))
+        self.finish(Some((name, build))).map(|(w, _)| w)
     }
 
-    fn finish(mut self, trailer: Option<(&str, &mut dyn FnMut(&Layout) -> Result<Vec<u8>, Error>)>) -> Result<W, Error> {
+    #[allow(clippy::type_complexity)]
+    fn finish(mut self, trailer: Option<(&str, &mut dyn FnMut(&Layout) -> Result<Vec<u8>, Error>)>) -> Result<(W, Vec<(String, u64)>), Error> {
+        // before anything more is written: a refused archive holds only the entries added
+        self.check_sources()?;
         let table = self.sources.encode();
         self.entry(SOURCES_KEY, &table, None, true)?;
         let mut comment = MAGIC_COMMENT.to_vec();
@@ -485,7 +500,6 @@ impl<W: Write> Writer<W> {
             let (size, csize, method) = (r.size, r.csize, r.method);
             pinned.push(Pinned { key, data_offset: self.last_body().0, size, csize, method: method as u32 });
         }
-        self.check_sources()?;
 
         let trailer_entry = match trailer {
             None => None,
@@ -568,7 +582,8 @@ impl<W: Write> Writer<W> {
             return invalid(format!("the archive ends at {}, not at {e} as the trailer was built for", self.pos));
         }
         self.w.flush()?;
-        Ok(self.w)
+        let sizes = self.cd.iter().filter(|r| trailer(&r.name)).map(|r| (r.name.clone(), r.size)).collect();
+        Ok((self.w, sizes))
     }
 
     /// The central directory record a trailer entry of `len` bytes will have, written next.

@@ -22,7 +22,10 @@ import compare  # noqa: E402
 
 from refkv._narrow import string  # noqa: E402
 from refkv.pb import Range, Source  # noqa: E402
-from refkv.vzip.archive import VZipWriter  # noqa: E402
+
+sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
+from python_writer import VZipWriter  # noqa: E402 (the reference writer, whose test hooks build broken archives)
+
 from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store  # noqa: E402
 from refkv.zarrify.common import convention  # noqa: E402
 
