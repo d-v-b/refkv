@@ -40,6 +40,33 @@ pub extern "C" fn vz_out() -> *const u8 {
     OUT.with(|o| o.borrow().as_ptr())
 }
 
+/// A coding routine or a host rule by name (`routines::call`, rust/refkv-ir/src/host): the routine
+/// named by the UTF-8 `name` (`nn` bytes) of the parameters at `params` (JSON, `np` bytes), both
+/// from `vz_alloc` and consumed. Its result's JSON is at `vz_out()`: the length, positive; or minus
+/// the length of `{"kind": k, "message": m}`, `k` being `rejected` (the input is rejected),
+/// `no_codec` (no codec undoes the coding parameters) or `bad` (parameters that are not the
+/// routine's).
+///
+/// # Safety
+/// `name`, `nn`, `params` and `np` from `vz_alloc`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_call(name: *mut u8, nn: usize, params: *mut u8, np: usize) -> i64 {
+    use crate::routines::{call, Refused};
+    let name = String::from_utf8(unsafe { Vec::from_raw_parts(name, nn, nn) }).unwrap_or_default();
+    let params = unsafe { Vec::from_raw_parts(params, np, np) };
+    let fail = |kind: &str, message: String| -(set_out(serde_json::json!({"kind": kind, "message": message}).to_string().into_bytes()) as i64);
+    let p: serde_json::Value = match serde_json::from_slice(&params) {
+        Ok(p) => p,
+        Err(e) => return fail("bad", format!("params are not JSON: {e}")),
+    };
+    match call(&name, &p) {
+        Ok(v) => set_out(v.to_string().into_bytes()) as i64,
+        Err(Refused::Rejected(m)) => fail("rejected", m),
+        Err(Refused::NoCodec(m)) => fail("no_codec", m),
+        Err(Refused::Bad(m)) => fail("bad", m),
+    }
+}
+
 /// The `refkv.fits_tiles` codec (spec/zarrify/fits.md §3.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>):
 /// decodes the chunk at `chunk` (`n` bytes) with the configuration JSON at `config` (`nc`

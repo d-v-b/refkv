@@ -272,7 +272,7 @@ pub fn windows_split_drive(p: &str) -> (&str, &str) {
     let n = norm.as_bytes();
     if n.first() == Some(&b'\\') {
         if n.get(1) == Some(&b'\\') {
-            let start = if norm.len() >= 8 && norm[..8].eq_ignore_ascii_case("\\\\?\\UNC\\") { 8 } else { 2 };
+            let start = if norm.as_bytes().get(..8).is_some_and(|p| p.eq_ignore_ascii_case(b"\\\\?\\UNC\\")) { 8 } else { 2 };
             let Some(i) = norm[start..].find('\\').map(|i| i + start) else {
                 return (p, "");
             };
@@ -298,7 +298,7 @@ pub fn windows_file_uri(abs: &str) -> Result<String, String> {
         let rest = abs[4..].to_string();
         let verbatim = abs.as_bytes()[2] == b'?';
         let rb = rest.as_bytes();
-        if verbatim && rest.len() >= 4 && rest[..4].eq_ignore_ascii_case("UNC\\") {
+        if verbatim && rest.as_bytes().get(..4).is_some_and(|p| p.eq_ignore_ascii_case(b"UNC\\")) {
             abs = format!("\\\\{}", &rest[4..]);
         } else if verbatim && rb.len() >= 3 && rb[0].is_ascii_alphabetic() && rb[1] == b':' && rb[2] == b'\\' {
             abs = rest;
@@ -319,7 +319,8 @@ pub fn windows_file_uri(abs: &str) -> Result<String, String> {
     if d.len() == 2 && d[0].is_ascii_alphabetic() && d[1] == b':' {
         return Ok(format!("file://{}", quote(format!("/{drive}{path}").as_bytes(), PATH_SAFE)));
     }
-    let (server, share) = drive[2..].split_once('\\').unwrap_or((&drive[2..], ""));
+    let unc = drive.get(2..).unwrap_or(""); // a rooted path with no drive (`\\x`) has none
+    let (server, share) = unc.split_once('\\').unwrap_or((unc, ""));
     if share.is_empty() || server.is_empty() || !server.bytes().all(|c| unreserved(c) || sub_delim(c)) {
         return Err(format!("{abs:?}: a UNC path is \\\\server\\share\\..., with a plain host name"));
     }
@@ -374,6 +375,85 @@ pub fn windows_path_reference(path: &str, file_uri: impl Fn(&str) -> Result<Stri
 fn encoded_reference(path: &str) -> String {
     let r = quote(path.as_bytes(), PATH_SAFE);
     if r.split('/').next().unwrap_or("").contains(':') { format!("./{r}") } else { r }
+}
+
+/// The bytes `s` percent-decodes to, as Python's `urllib.parse.unquote_to_bytes`: each `%XX` of
+/// two hexadecimal digits is its byte, and any other `%` is itself.
+pub fn percent_decode(s: &str) -> Vec<u8> {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() && b[i + 1].is_ascii_hexdigit() && b[i + 2].is_ascii_hexdigit() {
+            out.push(u8::from_str_radix(&s[i + 1..i + 3], 16).unwrap_or(0));
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// The local path a `file:` URI names (spec/refkv.md §5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>), on Windows when
+/// `windows` (RFC 8089 Appendix E: `/C:/data/x` is `C:\data\x`, and a path with no drive letter is
+/// refused, since it would depend on the current drive), or an error. An authority other than
+/// `localhost` names a UNC path's server, which a reader reaches over the network: refused unless
+/// `allow_host` (the reader policy's `allow_file_hosts`), and then `file://server/share/x` is
+/// `\\server\share\x`; a POSIX reader has no such mapping and refuses it always. The twin of
+/// python/src/refkv/uri.py's `file_path`.
+pub fn file_path(url: &str, windows: bool, allow_host: bool) -> Result<String, String> {
+    let p = split(url);
+    if !p.scheme.is_some_and(|s| s.eq_ignore_ascii_case("file")) {
+        return Err(format!("not a file: URI: {url:?}"));
+    }
+    let host = p.authority.unwrap_or("");
+    let local = host.is_empty() || host.eq_ignore_ascii_case("localhost");
+    let plain = !host.is_empty() && host.bytes().all(|c| unreserved(c) || sub_delim(c));
+    if !(local || windows && allow_host) {
+        let hint = if windows && plain { " (a UNC path: allow it with Policy(allow_file_hosts=True))" } else { "" };
+        return Err(format!("file: URI with authority {host:?}{hint}"));
+    }
+    if !local && !plain {
+        return Err(format!("file: URI with authority {host:?}: not a plain host name"));
+    }
+    if p.query.is_some() {
+        return Err("file: URI with a query component".into());
+    }
+    if !p.path.starts_with('/') {
+        return Err("file: URI with a relative path".into());
+    }
+    let lower = p.path.to_ascii_lowercase();
+    if lower.contains("%2f") || lower.contains("%00") {
+        return Err("file: URI path encodes '/' or NUL".into());
+    }
+    if !windows {
+        let decoded = String::from_utf8_lossy(&percent_decode(p.path)).into_owned();
+        if decoded.split('/').any(|s| s == "." || s == "..") {
+            return Err("file: URI path has an encoded '.' or '..' segment".into());
+        }
+        return Ok(decoded);
+    }
+    if p.path.contains('\\') || lower.contains("%5c") {
+        return Err("file: URI path holds '\\', a Windows path separator".into());
+    }
+    let decoded = String::from_utf8(percent_decode(p.path)).map_err(|_| "file: URI path is not UTF-8, which a Windows path needs".to_string())?;
+    let segs: Vec<&str> = decoded.split('/').skip(1).collect();
+    if segs.iter().any(|s| *s == "." || *s == "..") {
+        return Err("file: URI path has an encoded '.' or '..' segment".into());
+    }
+    if !local {
+        if segs[0].is_empty() {
+            return Err(format!("file: URI of the UNC host {host:?} names no share"));
+        }
+        return Ok(format!("\\\\{host}\\{}", segs.join("\\")));
+    }
+    let d = segs[0].as_bytes();
+    if !(d.len() == 2 && d[0].is_ascii_alphabetic() && matches!(d[1], b':' | b'|')) {
+        return Err("file: URI path names no drive letter (such as /C:/), which a Windows path needs".into());
+    }
+    Ok(format!("{}:\\{}", segs[0].chars().next().unwrap_or('C'), segs[1..].join("\\")))
 }
 
 #[cfg(test)]
@@ -521,5 +601,86 @@ mod tests {
         assert_eq!(windows_split_drive("\\\\srv"), ("\\\\srv", ""));
         assert_eq!(windows_split_drive("C:\\x"), ("C:", "\\x"));
         assert_eq!(windows_split_drive("x"), ("", "x"));
+    }
+
+    #[test]
+    fn splits_non_ascii_drives() {
+        assert_eq!(windows_split_drive("\\\\host\\été\\x"), ("\\\\host\\été", "\\x"));
+        assert_eq!(windows_split_drive("//host/été/x"), ("//host/été", "/x"));
+        assert_eq!(windows_split_drive("\\\\?\\UNC\\server\\share\\x"), ("\\\\?\\UNC\\server\\share", "\\x"));
+        assert_eq!(windows_split_drive("\\\\?\\C:\\über\\x"), ("\\\\?\\C:", "\\über\\x"));
+        assert!(windows_file_uri("\\\\?\\abcÜ\\x").is_err());
+        assert!(windows_file_uri("\\x").is_err());
+    }
+
+    #[test]
+    fn percent_decoding() {
+        assert_eq!(percent_decode("a%20b%C3%A9%2"), b"a b\xc3\xa9%2");
+        assert_eq!(percent_decode("%zz%41"), b"%zzA");
+    }
+
+    #[test]
+    fn file_paths() {
+        assert_eq!(file_path("file:///data/a%20b.nii", false, false).unwrap(), "/data/a b.nii");
+        assert_eq!(file_path("FILE://localhost/x/", false, false).unwrap(), "/x/");
+        assert_eq!(file_path("file:/x", false, false).unwrap(), "/x");
+        assert_eq!(file_path("file:///C:/data/x", true, false).unwrap(), "C:\\data\\x");
+        assert_eq!(file_path("file:///c|/x", true, false).unwrap(), "c:\\x");
+        assert_eq!(file_path("file://server/share/x", true, true).unwrap(), "\\\\server\\share\\x");
+    }
+
+    #[test]
+    fn file_path_rejects_another_scheme() {
+        assert!(file_path("http://h/x", false, false).is_err());
+    }
+
+    #[test]
+    fn file_path_rejects_a_host_on_posix() {
+        assert!(file_path("file://server/x", false, true).is_err());
+    }
+
+    #[test]
+    fn file_path_rejects_a_host_not_allowed() {
+        assert!(file_path("file://server/share/x", true, false).unwrap_err().contains("allow_file_hosts"));
+    }
+
+    #[test]
+    fn file_path_rejects_a_host_that_is_not_plain() {
+        assert!(file_path("file://a%20b/share/x", true, true).is_err());
+    }
+
+    #[test]
+    fn file_path_rejects_a_query() {
+        assert!(file_path("file:///x?q", false, false).is_err());
+    }
+
+    #[test]
+    fn file_path_rejects_a_relative_path() {
+        assert!(file_path("file:x", false, false).is_err());
+    }
+
+    #[test]
+    fn file_path_rejects_an_encoded_slash() {
+        assert!(file_path("file:///a%2Fb", false, false).is_err());
+    }
+
+    #[test]
+    fn file_path_rejects_an_encoded_dot_segment() {
+        assert!(file_path("file:///a/%2E%2E/b", false, false).is_err());
+    }
+
+    #[test]
+    fn file_path_rejects_a_backslash_on_windows() {
+        assert!(file_path("file:///C:/a%5Cb", true, false).is_err());
+    }
+
+    #[test]
+    fn file_path_rejects_no_drive_on_windows() {
+        assert!(file_path("file:///data/x", true, false).is_err());
+    }
+
+    #[test]
+    fn file_path_rejects_a_unc_host_without_a_share() {
+        assert!(file_path("file://server/", true, true).is_err());
     }
 }

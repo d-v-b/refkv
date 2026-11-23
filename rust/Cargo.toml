@@ -8,7 +8,7 @@
 # while refkv-vzip and refkv-phkv ask for zlib itself, whose C sources the wasm32 build must not
 # pull in.
 [workspace]
-members = ["refkv-ir", "refkv-vzip", "refkv-phkv", "refkv-python", "refkv-cli"]
+members = ["refkv-uri", "refkv-ir", "refkv-vzip", "refkv-phkv", "refkv-python", "refkv-cli"]
 resolver = "3"
 
 # Profiles apply only at the workspace root; release is cargo's default (opt-level 3, no debug

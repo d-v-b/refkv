@@ -743,6 +743,7 @@ dependencies = [
  "hayro-jpeg2000",
  "libm",
  "miniz_oxide 0.8.9",
+ "refkv-uri",
  "serde",
  "serde_json",
  "zarrs_metadata",
@@ -776,12 +777,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "refkv-uri"
+version = "0.1.0"
+
+[[package]]
 name = "refkv-vzip"
 version = "0.1.0"
 dependencies = [
  "crc32fast",
  "flate2",
  "libz-sys",
+ "refkv-uri",
  "tempfile",
 ]
 

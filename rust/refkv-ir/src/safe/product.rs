@@ -7,7 +7,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>)
 //! and its GeoZarr grids (§5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#5-georeferencing-geozarr>).
 
-use super::xmltree::{self, Element};
+use crate::xmltree::{self, Element};
 use crate::rules::{self, Rules, flag, num, text};
 use crate::text::is_strict_decimal;
 use serde_json::{Map, Value as J, json};

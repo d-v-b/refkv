@@ -27,6 +27,8 @@ zarrs = ["dep:zarrs_metadata"]
 arrow = ["dep:arrow-array", "dep:arrow-buffer", "dep:arrow-schema"]
 
 [dependencies]
+# RFC 3986 URI references, strict resolution and file: URIs: the store URL rules of `host`
+refkv-uri = { path = "../refkv-uri" }
 miniz_oxide = "0.8"
 zarrs_metadata = { version = "0.7", optional = true }
 # a whole file's gzip members and bzip2 streams, read as they decode (the FITS profile's `.fits.gz`

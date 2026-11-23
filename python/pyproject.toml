@@ -177,4 +177,6 @@ cache-keys = [
     { file = "../rust/refkv-phkv/src/**/*.rs" },
     { file = "../rust/refkv-vzip/Cargo.toml" },
     { file = "../rust/refkv-vzip/src/**/*.rs" },
+    { file = "../rust/refkv-uri/Cargo.toml" },
+    { file = "../rust/refkv-uri/src/**/*.rs" },
 ]
