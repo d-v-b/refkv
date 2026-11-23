@@ -189,9 +189,6 @@ impl Mrc {
         self.rules.check("mode", rules::env([("code", num(code as f64))]))?;
         let spec = &self.rules.table("modes")[code.to_string()];
         let bytes = spec["bytes"].as_u64().unwrap_or(1);
-        // the data element's form names the data type (§5.3
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#53-elements>)
-        let dtype = data_type(&h);
         let nsymbt = h.get("nsymbt").i();
         self.rules.check("extended_header", rules::env([("nsymbt", num(nsymbt as f64)), ("size", num(size))]))?;
         let (ispg, mz) = (h.get("ispg").i(), h.get("mz").i());
@@ -227,9 +224,11 @@ impl Mrc {
             packed: bits.is_some(),
             gzip,
         };
+        // its type as the header's mode gives it, not an output's data type, which is its
+        // projection's (§5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#53-elements>)
         let geometry = match bits {
-            Some(k) => json!({"data_type": dtype, "samples": 1, "bits": k}),
-            None => json!({"data_type": dtype, "samples": 1}),
+            Some(k) => json!({"mode": code, "samples": 1, "bits": k}),
+            None => json!({"mode": code, "samples": 1}),
         };
         if let Some(isize) = isize {
             let stream = offset as u128 + total;

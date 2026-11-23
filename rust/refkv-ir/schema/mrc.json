@@ -23,7 +23,7 @@
     "about": "The IR of an MRC file. E is the file's byte order (< or >), n the extended header's length (nsymbt), B the data's size.",
     "header": {"kind": "value", "type": "the 1024-byte header as one record, a field per field of spec/zarrify/mrc.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#2-the-header> in its order: numbers Ei4, Ef4 (arrays for T[k]), u1[4] for machst, bytes[k] for the extra space, cstr[k] for text, and {text:cstr[80]}[10] for the labels", "extent": "(0, 1024)"},
     "extended": {"kind": "value", "type": "bytes[n]", "extent": "(1024, n), when n > 0: the extended header, opaque"},
-    "data": {"kind": "data", "form": "{geometry: {data_type, samples: 1}, codec: {endian}, recipe: [[src, 0, null]]}; of a gzipped file, codec: {encoding: gzip, endian, skip: 1024 + n}", "extent": "(1024 + n, B); of a gzipped file, the whole file, and no other element"},
+    "data": {"kind": "data", "form": "{geometry: {mode, samples: 1}, codec: {endian}, recipe: [[src, 0, null]]}; of a gzipped file, codec: {encoding: gzip, endian, skip: 1024 + n}", "extent": "(1024 + n, B); of a gzipped file, the whole file, and no other element"},
     "gaps/<offset>": {"kind": "gap", "about": "bytes after the data"}
   },
   "roles": {
