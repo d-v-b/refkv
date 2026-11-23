@@ -42,9 +42,7 @@ FITS = sorted(p for p in (FIXTURES / "fits").iterdir() if p.is_file() and ".fits
 def copy_threshold(request):
     """The payload past which an edge chunk is copied: refkv's, and one small enough that the
     fixtures' edge chunks are copied."""
-    _core._set_copy_threshold(request.param)
-    yield request.param
-    _core._set_copy_threshold(None)
+    return request.param
 
 
 def edged(tmp_path: Path) -> Path:
@@ -64,7 +62,7 @@ def test_an_hdu_s_arrays_and_cards_are_those_refkv_s_own_output_writes(tmp_path,
     them."""
     seen = {"image": 0, "rows": 0, "heap": 0, "tiled": 0, "copied": 0, "cards past the budget": 0}
     for path in [*FITS, edged(tmp_path)]:
-        with read(str(path)) as parsed:
+        with read(str(path), chunking=_core.Chunking(copy_threshold=copy_threshold)) as parsed:
             built = project(parsed)
             description = parsed.description
             assert description is not None
@@ -141,7 +139,7 @@ def test_the_hdf5_hierarchy_is_the_one_refkv_s_own_output_presents(copy_threshol
     it holds; and its storage elements are the description's."""
     seen = dict.fromkeys(("store", "copied", "element"), 0)
     for path in HDF5:
-        with read(str(path)) as parsed:
+        with read(str(path), chunking=_core.Chunking(copy_threshold=copy_threshold)) as parsed:
             hierarchy = hdf5_hierarchy(parsed)
             pr = project(parsed)
             assert sorted(hierarchy.nodes()) == sorted(pr.nodes()), path.name
@@ -255,7 +253,7 @@ def test_the_netcdf3_hierarchy_is_the_one_refkv_s_own_output_presents(tmp_path, 
     array documents and chunks, an edge chunk refkv copies a `Copy` of the bytes it holds."""
     seen = dict.fromkeys(("arrays", "records", "copied"), 0)
     for path in [*NETCDF3, netcdf3_edged(tmp_path)]:
-        with read(str(path)) as parsed:
+        with read(str(path), chunking=_core.Chunking(copy_threshold=copy_threshold)) as parsed:
             hierarchy, pr = netcdf3_hierarchy(parsed), project(parsed)
             assert sorted(hierarchy.nodes()) == sorted(pr.nodes()), path.name
             for node in hierarchy.nodes():

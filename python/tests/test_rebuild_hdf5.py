@@ -63,17 +63,14 @@ def outcome(make: Any) -> tuple[str, Any]:
 
 
 @pytest.fixture(params=[None, 64], ids=["payload-limit", "copied-edges"])
-def copy_threshold(request):
-    """The payload past which an edge chunk is copied: refkv's, and one small enough that the
-    fixtures' edge chunks are copied."""
-    _core._set_copy_threshold(request.param)
-    yield request.param
-    _core._set_copy_threshold(None)
+def chunking(request):
+    """The chunking whose payload past which an edge chunk is copied is refkv's, or one small
+    enough that the fixtures' edge chunks are copied."""
+    return _core.Chunking(copy_threshold=request.param)
 
 
-@pytest.mark.usefixtures("copy_threshold")
 @pytest.mark.parametrize("checksums", [False, True], ids=["plain", "checksums"])
-def test_a_projection_written_with_the_public_tools_writes_what_zarrify_writes(monkeypatch, checksums):
+def test_a_projection_written_with_the_public_tools_writes_what_zarrify_writes(monkeypatch, chunking, checksums):
     """Every HDF5 fixture: groups, links and attributes past their budget, every layout and
     filter, chunks a filter skipped, strings, references and records, dimension scales and netCDF-4
     phony dimensions, NWB files, user blocks, files read as stores of the files their external
@@ -82,13 +79,13 @@ def test_a_projection_written_with_the_public_tools_writes_what_zarrify_writes(m
         async def no_output(_self):
             raise AssertionError("refkv's own output was built")
 
-        with monkeypatch.context() as m, read(str(path), checksums=checksums) as parsed:
+        with monkeypatch.context() as m, read(str(path), checksums=checksums, chunking=chunking) as parsed:
             m.setattr(Parsed, "_output_async", no_output)
             return seal(projected(parsed), [parsed])
 
     seen = dict.fromkeys(("output", "rejected", "store"), 0)
     for path in FIXTURES:
-        want = outcome(lambda path=path: zarrify(str(path), checksums=checksums))
+        want = outcome(lambda path=path: zarrify(str(path), checksums=checksums, chunking=chunking))
         got = outcome(lambda path=path: rebuilt(path))
         assert got == want, path.name
         seen[got[0]] += 1

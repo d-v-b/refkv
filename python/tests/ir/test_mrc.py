@@ -111,10 +111,10 @@ def position(header):
     return [(-float(header.origin[a]) if imod_sign else float(header.origin[a])) + 0.0 for a in "xyz"]
 
 
-def zarrified(path, tmp_path):
-    """(the output, the hierarchy's root group); the archive rebuilds the file
-    (ir_helpers.zarrified)."""
-    out, root, _ = shared_zarrified(path, tmp_path, "mrc")
+def zarrified(path, tmp_path, chunking=None):
+    """(the output, the hierarchy's root group), cut as `chunking` says; the archive rebuilds the
+    file (ir_helpers.zarrified)."""
+    out, root, _ = shared_zarrified(path, tmp_path, "mrc", chunking=chunking)
     return out, root
 
 @pytest.mark.parametrize("path", [p for p in MRCS if not p.name.startswith("mrc_reject")], ids=lambda p: p.name)
@@ -346,11 +346,7 @@ def test_edge_chunks_past_the_payload_are_copied(tmp_path):
     bytes here: the padded edge chunk is copied, by the run's last batch, and the array
     is still mrcfile's."""
     path = FIXTURES / "mrc" / "mrc_chunk_edge_literal.mrc"
-    _core._set_copy_threshold(8)
-    try:
-        out, root = zarrified(path, tmp_path)
-    finally:
-        _core._set_copy_threshold(None)
+    out, root = zarrified(path, tmp_path, _core.Chunking(copy_threshold=8))
     assert "0/c/0/1" in out.bytes_entries
     assert "0/c/0/1" not in out.refs
     assert len(out.bytes_entries["0/c/0/1"]) == 524289
