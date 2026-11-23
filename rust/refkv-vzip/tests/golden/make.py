@@ -1,4 +1,4 @@
-"""Writes the golden archives of tests/golden.rs with the pure-Python writer
+"""Writes the golden archives of tests/writer.rs with the pure-Python writer
 (conformance/vzip/python_writer.py's VZipWriter, which refkv's own writer was before it bound this
 crate): the Rust writer must write each one byte for byte, so the goldens stay an oracle of their own.
 

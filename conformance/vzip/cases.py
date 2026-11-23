@@ -351,7 +351,7 @@ def invalid_descriptions(_root: Path) -> dict[str, dict]:
 
 
 class _Writer(VZipWriter):
-    """The reference writer with its test hooks declared (archive.py reads them with getattr)."""
+    """The reference writer with its test hooks declared (python_writer.py reads them with getattr)."""
 
     _skip_checks: bool = False
     _source_table_override: bytes | None = None

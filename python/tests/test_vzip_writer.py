@@ -55,7 +55,7 @@ def build(cls: type, tmp: Path, *, mirror_refs: bool, page_size: int | None, che
 
 
 @pytest.mark.parametrize("mirror_refs", [True, False])
-@pytest.mark.parametrize("page_size", [None, 64, 1 << 16])
+@pytest.mark.parametrize("page_size", [None, 0, 64, 1 << 16])
 @pytest.mark.parametrize("check", [False, True])
 def test_writes_what_the_python_writer_writes(tmp_path: Path, mirror_refs: bool, page_size: int | None, check: bool):
     kw = {"mirror_refs": mirror_refs, "page_size": page_size, "check": check}
@@ -82,20 +82,19 @@ def test_a_refused_bulk_item_keeps_the_checksums_of_later_sources():
     w.close()
 
 
-def one_input_per_manifest() -> list[str]:
-    """The first input of each manifest of the outputs corpus (conformance/outputs/manifests, one
-    per fixture directory) that gives an output: an input of every format, named by no list."""
-    out = []
+def one_input_per_profile() -> list[str]:
+    """The first input of the outputs corpus (conformance/outputs/manifests) whose output each
+    profile gives, by the profile its record names: an input of every profile, named by no list."""
+    first: dict[str, str] = {}
     for m in sorted((ROOT / "conformance" / "outputs" / "manifests").glob("*.jsonl")):
         for line in m.read_text().splitlines():
             record = json.loads(line)
             if "error" not in record["plain"]:
-                out.append(record["input"])
-                break
-    return out
+                first.setdefault(record["plain"]["profile"], record["input"])
+    return sorted(first.values())
 
 
-@pytest.mark.parametrize("fixture", one_input_per_manifest())
+@pytest.mark.parametrize("fixture", one_input_per_profile())
 def test_a_zarrified_archive_is_the_python_writer_s(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixture: str):
     path = ROOT / "fixtures" / fixture
     url = f"https://data.example/{fixture}" if fixture.endswith("/") else None
