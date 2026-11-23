@@ -1,12 +1,42 @@
+# refkv's development toolchain: the one declaration of it, which development and CI both use
+# (README.md, "Development"; CI installs it with .github/actions/setup). pixi.lock pins every tool
+# for each platform below. uv manages the Python environment (.venv, from uv.lock) with this
+# Python, and npm js/node_modules; release wheels are the exception, built by maturin in PyPA's
+# manylinux containers (.github/workflows/release.yml).
 [workspace]
 name = "refkv-dev"
 channels = ["conda-forge"]
-platforms = ["win-64", "linux-64", "osx-arm64"]
+platforms = ["linux-64", "osx-arm64", "win-64"]
+requires-pixi = ">=0.83"
 
-# The toolchain for building the browser demo (js/build.mjs, rust/refkv-ir/wasm/build.sh)
 [dependencies]
-rust = ">=1.85"
-rust-std-wasm32-unknown-unknown = "*"
-nodejs = ">=24"
+# the Rust workspace (rust/Cargo.toml), and its wasm32 module for the browser code
+# (rust/refkv-ir/wasm/build.sh): the standard library's version must be rustc's
+rust = "1.96.*"
+rust-std-wasm32-unknown-unknown = "1.96.*"
+# the oldest Python refkv supports (python/pyproject.toml's requires-python), which uv builds the
+# environment with (UV_PYTHON, below)
+python = "3.12.*"
+uv = "*"
+# wasm-opt, which shrinks the wasm32 module
 binaryen = "*"
 just = "*"
+
+# Node, for the browser code (js/): the oldest js/package.json's engines allow, in the default
+# environment, and the newest in `node-newest` (`pixi run -e node-newest just js::test`)
+[feature.node-oldest.dependencies]
+nodejs = "24.*"
+
+[feature.node-newest.dependencies]
+nodejs = "26.*"
+
+[environments]
+default = ["node-oldest"]
+node-newest = ["node-newest"]
+
+# uv builds .venv with this environment's Python, not one it finds or downloads
+[target.unix.activation.env]
+UV_PYTHON = "$CONDA_PREFIX/bin/python"
+
+[target.win-64.activation.env]
+UV_PYTHON = "%CONDA_PREFIX%\\python.exe"

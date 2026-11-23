@@ -43,9 +43,8 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  NODE_VERSION: "24"
-
+# Every job's toolchain is pixi's (pixi.toml, pixi.lock), which .github/actions/setup installs
+# and activates; development uses the same one (README.md, "Development").
 # bash on every runner (Git Bash on Windows), as the justfiles' recipes are
 defaults:
   run:
@@ -65,26 +64,9 @@ jobs:
       PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: ./.github/actions/setup
         with:
-          enable-cache: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: js/package-lock.json
-      - uses: extractions/setup-crate@v2
-        with:
-          repo: casey/just
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-      # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
-      - if: runner.os == 'Linux'
-        run: sudo apt-get install -y --no-install-recommends binaryen
+          npm: true
       - run: uv sync --all-groups --locked
       - run: npm ci
         working-directory: js
@@ -112,38 +94,28 @@ jobs:
       UV_NO_SYNC: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: ./.github/actions/setup
         with:
-          enable-cache: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: js/package-lock.json
-      - uses: extractions/setup-crate@v2
-        with:
-          repo: casey/just
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-      # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
-      - run: sudo apt-get install -y --no-install-recommends binaryen
+          npm: true
       - run: >-
           uv sync --all-groups --locked --python 3.14t
           --no-install-package eccodeslib --no-install-package eckitlib --no-install-package astropy
           --no-install-package pylibczirw --no-install-package jpype1 --no-install-package imagecodecs
-      - run: uv pip install "imagecodecs>=2026.10.10"
+      # into .venv by name: pixi's activated environment and its UV_PYTHON would otherwise take it
+      - run: uv pip install --python .venv "imagecodecs>=2026.10.10"
       - run: npm ci
         working-directory: js
       - run: just js::wasm
-      # the GIL stays disabled with refkv and the extras imported
-      - run: >-
+      # the GIL stays disabled with refkv and the extras imported; `uv run` asks for 3.14t (.venv's),
+      # not the 3.12 of pixi's UV_PYTHON (a step's env takes precedence over the activated one)
+      - env:
+          UV_PYTHON: "3.14t"
+        run: >-
           uv run python -c 'import sys, refkv._core, refkv.zarr, imagecodecs, av;
           assert not sys._is_gil_enabled(), "an import re-enabled the GIL"'
-      - run: >-
+      - env:
+          UV_PYTHON: "3.14t"
+        run: >-
           uv run pytest -q python/tests
           --ignore=python/tests/ir/test_fits.py --ignore=python/tests/ir/test_zero_padding.py
           --ignore=python/tests/ir/test_fits_stored.py --ignore=python/tests/ir/test_fits_presented.py
@@ -168,24 +140,9 @@ jobs:
       UV_NO_SYNC: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: ./.github/actions/setup
         with:
-          enable-cache: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: js/package-lock.json
-      - uses: extractions/setup-crate@v2
-        with:
-          repo: casey/just
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-      - run: sudo apt-get install -y --no-install-recommends binaryen
+          npm: true
       - run: uv sync --all-groups --locked --python 3.12
       # --upgrade-package for each of refkv's requirements (python/tools/floors.py): without it,
       # uv keeps the version `uv sync` installed wherever it satisfies the requirement; a plain
@@ -194,7 +151,7 @@ jobs:
           upgrades=()
           while read -r name; do upgrades+=(--upgrade-package "$name"); done \
             < <(uv run python python/tools/floors.py names)
-          uv pip install --resolution lowest-direct "${upgrades[@]}" \
+          uv pip install --python .venv --resolution lowest-direct "${upgrades[@]}" \
             "./python[zarr,images,media,precomputed,layouts,obstore,virtualizarr]"
       # every floor took: a newer version left in place would pass without testing it
       - run: uv run python python/tools/floors.py check
@@ -204,11 +161,11 @@ jobs:
       - run: uv run pytest -q python/tests
 
   # The JS library and its tests run on the oldest Node that js/package.json's engines
-  # allows (the LTS most users have) and on the newest (what the project develops on);
-  # Node's behavior differs between them, e.g. how fetch goes through a proxy.
-  # On Linux, both; on macOS and Windows, the oldest. In the full tier only.
+  # allows (the LTS most users have; pixi's default environment) and on the newest (its
+  # node-newest environment); Node's behavior differs between them, e.g. how fetch goes
+  # through a proxy. On Linux, both; on macOS and Windows, the oldest. In the full tier only.
   node:
-    name: node (${{ matrix.os }}, ${{ matrix.node }})
+    name: node (${{ matrix.os }}, ${{ matrix.environment }})
     if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.MERGE_QUEUE != 'true')
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -216,33 +173,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: ubuntu-latest, node: "24"}
-          - {os: ubuntu-latest, node: "26"}
-          - {os: macos-latest, node: "24"}
-          - {os: windows-latest, node: "24"}
+          - {os: ubuntu-latest, environment: default}
+          - {os: ubuntu-latest, environment: node-newest}
+          - {os: macos-latest, environment: default}
+          - {os: windows-latest, environment: default}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/setup
         with:
-          node-version: ${{ matrix.node }}
-          cache: npm
-          cache-dependency-path: js/package-lock.json
-      - uses: extractions/setup-crate@v2
-        with:
-          repo: casey/just
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      # js::test also builds the test module (test-only hooks) in its own target directory,
-      # rust/target/test-hooks; cache it beside the shipped module's
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
+          environment: ${{ matrix.environment }}
+          rust-cache: |
             rust -> target
             rust -> target/test-hooks
-      # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
-      - if: runner.os == 'Linux'
-        run: sudo apt-get install -y --no-install-recommends binaryen
+          npm: true
       - run: npm ci
         working-directory: js
       - run: just js::test
@@ -257,24 +200,7 @@ jobs:
         os: ${{ fromJSON((github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.MERGE_QUEUE != 'true')) && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-      # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
-      - if: runner.os == 'Linux'
-        run: sudo apt-get install -y --no-install-recommends binaryen
-      - uses: extractions/setup-crate@v2
-        with:
-          repo: casey/just
+      - uses: ./.github/actions/setup
       - run: uv sync --all-groups --locked
       # the core's Rust tests, and a cargo build of its Python bindings' crate
       # (rust/refkv-python); the Python host's tests (python/tests/ir), the other half of
@@ -309,18 +235,11 @@ jobs:
       PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: ./.github/actions/setup
         with:
-          enable-cache: true
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
+          rust-cache: |
             rust
             conformance/impls/rust
-      - uses: extractions/setup-crate@v2
-        with:
-          repo: casey/just
       - run: uv sync --all-groups --locked
       - if: matrix.shard == 1
         run: just cli-test
@@ -338,23 +257,7 @@ jobs:
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      - uses: extractions/setup-crate@v2
-        with:
-          repo: casey/just
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-      # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
-      - run: sudo apt-get install -y --no-install-recommends binaryen
+      - uses: ./.github/actions/setup
       - run: uv sync --all-groups --locked
       - run: just js::wasm
       - run: >-
@@ -374,16 +277,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-      - uses: extractions/setup-crate@v2
-        with:
-          repo: casey/just
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
+      - uses: ./.github/actions/setup
       - run: uv sync --all-groups --locked
       - run: just virtualizarr-parity -rxX
 
@@ -395,16 +289,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-      - uses: extractions/setup-crate@v2
-        with:
-          repo: casey/just
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
+      - uses: ./.github/actions/setup
       - run: uv sync --all-groups --locked
       - run: just outputs-check
 
@@ -421,16 +306,7 @@ jobs:
         os: ${{ fromJSON((github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.MERGE_QUEUE != 'true')) && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-      - uses: extractions/setup-crate@v2
-        with:
-          repo: casey/just
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
+      - uses: ./.github/actions/setup
       # the two venvs, and their Pythons: bin/python, or Scripts/python.exe on Windows (with
       # RUNNER_TEMP's `\` written as `/`, for Git Bash)
       - run: |
@@ -457,12 +333,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v6
+      - uses: ./.github/actions/setup
         with:
-          enable-cache: true
-      - uses: extractions/setup-crate@v2
-        with:
-          repo: casey/just
+          rust-cache: none
       - run: uv sync --all-groups --locked --no-install-package refkv
       # every "§n" is a link to its heading, and every such link resolves (spec/tools/sections.py);
       # on a pull request, each format document it changes since the merge base with the base branch
@@ -490,16 +363,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-      - uses: extractions/setup-crate@v2
-        with:
-          repo: casey/just
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
+      - uses: ./.github/actions/setup
       - run: uv sync --all-groups --locked
       - run: just fixtures-check
       # spec/zarrify/<p>/schema.json is what spec/generate_schemas.py writes from spec/source_metadata/

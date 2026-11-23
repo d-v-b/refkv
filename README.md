@@ -133,6 +133,30 @@ code is organized by language.
 zarrifiers against the frozen reference), `just conformance` (the vzip
 binding's independent implementations).
 
+## Development
+
+[pixi.toml](pixi.toml) declares the whole toolchain, and [pixi.lock](pixi.lock) pins it for Linux,
+macOS and Windows: Rust with its wasm32 standard library, Python and uv, Node, binaryen's
+`wasm-opt` and `just`. CI installs the same environment ([.github/actions/setup](.github/actions/setup/action.yml)),
+so a recipe that passes in it passes in CI. With [pixi](https://pixi.sh) installed, enter it and
+run recipes:
+
+```bash
+pixi shell
+```
+
+```bash
+just preflight
+```
+
+or run one recipe without entering it, `pixi run just test`. Inside, uv builds the Python
+environment (`.venv`, from `uv.lock`) with pixi's Python, and `npm ci` in `js/` installs the browser
+code's packages. Since pixi's environment is active too, name `.venv` in a `uv pip` command
+(`uv pip install --python .venv ...`), or it installs into pixi's. `pixi run -e node-newest just js::test` runs the browser code's tests on the newest
+Node; the default environment has the oldest that `js/package.json` allows. To change a tool's
+version, change `pixi.toml` and run `pixi lock`. Release wheels are the one exception: maturin
+builds them in PyPA's manylinux containers ([release.yml](.github/workflows/release.yml)).
+
 ## License
 
 Licensed under either of

@@ -1,5 +1,9 @@
 # refkv
 
+Run every recipe in pixi's environment (`pixi run just <recipe>`, or inside `pixi shell`): it is
+the toolchain CI uses (README.md, "Development"). Change a tool's version in `pixi.toml`, then
+`pixi lock`, never in a workflow.
+
 Run `just preflight` before every push. It fetches `origin/main` and runs what CI's `sections` job
 runs: `just sections origin/main`, `just lint` and `just typecheck`, then builds the documentation
 site (`just docs`), failing on any warning. No hook runs it for you.
