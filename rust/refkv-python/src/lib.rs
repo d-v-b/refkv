@@ -1,16 +1,12 @@
 //! refkv's Python bindings to the Rust core (rust/refkv-ir), compiled into the package
-//! as the module `refkv._core`: the parsers as step/feed/finish objects, and the IR's
-//! columns, tables and per-element reads.
+//! as the module `refkv._core`: runs (a format's parser and the read planner, sans-IO), and
+//! the IR's columns, tables and per-element reads.
 
 mod formats;
 mod phkv;
 
 use refkv_ir::check;
-use refkv_ir::czi::Czi;
 use refkv_ir::ir::*;
-use refkv_ir::nd2::Nd2;
-use refkv_ir::step::Step;
-use refkv_ir::tiff::Tiff;
 use refkv_ir::types::{self, Val};
 use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
@@ -470,161 +466,6 @@ impl PyChunkMap {
         let reader = RecordBatchIterator::new(vec![Ok(self.batch.clone())], self.batch.schema());
         PyCapsule::new_with_value(py, FFI_ArrowArrayStream::new(Box::new(reader)), c"arrow_array_stream")
     }
-}
-
-fn step_py(r: Result<Step, String>) -> PyResult<Option<Vec<(u64, u64)>>> {
-    match r {
-        Ok(Step::Read(v)) => Ok(Some(v)),
-        Ok(Step::Beside) => Err(Rejected::new_err("the file names siblings, which a run reads as a store")),
-        Ok(Step::Done) => Ok(None),
-        Err(e) => Err(Rejected::new_err(e)),
-    }
-}
-
-/// The ND2 parser: `step()` gives the next batch of ranges (None when done),
-/// `feed(offset, bytes)` gives one range's bytes, `finish()` the IR and the description (JSON).
-#[pyclass(name = "Nd2Parser", module = "refkv._core")]
-pub struct PyNd2 {
-    p: Option<Nd2>,
-}
-
-#[pymethods]
-impl PyNd2 {
-    #[new]
-    fn new(size: u64) -> Self {
-        PyNd2 {
-            p: Some(Nd2::new(size)),
-        }
-    }
-    fn step(&mut self, py: Python<'_>) -> PyResult<Option<Vec<(u64, u64)>>> {
-        let p = self
-            .p
-            .as_mut()
-            .ok_or_else(|| PyValueError::new_err("finished"))?;
-        step_py(py.detach(|| p.step()))
-    }
-    fn feed(&mut self, offset: u64, data: &[u8]) -> PyResult<()> {
-        self.p
-            .as_mut()
-            .ok_or_else(|| PyValueError::new_err("finished"))?
-            .feed(offset, data.to_vec());
-        Ok(())
-    }
-    fn finish(&mut self, py: Python<'_>) -> PyResult<(PyIr, String)> {
-        let p = self
-            .p
-            .take()
-            .ok_or_else(|| PyValueError::new_err("finished"))?;
-        let (ir, description) = py.detach(|| p.finish()).map_err(Rejected::new_err)?;
-        Ok((PyIr::new(ir), description.to_string()))
-    }
-    fn memory(&self) -> usize {
-        self.p.as_ref().map(|p| p.ir.memory()).unwrap_or(0)
-    }
-}
-
-/// The TIFF parser: as `Nd2Parser` (`finish()` gives the IR and the description as JSON).
-#[pyclass(name = "TiffParser", module = "refkv._core")]
-pub struct PyTiff {
-    p: Option<Tiff>,
-}
-
-#[pymethods]
-impl PyTiff {
-    #[new]
-    fn new(size: u64) -> Self {
-        PyTiff { p: Some(Tiff::new(size)) }
-    }
-    fn step(&mut self, py: Python<'_>) -> PyResult<Option<Vec<(u64, u64)>>> {
-        let p = self.p.as_mut().ok_or_else(|| PyValueError::new_err("finished"))?;
-        step_py(py.detach(|| p.step()))
-    }
-    fn feed(&mut self, offset: u64, data: &[u8]) -> PyResult<()> {
-        self.p.as_mut().ok_or_else(|| PyValueError::new_err("finished"))?.feed(offset, data.to_vec());
-        Ok(())
-    }
-    fn finish(&mut self, py: Python<'_>) -> PyResult<(PyIr, String)> {
-        let p = self.p.take().ok_or_else(|| PyValueError::new_err("finished"))?;
-        let (ir, description) = py.detach(|| p.finish()).map_err(Rejected::new_err)?;
-        Ok((PyIr::new(ir), description.to_string()))
-    }
-}
-
-#[pyclass(name = "CziParser", module = "refkv._core")]
-pub struct PyCzi {
-    p: Option<Czi>,
-}
-
-#[pymethods]
-impl PyCzi {
-    #[new]
-    fn new(size: u64) -> Self {
-        PyCzi {
-            p: Some(Czi::new(size)),
-        }
-    }
-    fn step(&mut self, py: Python<'_>) -> PyResult<Option<Vec<(u64, u64)>>> {
-        let p = self
-            .p
-            .as_mut()
-            .ok_or_else(|| PyValueError::new_err("finished"))?;
-        step_py(py.detach(|| p.step()))
-    }
-    fn feed(&mut self, offset: u64, data: &[u8]) -> PyResult<()> {
-        self.p
-            .as_mut()
-            .ok_or_else(|| PyValueError::new_err("finished"))?
-            .feed(offset, data.to_vec());
-        Ok(())
-    }
-    fn finish(&mut self, py: Python<'_>) -> PyResult<(PyIr, String)> {
-        let p = self.p.take().ok_or_else(|| PyValueError::new_err("finished"))?;
-        let (ir, description) = py.detach(|| p.finish()).map_err(Rejected::new_err)?;
-        Ok((PyIr::new(ir), description.to_string()))
-    }
-}
-
-/// A synthetic stream of `n` segments (a struct and a 32-byte header value each),
-/// emitted into a compact IR, folded into runs or not: the per-element cost.
-#[pyfunction]
-fn synthetic(n: u64, fold: bool, distinct: bool) -> PyResult<(usize, usize)> {
-    let size = 32 * n + 1;
-    let mut ir = Ir::new(size);
-    let mut prev: Option<u32> = None;
-    for k in 0..n {
-        let o = 32 * k;
-        let mut h = [0u8; 32];
-        h[..7].copy_from_slice(b"DELETED");
-        if distinct {
-            h[24..32].copy_from_slice(&k.to_le_bytes());
-        }
-        let s = ir
-            .struct_(0, "segments/", k, 0, Some((o, 32)))
-            .map_err(Rejected::new_err)?;
-        ir.value(
-            s,
-            "header",
-            NO_INDEX,
-            "{id:cstr[16],allocated_size:<i8,used_size:<i8}",
-            0,
-            (o, 32),
-            Some(&h),
-        )
-        .map_err(Rejected::new_err)?;
-        if fold {
-            match prev {
-                Some(p) if ir.fold(p, s) => {}
-                _ => prev = Some(s),
-            }
-        }
-    }
-    check::finish(&mut ir).map_err(Rejected::new_err)?;
-    Ok((ir.len(), ir.memory()))
-}
-
-#[pyfunction]
-fn schema_text() -> &'static str {
-    refkv_ir::schema::ND2_SCHEMA
 }
 
 /// The values the CZI layout reads from a metadata XML (JSON), as the parser streams them.
@@ -1252,7 +1093,7 @@ fn _set_chunk_frames(n: Option<usize>) {
 
 // Safe without the GIL (`gil_used = false`), so a free-threaded Python keeps it disabled on
 // import. The process-wide settings above are atomics, which each run reads once, into its
-// description. A parser or run (`Nd2Parser`, `Run`, ...) takes `&mut self` and is driven by one
+// description. A run (`Run`, `StoreRun`, ...) takes `&mut self` and is driven by one
 // thread at a time: a second thread's call while one is under way raises RuntimeError
 // ("Already borrowed"), on any build, since a call detaches while the core works.
 #[pymodule(gil_used = false)]
@@ -1260,9 +1101,6 @@ fn _set_chunk_frames(n: Option<usize>) {
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyIr>()?;
     m.add_class::<PyChunkMap>()?;
-    m.add_class::<PyNd2>()?;
-    m.add_class::<PyCzi>()?;
-    m.add_class::<PyTiff>()?;
     m.add_class::<PyRun>()?;
     m.add_class::<PyStoreRun>()?;
     m.add_function(wrap_pyfunction!(rebuild_store, m)?)?;
@@ -1285,8 +1123,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(gzip_frame, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;
     m.add_function(wrap_pyfunction!(view_problem, m)?)?;
-    m.add_function(wrap_pyfunction!(synthetic, m)?)?;
-    m.add_function(wrap_pyfunction!(schema_text, m)?)?;
     m.add_function(wrap_pyfunction!(czi_xml_values, m)?)?;
     m.add_function(wrap_pyfunction!(czi_bands, m)?)?;
     m.add("Rejected", m.py().get_type::<Rejected>())?;
