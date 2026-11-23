@@ -163,8 +163,9 @@ python-source = "src"
 # (`uv sync`, `uv run`)
 cache-keys = [
     { file = "pyproject.toml" },
+    { file = "../rust/Cargo.toml" },
+    { file = "../rust/Cargo.lock" },
     { file = "../rust/refkv-python/Cargo.toml" },
-    { file = "../rust/refkv-python/Cargo.lock" },
     { file = "../rust/refkv-python/build.rs" },
     { file = "../rust/refkv-python/src/**/*.rs" },
     { file = "../rust/refkv-ir/Cargo.toml" },

@@ -1,22 +1,24 @@
 #!/usr/bin/env bash
-# Builds the core's wasm32 module for the browser code: cargo's `wasm` profile (LTO,
+# Builds the core's wasm32 module for the browser code: the workspace's `wasm` profile (LTO,
 # one codegen unit, opt-level 2, panic=abort), then binaryen's `wasm-opt -O3` when it
 # is installed (without it the module is about 19% larger, and up to 8% slower). Writes
-# rust/refkv-ir/target/web/refkv_ir.wasm. `build.sh test` builds the test module instead:
+# rust/target/web/refkv_ir.wasm. `build.sh test` builds the test module instead:
 # the same, with the test-only hooks (feature `test-hooks`), in its own target
-# directory, into rust/refkv-ir/target/web-test/refkv_ir.wasm; the shipped module never
-# has them.
+# directory, into rust/target/web-test/refkv_ir.wasm; the shipped module never
+# has them. `-p refkv-ir` builds the core alone, so that no other member's features
+# (refkv-vzip's zlib) are unified into it.
 set -euo pipefail
-here="$(cd "$(dirname "$0")/.." && pwd)"
+rust="$(cd "$(dirname "$0")/../.." && pwd)"
+target="$rust/target"
 if [ "${1:-}" = test ]; then
-  cargo build --profile wasm --target wasm32-unknown-unknown --manifest-path "$here/Cargo.toml" \
-    --features test-hooks --target-dir "$here/target/test-hooks"
-  raw="$here/target/test-hooks/wasm32-unknown-unknown/wasm/refkv_ir.wasm"
-  out="$here/target/web-test/refkv_ir.wasm"
+  cargo build --profile wasm --target wasm32-unknown-unknown --manifest-path "$rust/Cargo.toml" -p refkv-ir \
+    --features test-hooks --target-dir "$target/test-hooks"
+  raw="$target/test-hooks/wasm32-unknown-unknown/wasm/refkv_ir.wasm"
+  out="$target/web-test/refkv_ir.wasm"
 else
-  cargo build --profile wasm --target wasm32-unknown-unknown --manifest-path "$here/Cargo.toml"
-  raw="$here/target/wasm32-unknown-unknown/wasm/refkv_ir.wasm"
-  out="$here/target/web/refkv_ir.wasm"
+  cargo build --profile wasm --target wasm32-unknown-unknown --manifest-path "$rust/Cargo.toml" -p refkv-ir
+  raw="$target/wasm32-unknown-unknown/wasm/refkv_ir.wasm"
+  out="$target/web/refkv_ir.wasm"
 fi
 mkdir -p "$(dirname "$out")"
 if command -v wasm-opt > /dev/null; then

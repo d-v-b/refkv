@@ -1,11 +1,11 @@
 // `#irwasm` under Node (package.json "imports"): the Rust core's wasm32 build,
-// read from rust/refkv-ir/target/web (`just js::wasm` builds it), or from the
+// read from rust/target/web (`just js::wasm` builds it), or from the
 // file $REFKV_IR_WASM names.
 
 import fs from "node:fs/promises";
 
 /** The default location of the module: rust/refkv-ir/wasm/build.sh's output. */
-export const WASM_URL = new URL("../../../../rust/refkv-ir/target/web/refkv_ir.wasm", import.meta.url);
+export const WASM_URL = new URL("../../../../rust/target/web/refkv_ir.wasm", import.meta.url);
 
 let url: string | URL | undefined;
 

@@ -6,7 +6,7 @@
 import { openSync, readSync, fstatSync, readFileSync, closeSync } from "node:fs";
 
 const args = process.argv.slice(2);
-let wasmPath = new URL("../target/web/refkv_ir.wasm", import.meta.url);
+let wasmPath = new URL("../../target/web/refkv_ir.wasm", import.meta.url);
 if (args[0] === "--wasm") { wasmPath = args[1]; args.splice(0, 2); }
 const { instance } = await WebAssembly.instantiate(readFileSync(wasmPath), {});
 const w = instance.exports;

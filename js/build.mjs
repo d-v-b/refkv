@@ -32,7 +32,7 @@ if (format !== "vzip" && format !== "phkv") {
   process.exit(1);
 }
 const dist = path.join(here, format === "vzip" ? "dist" : `dist-${format}`);
-const wasm = process.env.REFKV_IR_WASM || path.join(here, "../rust/refkv-ir/target/web/refkv_ir.wasm");
+const wasm = process.env.REFKV_IR_WASM || path.join(here, "../rust/target/web/refkv_ir.wasm");
 if (!fs.existsSync(wasm)) {
   console.error(`${wasm} is missing: build it with \`just js::wasm\``);
   process.exit(1);

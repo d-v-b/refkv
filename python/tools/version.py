@@ -15,7 +15,7 @@ Usage, from anywhere (`just python::version` and the build recipes call it):
     version.py show           print the version
     version.py pep440 [V]     print V (default: the version), as PEP 440 spells it
     version.py write [TAG]    write the version into rust/refkv-python/Cargo.toml and
-                              Cargo.lock: TAG's, when given (a tag push, which may share
+                              rust/Cargo.lock: TAG's, when given (a tag push, which may share
                               its commit with another tag, such as a release candidate's),
                               else git's
     version.py run -- CMD...  write it, run CMD, and restore both files as they were
@@ -33,7 +33,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parents[1]
 CRATE_DIR = HERE.parent / "rust" / "refkv-python"
 CARGO_TOML = CRATE_DIR / "Cargo.toml"
-CARGO_LOCK = CRATE_DIR / "Cargo.lock"
+CARGO_LOCK = CRATE_DIR.parent / "Cargo.lock"  # the workspace's (rust/Cargo.toml)
 CRATE = "refkv-python"
 
 TAG = re.compile(r"v(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)(?:-rc\.(?P<rc>\d+))?")

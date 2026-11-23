@@ -1,7 +1,7 @@
 # The refkv Python distribution (pyproject.toml): the package src/refkv with its bindings to the
 # Rust core (the crate ../rust/refkv-python, the module refkv._core). From the root:
 # `just python::test` and so on. The build recipes write git's version into the bindings'
-# Cargo.toml and Cargo.lock for the build, and restore both afterwards (tools/version.py run;
+# Cargo.toml and the workspace's Cargo.lock (../rust/Cargo.lock) for the build, and restore both afterwards (tools/version.py run;
 # RELEASING.md).
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
@@ -25,7 +25,7 @@ version:
     @python3 tools/version.py show
     @python3 tools/version.py pep440
 
-# Write the version git describes into the bindings' Cargo.toml and Cargo.lock (CI's release
+# Write the version git describes into the bindings' Cargo.toml and ../rust/Cargo.lock (CI's release
 # builds, whose checkout is thrown away; locally, `build` and `sdist` do it for the build
 # alone)
 version-write:

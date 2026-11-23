@@ -81,9 +81,7 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            rust/refkv-ir
-            rust/refkv-python
+          workspaces: rust
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - if: runner.os == 'Linux'
         run: sudo apt-get install -y --no-install-recommends binaryen
@@ -130,9 +128,7 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            rust/refkv-ir
-            rust/refkv-python
+          workspaces: rust
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - run: >-
@@ -188,9 +184,7 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            rust/refkv-ir
-            rust/refkv-python
+          workspaces: rust
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - run: uv sync --all-groups --locked --python 3.12
       # --upgrade-package for each of refkv's requirements (python/tools/floors.py): without it,
@@ -240,12 +234,12 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       # js::test also builds the test module (test-only hooks) in its own target directory,
-      # rust/refkv-ir/target/test-hooks; cache it beside the shipped module's
+      # rust/target/test-hooks; cache it beside the shipped module's
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            rust/refkv-ir -> target
-            rust/refkv-ir -> target/test-hooks
+            rust -> target
+            rust -> target/test-hooks
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - if: runner.os == 'Linux'
         run: sudo apt-get install -y --no-install-recommends binaryen
@@ -274,9 +268,7 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            rust/refkv-ir
-            rust/refkv-python
+          workspaces: rust
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - if: runner.os == 'Linux'
         run: sudo apt-get install -y --no-install-recommends binaryen
@@ -324,12 +316,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            rust/refkv-ir
-            rust/refkv-vzip
-            rust/refkv-phkv
-            rust/refkv-cli
+            rust
             conformance/impls/rust
-            rust/refkv-python
       - uses: extractions/setup-crate@v2
         with:
           repo: casey/just
@@ -364,9 +352,7 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            rust/refkv-ir
-            rust/refkv-python
+          workspaces: rust
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - run: uv sync --all-groups --locked
@@ -397,9 +383,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            rust/refkv-ir
-            rust/refkv-python
+          workspaces: rust
       - run: uv sync --all-groups --locked
       - run: just virtualizarr-parity -rxX
 
@@ -420,9 +404,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            rust/refkv-ir
-            rust/refkv-python
+          workspaces: rust
       - run: uv sync --all-groups --locked
       - run: just outputs-check
 
@@ -448,9 +430,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            rust/refkv-ir
-            rust/refkv-python
+          workspaces: rust
       # the two venvs, and their Pythons: bin/python, or Scripts/python.exe on Windows (with
       # RUNNER_TEMP's `\` written as `/`, for Git Bash)
       - run: |
@@ -519,9 +499,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            rust/refkv-ir
-            rust/refkv-python
+          workspaces: rust
       - run: uv sync --all-groups --locked
       - run: just fixtures-check
       # spec/zarrify/<p>/schema.json is what spec/generate_schemas.py writes from spec/source_metadata/
