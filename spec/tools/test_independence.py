@@ -1,6 +1,9 @@
 """A branch's changed files against its formats' own paths and the files shared on purpose (independence.py)."""
 
+import subprocess
+
 import independence
+import pytest
 from independence import Change, declared, owner, report
 
 NAMES = ["dicom", "grib", "mp3", "mrc", "mrc-dataset", "nifti", "npy", "ome-zarr", "tiff", "zarr2"]
@@ -50,6 +53,13 @@ def test_what_is_not_reported():
     ]
     assert report(format_branch, {"npy"}, NAMES) == ({"npy"}, [])
     assert report([*format_branch, refused], None, NAMES) == ({"npy", "dicom"}, [])
+    # A format's own fixture that another profile reads (GRIB's expected .npy files) is its own too.
+    grib_branch = [Change("rust/refkv-ir/src/grib/mod.rs", True),
+                   Change("conformance/outputs/manifests/grib.jsonl", True,
+                          (("grib/grib_new.grib2", "grib"), ("grib/expected/grib_new.0.npy", "npy")))]
+    assert report(grib_branch, {"grib"}, NAMES) == ({"grib"}, [])
+    assert report(grib_branch, None, NAMES) == ({"grib"}, [])
+    assert report(grib_branch[1:], None, NAMES) == ({"grib"}, [])
     # A branch of no format changes what it likes.
     assert report([Change("justfile", True), Change("docs/build.md", True)], None, NAMES) == (set(), [])
     assert independence.manifest_rows(
@@ -74,3 +84,57 @@ def test_a_manifest_row_of_another_format():
 def test_a_central_file():
     assert report([Change("rust/refkv-ir/src/npy/mod.rs", True), Change("docs/build.md", True)], None, NAMES)[1] == [
         ("docs/build.md", independence.CENTRAL)]
+
+
+def git_repo(tmp_path, monkeypatch):
+    """A repository with a commit on `main` and a branch `b` checked out, and a function to commit to it."""
+    run = lambda *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *a],  # noqa: E731
+                                    cwd=tmp_path, check=True, capture_output=True)
+
+    def commit(subject: str, files: dict[str, bytes | None]) -> None:
+        for name, data in files.items():
+            path = tmp_path / name
+            if data is None:
+                path.unlink()
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+        run("add", "-A")
+        run("commit", "-qm", subject)
+
+    run("init", "-q", "-b", "main")
+    manifest = b'{"input": "grib/a.grib2", "plain": {"profile": "grib"}}\n'
+    commit("chore: start", {"docs/list.md": b"a\nb\n", "docs/logo.png": b"\x00\x01", "rust/src/npy.rs": b"x\n",
+                            "conformance/outputs/manifests/grib.jsonl": manifest})
+    run("checkout", "-q", "-b", "b")
+    monkeypatch.setattr(independence, "ROOT", tmp_path)
+    return commit
+
+
+def test_the_branch_s_changes_from_git(tmp_path, monkeypatch, capsys):
+    commit = git_repo(tmp_path, monkeypatch)
+    commit("fix(npy): a", {"rust/src/npy.rs": b"y\n", "docs/list.md": b"a\n", "docs/logo.png": None,
+                           "conformance/outputs/manifests/grib.jsonl":
+                               b'{"input": "grib/expected/a.0.npy", "plain": {"profile": "npy"}}\n'})
+    assert sorted(independence.changes("main", "HEAD"), key=lambda c: c.path) == [
+        Change("conformance/outputs/manifests/grib.jsonl", True,
+               (("grib/a.grib2", "grib"), ("grib/expected/a.0.npy", "npy"))),
+        Change("docs/list.md", False),
+        Change("docs/logo.png", False),  # a binary file, removed
+        Change("rust/src/npy.rs", True),
+    ]
+    independence.main(["--base", "main"])
+    assert capsys.readouterr().out.splitlines() == [
+        "independence: the branch's formats (named by its commits' scopes): npy",
+        "  conformance/outputs/manifests/grib.jsonl: a file of grib, which is not one of this branch's formats (npy)",
+        ("independence: 1 file(s) outside the branch's formats and the files shared on purpose; name each in the PR "
+         "with why, or move what it says into the format's own files")]
+
+
+def test_strict_fails_on_a_report(tmp_path, monkeypatch):
+    commit = git_repo(tmp_path, monkeypatch)
+    commit("fix(npy): a", {"rust/src/npy.rs": b"y\n", "docs/list.md": b"a\nb\nnpy\n"})
+    independence.main(["--base", "main"])  # a warning
+    with pytest.raises(SystemExit) as e:
+        independence.main(["--base", "main", "--strict"])
+    assert e.value.code == 1

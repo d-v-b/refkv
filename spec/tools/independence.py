@@ -15,16 +15,17 @@ format. A component names a profile when its stem (the text before its first `.`
 `python/tests/ir/test_czi_description.py`, `fixtures/dicom_series/...` and
 `rust/refkv-ir/src/ome_zarr.rs` belong to nifti, mp3, czi, dicom and ome-zarr, and
 `fixtures/grib/expected/grib_bitmap.0.npy` to grib. The output manifests,
-`conformance/outputs/manifests/<fixture directory>.jsonl`, record each input's profile: a change to
-one belongs to the profiles of the rows it changes (an input zarrify refuses, which records none, to
-its fixture directory's), so that a change to NPY that alters the NPY files among the GRIB fixtures
-is NPY's alone.
+`conformance/outputs/manifests/<fixture directory>.jsonl`, record each input's profile: a row a
+branch changes is the branch's when its profile or its fixture directory's format is one of the
+branch's formats, so that a change to NPY that alters the NPY files among the GRIB fixtures is NPY's,
+and a GRIB fixture's expected `.npy` file, which records the NPY profile, is GRIB's too.
 
 **A branch's formats** are the profiles its commits' conventional-commit scopes name
 (`fix(npy): ...`, `refactor(nifti,nrrd): ...`). A commit whose type has no scope, or a scope that
 is no profile (`refactor(ir): ...`, `docs: ...`), changes what several formats share, so a branch
 with one, or with no commit that names a profile, has as formats every format whose paths it
-changes.
+changes (a manifest's rows count by their fixture directories, unless their profile is one of
+those formats already).
 
 **Reported:** a file of a format that is not one of the branch's formats, and a file of no format
 that is not in `SHARED` below, which the branch adds lines to while it has formats at all. So a
@@ -100,13 +101,24 @@ def owner(path: str, names: list[str]) -> str | None:
     return None
 
 
-def owners(change: Change, names: list[str]) -> set[str]:
-    """The formats a change belongs to: an output manifest's, its changed rows' profiles."""
-    if change.path.startswith(MANIFESTS) and change.rows:
-        of = {profile or owner(f"fixtures/{inp}", names) or owner(change.path, names) for inp, profile in change.rows}
-        return {f for f in of if f}
-    found = owner(change.path, names)
-    return {found} if found else set()
+def directory(change: Change, row: tuple[str, str | None], names: list[str]) -> str | None:
+    """The format of a manifest row's fixture directory."""
+    return owner(f"fixtures/{row[0]}", names) or owner(change.path, names)
+
+
+def row_owners(change: Change, row: tuple[str, str | None], names: list[str]) -> set[str]:
+    """The formats a manifest row is of: its profile's and its fixture directory's."""
+    return {f for f in (row[1], directory(change, row, names)) if f}
+
+
+def branch_formats(changes: list[Change], scopes: set[str] | None, names: list[str]) -> set[str]:
+    """The branch's formats: its scopes', else those whose paths it changes, a manifest's rows counting
+    by their fixture directories unless their profile is one of the others."""
+    if scopes:
+        return scopes
+    paths = {f for c in changes if not c.rows if (f := owner(c.path, names))}
+    rows = {directory(c, r, names) for c in changes for r in c.rows if not row_owners(c, r, names) & paths}
+    return paths | {f for f in rows if f}
 
 
 def declared(subjects: list[str], names: list[str]) -> set[str] | None:
@@ -125,16 +137,18 @@ def declared(subjects: list[str], names: list[str]) -> set[str] | None:
 
 def report(changes: list[Change], scopes: set[str] | None, names: list[str]) -> tuple[set[str], list[tuple[str, str]]]:
     """The branch's formats, and each reported file with why."""
-    formats = scopes or set().union(*(owners(c, names) for c in changes))
+    formats = branch_formats(changes, scopes, names)
     found = []
     for c in changes:
-        of = owners(c, names)
-        if of:
-            if not of <= formats:
-                why = (f"a file of {', '.join(sorted(of - formats))}, which is not one of this branch's formats "
-                       f"({', '.join(sorted(formats))})")
-                found.append((c.path, why))
-        elif formats and c.adds and c.path not in SHARED:
+        if c.rows:  # an output manifest: the rows of no format of the branch's
+            of = set().union(*(row_owners(c, r, names) for r in c.rows if not row_owners(c, r, names) & formats))
+        else:
+            of = {f} if (f := owner(c.path, names)) else set()
+        if of - formats:
+            why = (f"a file of {', '.join(sorted(of - formats))}, which is not one of this branch's formats "
+                   f"({', '.join(sorted(formats))})")
+            found.append((c.path, why))
+        elif not c.rows and not of and formats and c.adds and c.path not in SHARED:
             found.append((c.path, CENTRAL))
     return formats, found
 
@@ -146,15 +160,15 @@ def git(*args: str) -> str:
 def changes(base: str, head: str) -> list[Change]:
     """The files changed between `base` and `head` (moves as a removal and an addition)."""
     out = []
-    fields = git("diff", "--numstat", "--no-renames", "-z", base, head).split("\0")
-    for field in fields:
+    deleted = set(git("diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", base, head).split("\0"))
+    for field in git("diff", "--numstat", "--no-renames", "-z", base, head).split("\0"):
         if not field:
             continue
-        added, _, path = field.split("\t", 2)
+        added, _, path = field.split("\t", 2)  # a binary file's counts are "-"
         rows: tuple[tuple[str, str | None], ...] = ()
         if path.startswith(MANIFESTS) and path.endswith(".jsonl"):
             rows = manifest_rows(git("diff", "-U0", "--no-renames", base, head, "--", path))
-        out.append(Change(path, added != "0", rows))
+        out.append(Change(path, added != "0" and path not in deleted, rows))
     return out
 
 
@@ -171,13 +185,13 @@ def manifest_rows(diff: str) -> tuple[tuple[str, str | None], ...]:
     return tuple(sorted(rows, key=lambda r: (r[0], r[1] or "")))
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--base", default="origin/main", help="compare from the merge base of this and --head")
     p.add_argument("--head", default="HEAD")
     p.add_argument("--strict", action="store_true", help="exit 1 when anything is reported")
     p.add_argument("--github", action="store_true", help="also print each finding as a GitHub annotation")
-    a = p.parse_args()
+    a = p.parse_args(argv)
     names = [e["name"] for e in profiles.load()]
     since = git("merge-base", a.base, a.head).strip()
     subjects = git("log", "--no-merges", "--format=%s", f"{since}..{a.head}").splitlines()
