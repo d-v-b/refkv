@@ -197,6 +197,9 @@ def cases(files: list[str], stores: list[str], base: str, modes: set[str],
     return out
 
 
+# the cases whose names hold this convert (exit 0) in both hosts: the `file:` inputs, whose
+# rules the hosts share through the core, so that agreeing on a refusal would hide a regression
+CONVERTS = "local file:"
 # a case without the output argument
 NO_OUTPUT = "<no output>"
 # an empty file (`main` makes it)
@@ -258,6 +261,8 @@ def main() -> int:
                     problems.append(f"the archives differ ({len(py[1] or b'')} and {len(rs[1] or b'')} bytes)")
                 if summary(py[2], remote) != summary(rs[2], remote):
                     problems.append(f"the summaries differ\n  python: {py[2].strip()}\n  rust: {rs[2].strip()}")
+            if CONVERTS in name and py[0] != 0:  # agreeing is not enough: these inputs convert
+                problems.append(f"exit {py[0]}, not 0, for an input that converts\n  python: {py[3].strip()[-400:]}")
             for p in (tmp / f"{k}.py.vzip", tmp / f"{k}.rs.vzip"):
                 p.unlink(missing_ok=True)
             if py[0] not in (0, 3) and not problems:  # both failed alike: shown, not a difference
