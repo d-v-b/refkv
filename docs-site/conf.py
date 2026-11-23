@@ -151,20 +151,19 @@ def publish_schemas(app: Sphinx, exception: Exception | None) -> None:
     build: its `schema_url`, to which this copies the convention's JSON Schema from the repository
     (spec/zarrify/<p>/schema.json, a path to update when the schemas move), and its `spec_url`, the
     format's page, which a move of its document must keep, by a redirect page or otherwise. The
-    paths come from `profiles.cmo`, the CMO refkv writes."""
+    paths come from `profiles.cmo`, the CMO refkv writes, at version 0 whatever a format's current
+    version: the archives written at version 0 name them for good."""
     if exception is not None or app.builder.format != "html":
         return
     missing = []
     for e in profiles.load():
-        cmo = profiles.cmo(e)
-        schema, page = (str(cmo[k]) for k in ("schema_url", "spec_url"))
-        if schema.startswith(profiles.SITE + "/"):
-            target = Path(app.outdir) / schema.removeprefix(profiles.SITE + "/")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(ROOT / "spec" / "zarrify" / e["name"] / "schema.json", target)
-        served = Path(app.outdir) / page.removeprefix(profiles.SITE + "/")
-        if page.startswith(profiles.SITE + "/") and not served.is_file():
-            missing.append(page)
+        cmo = profiles.cmo({**e, "version": 0})
+        schema, page = (str(cmo[k]).removeprefix(profiles.SITE + "/") for k in ("schema_url", "spec_url"))
+        target = Path(app.outdir) / schema
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / "spec" / "zarrify" / e["name"] / "schema.json", target)
+        if not (Path(app.outdir) / page).is_file():
+            missing.append(str(cmo["spec_url"]))
     if missing:
         raise ExtensionError(f"the site does not serve these CMO URLs: {', '.join(missing)}")
 
