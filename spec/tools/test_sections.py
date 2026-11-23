@@ -32,17 +32,6 @@ SPEC = """# A spec
 ## 4. Shared
 """
 
-BINDING = """# A binding
-
-# Part 2. The ZIP binding
-
-## 4. Shared
-
-## 9. What the binding defines
-
-### 9.1 Structure
-"""
-
 FORMAT = """# TIFF
 
 # Part 1. The convention
@@ -64,11 +53,7 @@ def repo(tmp_path, monkeypatch):
     """A repository of a few documents, as sections.ROOT."""
     files = {
         "spec/refkv.md": SPEC,
-        "spec/bindings/vzip.md": BINDING,
-        "spec/history/archive/SPEC.r1.md": "# S\n\n## 1. Introduction\n\n### 1.1 Old\n",
-        "spec/zarrify.md": "# V\n\n## 1. Introduction\n\n### 1.2 Input\n",
         "spec/zarrify/tiff.md": FORMAT,
-        "spec/conventions.md": "# C\n\n## 3. Arrays\n",
     }
     for name, text in files.items():
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
