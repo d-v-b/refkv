@@ -1,0 +1,570 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://d-v-b.github.io/refkv/spec/zarrify/h5j/schema.json",
+  "title": "refkv H5J convention, version 0",
+  "description": "The zarr.json of a node that declares the refkv H5J convention (https://d-v-b.github.io/refkv/spec/zarrify/h5j.html)",
+  "type": "object",
+  "properties": {
+    "zarr_format": {
+      "type": "integer",
+      "const": 3
+    },
+    "node_type": {
+      "type": "string",
+      "enum": [
+        "group",
+        "array"
+      ]
+    },
+    "attributes": {
+      "type": "object",
+      "properties": {
+        "ome": {
+          "type": "object",
+          "description": "OME-NGFF 0.5 metadata"
+        },
+        "zarr_conventions": {
+          "type": "array",
+          "contains": {
+            "$ref": "#/$defs/conventionMetadata"
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        "refkv_zarrified": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/rootProperty"
+            },
+            {
+              "$ref": "#/$defs/nodeProperty"
+            }
+          ]
+        }
+      },
+      "required": [
+        "zarr_conventions",
+        "refkv_zarrified"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "zarr_format",
+    "node_type",
+    "attributes"
+  ],
+  "$defs": {
+    "conventionMetadata": {
+      "type": "object",
+      "description": "The H5J convention's metadata object in zarr_conventions",
+      "properties": {
+        "uuid": {
+          "type": "string",
+          "const": "5bd31fac-d92d-452b-bcb6-15ca89c0f931"
+        },
+        "schema_url": {
+          "type": "string",
+          "const": "https://d-v-b.github.io/refkv/spec/zarrify/h5j/schema.json"
+        },
+        "spec_url": {
+          "type": "string",
+          "const": "https://d-v-b.github.io/refkv/spec/zarrify/h5j.html"
+        },
+        "name": {
+          "type": "string",
+          "const": "refkv_zarrified"
+        },
+        "description": {
+          "type": "string",
+          "const": "The Zarr layout of a H5J source zarrified by refkv, and the source's metadata"
+        }
+      },
+      "required": [
+        "uuid",
+        "schema_url",
+        "spec_url",
+        "name",
+        "description"
+      ],
+      "additionalProperties": false
+    },
+    "rootProperty": {
+      "type": "object",
+      "description": "The root's property: the profile and version that produced the hierarchy, its source, and the root's source metadata",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "const": "h5j"
+        },
+        "version": {
+          "type": "integer",
+          "const": 0
+        },
+        "source": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "The URL of the source file"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false
+        },
+        "layouts": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[^/]+(/[^/]+)*$"
+          },
+          "description": "The other layouts of the source in this hierarchy, by name, each the path of its node below the root (spec/conventions.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)"
+        },
+        "h5j": {
+          "$ref": "#/$defs/sourceMetadata"
+        }
+      },
+      "required": [
+        "profile",
+        "version",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "sourceMetadata": {
+      "anyOf": [
+        {
+          "type": "object",
+          "description": "The root's: the root group's and /Channels's attributes, and every channel, with where it is or why it is not zarrified (spec/zarrify/h5j.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#51-the-root>)",
+          "properties": {
+            "attributes": {
+              "type": "object",
+              "description": "The HDF5 object's attributes, as the HDF5 convention writes them"
+            },
+            "channels_attributes": {
+              "type": "object",
+              "description": "The HDF5 object's attributes, as the HDF5 convention writes them"
+            },
+            "channels": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "path",
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "attributes",
+            "channels_attributes",
+            "channels"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A channel's image group: its dataset, its attributes and its MP4 file's track (spec/zarrify/h5j.md §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#52-a-channel>)",
+          "properties": {
+            "dataset": {
+              "type": "string",
+              "description": "The channel's dataset, Channels/Channel_<n>"
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Where the dataset's bytes, the MP4 file, start in the H5J file"
+            },
+            "length": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The dataset's bytes"
+            },
+            "attributes": {
+              "type": "object",
+              "description": "The HDF5 object's attributes, as the HDF5 convention writes them"
+            },
+            "brand": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "major": {
+                  "type": "string"
+                },
+                "minor": {
+                  "type": "integer"
+                },
+                "compatible": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "movie_timescale": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "movie_duration": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "track": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "codec": {
+                  "type": "string"
+                },
+                "format": {
+                  "enum": [
+                    "h264",
+                    "hevc",
+                    "av1",
+                    "vp9"
+                  ]
+                },
+                "timescale": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "duration": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "edits": {
+                  "type": "array",
+                  "description": "The track's edit list (its elst box's entries), recorded and not applied",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "duration": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "media_time": {
+                        "type": "integer"
+                      },
+                      "rate": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "duration",
+                      "media_time",
+                      "rate"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "bit_depth": {
+                  "enum": [
+                    8,
+                    10,
+                    12
+                  ]
+                },
+                "profile": {
+                  "type": "integer"
+                },
+                "level": {
+                  "type": "integer"
+                },
+                "width": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "The coded pictures' width, padding included"
+                },
+                "height": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "The coded pictures' height, padding included"
+                },
+                "chroma": {
+                  "const": "4:0:0"
+                },
+                "frames": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "The pictures: the slices"
+                },
+                "sync_samples": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "id",
+                "codec",
+                "format",
+                "timescale",
+                "duration",
+                "edits",
+                "bit_depth",
+                "profile",
+                "level",
+                "width",
+                "height",
+                "chroma",
+                "frames",
+                "sync_samples"
+              ],
+              "additionalProperties": false
+            },
+            "chunk_frames": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The slices of a chunk"
+            }
+          },
+          "required": [
+            "dataset",
+            "offset",
+            "length",
+            "attributes",
+            "brand",
+            "movie_timescale",
+            "movie_duration",
+            "track",
+            "chunk_frames"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "$ref": "#/$defs/mirror"
+        },
+        {
+          "$ref": "#/$defs/mirrorView"
+        }
+      ]
+    },
+    "headerValue": {
+      "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "text": {
+      "description": "A text value: a string (UTF-8), or its ISO 8859-1 reading when it is not UTF-8",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "latin1": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "latin1"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "mirror": {
+      "type": "object",
+      "description": "refkv_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>)",
+      "properties": {
+        "ir": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "const": 2
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The source's size in bytes (a store IR's: its objects' sizes, summed)"
+            },
+            "objects": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>); a file IR has none"
+            },
+            "elements": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The elements, column runs expanded"
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The rows the table stores"
+            },
+            "names": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "const": ""
+                }
+              ],
+              "description": "The interned names, sorted; the first, \"\", is the root's (conventions §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>)"
+            },
+            "types": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "const": ""
+                }
+              ],
+              "description": "The interned types (§8.6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#86-types>)"
+            },
+            "forms": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The interned forms, each a JSON text (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"
+            }
+          },
+          "required": [
+            "version",
+            "size",
+            "elements",
+            "rows",
+            "names",
+            "types",
+            "forms"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ir"
+      ],
+      "additionalProperties": false
+    },
+    "mirrorView": {
+      "type": "object",
+      "description": "A view group's (refkv_source/tree/...): a struct's view document (spec/conventions.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)",
+      "properties": {
+        "$vz": {
+          "const": "derived",
+          "description": "A derived element's document"
+        },
+        "$form": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A derived element's form (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"
+        },
+        "$partial": {
+          "const": true,
+          "description": "The document stops short of the struct's children"
+        }
+      },
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/viewValue"
+      }
+    },
+    "viewValue": {
+      "description": "A child's view: a JSON value, a nested document, or a $vz form",
+      "anyOf": [
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null",
+            "array"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$vz": {
+              "enum": [
+                "alias",
+                "group",
+                "element",
+                "derived",
+                "float",
+                "bytes",
+                "utf16"
+              ]
+            }
+          },
+          "required": [
+            "$vz"
+          ]
+        },
+        {
+          "type": "object"
+        }
+      ]
+    },
+    "nodeProperty": {
+      "type": "object",
+      "description": "Any other node's property: its source metadata only",
+      "properties": {
+        "h5j": {
+          "$ref": "#/$defs/sourceMetadata"
+        }
+      },
+      "required": [
+        "h5j"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
