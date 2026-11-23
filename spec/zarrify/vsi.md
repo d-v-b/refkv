@@ -63,8 +63,8 @@ of [§6.1](#61-the-root) as the member `"vsi"`. Its CMO is:
 ```json
 {
   "uuid": "c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/vsi/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/vsi/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/vsi/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a VSI source zarrified by refkv, and the source's metadata"
 }
@@ -792,8 +792,8 @@ the 12-bit background 4095; and the macro image, a 40 × 30 JPEG. Its root
   "ome": {"version": "0.5", "bioformats2raw.layout": 3},
   "zarr_conventions": [{
     "uuid": "c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45",
-    "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/vsi/schema.json",
-    "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md",
+    "schema_url": "https://d-v-b.github.io/refkv/conventions/vsi/schema.json",
+    "spec_url": "https://d-v-b.github.io/refkv/conventions/vsi/",
     "name": "refkv_zarrified",
     "description": "The Zarr layout of a VSI source zarrified by refkv, and the source's metadata"
   }],

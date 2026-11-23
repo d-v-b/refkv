@@ -50,8 +50,8 @@ metadata of [§5.1](#51-the-root) as the member `"npy"`. Its CMO is:
 ```json
 {
   "uuid": "62b1d1ba-8eb3-465c-a333-75e096fce519",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/npy/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/npy/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/npy/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a NumPy source zarrified by refkv, and the source's metadata"
 }
@@ -316,8 +316,8 @@ then 96 bytes of data. Its root `zarr.json` has these attributes:
 {
   "zarr_conventions": [{
     "uuid": "62b1d1ba-8eb3-465c-a333-75e096fce519",
-    "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/npy/schema.json",
-    "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md",
+    "schema_url": "https://d-v-b.github.io/refkv/conventions/npy/schema.json",
+    "spec_url": "https://d-v-b.github.io/refkv/conventions/npy/",
     "name": "refkv_zarrified",
     "description": "The Zarr layout of a NumPy source zarrified by refkv, and the source's metadata"
   }],

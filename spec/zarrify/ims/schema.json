@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/ims/schema.json",
+  "$id": "https://d-v-b.github.io/refkv/conventions/ims/schema.json",
   "title": "refkv IMS convention, version 0",
-  "description": "The zarr.json of a node that declares the refkv IMS convention (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md)",
+  "description": "The zarr.json of a node that declares the refkv IMS convention (https://d-v-b.github.io/refkv/conventions/ims/)",
   "type": "object",
   "properties": {
     "zarr_format": {
@@ -65,11 +65,11 @@
         },
         "schema_url": {
           "type": "string",
-          "const": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/ims/schema.json"
+          "const": "https://d-v-b.github.io/refkv/conventions/ims/schema.json"
         },
         "spec_url": {
           "type": "string",
-          "const": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md"
+          "const": "https://d-v-b.github.io/refkv/conventions/ims/"
         },
         "name": {
           "type": "string",

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/flac/schema.json",
+  "$id": "https://d-v-b.github.io/refkv/conventions/flac/schema.json",
   "title": "refkv FLAC convention, version 0",
-  "description": "The zarr.json of a node that declares the refkv FLAC convention (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md)",
+  "description": "The zarr.json of a node that declares the refkv FLAC convention (https://d-v-b.github.io/refkv/conventions/flac/)",
   "type": "object",
   "properties": {
     "zarr_format": {
@@ -65,11 +65,11 @@
         },
         "schema_url": {
           "type": "string",
-          "const": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/flac/schema.json"
+          "const": "https://d-v-b.github.io/refkv/conventions/flac/schema.json"
         },
         "spec_url": {
           "type": "string",
-          "const": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md"
+          "const": "https://d-v-b.github.io/refkv/conventions/flac/"
         },
         "name": {
           "type": "string",

@@ -69,8 +69,8 @@ metadata of [§5.1](#51-the-root) as the member `"mp4"`. Its CMO is:
 ```json
 {
   "uuid": "bbe3f6b9-488d-4d8d-85ce-60a1649dd27e",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/mp4/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/mp4/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/mp4/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a MP4 source zarrified by refkv, and the source's metadata"
 }

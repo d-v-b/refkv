@@ -50,8 +50,8 @@ The root and every variable's array declare the convention
 ```json
 {
   "uuid": "b708fd91-025a-4c2e-91e2-543503ea163a",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/netcdf3/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/netcdf3/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/netcdf3/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a netCDF3 source zarrified by refkv, and the source's metadata"
 }

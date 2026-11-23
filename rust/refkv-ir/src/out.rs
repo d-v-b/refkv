@@ -291,18 +291,30 @@ pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
     (e["uuid"].as_str().unwrap(), e["version"].as_u64().unwrap(), e["title"].as_str().unwrap())
 }
 
+/// The documentation site, which publishes each convention at `conventions/<p>/` (its document) and
+/// `conventions/<p>/schema.json`, names tied to no path of the repository (docs-site/conf.py).
+pub const SITE: &str = "https://d-v-b.github.io/refkv";
+
+/// The Convention Metadata Object of a profile's convention (conventions §1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>): at version 0,
+/// which has no tag, its URLs are the documentation site's names for it, which follow the
+/// development branch;
+/// at version N, the files at the tag `zarrify-<p>-v<N>`, which never change.
 pub fn convention(p: &str) -> J {
     let (uuid, version, title) = profile(p);
-    let (r, blob) = if version == 0 {
-        ("heads/main".to_string(), "main".to_string())
+    let (schema_url, spec_url) = if version == 0 {
+        (format!("{SITE}/conventions/{p}/schema.json"), format!("{SITE}/conventions/{p}/"))
     } else {
-        let t = format!("tags/zarrify-{p}-v{version}");
-        (t.clone(), t)
+        let t = format!("zarrify-{p}-v{version}");
+        (
+            format!("https://raw.githubusercontent.com/d-v-b/refkv/refs/tags/{t}/spec/zarrify/{p}/schema.json"),
+            format!("https://github.com/d-v-b/refkv/blob/{t}/spec/zarrify/{p}.md"),
+        )
     };
     json!({
         "uuid": uuid,
-        "schema_url": format!("https://raw.githubusercontent.com/d-v-b/refkv/refs/{r}/spec/zarrify/{p}/schema.json"),
-        "spec_url": format!("https://github.com/d-v-b/refkv/blob/{blob}/spec/zarrify/{p}.md"),
+        "schema_url": schema_url,
+        "spec_url": spec_url,
         "name": CONVENTION_KEY,
         "description": format!("The Zarr layout of a {title} source zarrified by refkv, and the source's metadata"),
     })

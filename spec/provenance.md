@@ -40,9 +40,9 @@ nests its property under one key, `refkv_provenance`, which is also its
 
 with no other members. Versions follow
 [conventions §1](conventions.md#1-conventions), tagged `provenance-v<N>`: at
-version 0, which has no tag, the URLs name the development branch,
-`.../refs/heads/main/spec/provenance/schema.json` and
-`.../blob/main/spec/provenance.md`.
+version 0, which has no tag, the URLs are the documentation site's names for the convention,
+`https://d-v-b.github.io/refkv/conventions/provenance/schema.json` and
+`https://d-v-b.github.io/refkv/conventions/provenance/`.
 
 ## 2. The property
 
@@ -72,8 +72,8 @@ Example: the root of a TIFF zarrified by refkv 0.2.0's Python package.
 ```json
 {
   "zarr_conventions": [
-    {"uuid": "48e9ac4e-1156-4a62-955e-20467d9c2700", "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/tiff/schema.json", "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md", "name": "refkv_zarrified", "description": "The Zarr layout of a TIFF source zarrified by refkv, and the source's metadata"},
-    {"uuid": "7ffd0ef7-df19-408c-a4df-c91623b4c3db", "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/provenance/schema.json", "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/provenance.md", "name": "refkv_provenance", "description": "The program that wrote a Zarr hierarchy, and its version"}
+    {"uuid": "48e9ac4e-1156-4a62-955e-20467d9c2700", "schema_url": "https://d-v-b.github.io/refkv/conventions/tiff/schema.json", "spec_url": "https://d-v-b.github.io/refkv/conventions/tiff/", "name": "refkv_zarrified", "description": "The Zarr layout of a TIFF source zarrified by refkv, and the source's metadata"},
+    {"uuid": "7ffd0ef7-df19-408c-a4df-c91623b4c3db", "schema_url": "https://d-v-b.github.io/refkv/conventions/provenance/schema.json", "spec_url": "https://d-v-b.github.io/refkv/conventions/provenance/", "name": "refkv_provenance", "description": "The program that wrote a Zarr hierarchy, and its version"}
   ],
   "refkv_zarrified": {"profile": "tiff", "version": 0, "source": {"url": "https://example.org/plane.tif"}},
   "refkv_provenance": {
