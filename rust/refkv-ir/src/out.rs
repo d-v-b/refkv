@@ -8,10 +8,11 @@
 //! Also the shared parts of the conventions every projection uses (conventions §2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>–§5
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>,
-//! §7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>;
-//! `refkv/zarrify/common.py` in Python): arrays' and groups' documents,
-//! OME-NGFF multiscales, the convention's declaration, reference sizes, and the
-//! cuts of metadata arrays.
+//! §7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>):
+//! arrays' and groups' documents, OME-NGFF multiscales, the convention's declaration, reference
+//! sizes, and the cuts of metadata arrays. Python reaches them through the bindings; the frozen
+//! reference's Python twins of the documents and cuts are in
+//! conformance/zarrify/reference/refkv_reference/_legacy_common.py.
 
 use serde_json::{json, Map, Value as J};
 use std::collections::HashMap;
@@ -290,18 +291,30 @@ pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
     (e["uuid"].as_str().unwrap(), e["version"].as_u64().unwrap(), e["title"].as_str().unwrap())
 }
 
+/// The documentation site, which publishes each convention at `conventions/<p>/` (its document) and
+/// `conventions/<p>/schema.json`, names tied to no path of the repository (docs-site/conf.py).
+pub const SITE: &str = "https://d-v-b.github.io/refkv";
+
+/// The Convention Metadata Object of a profile's convention (conventions §1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>): at version 0,
+/// which has no tag, its URLs are the documentation site's names for it, which follow the
+/// development branch;
+/// at version N, the files at the tag `zarrify-<p>-v<N>`, which never change.
 pub fn convention(p: &str) -> J {
     let (uuid, version, title) = profile(p);
-    let (r, blob) = if version == 0 {
-        ("heads/main".to_string(), "main".to_string())
+    let (schema_url, spec_url) = if version == 0 {
+        (format!("{SITE}/conventions/{p}/schema.json"), format!("{SITE}/conventions/{p}/"))
     } else {
-        let t = format!("tags/zarrify-{p}-v{version}");
-        (t.clone(), t)
+        let t = format!("zarrify-{p}-v{version}");
+        (
+            format!("https://raw.githubusercontent.com/d-v-b/refkv/refs/tags/{t}/spec/zarrify/{p}/schema.json"),
+            format!("https://github.com/d-v-b/refkv/blob/{t}/spec/zarrify/{p}.md"),
+        )
     };
     json!({
         "uuid": uuid,
-        "schema_url": format!("https://raw.githubusercontent.com/d-v-b/refkv/refs/{r}/spec/zarrify/{p}/schema.json"),
-        "spec_url": format!("https://github.com/d-v-b/refkv/blob/{blob}/spec/zarrify/{p}.md"),
+        "schema_url": schema_url,
+        "spec_url": spec_url,
         "name": CONVENTION_KEY,
         "description": format!("The Zarr layout of a {title} source zarrified by refkv, and the source's metadata"),
     })
@@ -768,11 +781,12 @@ pub fn blob_chunks(offset: u64, length: u64) -> (u64, Vec<(Vec<u64>, Chunk)>) {
 /// The C-order array of `shape`, of `item`-byte elements contiguous at `offset`, cut
 /// as conventions §7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
-/// contiguous values (`common.grid_chunks`): its chunk shape and chunks, or None when an
-/// element is larger than `limit` or the sizes overflow. An edge chunk whose reference
-/// (its range and its zero padding) is a payload of more than `max_payload` bytes
+/// contiguous values (as the frozen reference's `_legacy_common.grid_chunks` does): its chunk
+/// shape and chunks, or None when an element is larger than `limit` or the sizes overflow. An
+/// edge chunk whose reference (its range and its zero padding) is a payload of more than
+/// `max_payload` bytes
 /// (MAX_PAYLOAD, but in tests) is `Chunk::Copy`, for the caller to copy, as
-/// `common.grid_chunks` copies it with its reader. Any number of chunks is cut (the
+/// `_legacy_common.grid_chunks` copies it with its reader. Any number of chunks is cut (the
 /// references' budget bounds them).
 pub fn grid_chunks(offset: u64, shape: &[u64], item: u64, limit: u64, max_payload: usize) -> Option<(Vec<u64>, Vec<(Vec<u64>, Chunk)>)> {
     if item > limit {

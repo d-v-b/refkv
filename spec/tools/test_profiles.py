@@ -65,7 +65,7 @@ def tiff() -> tuple[dict, dict[str, str]]:
 
 def test_a_drifted_copy_is_an_error():
     e, texts = tiff()
-    drifted = json.dumps({**profiles.cmo(e), "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tif.md"})
+    drifted = json.dumps({**profiles.cmo(e), "spec_url": "https://d-v-b.github.io/refkv/conventions/tif/"})
     assert profiles.cmo_errors([e], texts | {"docs/x.md": f"\n\n{drifted}"}) == [
         f"docs/x.md:3: not the CMO of tiff, which is {json.dumps(profiles.cmo(e))}"]
 

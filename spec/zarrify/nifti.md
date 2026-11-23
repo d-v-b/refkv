@@ -48,8 +48,8 @@ metadata of [§5.1](#51-the-root) as the member `"nifti"`. Its CMO is:
 ```json
 {
   "uuid": "06e5809d-4d54-4b72-afd0-6bf61a7b4c85",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/nifti/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/nifti/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/nifti/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a NIfTI source zarrified by refkv, and the source's metadata"
 }
@@ -446,8 +446,8 @@ root `zarr.json` has these attributes (`M` elided):
   "ome": M,
   "zarr_conventions": [{
     "uuid": "06e5809d-4d54-4b72-afd0-6bf61a7b4c85",
-    "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/nifti/schema.json",
-    "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md",
+    "schema_url": "https://d-v-b.github.io/refkv/conventions/nifti/schema.json",
+    "spec_url": "https://d-v-b.github.io/refkv/conventions/nifti/",
     "name": "refkv_zarrified",
     "description": "The Zarr layout of a NIfTI source zarrified by refkv, and the source's metadata"
   }],

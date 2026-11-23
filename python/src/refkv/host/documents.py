@@ -10,7 +10,7 @@ import re
 from typing import NoReturn
 
 from refkv._narrow import JSON
-from refkv.zarrify.common import Rejected
+from refkv.errors import Rejected
 
 MAX_SAFE = 2**53 - 1
 MAX_DOCUMENT = 1 << 24

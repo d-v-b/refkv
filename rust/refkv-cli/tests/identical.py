@@ -53,7 +53,7 @@ sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from proxy import Server, Upstream, make_handler  # noqa: E402
 
 from refkv._narrow import sequence, string  # noqa: E402
-from refkv.zarrify.profiles import REGISTRY  # noqa: E402
+from refkv.profiles import REGISTRY  # noqa: E402
 
 STORE_FORMATS = tuple(string(e["name"]) for e in REGISTRY if e["kind"] in ("store", "both"))
 SUFFIXES = tuple(string(s) for e in REGISTRY for s in sequence(e["suffixes"]))

@@ -25,13 +25,13 @@ from ir_helpers import FIXTURES, ROOT
 import refkv.zarr
 from refkv import _core
 from refkv._narrow import JSON, at, integer, mapping, ndarray, sequence, string
+from refkv.host import object_url
+from refkv.host.beside import VsiFiles, split_input
 from refkv.ir.store import StoreIrOutput
 from refkv.policy import Policy
 from refkv.uri import path_reference
 from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify as zarrify
-from refkv.zarrify.store import object_url
-from refkv.zarrify.store.beside import VsiFiles, split_input
 
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from proxy import Proxy

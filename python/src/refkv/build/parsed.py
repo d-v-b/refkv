@@ -21,25 +21,24 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self, TypeVar, overload
 
-import refkv.ir  # its Ir, read at call time: refkv.ir imports refkv.zarrify, which imports this module (a cycle)
 import refkv.zarrify as _zarrify  # its parse, read at call time: refkv.zarrify imports this module (a cycle)
 from refkv import Range, ReferenceStore, Source, _sync
-from refkv.errors import RefkvError
-from refkv.ir.kind import Kind
+from refkv.entries import MERGE_GAP
+from refkv.errors import NoIrError, RefkvError
+from refkv.host.urls import object_url
+from refkv.ir import Ir, Kind
+from refkv.ir.output import Output, reading_own_files
 from refkv.ir.store import StoreIrOutput, StoreParse
 from refkv.policy import Policy
 from refkv.reader import Registry, Resolver
 from refkv.uri import path_reference
-from refkv.zarrify.common import PROFILES, Output, reading_own_files
-from refkv.zarrify.layouts import MERGE_GAP
-from refkv.zarrify.store.urls import object_url
+from refkv.zarrify.common import PROFILES
 
 from .values import Part, Ref, Shared, Value
 
 if TYPE_CHECKING:
-    from refkv.ir import Ir
+    from refkv.host.beside import Scope
     from refkv.zarrify import _Parse
-    from refkv.zarrify.store.beside import Scope
 
 __all__ = ["NoIrError", "Parsed", "read", "read_async"]
 
@@ -48,12 +47,6 @@ _V = TypeVar("_V")
 STRUCT, VALUE, DATA, DERIVED, ALIAS, GAP, OBJECT = (Kind.STRUCT, Kind.VALUE, Kind.DATA, Kind.DERIVED, Kind.ALIAS,
                                                     Kind.GAP, Kind.OBJECT)
 MAX_BYTES = 64 << 20  # the default bound on what `Parsed.bytes` reads from sources
-
-
-class NoIrError(ValueError):
-    """An input whose run keeps no IR, so that `read` has nothing to give: a store of DICOM
-    files, which is joined from its files' outputs
-    (spec/zarrify/dicom.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#9-the-store-form>)."""
 
 
 class Parsed:
@@ -96,7 +89,7 @@ class Parsed:
         self.checksums = checksums
         self.max_bytes = max_bytes
         self._read = 0  # bytes `bytes` has read from sources
-        self._ir = refkv.ir.Ir(run.ir)
+        self._ir = Ir(run.ir)
         self._mirrored = run.mirrored  # what makes the IR mirror, kept past `close`
         # the input as its format's own class gives it (`_core.Run.view`), for its routines
         self._view: object | None = run.view

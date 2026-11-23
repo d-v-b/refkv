@@ -1,11 +1,12 @@
 """File inputs of the profiles that are not the IR's under the reader policy (spec/refkv.md
-§6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>): the http reader
-(refkv.zarrify.common.http_reader) makes every request (the
+§6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>): the frozen reference profiles'
+http reader (refkv_reference._legacy_common.http_reader) makes every request (the
 size's, each range's, prefetch's) and follows every redirect under `Policy`, as a
 store's reads do (tests/test_store_policy.py).
 """
 
 import socket
+import sys
 import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,7 +19,11 @@ import refkv.reader
 from refkv.errors import ResolutionError
 from refkv.policy import Policy
 from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
-from refkv.zarrify.common import Output, http_reader
+from refkv.zarrify.common import Output
+
+# the frozen reference twins (conformance/zarrify/reference/refkv_reference)
+sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "zarrify" / "reference"))
+from refkv_reference._legacy_common import http_reader
 
 ROOT = Path(__file__).parents[2]
 BODY = (ROOT / "fixtures" / "nifti" / "nifti_n1_le_qform_identity.nii").read_bytes()

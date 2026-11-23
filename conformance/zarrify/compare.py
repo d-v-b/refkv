@@ -101,6 +101,7 @@ from corpus_hash import entries as corpus_entries  # noqa: E402
 from exact_integers import exact_integers  # noqa: E402
 from proxy import HUB, Proxy  # noqa: E402
 from refkv_reference import legacy  # noqa: E402
+from refkv_reference._legacy_common import same  # noqa: E402
 
 # The fixtures (by file or store name) whose layout or verdict the profile changed after the
 # freeze, which the frozen reference does not give: they and their mutants compare py with web
@@ -112,11 +113,11 @@ from vzip_impl.errors import VzError  # noqa: E402
 
 from refkv import _core  # noqa: E402
 from refkv._narrow import mapping, sequence, string  # noqa: E402
+from refkv.host import object_url  # noqa: E402
 from refkv.ir.cmirror import Archive, canonical_problem, load, view_problem  # noqa: E402
 from refkv.pb import Concat, Range, Source, decode_source_table  # noqa: E402
-from refkv.zarrify.common import CONVENTION_KEY, SOURCE_NODE, same  # noqa: E402
-from refkv.zarrify.profiles import BESIDE, REGISTRY  # noqa: E402
-from refkv.zarrify.store import object_url  # noqa: E402
+from refkv.profiles import BESIDE, REGISTRY  # noqa: E402
+from refkv.zarrify.common import CONVENTION_KEY, SOURCE_NODE  # noqa: E402
 
 IDR = "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant/20210609-ftp-ome-tiffs/"
 BUILTIN = {

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/hdf5/schema.json",
+  "$id": "https://d-v-b.github.io/refkv/conventions/hdf5/schema.json",
   "title": "refkv HDF5 convention, version 0",
-  "description": "The zarr.json of a node that declares the refkv HDF5 convention (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md)",
+  "description": "The zarr.json of a node that declares the refkv HDF5 convention (https://d-v-b.github.io/refkv/conventions/hdf5/)",
   "type": "object",
   "properties": {
     "zarr_format": {
@@ -133,11 +133,11 @@
         },
         "schema_url": {
           "type": "string",
-          "const": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/hdf5/schema.json"
+          "const": "https://d-v-b.github.io/refkv/conventions/hdf5/schema.json"
         },
         "spec_url": {
           "type": "string",
-          "const": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md"
+          "const": "https://d-v-b.github.io/refkv/conventions/hdf5/"
         },
         "name": {
           "type": "string",

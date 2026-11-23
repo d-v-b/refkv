@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/provenance/schema.json",
+  "$id": "https://d-v-b.github.io/refkv/conventions/provenance/schema.json",
   "title": "refkv provenance convention, version 0",
-  "description": "The zarr.json of a root that declares the refkv provenance convention (https://github.com/d-v-b/refkv/blob/main/spec/provenance.md)",
+  "description": "The zarr.json of a root that declares the refkv provenance convention (https://d-v-b.github.io/refkv/conventions/provenance/)",
   "type": "object",
   "properties": {
     "zarr_format": {"type": "integer", "const": 3},
@@ -29,8 +29,8 @@
       "type": "object",
       "properties": {
         "uuid": {"const": "7ffd0ef7-df19-408c-a4df-c91623b4c3db"},
-        "schema_url": {"const": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/provenance/schema.json"},
-        "spec_url": {"const": "https://github.com/d-v-b/refkv/blob/main/spec/provenance.md"},
+        "schema_url": {"const": "https://d-v-b.github.io/refkv/conventions/provenance/schema.json"},
+        "spec_url": {"const": "https://d-v-b.github.io/refkv/conventions/provenance/"},
         "name": {"const": "refkv_provenance"},
         "description": {"const": "The program that wrote a Zarr hierarchy, and its version"}
       },

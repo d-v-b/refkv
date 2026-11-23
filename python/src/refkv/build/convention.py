@@ -13,7 +13,7 @@ import operator
 from typing import TYPE_CHECKING, Any
 
 from refkv import _core
-from refkv.zarrify.common import Rejected
+from refkv.errors import Rejected
 
 from .values import Copy, Data, Literal, Part, Ref, Shared, Value, Written, Zeros, concat, value
 

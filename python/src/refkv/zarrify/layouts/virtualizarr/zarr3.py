@@ -14,7 +14,7 @@ import json
 
 from refkv.build import Parsed, Written
 from refkv.build.routines.zarr import ZarrHierarchy, zarr_hierarchy
-from refkv.zarrify.layouts import dump, undeclared
+from refkv.entries import dump, undeclared
 
 
 def _zarr3(h: ZarrHierarchy) -> Written:

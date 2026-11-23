@@ -72,9 +72,9 @@ FIXTURES_COMMIT = hashlib.sha1(b"refkv fixtures").hexdigest()  # noqa: S324 (a n
 
 
 def _store_api():
-    """refkv.zarrify.store, imported from the source tree (the proxy runs without the package)."""
+    """refkv.host, imported from the source tree (the proxy runs without the package)."""
     sys.path.insert(0, str(ROOT / "python" / "src"))
-    from refkv.zarrify import store  # noqa: PLC0415 (the source tree, on the path above)
+    from refkv import host as store  # noqa: PLC0415 (the source tree, on the path above)
 
     return store
 

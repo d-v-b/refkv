@@ -7,7 +7,7 @@
 // than from a listing, since a plain web server cannot list a directory. The files are the
 // objects of a store whose URL is the named file's directory, each read through a range source
 // of its own (ir/source.ts); a probe opens the file, and an object the server answers 404 for is
-// absent. The twin of python/src/refkv/zarrify/store/beside.py.
+// absent. The twin of python/src/refkv/host/beside.py.
 
 import type { ArchiveDesc } from "../../writer.ts";
 import { HttpResolutionError } from "../../http.ts";
@@ -76,7 +76,7 @@ export interface VsiOptions {
  * as the keys the core's store run takes: each entry a URL, the input URL's directory or a file
  * or directory below it. A directory's key ends in `/`; the input itself, always in scope, adds no
  * key. Undefined when the scope holds the input's directory, every key being in it. The twin of
- * python/src/refkv/zarrify/store/beside.py's `scope_keys`. */
+ * python/src/refkv/host/beside.py's `scope_keys`. */
 export function scopeKeys(url: string, scope: readonly string[]): string[] | undefined {
   const [dir, named] = splitVsiUrl(url, "the");
   const keys: string[] = [];

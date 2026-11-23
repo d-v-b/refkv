@@ -37,67 +37,42 @@ from __future__ import annotations
 
 import dataclasses
 import importlib.metadata
-import io
 import json
-import math
 import re
-import struct
 import types
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, override
+from typing import TYPE_CHECKING, Any, Protocol
 
+from refkv.entries import (
+    MAX_PAYLOAD,
+    MIRROR,
+    chunk_coords,
+    chunk_key,
+    dump,
+)
+from refkv.errors import Rejected
 from refkv.pb import Concat, Range
-from refkv.zarrify.common import MAX_PAYLOAD, Rejected
-from refkv.zarrify.profiles import REGISTRY
+from refkv.profiles import REGISTRY
 
 if TYPE_CHECKING:
     from refkv.build import Parsed, Value, Written
 
 __all__ = ["BASE_PROFILES", "MAX_PAYLOAD", "MIRROR", "Entries", "EntryValue", "Layout",
            "LayoutFailed", "LayoutRejected", "LayoutUsageError", "Plugin", "Problem",
-           "chunk_coords", "chunk_key", "concat", "cut", "dump", "encode_entries", "fill_value", "payload_size",
-           "plan", "without_checksums"]
+           "chunk_coords", "chunk_key", "dump", "encode_entries", "plan"]
 
 type EntryValue = bytes | Range | Concat  # a value of an output's entry
 type Entries = dict[str, EntryValue]  # an output's entries, keys from its root, as a plugin builds them
 
 GROUP = "refkv.layouts"  # the entry points' group
-# the IR mirror's node (spec/conventions.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>)
-MIRROR = "refkv_source"
 # the profiles a plugin may read: every file and store profile (not a dataset layout's entry)
 BASE_PROFILES = frozenset(str(e["name"]) for e in REGISTRY if e["kind"] in ("file", "store", "both"))
-REFKV_UUIDS = frozenset(str(e["uuid"]).lower() for e in REGISTRY)
-REFKV_MEMBERS = ("refkv_zarrified", "refkv_provenance")  # what refkv declares on a node
 
 
-def undeclared(attributes: Mapping[str, Any]) -> dict[str, Any]:
-    """A node's attributes without refkv's declarations: no `refkv_zarrified` or
-    `refkv_provenance`, and no CMO of refkv's conventions in `zarr_conventions` (dropped when
-    nothing is left in it); a copy of the top level."""
-    attrs = dict(attributes)
-    for member in REFKV_MEMBERS:
-        attrs.pop(member, None)
-    cmos = attrs.get("zarr_conventions")
-    if isinstance(cmos, list):
-        kept = [c for c in cmos if not (isinstance(c, dict) and (
-            str(c.get("uuid", "")).lower() in REFKV_UUIDS or c.get("name") in REFKV_MEMBERS))]
-        if kept:
-            attrs["zarr_conventions"] = kept
-        else:
-            del attrs["zarr_conventions"]
-    return attrs
+
 NAME = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+")
 
-MAX_OPEN = 256 << 20  # bytes read at open, and of a format entry: the default max_format_entry
-MERGE_GAP = 1 << 16  # ranges of one source this close are one read, as refkv's readers merge them by default
-# a DEFLATE stream that could reach this is not written (spec/bindings/vzip.md §14.1
-# <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#141-requirements>)
-STORED = 0xFFFFFFFF
-PAGE_ENTRY = 16  # the most a phkv page index's entry takes beside its first key: three varints, and room
-CRC_FIELD = 6  # the most bytes a range's crc32c field takes: a tag, and a varint of 32 bits
-# the documents a Zarr reader parses as JSON, by a key's last segment
-DOCUMENTS = frozenset(["zarr.json", ".zgroup", ".zarray", ".zattrs", ".zmetadata"])
 
 
 class LayoutUsageError(ValueError):
@@ -164,14 +139,6 @@ def described(e: BaseException) -> str:
     except BaseException:  # noqa: BLE001 (a plugin's exception, whatever its __str__ does)
         text = "(its message cannot be read)"
     return f"{_type_name(e)}: {text}"
-
-
-def dump(doc: object, *, allow_nan: bool = False) -> bytes:
-    """A document as zarrify writes one: compact, strict JSON in UTF-8 (ValueError for NaN, an
-    infinity, or anything else strict JSON cannot hold). `allow_nan` writes `NaN` and
-    `Infinity` bare, as zarr-python writes them in a Zarr v2 `.zattrs`, which `check` then
-    reports under `json`."""
-    return json.dumps(doc, separators=(",", ":"), ensure_ascii=False, allow_nan=allow_nan).encode()
 
 
 def encode_entries(entries: Mapping[str, EntryValue], *, checksums: bool = False) -> bytes:
@@ -388,155 +355,6 @@ def _without_checksum(value: Range | Concat) -> Range | Concat:
     return Concat(tuple(dataclasses.replace(r, crc32c=None) for r in value.parts))
 
 
-# ---- chunk keys (Zarr v3's chunk key encodings, and Zarr v2's dimension separator)
-
-def _encoding(doc: Mapping[str, Any]) -> tuple[str, str]:
-    """An array document's chunk key encoding: its name and separator (a Zarr v2 `.zarray`'s
-    `dimension_separator` as the `v2` encoding's)."""
-    if doc.get("zarr_format") == 2:
-        return "v2", str(doc.get("dimension_separator") or ".")
-    encoding = doc.get("chunk_key_encoding") or {"name": "default"}
-    config = encoding.get("configuration") or {} if isinstance(encoding, dict) else None
-    if not isinstance(encoding, dict) or not isinstance(config, dict):
-        raise ValueError(f"the chunk key encoding {encoding!r} is not an object with a configuration object")  # noqa: TRY004 (a document's, as chunk_coords' other refusals)
-    name = encoding.get("name")
-    sep = config.get("separator")
-    if name == "default":
-        return name, sep or "/"
-    if name == "v2":
-        return name, sep or "."
-    raise ValueError(f"the chunk key encoding {name!r} is not one refkv reads (default or v2)")
-
-
-def _index(text: str, key: str) -> int:
-    """A chunk key's index, written as Zarr writes one: digits, with no leading zero."""
-    if not text.isascii() or not text.isdigit() or (len(text) > 1 and text[0] == "0"):
-        raise ValueError(f"{key!r} is not a chunk key: {text!r} is no index as Zarr writes one")
-    return int(text)
-
-
-def chunk_coords(key: str, doc: Mapping[str, Any]) -> list[int]:
-    """A chunk key's coordinates, relative to the array of document `doc` (Zarr v3, or a v2
-    `.zarray`), in its chunk key encoding: `default` or `v2`, with its separator (a scalar's one
-    chunk is `c`, or `0` in `v2`). ValueError for a key that is no chunk key of it."""
-    name, sep = _encoding(doc)
-    if name == "default":
-        head, _, rest = key.partition(sep)
-        if head != "c":
-            raise ValueError(f"{key!r} is not a chunk key of the default encoding")
-        return [_index(i, key) for i in rest.split(sep)] if rest else []
-    if key == "0" and doc.get("shape") == []:
-        return []
-    return [_index(i, key) for i in key.split(sep)]
-
-
-def chunk_key(coords: Sequence[int], doc: Mapping[str, Any]) -> str:
-    """The key of the chunk at `coords`, relative to the array of document `doc`, in its chunk
-    key encoding."""
-    name, sep = _encoding(doc)
-    text = [str(i) for i in coords]
-    return sep.join(["c", *text]) if name == "default" else (sep.join(text) or "0")
-
-
-# ---- references, spec/layout.md
-
-def _parts(value: Range | Concat) -> tuple[Range, ...]:
-    return (value,) if isinstance(value, Range) else value.parts
-
-
-def cut(value: Range | Concat, start: int, stop: int) -> Range | Concat:
-    """The reference value that reads bytes `start` to `stop` of what `value` reads: a Range when
-    they fall in one part, else a Concat of the parts they span, the first and last cut (a part
-    of a data source stays a range of it). Reads nothing; ValueError for bounds outside `value`."""
-    size = value.size
-    if not (type(start) is int and type(stop) is int and 0 <= start <= stop <= size):
-        raise ValueError(f"bytes {start} to {stop} are not within the value's {size}")
-    out: list[Range] = []
-    at = 0
-    for r in _parts(value):
-        n = r.size
-        lo, hi = max(start, at), min(stop, at + n)
-        if lo < hi or (lo == hi == start == stop and at <= start < at + n and not out):
-            a, b = lo - at, hi - at
-            if r.data is not None:
-                out.append(Range(data=r.data[a:b]))
-            else:
-                out.append(Range(r.source, r.offset + a, b - a))
-        at += n
-    if not out:
-        return Range(data=b"")
-    return out[0] if len(out) == 1 else Concat(tuple(out))
-
-
-def concat(*values: Range | Concat, merge: bool = False) -> Range | Concat:
-    """One flat value of the parts of `values`, in order: a Range for one part. With `merge`,
-    a range that starts where the one before it ends, in the same source, joins it, as do two
-    literals in a row."""
-    parts = [r for v in values for r in _parts(v)]
-    if not parts:
-        raise ValueError("concat of no values")
-    if merge:
-        joined: list[Range] = []
-        for r in parts:
-            last = joined[-1] if joined else None
-            if last is not None and r.data is None and last.data is None and last.source == r.source \
-                    and last.offset + last.length == r.offset:
-                joined[-1] = Range(r.source, last.offset, last.length + r.length)
-            elif last is not None and r.data is not None and last.data is not None:
-                joined[-1] = Range(data=last.data + r.data)
-            else:
-                joined.append(dataclasses.replace(r, crc32c=None))
-        parts = joined
-    return parts[0] if len(parts) == 1 else Concat(tuple(parts))
-
-
-def payload_size(value: Range | Concat, *, checksums: bool = False) -> int:
-    """A value's payload in bytes, as refkv measures it against the limit of 65519 (spec/zarrify.md
-    §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): with `checksums`,
-    the most they can add, a 6-byte `crc32c` field a source range (an upper bound: a range of a
-    data source gets none)."""
-    extra = CRC_FIELD * sum(1 for r in _parts(value) if r.data is None and r.crc32c is None) if checksums else 0
-    bare = value if isinstance(value, Range) or len(value.parts) != 1 else value.parts[0]
-    return len(bare.encode()) + extra
-
-
-def fill_value(doc: Mapping[str, Any]) -> object:
-    """A Zarr v3 array document's `fill_value` as a Python value: a float data type's `"NaN"`,
-    `"Infinity"`, `"-Infinity"` or `"0x…"` bits as a float (the bits of a float type Python has no
-    float of, such as `float8_e4m3fn`, stay as they are), a complex one's pair as a complex, other
-    values as JSON has them (Zarr v3 data types, permitted fill values)."""
-    value, data_type = doc.get("fill_value"), doc.get("data_type")
-    if isinstance(data_type, str) and data_type.startswith("complex") and isinstance(value, list) and len(value) == 2:
-        size = int(data_type[len("complex"):]) // 16
-        return complex(_float(value[0], size), _float(value[1], size))
-    if not isinstance(value, str) or not isinstance(data_type, str):
-        return value
-    if value in _NONFINITE and data_type.startswith(("float", "bfloat")):  # float8_*, float6_* and float4_* too
-        return _NONFINITE[value]
-    if data_type == "bfloat16" and value.startswith("0x") and len(value) == 6:
-        return struct.unpack(">f", (int(value, 16) << 16).to_bytes(4, "big"))[0]  # a float32's high half
-    if data_type in ("float16", "float32", "float64"):
-        return _float(value, int(data_type[len("float"):]) // 8)
-    return value  # the bits of a type Python has no float of (float8_*, ...), as Zarr writes them
-
-
-_NONFINITE = {"NaN": math.nan, "Infinity": math.inf, "-Infinity": -math.inf}
-
-
-def _float(value: object, size: int) -> float:
-    if not isinstance(value, str):
-        return float(value)  # type: ignore[arg-type]
-    if value in _NONFINITE:
-        return _NONFINITE[value]
-    if value.startswith("0x") and len(value) == 2 + 2 * size and size in (2, 4, 8):
-        return struct.unpack(">" + {2: "e", 4: "f", 8: "d"}[size], int(value, 16).to_bytes(size, "big"))[0]
-    raise ValueError(f"{value!r} is not a fill value of a {8 * size}-bit float")
-
-
-def without_checksums(value: Range | Concat) -> Range | Concat:
-    """`value` with no checksum on any range: as outputs are
-    compared (spec/zarrify.md §1.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence>)."""
-    return _without_checksum(value)
 
 
 # ---- what refkv does with a plugin's output (spec/layout.md)
@@ -549,20 +367,3 @@ class Problem:
     key: str | None
     code: str
     message: str
-
-
-def _deflate_bound(n: int) -> int:
-    """The most bytes a DEFLATE stream of `n` bytes takes (zlib's `deflateBound`)."""
-    return n + (n >> 12) + (n >> 14) + (n >> 25) + 13
-
-
-class _Counting(io.RawIOBase):
-    """A file that keeps nothing, for building an archive's structure only."""
-
-    @override
-    def writable(self) -> bool:
-        return True
-
-    @override
-    def write(self, b: Any) -> int:
-        return len(b)

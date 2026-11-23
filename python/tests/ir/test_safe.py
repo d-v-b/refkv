@@ -8,11 +8,11 @@ from pathlib import Path
 
 import pytest
 
+from refkv.host import object_url
 from refkv.ir.store import StoreIrOutput
 from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
 from refkv.zarrify.common import Output
-from refkv.zarrify.store import object_url
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "safe"
 URL = "https://data.test/safe/{}"

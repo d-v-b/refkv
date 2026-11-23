@@ -24,7 +24,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from refkv import _core
-from refkv.ir.kind import Kind
+from refkv.ir import Kind
 
 if TYPE_CHECKING:
     from refkv.build import Parsed, Projected

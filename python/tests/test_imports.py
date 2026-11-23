@@ -12,6 +12,7 @@
   saved."""
 
 import ast
+import importlib
 import shutil
 import subprocess
 import sys
@@ -166,9 +167,46 @@ def test_importing_refkv_imports_no_zip_code():
                                    "refkv.build.seal", "refkv.build.plugin", "refkv.zarrify.layouts.examples.bare"])
 def test_each_side_of_the_zarrify_and_build_cycle_imports_first(first):
     """refkv.zarrify gives a plugin layout its input through refkv.build, which reads inputs with
-    refkv.zarrify's parse, and both use refkv.ir, which imports refkv.zarrify: each of them can be
-    the first module of them a process imports."""
+    refkv.zarrify's parse, and both use refkv.ir: each of them can be the first module of them a
+    process imports."""
     code = f"import {first}, refkv.ir, refkv.zarrify, refkv.build; print(refkv.build.apply.__name__)"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
     assert (out.returncode, out.stdout.strip()) == (0, "apply"), out.stderr
 
+
+
+@pytest.mark.parametrize("module", ["refkv.errors", "refkv.profiles", "refkv.entries", "refkv.ir", "refkv.ir.output",
+                                    "refkv.ir.planner", "refkv.ir.stored", "refkv.ir.cmirror", "refkv.ir.store",
+                                    "refkv.host", "refkv.host.beside"])
+def test_the_layers_below_zarrify_import_without_it(module):
+    """The errors, the profile registry, the rules of an output's entries, the host of the Rust
+    core (refkv.ir) and the store readers (refkv.host) import nothing of refkv.zarrify, which builds
+    on them: no cycle runs through them."""
+    code = f"import sys, {module}; print(sorted(n for n in sys.modules if n.startswith('refkv.zarrify')))"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "[]", out.stdout
+
+
+@pytest.mark.parametrize(("old", "new"), [("refkv.zarrify.store", "refkv.host"),
+                                          ("refkv.zarrify.profiles", "refkv.profiles")])
+def test_a_moved_module_s_names_import_from_its_old_path(old, new):
+    """A module that moved below refkv.zarrify (d-v-b/refkv#459) leaves its public names, those of
+    its `__all__`, importable from where they were, as the same objects."""
+    moved, kept = importlib.import_module(new), importlib.import_module(old)
+    assert moved.__all__
+    assert set(kept.__all__) == set(moved.__all__)
+    assert all(getattr(kept, name) is getattr(moved, name) for name in moved.__all__)
+
+
+def test_moved_names_import_from_their_old_modules():
+    """The names refkv.zarrify.common and refkv.zarrify.layouts gave that moved below
+    refkv.zarrify (d-v-b/refkv#459) are still theirs, as the same objects."""
+    common, layouts = (importlib.import_module(f"refkv.zarrify.{m}") for m in ("common", "layouts"))
+    moved = {"Rejected": "errors", "Output": "ir.output", "Part": "ir.output", "PAGE_SIZE": "ir.output",
+             "reference_store": "ir.output", "reading_own_files": "ir.output", "MAX_PAYLOAD": "entries",
+             "UA": "ir.planner", "EtagLog": "ir.planner", "STRONG_ETAG": "ir.planner"}
+    for name, home in moved.items():
+        assert getattr(common, name) is getattr(importlib.import_module(f"refkv.{home}"), name), name
+    entries = importlib.import_module("refkv.entries")
+    for name in ("MAX_PAYLOAD", "MIRROR", "chunk_coords", "chunk_key", "dump"):
+        assert getattr(layouts, name) is getattr(entries, name), name

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/h5j/schema.json",
+  "$id": "https://d-v-b.github.io/refkv/conventions/h5j/schema.json",
   "title": "refkv H5J convention, version 0",
-  "description": "The zarr.json of a node that declares the refkv H5J convention (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md)",
+  "description": "The zarr.json of a node that declares the refkv H5J convention (https://d-v-b.github.io/refkv/conventions/h5j/)",
   "type": "object",
   "properties": {
     "zarr_format": {
@@ -65,11 +65,11 @@
         },
         "schema_url": {
           "type": "string",
-          "const": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/h5j/schema.json"
+          "const": "https://d-v-b.github.io/refkv/conventions/h5j/schema.json"
         },
         "spec_url": {
           "type": "string",
-          "const": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md"
+          "const": "https://d-v-b.github.io/refkv/conventions/h5j/"
         },
         "name": {
           "type": "string",

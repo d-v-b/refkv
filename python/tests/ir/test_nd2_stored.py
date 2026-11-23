@@ -51,7 +51,7 @@ from ir_helpers import FIXTURES, ROOT
 from nd2._parse._parse import load_attributes
 from nd2._readers import ModernReader
 
-from refkv.ir.kind import Kind
+from refkv.ir import Kind
 from refkv.ir.stored import Each, ElementPlace, StoredArray
 
 FILES = sorted(p for p in (FIXTURES / "nd2").glob("*.nd2") if "reject" not in p.name)
