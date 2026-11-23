@@ -63,7 +63,6 @@ METADATA_KEYS = frozenset({
 # fixes a profile removes its entry; a blank line keeps each entry apart from the next, so that
 # PRs removing different entries do not conflict.
 OFFENDERS: dict[str, str] = {
-    "czi": "CZI's subblock forms give a Zarr data type (`geometry.dtype`) and a Zarr codec chain (`codec`)",
 
 
 

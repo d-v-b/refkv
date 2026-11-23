@@ -308,25 +308,6 @@ pub fn coded_size(pt: i32, comp: i32, w: u64, h: u64, n: u64, head: &Head) -> Re
     }
 }
 
-/// The codecs after `transpose` (spec/zarrify/czi.md §3.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#31-pixel-types-and-codecs>), as
-/// JSON.
-pub fn codec_chain(pt: i32, comp: i32, flag: bool) -> serde_json::Value {
-    use serde_json::json;
-    let dt = pixel_type(pt).map(|x| x.0).unwrap_or("uint8");
-    let bytes = if dt == "uint8" { json!({"name": "bytes"}) } else { json!({"name": "bytes", "configuration": {"endian": "little"}}) };
-    let zstd = json!({"name": "zstd", "configuration": {"level": 0, "checksum": false}});
-    match comp {
-        JPEG if !flag => json!([{"name": "imagecodecs_jpeg"}]),
-        JPEG | LJPEG => json!([{"name": "imagecodecs_ljpeg"}]),
-        LZW => json!([bytes, {"name": "imagecodecs_lzw"}]),
-        JPEGXR => json!([{"name": "imagecodecs_jpegxr"}]),
-        ZSTD0 | ZSTD1 if flag => json!([bytes, {"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}}, zstd]),
-        ZSTD0 | ZSTD1 => json!([bytes, zstd]),
-        _ => json!([bytes]),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
