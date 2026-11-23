@@ -46,7 +46,7 @@ pub fn listing(files: &BTreeMap<String, Vec<u8>>) -> Vec<(String, u64)> {
 
 /// Answers each read a store run asks for from `objects` (its listing's bytes, by index) until
 /// it has no more to ask.
-pub fn drive(r: &mut StoreRun, objects: &[impl AsRef<[u8]>]) -> Result<(), String> {
+pub fn drive(r: &mut StoreRun, objects: &[impl AsRef<[u8]>]) -> refkv_ir::error::Res<()> {
     while let Some(reqs) = r.poll()? {
         for (k, q) in reqs.iter().enumerate() {
             let b = objects[q.object].as_ref();
@@ -64,7 +64,7 @@ macro_rules! reject {
         fn $name() {
             let data = std::fs::read($crate::common::fixtures().join($file)).unwrap();
             match refkv_ir::parse_bytes::<$p>(&data) {
-                Err(m) => assert!(m.starts_with($msg), "{m}"),
+                Err(m) => assert!(m.to_string().starts_with($msg), "{m}"),
                 Ok(_) => panic!("{} was accepted", $file),
             }
         }
@@ -74,7 +74,7 @@ pub(crate) use reject;
 
 /// The TIFF parser's IR and description of a file, and refkv's plan of it (`tiff::plan::plan`),
 /// of the profile the parser found: Err with the parser's rejection, or the plan's.
-pub fn tiff_plan(data: &[u8]) -> Result<(refkv_ir::ir::Ir, serde_json::Value, serde_json::Value), String> {
+pub fn tiff_plan(data: &[u8]) -> refkv_ir::error::Res<(refkv_ir::ir::Ir, serde_json::Value, serde_json::Value)> {
     use refkv_ir::step::Step;
     let mut p = refkv_ir::tiff::Tiff::new(data.len() as u64);
     loop {
@@ -102,7 +102,7 @@ macro_rules! reject_tiff {
         fn $name() {
             let data = std::fs::read($crate::common::fixtures().join($file)).unwrap();
             match $crate::common::tiff_plan(&data) {
-                Err(m) => assert!(m.starts_with($msg), "{m}"),
+                Err(m) => assert!(m.to_string().starts_with($msg), "{m}"),
                 Ok(_) => panic!("{} was accepted", $file),
             }
         }

@@ -4,6 +4,8 @@
 //! Zarr data type it presents as (or as none), described as JSON, and a value of it decoded as
 //! JSON (spec/zarrify/hdf5.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>).
 
+use crate::error::Error;
+
 use super::{bad, le, R};
 use crate::out::int_json;
 use crate::text::text_json;
@@ -95,7 +97,7 @@ fn parse_at(d: &[u8], depth: usize) -> R<Dt> {
         4 => (Kind::Bitfield { big: bits & 1 != 0, offset: le(d, p, 2)?, precision: le(d, p + 2, 2)? }, p + 4),
         5 => {
             let n = (bits & 0xFF) as usize;
-            let tag = d.get(p..p + n).ok_or(super::Fail::Bad("an opaque datatype's tag runs past its message".into()))?;
+            let tag = d.get(p..p + n).ok_or(super::Fail::Bad(Error::rejected("an opaque datatype's tag runs past its message")))?;
             (Kind::Opaque { tag: crate::text::utf8_or_latin1(tag.split(|&c| c == 0).next().unwrap_or(&[])) }, p + n)
         }
         6 => {
@@ -152,7 +154,7 @@ fn parse_at(d: &[u8], depth: usize) -> R<Dt> {
             let w = base.size as usize;
             let mut members = Vec::with_capacity(names.len());
             for (k, name) in names.into_iter().enumerate() {
-                let v = d.get(q + k * w..q + (k + 1) * w).ok_or(super::Fail::Bad("an enumeration's values run past its message".into()))?;
+                let v = d.get(q + k * w..q + (k + 1) * w).ok_or(super::Fail::Bad(Error::rejected("an enumeration's values run past its message")))?;
                 members.push((name, v.to_vec()));
             }
             (Kind::Enum { base: Box::new(base), members }, q + count * w)

@@ -8,6 +8,7 @@
 
 mod common;
 
+use refkv_ir::error::Error;
 use common::{listing, walk};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -31,13 +32,13 @@ fn entry(out: &Out) -> impl Fn(&str) -> Option<Vec<u8>> + '_ {
     |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone())
 }
 
-fn no_source(_: u64, _: u64) -> Result<Vec<u8>, String> {
+fn no_source(_: u64, _: u64) -> refkv_ir::error::Res<Vec<u8>> {
     Err("a store's mirror reads no source".into())
 }
 
 /// The mirror of a store held in memory, its IR and the documents the format read; or the
 /// rejection.
-fn try_mirrored(files: &BTreeMap<String, Vec<u8>>) -> Result<(Out, Ir, Vec<String>), String> {
+fn try_mirrored(files: &BTreeMap<String, Vec<u8>>) -> refkv_ir::error::Res<(Out, Ir, Vec<String>)> {
     let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let (ir, facts, _, _) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone())?;
@@ -145,8 +146,8 @@ fn invalid(change: impl Fn(&mut Table)) -> String {
     write(&t, &mut out, "zarr2", false);
     let t = table_from_out(&out).unwrap();
     match load(&t, &mut no_source) {
-        Err(e) => e,
-        Ok(ir) => check(&ir).unwrap_err(),
+        Err(e) => e.to_string(),
+        Ok(ir) => check(&ir).unwrap_err().to_string(),
     }
 }
 
@@ -212,5 +213,5 @@ fn a_store_table_s_runs_expand_to_at_most_the_store_limit() {
         t
     };
     load(&with_run(limit - rows + 1), &mut no_source).unwrap();
-    assert_eq!(load(&with_run(limit - rows + 2), &mut no_source).err().unwrap(), format!("budget: more than {limit} rows"));
+    assert_eq!(load(&with_run(limit - rows + 2), &mut no_source).err().unwrap(), Error::budget(format!("more than {limit} rows")));
 }

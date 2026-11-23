@@ -105,7 +105,7 @@ fn store_formats(all: &[Entry]) -> String {
     for (e, _) in &runs {
         writeln!(text, "            StoreFormat::{} => crate::{}::store_parser(ir, objects, keys),", e.variant(), e.module()).unwrap();
     }
-    text.push_str("        }\n    }\n\n    fn project(self, ir: &Ir, description: &J, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {\n        match self {\n");
+    text.push_str("        }\n    }\n\n    fn project(self, ir: &Ir, description: &J, url: &str, copied: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {\n        match self {\n");
     for (e, _) in &runs {
         writeln!(text, "            StoreFormat::{} => crate::project::{}::store_project(ir, description, url, copied),", e.variant(), e.module()).unwrap();
     }

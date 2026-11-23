@@ -7,12 +7,14 @@
 //! dequantization and its dither of `unquantize_i4r4` and `fits_init_randoms` (unquantize.c),
 //! bit for bit. One implementation serves Python and the browser.
 
+use crate::error::Error;
+
 use crate::fed::Word;
 use crate::fits::tile_at;
 use serde_json::Value as J;
 use std::sync::OnceLock;
 
-type Res<T> = Result<T, String>;
+use crate::error::Res;
 
 /// The codec's configuration (the array's `codecs` entry).
 #[derive(Clone, Debug, PartialEq)]
@@ -33,7 +35,7 @@ pub struct Config {
 impl Config {
     pub fn from_json(v: &J) -> Res<Config> {
         let list = |k: &str| -> Res<Vec<u64>> {
-            v[k].as_array().ok_or(format!("fits_tiles: no {k}"))?.iter().map(|x| x.as_u64().ok_or(format!("fits_tiles: {k} is not a list of sizes"))).collect()
+            v[k].as_array().ok_or_else(|| Error::rejected(format!("fits_tiles: no {k}")))?.iter().map(|x| x.as_u64().ok_or_else(|| Error::rejected(format!("fits_tiles: {k} is not a list of sizes")))).collect()
         };
         let p = &v["parameters"];
         let quantize = match v["quantize"].as_str().unwrap_or("NO_DITHER") {
@@ -42,10 +44,10 @@ impl Config {
             _ => 0,
         };
         Ok(Config {
-            compression: v["compression"].as_str().ok_or("fits_tiles: no compression")?.to_string(),
+            compression: v["compression"].as_str().ok_or_else(|| Error::rejected("fits_tiles: no compression"))?.to_string(),
             blocksize: p["BLOCKSIZE"].as_u64().unwrap_or(32) as u32,
             bytepix: p["BYTEPIX"].as_u64().unwrap_or(4) as u32,
-            zbitpix: v["zbitpix"].as_i64().ok_or("fits_tiles: no zbitpix")? as i32,
+            zbitpix: v["zbitpix"].as_i64().ok_or_else(|| Error::rejected("fits_tiles: no zbitpix"))? as i32,
             shape: list("shape")?,
             tile: list("tile_shape")?,
             quantize,
@@ -88,13 +90,13 @@ pub fn prefix(first: u64, records: &[TileRecord]) -> Vec<u8> {
 
 fn parse_prefix(chunk: &[u8]) -> Res<(u64, Vec<TileRecord>, usize)> {
     if chunk.len() < PREFIX_HEADER {
-        return Err("fits_tiles: the chunk is shorter than its prefix".into());
+        return Err(Error::rejected("fits_tiles: the chunk is shorter than its prefix"));
     }
     let n = u32::le_at(chunk, 0) as usize;
     let first = u32::le_at(chunk, 4) as u64;
     let end = PREFIX_HEADER + n * RECORD;
     if chunk.len() < end {
-        return Err("fits_tiles: the chunk is shorter than its prefix".into());
+        return Err(Error::rejected("fits_tiles: the chunk is shorter than its prefix"));
     }
     let mut records = Vec::with_capacity(n);
     for k in 0..n {
@@ -121,12 +123,12 @@ pub fn rice_decode(c: &[u8], npix: usize, blocksize: u32, bytepix: u32) -> Res<V
         1 => (3, 6, 0xff),
         2 => (4, 14, 0xffff),
         4 => (5, 25, 0xffff_ffff),
-        _ => return Err(format!("fits_tiles: RICE_1 with BYTEPIX {bytepix}")),
+        _ => return Err(Error::rejected(format!("fits_tiles: RICE_1 with BYTEPIX {bytepix}"))),
     };
     let bbits: i32 = 1 << fsbits;
     let bp = bytepix as usize;
     if c.len() < bp + 1 {
-        return Err("fits_tiles: a RICE_1 stream shorter than its first pixel".into());
+        return Err(Error::rejected("fits_tiles: a RICE_1 stream shorter than its first pixel"));
     }
     let mut lastpix: u32 = 0;
     for &byte in &c[..bp] {
@@ -135,7 +137,7 @@ pub fn rice_decode(c: &[u8], npix: usize, blocksize: u32, bytepix: u32) -> Res<V
     let mut out = vec![0u32; npix];
     let mut pos = bp;
     let next = |pos: &mut usize| -> Res<u32> {
-        let b = *c.get(*pos).ok_or("fits_tiles: a RICE_1 stream ends before its last pixel")?;
+        let b = *c.get(*pos).ok_or_else(|| Error::rejected("fits_tiles: a RICE_1 stream ends before its last pixel"))?;
         *pos += 1;
         Ok(b as u32)
     };
@@ -211,7 +213,7 @@ pub fn rice_decode(c: &[u8], npix: usize, blocksize: u32, bytepix: u32) -> Res<V
 /// The content of one gzip member (RFC 1952).
 pub fn gunzip(data: &[u8], limit: usize) -> Res<Vec<u8>> {
     if data.len() < 18 || data[0] != 0x1f || data[1] != 0x8b || data[2] != 8 {
-        return Err("fits_tiles: not a gzip member".into());
+        return Err(Error::rejected("fits_tiles: not a gzip member"));
     }
     let flg = data[3];
     let mut at = 10;
@@ -221,7 +223,7 @@ pub fn gunzip(data: &[u8], limit: usize) -> Res<Vec<u8>> {
     }
     for bit in [8u8, 16] {
         if flg & bit != 0 {
-            while *data.get(at).ok_or("fits_tiles: a truncated gzip header")? != 0 {
+            while *data.get(at).ok_or_else(|| Error::rejected("fits_tiles: a truncated gzip header"))? != 0 {
                 at += 1;
             }
             at += 1;
@@ -231,9 +233,9 @@ pub fn gunzip(data: &[u8], limit: usize) -> Res<Vec<u8>> {
         at += 2;
     }
     if at + 8 > data.len() {
-        return Err("fits_tiles: a truncated gzip member".into());
+        return Err(Error::rejected("fits_tiles: a truncated gzip member"));
     }
-    miniz_oxide::inflate::decompress_to_vec_with_limit(&data[at..data.len() - 8], limit).map_err(|e| format!("fits_tiles: gzip: {e:?}"))
+    miniz_oxide::inflate::decompress_to_vec_with_limit(&data[at..data.len() - 8], limit).map_err(|e| Error::Rejected(format!("fits_tiles: gzip: {e:?}")))
 }
 
 // ---- dequantization (cfitsio unquantize.c)
@@ -314,7 +316,7 @@ fn tile_values(stream: &[u8], rec: &TileRecord, cfg: &Config, tile_index: u64, n
             "GZIP_2" => {
                 let shuffled = gunzip(stream, npix * 8)?;
                 if npix == 0 || shuffled.len() % npix != 0 {
-                    return Err("fits_tiles: a GZIP_2 tile's bytes are not a whole number per pixel".into());
+                    return Err(Error::rejected("fits_tiles: a GZIP_2 tile's bytes are not a whole number per pixel"));
                 }
                 let e = shuffled.len() / npix;
                 let mut out = vec![0u8; shuffled.len()];
@@ -326,12 +328,12 @@ fn tile_values(stream: &[u8], rec: &TileRecord, cfg: &Config, tile_index: u64, n
                 out
             }
             "NOCOMPRESS" => stream.to_vec(),
-            other => return Err(format!("fits_tiles: compression {other}")),
+            other => return Err(Error::rejected(format!("fits_tiles: compression {other}"))),
         }
     };
     if quantized {
         if big.len() != npix * 4 {
-            return Err(format!("fits_tiles: a quantized tile of {} bytes for {npix} pixels", big.len()));
+            return Err(Error::rejected(format!("fits_tiles: a quantized tile of {} bytes for {npix} pixels", big.len())));
         }
         let ints: Vec<i32> = big.chunks(4).map(|c| i32::be_at(c, 0)).collect();
         let zblank = (rec.flags & 2 != 0).then_some(rec.zblank);
@@ -347,7 +349,7 @@ fn tile_values(stream: &[u8], rec: &TileRecord, cfg: &Config, tile_index: u64, n
         return Ok(out);
     }
     if big.len() != npix * item {
-        return Err(format!("fits_tiles: a tile of {} bytes for {npix} pixels of {item} bytes", big.len()));
+        return Err(Error::rejected(format!("fits_tiles: a tile of {} bytes for {npix} pixels of {item} bytes", big.len())));
     }
     // big-endian to little-endian
     let mut out = Vec::with_capacity(big.len());
@@ -362,7 +364,7 @@ fn tile_values(stream: &[u8], rec: &TileRecord, cfg: &Config, tile_index: u64, n
 pub fn decode(chunk: &[u8], cfg: &Config, chunk_shape: &[u64]) -> Res<Vec<u8>> {
     let n = cfg.shape.len();
     if cfg.tile.len() != n || chunk_shape.len() != n {
-        return Err("fits_tiles: the shape, the tile shape and the chunk shape differ in rank".into());
+        return Err(Error::rejected("fits_tiles: the shape, the tile shape and the chunk shape differ in rank"));
     }
     let item = (cfg.zbitpix.unsigned_abs() / 8) as usize;
     let chunk_pixels: usize = chunk_shape.iter().product::<u64>() as usize;
@@ -376,7 +378,7 @@ pub fn decode(chunk: &[u8], cfg: &Config, chunk_shape: &[u64]) -> Res<Vec<u8>> {
             continue;
         }
         if at + len > chunk.len() {
-            return Err("fits_tiles: the chunk is shorter than its tiles".into());
+            return Err(Error::rejected("fits_tiles: the chunk is shorter than its tiles"));
         }
         let stream = &chunk[at..at + len];
         at += len;
@@ -386,7 +388,7 @@ pub fn decode(chunk: &[u8], cfg: &Config, chunk_shape: &[u64]) -> Res<Vec<u8>> {
         // place the tile: its offset in the chunk, by axis
         let offset: Vec<u64> = (0..n).map(|j| (coords[j] - origin[j]) * cfg.tile[j]).collect();
         if (0..n).any(|j| offset[j] + extent[j] > chunk_shape[j]) {
-            return Err("fits_tiles: a tile lies outside its chunk".into());
+            return Err(Error::rejected("fits_tiles: a tile lies outside its chunk"));
         }
         // rows of the tile's last axis, copied one by one
         let row = extent[n - 1] as usize * item;

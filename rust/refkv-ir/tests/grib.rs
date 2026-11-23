@@ -24,7 +24,7 @@ fn fixtures() -> PathBuf {
 
 /// Runs the GRIB store format on the file `key` of `files` (by key), probing for an index among
 /// them: (the output, the IR, the files the run made objects), or the rejection.
-fn run_files(key: &str, mut files: BTreeMap<String, Vec<u8>>) -> Result<Ran, String> {
+fn run_files(key: &str, mut files: BTreeMap<String, Vec<u8>>) -> refkv_ir::error::Res<Ran> {
     let mut run = StoreRun::new(StoreFormat::Grib, vec![(key.to_string(), files[key].len() as u64)], 4)?;
     while let Some(reqs) = run.poll()? {
         if reqs.is_empty() {
@@ -107,11 +107,11 @@ pub fn check_input(path: &Path, files: &BTreeMap<String, Vec<u8>>, out: &Out, ir
     let back = load(&table_from_out(out).unwrap(), &mut |_, _| Err("no source".into())).unwrap_or_else(|e| panic!("{path:?}: {e}"));
     assert_eq!(back.len(), ir.len(), "{path:?}");
     let bsrc = back.sources();
-    let mut read = |v: u64, n: u64| -> Result<Vec<u8>, String> {
+    let mut read = |v: u64, n: u64| -> refkv_ir::error::Res<Vec<u8>> {
         let (o, base) = bsrc.at(&back, v).ok_or("no object at that virtual offset")?;
         let x = (v - base) as usize;
         let b = &files[&back.key(o)];
-        b.get(x..x + n as usize).map(|s| s.to_vec()).ok_or_else(|| format!("[{x}, {}) runs past {:?}", x + n as usize, back.key(o)))
+        b.get(x..x + n as usize).map(|s| s.to_vec()).ok_or_else(|| refkv_ir::error::Error::Internal(format!("[{x}, {}) runs past {:?}", x + n as usize, back.key(o))))
     };
     assert_eq!(canonical_problem(&get, &mut read), None, "{path:?}");
     let keys: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
@@ -161,7 +161,7 @@ fn accepted_inputs_are_valid() {
 }
 
 /// Runs the fixture at `path`, the files of its directory beside it.
-fn run(path: &Path) -> Result<Ran, String> {
+fn run(path: &Path) -> refkv_ir::error::Res<Ran> {
     run_files(path.file_name().unwrap().to_str().unwrap(), files_of(path, true))
 }
 
@@ -170,7 +170,7 @@ macro_rules! reject {
         #[test]
         fn $name() {
             match run(&fixtures().join($file)) {
-                Err(m) => assert!(m.starts_with($msg), "{m}"),
+                Err(m) => assert!(m.to_string().starts_with($msg), "{m}"),
                 Ok(_) => panic!("{} was accepted", $file),
             }
         }
@@ -198,7 +198,7 @@ fn every_reject_fixture_has_a_test() {
 fn reject_no_message() {
     let files = BTreeMap::from([("f.grib2".to_string(), vec![0u8; 100])]);
     let m = run_files("f.grib2", files).err().unwrap();
-    assert!(m.starts_with("no GRIB message"), "{m}");
+    assert!(m.to_string().starts_with("no GRIB message"), "{m}");
 }
 
 #[test]
@@ -215,7 +215,7 @@ fn reject_section_size() {
     let total = b.len() as u64;
     b[8..16].copy_from_slice(&total.to_be_bytes());
     let m = run_files("f.grib2", BTreeMap::from([("f.grib2".to_string(), b)])).err().unwrap();
-    assert!(m.starts_with("the section 2 of the GRIB message at byte 0 has 1048581 octets, more than the profile reads"), "{m}");
+    assert!(m.to_string().starts_with("the section 2 of the GRIB message at byte 0 has 1048581 octets, more than the profile reads"), "{m}");
 }
 
 /// The fixture `name` with `patch` applied to its section 3 (its bytes from its length on): the
@@ -235,7 +235,7 @@ fn rejection_with_section3(name: &str, patch: impl Fn(&mut Vec<u8>)) -> String {
     out.extend_from_slice(&b[end..]);
     let total = out.len() as u64;
     out[8..16].copy_from_slice(&total.to_be_bytes());
-    run_files("f.grib2", BTreeMap::from([("f.grib2".to_string(), out)])).err().expect("the file was accepted")
+    run_files("f.grib2", BTreeMap::from([("f.grib2".to_string(), out)])).err().expect("the file was accepted").to_string()
 }
 
 /// The message that says the file's one field is not presented, for `reason`.

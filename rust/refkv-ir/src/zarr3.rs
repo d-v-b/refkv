@@ -21,6 +21,8 @@
 //! dropped. Its codecs, data type, fill value and chunk grid pass through unchanged; the
 //! projection needs only each array's chunk keys.
 
+use crate::error::Error;
+
 use crate::ir::{Ir, Res, NO_INDEX};
 use crate::json::{self, Jv};
 use crate::step::Step;
@@ -106,13 +108,13 @@ fn unread(key: &str, n: u64) -> Option<String> {
 /// Each candidate's document as the description gives it (spec/zarrify/zarr3.md
 /// §7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#76-the-description>): its
 /// JSON as parsed, or why it does not parse, or why it was not read.
-fn candidates_described(cands: &[String], docs: &HashMap<String, Result<Vec<u8>, String>>) -> Vec<J> {
+fn candidates_described(cands: &[String], docs: &HashMap<String, crate::error::Res<Vec<u8>>>) -> Vec<J> {
     cands.iter().map(|p| match docs.get(p) {
         Some(Ok(b)) => match json::parse(b) {
             Ok(d) => json!({"path": p, "json": d.value.text()}),
             Err(e) => json!({"path": p, "error": format!("{}: {e}", doc_key(p))}),
         },
-        Some(Err(why)) => json!({"path": p, "unread": why}),
+        Some(Err(why)) => json!({"path": p, "unread": why.to_string()}),
         None => json!({"path": p, "unread": format!("internal: {} was not read", doc_key(p))}),
     }).collect()
 }
@@ -121,7 +123,7 @@ fn candidates_described(cands: &[String], docs: &HashMap<String, Result<Vec<u8>,
 /// candidates the profile's classification reaches (`project/zarr3_nodes.rs`), so that the
 /// mirror follows it; none where the classification rejects the store, which the projection
 /// then rejects.
-fn held(cands: &[String], docs: &HashMap<String, Result<Vec<u8>, String>>) -> BTreeMap<String, Vec<(String, u64, u64)>> {
+fn held(cands: &[String], docs: &HashMap<String, crate::error::Res<Vec<u8>>>) -> BTreeMap<String, Vec<(String, u64, u64)>> {
     classify(cands, docs).map(|c| c.held).unwrap_or_default()
 }
 
@@ -129,7 +131,7 @@ fn held(cands: &[String], docs: &HashMap<String, Result<Vec<u8>, String>>) -> BT
 /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): each candidate
 /// that is not below an array, whose document reads as a JSON object with `node_type` `array` and
 /// a shape, whether or not the profile presents it; by path, with what its document says.
-fn layouts(cands: &[String], docs: &HashMap<String, Result<Vec<u8>, String>>) -> BTreeMap<String, Layout> {
+fn layouts(cands: &[String], docs: &HashMap<String, crate::error::Res<Vec<u8>>>) -> BTreeMap<String, Layout> {
     let mut out = BTreeMap::new();
     for p in cands {
         if ancestors(p).iter().any(|a| out.contains_key(*a)) {
@@ -171,7 +173,7 @@ fn describe(ir: &mut Ir, layouts: &BTreeMap<String, Layout>, element: &HashMap<S
     let mut d = crate::zarr_stored::Described::default();
     for (p, l) in layouts {
         let (Some(&e), Some(&doc)) = (element.get(p), document.get(p)) else {
-            return Err(format!("internal: the array {p:?} has no document in the IR"));
+            return Err(Error::internal(format!("the array {p:?} has no document in the IR")));
         };
         let place = crate::array::Place::Element { element: doc, member: None, range: None };
         l.describe(e, vec![place], by.get(p).map_or(&[][..], Vec::as_slice), &mut d)?;
@@ -202,7 +204,7 @@ impl Zarr3Store {
         let (mut docs, mut unread_) = (Vec::new(), HashMap::new());
         for p in &cands {
             let key = doc_key(p);
-            let k = *index.get(key.as_str()).ok_or("internal: a candidate without its document")?;
+            let k = *index.get(key.as_str()).ok_or_else(|| Error::internal("a candidate without its document"))?;
             match unread(&key, keys[k].1) {
                 Some(why) => {
                     unread_.insert(p.clone(), why);
@@ -233,9 +235,9 @@ impl StoreParser for Zarr3Store {
     }
 
     fn finish(self: Box<Self>) -> Res<(Ir, J)> {
-        let mut docs: HashMap<String, Result<Vec<u8>, String>> = self.unread.iter().map(|(p, w)| (p.clone(), Err(w.clone()))).collect();
+        let mut docs: HashMap<String, crate::error::Res<Vec<u8>>> = self.unread.iter().map(|(p, w)| (p.clone(), Err(Error::Rejected(w.clone())))).collect();
         for (p, k) in &self.docs {
-            let b = self.got.get(k).cloned().ok_or_else(|| format!("internal: {} was not read", self.keys[*k].0))?;
+            let b = self.got.get(k).cloned().ok_or_else(|| Error::internal(format!("{} was not read", self.keys[*k].0)))?;
             docs.insert(p.clone(), Ok(b));
         }
         let held = held(&self.cands, &docs);
@@ -247,7 +249,7 @@ impl StoreParser for Zarr3Store {
         // each node's document read is a held object: a value per top-level member, the rest
         // gaps (one that is not a JSON object, a gap)
         for (p, members) in &held {
-            let k = *index.get(p.as_str()).ok_or("internal: a document held that was not read")?;
+            let k = *index.get(p.as_str()).ok_or_else(|| Error::internal("a document held that was not read"))?;
             json::hold(&mut ir, objects[k], keys[k].1, members)?;
         }
         crate::check::finish(&mut ir)?;
@@ -299,7 +301,7 @@ pub struct Zarr3Zip {
     ignored: Vec<String>,
     superseded: usize,
     cands: Vec<String>,
-    docs: HashMap<String, Result<Vec<u8>, String>>,
+    docs: HashMap<String, crate::error::Res<Vec<u8>>>,
     /// the entries of the candidates' documents read, and whether each is deflated
     reading: Vec<(String, usize, bool)>,
 }
@@ -320,13 +322,13 @@ impl Zarr3Zip {
     }
 
     fn take(&mut self, at: u64, n: u64, what: &str) -> Res<Vec<u8>> {
-        self.got.remove(&(at, n)).ok_or_else(|| format!("internal: no {what}"))
+        self.got.remove(&(at, n)).ok_or_else(|| Error::internal(format!("no {what}")))
     }
 
     fn ask_cd(&mut self) -> Res<()> {
         let end = zip::cd_end(&self.end);
         if self.end.cd_offset.checked_add(self.end.cd_size) != Some(end) {
-            return Err("a zip file's central directory does not end where its end records start".into());
+            return Err(Error::rejected("a zip file's central directory does not end where its end records start"));
         }
         self.phase = Phase::Cd;
         if self.end.cd_size > 0 {
@@ -360,7 +362,7 @@ impl Zarr3Zip {
             Phase::Tail if !self.begun => {
                 self.begun = true;
                 if n == 0 {
-                    return Err("not a zip file: no end of central directory record".into());
+                    return Err(Error::rejected("not a zip file: no end of central directory record"));
                 }
                 let t = n.min(zip::MAX_TAIL);
                 self.asked.push((n - t, t));
@@ -378,7 +380,7 @@ impl Zarr3Zip {
                 }
             }
             Phase::Locator => {
-                let loc = self.end.zip64.ok_or("internal: no ZIP64 locator")?.0;
+                let loc = self.end.zip64.ok_or_else(|| Error::internal("no ZIP64 locator"))?.0;
                 let b = self.take(loc, 20, "locator")?;
                 let rec = zip::zip64_locator(&b, &self.end)?;
                 self.raw.insert("locator", b);
@@ -387,7 +389,7 @@ impl Zarr3Zip {
                 self.asked.push((rec, 56));
             }
             Phase::Record => {
-                let rec = self.end.zip64.ok_or("internal: no ZIP64 record")?.1;
+                let rec = self.end.zip64.ok_or_else(|| Error::internal("no ZIP64 record"))?.1;
                 let b = self.take(rec, 56, "ZIP64 record")?;
                 zip::zip64_record(s, &b, &mut self.end, rec)?;
                 self.raw.insert("record", b);
@@ -406,7 +408,7 @@ impl Zarr3Zip {
                         continue;
                     }
                     if e.lho.checked_add(30).is_none_or(|x| x > o) {
-                        return Err("a zip entry's local header is beyond the entries".into());
+                        return Err(Error::rejected("a zip entry's local header is beyond the entries"));
                     }
                     self.asked.push((e.lho, 30));
                 }
@@ -423,7 +425,7 @@ impl Zarr3Zip {
                         continue;
                     }
                     let lho = self.entries[i].lho;
-                    let head = self.got.get(&(lho, 30)).ok_or("internal: no local header")?.clone();
+                    let head = self.got.get(&(lho, 30)).ok_or_else(|| Error::internal("no local header"))?.clone();
                     zip::local_header(&head, &mut self.entries[i], self.end.cd_offset)?;
                     read.push(i);
                     let e = &self.entries[i];
@@ -442,7 +444,7 @@ impl Zarr3Zip {
                     let (ds, cs, us) = (self.entries[i].ds, self.entries[i].cs, self.entries[i].us);
                     let r = if deflated {
                         let b = self.take(ds, cs, "document")?;
-                        zip::inflate(&b, &self.entries[i]).map_err(|why| format!("{}: {why}", doc_key(&p)))
+                        zip::inflate(&b, &self.entries[i]).map_err(|why| why.context(|m| format!("{}: {m}", doc_key(&p))))
                     } else {
                         Ok(self.take(ds, us, "document")?)
                     };
@@ -462,14 +464,14 @@ impl Zarr3Zip {
         let mut total = 0u64;
         for p in self.cands.clone() {
             let key = doc_key(&p);
-            let i = *self.objects.get(&key).ok_or("internal: a candidate without its document")?;
+            let i = *self.objects.get(&key).ok_or_else(|| Error::internal("a candidate without its document"))?;
             let e = &self.entries[i];
             let too_large = (e.method == 8 && e.cs > json::MAX_DOCUMENT).then(|| format!("{key}: JSON document of {} compressed bytes exceeds {}", e.cs, json::MAX_DOCUMENT));
             let why = unread(&key, e.us).or(too_large).or_else(|| {
                 (e.method != 0 && e.method != 8).then(|| format!("{key}: the zip entry has the compression method {}", e.method))
             });
             if let Some(why) = why {
-                self.docs.insert(p, Err(why));
+                self.docs.insert(p, Err(Error::Rejected(why)));
                 continue;
             }
             let deflated = e.method == 8;
@@ -512,7 +514,7 @@ impl Zarr3Zip {
 
     pub fn finish(self) -> Res<(Ir, J)> {
         if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
+            return Err(Error::internal("the parse is not done"));
         }
         let held = held(&self.cands, &self.docs);
         let (mut objects, mut compressed, mut empty) = (Vec::new(), Vec::new(), 0u64);

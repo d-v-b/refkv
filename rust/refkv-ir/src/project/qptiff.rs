@@ -85,14 +85,14 @@ fn samples(planned: &J) -> Vec<window::Sample> {
 
 /// The source's ranges the windows sample (`samples`): their chunks' bytes, which the run
 /// reads after the parser.
-pub fn reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+pub fn reads(ir: &Ir, description: &J) -> crate::error::Res<Vec<(u64, u64)>> {
     let planned = &plan("qptiff", description)?;
     tiled::reads(ir, planned, &samples(planned), arrays)
 }
 
 /// The levels' arrays and chunks (every level's, or only level `only`'s), and their shapes: a
 /// level's chunks are the tiles, or the strips, of each channel's IFD.
-fn arrays(ir: &Ir, planned: &J, url: &str, only: Option<usize>) -> Result<(Out, Vec<Vec<u64>>), String> {
+fn arrays(ir: &Ir, planned: &J, url: &str, only: Option<usize>) -> crate::error::Res<(Out, Vec<Vec<u64>>)> {
     let has_c = strs(&planned["axes"]).first() == Some(&"c");
     // a short last strip's zero padding: a prefix of the output's zero data source
     let mut zeros = tiled::zero_source(planned);
@@ -125,7 +125,7 @@ fn arrays(ir: &Ir, planned: &J, url: &str, only: Option<usize>) -> Result<(Out, 
 
 /// The QPTIFF image: one array per level, its chunks the tiles or strips of each channel.
 /// `copied` holds the bytes of the chunks the windows sample (`reads`).
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> crate::error::Res<Out> {
     let planned = &plan("qptiff", description)?;
     let channels = arr(&planned["channels"]);
     let axes = strs(&planned["axes"]);

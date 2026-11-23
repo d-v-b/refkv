@@ -8,6 +8,8 @@
 //! source metadata decodes, within its budget. The schema (`schema/nd2.json`) is
 //! checked after round 5: a file that fails is rejected there, and nowhere else.
 
+use crate::error::Error;
+
 use crate::check;
 use crate::ir::*;
 use crate::lv::{self, Decoded};
@@ -161,9 +163,9 @@ impl Nd2 {
     }
 
     /// The bytes of a requested range (or of part of one).
-    fn bytes(&self, o: u64, n: u64) -> Result<&[u8], String> {
+    fn bytes(&self, o: u64, n: u64) -> crate::error::Res<&[u8]> {
         // the range may lie in a merged response that starts before a smaller one
-        self.got.get(o, n).ok_or_else(|| format!("internal: bytes [{o}, {}) were not read", o + n))
+        self.got.get(o, n).ok_or_else(|| Error::internal(format!("bytes [{o}, {}) were not read", o + n)))
     }
 
     pub fn feed(&mut self, offset: u64, data: Vec<u8>) {
@@ -183,7 +185,7 @@ impl Nd2 {
     }
 
     /// The next batch of ranges to read, having used what was fed.
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         for &(o, n) in &self.asked {
             self.bytes(o, n)?;
         }
@@ -194,12 +196,12 @@ impl Nd2 {
         r
     }
 
-    fn advance(&mut self) -> Result<Step, String> {
+    fn advance(&mut self) -> crate::error::Res<Step> {
         let size = self.size;
         match self.phase {
             Phase::Start => {
                 if size < 112 {
-                    return Err("not an ND2 file (too short for its signature chunk)".into());
+                    return Err(Error::rejected("not an ND2 file (too short for its signature chunk)"));
                 }
                 self.phase = Phase::Head;
                 Ok(self.ask(vec![(0, 112), (size - 40, 40)]))
@@ -208,10 +210,10 @@ impl Nd2 {
                 let h = self.bytes(0, 112)?.to_vec();
                 let (magic, n, d) = (u32::le_at(&h, 0), u32::le_at(&h, 4), u64::le_at(&h, 8));
                 if magic != schema::limit("chunk_magic") as u32 {
-                    return Err("no ND2 chunk at 0".into());
+                    return Err(Error::rejected("no ND2 chunk at 0"));
                 }
                 if &h[16..48] != FILE_SIGNATURE || n != 32 || d != 64 {
-                    return Err("not an ND2 file (bad signature chunk)".into());
+                    return Err(Error::rejected("not an ND2 file (bad signature chunk)"));
                 }
                 let ver = &h[48..112];
                 let digits: Vec<u8> = ver
@@ -227,14 +229,13 @@ impl Nd2 {
                     .iter()
                     .fold(0u128, |a, &c| (a * 10 + (c - b'0') as u128).min(1 << 64));
                 if !ok || major < 3 {
-                    return Err(format!(
-                        "unsupported ND2 version {:?}",
+                    return Err(Error::rejected(format!("unsupported ND2 version {:?}",
                         String::from_utf8_lossy(&ver[..8])
-                    ));
+                    )));
                 }
                 let tail = self.bytes(size - 40, 40)?.to_vec();
                 if &tail[..32] != MAP_SIGNATURE {
-                    return Err("no ND2 chunk map signature".into());
+                    return Err(Error::rejected("no ND2 chunk map signature"));
                 }
                 let m = u64::le_at(&tail, 32);
                 let ir = &mut self.ir;
@@ -268,13 +269,12 @@ impl Nd2 {
                     Some(&tail),
                 )?;
                 if m > max_safe() {
-                    return Err(format!("chunk offset {m} is too large"));
+                    return Err(Error::rejected(format!("chunk offset {m} is too large")));
                 }
                 if self.outside(m, 16) {
-                    return Err(format!(
-                        "read of [{m}, {}) outside the {size}-byte file",
+                    return Err(Error::rejected(format!("read of [{m}, {}) outside the {size}-byte file",
                         m + 16
-                    ));
+                    )));
                 }
                 self.map.0 = m;
                 self.phase = Phase::MapHeader;
@@ -286,13 +286,13 @@ impl Nd2 {
                 let h = self.bytes(m, 16)?.to_vec();
                 let (magic, n, d) = (u32::le_at(&h, 0), u32::le_at(&h, 4), u64::le_at(&h, 8));
                 if magic != schema::limit("chunk_magic") as u32 {
-                    return Err(format!("no ND2 chunk at {m}"));
+                    return Err(Error::rejected(format!("no ND2 chunk at {m}")));
                 }
                 if d > max_safe() {
-                    return Err("chunk length too large".into());
+                    return Err(Error::rejected("chunk length too large"));
                 }
                 if self.outside(m + 16, n as u64) {
-                    return Err("the chunk map's name lies outside the file".into());
+                    return Err(Error::rejected("the chunk map's name lies outside the file"));
                 }
                 if self.bytes(m + 16, n as u64).is_err() {
                     self.phase = Phase::MapName;
@@ -301,10 +301,10 @@ impl Nd2 {
                 let name = self.bytes(m + 16, n as u64)?;
                 let name = name.split(|&c| c == 0).next().unwrap_or(&[]);
                 if name != FILEMAP_NAME {
-                    return Err("bad ND2 chunk map chunk".into());
+                    return Err(Error::rejected("bad ND2 chunk map chunk"));
                 }
                 if self.outside(m + 16 + n as u64, d) {
-                    return Err("the chunk map's data lies outside the file".into());
+                    return Err(Error::rejected("the chunk map's data lies outside the file"));
                 }
                 self.map = (m, n, d);
                 self.phase = Phase::MapData;
@@ -323,7 +323,7 @@ impl Nd2 {
         }
     }
 
-    fn map_data(&mut self) -> Result<Step, String> {
+    fn map_data(&mut self) -> crate::error::Res<Step> {
         let (m, n, d) = self.map;
         let start = m + 16 + n as u64;
         let data = self.bytes(start, d)?.to_vec();
@@ -334,7 +334,7 @@ impl Nd2 {
         let end_at;
         loop {
             let Some(e) = data[pos..].iter().position(|&c| c == b'!').map(|k| pos + k) else {
-                return Err("unterminated ND2 chunk map".into());
+                return Err(Error::rejected("unterminated ND2 chunk map"));
             };
             let cname = &data[pos..e + 1];
             if cname == MAP_SIGNATURE {
@@ -342,7 +342,7 @@ impl Nd2 {
                 break;
             }
             if e + 17 > data.len() {
-                return Err("truncated ND2 chunk map record".into());
+                return Err(Error::rejected("truncated ND2 chunk map record"));
             }
             let offset = u64::le_at(&data, e + 1);
             match self.index.get(cname) {
@@ -426,7 +426,7 @@ impl Nd2 {
         Some((start, d))
     }
 
-    fn heads_done(&mut self) -> Result<Step, String> {
+    fn heads_done(&mut self) -> crate::error::Res<Step> {
         let size = self.size;
         let mut heads = Vec::with_capacity(self.chunks.len());
         for (_, o) in &self.chunks {
@@ -442,7 +442,7 @@ impl Nd2 {
         // the three chunks the convention reads: their headers MUST be chunk headers
         let mut ranges = Vec::new();
         if !self.index.contains_key(PROFILE[0]) {
-            return Err("no ImageAttributesLV! chunk".into());
+            return Err(Error::rejected("no ImageAttributesLV! chunk"));
         }
         for name in PROFILE {
             let Some(&k) = self.index.get(name) else {
@@ -450,22 +450,21 @@ impl Nd2 {
             };
             let o = self.chunks[k].1;
             if o > max_safe() {
-                return Err(format!("chunk offset {o} is too large"));
+                return Err(Error::rejected(format!("chunk offset {o} is too large")));
             }
             let Some((magic, n, d)) = self.heads[k] else {
-                return Err(format!(
-                    "read of [{o}, {}) outside the {size}-byte file",
+                return Err(Error::rejected(format!("read of [{o}, {}) outside the {size}-byte file",
                     o.saturating_add(16)
-                ));
+                )));
             };
             if magic != schema::limit("chunk_magic") as u32 {
-                return Err(format!("no ND2 chunk at {o}"));
+                return Err(Error::rejected(format!("no ND2 chunk at {o}")));
             }
             if d > max_safe() {
-                return Err("chunk length too large".into());
+                return Err(Error::rejected("chunk length too large"));
             }
             if self.outside(o + 16, n as u64) || self.outside(o + 16 + n as u64, d) {
-                return Err(format!("chunk {} lies outside the file", utf8_or_latin1(name)));
+                return Err(Error::rejected(format!("chunk {} lies outside the file", utf8_or_latin1(name))));
             }
             ranges.push((o + 16 + n as u64, d));
         }
@@ -496,7 +495,7 @@ impl Nd2 {
         out
     }
 
-    fn profile_done(&mut self) -> Result<Step, String> {
+    fn profile_done(&mut self) -> crate::error::Res<Step> {
         let mut room: i64 = schema::limit("profile_records") as i64;
         for (i, name) in PROFILE.iter().enumerate() {
             let Some(&k) = self.index.get(*name) else {
@@ -514,9 +513,9 @@ impl Nd2 {
             match a.result {
                 Ok(dec) => self.profile[i] = Some(dec),
                 Err(lv::LvErr::TooLarge) => {
-                    return Err("the profile's chunks hold more than 1048576 LV records and byte-array bytes".into());
+                    return Err(Error::rejected("the profile's chunks hold more than 1048576 LV records and byte-array bytes"));
                 }
-                Err(e) => return Err(e.message()),
+                Err(e) => return Err(Error::Rejected(e.message())),
             }
         }
         let frames = self.frame_heads();
@@ -645,7 +644,7 @@ impl Nd2 {
 
     /// What the source metadata decodes of chunk `k` (a candidate, in map order),
     /// within its budget, and whether it decodes; its bytes are dropped once used.
-    fn sm_decode(&mut self, k: usize) -> Result<(Option<Tree>, bool), String> {
+    fn sm_decode(&mut self, k: usize) -> crate::error::Res<(Option<Tree>, bool)> {
         let budget = schema::limit("source_budget") as u64;
         let (s, d) = self.data_of(k).unwrap();
         if self.chunks[k].0 == DECLARATIONS {
@@ -674,7 +673,7 @@ impl Nd2 {
         let data = self
             .got
             .take(s)
-            .ok_or_else(|| format!("internal: bytes [{s}, {}) were not read", s + d))?;
+            .ok_or_else(|| Error::internal(format!("bytes [{s}, {}) were not read", s + d)))?;
         let name = &self.chunks[k].0;
         if name.starts_with(b"CustomDataVar|") {
             self.used += d;
@@ -699,7 +698,7 @@ impl Nd2 {
 
     /// The chunks in map order, each decoded (when the source metadata decodes
     /// it) and emitted at once, then the frames.
-    fn meta_done(&mut self) -> Result<(), String> {
+    fn meta_done(&mut self) -> crate::error::Res<()> {
         let candidates: std::collections::HashSet<usize> = self.candidates().into_iter().collect();
         let size = self.size;
         let chunks_el = self.ir.struct_(0, "chunks", NO_INDEX, 0, None)?;
@@ -716,7 +715,7 @@ impl Nd2 {
                 frames.push((f as u64, k));
                 continue;
             }
-            let (name, nidx) = names.next().ok_or("internal: a chunk without a name")?;
+            let (name, nidx) = names.next().ok_or_else(|| Error::internal("a chunk without a name"))?;
             let (tree, sm) = if candidates.contains(&k) {
                 self.sm_decode(k)?
             } else {
@@ -951,9 +950,9 @@ impl Nd2 {
 
     /// The IR, finished (aliases and gaps), with its frames described (`stored.rs`), and the
     /// parser's description of the file.
-    pub fn finish(mut self) -> Result<(Ir, serde_json::Value), String> {
+    pub fn finish(mut self) -> crate::error::Res<(Ir, serde_json::Value)> {
         if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
+            return Err(Error::internal("the parse is not done"));
         }
         check::finish(&mut self.ir)?;
         let read = self.facts.take().unwrap();
@@ -966,7 +965,7 @@ impl Nd2 {
             row: read.row,
             compressed: read.compressed,
         };
-        let key = self.declaring[0].0.ok_or("internal: no ImageAttributesLV! chunk in the IR")?;
+        let key = self.declaring[0].0.ok_or_else(|| Error::internal("no ImageAttributesLV! chunk in the IR"))?;
         // the chunks that say what a sample is: the attributes, and the picture's planes
         let declarations: Vec<u32> = [self.declaring[0].1, self.declaring[2].1].into_iter().flatten().collect();
         let (arrays, chains, map) = stored::described(&self.ir, &frame, read.frames as u64, key, &declarations)?;
@@ -1041,7 +1040,7 @@ impl crate::run::FileProfile for Profile {
     fn whole(&self) -> bool {
         false
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
         crate::project::nd2::project(ir, description, url)
     }
 }

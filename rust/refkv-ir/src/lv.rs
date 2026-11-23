@@ -3,6 +3,8 @@
 //! decoder to a tree of records with their positions, the object reading
 //! the convention defines, and the records' emission as IR elements.
 
+use crate::error::Error;
+
 use crate::fed::Word;
 use crate::ir::*;
 
@@ -308,7 +310,7 @@ pub struct Attempt {
     pub result: Result<Decoded, LvErr>,
 }
 
-pub fn inflate(data: &[u8], limit: Option<u64>) -> Result<Vec<u8>, String> {
+pub fn inflate(data: &[u8], limit: Option<u64>) -> crate::error::Res<Vec<u8>> {
     use miniz_oxide::inflate::stream::{InflateState, inflate as step};
     use miniz_oxide::{DataFormat, MZFlush, MZStatus};
     let mut st = InflateState::new_boxed(DataFormat::Zlib);
@@ -321,28 +323,27 @@ pub fn inflate(data: &[u8], limit: Option<u64>) -> Result<Vec<u8>, String> {
         input = &input[r.bytes_consumed..];
         out.extend_from_slice(&buf[..r.bytes_written]);
         if out.len() as u64 >= cap {
-            return Err(format!(
-                "compressed LV data inflates to more than {} bytes",
+            return Err(Error::rejected(format!("compressed LV data inflates to more than {} bytes",
                 limit.unwrap()
-            ));
+            )));
         }
         match r.status {
             Ok(MZStatus::StreamEnd) => {
                 if !input.is_empty() {
-                    return Err("compressed LV data does not end with its zlib stream".into());
+                    return Err(Error::rejected("compressed LV data does not end with its zlib stream"));
                 }
                 return Ok(out);
             }
             Ok(_) => {
                 if r.bytes_consumed == 0 && r.bytes_written == 0 {
-                    return Err("compressed LV data does not end with its zlib stream".into());
+                    return Err(Error::rejected("compressed LV data does not end with its zlib stream"));
                 }
             }
             Err(e) => {
                 if matches!(e, miniz_oxide::MZError::Buf) && input.is_empty() {
-                    return Err("compressed LV data does not end with its zlib stream".into());
+                    return Err(Error::rejected("compressed LV data does not end with its zlib stream"));
                 }
-                return Err(format!("invalid zlib stream in compressed LV data: {e:?}"));
+                return Err(Error::rejected(format!("invalid zlib stream in compressed LV data: {e:?}")));
             }
         }
     }
@@ -375,7 +376,7 @@ pub fn decode(data: &[u8], limit: Option<u64>, exact: bool, room: Option<&mut i6
                 inflated = Some(limit.map(|l| l.min(most)).unwrap_or(most));
                 return Attempt {
                     inflated,
-                    result: Err(LvErr::Rejected(m)),
+                    result: Err(LvErr::Rejected(m.to_string())),
                 };
             }
         }

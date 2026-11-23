@@ -5,6 +5,8 @@
 //! Numbers are binary64; a comparison with an absent operand is false, arithmetic
 //! with one is absent; `==` and `!=` compare strings and lists as values.
 
+use crate::error::Error;
+
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -88,7 +90,7 @@ pub enum E {
     Bool(bool),
 }
 
-fn lex(s: &str) -> Result<Vec<String>, String> {
+fn lex(s: &str) -> crate::error::Res<Vec<String>> {
     let b = s.as_bytes();
     let mut out = Vec::new();
     let mut i = 0;
@@ -121,7 +123,7 @@ fn lex(s: &str) -> Result<Vec<String>, String> {
                 i += 1;
             }
             if i >= b.len() {
-                return Err(format!("unterminated string in {s:?}"));
+                return Err(Error::rejected(format!("unterminated string in {s:?}")));
             }
             out.push(format!("'{}", &s[j..i]));
             i += 1;
@@ -129,7 +131,7 @@ fn lex(s: &str) -> Result<Vec<String>, String> {
             out.push((c as char).to_string());
             i += 1;
         } else {
-            return Err(format!("bad expression {s:?}"));
+            return Err(Error::rejected(format!("bad expression {s:?}")));
         }
     }
     Ok(out)
@@ -144,20 +146,20 @@ impl Parser {
     fn peek(&self) -> Option<&str> {
         self.t.get(self.p).map(|x| x.as_str())
     }
-    fn next(&mut self) -> Result<String, String> {
+    fn next(&mut self) -> crate::error::Res<String> {
         self.p += 1;
         self.t
             .get(self.p - 1)
             .cloned()
-            .ok_or_else(|| "unexpected end of expression".to_string())
+            .ok_or_else(|| Error::rejected("unexpected end of expression"))
     }
-    fn expr(&mut self) -> Result<E, String> {
+    fn expr(&mut self) -> crate::error::Res<E> {
         let c = self.coalesce()?;
         if self.peek() == Some("?") {
             self.next()?;
             let a = self.expr()?;
             if self.next()? != ":" {
-                return Err("expected ':'".into());
+                return Err(Error::rejected("expected ':'"));
             }
             let b = self.expr()?;
             return Ok(E::If(Box::new(c), Box::new(a), Box::new(b)));
@@ -167,8 +169,8 @@ impl Parser {
     fn binary(
         &mut self,
         ops: &[&str],
-        next: fn(&mut Parser) -> Result<E, String>,
-    ) -> Result<E, String> {
+        next: fn(&mut Parser) -> crate::error::Res<E>,
+    ) -> crate::error::Res<E> {
         let mut l = next(self)?;
         while let Some(op) = self
             .peek()
@@ -181,25 +183,25 @@ impl Parser {
         }
         Ok(l)
     }
-    fn coalesce(&mut self) -> Result<E, String> {
+    fn coalesce(&mut self) -> crate::error::Res<E> {
         self.binary(&["??"], Parser::or)
     }
-    fn or(&mut self) -> Result<E, String> {
+    fn or(&mut self) -> crate::error::Res<E> {
         self.binary(&["||"], Parser::and)
     }
-    fn and(&mut self) -> Result<E, String> {
+    fn and(&mut self) -> crate::error::Res<E> {
         self.binary(&["&&"], Parser::cmp)
     }
-    fn cmp(&mut self) -> Result<E, String> {
+    fn cmp(&mut self) -> crate::error::Res<E> {
         self.binary(&["==", "!=", "<", "<=", ">", ">="], Parser::add)
     }
-    fn add(&mut self) -> Result<E, String> {
+    fn add(&mut self) -> crate::error::Res<E> {
         self.binary(&["+", "-"], Parser::mul)
     }
-    fn mul(&mut self) -> Result<E, String> {
+    fn mul(&mut self) -> crate::error::Res<E> {
         self.binary(&["*", "/"], Parser::unary)
     }
-    fn unary(&mut self) -> Result<E, String> {
+    fn unary(&mut self) -> crate::error::Res<E> {
         match self.peek() {
             Some("!") => {
                 self.next()?;
@@ -212,12 +214,12 @@ impl Parser {
             _ => self.primary(),
         }
     }
-    fn primary(&mut self) -> Result<E, String> {
+    fn primary(&mut self) -> crate::error::Res<E> {
         let t = self.next()?;
         if t == "(" {
             let e = self.expr()?;
             if self.next()? != ")" {
-                return Err("expected ')'".into());
+                return Err(Error::rejected("expected ')'"));
             }
             return Ok(e);
         }
@@ -234,7 +236,7 @@ impl Parser {
                 }
             }
             if self.next()? != "]" {
-                return Err("expected ']'".into());
+                return Err(Error::rejected("expected ']'"));
             }
             return Ok(E::List(items));
         }
@@ -245,7 +247,7 @@ impl Parser {
             return Ok(E::Str(text.to_string()));
         }
         if t.as_bytes()[0].is_ascii_digit() {
-            return t.parse().map(E::Num).map_err(|_| format!("bad number {t}"));
+            return t.parse().map(E::Num).map_err(|_| Error::Rejected(format!("bad number {t}")));
         }
         if self.peek() == Some("(") {
             self.next()?;
@@ -261,7 +263,7 @@ impl Parser {
                 }
             }
             if self.next()? != ")" {
-                return Err("expected ')'".into());
+                return Err(Error::rejected("expected ')'"));
             }
             return Ok(E::Call(t, args));
         }
@@ -269,11 +271,11 @@ impl Parser {
     }
 }
 
-pub fn parse(s: &str) -> Result<E, String> {
+pub fn parse(s: &str) -> crate::error::Res<E> {
     let mut p = Parser { t: lex(s)?, p: 0 };
     let e = p.expr()?;
     if p.p != p.t.len() {
-        return Err(format!("trailing tokens in {s:?}"));
+        return Err(Error::rejected(format!("trailing tokens in {s:?}")));
     }
     Ok(e)
 }

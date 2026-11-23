@@ -14,6 +14,8 @@
 //! reference's Python twins of the documents and cuts are in
 //! conformance/zarrify/reference/refkv_reference/_legacy_common.py.
 
+use crate::error::Error;
+
 use serde_json::{json, Map, Value as J};
 use std::collections::HashMap;
 
@@ -592,10 +594,10 @@ fn axis_type(a: &str) -> &'static str {
 
 /// The OME-NGFF 0.5 object of an image, with a translation per level after its scale
 /// when `translations` is given; a translation that is not finite rejects.
-pub fn image_ome(axes: &[&str], units: &Map<String, J>, scales: &[J], name: Option<&J>, translations: Option<&[J]>) -> Result<J, String> {
+pub fn image_ome(axes: &[&str], units: &Map<String, J>, scales: &[J], name: Option<&J>, translations: Option<&[J]>) -> crate::error::Res<J> {
     for t in translations.unwrap_or(&[]) {
         if t.as_array().is_some_and(|v| v.iter().any(|x| x.as_f64().is_some_and(|f| !f.is_finite()) || x.is_null())) {
-            return Err("a translation is not finite".into());
+            return Err(Error::rejected("a translation is not finite"));
         }
     }
     let mut ms = Map::new();

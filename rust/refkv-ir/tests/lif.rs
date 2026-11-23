@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 /// A project's store run from the directory `dir`, as a local host drives it: each key probed is
 /// found by listing. Its IR and facts, or its rejection.
-fn run_project(dir: &Path, named: &str) -> Result<(refkv_ir::ir::Ir, serde_json::Value, HashMap<String, Vec<u8>>), String> {
+fn run_project(dir: &Path, named: &str) -> refkv_ir::error::Res<(refkv_ir::ir::Ir, serde_json::Value, HashMap<String, Vec<u8>>)> {
     let read = |key: &str| std::fs::read(dir.join(key)).unwrap();
     let mut files = HashMap::from([(named.to_string(), read(named))]);
     let mut run = StoreRun::new(StoreFormat::Lif, vec![(named.to_string(), files[named].len() as u64)], 4)?;
@@ -56,7 +56,7 @@ fn rejection(input: &str) -> String {
             .and_then(|(_, description)| refkv_ir::lif::plan::plan(&description))
             .map(|_| ())
     };
-    result.err().unwrap_or_else(|| panic!("{input} was accepted"))
+    result.err().unwrap_or_else(|| panic!("{input} was accepted")).to_string()
 }
 
 // one test per case of conformance/zarrify/rejects/lif.json (build.rs), each the message its check gives

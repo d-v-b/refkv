@@ -7,6 +7,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#43-image-arrays>, with the
 //! parser's band floor).
 
+use crate::error::Error;
+
 use super::{along, arr, key, n, obj, strs, translations, truthy};
 use crate::coding::{pixel_type, JPEG, JPEGXR, LJPEG, LZW, UNCOMPRESSED, ZSTD0, ZSTD1};
 use crate::ir::Ir;
@@ -25,9 +27,9 @@ const MAX_NAME: usize = 256;
 /// A subblock form: (pixel type, compression, hi-lo packing or a JpgFile stream's being lossless).
 pub type Form = (i32, i32, bool);
 
-fn form_of(v: &J) -> Result<(Form, &'static str, u64, u64), String> {
+fn form_of(v: &J) -> crate::error::Res<(Form, &'static str, u64, u64)> {
     let f = (v[0].as_i64().unwrap_or(-1) as i32, v[1].as_i64().unwrap_or(-1) as i32, v[2].as_bool().unwrap_or(false));
-    let (dt, p, q) = pixel_type(f.0).ok_or_else(|| format!("internal: pixel type {}", f.0))?;
+    let (dt, p, q) = pixel_type(f.0).ok_or_else(|| Error::internal(format!("pixel type {}", f.0)))?;
     Ok((f, dt, p, q))
 }
 
@@ -150,20 +152,20 @@ fn omero(values: &J, form: Form, data_type: &str, p: u64, lo_c: i64, channels: u
 }
 
 /// Each cell's chunks: one per band of `rows` rows, at row × per + k.
-fn cell_refs(refs: &mut Refs, path: &str, axes: &[&str], compression: i32, q: u64, band: &J, cells: &J) -> Result<(), String> {
+fn cell_refs(refs: &mut Refs, path: &str, axes: &[&str], compression: i32, q: u64, band: &J, cells: &J) -> crate::error::Res<()> {
     let ir = refs.ir;
     let (rows, per) = (n(&band["rows"]), n(&band["per"]));
     if rows == 0 {
-        return Err("internal: a band of no rows".into());
+        return Err(Error::internal("a band of no rows"));
     }
     let prefix = format!("{path}/c/");
     for cell in arr(cells) {
         let v: Vec<u64> = arr(cell).iter().map(n).collect();
         let [el, t, c, z, col, row, w, h] = v[..] else {
-            return Err("internal: a cell is not 8 numbers".into());
+            return Err(Error::internal("a cell is not 8 numbers"));
         };
         let (Some(&start), Some(&length)) = (ir.start.get(el as usize), ir.len.get(el as usize)) else {
-            return Err(format!("internal: no element {el}"));
+            return Err(Error::internal(format!("no element {el}")));
         };
         let pieces: Vec<(u64, u64)> = if compression != UNCOMPRESSED {
             vec![(start, length)]
@@ -182,21 +184,21 @@ fn cell_refs(refs: &mut Refs, path: &str, axes: &[&str], compression: i32, q: u6
 
 /// The CZI hierarchy of the file the description `description` describes: the root, an image group
 /// per series with an array per level, and the tile arrays under `tiles`.
-pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
     project_named(ir, &crate::czi::plan::plan(description)?, url, url)
 }
 
 /// The image of the CZI store run (spec/zarrify/czi.md §7.9
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>): as `project`,
 /// its references ranges of the files that hold the subblocks, its root naming the named file.
-pub fn project_set(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+pub fn project_set(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
     let named = super::vsi::object_url(url, description["named_key"].as_str().unwrap_or(""));
     project_named(ir, &crate::czi::plan::plan(description)?, url, &named)
 }
 
 /// The hierarchy of the plan `planned` at the store or file URL `url`, whose root names the input
 /// `named`.
-fn project_named(ir: &Ir, planned: &J, url: &str, named: &str) -> Result<Out, String> {
+fn project_named(ir: &Ir, planned: &J, url: &str, named: &str) -> crate::error::Res<Out> {
     let values = &planned["values"];
     let images = arr(&planned["images"]);
     let tiles = arr(&planned["tiles"]);
@@ -259,6 +261,6 @@ fn project_named(ir: &Ir, planned: &J, url: &str, named: &str) -> Result<Out, St
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied) -> crate::error::Res<Out> {
     project_set(ir, description, url)
 }

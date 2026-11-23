@@ -7,6 +7,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#8-las-x-documents>) has the same
 //! images, whose memory blocks are in the LOFs of a store IR.
 
+use crate::error::Error;
+
 use super::store::object_key;
 use super::vsi::object_url;
 use super::{arr, key, n, obj, strs};
@@ -54,7 +56,7 @@ fn image_name(name: &J, field: Option<(&str, usize)>) -> J {
 
 /// A LIF, LOF or LIFEXT file's output, from its IR, the parser's description and refkv's plan of
 /// it (`lif::plan::plan`).
-pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
     let plan = crate::lif::plan::plan(description)?;
     let series = n(&plan["series"]);
     let mut out = Out::new(url);
@@ -75,7 +77,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
 /// it (`lif::plan::plan_set`): the root names the named document and records every sibling and
 /// every image it leaves out (spec/zarrify/lif.md §5.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#51-the-root>).
-pub fn project_set(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+pub fn project_set(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
     let plan = crate::lif::plan::plan_set(description)?;
     let series = n(&plan["series"]);
     let mut out = Out::new(url);
@@ -101,7 +103,7 @@ pub fn project_set(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
 }
 
 /// Each image of the plan: its groups and arrays, and its chunks' references; the chunks.
-fn images(ir: &Ir, plan: &J, refs: &mut Refs) -> Result<u64, String> {
+fn images(ir: &Ir, plan: &J, refs: &mut Refs) -> crate::error::Res<u64> {
     let file_blocks = if ir.store { HashMap::new() } else { block_data(ir, 0) };
     let mut s = 0u64;
     let mut chunks = 0u64;
@@ -146,7 +148,7 @@ fn images(ir: &Ir, plan: &J, refs: &mut Refs) -> Result<u64, String> {
         let fields = arr(&im["fields"]);
         let word = if field_dims == [MOSAIC] { "tile" } else { "field" };
         let tiles = arr(&im["tiles"]);
-        let (start, length, form) = *blocks.get(&n(&im["block"])).ok_or("internal: an image's block has no data")?;
+        let (start, length, form) = *blocks.get(&n(&im["block"])).ok_or_else(|| Error::internal("an image's block has no data"))?;
         let base = n(&im["base"]);
         let offsets: Vec<u64> = arr(&im["offsets"]).iter().map(n).collect();
         let (nt, st) = (n(&im["t"][0]), n(&im["t"][1]));
@@ -214,6 +216,6 @@ fn images(ir: &Ir, plan: &J, refs: &mut Refs) -> Result<u64, String> {
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied) -> crate::error::Res<Out> {
     project_set(ir, description, url)
 }

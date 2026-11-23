@@ -2,6 +2,8 @@
 //! fields, and each field's sections, the ones a repeat in the message did not restate taken
 //! from before it.
 
+use crate::error::Error;
+
 /// Section 0, the indicator: `GRIB`, two reserved octets, the discipline, the edition, and the
 /// message's length.
 pub const INDICATOR: u64 = 16;
@@ -31,13 +33,13 @@ pub struct Indicator {
 }
 
 /// Section 0 from a message's first 16 bytes, or why they are not one.
-pub fn indicator(b: &[u8]) -> Result<Indicator, String> {
+pub fn indicator(b: &[u8]) -> crate::error::Res<Indicator> {
     if b.len() < INDICATOR as usize || &b[..4] != b"GRIB" {
-        return Err("not a GRIB message: no GRIB indicator".into());
+        return Err(Error::rejected("not a GRIB message: no GRIB indicator"));
     }
     let edition = b[7];
     if edition != 2 {
-        return Err(format!("a GRIB edition {edition} message: only edition 2 is read"));
+        return Err(Error::rejected(format!("a GRIB edition {edition} message: only edition 2 is read")));
     }
     Ok(Indicator { discipline: b[6], edition, length: uint(b, 8, 8) })
 }
@@ -69,13 +71,13 @@ pub struct Field {
 /// with its stated length). Stops at `7777`, or at the first section whose header `b` does not
 /// hold. A section that is shorter than its header, or that does not end within the message's
 /// length, is an error.
-pub fn sections(b: &[u8], length: u64) -> Result<Vec<Section>, String> {
+pub fn sections(b: &[u8], length: u64) -> crate::error::Res<Vec<Section>> {
     let mut out = Vec::new();
     let mut pos = INDICATOR;
     loop {
         if pos + 4 <= b.len() as u64 && &b[pos as usize..pos as usize + 4] == END {
             if pos + 4 != length {
-                return Err(format!("a GRIB message's end (7777) is at byte {pos} of its {length}"));
+                return Err(Error::rejected(format!("a GRIB message's end (7777) is at byte {pos} of its {length}")));
             }
             return Ok(out);
         }
@@ -85,7 +87,7 @@ pub fn sections(b: &[u8], length: u64) -> Result<Vec<Section>, String> {
         let n = uint(b, pos as usize, 4);
         let number = b[pos as usize + 4];
         if n < 5 || pos + n > length.saturating_sub(4) {
-            return Err(format!("a GRIB message's section {number} at byte {pos} has the length {n}, past the message's end"));
+            return Err(Error::rejected(format!("a GRIB message's section {number} at byte {pos} has the length {n}, past the message's end")));
         }
         out.push(Section { number, offset: pos, length: n });
         pos += n;
@@ -95,7 +97,7 @@ pub fn sections(b: &[u8], length: u64) -> Result<Vec<Section>, String> {
 /// The fields of a message whose sections are `s`: one per section 7, in order. After a field,
 /// the message may restate sections 2 to 7, 3 to 7 or 4 to 7 (FM 92 regulation 92.1.3) for the
 /// next; any other order, or a number other than 1–7, is an error.
-pub fn fields(s: &[Section]) -> Result<Vec<Field>, String> {
+pub fn fields(s: &[Section]) -> crate::error::Res<Vec<Field>> {
     let mut out = Vec::new();
     let mut cur = Field::default();
     let mut last = 0u8;
@@ -111,7 +113,7 @@ pub fn fields(s: &[Section]) -> Result<Vec<Field>, String> {
             _ => false,
         };
         if !ok {
-            return Err(format!("its section {} follows section {last}", x.number));
+            return Err(Error::rejected(format!("its section {} follows section {last}", x.number)));
         }
         match x.number {
             1 => cur.s1 = Some(x),
@@ -130,7 +132,7 @@ pub fn fields(s: &[Section]) -> Result<Vec<Field>, String> {
         last = x.number;
     }
     if last != 7 {
-        return Err(format!("it ends after section {last}, not section 7"));
+        return Err(Error::rejected(format!("it ends after section {last}, not section 7")));
     }
     Ok(out)
 }

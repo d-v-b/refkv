@@ -9,6 +9,8 @@
 //! through [`Fields`], so that a parser that reads IFDs with types of its own (VSI's,
 //! `vsi/stored.rs`) describes its IFDs' images by the same rules.
 
+use crate::error::Error;
+
 use super::{type_size, unsigned, Ifd, Tiff, Unit};
 use crate::ndpi;
 use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Grid, Param, Place, Row, StoredArray};
@@ -528,7 +530,7 @@ impl Tiff {
                     // each of IFD 0's rows is one whole strip's element, as its uncompressed strips
                     // give them: the plane's row is its own strip's
                     Some((_, (_, rows))) if rows.len() != strips.len() || rows.iter().any(|r| r.member.is_some() || r.range.is_some() || r.ranges.is_some()) => {
-                        return Err("internal: an ImageJ plane whose strips are not IFD 0's".into())
+                        return Err(Error::internal("an ImageJ plane whose strips are not IFD 0's"))
                     }
                     Some((chain, (grid, rows))) => {
                         let rows = rows.iter().zip(strips).map(|(row, &e)| Row { element: Some(e), ..row.clone() }).collect();

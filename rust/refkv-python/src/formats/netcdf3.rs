@@ -1,7 +1,7 @@
 //! The netCDF3 profile's class (`Netcdf3`).
 
 use crate::formats::View;
-use crate::{out_py, Rejected};
+use crate::{out_py, refused};
 use pyo3::prelude::*;
 use refkv_ir::ir::Ir;
 use std::sync::Arc;
@@ -24,7 +24,7 @@ impl PyNetcdf3 {
     fn hierarchy<'py>(&self, py: Python<'py>) -> PyResult<(String, Bound<'py, PyAny>, Vec<(String, u64, u64, u64)>)> {
         let (nodes, out, copies) = py
             .detach(|| refkv_ir::project::netcdf3::hierarchy(&self.ir, &self.description))
-            .map_err(Rejected::new_err)?;
+            .map_err(refused)?;
         Ok((serde_json::Value::Array(nodes).to_string(), out_py(py, &out)?, copies))
     }
 }

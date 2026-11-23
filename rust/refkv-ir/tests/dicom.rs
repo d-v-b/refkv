@@ -72,7 +72,7 @@ fn a_long_fragment_chain_is_walked_to_its_end() {
 #[test]
 fn rejects_a_dicom_range_asked_for_and_not_fed() {
     use refkv_ir::step::Step;
-    let err = |r: Result<Step, String>| match r {
+    let err = |r: refkv_ir::error::Res<Step>| match r {
         Err(m) => m,
         Ok(_) => panic!("stepped on"),
     };
@@ -82,11 +82,11 @@ fn rejects_a_dicom_range_asked_for_and_not_fed() {
     let Step::Read(r) = p.step().unwrap() else { panic!("no batch") };
     let (o, n) = r[0];
     p.feed(o, data[o as usize..(o + n - 1) as usize].to_vec());
-    assert_eq!(err(p.step()), format!("internal: the range ({o}, {n}) was asked for and not fed"));
+    assert_eq!(err(p.step()), refkv_ir::error::Error::internal(format!("the range ({o}, {n}) was asked for and not fed")));
     // not fed at all
     let mut p = Dicom::new(data.len() as u64);
     assert!(p.step().is_ok());
-    assert!(err(p.step()).ends_with("was asked for and not fed"));
+    assert!(err(p.step()).to_string().ends_with("was asked for and not fed"));
 }
 
 /// Each accepted fixture's description (spec/zarrify/dicom.md §7.8

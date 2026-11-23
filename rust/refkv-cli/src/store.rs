@@ -237,7 +237,7 @@ pub fn hub_page(url: &str, endpoint: &str) -> bool {
 /// The commit `C` of a Hub revision's response (spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), or a rejection: a gated
 /// repository's too.
 pub fn parse_hub_revision(body: &[u8]) -> Result<String, Fail> {
-    let doc = refkv_ir::json::parse(body).map_err(Fail::Rejected)?.value;
+    let doc = refkv_ir::json::parse(body).map_err(Fail::from)?.value;
     if !doc.is_obj() {
         return rejected("the Hub revision is not a JSON object");
     }
@@ -257,7 +257,7 @@ pub fn parse_hub_revision(body: &[u8]) -> Result<String, Fail> {
 /// The objects (path, size) of one page of a Hub tree listing (spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), its files
 /// under the directory `prefix` (its directories list nothing), and its number of entries.
 pub fn parse_hub_tree(body: &[u8], prefix: &str) -> Result<(Vec<(String, u64)>, usize), Fail> {
-    let doc = refkv_ir::json::parse(body).map_err(Fail::Rejected)?.value;
+    let doc = refkv_ir::json::parse(body).map_err(Fail::from)?.value;
     let Some(entries) = doc.items() else {
         return rejected("the Hub tree listing is not a JSON array");
     };

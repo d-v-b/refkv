@@ -8,6 +8,8 @@
 //! and the window. The root's source metadata is made from the description's file in the DICOM
 //! JSON Model (`root`).
 
+use crate::error::Error;
+
 use super::{arr, key, n, obj, strs};
 use crate::dicom::plan::plan;
 use crate::dicom::ADOBE;
@@ -31,7 +33,7 @@ fn numpy_dtype(data_type: &str) -> String {
 /// The array `palette` (spec/zarrify/dicom.md §4.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#41-the-palette>): each chunk one
 /// lookup table's entries, in the file.
-fn palette(refs: &mut Refs, p: &J, endian: &str) -> Result<(), String> {
+fn palette(refs: &mut Refs, p: &J, endian: &str) -> crate::error::Res<()> {
     let (entries, cell) = (n(&p["entries"]), n(&p["cell"]));
     let data_type = if cell == 1 { "uint8" } else { "uint16" };
     refs.out.json("palette/zarr.json", &array_json(&[3, entries], data_type, json!([1, entries]), json!([bytes_codec(cell, endian)]), &["c", "i"]));
@@ -172,7 +174,7 @@ fn move_large(meta: &mut Map<String, J>, dataset: &mut Map<String, J>) {
 }
 
 /// The output of the file `description` describes.
-pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
     let d = description;
     let plan = plan(d);
     let attributes = &d["attributes"];
@@ -235,7 +237,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
             mine.push(members[at]);
             at += 1;
         }
-        let (_, start, length, form) = *mine.first().ok_or_else(|| format!("internal: frame {f} has no data element"))?;
+        let (_, start, length, form) = *mine.first().ok_or_else(|| Error::internal(format!("frame {f} has no data element")))?;
         let mut ranges: Vec<(u64, u64)> = mine.iter().map(|m| (m.1, m.2)).collect();
         let (row, col) = if whole_slide { (f / across, f % across) } else { (0, 0) };
         let samples = if planar { 3 } else { 1 };

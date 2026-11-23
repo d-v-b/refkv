@@ -15,11 +15,11 @@ fn fixtures() -> PathBuf {
 }
 
 /// The output of the store in `dir`, mirrored, or its rejection.
-fn output(dir: &Path) -> Result<refkv_ir::out::Out, String> {
+fn output(dir: &Path) -> refkv_ir::error::Res<refkv_ir::out::Out> {
     let files = walk(dir);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let (ir, facts, stats, read) = run_store(StoreFormat::Zarr2, listing(&files), &|k| bytes[k].clone())?;
-    store_output(StoreFormat::Zarr2, &ir, &facts, stats, &read, "https://example.org/s/", true, false).map_err(String::from)
+    store_output(StoreFormat::Zarr2, &ir, &facts, stats, &read, "https://example.org/s/", true, false)
 }
 
 fn stores(format: &str) -> Vec<PathBuf> {
@@ -46,7 +46,7 @@ fn accepted_stores_mirror_and_rebuild_their_documents() {
                         assert_eq!(b.len() as u64, n);
                     }
                 }
-                let mut never = |_: u64, _: u64| -> Result<Vec<u8>, String> { panic!("a store's mirror reads no source") };
+                let mut never = |_: u64, _: u64| -> refkv_ir::error::Res<Vec<u8>> { panic!("a store's mirror reads no source") };
                 assert_eq!(refkv_ir::mirror::canonical_problem(&get, &mut never), None, "{name}");
                 let keys: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
                 assert_eq!(refkv_ir::mirror::view_problem(&keys, &get, &mut never), None, "{name}");
@@ -76,7 +76,7 @@ macro_rules! reject {
         #[test]
         fn $name() {
             match output(&fixtures().join("ome-zarr").join($input)) {
-                Err(m) => assert!(m.contains($msg), "{m}"),
+                Err(m) => assert!(m.to_string().contains($msg), "{m}"),
                 Ok(_) => panic!("{} was accepted", stringify!($name)),
             }
         }
@@ -270,7 +270,7 @@ fn ignored_keys_are_refkv_source_metadata() {
     assert!(own["ir"].is_object());
     // the mirror is canonical with its ignored keys beside it
     let get = |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone());
-    let mut never = |_: u64, _: u64| -> Result<Vec<u8>, String> { panic!("a store's mirror reads no source") };
+    let mut never = |_: u64, _: u64| -> refkv_ir::error::Res<Vec<u8>> { panic!("a store's mirror reads no source") };
     assert_eq!(refkv_ir::mirror::canonical_problem(&get, &mut never), None);
 }
 
@@ -332,7 +332,7 @@ fn a_layout_that_is_not_an_integer_is_not_3() {
         let r = output(&dir);
         std::fs::remove_dir_all(&dir).unwrap();
         match r {
-            Err(m) => assert!(m.contains("bioformats2raw.layout is not 3"), "{m}"),
+            Err(m) => assert!(m.to_string().contains("bioformats2raw.layout is not 3"), "{m}"),
             Ok(_) => panic!("layout {layout} was accepted"),
         }
     }

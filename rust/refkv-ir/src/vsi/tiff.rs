@@ -5,6 +5,8 @@
 //! file; each IFD's elements (its entries, out-of-line values, strips and EXIF IFD) are
 //! emitted under the field whose region holds it, and what the region has left is gaps.
 
+use crate::error::Error;
+
 use crate::fed::Word;
 use crate::ir::{GAP, Ir, NO_INDEX, Res};
 use crate::out::Part;
@@ -118,7 +120,7 @@ pub fn chain(rules: &Rules, b: &[u8], first: u64) -> Res<Vec<Ifd>> {
     let mut index = 0;
     while o != 0 {
         if at.insert(o, ()).is_some() {
-            return Err(format!("the IFD chain of the .vsi file returns to the IFD at {o}"));
+            return Err(Error::rejected(format!("the IFD chain of the .vsi file returns to the IFD at {o}")));
         }
         let ifd = read_ifd(rules, b, o, index, false, out.len())?;
         o = ifd.next as u64;
@@ -126,7 +128,7 @@ pub fn chain(rules: &Rules, b: &[u8], first: u64) -> Res<Vec<Ifd>> {
         out.push(ifd);
         if let Some(x) = exif.filter(|&x| x != 0) {
             if at.insert(x, ()).is_some() {
-                return Err(format!("the EXIF IFD of IFD {index} is an IFD read already (at {x})"));
+                return Err(Error::rejected(format!("the EXIF IFD of IFD {index} is an IFD read already (at {x})")));
             }
             out.push(read_ifd(rules, b, x, index, true, out.len())?);
         }

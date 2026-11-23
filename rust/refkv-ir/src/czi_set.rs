@@ -7,6 +7,8 @@
 //! IR under the file's object once they are all done (`Ir::graft`). The parts are read one at a
 //! time, in order, since whether there is another may depend on what the last one holds.
 
+use crate::error::Error;
+
 use crate::beside::{Tree, MAX_FILES};
 use crate::czi::{Czi, Planes};
 use crate::ir::{Ir, Res};
@@ -58,12 +60,14 @@ fn spellings(key: &str, p: i32) -> [String; 2] {
     [format!("{stem}({p}){ext}"), format!("{stem} ({p}){ext}")]
 }
 
-/// A message of a part's parser, with the file it is about when it does not say.
-fn blamed(key: &str, m: String) -> String {
-    if m.starts_with("the file \"") || m.starts_with("budget:") || m.starts_with("internal:") {
-        m
-    } else {
-        format!("{key}: {m}")
+/// A part's parser's error, with the file it is about when it does not say: a rejection of the
+/// part's own, put after its key, but the one that names the file already (`czi::not_part`); a
+/// budget or a failure, which is the whole input's, as it is.
+fn blamed(key: &str, e: Error) -> Error {
+    match e {
+        Error::Rejected(_) if e == crate::czi::not_part(key) => e,
+        Error::Rejected(m) => Error::Rejected(format!("{key}: {m}")),
+        e => e,
     }
 }
 
@@ -92,7 +96,7 @@ impl CziSet {
     /// The listing's IR, its objects' elements and keys: one key, the named file.
     pub fn new(ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<CziSet> {
         let [(key, size)] = keys else {
-            return Err(format!("a CZI store run starts from the named file alone, not {} objects", keys.len()));
+            return Err(Error::rejected(format!("a CZI store run starts from the named file alone, not {} objects", keys.len())));
         };
         Ok(CziSet {
             ir: Some(ir),
@@ -133,7 +137,7 @@ impl CziSet {
     /// file's, with the named file's key and each part's key and description, in order, their
     /// elements those of the store IR.
     fn join(&mut self) -> Res<()> {
-        let mut ir = self.ir.take().ok_or("internal: no IR")?;
+        let mut ir = self.ir.take().ok_or_else(|| Error::internal("no IR"))?;
         let mut facts = J::Null;
         let mut files = Vec::new();
         for (k, (mut file, mut d)) in std::mem::take(&mut self.parsed).into_iter().enumerate() {
@@ -167,11 +171,11 @@ impl StoreParser for CziSet {
                 Phase::Named => match self.named.step()? {
                     Step::Read(r) if r.is_empty() => {}
                     Step::Read(r) => return Ok(StoreStep::Read(r.into_iter().map(|(o, n)| (0, o, n)).collect())),
-                    Step::Beside => return Err("internal: a named file ended its store run".into()),
+                    Step::Beside => return Err(Error::internal("a named file ended its store run")),
                     Step::Done => {
                         self.highest = self.named.highest();
                         if self.highest as u64 > MAX_FILES {
-                            return Err(format!("budget: the input names more than {MAX_FILES} files"));
+                            return Err(Error::budget(format!("the input names more than {MAX_FILES} files")));
                         }
                         self.planes = Some(self.named.planes());
                         self.phase = Phase::Next;
@@ -190,14 +194,14 @@ impl StoreParser for CziSet {
                     let [first, second] = spellings(&self.named_key, self.next);
                     return Ok(StoreStep::Probe(vec![if self.second { second } else { first }]));
                 }
-                Phase::Probed => return Err("internal: a step before the probe was answered".into()),
+                Phase::Probed => return Err(Error::internal("a step before the probe was answered")),
                 Phase::Part => {
                     let k = self.parts.len();
-                    let part = self.parts.last_mut().ok_or("internal: no part")?;
+                    let part = self.parts.last_mut().ok_or_else(|| Error::internal("no part"))?;
                     match part.step().map_err(|m| blamed(&self.keys[k], m))? {
                         Step::Read(r) if r.is_empty() => {}
                         Step::Read(r) => return Ok(StoreStep::Read(r.into_iter().map(|(o, n)| (k, o, n)).collect())),
-                        Step::Beside => return Err("internal: a part ended its store run".into()),
+                        Step::Beside => return Err(Error::internal("a part ended its store run")),
                         Step::Done => {
                             if let Some(planes) = self.planes.as_mut() {
                                 part.add_planes(planes);
@@ -242,7 +246,7 @@ impl StoreParser for CziSet {
             }
             if required {
                 let [first, _] = spellings(&self.named_key, self.next);
-                return Err(format!("the file \"{first}\" does not exist"));
+                return Err(Error::rejected(format!("the file \"{first}\" does not exist")));
             }
             // the first absent ends the family
             self.highest = self.next - 1;
@@ -251,9 +255,9 @@ impl StoreParser for CziSet {
             return Ok(None);
         };
         if index != self.keys.len() {
-            return Err("internal: a found object out of order".into());
+            return Err(Error::internal("a found object out of order"));
         }
-        let ir = self.ir.as_mut().ok_or("internal: no IR")?;
+        let ir = self.ir.as_mut().ok_or_else(|| Error::internal("no IR"))?;
         let e = self.tree.object(ir, key, size)?;
         self.keys.push(key.to_string());
         self.elems.push(e);
@@ -266,9 +270,9 @@ impl StoreParser for CziSet {
 
     fn finish(mut self: Box<Self>) -> Res<(Ir, J)> {
         if self.phase != Phase::Done || !self.named.is_done() {
-            return Err("internal: the parse is not done".into());
+            return Err(Error::internal("the parse is not done"));
         }
-        self.finished.take().ok_or_else(|| "internal: the files were not joined".to_string())
+        self.finished.take().ok_or_else(|| Error::internal("the files were not joined"))
     }
 }
 

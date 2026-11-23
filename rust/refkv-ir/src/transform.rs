@@ -6,6 +6,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>). A derived
 //! transform may hold shown values only if it can.
 
+use crate::error::Error;
+
 use serde_json::Value as J;
 use std::io::Read;
 
@@ -116,15 +118,15 @@ impl Transform {
     /// as `window` reads them) and its form, or None when a validator cannot derive them (the
     /// transform may then hold no shown value). A `deflate` element with a `prefix` gives its
     /// first `prefix` bytes; `Err` while `raw` does not inflate to that many.
-    pub fn rederive(self, raw: &[u8], form: &J) -> Option<Result<Vec<u8>, String>> {
+    pub fn rederive(self, raw: &[u8], form: &J) -> Option<crate::error::Res<Vec<u8>>> {
         match self {
-            Transform::Nd2LvZlib if raw.len() < 12 => Some(Err("a compressed LV record of fewer than 12 bytes".into())),
+            Transform::Nd2LvZlib if raw.len() < 12 => Some(Err(Error::rejected("a compressed LV record of fewer than 12 bytes"))),
             Transform::Nd2LvZlib => Some(crate::lv::inflate(raw, form["size"].as_u64())),
             Transform::XmlVariant => Some(Ok(raw.to_vec())),
             Transform::Gunzip | Transform::Bunzip2 => {
                 let mut out = Vec::with_capacity(form["size"].as_u64().unwrap_or(0) as usize);
                 let decoded = self.reader(raw).read_to_end(&mut out);
-                Some(decoded.map(|_| out).map_err(|e| format!("a {} stream: {e}", self.name())))
+                Some(decoded.map(|_| out).map_err(|e| Error::Rejected(format!("a {} stream: {e}", self.name()))))
             }
             Transform::Deflate => {
                 let prefix = Transform::prefix(form)?;
@@ -132,7 +134,7 @@ impl Transform {
                 Some(if out.len() as u64 == prefix {
                     Ok(out)
                 } else {
-                    Err(format!("a deflate stream that inflates to {} bytes, fewer than its prefix of {prefix}", out.len()))
+                    Err(Error::rejected(format!("a deflate stream that inflates to {} bytes, fewer than its prefix of {prefix}", out.len())))
                 })
             }
             Transform::Gzip => None,
@@ -204,7 +206,7 @@ mod tests {
         let stream = deflated(b"only these bytes");
         let form = json!({"transform": "deflate", "prefix": 17});
         let e = Transform::Deflate.rederive(&stream, &form).unwrap().unwrap_err();
-        assert_eq!(e, "a deflate stream that inflates to 16 bytes, fewer than its prefix of 17");
+        assert_eq!(e, Error::rejected("a deflate stream that inflates to 16 bytes, fewer than its prefix of 17"));
         assert!(!Transform::Deflate.starved(&stream, &form));
     }
 

@@ -13,6 +13,8 @@
 //! contiguous values; its one compressed stream; or its chunks. Bytes in linked blocks are the
 //! ranges of their blocks, and a block never written a range of the zero data source.
 
+use crate::error::Error;
+
 use super::{contiguous, key, Copied};
 use crate::hdf4::{number_json, numeric, ATTRIBUTE, NDG, VG, VH};
 use crate::hdf5::file::unhex;
@@ -337,7 +339,7 @@ const ATTRIBUTE_CLASS: &str = match std::str::from_utf8(ATTRIBUTE) {
 /// (spec/zarrify/hdf4.md §9.5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md#95-summary>), but for the chunks
 /// written and the rounds.
-pub fn plan(d: &J) -> Result<J, String> {
+pub fn plan(d: &J) -> crate::error::Res<J> {
     let doc = Doc {
         vgs: list(&d["vgroups"]).iter().map(|v| (r16(&v["ref"]), v)).collect(),
         members: list(&d["vgroups"]).iter().map(|v| (r16(&v["ref"]), tagrefs(&v["members"]))).collect(),
@@ -1098,7 +1100,7 @@ fn presented_attributes(attrs: Vec<Attr>, float: Option<bool>) -> (Map<String, J
 
 /// The parts of the bytes `[at, at + len)` of the segments `segs`, zeros as ranges of the zero
 /// data source.
-fn parts_of(segs: &[(Option<u64>, u64)], mut at: u64, mut len: u64, zeros: &mut contiguous::Zeros, out: &mut Out) -> Result<Vec<Part>, String> {
+fn parts_of(segs: &[(Option<u64>, u64)], mut at: u64, mut len: u64, zeros: &mut contiguous::Zeros, out: &mut Out) -> crate::error::Res<Vec<Part>> {
     let mut parts = Vec::new();
     for &(o, m) in segs {
         if len == 0 {
@@ -1120,12 +1122,12 @@ fn parts_of(segs: &[(Option<u64>, u64)], mut at: u64, mut len: u64, zeros: &mut 
         at = 0;
     }
     if len > 0 {
-        return Err("internal: a chunk lies past its dataset's bytes".into());
+        return Err(Error::internal("a chunk lies past its dataset's bytes"));
     }
     Ok(parts)
 }
 
-fn zero_parts(parts: &mut Vec<Part>, mut k: u64, zeros: &mut contiguous::Zeros, out: &mut Out) -> Result<(), String> {
+fn zero_parts(parts: &mut Vec<Part>, mut k: u64, zeros: &mut contiguous::Zeros, out: &mut Out) -> crate::error::Res<()> {
     while k > 0 {
         let m = k.min(ZEROS_MOST);
         parts.push(zeros.range(out, m)?);
@@ -1139,9 +1141,9 @@ type Cut = (Vec<u64>, Vec<(Vec<u64>, Chunk)>);
 
 /// The chunk shape and chunks of a contiguous array (or of one with no data, whose chunks are not
 /// written).
-fn cut(a: &J) -> Result<Cut, String> {
+fn cut(a: &J) -> crate::error::Res<Cut> {
     let shape = shape_of(&a["shape"]);
-    grid_chunks(0, &shape, n(&a["item"]).max(1), CHUNK_BYTES, usize::MAX).ok_or_else(|| "internal: the data cannot be cut into chunks".to_string())
+    grid_chunks(0, &shape, n(&a["item"]).max(1), CHUNK_BYTES, usize::MAX).ok_or_else(|| Error::internal("the data cannot be cut into chunks"))
 }
 
 /// The key of the chunk at `coords` of the array at `path`: `c` alone for an array of rank 0.
@@ -1151,7 +1153,7 @@ fn chunk_key(path: &str, coords: &[u64]) -> String {
 }
 
 /// The projection of the file the description describes, through refkv's plan ([`plan`]).
-pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied) -> crate::error::Res<Out> {
     let planned = plan(description)?;
     let nodes = list(&planned["nodes"]);
     let mut out = Out::new(url);
@@ -1232,7 +1234,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied) -> Result<
                 let segs = segments(&store["segments"]);
                 let Some((_, chunks)) = c else { continue };
                 for (coords, chunk) in chunks {
-                    let Chunk::Ranges(cp) = chunk else { return Err("internal: a contiguous chunk is not a range".into()) };
+                    let Chunk::Ranges(cp) = chunk else { return Err(Error::internal("a contiguous chunk is not a range")) };
                     let mut parts = Vec::new();
                     for p in cp {
                         match p {

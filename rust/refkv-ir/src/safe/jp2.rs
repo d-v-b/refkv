@@ -9,6 +9,8 @@
 //! main header with a SIZ marker of its own, the tile's tile-part, and, at the array's right
 //! and bottom edges, empty tiles that fill the chunk ([`chunk_parts`]).
 
+use crate::error::Error;
+
 use crate::fed::{Fed, Word, uint};
 use crate::rules::{self, Rules, flag, num, text};
 
@@ -80,12 +82,12 @@ impl Codestream {
 /// What a walk needs to go on: a read (offset, length, read-ahead), or a rejection.
 enum Need {
     Read(u64, u64, u64),
-    Reject(String),
+    Reject(Error),
 }
 
-impl From<String> for Need {
-    fn from(s: String) -> Need {
-        Need::Reject(s)
+impl From<Error> for Need {
+    fn from(e: Error) -> Need {
+        Need::Reject(e)
     }
 }
 
@@ -100,7 +102,7 @@ struct Cache<'a> {
 impl Cache<'_> {
     fn read(&self, o: u64, len: u64, ahead: u64) -> W<&[u8]> {
         if o.checked_add(len).is_none_or(|e| e > self.n) {
-            return Err(Need::Reject(format!("a band file read of [{o}, {}) is outside its {} bytes", o.saturating_add(len), self.n)));
+            return Err(Need::Reject(Error::rejected(format!("a band file read of [{o}, {}) is outside its {} bytes", o.saturating_add(len), self.n))));
         }
         self.fed.get(o, len).ok_or(Need::Read(o, len, ahead))
     }
@@ -116,49 +118,49 @@ fn boxes(c: &Cache) -> W<Vec<Jp2Box>> {
     let mut out = Vec::new();
     for i in 0..MAX_BOXES {
         if o + 8 > n {
-            return Err("a band file is not a JP2 file: its boxes end without a jp2c box".to_string().into());
+            return Err(Need::Reject(Error::rejected("a band file is not a JP2 file: its boxes end without a jp2c box")));
         }
         let head = c.get(o, 8)?;
         let lbox = uint(head, 0, 4, false);
         let tbox: [u8; 4] = head[4..8].try_into().unwrap();
         if i == 0 && (lbox != 12 || &tbox != b"jP  " || c.get(o + 8, 4)? != b"\r\n\x87\n") {
-            return Err("a band file is not a JP2 file: no JPEG 2000 signature box".to_string().into());
+            return Err(Need::Reject(Error::rejected("a band file is not a JP2 file: no JPEG 2000 signature box")));
         }
         let (length, hl) = if lbox == 1 {
             if o + 16 > n {
-                return Err("a JP2 box's XLBox is beyond the file".to_string().into());
+                return Err(Need::Reject(Error::rejected("a JP2 box's XLBox is beyond the file")));
             }
             let x = c.get(o + 8, 8)?;
             let length = u64::be_at(x, 0);
             if length < 16 {
-                return Err(format!("a JP2 box's XLBox is {length}, less than 16").into());
+                return Err(Need::Reject(Error::Rejected(format!("a JP2 box's XLBox is {length}, less than 16"))));
             }
             (length, 16)
         } else if lbox == 0 {
             (n - o, 8)
         } else {
             if lbox < 8 {
-                return Err(format!("a JP2 box's LBox is {lbox}").into());
+                return Err(Need::Reject(Error::Rejected(format!("a JP2 box's LBox is {lbox}"))));
             }
             (lbox, 8)
         };
         if o.checked_add(length).is_none_or(|e| e > n) {
-            return Err("a JP2 box reaches beyond the file".to_string().into());
+            return Err(Need::Reject(Error::rejected("a JP2 box reaches beyond the file")));
         }
         if i == 1 && &tbox != b"ftyp" {
-            return Err("a band file's second box is not ftyp".to_string().into());
+            return Err(Need::Reject(Error::rejected("a band file's second box is not ftyp")));
         }
         let raw = c.get(o, hl)?.to_vec();
         out.push(Jp2Box { at: o, len: length, header: hl, tbox, raw });
         if &tbox == b"jp2c" {
             if o + length != n {
-                return Err("a band file's jp2c box does not end at the end of the file".to_string().into());
+                return Err(Need::Reject(Error::rejected("a band file's jp2c box does not end at the end of the file")));
             }
             return Ok(out);
         }
         o += length;
     }
-    Err(format!("a band file has no jp2c box in its first {MAX_BOXES} boxes").into())
+    Err(Need::Reject(Error::Rejected(format!("a band file has no jp2c box in its first {MAX_BOXES} boxes"))))
 }
 
 /// (N, [(PPx_r, PPy_r)]) from the SPcod/SPcoc fields at `at`.
@@ -177,17 +179,17 @@ fn coding(rules: &Rules, seg: &[u8], at: usize, scod: u64, what: &str) -> W<Codi
 fn main_header(rules: &Rules, c: &Cache, boxes: Vec<Jp2Box>, c0: u64) -> W<Codestream> {
     let c1 = c.n;
     if c0 + 4 > c1 || uint(c.get(c0, 2)?, 0, 2, false) != SOC as u64 {
-        return Err("a band file's codestream does not start with SOC".to_string().into());
+        return Err(Need::Reject(Error::rejected("a band file's codestream does not start with SOC")));
     }
     if uint(c.get(c0 + 2, 2)?, 0, 2, false) != SIZ as u64 {
-        return Err("a band file's codestream has no SIZ marker after SOC".to_string().into());
+        return Err(Need::Reject(Error::rejected("a band file's codestream has no SIZ marker after SOC")));
     }
     if c0 + 6 > c1 {
-        return Err("a band file's SIZ marker is truncated".to_string().into());
+        return Err(Need::Reject(Error::rejected("a band file's SIZ marker is truncated")));
     }
     let lsiz = uint(c.get(c0 + 4, 2)?, 0, 2, false);
     if c0 + 4 + lsiz > c1 || lsiz < 41 {
-        return Err("a band file's SIZ segment is truncated".to_string().into());
+        return Err(Need::Reject(Error::rejected("a band file's SIZ segment is truncated")));
     }
     let siz = c.get(c0 + 2, 2 + lsiz)?.to_vec();
     let (rsiz, xs, ys, xo, yo, xt, yt, xto, yto, csiz) = (uint(&siz, 4, 2, false), uint(&siz, 6, 4, false), uint(&siz, 10, 4, false), uint(&siz, 14, 4, false),
@@ -212,10 +214,10 @@ fn main_header(rules: &Rules, c: &Cache, boxes: Vec<Jp2Box>, c0: u64) -> W<Codes
     loop {
         // the rest's bound, before reading on: a long run of segments is refused at 64 KiB
         if pos - rest_at > max_rest {
-            return Err(format!("a band file's main header is more than {max_rest} bytes").into());
+            return Err(Need::Reject(Error::Rejected(format!("a band file's main header is more than {max_rest} bytes"))));
         }
         if pos + 2 > c1 {
-            return Err("a band file's main header has no SOT".to_string().into());
+            return Err(Need::Reject(Error::rejected("a band file's main header has no SOT")));
         }
         let marker = uint(c.get(pos, 2)?, 0, 2, false) as u16;
         if marker == SOT {
@@ -231,11 +233,11 @@ fn main_header(rules: &Rules, c: &Cache, boxes: Vec<Jp2Box>, c0: u64) -> W<Codes
         };
         rules.check("marker", &mut rules::env([("allowed", flag(ALLOWED.contains(&marker))), ("name", text(&name))]))?;
         if pos + 4 > c1 {
-            return Err("a band file's main header marker segment is truncated".to_string().into());
+            return Err(Need::Reject(Error::rejected("a band file's main header marker segment is truncated")));
         }
         let length = uint(c.get(pos + 2, 2)?, 0, 2, false);
         if length < 2 || pos + 2 + length > c1 {
-            return Err("a band file's main header marker segment is truncated".to_string().into());
+            return Err(Need::Reject(Error::rejected("a band file's main header marker segment is truncated")));
         }
         let seg = c.get(pos + 4, length - 2)?.to_vec();
         if marker == COD {
@@ -305,7 +307,7 @@ impl BandReader {
     }
 
     /// The next read, None when the walk is done, or the rejection.
-    pub fn step(&mut self, rules: &Rules) -> Result<Option<(u64, u64)>, String> {
+    pub fn step(&mut self, rules: &Rules) -> crate::error::Res<Option<(u64, u64)>> {
         loop {
             match self.phase {
                 Phase::Done => return Ok(None),
@@ -335,7 +337,7 @@ impl BandReader {
                     }
                     if k < nx * ny {
                         if s + 12 > c1 {
-                            return Err(format!("a band file's tile-part {k} is beyond the codestream"));
+                            return Err(Error::rejected(format!("a band file's tile-part {k} is beyond the codestream")));
                         }
                         let Some(head) = self.fed.get(s, 12) else { return Ok(self.need(s, 12, ahead)) };
                         let head: [u8; 12] = head.try_into().unwrap();
@@ -350,11 +352,11 @@ impl BandReader {
                         continue;
                     }
                     if s + 2 != c1 {
-                        return Err("a band file's codestream does not end with EOC after its last tile-part".into());
+                        return Err(Error::rejected("a band file's codestream does not end with EOC after its last tile-part"));
                     }
                     let Some(e) = self.fed.get(s, 2).map(|b| uint(b, 0, 2, false)) else { return Ok(self.need(s, 2, 2)) };
                     if e != EOC as u64 {
-                        return Err("a band file's codestream does not end with EOC after its last tile-part".into());
+                        return Err(Error::rejected("a band file's codestream does not end with EOC after its last tile-part"));
                     }
                     self.fed.clear();
                     self.phase = Phase::Done;
@@ -396,10 +398,10 @@ fn area(cs: &Codestream, t: u64) -> Option<(u64, u64, u64, u64, u64, u64)> {
 
 /// [e_1, …, e_{a×b−1}], the empty packets of the empty tiles of the chunk of tile t, once
 /// their tail, of 2 + Σ (14 + e_k) bytes, is known to be at most MAX_TAIL; else the rejection.
-pub fn tail_packets(cs: &Codestream, t: u64) -> Result<Vec<u64>, String> {
-    let (x0, y0, w, h, a, b) = area(cs, t).ok_or("a chunk's image area reaches beyond 2^32 − 1")?;
+pub fn tail_packets(cs: &Codestream, t: u64) -> crate::error::Res<Vec<u64>> {
+    let (x0, y0, w, h, a, b) = area(cs, t).ok_or_else(|| Error::rejected("a chunk's image area reaches beyond 2^32 − 1"))?;
     let (tw, th) = (cs.tile_w, cs.tile_h);
-    let too_long = || format!("the empty tiles of a chunk of tile {t} would take more than {MAX_TAIL} bytes");
+    let too_long = || Error::Rejected(format!("the empty tiles of a chunk of tile {t} would take more than {MAX_TAIL} bytes"));
     if (a * b - 1).saturating_mul(14).saturating_add(2) > MAX_TAIL {
         return Err(too_long());
     }
@@ -418,15 +420,15 @@ pub fn tail_packets(cs: &Codestream, t: u64) -> Result<Vec<u64>, String> {
 }
 
 /// The length of the chunk of tile t's empty tiles and EOC.
-pub fn tail_length(cs: &Codestream, t: u64) -> Result<u64, String> {
+pub fn tail_length(cs: &Codestream, t: u64) -> crate::error::Res<u64> {
     Ok(2 + tail_packets(cs, t)?.iter().map(|e| 14 + e).sum::<u64>())
 }
 
 /// The chunk of tile t (§8.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#86-chunks>):
 /// (SOC + SIZ', SOT, (offset, length) of the body in the band file, the empty tiles and
 /// EOC, whether it has empty tiles).
-pub fn chunk_parts(cs: &Codestream, t: u64) -> Result<ChunkParts, String> {
-    let (x0, y0, w, h, a, b) = area(cs, t).ok_or("a chunk's image area reaches beyond 2^32 − 1")?;
+pub fn chunk_parts(cs: &Codestream, t: u64) -> crate::error::Res<ChunkParts> {
+    let (x0, y0, w, h, a, b) = area(cs, t).ok_or_else(|| Error::rejected("a chunk's image area reaches beyond 2^32 − 1"))?;
     let packets = tail_packets(cs, t)?;
     let mut siz = cs.siz.clone();
     siz[4..6].copy_from_slice(&0u16.to_be_bytes());

@@ -12,6 +12,8 @@
 //! described (`envi/stored.rs`; spec/stored-array.md §7
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>).
 
+use crate::error::Error;
+
 use crate::expr::V;
 use crate::ir::{GAP, Ir, NO_INDEX, Res, key_name};
 use crate::rules::{self, Rules, flag, num, text};
@@ -249,7 +251,7 @@ pub fn fields(rules: &Rules, h: &Header) -> Res<Fields> {
     let code = integer(d).filter(|v| *v > 0);
     let spec = code.and_then(|c| rules.entry("types", &c.to_string()));
     check_value(rules, "data type", d, spec.is_none().then(|| "is not the code of an ENVI data type of a flat array (1 to 6, 9, or 12 to 15)".into()))?;
-    let spec = spec.ok_or("internal: a data type the schema does not name")?;
+    let spec = spec.ok_or_else(|| Error::internal("a data type the schema does not name"))?;
     let item = spec["bytes"].as_u64().unwrap_or(1);
 
     let flag_field = |field: &str| -> Res<bool> {
@@ -322,7 +324,7 @@ impl Envi {
     /// The listing's IR, its objects' elements and keys: one key, the header file.
     pub fn new(ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Envi> {
         if keys.len() != 1 || keys[0].0.contains('/') {
-            return Err(format!("an ENVI run starts from the header file alone, not {} objects", keys.len()));
+            return Err(Error::rejected(format!("an ENVI run starts from the header file alone, not {} objects", keys.len())));
         }
         Ok(Envi {
             rules: rules::of("envi"),
@@ -354,7 +356,7 @@ impl Envi {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#84-the-data>): `(start,
     /// length)`, checked.
     fn place_data(&self) -> Res<(u64, u64)> {
-        let f = self.fields.as_ref().ok_or("internal: no fields")?;
+        let f = self.fields.as_ref().ok_or_else(|| Error::internal("no fields"))?;
         let (key, size) = self.keys[self.data].clone();
         let total = f.stored_shape().iter().fold(f.item as u128, |a, &s| a.saturating_mul(s as u128));
         self.rules.check("data", rules::env([
@@ -368,10 +370,10 @@ impl Envi {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#53-elements>) and the
     /// description (§8.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#87-the-description>).
     fn emit(&mut self) -> Res<J> {
-        let h = self.header.clone().ok_or("internal: no header")?;
-        let f = self.fields.clone().ok_or("internal: no fields")?;
+        let h = self.header.clone().ok_or_else(|| Error::internal("no header"))?;
+        let f = self.fields.clone().ok_or_else(|| Error::internal("no fields"))?;
         let (start, length) = self.place_data()?;
-        let mut ir = self.ir.take().ok_or("internal: no IR")?;
+        let mut ir = self.ir.take().ok_or_else(|| Error::internal("no IR"))?;
         // the header file, which no chunk references, is held: the run read it whole
         let mut lines = Vec::with_capacity(h.lines.len());
         for (i, &(o, n)) in h.lines.iter().enumerate() {
@@ -478,7 +480,7 @@ impl Envi {
                 }
                 Phase::Data => {
                     if self.fields.as_ref().is_some_and(|f| f.gzip) {
-                        let b = self.got.remove(&(self.data, 0)).ok_or("internal: the gzip header was not read")?;
+                        let b = self.got.remove(&(self.data, 0)).ok_or_else(|| Error::internal("the gzip header was not read"))?;
                         let key = self.keys[self.data].0.clone();
                         self.rules.check("gzip", rules::env([("ok", flag(b == [0x1f, 0x8b, 8])), ("key", text(&key))]))?;
                     }
@@ -502,11 +504,11 @@ impl StoreParser for Envi {
 
     fn found(&mut self, key: &str, index: usize, size: Option<u64>) -> Res<Option<u32>> {
         let Some(size) = size else { return Ok(None) };
-        let ir = self.ir.as_mut().ok_or("internal: no IR")?;
+        let ir = self.ir.as_mut().ok_or_else(|| Error::internal("no IR"))?;
         let (n, x) = key_name(key, false);
         let e = ir.object(0, &n, x, size)?;
         if index != self.keys.len() {
-            return Err("internal: a found object out of order".into());
+            return Err(Error::internal("a found object out of order"));
         }
         self.keys.push((key.to_string(), size));
         self.elems.push(e);
@@ -529,10 +531,10 @@ impl StoreParser for Envi {
 
     fn finish(mut self: Box<Self>) -> Res<(Ir, J)> {
         if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
+            return Err(Error::internal("the parse is not done"));
         }
         let description = self.emit()?;
-        Ok((self.ir.take().ok_or("internal: no IR")?, description))
+        Ok((self.ir.take().ok_or_else(|| Error::internal("no IR"))?, description))
     }
 }
 
@@ -551,8 +553,8 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, _size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::refused("an ENVI header is zarrified as a store run, with its data file")
     }
-    fn project(&self, _: &Ir, _: &J, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        Err("an ENVI input is zarrified as a store run".into())
+    fn project(&self, _: &Ir, _: &J, _: &str, _: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
+        Err(Error::rejected("an ENVI input is zarrified as a store run"))
     }
 }
 

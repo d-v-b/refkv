@@ -5,6 +5,8 @@
 //! the MP4 projection cuts them (spec/zarrify/mp4.md §8.3
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>).
 
+use crate::error::Error;
+
 use super::mp4::{grid_lengths, stream_codec, video_chunk, video_chunks};
 use super::{arr, n};
 use crate::ir::Ir;
@@ -47,7 +49,7 @@ fn attributes<'a>(nodes: &'a [J], path: &str) -> &'a J {
 /// plan of it together (`project::mp4::planned_track`); an error, the convention's, when it
 /// zarrifies no track (spec/zarrify/mp4.md §8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>).
-fn planned(description: &J) -> Result<J, String> {
+fn planned(description: &J) -> crate::error::Res<J> {
     use super::mp4::{plan, planned_track};
     let p = plan(description)?;
     let tracks: Vec<J> = arr(&description["tracks"]).iter().zip(arr(&p["tracks"])).map(|(t, f)| planned_track(t, f)).collect();
@@ -63,18 +65,18 @@ fn planned(description: &J) -> Result<J, String> {
 /// and `attributes`; its `reason`, null for a channel the convention zarrifies; and of such a
 /// channel its MP4 file's `brand`, `timescale`, `duration` and `chunk_frames`, and its one track as
 /// refkv's MP4 plan reads it (`track`, null for another).
-pub fn channels(described: &[J], pad: &Result<(u64, u64), String>) -> Vec<J> {
+pub fn channels(described: &[J], pad: &crate::error::Res<(u64, u64)>) -> Vec<J> {
     described.iter().map(|c| {
         let mut m = Map::new();
         for k in ["name", "path", "offset", "length", "attributes"] {
             m.insert(k.into(), c[k].clone());
         }
         let file = match (c["unread"].as_str(), &c["mp4"]) {
-            (Some(r), _) => Err(r.to_string()),
-            (None, d) => planned(d).map_err(|e| format!("its MP4 file: {e}")),
+            (Some(r), _) => Err(Error::rejected(r)),
+            (None, d) => planned(d).map_err(|e| e.context(|m| format!("its MP4 file: {m}"))),
         };
         let reason = match &file {
-            Err(r) => Some(r.clone()),
+            Err(r) => Some(r.to_string()),
             Ok(f) => match arr(&f["tracks"]) {
                 [t] if !t["reason"].is_null() => Some(format!("its MP4 file's track {}: {}", t["id"], t["reason"].as_str().unwrap_or(""))),
                 [t] if !matches!(t["format"].as_str(), Some("h264" | "hevc" | "av1" | "vp9")) => {
@@ -84,7 +86,7 @@ pub fn channels(described: &[J], pad: &Result<(u64, u64), String>) -> Vec<J> {
                     Some(format!("its pictures are {}, not 4:0:0 (monochrome)", t["geometry"]["chroma"].as_str().unwrap_or("")))
                 }
                 [t] => match pad {
-                    Err(m) => Some(m.clone()),
+                    Err(m) => Some(m.to_string()),
                     Ok((right, bottom)) => {
                         let (w, h) = (n(&t["geometry"]["width"]), n(&t["geometry"]["height"]));
                         (*right >= w || *bottom >= h).then(|| format!("a padding of {right} by {bottom} of pictures of {w} by {h}"))
@@ -115,7 +117,7 @@ pub fn plan(description: &J, nodes: &[J]) -> J {
 }
 
 /// The output of the file `description` describes, through refkv's plan of it (`plan`).
-pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
     let nodes = super::hdf5_nodes::nodes(description)?.nodes;
     let h = &plan(description, &nodes);
     let root = attributes(&nodes, "");
@@ -137,7 +139,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
     let mut refs = Refs::new(ir, out);
     let mut summary = Vec::new();
     for c in channels.iter().filter(|c| c["reason"].is_null()) {
-        let name = c["name"].as_str().ok_or("internal: a channel has no name")?;
+        let name = c["name"].as_str().ok_or_else(|| Error::internal("a channel has no name"))?;
         let t = &c["track"];
         let first = n(&t["first"]) as usize;
         let count = n(&t["count"]) as usize;
@@ -180,7 +182,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
         let codecs = stream_codec(t["format"].as_str().unwrap_or("hevc"), &t["setup"], Some("y"));
         let doc = rectilinear_array_json(&shape, data_type, &json!([grid_lengths(&lengths), hgt, w]), codecs, &AXES);
         refs.out.json(&format!("{name}/0/zarr.json"), &doc);
-        let form = ir.form_id(first as u32).ok_or("internal: a sample has no form")?;
+        let form = ir.form_id(first as u32).ok_or_else(|| Error::internal("a sample has no form"))?;
         for (q, (_, (o, len), parts)) in cut.into_iter().enumerate() {
             refs.chunk(format!("{name}/0/c/{q}/0/0"), o, len, form, Some(parts))?;
         }

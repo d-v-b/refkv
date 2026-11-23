@@ -83,7 +83,7 @@ pub trait StoreParser: Send + Sync {
     /// it returns; None for a key that does not exist.
     fn found(&mut self, key: &str, index: usize, size: Option<u64>) -> crate::ir::Res<Option<u32>> {
         let _ = (key, index, size);
-        Err("internal: this store format probes no keys".into())
+        Err(Error::internal("this store format probes no keys"))
     }
     /// The host found the probed key `written` at the key `key` (spec/zarrify.md §1.9
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
@@ -91,7 +91,7 @@ pub trait StoreParser: Send + Sync {
     /// when that key is an object already.
     fn resolved(&mut self, written: &str, key: &str) -> crate::ir::Res<()> {
         let _ = (written, key);
-        Err("internal: this store format's keys are found as written".into())
+        Err(Error::internal("this store format's keys are found as written"))
     }
     /// Whether the probed key `key` is a sibling whose absence the profile reads as the named
     /// file having none (GRIB's index files): a run given a scope ([`StoreRun::scope`]) answers

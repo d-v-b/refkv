@@ -12,6 +12,8 @@
 //! referenced at its own key (§7
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#7-chunks-and-ome-xml>).
 
+use crate::error::Error;
+
 use crate::expr::V;
 use crate::ir::Res;
 use crate::json::Jv;
@@ -109,7 +111,7 @@ impl Read for Jv {
 /// A value a check of `schema/ome-zarr.json` made sure of just before: its absence is the
 /// schema's and the code's disagreeing, a rejection rather than a panic.
 fn got<T>(v: Option<T>) -> Res<T> {
-    v.ok_or_else(|| "internal: a value the schema checked is not there".to_string())
+    v.ok_or_else(|| Error::internal("a value the schema checked is not there"))
 }
 
 /// An array of the hierarchy, as the checks read it.

@@ -11,6 +11,8 @@
 //! description (`describe.rs`). No byte of a block's data is read. The images' checks
 //! (`schema/lif.json`) and their layout are refkv's plan's (`plan.rs`), made from the description.
 
+use crate::error::Error;
+
 use crate::fed::{Fed, Word};
 use crate::ir::*;
 use crate::step::Step;
@@ -370,7 +372,7 @@ impl Lif {
         self.fed.feed(offset, data);
     }
 
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         loop {
             match self.phase {
                 Phase::Start => {
@@ -442,7 +444,7 @@ impl Lif {
     /// magic byte and XML length.
     fn header(&mut self) -> Res<()> {
         self.rules.check("file", rules::env([("size", num(self.size as f64))]))?;
-        let h = self.fed.get(0, HEAD).ok_or("internal: no header block")?.to_vec();
+        let h = self.fed.get(0, HEAD).ok_or_else(|| Error::internal("no header block"))?.to_vec();
         let chars = u32::le_at(&h, 9) as u64;
         self.rules.check(
             "header",
@@ -462,7 +464,7 @@ impl Lif {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#22-the-xml-header>): its root
     /// and version, and the `Memory` elements the walk predicts.
     fn read_xml(&mut self) -> Res<()> {
-        let xml = self.fed.get(HEAD, 2 * self.chars).ok_or("internal: no XML")?;
+        let xml = self.fed.get(HEAD, 2 * self.chars).ok_or_else(|| Error::internal("no XML"))?;
         let units: Vec<u16> = xml.chunks_exact(2).map(|c| u16::le_at(c, 0)).collect();
         if xml.len() as u64 <= SHOWN {
             self.xml = xml.to_vec();
@@ -498,7 +500,7 @@ impl Lif {
                 ("xml_at", num(end as f64)),
             ]),
         )?;
-        let h = h.ok_or("internal: no object parts")?;
+        let h = h.ok_or_else(|| Error::internal("no object parts"))?;
         self.object.versions = h[..OBJECT_VERSIONS as usize].to_vec();
         self.blocks.push(Block { start: versions, fields: h[OBJECT_VERSIONS as usize..].to_vec(), id: Vec::new(), size: data_size, image: None });
         self.object.at = block + data_size;
@@ -507,7 +509,7 @@ impl Lif {
 
     /// A LOF's XML block's fixed part.
     fn object_head(&mut self) -> Res<()> {
-        let h = self.fed.get(self.object.at, HEAD).ok_or("internal: no XML block")?.to_vec();
+        let h = self.fed.get(self.object.at, HEAD).ok_or_else(|| Error::internal("no XML block"))?.to_vec();
         let chars = u32::le_at(&h, 9) as u64;
         self.rules.check(
             "object_xml",
@@ -530,7 +532,7 @@ impl Lif {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#25-leica-object-files>).
     fn object_xml(&mut self) -> Res<()> {
         let n = 2 * self.object.chars;
-        let xml = self.fed.get(self.object.at + HEAD, n).ok_or("internal: no XML")?;
+        let xml = self.fed.get(self.object.at + HEAD, n).ok_or_else(|| Error::internal("no XML"))?;
         let units: Vec<u16> = xml.chunks_exact(2).map(|c| u16::le_at(c, 0)).collect();
         if n <= SHOWN {
             self.object.xml = xml.to_vec();
@@ -566,11 +568,11 @@ impl Lif {
         if root.as_deref() == Some("LMSDataContainerEnhancedHeader") {
             self.file = File::Lifext;
         }
-        let tree = tree.ok_or("internal: no XML tree")?;
+        let tree = tree.ok_or_else(|| Error::internal("no XML tree"))?;
         self.unique = tree.root().and_then(|r| tree.child(r, "Element")).and_then(|e| tree.attr(e, "UniqueID"));
         // the file's own element's block, then the blocks of data, each ID once: LAS X names
         // empty and repeated IDs it writes no block for
-        let (r, end) = tree.root.ok_or("internal: no root")?;
+        let (r, end) = tree.root.ok_or_else(|| Error::internal("no root"))?;
         let mut seen = std::collections::HashSet::new();
         for n in r..end {
             let Some(m) = (tree.name(n) == "Element").then(|| tree.child(n, "Memory")).flatten() else { continue };
@@ -759,12 +761,12 @@ impl Lif {
     /// The finished IR, with its images described (`stored.rs`), and the description, each image's
     /// with `declared_by`, the key of its stored array: the element of the XML that declares it, and
     /// its index among the images that XML declares.
-    pub fn finish(self) -> Result<(Ir, J), String> {
+    pub fn finish(self) -> crate::error::Res<(Ir, J)> {
         let (mut ir, mut facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
         let Some(images) = facts["images"].as_array_mut().filter(|i| !i.is_empty()) else {
             return Ok((ir, facts));
         };
-        let key = stored::declaring(&ir).ok_or("internal: no element holds the XML of the images")?;
+        let key = stored::declaring(&ir).ok_or_else(|| Error::internal("no element holds the XML of the images"))?;
         // null of an image with no stored array, which refkv's plan rejects
         let arrays: std::collections::HashSet<usize> = self.reached.iter().map(|r| r.0).collect();
         for (k, im) in images.iter_mut().enumerate() {
@@ -865,12 +867,12 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Lif>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
         crate::project::lif::project(ir, description, url)
     }
     /// The projection reads nothing; refkv's plan is made here, so that a run rejects an input the
     /// plan rejects before it is done (`plan::plan`).
-    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value) -> crate::error::Res<Vec<(u64, u64)>> {
         plan::plan(description).map(|_| Vec::new())
     }
 }

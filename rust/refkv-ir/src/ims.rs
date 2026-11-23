@@ -18,6 +18,8 @@
 //! numbered depth first from the root group (a group's hard links in ascending byte order of
 //! their names), then the global heap collections.
 
+use crate::error::Error;
+
 use crate::check;
 use crate::hdf5::walk::{lenient, visit, Emit, Visit};
 use crate::hdf5::{self, le, Acc, Fail, Links, R, Target, H5};
@@ -241,7 +243,7 @@ impl Ims {
         self.rules.check(role, &mut env).map_err(Fail::Bad)
     }
 
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         loop {
             self.h.src.want.clear();
             let r = match self.phase {
@@ -257,16 +259,16 @@ impl Ims {
                     if self.phase == Phase::Layout {
                         return Err(m);
                     }
-                    return Err(format!("internal: the walk rejected: {m}"));
+                    return Err(Error::internal(format!("the walk rejected: {m}")));
                 }
                 Err(Fail::Miss) => {
                     let mut want = std::mem::take(&mut self.h.src.want);
                     if want.is_empty() {
-                        return Err("internal: a round wants nothing".into());
+                        return Err(Error::internal("a round wants nothing"));
                     }
                     self.rounds += 1;
                     if self.rounds as f64 > self.rules.limit("max_rounds") {
-                        return Err(format!("more than {} rounds of dependent reads", self.rules.limit("max_rounds")));
+                        return Err(Error::rejected(format!("more than {} rounds of dependent reads", self.rules.limit("max_rounds"))));
                     }
                     want.sort_unstable();
                     want.dedup();
@@ -735,15 +737,15 @@ impl Ims {
 
     // ---- the IR
 
-    pub fn finish(mut self) -> Result<(Ir, J), String> {
+    pub fn finish(mut self) -> crate::error::Res<(Ir, J)> {
         if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
+            return Err(Error::internal("the parse is not done"));
         }
         let size = self.h.size();
         let must: HashSet<u64> = self.image_sets.iter().map(|im| im.at).collect();
         let room = self.room.unwrap_or(self.rules.limit("walk_elements") as u64 + size / self.rules.limit("walk_bytes_per_element") as u64);
         let mut e = Emit { ir: Ir::new(self.h.file_size()), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must, rec: Default::default(), inner: HashMap::new(), grafted: HashMap::new() };
-        let sb = self.h.sb.clone().ok_or("internal: no superblock")?;
+        let sb = self.h.sb.clone().ok_or_else(|| Error::internal("no superblock"))?;
         e.superblock(&sb)?;
         if let Some(ext) = self.extension.take() {
             if let Some(h) = &ext.header {
@@ -808,7 +810,7 @@ impl Ims {
         for im in &self.image_sets {
             let el = match e.chunks_of.get(&im.at) {
                 Some(&x) => json!(x),
-                None if im.allocated => return Err(format!("internal: the chunks of the dataset at {} are not described", im.at)),
+                None if im.allocated => return Err(Error::internal(format!("the chunks of the dataset at {} are not described", im.at))),
                 None => J::Null,
             };
             data.push(json!({"level": im.r, "time": im.t, "channel": im.c, "chunks": el, "grid": im.grid, "object": struct_of.get(&im.at)}));
@@ -843,7 +845,7 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Ims>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
         crate::project::ims::project(ir, description, url)
     }
 }

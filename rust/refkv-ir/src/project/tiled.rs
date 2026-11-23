@@ -18,7 +18,7 @@ pub const MAX_NAME: usize = 256;
 
 /// The data type of the samples (spec/zarrify/tiff.md §4.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>).
-pub fn data_type(planned: &J) -> Result<String, String> {
+pub fn data_type(planned: &J) -> crate::error::Res<String> {
     crate::routines::tiff_data_type_of(n(&planned["sample_format"]), n(&planned["bits"]))
 }
 
@@ -49,7 +49,7 @@ pub fn channel(planned: &J, s: u64, c: u64) -> u64 {
 /// each level's zarr.json, of the shape and chunk shape `shape(level)`, then its chunks
 /// (`tiles(refs, index, level)`).
 pub fn arrays(ir: &Ir, planned: &J, url: &str, only: Option<usize>, shape: impl Fn(&J) -> (Vec<u64>, Vec<u64>),
-              mut tiles: impl FnMut(&mut Refs, usize, &J) -> Result<(), String>) -> Result<(Out, Vec<Vec<u64>>), String> {
+              mut tiles: impl FnMut(&mut Refs, usize, &J) -> crate::error::Res<()>) -> crate::error::Res<(Out, Vec<Vec<u64>>)> {
     let axes = strs(&planned["axes"]);
     // `x` in stored order: the last axis, or the one before the samples when they are interleaved
     let x = axes.len() - if contig(planned) { 2 } else { 1 };
@@ -108,7 +108,7 @@ fn short_last_strip(axes: &[&str], chunk: &[u64], h: u64) -> J {
 /// or the element's recipe.
 #[allow(clippy::too_many_arguments)]
 pub fn plane(refs: &mut Refs, prefix: &str, e: Option<u64>, per: u64, across: u64, coords: impl Fn(u64, u64, u64) -> Vec<u64>,
-             parts: impl Fn(u64, u64, u64, u64) -> Option<Vec<Part>>) -> Result<(), String> {
+             parts: impl Fn(u64, u64, u64, u64) -> Option<Vec<Part>>) -> crate::error::Res<()> {
     let mut members = e.map(|e| refs.ir.members(e as u32)).unwrap_or_default();
     members.sort_unstable();
     for (k, start, length, form) in members {
@@ -125,7 +125,7 @@ pub fn plane(refs: &mut Refs, prefix: &str, e: Option<u64>, per: u64, across: u6
 /// without one), with `per` strips a sample plane, keyed `prefix` and `coords(s, row, 0)`, a chunk's
 /// last strip `k` followed by `tail(k)`.
 pub fn joined(refs: &mut Refs, prefix: &str, e: Option<u64>, per: u64, join: u64, coords: impl Fn(u64, u64, u64) -> Vec<u64>,
-              tail: impl Fn(u64) -> Option<Part>) -> Result<(), String> {
+              tail: impl Fn(u64) -> Option<Part>) -> crate::error::Res<()> {
     let mut members = e.map(|e| refs.ir.members(e as u32)).unwrap_or_default();
     members.sort_unstable();
     let at = |k: u64| (k / per, k % per / join);
@@ -166,7 +166,7 @@ pub struct Padding {
 impl Padding {
     /// The padding of level `lv` (none unless it is in strips and has a `pad`): its zero bytes a
     /// prefix of the output's zero data source `zeros` (`zero_source`).
-    pub fn of(refs: &mut Refs, lv: &J, zeros: &mut Zeros) -> Result<Self, String> {
+    pub fn of(refs: &mut Refs, lv: &J, zeros: &mut Zeros) -> crate::error::Res<Self> {
         let strips = lv["strips"].as_bool().unwrap_or(false);
         let pad = &lv["pad"];
         let at = |p: &J| (n(&p["c"]), n(&p["k"]));
@@ -204,8 +204,8 @@ impl Padding {
 
 /// The source's ranges the windows sample (`samples`, of the coarsest level): their chunks'
 /// bytes, from that level's references (`arrays`), which the run reads after the parser.
-pub fn reads(ir: &Ir, planned: &J, samples: &[window::Sample], arrays: impl Fn(&Ir, &J, &str, Option<usize>) -> Result<(Out, Vec<Vec<u64>>), String>)
-             -> Result<Vec<(u64, u64)>, String> {
+pub fn reads(ir: &Ir, planned: &J, samples: &[window::Sample], arrays: impl Fn(&Ir, &J, &str, Option<usize>) -> crate::error::Res<(Out, Vec<Vec<u64>>)>)
+             -> crate::error::Res<Vec<(u64, u64)>> {
     if samples.is_empty() {
         return Ok(Vec::new());
     }
@@ -228,7 +228,7 @@ pub fn sampled(out: &Out, planned: &J, samples: &[window::Sample], chunk: impl F
 
 /// The image's OME-NGFF object: the plan's axes, units and scales, with the plan's translation
 /// at every level when it has one.
-pub fn ome(planned: &J, axes: &[&str], name: Option<&J>) -> Result<J, String> {
+pub fn ome(planned: &J, axes: &[&str], name: Option<&J>) -> crate::error::Res<J> {
     let tr = &planned["translation"];
     let trs = J::Array(if truthy(tr) { vec![tr.clone(); arr(&planned["levels"]).len()] } else { vec![] });
     image_ome(axes, &obj(&planned["units"]), arr(&planned["scales"]), name, translations(&trs))

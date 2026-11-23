@@ -19,6 +19,8 @@
 //! **Spaces.** An element's extent is in the source (space 0) or, under a
 //! `derived` element `d`, in `d`'s derived bytes (space `d`).
 
+use crate::error::Error;
+
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -280,10 +282,10 @@ impl Budget {
     fn describe(&mut self, d: u64, r: u64) -> Res<()> {
         let (sd, sr) = (self.spent_descriptions.saturating_add(d), self.spent_rows.saturating_add(r));
         if sd > self.descriptions {
-            return Err(format!("budget: more than {} entries of stored arrays", self.descriptions));
+            return Err(Error::budget(format!("more than {} entries of stored arrays", self.descriptions)));
         }
         if sr > self.rows {
-            return Err(format!("budget: more than {} chunk map entries", self.rows));
+            return Err(Error::budget(format!("more than {} chunk map entries", self.rows)));
         }
         (self.spent_descriptions, self.spent_rows) = (sd, sr);
         Ok(())
@@ -346,7 +348,7 @@ fn find<T: Copy>(table: &[(u32, T)], i: u32) -> Option<T> {
         .map(|k| table[k].1)
 }
 
-pub type Res<T> = Result<T, String>;
+pub use crate::error::Res;
 
 /// A form's text with each `["shared",k]` of its recipe naming `map[k]`.
 fn shared_renumbered(form: &str, map: &[u32]) -> String {
@@ -406,14 +408,14 @@ impl Ir {
     /// descriptions, chunk map, bytes read and reads.
     pub fn object(&mut self, parent: u32, name: &str, nidx: u64, size: u64) -> Res<u32> {
         if !self.store {
-            return Err("an object in a file IR".into());
+            return Err(Error::rejected("an object in a file IR"));
         }
         let was = Budget::store(self.size, self.objects);
         self.objects += 1;
         if self.objects > MAX_OBJECTS {
-            return Err(format!("budget: more than {MAX_OBJECTS} objects"));
+            return Err(Error::budget(format!("more than {MAX_OBJECTS} objects")));
         }
-        self.size = self.size.checked_add(size).ok_or("the store's objects total more than 2^64 bytes")?;
+        self.size = self.size.checked_add(size).ok_or_else(|| Error::rejected("the store's objects total more than 2^64 bytes"))?;
         if let Some(b) = self.budget.as_mut() {
             // by the difference, not to the new limit: a limit that was set apart from the totals
             // (a profile's own allowance, a test's) keeps what was added to it or taken from it
@@ -441,10 +443,10 @@ impl Ir {
         let mut seen: HashSet<&str> = HashSet::with_capacity(keys.len());
         for (k, _) in keys {
             if !seen.insert(k.as_str()) {
-                return Err(format!("key {k:?} is listed twice"));
+                return Err(Error::rejected(format!("key {k:?} is listed twice")));
             }
             if k.split('/').any(|s| s.is_empty() || s == "." || s == "..") {
-                return Err(format!("key {k:?} has an empty, . or .. segment"));
+                return Err(Error::rejected(format!("key {k:?} has an empty, . or .. segment")));
             }
             for (at, _) in k.match_indices('/') {
                 dirs.insert(&k[..at]);
@@ -519,7 +521,7 @@ impl Ir {
     /// Object `o` (an element of kind object) is described in place: its form is [`IN_PLACE`].
     pub fn describe_in_place(&mut self, o: u32) -> Res<()> {
         if self.kind.get(o as usize) != Some(&OBJECT) {
-            return Err(format!("internal: element {o} described in place is not an object"));
+            return Err(Error::internal(format!("element {o} described in place is not an object")));
         }
         let f = self.forms.id(IN_PLACE);
         match self.form_of.binary_search_by_key(&o, |e| e.0) {
@@ -576,16 +578,16 @@ impl Ir {
         ext: Option<(u64, u64)>,
     ) -> Res<u32> {
         if self.finished {
-            return Err("the IR is finished".into());
+            return Err(Error::rejected("the IR is finished"));
         }
         if let Some(b) = self.budget.as_mut() {
             b.spent_records += 1;
             b.spent_elements += 1;
             if b.spent_records > b.records {
-                return Err(format!("budget: more than {} IR records", b.records));
+                return Err(Error::budget(format!("more than {} IR records", b.records)));
             }
             if b.spent_elements > b.elements {
-                return Err(format!("budget: more than {} IR elements", b.elements));
+                return Err(Error::budget(format!("more than {} IR elements", b.elements)));
             }
         }
         let i = self.kind.len() as u32;
@@ -711,10 +713,10 @@ impl Ir {
     /// against the budget, and checked ([`crate::array::check`]); the IR keeps none it refuses.
     pub fn describe(&mut self, arrays: Vec<crate::array::StoredArray>, chains: Vec<crate::array::Chain>, map: crate::array::ChunkMap) -> Res<()> {
         if !self.finished {
-            return Err("internal: arrays described before the IR is finished".into());
+            return Err(Error::internal("arrays described before the IR is finished"));
         }
         if !self.stored.is_empty() {
-            return Err("internal: the IR's arrays described twice".into());
+            return Err(Error::internal("the IR's arrays described twice"));
         }
         let mut stored = crate::array::Stored { arrays, chains, map, ..Default::default() };
         // the arrays in (element, index) order, so that which fall back follows from the source
@@ -735,7 +737,7 @@ impl Ir {
             let none = |e: u32| of.get(e as usize).is_none_or(|&o| o == NONE);
             if let Some(a) = stored.arrays.iter().find(|a| none(a.element)) {
                 let at = if (a.element as usize) < self.len() { format!(" ({:?})", self.path(a.element)) } else { String::new() };
-                return Err(format!("internal: a store's own stored array of element {}{at} lies in no object", a.element));
+                return Err(Error::internal(format!("a store's own stored array of element {}{at} lies in no object", a.element)));
             }
             let mut o: Vec<u32> = stored.arrays.iter().map(|a| of[a.element as usize]).collect();
             o.sort_unstable();
@@ -778,20 +780,20 @@ impl Ir {
         for (o, raw) in held {
             let ou = o as usize;
             if ou >= self.len() || self.kind[ou] != OBJECT || self.len[ou] != raw.len() as u64 {
-                return Err(format!("internal: {} bytes held for element {o}, which is no object of that size", raw.len()));
+                return Err(Error::internal(format!("{} bytes held for element {o}, which is no object of that size", raw.len())));
             }
             if raw.len() > u32::MAX as usize {
-                return Err(format!("budget: a held object of more than {} bytes", u32::MAX));
+                return Err(Error::budget(format!("a held object of more than {} bytes", u32::MAX)));
             }
             match self.value_bytes(o) {
                 None => put.push((o, raw)),
-                Some(b) if b != raw => return Err(format!("internal: element {o} held twice, with other bytes")),
+                Some(b) if b != raw => return Err(Error::internal(format!("element {o} held twice, with other bytes"))),
                 Some(_) => {}
             }
         }
         put.sort_by_key(|p| p.0);
         if let Some(w) = put.windows(2).find(|w| w[0].0 == w[1].0 && w[0].1 != w[1].1) {
-            return Err(format!("internal: element {} held twice, with other bytes", w[0].0));
+            return Err(Error::internal(format!("element {} held twice, with other bytes", w[0].0)));
         }
         put.dedup_by_key(|p| p.0);
         for (o, raw) in put {
@@ -843,10 +845,10 @@ impl Ir {
     /// space 0 of an object's descendants are ranges of its bytes, as they were of the file's).
     pub fn graft(&mut self, from: &Ir, under: u32) -> Res<Vec<u32>> {
         if !self.store || from.store {
-            return Err("internal: a graft takes a file IR into a store IR".into());
+            return Err(Error::internal("a graft takes a file IR into a store IR"));
         }
         if from.space.iter().any(|&s| s != 0) {
-            return Err("internal: a graft of an IR with derived spaces".into());
+            return Err(Error::internal("a graft of an IR with derived spaces"));
         }
         let base = self.len() as u32;
         let at = |i: u32| if i == 0 { under } else { base + i - 1 };
@@ -866,10 +868,10 @@ impl Ir {
         let added = from.len().saturating_sub(1) as u64;
         if let Some(b) = self.budget.as_mut() {
             if b.spent_records.saturating_add(added) > b.records {
-                return Err(format!("budget: more than {} IR records", b.records));
+                return Err(Error::budget(format!("more than {} IR records", b.records)));
             }
             if b.spent_elements.saturating_add(added) > b.elements {
-                return Err(format!("budget: more than {} IR elements", b.elements));
+                return Err(Error::budget(format!("more than {} IR elements", b.elements)));
             }
             if let Some(p) = &plan {
                 b.describe(p.weights.0, p.weights.1)?;
@@ -895,24 +897,24 @@ impl Ir {
     /// gives, [`crate::array::join_grafted`]). The ids `from`'s elements have here, by their ids there.
     pub fn graft_file(&mut self, from: &Ir, under: u32, shift: u64) -> Res<Vec<u32>> {
         if self.store || from.store || self.finished {
-            return Err("internal: a file graft takes a file IR into an unfinished file IR".into());
+            return Err(Error::internal("a file graft takes a file IR into an unfinished file IR"));
         }
         if from.space.iter().any(|&s| s != 0) {
-            return Err("internal: a graft of an IR with derived spaces".into());
+            return Err(Error::internal("a graft of an IR with derived spaces"));
         }
         if (under as usize) >= self.len() || self.kind[under as usize] != STRUCT {
-            return Err("internal: a file graft goes under a struct".into());
+            return Err(Error::internal("a file graft goes under a struct"));
         }
         if shift.checked_add(from.size).is_none_or(|e| e > self.size) {
-            return Err("internal: a grafted file lies outside the file".into());
+            return Err(Error::internal("a grafted file lies outside the file"));
         }
         let added = from.len().saturating_sub(1) as u64;
         if let Some(b) = self.budget.as_mut() {
             if b.spent_records.saturating_add(added) > b.records {
-                return Err(format!("budget: more than {} IR records", b.records));
+                return Err(Error::budget(format!("more than {} IR records", b.records)));
             }
             if b.spent_elements.saturating_add(added) > b.elements {
-                return Err(format!("budget: more than {} IR elements", b.elements));
+                return Err(Error::budget(format!("more than {} IR elements", b.elements)));
             }
             b.spent_records += added;
             b.spent_elements += added;
@@ -1319,7 +1321,7 @@ impl Ir {
         for j in 1..count {
             let base = self.len() as u32;
             if base as u64 != first as u64 + (j - 1) * size as u64 {
-                return Err(format!("internal: member {j} of run {r} unfolds at element {base}, not {}", first as u64 + (j - 1) * size as u64));
+                return Err(Error::internal(format!("member {j} of run {r} unfolds at element {base}, not {}", first as u64 + (j - 1) * size as u64)));
             }
             for i in r..end {
                 let iu = i as usize;

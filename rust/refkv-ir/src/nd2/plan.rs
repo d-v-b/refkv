@@ -5,6 +5,8 @@
 //! schema's own derived quantities (`schema/nd2.json`'s `derive`). The parser checked the file with
 //! the same quantities, so a plan of a description it returned does not fail.
 
+use crate::error::Error;
+
 use crate::expr::V;
 use crate::schema::{self, Loop};
 use serde_json::Value as J;
@@ -79,7 +81,7 @@ fn members(v: &J) -> Vec<(String, V)> {
 }
 
 /// refkv's plan of the file the description describes.
-pub fn plan(description: &J) -> Result<Plan, String> {
+pub fn plan(description: &J) -> crate::error::Res<Plan> {
     let loops = loops(description);
     let picture = match &description["picture"] {
         J::Null => schema::picture_defaults()?,
@@ -96,7 +98,7 @@ pub fn plan(description: &J) -> Result<Plan, String> {
         8 => "uint8",
         16 => "uint16",
         32 => "float32",
-        b => return Err(format!("internal: {b} bits")),
+        b => return Err(Error::internal(format!("{b} bits"))),
     };
     let components = num("uiComp") as u64;
     let (translations, _) = schema::translations(&env, &loops);

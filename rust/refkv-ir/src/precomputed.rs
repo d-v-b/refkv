@@ -11,6 +11,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#114-the-description>):
 //! `info` as parsed, from which the projection makes the hierarchy.
 
+use crate::error::Error;
+
 use crate::expr::V;
 use crate::ir::{Ir, Res};
 use crate::json::{self, Doc, Jv};
@@ -107,7 +109,7 @@ fn uints3(v: Option<&Jv>) -> Option<[u64; 3]> {
 
 /// The role `scale` and the role `sharding` for one scale, then the rules no role can state:
 /// the Scale, or the reason it is not presented.
-pub fn read_scale(value: &Jv, data_type: &str, channels: i64) -> Result<Scale, String> {
+pub fn read_scale(value: &Jv, data_type: &str, channels: i64) -> crate::error::Res<Scale> {
     let first = value.get("chunk_sizes").and_then(Jv::items).and_then(<[Jv]>::first);
     let rules = schema();
     rules.check("scale", &mut Vars(vec![
@@ -125,16 +127,16 @@ pub fn read_scale(value: &Jv, data_type: &str, channels: i64) -> Result<Scale, S
     ]))?;
     let key = value.get("key").and_then(Jv::as_str).unwrap_or("").to_string();
     if key.is_empty() || key.split('/').any(|s| s.is_empty() || s == "." || s == "..") {
-        return Err(format!("its key {key:?} is not a path within the store"));
+        return Err(Error::rejected(format!("its key {key:?} is not a path within the store")));
     }
-    let size = uints3(value.get("size")).ok_or("internal: size")?;
-    let chunk = uints3(first).ok_or("internal: chunk size")?;
+    let size = uints3(value.get("size")).ok_or_else(|| Error::internal("size"))?;
+    let chunk = uints3(first).ok_or_else(|| Error::internal("chunk size"))?;
     let offset = match value.get("voxel_offset") {
-        Some(o) => ints3(Some(o), i64::MIN, i64::MAX).ok_or("internal: voxel_offset")?,
+        Some(o) => ints3(Some(o), i64::MIN, i64::MAX).ok_or_else(|| Error::internal("voxel_offset"))?,
         None => [0; 3],
     };
-    let r = value.get("resolution").and_then(Jv::items).ok_or("internal: resolution")?;
-    let number = |i: usize| r.get(i).and_then(Jv::num).filter(|x| x.is_finite()).ok_or("its resolution is not 3 finite numbers");
+    let r = value.get("resolution").and_then(Jv::items).ok_or_else(|| Error::internal("resolution"))?;
+    let number = |i: usize| r.get(i).and_then(Jv::num).filter(|x| x.is_finite()).ok_or_else(|| Error::rejected("its resolution is not 3 finite numbers"));
     let resolution = [number(0)?, number(1)?, number(2)?];
     let scale = Scale {
         key,
@@ -148,7 +150,7 @@ pub fn read_scale(value: &Jv, data_type: &str, channels: i64) -> Result<Scale, S
     };
     let grid = scale.grid();
     if grid.iter().any(|&n| n > u32::MAX as u64) {
-        return Err("its chunk grid is 2^32 chunks or more along an axis".into());
+        return Err(Error::rejected("its chunk grid is 2^32 chunks or more along an axis"));
     }
     let Some(sh) = value.get("sharding") else { return Ok(scale) };
     let enc = |k: &str| sh.get(k).and_then(Jv::as_str).unwrap_or("raw").to_string();
@@ -168,12 +170,12 @@ pub fn read_scale(value: &Jv, data_type: &str, channels: i64) -> Result<Scale, S
     let axes = morton_axes(grid);
     let total = axes.len() as u32;
     if total > 64 {
-        return Err(format!("its chunk ids need {total} bits, more than 64"));
+        return Err(Error::rejected(format!("its chunk ids need {total} bits, more than 64")));
     }
     let low = preshift_bits + minishard_bits;
     if low + shard_bits < total {
-        return Err(format!("its shards wrap: chunk ids have {total} bits, and preshift_bits, minishard_bits and \
-                            shard_bits name {} of them, so that one shard holds several boxes of chunks", low + shard_bits));
+        return Err(Error::Rejected(format!("its shards wrap: chunk ids have {total} bits, and preshift_bits, minishard_bits and \
+                            shard_bits name {} of them, so that one shard holds several boxes of chunks", low + shard_bits)));
     }
     let mut box_shape = [1u64; 3];
     for &a in axes.iter().take(low as usize) {
@@ -219,7 +221,7 @@ pub struct Precomputed {
     asked: bool,
     got: Option<Vec<u8>>,
     doc: Option<Doc>,
-    error: Option<String>,
+    error: Option<Error>,
 }
 
 impl Precomputed {
@@ -245,7 +247,7 @@ impl StoreParser for Precomputed {
         let Some(k) = self.info else {
             // the host chose the profile by the root's info (spec/zarrify.md §1.4
             // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>)
-            return Err(format!("not a Neuroglancer precomputed store: the root has no {DOCUMENT}"));
+            return Err(Error::rejected(format!("not a Neuroglancer precomputed store: the root has no {DOCUMENT}")));
         };
         let rules = schema();
         if !self.asked {
@@ -254,7 +256,7 @@ impl StoreParser for Precomputed {
             rules.check("candidate", &mut Vars(vec![("key", text(DOCUMENT)), ("size", num(size as f64))]))?;
             return Ok(StoreStep::Read(vec![(k, 0, size)]));
         }
-        let b = self.got.take().ok_or("internal: info not read")?;
+        let b = self.got.take().ok_or_else(|| Error::internal("info not read"))?;
         let doc = json::parse(&b).map_err(|e| format!("{DOCUMENT}: {e}"))?;
         let v = &doc.value;
         rules.check("info", &mut Vars(vec![
@@ -282,8 +284,8 @@ impl StoreParser for Precomputed {
         if let Some(e) = error {
             return Err(e);
         }
-        let k = info.ok_or("internal: no info")?;
-        let doc = doc.ok_or("internal: info not read")?;
+        let k = info.ok_or_else(|| Error::internal("no info"))?;
+        let doc = doc.ok_or_else(|| Error::internal("info not read"))?;
         let o = objects[k];
         let n = ir.len[o as usize];
         json::hold(&mut ir, o, n, &doc.members)?;

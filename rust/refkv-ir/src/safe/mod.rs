@@ -19,6 +19,8 @@
 //! image is described (`stored.rs`; spec/stored-array.md §7
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>).
 
+use crate::error::Error;
+
 pub mod jp2;
 pub mod product;
 mod stored;
@@ -183,9 +185,9 @@ impl Safe {
     }
 
     /// Object `o`'s bytes, read whole (inflated and checked when deflated).
-    fn whole(&mut self, o: usize) -> Result<Vec<u8>, String> {
+    fn whole(&mut self, o: usize) -> crate::error::Res<Vec<u8>> {
         let n = self.objs[o].size;
-        let b = self.got.remove(&whole_key(o, n)).ok_or("internal: an object not read")?;
+        let b = self.got.remove(&whole_key(o, n)).ok_or_else(|| Error::internal("an object not read"))?;
         if !self.store && self.deflated[self.objs[o].entry] {
             return zip::inflate(&b, &self.entries[self.objs[o].entry]);
         }
@@ -198,20 +200,20 @@ impl Safe {
 
     // ---- the zip form's own structures (§8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#84-the-zip-form>)
 
-    fn zip_step(&mut self) -> Result<(), String> {
+    fn zip_step(&mut self) -> crate::error::Res<()> {
         let n = self.size;
         match self.phase {
             Phase::ZipTail if !self.begun => {
                 self.begun = true;
                 if n == 0 {
-                    return Err("not a zip file: no end of central directory record".into());
+                    return Err(Error::rejected("not a zip file: no end of central directory record"));
                 }
                 let t = n.min(zip::MAX_TAIL);
                 self.ask(FILE, n - t, t);
             }
             Phase::ZipTail => {
                 let t = n.min(zip::MAX_TAIL);
-                let tail = self.got.remove(&(FILE, n - t, t)).ok_or("internal: no tail")?;
+                let tail = self.got.remove(&(FILE, n - t, t)).ok_or_else(|| Error::internal("no tail"))?;
                 self.end = zip::eocd(self.rules, &tail, n)?;
                 self.raw.insert("tail", tail);
                 if let Some((loc, _)) = self.end.zip64 {
@@ -223,7 +225,7 @@ impl Safe {
             }
             Phase::ZipLocator => {
                 let loc = self.end.eocd - 20;
-                let b = self.got.remove(&(FILE, loc, 20)).ok_or("internal: no locator")?;
+                let b = self.got.remove(&(FILE, loc, 20)).ok_or_else(|| Error::internal("no locator"))?;
                 let rec = zip::zip64_locator(&b, &self.end)?;
                 self.raw.insert("locator", b);
                 self.end.zip64 = Some((loc, rec));
@@ -232,14 +234,14 @@ impl Safe {
             }
             Phase::ZipRecord => {
                 let rec = self.end.zip64.unwrap().1;
-                let b = self.got.remove(&(FILE, rec, 56)).ok_or("internal: no ZIP64 record")?;
+                let b = self.got.remove(&(FILE, rec, 56)).ok_or_else(|| Error::internal("no ZIP64 record"))?;
                 zip::zip64_record(self.rules, &b, &mut self.end, rec)?;
                 self.raw.insert("record", b);
                 self.ask_cd()?;
             }
             Phase::ZipCd => {
                 let (o, len) = (self.end.cd_offset, self.end.cd_size);
-                let cd = if len == 0 { Vec::new() } else { self.got.remove(&(FILE, o, len)).ok_or("internal: no central directory")? };
+                let cd = if len == 0 { Vec::new() } else { self.got.remove(&(FILE, o, len)).ok_or_else(|| Error::internal("no central directory"))? };
                 self.entries = zip::central_directory(self.rules, &cd, &self.end)?;
                 self.raw.insert("cd", cd);
                 let p = zip::product_entries(&self.entries)?;
@@ -256,7 +258,7 @@ impl Safe {
                         continue;
                     }
                     if e.lho.checked_add(30).is_none_or(|x| x > cd_offset) {
-                        return Err("a zip entry's local header is beyond the entries".into());
+                        return Err(Error::rejected("a zip entry's local header is beyond the entries"));
                     }
                     let lho = e.lho;
                     self.ask(FILE, lho, 30);
@@ -274,7 +276,7 @@ impl Safe {
                         continue;
                     }
                     let lho = self.entries[i].lho;
-                    let head = self.got.get(&(FILE, lho, 30)).ok_or("internal: no local header")?.clone();
+                    let head = self.got.get(&(FILE, lho, 30)).ok_or_else(|| Error::internal("no local header"))?.clone();
                     zip::local_header(&head, &mut self.entries[i], self.end.cd_offset)?;
                     read.push(i);
                 }
@@ -287,10 +289,10 @@ impl Safe {
         Ok(())
     }
 
-    fn ask_cd(&mut self) -> Result<(), String> {
+    fn ask_cd(&mut self) -> crate::error::Res<()> {
         let end = zip::cd_end(&self.end);
         if self.end.cd_offset.checked_add(self.end.cd_size) != Some(end) {
-            return Err("a zip file's central directory does not end where its end records start".into());
+            return Err(Error::rejected("a zip file's central directory does not end where its end records start"));
         }
         self.phase = Phase::ZipCd;
         if self.end.cd_size > 0 {
@@ -302,7 +304,7 @@ impl Safe {
 
     // ---- the product (§2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#2-the-source>)
 
-    fn start(&mut self) -> Result<(), String> {
+    fn start(&mut self) -> crate::error::Res<()> {
         let keys: Vec<&str> = self.objs.iter().map(|o| o.key.as_str()).collect();
         let dirs = if self.store { self.listed_dirs.clone() } else { self.zprod.as_ref().map(|p| p.dirs.clone()).unwrap_or_default() };
         let (markers, empty) = folders(&keys, &dirs);
@@ -321,7 +323,7 @@ impl Safe {
         Ok(())
     }
 
-    fn product(&mut self) -> Result<(), String> {
+    fn product(&mut self) -> crate::error::Res<()> {
         let key = product::LEVELS[self.level].0;
         let b = self.whole(self.product_obj)?;
         let root = product::parse_document(&b, key)?;
@@ -339,7 +341,7 @@ impl Safe {
         Ok(())
     }
 
-    fn tile(&mut self) -> Result<(), String> {
+    fn tile(&mut self) -> crate::error::Res<()> {
         let b = self.whole(self.tile_obj)?;
         let tile = product::parse_document(&b, "MTD_TL.xml")?;
         let expected = product::LEVELS[self.level].3;
@@ -374,7 +376,7 @@ impl Safe {
         self.bands_step()
     }
 
-    fn bands_step(&mut self) -> Result<(), String> {
+    fn bands_step(&mut self) -> crate::error::Res<()> {
         // the deflated XML documents, inflated one at a time and checked
         let fed: Vec<(usize, u64, u64)> = self.got.keys().copied().collect();
         for (o, off, n) in fed {
@@ -402,12 +404,12 @@ impl Safe {
 
     /// Each band's resolution and band name, and its chunks' empty tiles, checked (§2.5
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#25-band-files>, §8.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#86-chunks>).
-    fn finish_bands(&mut self) -> Result<(), String> {
+    fn finish_bands(&mut self) -> crate::error::Res<()> {
         let geo = self.geo.as_ref().unwrap();
         let mut names: HashSet<(u64, String)> = HashSet::new();
         let images = std::mem::take(&mut self.images);
         for (k, image) in images.into_iter().enumerate() {
-            let cs = self.readers[k].cs.take().ok_or("internal: a band file not read")?;
+            let cs = self.readers[k].cs.take().ok_or_else(|| Error::internal("a band file not read"))?;
             let found: Vec<u64> = geo.sizes.iter().filter(|s| s.1 == cs.height && s.2 == cs.width).map(|s| s.0).collect();
             let r = found.first().copied().unwrap_or(0);
             let (name, ascii) = product::band_name(&image.basename, r);
@@ -433,7 +435,7 @@ impl Safe {
     }
 
     /// The next batch: (object or FILE, offset, length) ranges, object-relative; empty when done.
-    fn advance(&mut self) -> Result<Vec<(usize, u64, u64)>, String> {
+    fn advance(&mut self) -> crate::error::Res<Vec<(usize, u64, u64)>> {
         loop {
             self.asked.clear();
             match self.phase {
@@ -460,7 +462,7 @@ impl Safe {
 
     // ---- the zip form as a file parser
 
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         let asked = self.advance()?;
         if asked.is_empty() {
             return Ok(Step::Done);
@@ -497,11 +499,11 @@ impl Safe {
         }
     }
 
-    pub fn finish(mut self) -> Result<(Ir, J), String> {
+    pub fn finish(mut self) -> crate::error::Res<(Ir, J)> {
         if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
+            return Err(Error::internal("the parse is not done"));
         }
-        let mut ir = if self.store { self.ir.take().ok_or("internal: no IR")? } else { Ir::new(self.size) };
+        let mut ir = if self.store { self.ir.take().ok_or_else(|| Error::internal("no IR"))? } else { Ir::new(self.size) };
         let reached = if self.store { self.emit_store(&mut ir)? } else { self.emit_zip(&mut ir)? };
         ir.sort_values();
         crate::check::finish(&mut ir)?;
@@ -516,7 +518,7 @@ impl Safe {
     // ---- the IR
 
     /// The directory form's elements; what each band's description needs, in the bands' order.
-    fn emit_store(&self, ir: &mut Ir) -> Result<Vec<stored::Reached>, String> {
+    fn emit_store(&self, ir: &mut Ir) -> crate::error::Res<Vec<stored::Reached>> {
         let mut reached = Vec::with_capacity(self.bands.len());
         for b in &self.bands {
             let e = self.elems[b.obj];
@@ -530,7 +532,7 @@ impl Safe {
     }
 
     /// The zip form's elements; what each band's description needs, in the bands' order.
-    fn emit_zip(&self, ir: &mut Ir) -> Result<Vec<stored::Reached>, String> {
+    fn emit_zip(&self, ir: &mut Ir) -> crate::error::Res<Vec<stored::Reached>> {
         let raw = zip::Records {
             tail: &self.raw["tail"],
             cd: self.raw.get("cd").map_or(&[][..], |b| b.as_slice()),
@@ -558,7 +560,7 @@ impl Safe {
         }
         // a band file is never empty, so each band has its elements
         if reached.len() != self.bands.len() {
-            return Err("internal: a band file with no elements".into());
+            return Err(Error::internal("a band file with no elements"));
         }
         reached.sort_by_key(|r| r.0);
         Ok(reached.into_iter().map(|r| r.1).collect())
@@ -605,7 +607,7 @@ impl Safe {
 /// A band file's elements under `parent`, its offsets from `base` (spec/zarrify/safe.md §6.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>);
 /// what its image's description needs of them (`stored.rs`).
-fn emit_band(ir: &mut Ir, parent: u32, base: u64, cs: &Codestream) -> Result<stored::Reached, String> {
+fn emit_band(ir: &mut Ir, parent: u32, base: u64, cs: &Codestream) -> crate::error::Res<stored::Reached> {
     let mut headers = Vec::new();
     let mut reached = None;
     for (i, b) in cs.boxes.iter().enumerate() {
@@ -647,13 +649,13 @@ fn emit_band(ir: &mut Ir, parent: u32, base: u64, cs: &Codestream) -> Result<sto
         let declarations = std::iter::once(siz).chain(headers.iter().copied()).collect();
         reached = Some(stored::Reached::of(cs, c, declarations, tiles));
     }
-    reached.ok_or_else(|| "internal: a band file with no codestream".to_string())
+    reached.ok_or_else(|| Error::internal("a band file with no codestream"))
 }
 
 // ---- the directory form as a store parser
 
 impl StoreParser for Safe {
-    fn step(&mut self) -> Result<StoreStep, String> {
+    fn step(&mut self) -> crate::error::Res<StoreStep> {
         let asked = self.advance()?;
         if asked.is_empty() {
             return Ok(StoreStep::Done);
@@ -669,7 +671,7 @@ impl StoreParser for Safe {
         self.listed_dirs = folders.to_vec();
     }
 
-    fn finish(self: Box<Self>) -> Result<(Ir, J), String> {
+    fn finish(self: Box<Self>) -> crate::error::Res<(Ir, J)> {
         Safe::finish(*self)
     }
 }
@@ -693,11 +695,11 @@ impl crate::run::FileProfile for Profile {
     fn whole(&self) -> bool {
         false
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
         crate::project::safe::project(ir, description, url)
     }
     /// Its empty directories and ignored keys beside the mirror, as a SAFE directory's.
-    fn mirrored(&self, out: &mut crate::out::Out, description: &serde_json::Value) -> Result<(), String> {
+    fn mirrored(&self, out: &mut crate::out::Out, description: &serde_json::Value) -> crate::error::Res<()> {
         crate::project::store::record_ignored(out, description, "safe")
     }
 }

@@ -4,6 +4,7 @@
 //! canonical form is a fixed point); one test per way a table can be invalid, and one
 //! per way a valid table can be non-canonical, which the validator flags.
 
+use refkv_ir::error::Error;
 use std::path::Path;
 use refkv_ir::check::{check, finish, leaves};
 use refkv_ir::ir::{Ir, GAP, NO_INDEX, STRUCT, VALUE};
@@ -197,7 +198,7 @@ fn an_ir_whose_gaps_renamed_break_the_names_has_no_canonical_form() {
     check(&ir).unwrap();
     assert_eq!(
         canonical(&ir).err().unwrap(),
-        "element 1 (value \"gaps/10\") and element 2 (gap \"gaps/10\") have one path, \"gaps/10\""
+        Error::rejected("element 1 (value \"gaps/10\") and element 2 (gap \"gaps/10\") have one path, \"gaps/10\"")
     );
 }
 
@@ -292,7 +293,7 @@ fn three() -> Table {
     }
 }
 
-fn no_read(_: u64, _: u64) -> Result<Vec<u8>, String> {
+fn no_read(_: u64, _: u64) -> refkv_ir::error::Res<Vec<u8>> {
     Err("no reads".into())
 }
 
@@ -351,7 +352,7 @@ fn a_table_may_leave_out_derived_spaces_and_alias_targets() {
 #[test]
 fn a_table_whose_derived_space_has_a_hole_is_invalid() {
     let ir = load(&derived_table(&[(1, 1, 2, 1, -10, 4)]), &mut no_read).unwrap();
-    assert!(check(&ir).unwrap_err().starts_with("derived bytes [4, 8) of element 1"));
+    assert!(check(&ir).unwrap_err().to_string().starts_with("derived bytes [4, 8) of element 1"));
 }
 
 /// Step 3 leaves all of a derived element's descendants out or none: one with only empty
@@ -359,7 +360,7 @@ fn a_table_whose_derived_space_has_a_hole_is_invalid() {
 #[test]
 fn a_table_whose_derived_space_has_only_empty_descendants_is_invalid() {
     let ir = load(&derived_table(&[(0, 1, 2, 1, 0, 0)]), &mut no_read).unwrap();
-    assert!(check(&ir).unwrap_err().starts_with("derived bytes [0, 8) of element 1"));
+    assert!(check(&ir).unwrap_err().to_string().starts_with("derived bytes [0, 8) of element 1"));
 }
 
 #[test]
@@ -374,7 +375,7 @@ fn a_table_whose_alias_target_is_past_its_rows_is_invalid() {
 fn an_ir_whose_derived_element_has_no_descendants_is_invalid() {
     let mut ir = Ir::new(10);
     ir.derived(0, "z", 0, (0, 10), r#"{"size":8,"transform":"zlib"}"#).unwrap();
-    assert!(check(&ir).unwrap_err().starts_with("derived bytes [0, 8) of element 1"));
+    assert!(check(&ir).unwrap_err().to_string().starts_with("derived bytes [0, 8) of element 1"));
 }
 
 // ---- the tables a reader rejects
@@ -441,7 +442,7 @@ fn an_ir_whose_derived_element_has_no_descendants_is_invalid() {
 fn err(t: &Table) -> String {
     match load(t, &mut no_read) {
         Ok(_) => panic!("loaded"),
-        Err(e) => e,
+        Err(e) => e.to_string(),
     }
 }
 
@@ -661,7 +662,7 @@ fn with_cell(column: usize, value: i64) -> Out {
 fn unread(out: &Out) -> String {
     match table_from_out(out) {
         Ok(_) => panic!("read"),
-        Err(e) => e,
+        Err(e) => e.to_string(),
     }
 }
 
@@ -859,8 +860,8 @@ fn an_ir_whose_run_holds_a_derived_element_is_invalid() {
     let ir = run_of(|ir, s| {
         ir.derived(s, "z", 0, (0, 10), r#"{"transform":"zlib"}"#).unwrap();
     });
-    assert_eq!(check(&ir).unwrap_err(), "the run at row 1 holds a derived element (row 2)");
-    assert_eq!(canonical(&ir).err().unwrap(), "the run at row 1 holds a derived element (row 2)");
+    assert_eq!(check(&ir).unwrap_err(), Error::rejected("the run at row 1 holds a derived element (row 2)"));
+    assert_eq!(canonical(&ir).err().unwrap(), Error::rejected("the run at row 1 holds a derived element (row 2)"));
 }
 
 #[test]
@@ -868,8 +869,8 @@ fn an_ir_whose_run_holds_an_alias_is_invalid() {
     let ir = run_of(|ir, s| {
         ir.alias(s, "a", NO_INDEX, 0).unwrap();
     });
-    assert_eq!(check(&ir).unwrap_err(), "the run at row 1 holds an alias (row 2)");
-    assert_eq!(canonical(&ir).err().unwrap(), "the run at row 1 holds an alias (row 2)");
+    assert_eq!(check(&ir).unwrap_err(), Error::rejected("the run at row 1 holds an alias (row 2)"));
+    assert_eq!(canonical(&ir).err().unwrap(), Error::rejected("the run at row 1 holds an alias (row 2)"));
 }
 
 #[test]
@@ -880,8 +881,8 @@ fn an_ir_whose_run_holds_an_element_in_a_derived_space_is_invalid() {
     let v = ir.value(z, "v/", 0, "u4", z, (0, 4), None).unwrap();
     ir.runs.push((v, 2, 4));
     ir.build_children();
-    assert_eq!(check(&ir).unwrap_err(), "the run at row 2 holds an element in a derived space (row 2)");
-    assert_eq!(canonical(&ir).err().unwrap(), "the run at row 2 holds an element in a derived space (row 2)");
+    assert_eq!(check(&ir).unwrap_err(), Error::rejected("the run at row 2 holds an element in a derived space (row 2)"));
+    assert_eq!(canonical(&ir).err().unwrap(), Error::rejected("the run at row 2 holds an element in a derived space (row 2)"));
 }
 
 /// A parser's IR counts its rows outside derived spaces, as the producer does before canonical form
@@ -904,7 +905,7 @@ fn an_ir_past_the_budget_only_by_its_left_out_derived_rows_is_valid() {
     let mut out = Out::new("u");
     assert_eq!(mirror(&ir, &mut out, "tiff").unwrap().rows, 1 << 22);
     ir.runs[0].1 += 1;
-    assert_eq!(check(&ir).unwrap_err(), "budget: more than 4194304 rows");
+    assert_eq!(check(&ir).unwrap_err(), Error::budget("more than 4194304 rows"));
 }
 
 /// The limit of conventions §8.3
@@ -1074,7 +1075,7 @@ fn arrayed(x: i64) -> Table {
 fn err_of_zeros(t: &Table) -> String {
     match load(t, &mut |_, n| Ok(vec![0u8; n as usize])) {
         Ok(_) => panic!("loaded"),
-        Err(e) => e,
+        Err(e) => e.to_string(),
     }
 }
 
@@ -1184,7 +1185,7 @@ fn rejects_a_mirror_past_the_row_budget() {
     ir.finished = true;
     ir.build_children();
     let mut out = Out::new("u");
-    assert_eq!(mirror(&ir, &mut out, "tiff").unwrap_err(), "budget: the mirror would have more than 4194305 rows");
+    assert_eq!(mirror(&ir, &mut out, "tiff").unwrap_err(), Error::budget("the mirror would have more than 4194305 rows"));
 }
 
 #[test]
@@ -1200,7 +1201,7 @@ fn the_mirror_of_an_ir_whose_names_break_the_rules_is_a_rejection() {
     let mut out = Out::new("u");
     assert_eq!(
         mirror(&ir, &mut out, "tiff").unwrap_err(),
-        "element 2 (struct \"s\") and element 3 (struct \"s\") have one path, \"s\""
+        Error::rejected("element 2 (struct \"s\") and element 3 (struct \"s\") have one path, \"s\"")
     );
 }
 
@@ -1211,7 +1212,7 @@ fn flags_a_table_whose_root_is_named() {
     assert_eq!(problem(&out), "invalid: the root (element 0) is named \"!\", not \"\"");
     let t = table_from_out(&out).unwrap();
     let back = load(&t, &mut no_read).unwrap();
-    assert_eq!(check(&back).unwrap_err(), "the root (element 0) is named \"!\", not \"\"");
+    assert_eq!(check(&back).unwrap_err(), Error::rejected("the root (element 0) is named \"!\", not \"\""));
 }
 
 /// A fixture's output, its view document at `group` edited by `edit`, and what the

@@ -28,20 +28,20 @@ fn fixture(key: &str) -> Option<Vec<u8>> {
 fn rejection(key: &str) -> String {
     let data = fixture(key).unwrap();
     if refkv_ir::nifti::detect_pair(&data).is_some() {
-        return run_pair(key, &data, fixture).err().expect("the pair was accepted");
+        return run_pair(key, &data, fixture).err().expect("the pair was accepted").to_string();
     }
-    refkv_ir::parse_bytes::<Nifti>(&data).err().expect("the file was accepted")
+    refkv_ir::parse_bytes::<Nifti>(&data).err().expect("the file was accepted").to_string()
 }
 
 /// A store run of the pair whose header file is `key`, the image file found by `beside`.
-fn run_pair(key: &str, data: &[u8], beside: impl Fn(&str) -> Option<Vec<u8>>) -> Result<refkv_ir::out::Out, String> {
+fn run_pair(key: &str, data: &[u8], beside: impl Fn(&str) -> Option<Vec<u8>>) -> refkv_ir::error::Res<refkv_ir::out::Out> {
     let (ir, facts, stats, read) = parse_pair(key, data, beside)?;
-    refkv_ir::store::store_output(StoreFormat::Nifti, &ir, &facts, stats, &read, "https://example.org/nifti/", true, false).map_err(String::from)
+    refkv_ir::store::store_output(StoreFormat::Nifti, &ir, &facts, stats, &read, "https://example.org/nifti/", true, false)
 }
 
 /// The store IR, the description, the run's counts and what it read for the projection, of the
 /// pair whose header file is `key`, the image file found by `beside`.
-fn parse_pair(key: &str, data: &[u8], beside: impl Fn(&str) -> Option<Vec<u8>>) -> Result<(refkv_ir::ir::Ir, serde_json::Value, serde_json::Value, refkv_ir::store::Read), String> {
+fn parse_pair(key: &str, data: &[u8], beside: impl Fn(&str) -> Option<Vec<u8>>) -> refkv_ir::error::Res<(refkv_ir::ir::Ir, serde_json::Value, serde_json::Value, refkv_ir::store::Read)> {
     let mut run = StoreRun::new(StoreFormat::Nifti, vec![(key.to_string(), data.len() as u64)], 4)?;
     while let Some(reqs) = run.poll()? {
         if reqs.is_empty() {
@@ -105,7 +105,7 @@ fn a_header_file_past_the_limit_is_rejected() {
     let mut data = fixture("nifti_pair_n1_le_int16.hdr").unwrap();
     data.resize((1 << 24) + 1, 0);
     let m = run_pair("long.hdr", &data, fixture).err().unwrap();
-    assert!(m.starts_with("the header file \"long.hdr\" of 16777217 bytes"), "{m}");
+    assert!(m.to_string().starts_with("the header file \"long.hdr\" of 16777217 bytes"), "{m}");
 }
 
 /// A gzip stream that holds a pair's header file matches no signature, as it has no image file to read.

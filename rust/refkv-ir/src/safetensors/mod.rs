@@ -13,6 +13,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>), presented or
 //! not, keyed by its `header` element (`stored`).
 
+use crate::error::Error;
+
 pub mod plan;
 pub mod store;
 mod stored;
@@ -109,12 +111,12 @@ impl<'de> Visitor<'de> for StrictVisitor {
 /// number token, which it reads as a number in an object's first key, is refused. The value is
 /// `json::parse_binary64`'s (`-0` as −0.0, which serde_json with arbitrary_precision reads as 0):
 /// `Strict` checks the members.
-fn parse_header(t: &str) -> Result<J, String> {
+fn parse_header(t: &str) -> crate::error::Res<J> {
     if crate::json::has_number_token(t) {
-        return Err(format!("it has the string {:?}, which this parser cannot read", crate::json::NUMBER_TOKEN));
+        return Err(Error::rejected(format!("it has the string {:?}, which this parser cannot read", crate::json::NUMBER_TOKEN)));
     }
     serde_json::from_str::<Strict>(t).map_err(|e| e.to_string())?;
-    crate::json::parse_binary64(t).ok_or_else(|| "number out of range".into())
+    crate::json::parse_binary64(t).ok_or_else(|| Error::rejected("number out of range"))
 }
 
 /// A tensor of the header, in its order: its entry's members.
@@ -151,7 +153,7 @@ pub fn first_read(rules: &Rules) -> u64 {
 /// The header's length `N`, from the first 8 bytes `first` of a file of `size` bytes, checked
 /// against the library's limit and the file (spec/zarrify/safetensors.md §8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#82-checks>).
-pub fn header_length(rules: &Rules, size: u64, first: &[u8]) -> Result<u64, String> {
+pub fn header_length(rules: &Rules, size: u64, first: &[u8]) -> crate::error::Res<u64> {
     rules.check("length", rules::env([("size", num(size as f64))]))?;
     let n = uint(first, 0, 8, true);
     rules.check("header", rules::env([("length", num(n as f64)), ("size", num(size as f64))]))?;
@@ -171,13 +173,13 @@ pub struct Header {
 /// The header `raw`, of `n` bytes, of a file of `size` bytes, read by the profile's checks in
 /// their order (spec/zarrify/safetensors.md §8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#82-checks>).
-pub fn check(r: &Rules, size: u64, n: u64, raw: Vec<u8>) -> Result<Header, String> {
+pub fn check(r: &Rules, size: u64, n: u64, raw: Vec<u8>) -> crate::error::Res<Header> {
     let header = std::str::from_utf8(&raw).ok();
     r.check("text", rules::env([("utf8", flag(header.is_some())), ("brace", flag(raw.first() == Some(&b'{')))]))?;
     let parsed = parse_header(header.unwrap_or_default());
-    let problem = parsed.as_ref().err().map_or(crate::expr::V::Absent, |e| text(e));
+    let problem = parsed.as_ref().err().map_or(crate::expr::V::Absent, |e| text(&e.to_string()));
     r.check("json", rules::env([("problem", problem)]))?;
-    let Ok(J::Object(members)) = parsed else { return Err("internal: the header is not an object".into()) };
+    let Ok(J::Object(members)) = parsed else { return Err(Error::internal("the header is not an object")) };
     let metadata = members.get(METADATA).cloned();
     if let Some(m) = &metadata {
         let strings = m.as_object().is_some_and(|o| o.values().all(J::is_string));
@@ -225,11 +227,11 @@ impl Header {
     /// What each tensor's description is built from, in the header's order, before its data has
     /// an element: where the header writes its `dtype`, its shape, its element's bits and its
     /// data's range of the file.
-    fn reached(&self, r: &Rules) -> Result<Vec<stored::Tensor>, String> {
+    fn reached(&self, r: &Rules) -> crate::error::Res<Vec<stored::Tensor>> {
         let spans = stored::dtype_spans(&self.raw, METADATA).filter(|s| s.len() == self.tensors.len());
-        let spans = spans.ok_or("internal: the header's dtype values were not found")?;
+        let spans = spans.ok_or_else(|| Error::internal("the header's dtype values were not found"))?;
         let tensor = |(t, dtype): (&Tensor, (u64, u64))| {
-            let bits = r.entry("types", &t.dtype).and_then(|e| e["bits"].as_u64()).ok_or("internal: an unknown data type")?;
+            let bits = r.entry("types", &t.dtype).and_then(|e| e["bits"].as_u64()).ok_or_else(|| Error::internal("an unknown data type"))?;
             let at = (8 + self.n + t.offsets.0, t.offsets.1 - t.offsets.0);
             Ok(stored::Tensor { dtype, shape: t.shape.clone(), bits, at, element: None })
         };
@@ -243,7 +245,7 @@ impl Header {
     /// and what the tensors' descriptions are built from, keyed by the `header` element, a
     /// tensor's index its position in the header (spec/stored-array.md §2.1
     /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>).
-    fn emit(&self, r: &Rules, ir: &mut Ir, parent: u32) -> Result<(J, stored::Tensors), String> {
+    fn emit(&self, r: &Rules, ir: &mut Ir, parent: u32) -> crate::error::Res<(J, stored::Tensors)> {
         let (n, tensors) = (self.n, &self.tensors);
         let length = ir.value(parent, "length", NO_INDEX, "<u8", 0, (0, 8), Some(&n.to_le_bytes()))?;
         // a checked header is an object, of two bytes at least
@@ -320,7 +322,7 @@ impl Safetensors {
         self.fed.feed(offset, data);
     }
 
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         let size = self.size;
         let reads = match self.phase {
             Phase::Start => {
@@ -354,7 +356,7 @@ impl Safetensors {
     /// (spec/zarrify/safetensors.md §8.5
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#85-the-description>),
     /// from which the projection makes refkv's plan (`plan.rs`).
-    pub fn finish(self) -> Result<(Ir, J), String> {
+    pub fn finish(self) -> crate::error::Res<(Ir, J)> {
         let (mut ir, description) = sans::finish(self.phase == Phase::Done, self.ir, self.description)?;
         let (arrays, chains, map) = stored::described(self.reached.as_slice())?;
         ir.describe(arrays, chains, map)?;
@@ -375,10 +377,10 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Safetensors>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
         crate::project::safetensors::project(ir, description, url, copied)
     }
-    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value) -> crate::error::Res<Vec<(u64, u64)>> {
         crate::project::safetensors::reads(ir, description)
     }
 }
@@ -408,7 +410,7 @@ mod tests {
     #[test]
     fn a_number_out_of_range_is_refused() {
         let e = parse_header(r#"{"t":{"x":1e400}}"#).err().unwrap();
-        assert!(e.starts_with("number out of range"), "{e}");
+        assert!(e.to_string().starts_with("number out of range"), "{e}");
     }
 
     /// An object whose key is serde_json's number token, which it would read as a number, is
@@ -416,6 +418,6 @@ mod tests {
     #[test]
     fn the_number_token_is_refused() {
         let e = parse_header(r#"{"t":{"$serde_json::private::Number":"0.5"}}"#).err().unwrap();
-        assert!(e.contains("$serde_json::private::Number"), "{e}");
+        assert!(e.to_string().contains("$serde_json::private::Number"), "{e}");
     }
 }

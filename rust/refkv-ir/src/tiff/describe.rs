@@ -132,7 +132,7 @@ impl Tiff {
                         entry["prefix"] = json!(prefix);
                         entry["tail"] = J::String(base64(&tail));
                     }
-                    Err(e) => entry["problem"] = json!(e),
+                    Err(e) => entry["problem"] = json!(e.to_string()),
                 }
                 out.push(entry);
             }

@@ -10,6 +10,8 @@
 //! next frame's header (a frame header gives no length). The schema (`schema/flac.json`) holds
 //! every check, in the profile's order.
 
+use crate::error::Error;
+
 #[path = "flac/stored.rs"]
 mod stored;
 use crate::expr::V;
@@ -452,7 +454,7 @@ impl Flac {
         self.fed.feed(offset, data);
     }
 
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         if self.phase == Phase::Start {
             self.phase = Phase::Tags;
             let mut r = vec![(0, self.size.min(HEAD))];
@@ -667,7 +669,7 @@ impl Flac {
     /// rate, channel count and bit depth (a header's own, or STREAMINFO's for code 0), the number
     /// `j`, and no more samples than the first frame.
     fn frame_check(&self, at: u64, j: u64, h: &Head) -> Res<()> {
-        let si = self.info.ok_or("internal: no STREAMINFO")?;
+        let si = self.info.ok_or_else(|| Error::internal("no STREAMINFO"))?;
         let (rate, bits) = (h.rate.unwrap_or(si.rate), h.bits.unwrap_or(si.bits));
         let (what, from, to) = if rate != si.rate {
             ("sample rate", si.rate, rate)
@@ -761,7 +763,7 @@ impl Flac {
             self.rules.check("end", rules::env([
                 ("at", num(sc.p as f64)), ("index", num(j as f64)), ("found", flag(false)), ("longer", flag(longer)),
             ]))?;
-            return Err("internal: a frame without an end".into());
+            return Err(Error::internal("a frame without an end"));
         };
         // the frame [p, q): only the last may hold fewer samples than the first
         if let Some(&(o, _, b)) = self.frames.last() {
@@ -776,7 +778,7 @@ impl Flac {
             return Ok(None);
         }
         let b = self.fed.from(q);
-        let h = Head::parse(&b[..b.len().min(MAX_HEADER as usize)]).and_then(Result::ok).ok_or("internal: no next header")?;
+        let h = Head::parse(&b[..b.len().min(MAX_HEADER as usize)]).and_then(Result::ok).ok_or_else(|| Error::internal("no next header"))?;
         self.frame_check(q, j + 1, &h)?;
         self.scan = Some(Scan { p: q, head: h, s: q, crc: 0, pending: false });
         Ok(None)
@@ -784,7 +786,7 @@ impl Flac {
 
     /// The elements of the frames and the tags after them, and the description.
     fn finish_frames(&mut self) -> Res<()> {
-        let si = self.info.ok_or("internal: no STREAMINFO")?;
+        let si = self.info.ok_or_else(|| Error::internal("no STREAMINFO"))?;
         let samples: u64 = self.frames.iter().map(|f| f.2).sum();
         self.rules.check("total", rules::env([("samples", num(samples as f64)), ("total", num(si.total as f64))]))?;
         let (first_o, last) = (self.frames[0].0, self.frames[self.frames.len() - 1]);
@@ -836,7 +838,7 @@ impl Flac {
     }
 
     /// The finished IR, with its samples described (`stored.rs`), and the description.
-    pub fn finish(self) -> Result<(Ir, J), String> {
+    pub fn finish(self) -> crate::error::Res<(Ir, J)> {
         let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
         if let Some(si) = self.info {
             let (arrays, chains, map) = stored::described(self.info_value, si.channels, si.bits, &self.units)?;
@@ -872,7 +874,7 @@ impl crate::run::FileProfile for Profile {
     fn whole(&self) -> bool {
         false
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
         crate::project::flac::project(ir, description, url, copied)
     }
 }

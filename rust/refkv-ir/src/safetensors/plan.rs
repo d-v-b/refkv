@@ -12,6 +12,8 @@
 //! writes the hierarchy from it; a layout that wants another hierarchy makes its own from the
 //! description.
 
+use crate::error::Error;
+
 use crate::rules::{self, Rules};
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -52,7 +54,7 @@ fn groups_of(path: &str) -> impl Iterator<Item = &str> {
 /// `arrays`, each presented tensor's `path`, `index` (its position in the header), `data` (its data
 /// element), `offset` and `length` (its bytes, from the file's start), `dtype`, `data_type`, `bits`,
 /// `fill` and `shape`; and `groups`, the groups the paths make.
-pub fn plan(header: &J) -> Result<J, String> {
+pub fn plan(header: &J) -> crate::error::Res<J> {
     let r = rules();
     let n_header = n(&header["header_length"]);
     let tensors = list(&header["tensors"]);
@@ -79,7 +81,7 @@ pub fn plan(header: &J) -> Result<J, String> {
             Ok(p) => {
                 j.insert("path".into(), json!(p));
                 let dtype = t["dtype"].as_str().unwrap_or("");
-                let ty = r.entry("types", dtype).ok_or_else(|| format!("internal: an unknown data type {dtype}"))?;
+                let ty = r.entry("types", dtype).ok_or_else(|| Error::internal(format!("an unknown data type {dtype}")))?;
                 let (begin, end) = (n(&t["data_offsets"][0]), n(&t["data_offsets"][1]));
                 arrays.push(json!({
                     "path": p, "index": i, "data": data.get(i).cloned().unwrap_or(J::Null), "offset": 8 + n_header + begin,
@@ -115,12 +117,12 @@ fn is_index(key: &str) -> bool {
 /// The path of a shard's group, its key, or why it has none: a key segment that is not a Zarr
 /// node name, or a first segment `refkv_source` (§9.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#91-the-hierarchy>).
-fn shard_path(key: &str) -> Result<String, String> {
+fn shard_path(key: &str) -> crate::error::Res<String> {
     if key.split('/').any(|p| p.starts_with("__") || p == "zarr.json") {
-        return Err("name: a segment of its key is not a Zarr node name".into());
+        return Err(Error::rejected("name: a segment of its key is not a Zarr node name"));
     }
     if key.split('/').next() == Some(crate::out::SOURCE_NODE) {
-        return Err(format!("reserved: its key starts with {}", crate::out::SOURCE_NODE));
+        return Err(Error::rejected(format!("reserved: its key starts with {}", crate::out::SOURCE_NODE)));
     }
     Ok(key.to_string())
 }
@@ -131,7 +133,7 @@ fn shard_path(key: &str) -> Result<String, String> {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#92-source-metadata>);
 /// `shards`, each presented shard's `key`, `path` and `planned`, its file plan; `dirs`, the groups
 /// above them; and `others`, each object referenced whole, `[key, size]`.
-pub fn plan_store(description: &J, listing: &[(String, u64)]) -> Result<J, String> {
+pub fn plan_store(description: &J, listing: &[(String, u64)]) -> crate::error::Res<J> {
     let shards = list(&description["shards"]);
     // a shard whose key is another shard's directory has no group (S3 allows `a` and `a/b`)
     let shard_dirs: BTreeSet<&str> = shards.iter().filter_map(|s| s["key"].as_str()).flat_map(groups_of).collect();
@@ -141,8 +143,8 @@ pub fn plan_store(description: &J, listing: &[(String, u64)]) -> Result<J, Strin
     for s in shards {
         let key = s["key"].as_str().unwrap_or("");
         let path = match s["error"].as_str() {
-            Some(why) => Err(why.to_string()),
-            None if shard_dirs.contains(key) => Err("path: its key is another shard's directory".to_string()),
+            Some(why) => Err(Error::rejected(why)),
+            None if shard_dirs.contains(key) => Err(Error::rejected("path: its key is another shard's directory")),
             None => shard_path(key),
         };
         match path {
@@ -153,7 +155,7 @@ pub fn plan_store(description: &J, listing: &[(String, u64)]) -> Result<J, Strin
                 files.push(json!({"key": key, "path": path}));
                 presented.push(json!({"key": key, "path": path, "planned": planned}));
             }
-            Err(why) => files.push(json!({"key": key, "reason": why})),
+            Err(why) => files.push(json!({"key": key, "reason": why.to_string()})),
         }
     }
     let mut indexes = Vec::new();

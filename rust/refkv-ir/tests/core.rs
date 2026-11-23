@@ -3,6 +3,7 @@
 //! §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>), one test for
 //! the IRs that keep them and one per way to break them.
 
+use refkv_ir::error::Error;
 use refkv_ir::check::{check, finish, leaves, names};
 use refkv_ir::ir::*;
 
@@ -134,7 +135,7 @@ fn check_finds_a_hole() {
         .unwrap();
     let e = check(&ir).unwrap_err();
     assert!(
-        e.contains("bytes [10, 20) are claimed by no element"),
+        e.to_string().contains("bytes [10, 20) are claimed by no element"),
         "{e}"
     );
 }
@@ -147,7 +148,7 @@ fn check_finds_an_overlap() {
     ir.value(0, "b", NO_INDEX, "bytes[10]", 0, (10, 10), None)
         .unwrap();
     let e = check(&ir).unwrap_err();
-    assert!(e.contains("bytes [10, 12) are claimed by"), "{e}");
+    assert!(e.to_string().contains("bytes [10, 12) are claimed by"), "{e}");
 }
 
 #[test]
@@ -158,7 +159,7 @@ fn check_finds_members_that_overlap_one_another() {
         .unwrap();
     ir.runs.push((s, 2, 30)); // members [0, 40) and [30, 70)
     let e = check(&ir).unwrap_err();
-    assert!(e.contains("overlap one another"), "{e}");
+    assert!(e.to_string().contains("overlap one another"), "{e}");
 }
 
 #[test]
@@ -168,7 +169,7 @@ fn check_finds_a_dangling_alias() {
         .unwrap();
     ir.add(ALIAS, 0, "b", NO_INDEX, "", 0, None).unwrap();
     let e = check(&ir).unwrap_err();
-    assert!(e.contains("names no element"), "{e}");
+    assert!(e.to_string().contains("names no element"), "{e}");
 }
 
 /// A 30-byte source: the root, then `a` (a value of 10 bytes) and a gap of 20.
@@ -225,53 +226,53 @@ fn the_root_spans_the_source_and_every_path_is_its_own() {
 fn a_root_of_another_kind_is_invalid() {
     let mut ir = named();
     ir.kind[0] = GAP;
-    assert_eq!(names(&ir).unwrap_err(), "the root (element 0) is a gap, not a struct");
+    assert_eq!(names(&ir).unwrap_err(), Error::rejected("the root (element 0) is a gap, not a struct"));
 }
 
 #[test]
 fn a_named_root_is_invalid() {
     let mut ir = named();
     ir.name[0] = ir.names.id("r");
-    assert_eq!(names(&ir).unwrap_err(), "the root (element 0) is named \"r\", not \"\"");
-    assert_eq!(check(&ir).unwrap_err(), "the root (element 0) is named \"r\", not \"\"");
+    assert_eq!(names(&ir).unwrap_err(), Error::rejected("the root (element 0) is named \"r\", not \"\""));
+    assert_eq!(check(&ir).unwrap_err(), Error::rejected("the root (element 0) is named \"r\", not \"\""));
 }
 
 #[test]
 fn a_root_with_an_index_is_invalid() {
     let mut ir = named();
     ir.nidx[0] = 0;
-    assert_eq!(check(&ir).unwrap_err(), "the root (element 0) has the name index 0");
+    assert_eq!(check(&ir).unwrap_err(), Error::rejected("the root (element 0) has the name index 0"));
 }
 
 #[test]
 fn a_root_in_a_derived_space_is_invalid() {
     let mut ir = named();
     ir.space[0] = 1;
-    assert_eq!(check(&ir).unwrap_err(), "the root (element 0) is in space 1, not 0");
+    assert_eq!(check(&ir).unwrap_err(), Error::rejected("the root (element 0) is in space 1, not 0"));
 }
 
 #[test]
 fn a_root_that_does_not_span_the_source_is_invalid() {
     let mut ir = named();
     ir.len[0] = 0;
-    assert_eq!(check(&ir).unwrap_err(), "the root's extent is (0, 0), not (0, 30): the root spans the source");
+    assert_eq!(check(&ir).unwrap_err(), Error::rejected("the root's extent is (0, 0), not (0, 30): the root spans the source"));
     ir.start[0] = 10;
     ir.len[0] = 20;
-    assert_eq!(check(&ir).unwrap_err(), "the root's extent is (10, 20), not (0, 30): the root spans the source");
+    assert_eq!(check(&ir).unwrap_err(), Error::rejected("the root's extent is (10, 20), not (0, 30): the root spans the source"));
 }
 
 #[test]
 fn a_root_that_is_a_run_is_invalid() {
     let mut ir = named();
     ir.runs.push((0, 2, 30));
-    assert_eq!(names(&ir).unwrap_err(), "the root (element 0) is a run");
+    assert_eq!(names(&ir).unwrap_err(), Error::rejected("the root (element 0) is a run"));
 }
 
 #[test]
 fn an_element_with_an_empty_full_name_is_invalid() {
     let mut ir = named();
     ir.name[1] = ir.names.id("");
-    assert_eq!(check(&ir).unwrap_err(), "element 1 (value \"\") has an empty full name");
+    assert_eq!(check(&ir).unwrap_err(), Error::rejected("element 1 (value \"\") has an empty full name"));
 }
 
 #[test]
@@ -280,19 +281,19 @@ fn siblings_of_one_path_are_invalid() {
     let mut ir = named();
     ir.name[2] = ir.names.id("a");
     ir.nidx[2] = NO_INDEX;
-    assert_eq!(check(&ir).unwrap_err(), "element 1 (value \"a\") and element 2 (gap \"a\") have one path, \"a\"");
+    assert_eq!(check(&ir).unwrap_err(), Error::rejected("element 1 (value \"a\") and element 2 (gap \"a\") have one path, \"a\""));
     // a name and an index that spell another's full name: `a1` and index 3, `a` and index 13
     let mut ir = Ir::new(2);
     let s = ir.struct_(0, "s", NO_INDEX, 0, None).unwrap();
     ir.value(s, "a1", 3, "u1", 0, (0, 1), None).unwrap();
     ir.value(s, "a", 13, "u1", 0, (1, 1), None).unwrap();
-    assert_eq!(check(&ir).unwrap_err(), "element 2 (value \"s/a13\") and element 3 (value \"s/a13\") have one path, \"s/a13\"");
+    assert_eq!(check(&ir).unwrap_err(), Error::rejected("element 2 (value \"s/a13\") and element 3 (value \"s/a13\") have one path, \"s/a13\""));
     // a member of a run and a sibling: `t2` is member 2 of the run `t0`
     let mut ir = Ir::new(4);
     let r = ir.value(0, "t", 0, "u1", 0, (0, 1), None).unwrap();
     ir.runs.push((r, 3, 1));
     ir.value(0, "t", 2, "u1", 0, (3, 1), None).unwrap();
-    assert_eq!(check(&ir).unwrap_err(), "member 2 of the run element 1 (value \"t0\") and element 2 (value \"t2\") have one path, \"t2\"");
+    assert_eq!(check(&ir).unwrap_err(), Error::rejected("member 2 of the run element 1 (value \"t0\") and element 2 (value \"t2\") have one path, \"t2\""));
 }
 
 #[test]
@@ -302,6 +303,6 @@ fn a_full_name_that_continues_a_siblings_with_a_slash_is_invalid() {
     ir.nidx[2] = 0;
     assert_eq!(
         check(&ir).unwrap_err(),
-        "the full name \"a/0\" of element 2 (gap \"a/0\") starts with that of its sibling element 1 (value \"a\") and \"/\""
+        Error::rejected("the full name \"a/0\" of element 2 (gap \"a/0\") starts with that of its sibling element 1 (value \"a\") and \"/\"")
     );
 }

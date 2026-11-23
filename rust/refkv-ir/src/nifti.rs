@@ -20,6 +20,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>; `nifti/stored.rs`):
 //! one array, one unit, added to the finished IR.
 
+use crate::error::Error;
+
 #[path = "nifti/stored.rs"]
 pub(crate) mod stored;
 
@@ -261,7 +263,7 @@ impl Nifti {
         self.fed.feed(offset, data);
     }
 
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         loop {
             match self.phase {
                 Phase::Start => {
@@ -269,7 +271,7 @@ impl Nifti {
                     return Ok(Step::Read(vec![(0, self.size.min(HEAD))]));
                 }
                 Phase::Head => {
-                    let got = self.fed.get(0, self.size.min(HEAD)).ok_or("internal: no header")?.to_vec();
+                    let got = self.fed.get(0, self.size.min(HEAD)).ok_or_else(|| Error::internal("no header"))?.to_vec();
                     if detect_pair(&got).is_some() {
                         return Ok(Step::Beside);
                     }
@@ -282,7 +284,7 @@ impl Nifti {
                     }
                 }
                 Phase::Gzip => {
-                    let reader = self.gzip.as_mut().ok_or("internal: no gzip reader")?;
+                    let reader = self.gzip.as_mut().ok_or_else(|| Error::internal("no gzip reader"))?;
                     let inflated = match reader.inflate(&self.fed, self.want) {
                         Ok(inflated) => inflated,
                         Err(reads) => return Ok(reads),
@@ -321,7 +323,7 @@ impl Nifti {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#74-gzipped-files>): a
     /// stream's size is checked against the trailer, so no file's size bounds the voxel data.
     fn head(&mut self, got: &[u8], isize: Option<u32>) -> Res<()> {
-        let version = detect(got).ok_or("not a NIfTI-1 or NIfTI-2 single file")?;
+        let version = detect(got).ok_or_else(|| Error::rejected("not a NIfTI-1 or NIfTI-2 single file"))?;
         let size = if isize.is_some() { got.len() as u64 } else { self.size };
         let Checked { length, h, samples, vox, total, dims, bits } = check_header(self.rules, got, version, size, |length| length + 4)?;
         self.rules.check(
@@ -393,7 +395,7 @@ impl Nifti {
 
     /// The finished IR, with its voxels described (`stored.rs`), and the description of the file
     /// (§7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#76-the-description>).
-    pub fn finish(self) -> Result<(Ir, J), String> {
+    pub fn finish(self) -> crate::error::Res<(Ir, J)> {
         let (mut ir, mut facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
         if facts["elements"].get("header").is_some() {
             facts["elements"]["extensions"] = json!(extensions(&ir, 0));
@@ -504,10 +506,10 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Nifti>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
         crate::project::nifti::project(ir, description, url, copied)
     }
-    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value) -> crate::error::Res<Vec<(u64, u64)>> {
         crate::project::nifti::reads(ir, description)
     }
 }

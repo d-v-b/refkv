@@ -10,6 +10,8 @@
 //! its bytes (spec/zarrify/safetensors.md §8.3
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#83-chunks>).
 
+use crate::error::Error;
+
 use super::{arr, contiguous, Copied};
 use crate::ir::Ir;
 use crate::out::{array_json, copy_threshold, declared_group, grid_chunks, metadata_group, Chunk, Out, Part};
@@ -29,11 +31,11 @@ fn n(v: &J) -> u64 {
 /// A tensor's chunk shape and chunks (their coordinates and references).
 type Cut = (Vec<u64>, Vec<(Vec<u64>, Chunk)>);
 
-fn cut(a: &J, threshold: usize) -> Result<Cut, String> {
+fn cut(a: &J, threshold: usize) -> crate::error::Res<Cut> {
     let shape: Vec<u64> = arr(&a["shape"]).iter().map(n).collect();
     let (offset, bits) = (n(&a["offset"]), n(&a["bits"]));
     if bits >= 8 {
-        return grid_chunks(offset, &shape, bits / 8, CHUNK_BYTES, threshold).ok_or_else(|| "internal: the data cannot be cut into chunks".into());
+        return grid_chunks(offset, &shape, bits / 8, CHUNK_BYTES, threshold).ok_or_else(|| Error::internal("the data cannot be cut into chunks"));
     }
     match contiguous::packed_chunks(offset, &shape, bits, CHUNK_BYTES, threshold) {
         Some(cut) => Ok(cut),
@@ -48,7 +50,7 @@ fn cut(a: &J, threshold: usize) -> Result<Cut, String> {
 
 /// The source's ranges of the edge chunks the projection copies (§8.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#83-chunks>).
-pub fn reads(_ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+pub fn reads(_ir: &Ir, description: &J) -> crate::error::Res<Vec<(u64, u64)>> {
     let planned = &plan(description)?;
     let threshold = copy_threshold();
     let mut out = Vec::new();
@@ -76,11 +78,11 @@ fn array_doc(a: &J, chunk_shape: &[u64]) -> J {
 
 /// The hierarchy of a file whose description is `description`, laid out as refkv's plan of it
 /// says (`safetensors::plan::plan`).
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> crate::error::Res<Out> {
     let planned = &plan(description)?;
     let threshold = copy_threshold();
     let arrays = arr(&planned["arrays"]);
-    let cuts = arrays.iter().map(|a| cut(a, threshold)).collect::<Result<Vec<Cut>, String>>()?;
+    let cuts = arrays.iter().map(|a| cut(a, threshold)).collect::<crate::error::Res<Vec<Cut>>>()?;
     let mut out = Out::new(url);
     out.json("zarr.json", &declared_group(Map::new(), "safetensors", Some(url), Some(planned["own"].clone())));
     for g in arr(&planned["groups"]) {
@@ -124,7 +126,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<O
 /// range of the shard's object (padded from the zero data source); and every other object,
 /// referenced whole under `refkv_source/objects/`; laid out as refkv's plan of the store's
 /// description says (`safetensors::plan::plan_store`).
-pub fn project_store(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+pub fn project_store(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
     use super::store::{check_key, object_key};
     let src = ir.sources();
     let listing: Vec<(String, u64)> = src.objects.iter().map(|&o| (ir.key(o), ir.len[o as usize])).collect();
@@ -140,7 +142,7 @@ pub fn project_store(ir: &Ir, description: &J, url: &str) -> Result<Out, String>
     let mut cuts = Vec::new();
     for s in shards {
         let f = &s["planned"];
-        cuts.push(arr(&f["arrays"]).iter().map(|a| cut(a, usize::MAX)).collect::<Result<Vec<Cut>, String>>()?);
+        cuts.push(arr(&f["arrays"]).iter().map(|a| cut(a, usize::MAX)).collect::<crate::error::Res<Vec<Cut>>>()?);
     }
     let mut summary = Vec::new();
     for (s, shard_cuts) in shards.iter().zip(&cuts) {
@@ -167,7 +169,7 @@ pub fn project_store(ir: &Ir, description: &J, url: &str) -> Result<Out, String>
             let tensor = a["path"].as_str().unwrap_or_default();
             let prefix = if arr(&a["shape"]).is_empty() { format!("{path}/{tensor}/c") } else { format!("{path}/{tensor}/c/") };
             for (c, chunk) in chunks {
-                let Chunk::Ranges(parts) = chunk else { return Err("internal: a store chunk to copy".into()) };
+                let Chunk::Ranges(parts) = chunk else { return Err(Error::internal("a store chunk to copy")) };
                 let parts = contiguous::padded(parts, &mut zeros, &mut refs.out)?;
                 let parts: Vec<Part> = parts.into_iter().map(|p| match p {
                     Part::Src(o, n) => Part::Obj(key.to_string(), o, n),
@@ -193,6 +195,6 @@ pub fn project_store(ir: &Ir, description: &J, url: &str) -> Result<Out, String>
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied) -> crate::error::Res<Out> {
     project_store(ir, description, url)
 }

@@ -20,6 +20,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>; `mrc/stored.rs`),
 //! keyed by its header, or a gzipped file's stream.
 
+use crate::error::Error;
+
 use crate::fed::Fed;
 use crate::gz;
 use crate::ir::*;
@@ -132,14 +134,14 @@ impl Mrc {
         self.fed.feed(offset, data);
     }
 
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         match self.phase {
             Phase::Start => {
                 self.phase = Phase::Head;
                 Ok(Step::Read(vec![(0, self.size.min(HEADER))]))
             }
             Phase::Head => {
-                let got = self.fed.get(0, self.size.min(HEADER)).ok_or("internal: no header")?.to_vec();
+                let got = self.fed.get(0, self.size.min(HEADER)).ok_or_else(|| Error::internal("no header"))?.to_vec();
                 if gz::is_member(&got) {
                     self.gzip = Some(gz::Reader::new(self.size));
                     self.phase = Phase::Gzip;
@@ -150,7 +152,7 @@ impl Mrc {
                 Ok(Step::Done)
             }
             Phase::Gzip => {
-                let reader = self.gzip.as_mut().ok_or("internal: no gzip reader")?;
+                let reader = self.gzip.as_mut().ok_or_else(|| Error::internal("no gzip reader"))?;
                 let inflated = match reader.inflate(&self.fed, HEADER) {
                     Ok(inflated) => inflated,
                     Err(reads) => return Ok(reads),
@@ -171,7 +173,7 @@ impl Mrc {
     /// stream's size is checked against the trailer, so no file's size bounds the data.
     fn head(&mut self, got: &[u8], isize: Option<u32>) -> Res<()> {
         if !detect(got) {
-            return Err("not an MRC file".into());
+            return Err(Error::rejected("not an MRC file"));
         }
         let size = if isize.is_some() { self.rules.limit("max_safe") } else { self.size as f64 };
         self.rules.check("file", rules::env([("size", num(if isize.is_some() { got.len() as f64 } else { self.size as f64 }))]))?;
@@ -269,7 +271,7 @@ impl Mrc {
 
     /// The finished IR, with the file's array described (`stored.rs`), and the description of the
     /// file (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#85-the-description>).
-    pub fn finish(self) -> Result<(Ir, J), String> {
+    pub fn finish(self) -> crate::error::Res<(Ir, J)> {
         let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
         if let Some(reached) = &self.reached {
             let (arrays, chains, map) = stored::described(reached)?;
@@ -315,15 +317,15 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Mrc>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
         crate::project::mrc::project(ir, description, url, copied, None)
     }
     /// The dataset layout (`mrc-dataset`) is written unless `layouts` leaves it out.
     fn project_layouts(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied,
-                       layouts: Option<&[String]>) -> Result<crate::out::Out, String> {
+                       layouts: Option<&[String]>) -> crate::error::Res<crate::out::Out> {
         crate::project::mrc::project(ir, description, url, copied, layouts)
     }
-    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value) -> crate::error::Res<Vec<(u64, u64)>> {
         crate::project::mrc::reads(ir, description)
     }
 }

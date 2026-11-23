@@ -17,7 +17,7 @@ macro_rules! reject {
             let data = std::fs::read(common::fixtures().join(concat!("hdf5/", $input))).unwrap();
             let got = refkv_ir::parse_bytes::<Hdf5>(&data).and_then(|(_, facts)| refkv_ir::project::hdf5_nodes::nodes(&facts).map(|_| ()));
             match got {
-                Err(m) => assert!(m.starts_with($msg), "{m}"),
+                Err(m) => assert!(m.to_string().starts_with($msg), "{m}"),
                 Ok(_) => panic!("{} was accepted", $input),
             }
         }
@@ -27,7 +27,7 @@ include!(concat!(env!("OUT_DIR"), "/rejects_hdf5.rs"));
 
 /// Every accepted fixture parses, and its IR rebuilds the file byte for byte.
 /// The parse of a file on its own, the siblings it names found absent.
-fn alone(data: &[u8]) -> Result<(refkv_ir::ir::Ir, serde_json::Value), String> {
+fn alone(data: &[u8]) -> refkv_ir::error::Res<(refkv_ir::ir::Ir, serde_json::Value)> {
     let mut p = Hdf5::new(data.len() as u64);
     p.resolve(Default::default());
     loop {

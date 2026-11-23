@@ -78,14 +78,17 @@ impl El {
 /// Why a walk stopped: the input is rejected, or bytes it needs were not fed.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Fail {
-    Reject(String),
+    Reject(crate::error::Error),
+    /// a budget or IR error of the walk: never a structure that breaks a rule, so a tolerant walk
+    /// does not record it as one
+    Hard(crate::error::Error),
     Miss(u64, u64),
 }
 
 pub type R<T> = Result<T, Fail>;
 
 pub fn reject<T>(m: impl Into<String>) -> R<T> {
-    Err(Fail::Reject(m.into()))
+    Err(Fail::Reject(crate::error::Error::Rejected(m.into())))
 }
 
 /// The bytes fed, as disjoint ranges (adjacent and overlapping ones merged), held until

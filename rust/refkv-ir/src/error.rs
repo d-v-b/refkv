@@ -9,6 +9,7 @@
 //! variant holds its whole message, as hosts print it, so that a message given context
 //! (`Error::context`) keeps both its words and its variant.
 
+
 use std::fmt;
 
 /// Why the core gives no result.

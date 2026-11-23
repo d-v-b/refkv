@@ -20,7 +20,7 @@ fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/precomputed")
 }
 
-fn zarrify(files: &BTreeMap<String, Vec<u8>>) -> Result<(Out, refkv_ir::ir::Ir), String> {
+fn zarrify(files: &BTreeMap<String, Vec<u8>>) -> refkv_ir::error::Res<(Out, refkv_ir::ir::Ir)> {
     let keys = listing(files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let mut r = refkv_ir::store::StoreRun::new(StoreFormat::Precomputed, keys, 4)?;
@@ -33,7 +33,7 @@ fn entry(out: &Out) -> impl Fn(&str) -> Option<Vec<u8>> + '_ {
     |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone())
 }
 
-fn no_source(_: u64, _: u64) -> Result<Vec<u8>, String> {
+fn no_source(_: u64, _: u64) -> refkv_ir::error::Res<Vec<u8>> {
     Err("a store's mirror reads no source".into())
 }
 
@@ -174,7 +174,7 @@ fn a_shard_is_a_box_of_chunks_on_bancs_numbers() {
 fn rejected(store: &str) -> String {
     match zarrify(&walk(&fixtures().join(store))) {
         Ok(_) => panic!("{store} accepted"),
-        Err(e) => e,
+        Err(e) => e.to_string(),
     }
 }
 
@@ -196,5 +196,5 @@ fn a_store_without_info_is_rejected() {
     let mut files = BTreeMap::new();
     files.insert("x".to_string(), b"x".to_vec());
     let e = zarrify(&files).err().unwrap();
-    assert!(e.contains("not a Neuroglancer precomputed store: the root has no info"), "{e}");
+    assert!(e.to_string().contains("not a Neuroglancer precomputed store: the root has no info"), "{e}");
 }

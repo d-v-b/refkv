@@ -20,7 +20,7 @@ impl PyEnvi {
     /// of the data file, and the header and data files' keys.
     #[allow(clippy::type_complexity)]
     fn image(&self) -> PyResult<(String, String, Vec<(Vec<u64>, u64, u64)>, String, String)> {
-        let img = refkv_ir::project::envi::image(&self.description).map_err(PyValueError::new_err)?;
+        let img = refkv_ir::project::envi::image(&self.description).map_err(|e| PyValueError::new_err(e.to_string()))?;
         let chunks = img.chunks.iter().map(|(coords, (offset, length))| (coords.to_vec(), *offset, *length)).collect();
         Ok((refkv_ir::out::to_text(&img.own), refkv_ir::out::to_text(&img.array), chunks, img.header_key, img.data_key))
     }

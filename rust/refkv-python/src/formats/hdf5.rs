@@ -1,7 +1,7 @@
 //! The HDF5 profile's class (`Hdf5`).
 
 use crate::formats::View;
-use crate::{out_py, Rejected};
+use crate::{out_py, refused};
 use pyo3::prelude::*;
 use refkv_ir::ir::Ir;
 use std::sync::Arc;
@@ -26,7 +26,7 @@ impl PyHdf5 {
     fn hierarchy<'py>(&self, py: Python<'py>) -> PyResult<(String, Bound<'py, PyAny>, Vec<(String, u64, u64, u64)>)> {
         let (nodes, out, copies) = py
             .detach(|| refkv_ir::project::hdf5::hierarchy(&self.ir, &self.description, self.store))
-            .map_err(Rejected::new_err)?;
+            .map_err(refused)?;
         Ok((serde_json::Value::Array(nodes).to_string(), out_py(py, &out)?, copies))
     }
     /// The key of the file a store run was named by, whose object URL the hierarchy's root names

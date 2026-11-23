@@ -16,6 +16,8 @@
 //! a gzip member (spec/zarrify/npy.md §8.4
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#84-chunks>).
 
+use crate::error::Error;
+
 use super::{arr, contiguous, Copied};
 use crate::ir::Ir;
 use crate::npy::header::{self, Dtype, Header};
@@ -87,16 +89,16 @@ impl Described {
 /// §2.3 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#23-the-grid>): the data
 /// is the `data` element beside the header, or, for an array of no elements, nothing at the
 /// header's end.
-fn presented<'a>(ir: &Ir, described: &Described, a: &'a J) -> Result<Presented<'a>, String> {
+fn presented<'a>(ir: &Ir, described: &Described, a: &'a J) -> crate::error::Res<Presented<'a>> {
     let rules = rules::of("npy");
     let path = a["path"].as_str().unwrap_or("array");
-    let text = a["header"].as_str().ok_or("internal: a presented array without its header's text")?;
+    let text = a["header"].as_str().ok_or_else(|| Error::internal("a presented array without its header's text"))?;
     let header = header::parse(text, rules.limit("max_rank") as usize)?;
     let dtype = header::dtype(rules, &header.descr)?;
-    let key = a["stored"].as_u64().ok_or("internal: a presented array without its description's key")? as u32;
-    let &k = described.position.get(&key).ok_or("internal: a presented array without a description")?;
+    let key = a["stored"].as_u64().ok_or_else(|| Error::internal("a presented array without its description's key"))? as u32;
+    let &k = described.position.get(&key).ok_or_else(|| Error::internal("a presented array without a description"))?;
     let array = &ir.stored.arrays[k];
-    let stored = array.shape.clone().ok_or("internal: a presented array of no extent")?;
+    let stored = array.shape.clone().ok_or_else(|| Error::internal("a presented array of no extent"))?;
     // its one unit; else, where the description has no grid, the `data` element beside the header
     // (the parser emits it straight after the header, under the same parent)
     let beside = || {
@@ -116,7 +118,7 @@ fn presented<'a>(ir: &Ir, described: &Described, a: &'a J) -> Result<Presented<'
         header.shape.iter().try_fold(dtype.item as u128, |n, &s| n.checked_mul(s as u128))
     };
     if length != Some(data.1 as u128) {
-        return Err(format!("internal: the array at {path} holds {} bytes, not what its header declares", data.1));
+        return Err(Error::internal(format!("the array at {path} holds {} bytes, not what its header declares", data.1)));
     }
     // a deflated member: its header is in the space of the derived element that is its stream
     let space = ir.space[key as usize];
@@ -127,7 +129,7 @@ fn presented<'a>(ir: &Ir, described: &Described, a: &'a J) -> Result<Presented<'
             crc: n(&a["deflate"]["crc"]) as u32,
             size: n(&a["deflate"]["size"]),
         }),
-        _ => return Err(format!("internal: the array at {path} is in a derived space, and its description names no stream")),
+        _ => return Err(Error::internal(format!("the array at {path} is in a derived space, and its description names no stream"))),
     };
     // a deflated member's data is its stream's, not a recipe of the file's bytes
     let form = if deflate.is_some() { 0 } else { form };
@@ -145,7 +147,7 @@ struct Cut {
     trailing: bool,
 }
 
-fn cut(a: &Presented, threshold: usize) -> Result<Cut, String> {
+fn cut(a: &Presented, threshold: usize) -> crate::error::Res<Cut> {
     let r = a.stored.len();
     let reversed = a.reversed;
     let trailing = a.dtype.trailing;
@@ -173,7 +175,7 @@ fn cut(a: &Presented, threshold: usize) -> Result<Cut, String> {
         }
         return Ok(Cut { shape, chunk_shape, chunks, reversed, trailing: trailing.is_some() });
     }
-    let (grid, chunks) = grid_chunks(a.data.0, &stored, item, CHUNK_BYTES, threshold).ok_or("internal: the data cannot be cut into chunks")?;
+    let (grid, chunks) = grid_chunks(a.data.0, &stored, item, CHUNK_BYTES, threshold).ok_or_else(|| Error::internal("the data cannot be cut into chunks"))?;
     // the stored order's coordinates in the array's: the first r reversed, a trailing axis last
     let order = |c: Vec<u64>| -> Vec<u64> {
         if !reversed {
@@ -188,7 +190,7 @@ fn cut(a: &Presented, threshold: usize) -> Result<Cut, String> {
 
 /// The source's ranges of the edge chunks the projection copies (§8.4
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#84-chunks>).
-pub fn reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+pub fn reads(ir: &Ir, description: &J) -> crate::error::Res<Vec<(u64, u64)>> {
     let described = Described::of(ir);
     let mut out = Vec::new();
     for a in arr(&description["arrays"]) {
@@ -228,11 +230,11 @@ fn array_doc(a: &Presented, c: &Cut) -> J {
     doc
 }
 
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> crate::error::Res<Out> {
     let threshold = copy_threshold();
     let described = Described::of(ir);
-    let arrays = arr(&description["arrays"]).iter().map(|a| presented(ir, &described, a)).collect::<Result<Vec<Presented>, String>>()?;
-    let cuts = arrays.iter().map(|a| cut(a, threshold)).collect::<Result<Vec<Cut>, String>>()?;
+    let arrays = arr(&description["arrays"]).iter().map(|a| presented(ir, &described, a)).collect::<crate::error::Res<Vec<Presented>>>()?;
+    let cuts = arrays.iter().map(|a| cut(a, threshold)).collect::<crate::error::Res<Vec<Cut>>>()?;
     let mut out = Out::new(url);
     out.json("zarr.json", &declared_group(Map::new(), "npy", Some(url), Some(description["own"].clone())));
     let mut summary = Vec::new();

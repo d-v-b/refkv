@@ -2,6 +2,7 @@
 
 mod common;
 
+use refkv_ir::error::Error;
 use refkv_ir::mp4::Mp4;
 
 // one test per rejected fixture, each the message its check gives
@@ -12,7 +13,7 @@ macro_rules! reject {
         fn $name() {
             let data = std::fs::read(common::fixtures().join(concat!("mp4/", $input))).unwrap();
             match planned(&data) {
-                Err(m) => assert!(m.starts_with($msg), "{m}"),
+                Err(m) => assert!(m.to_string().starts_with($msg), "{m}"),
                 Ok(_) => panic!("{} was accepted", $input),
             }
         }
@@ -22,14 +23,14 @@ include!(concat!(env!("OUT_DIR"), "/rejects_mp4.rs"));
 
 /// The MP4 parser's description of a file read whole, with refkv's plan of it
 /// (`project::mp4::plan`): Err with the parser's rejection, or the plan's (`with_plan`).
-fn planned(data: &[u8]) -> Result<(refkv_ir::ir::Ir, serde_json::Value), String> {
+fn planned(data: &[u8]) -> refkv_ir::error::Res<(refkv_ir::ir::Ir, serde_json::Value)> {
     let (ir, description) = refkv_ir::parse_bytes::<Mp4>(data)?;
     Ok((ir, with_plan(&description)?))
 }
 
 /// A description with refkv's plan of each track: its tracks each as the convention reads it
 /// (`project::mp4::planned_track`), a video or audio track's key as `declared_by`.
-fn with_plan(description: &serde_json::Value) -> Result<serde_json::Value, String> {
+fn with_plan(description: &serde_json::Value) -> refkv_ir::error::Res<serde_json::Value> {
     use refkv_ir::project::mp4::{plan, planned_track};
     let p = plan(description)?;
     let tracks: Vec<serde_json::Value> = description["tracks"].as_array().unwrap().iter().zip(p["tracks"].as_array().unwrap())
@@ -78,7 +79,7 @@ fn an_ftyp_box_too_short_for_its_fields_fails() {
     for head in [short, large] {
         let data = [&head[..], &plain[40..]].concat();
         let m = refkv_ir::parse_bytes::<Mp4>(&data).err().unwrap();
-        assert_eq!(m, "the ftyp box at 0 has 4 bytes, too few for its 8 bytes of fields");
+        assert_eq!(m, Error::rejected("the ftyp box at 0 has 4 bytes, too few for its 8 bytes of fields"));
     }
 }
 
@@ -215,7 +216,7 @@ fn moof_boxes_past_the_limit_fail() {
     parser.step().unwrap();
     parser.feed(0, head);
     let m = parser.step().err().unwrap();
-    assert_eq!(m, "the moof boxes are 67108865 bytes in all, more than 64 MiB");
+    assert_eq!(m, Error::rejected("the moof boxes are 67108865 bytes in all, more than 64 MiB"));
 }
 
 /// Each video or audio track of an accepted fixture names its descriptions by their key, the

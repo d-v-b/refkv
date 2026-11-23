@@ -27,7 +27,7 @@
 //! stream that ends early is an error, not a short output. Signed samples (`AEC_DATA_SIGNED`)
 //! are not decoded: GRIB's are unsigned.
 
-type Res<T> = Result<T, String>;
+use crate::error::{Error, Res};
 
 const DATA_SIGNED: u8 = 1;
 const DATA_PREPROCESS: u8 = 8;
@@ -65,7 +65,7 @@ struct Reader<'a> {
 
 impl Reader<'_> {
     fn short<T>() -> Res<T> {
-        Err("the CCSDS stream ends before its samples do".into())
+        Err(Error::rejected("the CCSDS stream ends before its samples do"))
     }
 
     /// The next `n` bits (n ≤ 32).
@@ -117,23 +117,23 @@ impl Reader<'_> {
 pub fn decode(data: &[u8], bits_per_sample: u32, block_size: u32, rsi: u32, flags: u8, n: usize) -> Res<Vec<u32>> {
     let bps = bits_per_sample;
     if !(1..=32).contains(&bps) {
-        return Err(format!("CCSDS samples of {bps} bits are not decoded"));
+        return Err(Error::rejected(format!("CCSDS samples of {bps} bits are not decoded")));
     }
     if flags & DATA_SIGNED != 0 {
-        return Err("signed CCSDS samples are not decoded".into());
+        return Err(Error::rejected("signed CCSDS samples are not decoded"));
     }
     let enforced = flags & NOT_ENFORCE == 0;
     if block_size == 0 || (enforced && ![8, 16, 32, 64].contains(&block_size)) || block_size & 1 != 0 {
-        return Err(format!("a CCSDS block size of {block_size} is not decoded"));
+        return Err(Error::rejected(format!("a CCSDS block size of {block_size} is not decoded")));
     }
     if rsi == 0 || rsi > 4096 {
-        return Err(format!("a CCSDS reference sample interval of {rsi} blocks is not decoded"));
+        return Err(Error::rejected(format!("a CCSDS reference sample interval of {rsi} blocks is not decoded")));
     }
     let id_len = if flags & RESTRICTED != 0 {
         match bps {
             1..=2 => 1,
             3..=4 => 2,
-            _ => return Err(format!("the restricted CCSDS options with samples of {bps} bits are not decoded")),
+            _ => return Err(Error::rejected(format!("the restricted CCSDS options with samples of {bps} bits are not decoded"))),
         }
     } else if bps > 16 {
         5
@@ -167,7 +167,7 @@ pub fn decode(data: &[u8], bits_per_sample: u32, block_size: u32, rsi: u32, flag
                     while i < block {
                         let m = r.fs()? as usize;
                         if m > SE_TABLE_SIZE {
-                            return Err("a CCSDS second extension's index is past its table".into());
+                            return Err(Error::rejected("a CCSDS second extension's index is past its table"));
                         }
                         let d1 = m as i32 - se[2 * m + 1];
                         if i & 1 == 0 {
@@ -187,7 +187,7 @@ pub fn decode(data: &[u8], bits_per_sample: u32, block_size: u32, rsi: u32, flag
                     }
                     let zeros = (zero_blocks as usize * block).saturating_sub(reference);
                     if buf.len() + zeros > rsi_size {
-                        return Err("a CCSDS run of zero blocks is past its reference sample interval".into());
+                        return Err(Error::rejected("a CCSDS run of zero blocks is past its reference sample interval"));
                     }
                     buf.resize(buf.len() + zeros, 0);
                 }

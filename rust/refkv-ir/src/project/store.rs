@@ -4,6 +4,8 @@
 //! index, the output keys the archive allows, and the ignored keys recorded beside the mirror.
 //! Zarr v2 (`zarr2.rs`) uses them, and so do the other store formats.
 
+use crate::error::Error;
+
 use crate::json::Jv;
 use crate::out::{convention, root_property, Out, CONVENTION_KEY};
 use serde_json::{json, Value as J};
@@ -46,12 +48,12 @@ pub fn canonical_index(s: &str, limit: u64) -> bool {
 }
 
 /// Rejects the output keys spec/bindings/vzip.md does not allow.
-pub fn check_key(key: &str) -> Result<(), String> {
+pub fn check_key(key: &str) -> crate::error::Res<()> {
     if key.len() > 65535 {
-        return Err("an output key is longer than 65535 bytes".into());
+        return Err(Error::rejected("an output key is longer than 65535 bytes"));
     }
     if key.starts_with("__vz__/") {
-        return Err(format!("output key {key:?} is in the reserved __vz__/ space"));
+        return Err(Error::rejected(format!("output key {key:?} is in the reserved __vz__/ space")));
     }
     Ok(())
 }
@@ -91,12 +93,12 @@ pub fn kept(profile: &str) -> &'static [&'static str] {
 /// either: like the mirror, they are what such an output leaves out. Facts that carry a member
 /// the profile does not keep are refused, with or without the mirror: that is a format
 /// missing from [`kept`], whose keys would otherwise be lost.
-pub fn record_ignored(out: &mut Out, description: &J, profile: &str) -> Result<(), String> {
+pub fn record_ignored(out: &mut Out, description: &J, profile: &str) -> crate::error::Res<()> {
     let strings = |m: &str| -> Vec<&str> { description[m].as_array().into_iter().flatten().filter_map(J::as_str).collect() };
     // a member the description carries that the profile does not keep would be lost: refuse it
     for m in ["empty_dirs", "ignored"] {
         if !kept(profile).contains(&m) && !strings(m).is_empty() {
-            return Err(format!("internal: the {profile} convention keeps no {m}"));
+            return Err(Error::internal(format!("the {profile} convention keeps no {m}")));
         }
     }
     let mut members: Vec<(&str, Vec<&str>)> = Vec::new();
@@ -115,7 +117,7 @@ pub fn record_ignored(out: &mut Out, description: &J, profile: &str) -> Result<(
     let key = format!("{}/zarr.json", crate::out::SOURCE_NODE);
     let Some(e) = out.entries.iter().find(|e| e.0 == key) else { return Ok(()) };
     let mut doc: J = serde_json::from_slice(&e.1).map_err(|e| format!("internal: {e}"))?;
-    let own = doc["attributes"][CONVENTION_KEY][profile].as_object_mut().ok_or("internal: refkv_source declares no mirror")?;
+    let own = doc["attributes"][CONVENTION_KEY][profile].as_object_mut().ok_or_else(|| Error::internal("refkv_source declares no mirror"))?;
     for (m, v) in members {
         own.insert(m.into(), json!(v));
     }

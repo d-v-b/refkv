@@ -13,9 +13,11 @@
 //! the lifting steps compute under 16.5 × 2^(P−1): within 2^24 for P ≤ 20. A truncated
 //! codestream's coefficients are its encoder's to within the bits it drops.
 
+use crate::error::Error;
+
 use hayro_jpeg2000::{DecodeSettings, DecoderContext, Image};
 
-type Res<T> = Result<T, String>;
+use crate::error::Res;
 
 /// The most bits a sample may have.
 pub const MAX_PRECISION: u32 = 20;
@@ -29,7 +31,7 @@ pub fn decode(b: &[u8], n: usize) -> Res<Vec<u64>> {
     let decoded = image.decode(&mut context).map_err(|e| format!("the JPEG 2000 codestream does not decode: {e}"))?;
     let samples = decoded.components()[0].samples();
     if samples.len() != n {
-        return Err(format!("the JPEG 2000 image has {} samples, and section 5 gives {n} values", samples.len()));
+        return Err(Error::rejected(format!("the JPEG 2000 image has {} samples, and section 5 gives {n} values", samples.len())));
     }
     // whole numbers (above), clamped to the samples' range as OpenJPEG clamps a truncated
     // codestream's
@@ -41,9 +43,9 @@ pub fn decode(b: &[u8], n: usize) -> Res<Vec<u64>> {
 /// to describe what `decode` decodes.
 fn check(b: &[u8]) -> Res<u32> {
     if !b.starts_with(&[0xff, 0x4f, 0xff, 0x51]) {
-        return Err("section 7 is not a JPEG 2000 codestream".into());
+        return Err(Error::rejected("section 7 is not a JPEG 2000 codestream"));
     }
-    let short = || "the JPEG 2000 codestream ends in its headers".to_string();
+    let short = || Error::rejected("the JPEG 2000 codestream ends in its headers");
     let u16_at = |at: usize| b.get(at..at + 2).map(|s| u16::from_be_bytes([s[0], s[1]]) as usize).ok_or_else(short);
     // a marker segment at `at`: its marker and body (after its length, which counts itself)
     let segment = |at: usize| -> Res<(usize, &[u8])> {
@@ -56,17 +58,17 @@ fn check(b: &[u8]) -> Res<u32> {
     let Some(&[c0, c1, ssiz, xr, yr]) = siz.get(34..39) else { return Err(short()) };
     let components = u16::from_be_bytes([c0, c1]);
     if components != 1 {
-        return Err(format!("a JPEG 2000 codestream of {components} components is not decoded"));
+        return Err(Error::rejected(format!("a JPEG 2000 codestream of {components} components is not decoded")));
     }
     if ssiz & 0x80 != 0 {
-        return Err("a JPEG 2000 codestream of signed samples is not decoded".into());
+        return Err(Error::rejected("a JPEG 2000 codestream of signed samples is not decoded"));
     }
     if (xr, yr) != (1, 1) {
-        return Err("a JPEG 2000 codestream of subsampled samples is not decoded".into());
+        return Err(Error::rejected("a JPEG 2000 codestream of subsampled samples is not decoded"));
     }
     let precision = (ssiz & 0x7f) as u32 + 1;
     if precision > MAX_PRECISION {
-        return Err(format!("a JPEG 2000 codestream of {precision}-bit samples, more than {MAX_PRECISION}, is not decoded"));
+        return Err(Error::rejected(format!("a JPEG 2000 codestream of {precision}-bit samples, more than {MAX_PRECISION}, is not decoded")));
     }
     // the main header's other marker segments, then each tile-part's, from its SOT
     let mut pos = 2 + 4 + siz.len();
@@ -77,7 +79,7 @@ fn check(b: &[u8]) -> Res<u32> {
         match marker {
             // COD's and COC's (of one component, so a 1-byte Ccoc) wavelet transform: 0 9/7, 1 5/3
             0xff52 | 0xff53 if at(if marker == 0xff52 { 9 } else { 6 })? != 1 => {
-                return Err("a JPEG 2000 codestream of the irreversible 9/7 wavelet transform is not decoded".into());
+                return Err(Error::rejected("a JPEG 2000 codestream of the irreversible 9/7 wavelet transform is not decoded"));
             }
             // SOT: Isot, then Psot, the tile-part's length from its SOT (0: to the codestream's end)
             0xff90 => tile_part = Some((pos, u32::from_be_bytes([at(2)?, at(3)?, at(4)?, at(5)?]) as usize)),

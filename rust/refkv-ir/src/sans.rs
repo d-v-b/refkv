@@ -1,6 +1,8 @@
 //! The skeleton the sans-IO file parsers share around their own steps: the reads a round asks
 //! for, counted, and the end of a parse.
 
+use crate::error::Error;
+
 use crate::check;
 use crate::ir::Ir;
 use crate::step::Step;
@@ -36,9 +38,9 @@ impl Asked {
 }
 
 /// The IR and description of a parse that is `done`: its values sorted and its invariants checked.
-pub fn finish(done: bool, mut ir: Ir, description: J) -> Result<(Ir, J), String> {
+pub fn finish(done: bool, mut ir: Ir, description: J) -> crate::error::Res<(Ir, J)> {
     if !done {
-        return Err("internal: the parse is not done".into());
+        return Err(Error::internal("the parse is not done"));
     }
     ir.sort_values();
     check::finish(&mut ir)?;

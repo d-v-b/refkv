@@ -17,6 +17,8 @@
 //! parser's state: a `Src` is made from a description alone, and gives the parser's helpers' names
 //! over the description's values, so that the checks run in the profile's order.
 
+use crate::error::Error;
+
 use super::*;
 
 /// refkv's plan of the image a description describes, of profile `profile` (`tiff`, `qptiff` or
@@ -24,7 +26,7 @@ use super::*;
 /// sizes and axes, its data type's and codecs' fields, its strips' joins, pads and shards, its
 /// scales, units and translation, and its channels' names and colors. An error for an input the
 /// convention rejects, with the profile's message.
-pub fn plan(profile: &str, description: &J) -> Result<J, String> {
+pub fn plan(profile: &str, description: &J) -> crate::error::Res<J> {
     let s = Src::of(profile, description)?;
     let done = match profile {
         "ndpi" => s.derive_ndpi(),
@@ -34,7 +36,7 @@ pub fn plan(profile: &str, description: &J) -> Result<J, String> {
     match done {
         Ok(p) => Ok(p),
         Err(Stop::Reject(m)) => Err(m),
-        Err(_) => Err("internal: the plan asked for bytes the description does not hold".into()),
+        Err(_) => Err(Error::internal("the plan asked for bytes the description does not hold")),
     }
 }
 
@@ -160,11 +162,11 @@ pub(super) struct Src<'a> {
 
 impl<'a> Src<'a> {
     /// The file `d` describes, of the profile `profile` (`tiff`, `qptiff` or `ndpi`).
-    pub fn of(profile: &str, d: &'a J) -> Result<Src<'a>, String> {
+    pub fn of(profile: &str, d: &'a J) -> crate::error::Res<Src<'a>> {
         let ndpi = profile == "ndpi";
         let ifds: Vec<PIfd<'a>> = d["ifds"]
             .as_array()
-            .ok_or("internal: a description without IFDs")?
+            .ok_or_else(|| Error::internal("a description without IFDs"))?
             .iter()
             .map(|f| PIfd {
                 offset: u(&f["offset"]),
@@ -321,7 +323,7 @@ impl<'a> Src<'a> {
     /// several, as the parser found them (`Tiff::ome_files`).
     fn ome_files(&self, o: &Ome) -> Got<Vec<usize>> {
         let Some(own) = &self.named else {
-            return Err(Stop::Reject("internal: a document that names other files, read as a file".into()));
+            return Err(Stop::Reject(Error::internal("a document that names other files, read as a file")));
         };
         let keys: Vec<&str> = self.siblings.iter().map(|s| s.0.as_str()).collect();
         let mut files = Vec::with_capacity(o.tiff_data.len());
@@ -341,10 +343,10 @@ impl<'a> Src<'a> {
 
     /// The tail of strip `j` of IFD `k` as the description holds it: Ok((prefix, tail)), or
     /// Err(why its stream does not reach its rows); None where it holds none.
-    fn lzw_tail(&self, k: usize, j: usize) -> Option<Result<(u64, Vec<u8>), String>> {
+    fn lzw_tail(&self, k: usize, j: usize) -> Option<crate::error::Res<(u64, Vec<u8>)>> {
         let t = self.tails.get(&(k, j))?;
         Some(match t["problem"].as_str() {
-            Some(p) => Err(p.to_string()),
+            Some(p) => Err(Error::rejected(p)),
             None => Ok((u(&t["prefix"]), t["tail"].as_str().and_then(unbase64).unwrap_or_default())),
         })
     }
@@ -372,7 +374,7 @@ impl<'a> Src<'a> {
                 8 | 9 => Nv::Signed(a.iter().map(|x| x.as_i64().unwrap_or(0)).collect()),
                 11 | 12 => Nv::Floats(a.iter().map(|x| float_of(x).unwrap_or(f64::NAN)).collect()),
                 5 => Nv::Rats(a.iter().map(|p| (u(&p[0]), u(&p[1]))).collect()),
-                _ => return Err("internal: an NDPI tag of an unexpected type".into()),
+                _ => return Err(Error::internal("an NDPI tag of an unexpected type")),
             };
             out.insert(tag, v);
         }
@@ -1410,7 +1412,7 @@ impl Src<'_> {
                 // a JPEG XR level: its tiles, or its strip, each a chunk
                 let (cw, ch) = if tiled {
                     let (tw, th) = (Self::nint(m, 322).unwrap_or(1), Self::nint(m, 323).unwrap_or(1));
-                    let t = self.ndpi_tiles(k).ok_or_else(|| Stop::Reject("internal: an NDPI level's tile tables were not read".into()))?;
+                    let t = self.ndpi_tiles(k).ok_or_else(|| Stop::Reject(Error::internal("an NDPI level's tile tables were not read")))?;
                     let within = t.offsets.iter().zip(&t.counts).all(|(&o, &c)| c == 0 || self.within(o, c));
                     self.rules.check(
                         "tiles",
@@ -1506,7 +1508,7 @@ impl Src<'_> {
                 None => None,
                 Some(McuStarts { starts, .. }) => {
                     let Some(hb) = self.jpeg_header(k) else {
-                        return Err(Stop::Reject("internal: a strip header the description does not hold passed the checks".into()));
+                        return Err(Stop::Reject(Error::internal("a strip header the description does not hold passed the checks")));
                     };
                     let hd = ndpi::header(&hb, self.rules)?;
                     let (before, after) = (ndpi::piece(&mut pieces, &hb[..hd.sof.0]), ndpi::piece(&mut pieces, &hb[hd.sof.1..]));
@@ -1681,7 +1683,7 @@ impl Src<'_> {
             )?;
             first.get_or_insert(this);
         }
-        let (w, h, tiled, tw, th) = first.ok_or_else(|| Stop::Reject("internal: an empty QPTIFF level".into()))?;
+        let (w, h, tiled, tw, th) = first.ok_or_else(|| Stop::Reject(Error::internal("an empty QPTIFF level")))?;
         Ok(Level { w, h, tw, th, ifds: ks.to_vec(), strips: !tiled, join: 1, shard: 1, rectilinear: false, pad: J::Null })
     }
 
@@ -1825,11 +1827,11 @@ impl Src<'_> {
                                 // (`lzw_tails`): what its reads would have been, with this one
                                 let read = self.described_tail_reads() + read(n, bytes(short as u128 * rows)) as u128;
                                 self.rules.check("tails", rules::env([("read", num(read as f64)), ("size", num(self.size as f64))]))?;
-                                return Err(Stop::Reject("internal: a short last LZW strip the description does not hold".into()));
+                                return Err(Stop::Reject(Error::internal("a short last LZW strip the description does not hold")));
                             };
                             let (ok, problem, pad) = match tail {
                                 Ok((prefix, tail)) => (true, String::new(), json!({"c": c, "k": j, "prefix": prefix, "tail": tail})),
-                                Err(e) => (false, e, J::Null),
+                                Err(e) => (false, e.to_string(), J::Null),
                             };
                             self.rules.check(
                                 "strip_tail",

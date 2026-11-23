@@ -26,6 +26,7 @@ pub mod walk;
 
 pub use file::{hex, unhex, Hdf5, Profile};
 
+use crate::error::Error;
 use crate::fed::{Fed, Overlap, uint};
 use crate::text::latin1;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -84,13 +85,13 @@ pub enum Fail {
     /// bytes not fed yet (they are wanted)
     Miss,
     /// the file breaks a rule
-    Bad(String),
+    Bad(crate::error::Error),
 }
 
 pub type R<T> = Result<T, Fail>;
 
 pub fn bad<T>(m: impl Into<String>) -> R<T> {
-    Err(Fail::Bad(m.into()))
+    Err(Fail::Bad(crate::error::Error::Rejected(m.into())))
 }
 
 /// The outcome of a sequence of independent computations, as a sequential reading would
@@ -797,7 +798,7 @@ pub struct Super {
     pub istore_k: u64,
 }
 
-type Memo<K, T> = HashMap<K, Result<Rc<T>, String>>;
+type Memo<K, T> = HashMap<K, crate::error::Res<Rc<T>>>;
 
 fn memo_get<K: std::hash::Hash + Eq, T>(m: &Memo<K, T>, k: &K) -> Option<R<Rc<T>>> {
     m.get(k).map(|r| r.clone().map_err(Fail::Bad))
@@ -1271,7 +1272,7 @@ impl H5 {
         for k in 0..used {
             let at = 16 + 24 * k;
             let (name, offset, size) = (le(&m, at, 8)? as usize, le(&m, at + 8, 8)?, le(&m, at + 16, 8)?);
-            let rest = heap.data.get(name..).ok_or(Fail::Bad("an external file's name lies outside its heap".into()))?;
+            let rest = heap.data.get(name..).ok_or(Fail::Bad(Error::rejected("an external file's name lies outside its heap")))?;
             let name = rest.split(|&b| b == 0).next().unwrap_or(&[]).to_vec();
             slots.push(ExternalSlot { name, offset, size });
         }
@@ -1332,7 +1333,7 @@ impl H5 {
             return bad(format!("B-tree node at {at} read twice"));
         }
         let node = match self.node1(at, node_type, key_size) {
-            Err(Fail::Bad(m)) if m.starts_with("no B-tree node") => return bad(format!("no B-tree node of type {node_type} at {at}")),
+            Err(Fail::Bad(m)) if m.to_string().starts_with("no B-tree node") => return bad(format!("no B-tree node of type {node_type} at {at}")),
             r => r?,
         };
         if node.ty != node_type {
@@ -1571,7 +1572,7 @@ impl H5 {
                 memo_put(&mut self.huge, fh.at, r)?
             }
         };
-        map.0.get(&key).copied().ok_or_else(|| Fail::Bad(format!("no huge fractal heap object {key}")))
+        map.0.get(&key).copied().ok_or_else(|| Fail::Bad(Error::rejected(format!("no huge fractal heap object {key}"))))
     }
 
     /// The huge objects' B-tree of a heap and its objects, when they were read.
@@ -2295,7 +2296,7 @@ mod tests {
         b.take::<u8>(bad("y"));
         assert!(b.stopped());
         b.take::<u8>(Err(Fail::Miss));
-        assert_eq!(b.done(), Err(Fail::Bad("y".into())));
+        assert_eq!(b.done(), Err(Fail::Bad(Error::rejected("y"))));
     }
 
     #[test]

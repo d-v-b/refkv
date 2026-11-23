@@ -10,6 +10,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>), by this store parser itself:
 //! keyed by the `header` in the header file, their one unit the `voxels` in the image file.
 
+use crate::error::Error;
+
 use crate::ir::*;
 use crate::nifti::{chain_values, check_header, detect_pair, stored};
 use crate::rules::{self, Rules, flag, num, text};
@@ -63,7 +65,7 @@ impl NiftiPair {
     /// The listing's IR, its objects' elements and keys: one key, the header file.
     pub fn new(ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<NiftiPair> {
         if keys.len() != 1 || keys[0].0.contains('/') {
-            return Err(format!("a NIfTI pair's run starts from the header file alone, not {} objects", keys.len()));
+            return Err(Error::rejected(format!("a NIfTI pair's run starts from the header file alone, not {} objects", keys.len())));
         }
         Ok(NiftiPair {
             rules: rules::of("nifti"),
@@ -86,7 +88,7 @@ impl NiftiPair {
     /// The header's checks, from the file's first bytes.
     fn check_first(&mut self, first: &[u8]) -> Res<()> {
         let (key, size) = self.keys[0].clone();
-        self.version = detect_pair(first).ok_or("not a NIfTI header-and-image pair's header file")?;
+        self.version = detect_pair(first).ok_or_else(|| Error::rejected("not a NIfTI header-and-image pair's header file"))?;
         self.rules.check("pair_name", rules::env([("key", text(&key)), ("named", flag(image_key(&key).is_some()))]))?;
         let c = check_header(self.rules, first, self.version, size, |_| 0)?;
         self.rules.check("pair_header", rules::env([("key", text(&key)), ("size", num(size as f64))]))?;
@@ -101,7 +103,7 @@ impl NiftiPair {
     /// The image file's checks, and the edge chunks to copy.
     fn check_image(&mut self) -> Res<()> {
         let key = self.keys[0].0.clone();
-        let image = image_key(&key).ok_or("internal: a header file of no image file")?;
+        let image = image_key(&key).ok_or_else(|| Error::internal("a header file of no image file"))?;
         self.rules.check("pair_image", rules::env([("key", text(&image)), ("found", flag(self.keys.len() == 2))]))?;
         let size = self.keys[1].1;
         self.rules.check(
@@ -123,7 +125,7 @@ impl NiftiPair {
     /// pair's description (§7.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#76-the-description>);
     /// the edge chunks the run read go to the projection through `StoreParser::copied`.
     fn emit(&mut self) -> Res<J> {
-        let mut ir = self.ir.take().ok_or("internal: no IR")?;
+        let mut ir = self.ir.take().ok_or_else(|| Error::internal("no IR"))?;
         let (header_file, image_file) = (self.elems[0], self.elems[1]);
         let (size, image_size) = (self.keys[0].1, self.keys[1].1);
         let h = crate::nifti::header(&self.head, self.version);
@@ -200,7 +202,7 @@ impl StoreParser for NiftiPair {
                         self.head = whole;
                     }
                     self.phase = Phase::Probed;
-                    let image = image_key(&self.keys[0].0).ok_or("internal: a header file of no image file")?;
+                    let image = image_key(&self.keys[0].0).ok_or_else(|| Error::internal("a header file of no image file"))?;
                     return Ok(StoreStep::Probe(vec![image]));
                 }
                 Phase::Probed => {
@@ -212,7 +214,7 @@ impl StoreParser for NiftiPair {
                 }
                 Phase::Copies => {
                     for (o, n) in std::mem::take(&mut self.copies) {
-                        let b = self.got.remove(&(1, o)).ok_or("internal: a copied chunk was not read")?;
+                        let b = self.got.remove(&(1, o)).ok_or_else(|| Error::internal("a copied chunk was not read"))?;
                         self.copied.push((o, n, b));
                     }
                     self.phase = Phase::Done;
@@ -228,11 +230,11 @@ impl StoreParser for NiftiPair {
 
     fn found(&mut self, key: &str, index: usize, size: Option<u64>) -> Res<Option<u32>> {
         let Some(size) = size else { return Ok(None) };
-        let ir = self.ir.as_mut().ok_or("internal: no IR")?;
+        let ir = self.ir.as_mut().ok_or_else(|| Error::internal("no IR"))?;
         let (name, x) = key_name(key, false);
         let e = ir.object(0, &name, x, size)?;
         if index != self.keys.len() {
-            return Err("internal: a found object out of order".into());
+            return Err(Error::internal("a found object out of order"));
         }
         self.keys.push((key.to_string(), size));
         self.elems.push(e);
@@ -248,10 +250,10 @@ impl StoreParser for NiftiPair {
 
     fn finish(mut self: Box<Self>) -> Res<(Ir, J)> {
         if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
+            return Err(Error::internal("the parse is not done"));
         }
         let description = self.emit()?;
-        Ok((self.ir.take().ok_or("internal: no IR")?, description))
+        Ok((self.ir.take().ok_or_else(|| Error::internal("no IR"))?, description))
     }
 }
 

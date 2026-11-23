@@ -16,6 +16,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#77-the-description>), from
 //! which the projection makes the hierarchy.
 
+use crate::error::Error;
+
 use crate::fed::{Fed, Overlap};
 use crate::hdf5::types::{float_json, int_of};
 use crate::ir::{Ir, NO_INDEX};
@@ -103,13 +105,13 @@ impl Ty {
 #[derive(Debug)]
 enum Fail {
     Need(u64),
-    Bad(String),
+    Bad(crate::error::Error),
 }
 
 type R<T> = Result<T, Fail>;
 
 fn bad<T>(m: impl Into<String>) -> R<T> {
-    Err(Fail::Bad(m.into()))
+    Err(Fail::Bad(crate::error::Error::Rejected(m.into())))
 }
 
 /// A big-endian reader of the header, over the file's first bytes `b`: a read past the file, or
@@ -127,9 +129,9 @@ struct Rd<'a> {
 
 impl<'a> Rd<'a> {
     fn bytes(&mut self, n: u64) -> R<&'a [u8]> {
-        let end = self.p.checked_add(n).filter(|&e| e <= self.size).ok_or_else(|| Fail::Bad("the header runs past the end of the file".into()))?;
+        let end = self.p.checked_add(n).filter(|&e| e <= self.size).ok_or_else(|| Fail::Bad(Error::rejected("the header runs past the end of the file")))?;
         if end > self.budget {
-            return bad(format!("budget: the header is more than {} bytes", self.budget));
+            return Err(Fail::Bad(Error::budget(format!("the header is more than {} bytes", self.budget))));
         }
         if end > self.b.len() as u64 {
             return Err(Fail::Need(end));
@@ -227,12 +229,12 @@ fn att_list(r: &mut Rd, version: u8, what: &str) -> R<Vec<Attr>> {
         let name = r.name()?;
         let code = r.u32()?;
         let shown = utf8_or_latin1(&name);
-        let t = ty(code).ok_or_else(|| Fail::Bad(format!("the attribute {shown} has the unknown type {code}")))?;
+        let t = ty(code).ok_or_else(|| Fail::Bad(Error::rejected(format!("the attribute {shown} has the unknown type {code}"))))?;
         if t.cdf5 && version != 5 {
             return bad(format!("the attribute {shown} has the type {code}, of CDF-5 only"));
         }
         let count = r.size()?;
-        let nbytes = count.checked_mul(t.bytes).ok_or_else(|| Fail::Bad("the header runs past the end of the file".into()))?;
+        let nbytes = count.checked_mul(t.bytes).ok_or_else(|| Fail::Bad(Error::rejected("the header runs past the end of the file")))?;
         let raw = r.bytes(nbytes)?.to_vec();
         r.pad(nbytes)?;
         out.push(Attr { name, code, count, raw });
@@ -283,7 +285,7 @@ fn header(b: &[u8], size: u64, budget: u64) -> R<Header> {
             let attrs = att_list(&mut r, version, &format!("attribute list of variable {k}"))?;
             let type_at = r.p;
             let code = r.u32()?;
-            let t = ty(code).ok_or_else(|| Fail::Bad(format!("variable {k} has the unknown type {code}")))?;
+            let t = ty(code).ok_or_else(|| Fail::Bad(Error::rejected(format!("variable {k} has the unknown type {code}"))))?;
             if t.cdf5 && version != 5 {
                 return bad(format!("variable {k} has the type {code}, of CDF-5 only"));
             }
@@ -319,10 +321,10 @@ struct Placed {
 }
 
 fn place(h: &Header, size: u64) -> R<Placed> {
-    let big = |k: usize| Fail::Bad(format!("variable {k} holds more than 2^64 bytes"));
+    let big = |k: usize| Fail::Bad(Error::rejected(format!("variable {k} holds more than 2^64 bytes")));
     let mut layouts = Vec::with_capacity(h.vars.len());
     for (k, v) in h.vars.iter().enumerate() {
-        let t = ty(v.code).ok_or_else(|| Fail::Bad("internal: a variable of no type".into()))?;
+        let t = ty(v.code).ok_or_else(|| Fail::Bad(Error::internal("a variable of no type")))?;
         let lens: Vec<u64> = v.dims.iter().map(|&d| h.dims.get(d).map_or(0, |d| d.len)).collect();
         let record = lens.first() == Some(&0);
         let bytes = lens.iter().skip(record as usize).try_fold(t.bytes, |a, &n| a.checked_mul(n)).ok_or_else(|| big(k))?;
@@ -390,7 +392,7 @@ fn place(h: &Header, size: u64) -> R<Placed> {
             return match (f.2, run.2) {
                 (Some(a), Some(b)) => bad(format!("variables {} and {} overlap", a.min(b), a.max(b))),
                 (Some(k), None) | (None, Some(k)) => bad(format!("variable {k} and the records overlap")),
-                (None, None) => bad("internal: the records overlap themselves"),
+                (None, None) => Err(Fail::Bad(Error::internal("the records overlap themselves"))),
             };
         }
         if far.is_none_or(|f| run.1 > f.1) {
@@ -453,21 +455,21 @@ impl Netcdf3 {
         self.fed.feed(offset, data);
     }
 
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         if self.found.is_some() {
             return Ok(Step::Done);
         }
         // a file of fewer than 4 bytes holds no magic number (spec/zarrify/netcdf3.md §7.4
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#74-checks>)
         if self.size < 4 {
-            return Err("not a netCDF3 file".into());
+            return Err(Error::rejected("not a netCDF3 file"));
         }
         let budget = self.rules.limit("header_bytes") as u64;
         if self.read == 0 {
             self.read = self.size.min(self.rules.limit("first_read") as u64);
             return Ok(self.asked.ask(vec![(0, self.read)]));
         }
-        let b = self.fed.get(0, self.read).ok_or("internal: the header's bytes were not fed")?.to_vec();
+        let b = self.fed.get(0, self.read).ok_or_else(|| Error::internal("the header's bytes were not fed"))?.to_vec();
         match header(&b, self.size, budget).and_then(|h| place(&h, self.size).map(|p| (h, p))) {
             Ok((header, placed)) => {
                 self.found = Some(Found { header, placed });
@@ -477,7 +479,7 @@ impl Netcdf3 {
             Err(Fail::Need(end)) => {
                 let next = end.max(self.read.saturating_mul(2)).min(self.size).min(budget);
                 if next <= self.read {
-                    return Err("internal: the header needs no more bytes than were read".into());
+                    return Err(Error::internal("the header needs no more bytes than were read"));
                 }
                 let from = self.read;
                 self.read = next;
@@ -492,10 +494,10 @@ impl Netcdf3 {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#77-the-description>): its
     /// dimensions, attributes and variables as the header gives them, with none of the output's
     /// decisions (a node's name, a data type, a fill value, a chunk), which the projection makes.
-    pub fn finish(self) -> Result<(Ir, J), String> {
-        let Some(Found { header: h, placed: p }) = self.found else { return Err("internal: the parse is not done".into()) };
+    pub fn finish(self) -> crate::error::Res<(Ir, J)> {
+        let Some(Found { header: h, placed: p }) = self.found else { return Err(Error::internal("the parse is not done")) };
         let mut ir = Ir::new(self.size);
-        let raw = self.fed.get(0, h.end).ok_or("internal: the header was not read")?;
+        let raw = self.fed.get(0, h.end).ok_or_else(|| Error::internal("the header was not read"))?;
         let header = ir.value(0, "header", NO_INDEX, &format!("bytes[{}]", h.end), 0, (0, h.end), Some(raw))?;
         let recipe = r#"{"recipe":[["src",0,null]]}"#;
         let mut elements = vec![None; h.vars.len()];
@@ -559,14 +561,14 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Netcdf3>(size)
     }
-    fn project(&self, ir: &Ir, description: &J, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &Ir, description: &J, url: &str, copied: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
         crate::project::netcdf3::project(ir, description, url, copied)
     }
     /// The summary holds the parser's `rounds`.
     fn summary_counts(&self) -> &'static [&'static str] {
         &["rounds"]
     }
-    fn reads(&self, ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+    fn reads(&self, ir: &Ir, description: &J) -> crate::error::Res<Vec<(u64, u64)>> {
         crate::project::netcdf3::reads(ir, description)
     }
 }
@@ -579,7 +581,7 @@ mod tests {
     #[test]
     fn short_files_are_not_netcdf3() {
         for b in [&b""[..], b"C", b"CDF"] {
-            assert_eq!(crate::parse_bytes::<Netcdf3>(b).err(), Some("not a netCDF3 file".to_string()), "{b:?}");
+            assert_eq!(crate::parse_bytes::<Netcdf3>(b).err(), Some(crate::error::Error::rejected("not a netCDF3 file")), "{b:?}");
         }
     }
 }

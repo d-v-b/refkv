@@ -50,7 +50,7 @@ fn a_summary_with_a_number_not_finite_is_none() {
     let at = data.windows(old.len()).position(|w| w == old).unwrap();
     data[at..at + old.len()].copy_from_slice(new);
     let e = common::tiff_plan(&data).err().unwrap();
-    assert!(e.contains("a stack of pages without OME-XML"), "{e}");
+    assert!(e.to_string().contains("a stack of pages without OME-XML"), "{e}");
 }
 
 // ---- the round-3 TIFF probes, built here
@@ -102,7 +102,7 @@ fn image() -> (Vec<(u16, u16, u32, u32)>, Vec<u8>) {
 
 fn rejects(data: &[u8], msg: &str) {
     match common::tiff_plan(data) {
-        Err(m) => assert!(m.contains(msg), "{m}"),
+        Err(m) => assert!(m.to_string().contains(msg), "{m}"),
         Ok(_) => panic!("accepted"),
     }
 }
@@ -227,7 +227,7 @@ fn every_accepted_fixtures_planes_name_their_descriptions() {
             let (ir, facts) = match common::tiff_plan(&std::fs::read(&p).unwrap()) {
                 Ok((ir, _, plan)) => (ir, plan),
                 // a file of a set, which a store run reads (the next test)
-                Err(e) if e.contains("names siblings") => continue,
+                Err(e) if e.to_string().contains("names siblings") => continue,
                 Err(_) => {
                     skipped.push(name);
                     continue;
@@ -379,5 +379,5 @@ fn a_level_tail_the_parser_left_out_for_its_budget_is_rejected_with_the_tails_me
     // the level's tail left out, and another range read to the file's size in its place
     description["lzw_tails"] = serde_json::json!([{"ifd": 0, "strip": 999, "offset": 0, "read": size, "prefix": 0, "tail": ""}]);
     let e = refkv_ir::tiff::plan::plan("tiff", &description).unwrap_err();
-    assert!(e.starts_with("the short last LZW strips would be read for their tails"), "{e}");
+    assert!(e.to_string().starts_with("the short last LZW strips would be read for their tails"), "{e}");
 }

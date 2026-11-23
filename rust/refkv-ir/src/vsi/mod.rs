@@ -15,6 +15,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): each tile
 //! file's levels, and the images of the `.vsi` file's IFDs.
 
+use crate::error::Error;
+
 mod describe;
 pub mod ets;
 pub mod plan;
@@ -152,12 +154,12 @@ impl Vsi {
     /// The listing's IR, its objects' elements and keys: one key, the `.vsi` file.
     pub fn new(ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Vsi> {
         if keys.len() != 1 {
-            return Err(format!("a VSI run starts from the .vsi file alone, not {} objects", keys.len()));
+            return Err(Error::rejected(format!("a VSI run starts from the .vsi file alone, not {} objects", keys.len())));
         }
         let key = &keys[0].0;
         let lower = key.to_ascii_lowercase();
         if !lower.ends_with(".vsi") || key.len() <= 4 || key.contains('/') {
-            return Err(format!("the key {key:?} is not the name of a .vsi file"));
+            return Err(Error::rejected(format!("the key {key:?} is not the name of a .vsi file")));
         }
         Ok(Vsi {
             rules: rules::of("vsi"),
@@ -186,7 +188,7 @@ impl Vsi {
     }
 
     fn take(&mut self, k: (usize, u64, u64)) -> Res<Vec<u8>> {
-        self.got.remove(&k).ok_or_else(|| format!("internal: the read {k:?} was not fed"))
+        self.got.remove(&k).ok_or_else(|| Error::internal(format!("the read {k:?} was not fed")))
     }
 
     // ---- the .vsi file (§9.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#91-the-vsi-file>)
@@ -333,7 +335,7 @@ impl Vsi {
             self.rules.check("tile_file", rules::env([("id", num(s.id as f64)), ("name", text(&s.name)), ("dir", text(&s.dir)), ("found", num(found.len() as f64))]))?;
             let (_, key, index, size) = found.remove(0);
             if size < ets::SIS_HEADER {
-                return Err(format!("{key} ({size} bytes) is too short for an ETS file"));
+                return Err(Error::rejected(format!("{key} ({size} bytes) is too short for an ETS file")));
             }
             self.stacks[k].file = Some(self.files.len());
             self.files.push(EtsFile { stack: k, object: index, key, size, head: Vec::new(), sis: Default::default(), header: Vec::new(), ets: Default::default(), dir: Vec::new(), tiles: Vec::new() });
@@ -417,7 +419,7 @@ impl Vsi {
     // ---- the IR and the description
 
     fn add_dirs(&mut self, key: &str) -> Res<u32> {
-        let ir = self.ir.as_mut().ok_or("internal: no IR")?;
+        let ir = self.ir.as_mut().ok_or_else(|| Error::internal("no IR"))?;
         let mut parent = 0u32;
         let mut from = 0;
         for (at, _) in key.match_indices('/') {
@@ -439,8 +441,8 @@ impl Vsi {
     fn emit(&mut self) -> Res<J> {
         let rules = self.rules;
         let file = std::mem::take(&mut self.file);
-        let tree = self.tree.take().ok_or("internal: no tree")?;
-        let mut ir = self.ir.take().ok_or("internal: no IR")?;
+        let tree = self.tree.take().ok_or_else(|| Error::internal("no tree"))?;
+        let mut ir = self.ir.take().ok_or_else(|| Error::internal("no IR"))?;
         let vsi = self.elems[self.vsi];
         ir.describe_in_place(vsi)?;
         let header = ir.value(vsi, "header", NO_INDEX, VSI_HEADER_TYPE, 0, (0, 8), Some(&file[..8]))?;
@@ -548,12 +550,12 @@ impl StoreParser for Vsi {
             return Ok(None);
         }
         let parent = self.add_dirs(key)?;
-        let ir = self.ir.as_mut().ok_or("internal: no IR")?;
+        let ir = self.ir.as_mut().ok_or_else(|| Error::internal("no IR"))?;
         let seg = key.rsplit('/').next().unwrap_or(key);
         let (n, x) = key_name(seg, false);
         let e = ir.object(parent, &n, x, size)?;
         if index != self.keys.len() || index != self.elems.len() {
-            return Err("internal: a found object out of order".into());
+            return Err(Error::internal("a found object out of order"));
         }
         self.keys.push((key.to_string(), size));
         self.elems.push(e);
@@ -570,7 +572,7 @@ impl StoreParser for Vsi {
 
     fn finish(mut self: Box<Self>) -> Res<(Ir, J)> {
         if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
+            return Err(Error::internal("the parse is not done"));
         }
         let description = self.emit()?;
         Ok((self.ir.take().unwrap(), description))
@@ -621,8 +623,8 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, _size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::refused("a VSI file is zarrified as a store run, with its tile files")
     }
-    fn project(&self, _: &crate::ir::Ir, _: &serde_json::Value, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        Err("a VSI input is zarrified as a store run".into())
+    fn project(&self, _: &crate::ir::Ir, _: &serde_json::Value, _: &str, _: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
+        Err(Error::rejected("a VSI input is zarrified as a store run"))
     }
 }
 

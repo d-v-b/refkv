@@ -7,6 +7,8 @@
 //! the parser reads the bytes they name, and checks the roles `zip_end` and `zip_entry` of its
 //! profile's rules.
 
+use crate::error::Error;
+
 use crate::fed::{Word, uint};
 use crate::ir::{Ir, NO_INDEX};
 use crate::rules::{self, Rules, flag, num, text};
@@ -64,7 +66,7 @@ pub struct End {
 
 /// The EOCD record in the file's last `tail.len()` bytes (file of `n` bytes): the last
 /// occurrence of its signature whose record and comment end exactly at the end of the file.
-pub fn eocd(rules: &Rules, tail: &[u8], n: u64) -> Result<End, String> {
+pub fn eocd(rules: &Rules, tail: &[u8], n: u64) -> crate::error::Res<End> {
     let mut at = tail.len();
     let found = loop {
         let Some(k) = tail[..at].windows(4).rposition(|w| w == EOCD) else { break None };
@@ -73,34 +75,34 @@ pub fn eocd(rules: &Rules, tail: &[u8], n: u64) -> Result<End, String> {
         }
         at = k;
     };
-    let k = found.ok_or("not a zip file: no end of central directory record")?;
+    let k = found.ok_or_else(|| Error::rejected("not a zip file: no end of central directory record"))?;
     let eocd = n - tail.len() as u64 + k as u64;
     let (disk, cd_disk, here, count, cd_size, cd_offset) =
         (uint(tail, k + 4, 2, true), uint(tail, k + 6, 2, true), uint(tail, k + 8, 2, true), uint(tail, k + 10, 2, true), uint(tail, k + 12, 4, true), uint(tail, k + 16, 4, true));
     rules.check("zip_end", &mut rules::env([("disks", flag(disk == 0 && cd_disk == 0)), ("counts", flag(here == count))]))?;
     let zip64 = count == 0xFFFF || cd_size == 0xFFFF_FFFF || cd_offset == 0xFFFF_FFFF;
     if zip64 && eocd < 20 {
-        return Err("a ZIP64 zip file has no ZIP64 end of central directory locator".into());
+        return Err(Error::rejected("a ZIP64 zip file has no ZIP64 end of central directory locator"));
     }
     Ok(End { eocd, comment: uint(tail, k + 20, 2, true), count, cd_size, cd_offset, zip64: zip64.then_some((eocd - 20, 0)) })
 }
 
 /// The ZIP64 locator's record offset.
-pub fn zip64_locator(loc: &[u8], end: &End) -> Result<u64, String> {
+pub fn zip64_locator(loc: &[u8], end: &End) -> crate::error::Res<u64> {
     let (rec, disks) = (u64::le_at(loc, 8), uint(loc, 16, 4, true));
     if &loc[0..4] != ZIP64_LOCATOR || uint(loc, 4, 4, true) != 0 || disks != 1 {
-        return Err("a ZIP64 zip file has no valid ZIP64 end of central directory locator".into());
+        return Err(Error::rejected("a ZIP64 zip file has no valid ZIP64 end of central directory locator"));
     }
     if rec.checked_add(56).is_none_or(|e| e > end.eocd - 20) {
-        return Err("a zip file's ZIP64 end of central directory record is outside it".into());
+        return Err(Error::rejected("a zip file's ZIP64 end of central directory record is outside it"));
     }
     Ok(rec)
 }
 
 /// The ZIP64 record's counts (`end` updated).
-pub fn zip64_record(rules: &Rules, body: &[u8], end: &mut End, rec: u64) -> Result<(), String> {
+pub fn zip64_record(rules: &Rules, body: &[u8], end: &mut End, rec: u64) -> crate::error::Res<()> {
     if &body[0..4] != ZIP64_EOCD {
-        return Err("a zip file has no ZIP64 end of central directory record where its locator says".into());
+        return Err(Error::rejected("a zip file has no ZIP64 end of central directory record where its locator says"));
     }
     let (d1, d2, here, count) = (uint(body, 16, 4, true), uint(body, 20, 4, true), u64::le_at(body, 24), u64::le_at(body, 32));
     rules.check("zip_end", &mut rules::env([("disks", flag(d1 == 0 && d2 == 0)), ("counts", flag(here == count))]))?;
@@ -117,7 +119,7 @@ pub fn cd_end(end: &End) -> u64 {
 }
 
 /// The first `wanted` values of the ZIP64 extended information extra field.
-fn zip64_extra(extra: &[u8], wanted: usize) -> Result<Vec<u64>, String> {
+fn zip64_extra(extra: &[u8], wanted: usize) -> crate::error::Res<Vec<u64>> {
     let mut p = 0;
     while p + 4 <= extra.len() {
         let (hid, size) = (uint(extra, p, 2, true), uint(extra, p + 2, 2, true) as usize);
@@ -126,28 +128,28 @@ fn zip64_extra(extra: &[u8], wanted: usize) -> Result<Vec<u64>, String> {
         }
         if hid == 1 {
             if size < 8 * wanted {
-                return Err("a zip entry's ZIP64 extra field is too short".into());
+                return Err(Error::rejected("a zip entry's ZIP64 extra field is too short"));
             }
             return Ok((0..wanted).map(|k| u64::le_at(extra, p + 4 + 8 * k)).collect());
         }
         p += 4 + size;
     }
-    Err("a zip entry needs a ZIP64 extra field and has none".into())
+    Err(Error::rejected("a zip entry needs a ZIP64 extra field and has none"))
 }
 
 /// The entries of the central directory `cd` (at `cd_offset`).
-pub fn central_directory(rules: &Rules, cd: &[u8], end: &End) -> Result<Vec<Entry>, String> {
+pub fn central_directory(rules: &Rules, cd: &[u8], end: &End) -> crate::error::Res<Vec<Entry>> {
     let mut out = Vec::new();
     let mut p = 0usize;
     for _ in 0..end.count {
         if p + 46 > cd.len() || &cd[p..p + 4] != CENTRAL {
-            return Err("a zip file's central directory has fewer entries than it says".into());
+            return Err(Error::rejected("a zip file's central directory has fewer entries than it says"));
         }
         let (flags, method, crc, mut cs, mut us) = (uint(cd, p + 8, 2, true), uint(cd, p + 10, 2, true), uint(cd, p + 16, 4, true) as u32, uint(cd, p + 20, 4, true), uint(cd, p + 24, 4, true));
         let (nn, ne, nc, disk, mut lho) = (uint(cd, p + 28, 2, true), uint(cd, p + 30, 2, true), uint(cd, p + 32, 2, true), uint(cd, p + 34, 2, true), uint(cd, p + 42, 4, true));
         let len = 46 + (nn + ne + nc) as usize;
         if p + len > cd.len() {
-            return Err("a zip file's central directory entry is truncated".into());
+            return Err(Error::rejected("a zip file's central directory entry is truncated"));
         }
         let raw = &cd[p + 46..p + 46 + nn as usize];
         let extra = &cd[p + 46 + nn as usize..p + 46 + (nn + ne) as usize];
@@ -172,7 +174,7 @@ pub fn central_directory(rules: &Rules, cd: &[u8], end: &End) -> Result<Vec<Entr
         p += len;
     }
     if p != cd.len() {
-        return Err("a zip file's central directory has more bytes than its entries".into());
+        return Err(Error::rejected("a zip file's central directory has more bytes than its entries"));
     }
     Ok(out)
 }
@@ -186,22 +188,22 @@ pub struct Product {
     pub dirs: Vec<String>,
 }
 
-pub fn product_entries(entries: &[Entry]) -> Result<Product, String> {
+pub fn product_entries(entries: &[Entry]) -> crate::error::Res<Product> {
     let mut names = std::collections::HashSet::new();
     let mut root: Option<String> = None;
     let (mut objects, mut ignored, mut dirs) = (Vec::new(), Vec::new(), Vec::new());
     for (i, e) in entries.iter().enumerate() {
         let short: String = e.name.chars().take(200).collect();
         if !names.insert(e.name.as_str()) {
-            return Err(format!("a zip file has two entries named {short:?}"));
+            return Err(Error::rejected(format!("a zip file has two entries named {short:?}")));
         }
         let (head, key) = match e.name.split_once('/') {
             Some((h, k)) if h.ends_with(".SAFE") => (h, k),
-            _ => return Err(format!("a zip entry {short:?} is not under a .SAFE directory")),
+            _ => return Err(Error::rejected(format!("a zip entry {short:?} is not under a .SAFE directory"))),
         };
         match &root {
             None => root = Some(head.to_string()),
-            Some(r) if r != head => return Err("a zip file has entries under two root directories".into()),
+            Some(r) if r != head => return Err(Error::rejected("a zip file has entries under two root directories")),
             _ => {}
         }
         if key.is_empty() || key.ends_with('/') {
@@ -214,17 +216,17 @@ pub fn product_entries(entries: &[Entry]) -> Result<Product, String> {
             continue;
         }
         if key.contains('\\') || key.split('/').any(|s| s.is_empty() || s == "." || s == "..") {
-            return Err(format!("a zip entry's name {short:?} has an empty, . or .. segment, or a backslash"));
+            return Err(Error::rejected(format!("a zip entry's name {short:?} has an empty, . or .. segment, or a backslash")));
         }
         objects.push((key.to_string(), i));
     }
-    let root = root.ok_or("an empty zip file")?;
+    let root = root.ok_or_else(|| Error::rejected("an empty zip file"))?;
     Ok(Product { root, objects, ignored, dirs })
 }
 
 /// The method checks of the objects (§8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#84-the-zip-form>, Methods), before anything is read: which are
 /// deflated (an XML document each).
-pub fn methods(rules: &Rules, entries: &[Entry], objects: &[(String, usize)], is_xml: &dyn Fn(&str) -> bool) -> Result<Vec<bool>, String> {
+pub fn methods(rules: &Rules, entries: &[Entry], objects: &[(String, usize)], is_xml: &dyn Fn(&str) -> bool) -> crate::error::Res<Vec<bool>> {
     let mut deflated = vec![false; entries.len()];
     let mut total = 0u64;
     for (k, i) in objects {
@@ -245,28 +247,28 @@ pub fn methods(rules: &Rules, entries: &[Entry], objects: &[(String, usize)], is
 }
 
 /// A local header's data start (`e` updated), checked against the central directory's offset.
-pub fn local_header(head: &[u8], e: &mut Entry, cd_offset: u64) -> Result<(), String> {
+pub fn local_header(head: &[u8], e: &mut Entry, cd_offset: u64) -> crate::error::Res<()> {
     if &head[0..4] != LOCAL {
-        return Err("a zip entry has no local header where the central directory says".into());
+        return Err(Error::rejected("a zip entry has no local header where the central directory says"));
     }
     e.local = head[..30].to_vec();
     e.local_nn = uint(head, 26, 2, true);
     e.local_ne = uint(head, 28, 2, true);
     e.ds = e.lho + 30 + e.local_nn + e.local_ne;
     if e.ds.checked_add(e.cs).is_none_or(|x| x > cd_offset) {
-        return Err("a zip entry's data reaches beyond the entries".into());
+        return Err(Error::rejected("a zip entry's data reaches beyond the entries"));
     }
     Ok(())
 }
 
 /// No two objects' local headers and data overlap.
-pub fn disjoint(entries: &[Entry], read: &[usize]) -> Result<(), String> {
+pub fn disjoint(entries: &[Entry], read: &[usize]) -> crate::error::Res<()> {
     let mut v: Vec<&Entry> = read.iter().map(|&i| &entries[i]).collect();
     v.sort_by_key(|e| e.lho);
     let mut end = 0;
     for e in v {
         if e.lho < end {
-            return Err("two zip entries' local headers and data overlap".into());
+            return Err(Error::rejected("two zip entries' local headers and data overlap"));
         }
         end = e.ds + e.cs;
     }
@@ -275,24 +277,24 @@ pub fn disjoint(entries: &[Entry], read: &[usize]) -> Result<(), String> {
 
 /// A deflated entry's bytes: the raw deflate stream must end exactly at its compressed size
 /// and give exactly its size, with its CRC-32.
-pub fn inflate(data: &[u8], e: &Entry) -> Result<Vec<u8>, String> {
+pub fn inflate(data: &[u8], e: &Entry) -> crate::error::Res<Vec<u8>> {
     use miniz_oxide::inflate::stream::{InflateState, inflate as step};
     use miniz_oxide::{DataFormat, MZFlush, MZStatus};
     let mut st = InflateState::new_boxed(DataFormat::Raw);
     let mut out = vec![0u8; e.us as usize + 1];
     let r = step(&mut st, data, &mut out, MZFlush::Finish);
-    let bad = || "a zip entry's deflate stream does not end at its compressed size with its size".to_string();
+    let bad = || Error::rejected("a zip entry's deflate stream does not end at its compressed size with its size");
     match r.status {
         Ok(MZStatus::StreamEnd) => {}
         Ok(_) => return Err(bad()),
-        Err(e) => return Err(format!("a zip entry's deflate stream is invalid: {e:?}")),
+        Err(e) => return Err(Error::rejected(format!("a zip entry's deflate stream is invalid: {e:?}"))),
     }
     if r.bytes_consumed != data.len() || r.bytes_written as u64 != e.us {
         return Err(bad());
     }
     out.truncate(r.bytes_written);
     if crc32(&out) != e.crc {
-        return Err("a zip entry's CRC-32 does not match its bytes".into());
+        return Err(Error::rejected("a zip entry's CRC-32 does not match its bytes"));
     }
     Ok(out)
 }
@@ -320,7 +322,7 @@ pub struct Records<'a> {
 /// The IR elements of a zip file's central directory and end records, children of the root:
 /// `central_directory` (a file header per entry, when it is not empty), `zip64_end` and
 /// `zip64_locator` (ZIP64), `end` and `end_comment` (when not empty).
-pub fn emit_records(ir: &mut Ir, size: u64, end: &End, entries: &[Entry], raw: &Records) -> Result<(), String> {
+pub fn emit_records(ir: &mut Ir, size: u64, end: &End, entries: &[Entry], raw: &Records) -> crate::error::Res<()> {
     let tail_at = size - raw.tail.len() as u64;
     let at = |o: u64, n: u64| -> &[u8] { &raw.tail[(o - tail_at) as usize..(o - tail_at + n) as usize] };
     if end.cd_size > 0 {
@@ -354,7 +356,7 @@ pub fn emit_records(ir: &mut Ir, size: u64, end: &End, entries: &[Entry], raw: &
 /// The IR struct `entries/<index>` of entry `e` (its local header read), a child of the root,
 /// `[lho, ds + cs)`: its local header, name (its bytes `name`, when the parser holds them) and
 /// extra field; its data is the caller's to add.
-pub fn emit_local(ir: &mut Ir, index: u64, e: &Entry, name: Option<&[u8]>) -> Result<u32, String> {
+pub fn emit_local(ir: &mut Ir, index: u64, e: &Entry, name: Option<&[u8]>) -> crate::error::Res<u32> {
     let s = ir.struct_(0, "entries/", index, 0, Some((e.lho, e.ds + e.cs - e.lho)))?;
     ir.value(s, "local_header", NO_INDEX, LOCAL_TYPE, 0, (e.lho, 30), Some(&e.local))?;
     if e.local_nn > 0 {

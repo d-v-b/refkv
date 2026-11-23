@@ -88,14 +88,14 @@ fn samples(planned: &J) -> Vec<window::Sample> {
 
 /// The source's ranges the windows sample (`samples`): their chunks' bytes, which the run
 /// reads after the parser.
-pub fn reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+pub fn reads(ir: &Ir, description: &J) -> crate::error::Res<Vec<(u64, u64)>> {
     let planned = &plan("tiff", description)?;
     tiled::reads(ir, planned, &samples(planned), arrays)
 }
 
 /// The levels' arrays and chunks (every level's, or only level `only`'s), and their shapes: a
 /// level's chunks are the tiles of each plane (t, c, z), keyed along the axes of more than one.
-fn arrays(ir: &Ir, planned: &J, url: &str, only: Option<usize>) -> Result<(Out, Vec<Vec<u64>>), String> {
+fn arrays(ir: &Ir, planned: &J, url: &str, only: Option<usize>) -> crate::error::Res<(Out, Vec<Vec<u64>>)> {
     let sizes = &planned["sizes"];
     let (size_t, size_c, size_z) = (n(&sizes["t"]), n(&sizes["c"]), n(&sizes["z"]));
     let plane_c = n(&planned["plane_c"]);
@@ -173,7 +173,7 @@ fn virtual_ranges(ir: &Ir, mut out: Out) -> Out {
 }
 
 /// The virtual offsets of the ranges the windows of a store run's image sample (`samples`).
-pub fn set_reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+pub fn set_reads(ir: &Ir, description: &J) -> crate::error::Res<Vec<(u64, u64)>> {
     let planned = &plan("tiff", description)?;
     tiled::reads(ir, planned, &samples(planned), |ir, planned, url, only| {
         let (out, shapes) = arrays(ir, planned, url, only)?;
@@ -185,7 +185,7 @@ pub fn set_reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#74-several-files>): as `project`,
 /// its references ranges of the files that hold the planes, `copied` the bytes its windows sample,
 /// which the store run read (by virtual offset and length).
-pub fn project_set(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+pub fn project_set(ir: &Ir, description: &J, url: &str, copied: &Copied) -> crate::error::Res<Out> {
     let planned = &plan("tiff", description)?;
     let axes = strs(&planned["axes"]);
     let data_type = tiled::data_type(planned)?;
@@ -207,7 +207,7 @@ pub fn project_set(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Resu
 
 /// The TIFF image: one array per level, its chunks the tiles of each plane. `copied` holds the
 /// bytes of the chunks the windows sample (`reads`).
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> crate::error::Res<Out> {
     let planned = &plan("tiff", description)?;
     let axes = strs(&planned["axes"]);
     let data_type = tiled::data_type(planned)?;
@@ -223,7 +223,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<O
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> crate::error::Res<Out> {
     project_set(ir, description, url, copied)
 }
 

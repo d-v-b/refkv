@@ -14,6 +14,8 @@
 //! array described (`nrrd/stored.rs`; spec/stored-array.md §7
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>).
 
+use crate::error::Error;
+
 use crate::expr::V;
 use crate::ir::{GAP, Ir, NO_INDEX, Res, key_name};
 use crate::out::{Chunk, grid_chunks};
@@ -414,14 +416,14 @@ pub fn fields(rules: &Rules, h: &Header, header_key: &str) -> Res<Fields> {
     let d = required(rules, h, "type", "")?;
     let name = shown(trim(d)).to_ascii_lowercase();
     rules.check("type", rules::env([("name", text(&name))]))?;
-    let spec = rules.entry("types", &name).ok_or("internal: a type the schema does not name")?;
+    let spec = rules.entry("types", &name).ok_or_else(|| Error::internal("a type the schema does not name"))?;
     let type_name = name;
     let item = spec["bytes"].as_u64().unwrap_or(1);
 
     let d = required(rules, h, "encoding", "")?;
     let name = shown(trim(d)).to_ascii_lowercase();
     rules.check("encoding", rules::env([("name", text(&name))]))?;
-    let encoding = rules.entry("encodings", &name).and_then(J::as_str).ok_or("internal: an encoding the schema does not name")?.to_string();
+    let encoding = rules.entry("encodings", &name).and_then(J::as_str).ok_or_else(|| Error::internal("an encoding the schema does not name"))?.to_string();
 
     let little = match h.field("endian") {
         Some(d) => {
@@ -551,8 +553,8 @@ pub fn axes(rules: &Rules, dimension: usize, kinds: Option<&[String]>, none_dire
     roles.iter().map(|r| match *r {
         "time" => Ok("t"),
         "channel" => Ok("c"),
-        "space" => spatial.next().ok_or_else(|| "internal: more than 3 spatial axes".to_string()),
-        other => Err(format!("internal: the role {other:?}")),
+        "space" => spatial.next().ok_or_else(|| Error::internal("more than 3 spatial axes")),
+        other => Err(Error::internal(format!("the role {other:?}"))),
     }).collect()
 }
 
@@ -600,7 +602,7 @@ impl Nrrd {
     /// The listing's IR, its objects' elements and keys: one key, the header file.
     pub fn new(ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Nrrd> {
         if keys.len() != 1 || keys[0].0.contains('/') {
-            return Err(format!("a NRRD run starts from the header file alone, not {} objects", keys.len()));
+            return Err(Error::rejected(format!("a NRRD run starts from the header file alone, not {} objects", keys.len())));
         }
         Ok(Nrrd {
             rules: rules::of("nrrd"),
@@ -705,7 +707,7 @@ impl Nrrd {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#84-the-data>), checked: the
     /// first bytes of a gzip stream to read.
     fn place_data(&mut self) -> Res<Option<(usize, u64, u64)>> {
-        let f = self.fields.as_ref().ok_or("internal: no fields")?;
+        let f = self.fields.as_ref().ok_or_else(|| Error::internal("no fields"))?;
         let (key, size) = self.keys[self.data].clone();
         let total = f.sizes.iter().fold(f.item as u128, |a, &s| a.saturating_mul(s as u128));
         let gzip = f.encoding == "gzip";
@@ -733,9 +735,9 @@ impl Nrrd {
     /// The IR (spec/zarrify/nrrd.md §5.3
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#53-elements>) and the facts.
     fn emit(&mut self) -> Res<J> {
-        let h = self.header.clone().ok_or("internal: no header")?;
-        let f = self.fields.clone().ok_or("internal: no fields")?;
-        let mut ir = self.ir.take().ok_or("internal: no IR")?;
+        let h = self.header.clone().ok_or_else(|| Error::internal("no header"))?;
+        let f = self.fields.clone().ok_or_else(|| Error::internal("no fields"))?;
+        let mut ir = self.ir.take().ok_or_else(|| Error::internal("no IR"))?;
         let mut claimed: Vec<Vec<(u64, u64)>> = vec![Vec::new(); self.keys.len()];
         // an attached header's file is described in place, its data referenced; a detached header's
         // file, which no chunk references, is held: the archive's mirror keeps its bytes
@@ -881,13 +883,13 @@ impl Nrrd {
                 }
                 Phase::Data => {
                     if self.fields.as_ref().is_some_and(|f| f.encoding == "gzip") {
-                        let b = self.take_at(self.data, self.start).ok_or("internal: the gzip header was not read")?;
+                        let b = self.take_at(self.data, self.start).ok_or_else(|| Error::internal("the gzip header was not read"))?;
                         let key = self.keys[self.data].0.clone();
                         self.rules.check("gzip", rules::env([("ok", flag(b == [0x1f, 0x8b, 8])), ("start", num(self.start as f64)), ("key", text(&key))]))?;
                     } else {
                         let item = self.fields.as_ref().map_or(1, |f| f.item);
                         let (_, chunks) = grid_chunks(self.start, &self.stored_shape(), item, CHUNK_BYTES, crate::out::copy_threshold())
-                            .ok_or("internal: the data cannot be cut into chunks")?;
+                            .ok_or_else(|| Error::internal("the data cannot be cut into chunks"))?;
                         self.copies = chunks.iter().filter_map(|(_, c)| match c {
                             Chunk::Copy(o, n, _) => Some((*o, *n)),
                             _ => None,
@@ -906,7 +908,7 @@ impl Nrrd {
                 }
                 Phase::Copies => {
                     for (o, n) in std::mem::take(&mut self.copies) {
-                        let b = self.got.remove(&(self.data, o, n)).ok_or("internal: a copied chunk was not read")?;
+                        let b = self.got.remove(&(self.data, o, n)).ok_or_else(|| Error::internal("a copied chunk was not read"))?;
                         self.copied.push((o, b));
                     }
                     self.got.remove(&(0, 0, self.keys[0].1)); // the held header, which the run keeps
@@ -943,7 +945,7 @@ impl StoreParser for Nrrd {
 
     fn found(&mut self, key: &str, index: usize, size: Option<u64>) -> Res<Option<u32>> {
         let Some(size) = size else { return Ok(None) };
-        let ir = self.ir.as_mut().ok_or("internal: no IR")?;
+        let ir = self.ir.as_mut().ok_or_else(|| Error::internal("no IR"))?;
         let mut parent = 0u32;
         let mut from = 0;
         for (at, _) in key.match_indices('/') {
@@ -954,7 +956,7 @@ impl StoreParser for Nrrd {
         let (n, x) = key_name(&key[from..], false);
         let e = ir.object(parent, &n, x, size)?;
         if index != self.keys.len() {
-            return Err("internal: a found object out of order".into());
+            return Err(Error::internal("a found object out of order"));
         }
         self.keys.push((key.to_string(), size));
         self.elems.push(e);
@@ -975,7 +977,7 @@ impl StoreParser for Nrrd {
 
     fn finish(mut self: Box<Self>) -> Res<(Ir, J)> {
         if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
+            return Err(Error::internal("the parse is not done"));
         }
         let description = self.emit()?;
         Ok((self.ir.take().unwrap(), description))
@@ -997,8 +999,8 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, _size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::refused("a NRRD file is zarrified as a store run, with its data file")
     }
-    fn project(&self, _: &Ir, _: &J, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        Err("a NRRD input is zarrified as a store run".into())
+    fn project(&self, _: &Ir, _: &J, _: &str, _: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
+        Err(Error::rejected("a NRRD input is zarrified as a store run"))
     }
 }
 

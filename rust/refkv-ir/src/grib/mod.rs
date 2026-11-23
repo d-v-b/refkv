@@ -15,6 +15,8 @@
 //! offset was found, so the output is the same with or without it. The schema
 //! (`schema/grib.json`) holds every check, in the profile's order.
 
+use crate::error::Error;
+
 pub mod codec;
 pub mod meta;
 pub mod names;
@@ -157,7 +159,7 @@ fn scan(rules: &Rules, fed: &Fed, start: u64, size: u64) -> Res<Scan> {
         return Ok(Scan::Need(need));
     }
     if let Err(problem) = sections::fields(&secs) {
-        rules.check("order", rules::env([("at", num(start as f64)), ("problem", text(&problem))]))?;
+        rules.check("order", rules::env([("at", num(start as f64)), ("problem", text(&problem.to_string()))]))?;
     }
     Ok(Scan::Done(Message { start, length, discipline: ind.discipline, head: head.to_vec(), sections: secs, bytes }))
 }
@@ -208,12 +210,12 @@ fn fields_of(rules: &Rules, i: usize, m: &Message) -> Res<Vec<Field>> {
         let bitmap = meta::bitmap(body(f.s6));
         let problem = [ident.as_ref().err(), grid.as_ref().err(), packing.as_ref().err(), bitmap.as_ref().err()].into_iter().flatten().next();
         if let Some(p) = problem {
-            rules.check("order", rules::env([("at", num(m.start as f64)), ("problem", text(p))]))?;
+            rules.check("order", rules::env([("at", num(m.start as f64)), ("problem", text(&p.to_string()))]))?;
         }
         let (ident, grid, packing, bitmap) = (ident?, grid?, packing?, bitmap?);
         let product = meta::product(body(f.s4), ident.reference);
         if let Err(p) = &product {
-            rules.check("order", rules::env([("at", num(m.start as f64)), ("problem", text(p))]))?;
+            rules.check("order", rules::env([("at", num(m.start as f64)), ("problem", text(&p.to_string()))]))?;
         }
         let product = product?;
         // what of the field's grid and product the parser does not interpret, if anything; the
@@ -262,7 +264,7 @@ pub struct Grib {
 impl Grib {
     pub fn new(ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Grib> {
         if keys.len() != 1 || keys[0].0.contains('/') {
-            return Err(format!("a GRIB run starts from the GRIB file alone, not {} objects", keys.len()));
+            return Err(Error::rejected(format!("a GRIB run starts from the GRIB file alone, not {} objects", keys.len())));
         }
         Ok(Grib {
             rules: rules::of("grib"), phase: Phase::Probe, ir: Some(ir), keys: keys.to_vec(), elems: objects,
@@ -367,7 +369,7 @@ impl Grib {
     /// The IR (spec/zarrify/grib.md §5.3
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#53-elements>) and the facts.
     fn emit(&mut self) -> Res<J> {
-        let mut ir = self.ir.take().ok_or("internal: no IR")?;
+        let mut ir = self.ir.take().ok_or_else(|| Error::internal("no IR"))?;
         let file = self.elems[0];
         ir.describe_in_place(file)?;
         let mut fields = Vec::new();
@@ -394,7 +396,7 @@ impl Grib {
                                           "codec": {"packing": f.packing.template, "field": field}, "recipe": [["src", 0, null]]});
                         let s7 = ir.data(s, "sections/", j as u64, 0, at, &form.to_string())?;
                         let (Some(s3), Some((s5, packing)), Some(s6)) = (s3, s5.take(), s6.take()) else {
-                            return Err("internal: a GRIB field without its sections 3, 5 and 6".into());
+                            return Err(Error::internal("a GRIB field without its sections 3, 5 and 6"));
                         };
                         // its own bitmap, or under 254 the last before it
                         let mask = bitmap.filter(|_| matches!(f.bitmap, 0 | 254));
@@ -419,7 +421,7 @@ impl Grib {
                         s6 = Some(header);
                         // a bitmap (indicator 0) is an array of its own, before its field's
                         if found[field].bitmap == 0 {
-                            let Some(s3) = s3 else { return Err("internal: a GRIB bitmap without its section 3".into()) };
+                            let Some(s3) = s3 else { return Err(Error::internal("a GRIB bitmap without its section 3")) };
                             reached.push(stored::Reached::Bitmap(stored::Bitmap { message: s, index: arrays, s3, header, bits, points: found[field].grid.points }));
                             bitmap = Some((arrays, bits.map(|b| b.0)));
                             arrays += 1;
@@ -635,7 +637,7 @@ impl StoreParser for Grib {
 
     fn found(&mut self, key: &str, index: usize, size: Option<u64>) -> Res<Option<u32>> {
         let Some(size) = size else { return Ok(None) };
-        let ir = self.ir.as_mut().ok_or("internal: no IR")?;
+        let ir = self.ir.as_mut().ok_or_else(|| Error::internal("no IR"))?;
         let mut parent = 0u32;
         let mut from = 0;
         for (at, _) in key.match_indices('/') {
@@ -646,7 +648,7 @@ impl StoreParser for Grib {
         let (n, x) = key_name(&key[from..], false);
         let e = ir.object(parent, &n, x, size)?;
         if index != self.keys.len() {
-            return Err("internal: a found object out of order".into());
+            return Err(Error::internal("a found object out of order"));
         }
         self.keys.push((key.to_string(), size));
         self.elems.push(e);
@@ -656,7 +658,7 @@ impl StoreParser for Grib {
 
     fn finish(mut self: Box<Self>) -> Res<(Ir, J)> {
         if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
+            return Err(Error::internal("the parse is not done"));
         }
         let facts = self.emit()?;
         Ok((self.ir.take().unwrap(), facts))
@@ -678,8 +680,8 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, _size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::refused("a GRIB file is zarrified as a store run, with its index")
     }
-    fn project(&self, _: &Ir, _: &J, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        Err("a GRIB file is zarrified as a store run".into())
+    fn project(&self, _: &Ir, _: &J, _: &str, _: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
+        Err(Error::rejected("a GRIB file is zarrified as a store run"))
     }
 }
 

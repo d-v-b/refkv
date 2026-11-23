@@ -4,6 +4,8 @@
 //! of §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>) from
 //! a valid IR: the IR holds what it needs.
 
+use crate::error::Error;
+
 use super::{along, arr, image_axes, json_text, n};
 use crate::fed::Word;
 use crate::ir::{source_text, Ir, NO_INDEX, STRUCT};
@@ -127,12 +129,12 @@ impl Values<'_> {
     }
 
     /// The decoded value of element `i`.
-    fn value(&mut self, i: u32) -> Result<Val, String> {
+    fn value(&mut self, i: u32) -> crate::error::Res<Val> {
         let ir = self.ir;
-        let raw = ir.value_bytes(i).ok_or_else(|| format!("internal: element {i} has no value"))?;
+        let raw = ir.value_bytes(i).ok_or_else(|| Error::internal(format!("element {i} has no value")))?;
         let tid = ir.ty[i as usize];
         let ty = self.types.entry(tid).or_insert_with(|| types::parse(ir.types.get(tid)).ok());
-        types::decode(ty.as_ref().ok_or("internal: a value of no type")?, raw)
+        types::decode(ty.as_ref().ok_or_else(|| Error::internal("a value of no type"))?, raw)
     }
 
     /// The name the source gives an LV record or an XML element: its element's name
@@ -143,7 +145,7 @@ impl Values<'_> {
     }
 
     /// An LV element's JSON: a level (struct) as an object, pairs or a list; a record by its type.
-    fn lv_json(&mut self, i: u32) -> Result<J, String> {
+    fn lv_json(&mut self, i: u32) -> crate::error::Res<J> {
         let ir = self.ir;
         if ir.kind[i as usize] == STRUCT {
             let mut members = ir.children(i).get(1..).unwrap_or(&[]); // a level's first child is its header
@@ -153,10 +155,10 @@ impl Values<'_> {
             return self.level(members, false);
         }
         let Val::Rec(fields) = self.value(i)? else {
-            return Err(format!("internal: element {i} is not an LV record"));
+            return Err(Error::internal(format!("element {i} is not an LV record")));
         };
         let field = |k: &str| fields.iter().find(|f| f.0 == k).map(|f| &f.1);
-        let v = field("v").ok_or("internal: an LV record without a value")?;
+        let v = field("v").ok_or_else(|| Error::internal("an LV record without a value"))?;
         Ok(match field("lv") {
             Some(Val::Int(1)) => json!(!matches!(v, Val::Int(0))),
             Some(Val::Int(8)) => {
@@ -167,14 +169,14 @@ impl Values<'_> {
             _ => match v {
                 Val::Int(x) => int_json(*x),
                 Val::Float(f) => float_json(*f),
-                _ => return Err("internal: an LV number of no number".into()),
+                _ => return Err(Error::internal("an LV number of no number")),
             },
         })
     }
 
-    fn level(&mut self, members: &[u32], top: bool) -> Result<J, String> {
+    fn level(&mut self, members: &[u32], top: bool) -> crate::error::Res<J> {
         let names: Vec<String> = members.iter().map(|&m| self.source_name(m)).collect();
-        let items = members.iter().map(|&m| self.lv_json(m)).collect::<Result<Vec<J>, String>>()?;
+        let items = members.iter().map(|&m| self.lv_json(m)).collect::<crate::error::Res<Vec<J>>>()?;
         if !top && !members.is_empty() && names.iter().all(|n| n.is_empty()) {
             return Ok(if items.iter().all(pair_like) {
                 J::Array(items.into_iter().map(|j| json!(["", j])).collect())
@@ -185,22 +187,22 @@ impl Values<'_> {
         Ok(pairs_or_object(names.into_iter().zip(items).collect()))
     }
 
-    fn xml_json(&mut self, i: u32) -> Result<J, String> {
+    fn xml_json(&mut self, i: u32) -> crate::error::Res<J> {
         let ir = self.ir;
         if ir.kind[i as usize] == STRUCT {
-            let records = ir.children(i).iter().map(|&c| Ok((self.source_name(c), self.xml_json(c)?))).collect::<Result<Vec<_>, String>>()?;
+            let records = ir.children(i).iter().map(|&c| Ok((self.source_name(c), self.xml_json(c)?))).collect::<crate::error::Res<Vec<_>>>()?;
             return Ok(pairs_or_object(records));
         }
         let Val::Str(v) = self.value(i)? else {
-            return Err(format!("internal: element {i} is not XML text"));
+            return Err(Error::internal(format!("element {i} is not XML text")));
         };
         Ok(scalar(self.type_name(i).strip_prefix("xml:"), &v))
     }
 
     /// A decoded chunk's JSON: an XML variant's, or its top-level LV records, always an object.
-    fn chunk_json(&mut self, e: u32) -> Result<J, String> {
+    fn chunk_json(&mut self, e: u32) -> crate::error::Res<J> {
         if self.ir.name_of(e) == "xml" {
-            let &root = self.ir.children(e).first().ok_or("internal: an XML chunk with no element")?;
+            let &root = self.ir.children(e).first().ok_or_else(|| Error::internal("an XML chunk with no element"))?;
             return self.xml_json(root);
         }
         self.level(self.ir.children(e), true)
@@ -234,7 +236,7 @@ fn frame_scaled(name: &[u8]) -> bool {
 /// chunks of the description (`chunks`, §7.5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#75-the-description>) that do not grow
 /// with the frames, have at most 16 KiB of JSON, and fit the root's budget.
-fn root_chunks(ir: &Ir, chunks: &[J]) -> Result<J, String> {
+fn root_chunks(ir: &Ir, chunks: &[J]) -> crate::error::Res<J> {
     let mut vals = Values { ir, types: HashMap::new() };
     let mut names: Vec<Vec<u8>> = Vec::new();
     let mut values: Vec<J> = Vec::new();
@@ -309,7 +311,7 @@ fn rows(start: u64, stride: u64, length: u64, count: u64) -> Vec<Part> {
 /// The ND2 hierarchy: the root (with its source metadata), and an image per position
 /// whose chunks are the frames (or their row blocks), from the parser's description through
 /// refkv's plan (`nd2::plan::plan`).
-pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
     let p = crate::nd2::plan::plan(description)?;
     let (width, height, wb, comp, bpc, row) = (p.width, p.height, p.width_bytes, p.components, p.bits, p.row);
     let (compressed, data_type) = (p.compressed, p.data_type);
@@ -357,7 +359,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
     let sig = child(0, "signature")
         .and_then(|s| child(s, "data"))
         .and_then(|d| ir.value_bytes(d))
-        .ok_or("internal: no signature")?;
+        .ok_or_else(|| Error::internal("no signature"))?;
     let root_meta = json!({"signature": json_text(sig), "chunks": root_chunks(ir, arr(&description["chunks"]))?});
     // the layout, even of no positions
     bioformats2raw(&mut out, "nd2", url, root_meta, p.positions as usize, true);
@@ -365,7 +367,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
         let tr = if p.translations.is_empty() {
             None
         } else {
-            let at = p.translations.get(pi as usize).ok_or("internal: no translation of a position")?;
+            let at = p.translations.get(pi as usize).ok_or_else(|| Error::internal("no translation of a position"))?;
             Some(vec![super::translation(&axes, [at["x"].clone(), at["y"].clone(), json!(0)])])
         };
         let mut ome = image_ome(&axes, &units, &[J::Array(scale.clone())], Some(&json!(format!("position {pi}"))), tr.as_deref())?;
@@ -379,7 +381,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
         let mut rest = f;
         for l in p.loops.iter().rev() {
             if l.count == 0 {
-                return Err("internal: a loop of no count".into());
+                return Err(Error::internal("a loop of no count"));
             }
             let c = rest % l.count;
             coords.insert(l.kind.as_str(), if l.flip { l.count - 1 - c } else { c });

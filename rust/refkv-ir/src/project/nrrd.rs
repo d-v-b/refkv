@@ -9,6 +9,8 @@
 //! decision of the output itself: the Zarr data type, the axes, the scales, units, position and
 //! orientation, the channels, the chunks and the root's source metadata.
 
+use crate::error::Error;
+
 use super::{arr, contiguous, image_axes, key, n, translation, Copied};
 use super::vsi::object_url;
 use crate::ir::Ir;
@@ -126,7 +128,7 @@ fn placement(a: &J, axes: &[&str]) -> (Map<String, J>, Map<String, J>, Option<[f
 /// Each header axis's image axis (§4.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#41-the-array>), in the header's
 /// order: its role from its kind, or, of an unknown kind, from whether its space direction is `none`.
-fn header_axes(d: &J) -> Result<Vec<&'static str>, String> {
+fn header_axes(d: &J) -> crate::error::Res<Vec<&'static str>> {
     let kinds: Option<Vec<String>> = d["kinds"].as_array().map(|k| k.iter().map(|v| v.as_str().unwrap_or("").to_string()).collect());
     let none = |i: usize| d["directions"].as_array().is_some_and(|v| v.get(i).is_some_and(J::is_null));
     crate::nrrd::axes(rules::of("nrrd"), n(&d["dimension"]) as usize, kinds.as_deref(), none)
@@ -153,12 +155,12 @@ fn own(d: &J, data_type: &str, axes: &[&str]) -> Map<String, J> {
 
 /// The output of the input `description` describes; `copied` holds the edge chunks the store run
 /// read for it, by their (offset, length) in the data's object.
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> crate::error::Res<Out> {
     let a = description;
     let nrrd_axes = header_axes(a)?;
     let sizes: Vec<u64> = arr(&a["sizes"]).iter().map(n).collect();
     // the Zarr data type of the type (§3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#3-data-types-and-encodings>)
-    let types = rules::of("nrrd").entry("types", a["type"].as_str().unwrap_or("")).ok_or("internal: a type the schema does not name")?;
+    let types = rules::of("nrrd").entry("types", a["type"].as_str().unwrap_or("")).ok_or_else(|| Error::internal("a type the schema does not name"))?;
     let data_type = types["dtype"].as_str().unwrap_or("uint8");
     let (item, encoding) = (n(&a["item"]), a["encoding"].as_str().unwrap_or("raw"));
     let endian = a["endian"].as_str().unwrap_or("little");
@@ -219,7 +221,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<O
     let (grid, chunks) = if gzip {
         contiguous::whole_stream(&stored_shape, (start, length))
     } else {
-        grid_chunks(start, &stored_shape, item, CHUNK_BYTES, copy_threshold()).ok_or("internal: the data cannot be cut into chunks")?
+        grid_chunks(start, &stored_shape, item, CHUNK_BYTES, copy_threshold()).ok_or_else(|| Error::internal("the data cannot be cut into chunks"))?
     };
     let chunk_shape: Vec<u64> = axes.iter().map(|x| grid[pos(x)]).collect();
     out.json("0/zarr.json", &array_json(&shape, data_type, json!(chunk_shape), J::Array(codecs), &axes));
@@ -242,7 +244,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<O
                 refs.chunk(k, start, length, 0, Some(parts))?;
             }
             Chunk::Copy(o, len, pad) => {
-                let mut b = copied.get(&(o, len)).ok_or("internal: a copied chunk's bytes were not read")?.clone();
+                let mut b = copied.get(&(o, len)).ok_or_else(|| Error::internal("a copied chunk's bytes were not read"))?.clone();
                 b.resize(b.len() + pad as usize, 0);
                 refs.out.bytes(&k, b);
             }
@@ -262,6 +264,6 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<O
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> crate::error::Res<Out> {
     project(ir, description, url, copied)
 }

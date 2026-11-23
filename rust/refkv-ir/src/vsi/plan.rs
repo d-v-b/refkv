@@ -14,6 +14,8 @@
 //! table `units` names. The plan is public data, which the convention's projection (`project/vsi.rs`)
 //! reads; it belongs to refkv's convention, not to the IR.
 
+use crate::error::Error;
+
 use super::{tiff, MACRO_NAME};
 use crate::fed::Word;
 use crate::out::{payload_size, MAX_PAYLOAD};
@@ -82,7 +84,7 @@ impl<'a> Stack<'a> {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#4-the-images>, each a pyramid's (`ets`) or
 /// an IFD image's (`ifd`) with its stack's fields as the convention reads them; and `not_presented`,
 /// the IFD images left out, with their reasons.
-pub fn plan(description: &J) -> Result<J, String> {
+pub fn plan(description: &J) -> crate::error::Res<J> {
     let rules = rules::of("vsi");
     let d = description;
     let stacks: Vec<Stack> = d["stacks"].as_array().map(|a| a.iter().map(Stack::of).collect()).unwrap_or_default();
@@ -120,13 +122,13 @@ pub fn plan(description: &J) -> Result<J, String> {
             "default_ifd": sd["default_ifd"], "coarse_ifd": sd["coarse_ifd"],
         });
         if let Some(f) = index(&sd["tile_file"]) {
-            let file = tile_files.get(f).ok_or_else(|| format!("internal: no tile file {f}"))?;
+            let file = tile_files.get(f).ok_or_else(|| Error::internal(format!("no tile file {f}")))?;
             im["ets"] = pyramid(rules, s, file)?;
         } else if let Some(k) = index(&sd["default_ifd"]) {
             match ifd_image(rules, d, k, &s.name) {
                 Ok(ifd) => im["ifd"] = ifd,
                 Err(reason) => {
-                    left_out.push(json!({"id": sd["id"], "name": s.name, "ifd": k, "reason": reason}));
+                    left_out.push(json!({"id": sd["id"], "name": s.name, "ifd": k, "reason": reason.to_string()}));
                     continue;
                 }
             }
@@ -139,7 +141,7 @@ pub fn plan(description: &J) -> Result<J, String> {
     if let Some(k) = index(&d["macro_ifd"]) {
         match ifd_image(rules, d, k, MACRO_NAME) {
             Ok(ifd) => images.push(json!({"kind": "macro", "name": MACRO_NAME, "ifd": ifd})),
-            Err(reason) => left_out.push(json!({"id": null, "name": MACRO_NAME, "ifd": k, "reason": reason})),
+            Err(reason) => left_out.push(json!({"id": null, "name": MACRO_NAME, "ifd": k, "reason": reason.to_string()})),
         }
     }
     let ifds = d["ifds"].as_array().map(Vec::as_slice).unwrap_or_default();
@@ -170,11 +172,11 @@ fn segments(ifd: &J, offsets: u16, counts: u16) -> Option<Vec<(u64, u64)>> {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#44-ifd-images-that-are-not-presented>):
 /// its size, samples, bits, compression and photometric interpretation, its strips as
 /// `[element, offset, length]`, and its JPEG prefix.
-fn ifd_image(rules: &Rules, d: &J, k: usize, what: &str) -> Result<J, String> {
+fn ifd_image(rules: &Rules, d: &J, k: usize, what: &str) -> crate::error::Res<J> {
     let ifd = d["ifds"]
         .as_array()
         .and_then(|a| a.iter().find(|f| index(&f["index"]) == Some(k) && f["exif"] == false))
-        .ok_or_else(|| format!("{what}: the .vsi file has no IFD {k}"))?;
+        .ok_or_else(|| Error::rejected(format!("{what}: the .vsi file has no IFD {k}")))?;
     let g = |t: u16| ints(ifd, t).and_then(|v| v.first().copied());
     let (width, height) = (g(256).unwrap_or(0), g(257).unwrap_or(0));
     let compression = g(259).unwrap_or(1);
@@ -202,7 +204,7 @@ fn ifd_image(rules: &Rules, d: &J, k: usize, what: &str) -> Result<J, String> {
     let size = d["size"].as_u64().unwrap_or(0);
     for &(o, n) in &strips {
         if n == 0 || o.checked_add(n).is_none_or(|e| e > size) {
-            return Err(format!("IFD {k} ({what}): a strip ({n} bytes at {o}) is outside the {size}-byte .vsi file"));
+            return Err(Error::rejected(format!("IFD {k} ({what}): a strip ({n} bytes at {o}) is outside the {size}-byte .vsi file")));
         }
     }
     // the JPEG prefix: the Adobe marker for 3 samples, then the body of JPEGTables
@@ -217,14 +219,14 @@ fn ifd_image(rules: &Rules, d: &J, k: usize, what: &str) -> Result<J, String> {
     let held = |name: &str| -> Option<Vec<u64>> { ifd[name].as_array().map(|a| a.iter().filter_map(J::as_u64).collect()) };
     let (from_strips, from_tiles) = (held("strips"), held("tiles").filter(|t| !t.is_empty()));
     if ifd["element"].is_null() || (from_strips.is_none() && from_tiles.is_none()) {
-        return Err(format!("IFD {k} ({what}) is not inside the metadata tree"));
+        return Err(Error::rejected(format!("IFD {k} ({what}) is not inside the metadata tree")));
     }
     let els: Vec<u64> = from_strips.into_iter().chain(from_tiles).flatten().collect();
     if els.len() != strips.len() {
-        return Err(format!("IFD {k} ({what}) has both strips and tiles"));
+        return Err(Error::rejected(format!("IFD {k} ({what}) has both strips and tiles")));
     }
     if compression != 7 && payload_size(&tiff::runs("", strips.iter().copied())) > MAX_PAYLOAD {
-        return Err(format!("IFD {k} ({what}): its strips do not fit in a reference of {MAX_PAYLOAD} bytes"));
+        return Err(Error::rejected(format!("IFD {k} ({what}): its strips do not fit in a reference of {MAX_PAYLOAD} bytes")));
     }
     Ok(json!({
         "index": k, "width": width, "height": height, "samples": samples, "bits": bits,
@@ -270,7 +272,7 @@ fn fill_value(data_type: &str, b: &[u8]) -> J {
 /// codec, whether its samples are stored blue first, the tile size, the fill value, the level sizes,
 /// the `t`, `c` and `z` sizes, and every tile inside its level as `[element, x, y, level, t, c, z]`,
 /// with the count of those outside.
-fn pyramid(rules: &Rules, s: &Stack, f: &J) -> Result<J, String> {
+fn pyramid(rules: &Rules, s: &Stack, f: &J) -> crate::error::Res<J> {
     let (sis, e) = (&f["sis"], &f["ets"]);
     let i = |v: &J| v.as_i64().unwrap_or(0);
     let nc = i(&sis["coordinates"]).max(0) as usize;

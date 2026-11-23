@@ -14,7 +14,7 @@
       "about": "the channels of /Channels (spec/zarrify/h5j.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#83-checks>)",
       "given": {"channels": "the links Channel_<n> of /Channels"},
       "constraints": [
-        {"require": "channels <= max_channels", "message": "budget: more than {max_channels} channels"}
+        {"require": "channels <= max_channels", "message": "budget: more than {max_channels} channels", "kind": "budget"}
       ]
     },
     "presented": {
