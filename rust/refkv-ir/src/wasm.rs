@@ -66,8 +66,8 @@ pub unsafe extern "C" fn vz_fits_tiles_decode(chunk: *const u8, n: usize, config
     }
 }
 
-/// The `refkv.grib` codec (spec/conventions.md §12
-/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#12-grib-messages>): decodes the
+/// The `refkv.grib` codec (spec/zarrify/grib.md §3.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#34-the-codec-refkvgrib>): decodes the
 /// GRIB message at `chunk` (`n` bytes) with the configuration JSON at `config` (`nc` bytes) into
 /// the values of the chunk shape at `shape` (`rank` little-endian u64), in `vz_out`: their
 /// length, as little-endian float64, or minus a message's.

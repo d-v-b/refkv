@@ -1,5 +1,5 @@
-//! The `refkv.grib` codec (spec/conventions.md §12
-//! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#12-grib-messages>): decodes one
+//! The `refkv.grib` codec (spec/zarrify/grib.md §3.4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#34-the-codec-refkvgrib>): decodes one
 //! field of a GRIB edition 2 message (WMO-No. 306, FM 92 GRIB edition 2), the chunk's bytes, into
 //! the values of its grid as binary64, NaN where its bitmap or its complex packing's missing
 //! values leave a point out. The values are computed as eccodes computes them, bit for bit:

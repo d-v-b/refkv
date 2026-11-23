@@ -1,5 +1,5 @@
-//! The `refkv.grib` codec (src/grib/codec.rs; spec/conventions.md §12
-//! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#12-grib-messages>): every field
+//! The `refkv.grib` codec (src/grib/codec.rs; spec/zarrify/grib.md §3.4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#34-the-codec-refkvgrib>): every field
 //! of every fixture decodes to eccodes' values (fixtures/generators/grib/write_fixtures.py), and
 //! one test per error.
 

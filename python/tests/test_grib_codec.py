@@ -1,5 +1,5 @@
-"""The `refkv.grib` codec (python/src/refkv/zarr/codecs/grib.py; spec/conventions.md §12
-<https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#12-grib-messages>) as zarr reads
+"""The `refkv.grib` codec (python/src/refkv/zarr/codecs/grib.py; spec/zarrify/grib.md §3.4
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#34-the-codec-refkvgrib>) as zarr reads
 it: every field of every GRIB fixture (fixtures/grib, from fixtures/generators/grib) decodes to
 eccodes' values, in a float64 array, and to them rounded to nearest in a float32 one; and one
 test per error a reader meets."""
