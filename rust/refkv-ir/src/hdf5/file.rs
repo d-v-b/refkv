@@ -611,7 +611,8 @@ impl Hdf5 {
             // a dataset whose elements do not read is described so; the hierarchy rejects the
             // input if it presents the dataset
             match r {
-                Err(Fail::Bad(m)) => {
+                // a rejection is recorded; a bug fails the parse
+                Err(Fail::Bad(m)) if m.is_rejection() => {
                     self.unread.insert(at, m.to_string());
                 }
                 r => {
@@ -708,8 +709,10 @@ impl Hdf5 {
             })();
             if let Err(f) = r {
                 let m = match f {
-                    Fail::Bad(m) => m,
-                    // its bytes were read with the header's: a bug, not a reason to record
+                    Fail::Bad(m) if m.is_rejection() => m,
+                    // a bug fails the parse, not recorded as a reason
+                    Fail::Bad(m) => return Err(Fail::Bad(m)),
+                    // its bytes were read with the header's: a bug
                     Fail::Miss => return Err(Fail::Bad(Error::internal("an attribute's message is not read"))),
                 };
                 e = Map::new();
@@ -772,9 +775,11 @@ impl Hdf5 {
             }
             match self.dataset_json(at, &h, &attrs) {
                 Ok(d) => o.extend(d),
-                Err(Fail::Bad(m)) => {
+                // a rejection is recorded; a bug fails the parse
+                Err(Fail::Bad(m)) if m.is_rejection() => {
                     o.insert("error".into(), json!(m.to_string()));
                 }
+                Err(Fail::Bad(m)) => return Err(Fail::Bad(m)),
                 Err(Fail::Miss) => return Err(Fail::Miss),
             }
             if let Some(m) = self.unread.get(&at) {

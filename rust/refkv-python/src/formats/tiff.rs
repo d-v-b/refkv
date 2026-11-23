@@ -38,7 +38,8 @@ impl PyOmeImage {
     /// The OME image (`project::ome_image`): its nodes as JSON, and its documents and
     /// chunks in `out_py`'s form (the url empty), its arrays sharded, ranges joined across inner
     /// chunks unless `checksums`; `copied` the bytes of the ranges `reads` gave, each
-    /// `((offset, length), bytes)`. Rejected where refkv's plan rejects the input.
+    /// `((offset, length), bytes)`. Rejected where refkv's plan rejects the input, and Failed for a
+    /// failure of refkv's.
     #[pyo3(signature = (copied, checksums=false))]
     fn image<'py>(&self, py: Python<'py>, copied: Vec<((u64, u64), Vec<u8>)>, checksums: bool) -> PyResult<(String, Bound<'py, PyAny>)> {
         let mut copied: refkv_ir::project::Copied = copied.into_iter().collect();
