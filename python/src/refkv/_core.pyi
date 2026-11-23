@@ -38,8 +38,10 @@ class SealRefused(ValueError):  # noqa: N818 (the core's name)
     """`seal` refuses an output: `args` are (code, key or None, message)."""
 
 class Failed(ValueError):  # noqa: N818 (the core's name)
-    """A run's output is not written, by no fault of the input: a payload over the limit only with
-    its checksums (spec/zarrify.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)."""
+    """refkv failed on an input it accepted, by no fault of the input (spec/zarrify.md §1.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): a payload over the limit only
+    with its checksums, a response that does not match its request, or a bug of refkv's (a broken
+    invariant, or a host's misuse of a run)."""
 
 class Violation(Exception):  # noqa: N818 (the core's name)
     """An IR broke an invariant (conventions §8.1

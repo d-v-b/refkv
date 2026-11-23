@@ -189,8 +189,9 @@ static FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::ne
 
 /// Whether the last error a run's or a store run's call gave (a negative result) was a failure of
 /// refkv's on an input it accepted (1: a payload over the limit only with its checksums,
-/// spec/zarrify.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>, or a
-/// bug: `crate::error::Error`), not a rejection of the input (0).
+/// spec/zarrify.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>, a
+/// response that does not match its request, or a bug: `crate::error::Error`), not a rejection of
+/// the input (0).
 #[unsafe(no_mangle)]
 pub extern "C" fn vz_failed() -> u32 {
     FAILED.load(std::sync::atomic::Ordering::Relaxed) as u32

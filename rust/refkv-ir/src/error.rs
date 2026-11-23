@@ -25,7 +25,8 @@ pub enum Error {
     OutOfScope { key: String },
     /// refkv cannot write an output of an input it accepted, through no bug of its own: a payload
     /// over the limit only with its checksums (spec/zarrify.md §1.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), or a response the host
+    /// gives that does not match its request (bytes of the wrong length, a range not answered).
     Failed(String),
     /// A bug of refkv's, never the input's fault: a broken invariant, or a host's misuse of the
     /// core. Its message is mostly `internal: ...`.
