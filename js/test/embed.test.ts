@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { test } from "node:test";
-import { Archive } from "../src/archive.ts";
+import { Archive, RefkvError } from "../src/archive.ts";
 import { decodeFitsTiles, decodeGrib, type FileInput, zarrifyToArchive } from "../src/embed.ts";
 import { ImageError } from "../src/zarrify/common.ts";
 import { StoreError } from "../src/zarrify/store.ts";
@@ -108,6 +108,16 @@ test("rejects a file of no supported format", async () => {
 
 test("rejects a store URL on a private host by default", async () => {
   await assert.rejects(zarrifyToArchive("http://127.0.0.1:9/store/"), /private|special|refus/i);
+});
+
+test("refuses to write an archive whose source the reader policy refuses", async () => {
+  const file = { ...input("nifti/nifti_block_x_split.nii"), url: "http://127.0.0.1/x.nii" };
+  await assert.rejects(
+    zarrifyToArchive(file),
+    (e: Error) => e instanceof RefkvError && /not writing the archive: the reader policy given refuses 1 of its/.test(e.message),
+  );
+  const allowed = await zarrifyToArchive(file, { policy: { allowPrivateHosts: true } });
+  assert.equal(allowed.format, "nifti");
 });
 
 test("decodes refkv.fits_tiles chunks as refkv.zarr's codec does", async () => {

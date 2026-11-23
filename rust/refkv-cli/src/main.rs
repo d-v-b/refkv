@@ -36,18 +36,16 @@
 //!
 //! Exits with status 3 if the input is rejected, 2 on a usage error, and 1 if the reader policy
 //! refuses the input or a source the archive would name, or on any other failure. On success, the
-//! summary (`{"format": ..., ...}`) is printed as Python's `json.dumps` prints it. `-h` or
+//! summary (`{"format": ..., ...}`) is printed as JSON: the value `python -m refkv.zarrify` prints. `-h` or
 //! `--help` prints the usage to stdout, with status 0.
 
 mod http;
 mod output;
 mod policy;
-mod pyjson;
 mod run;
 mod store;
 mod transport;
 mod vsi;
-mod xml;
 
 use std::process::ExitCode;
 use std::time::Duration;
@@ -63,6 +61,17 @@ pub enum Fail {
     Usage(String),
     /// anything else, such as a network error or a missing file (status 1)
     Other(String),
+}
+
+impl From<refkv_ir::host::Fail> for Fail {
+    /// A host rule's refusal (`refkv_ir::host`): a rejection, a usage error (status 2), or a bug.
+    fn from(f: refkv_ir::host::Fail) -> Fail {
+        match f {
+            refkv_ir::host::Fail::Rejected(m) => Fail::Rejected(m),
+            refkv_ir::host::Fail::Usage(m) => Fail::Usage(m),
+            refkv_ir::host::Fail::Bad(m) => Fail::Other(m),
+        }
+    }
 }
 
 impl From<refkv_ir::error::Error> for Fail {
@@ -96,7 +105,7 @@ fn wants_help(argv: &[String]) -> bool {
 }
 
 /// The options of `convert`.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct Args {
     input: String,
     out: String,
@@ -171,34 +180,38 @@ fn parse(argv: &[String]) -> Result<Args, Fail> {
 /// A file read with the files beside it, as a store (vsi.rs; spec/zarrify.md §1.8
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#18-files-read-as-stores>): its sources
 /// are the files some reference uses, their sizes pinned.
-fn zarrify_beside(a: &Args, client: &std::sync::Arc<http::Client>, beside: refkv_ir::store::StoreFormat) -> Result<(String, serde_json::Value, output::Archive), Fail> {
+/// `scope` is the keys of the input's scope (`vsi::scope_keys` of the location as given).
+fn zarrify_beside(a: &Args, client: &std::sync::Arc<http::Client>, beside: refkv_ir::store::StoreFormat, scope: Option<Vec<String>>) -> Result<(String, serde_json::Value, output::Archive), Fail> {
     let t = transport::Transport::open(&a.input, client)?;
-    let scope = a.scope.as_deref().map(|s| vsi::scope_keys(&a.input, s)).transpose()?.flatten();
     let (out, files) = vsi::zarrify_vsi(&a.input, a.url.as_deref(), t, client, a.connections, beside, a.checksums, scope)?;
     let summary = out.summary.clone();
     let (mut archive, objects) = output::store_archive(out, &files.sizes)?;
     if a.checksums {
-        let conc = if files.remote() { a.connections.filter(|&c| c > 0).unwrap_or(8) } else { 1 };
+        let conc = if files.remote() { a.connections.filter(|&c| c > 0).unwrap_or(refkv_ir::host::CONNECTIONS) } else { 1 };
         output::checksums(&mut archive, conc, |i, o, n| files.read_range(&objects[i], o, n))?;
     }
     Ok((beside.name().to_string(), summary, archive))
 }
 
 fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
+    // a `file:` URL is read as the local path it names (spec/zarrify.md §1.2
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)
+    let (input, is_store) = store::input(&a.input)?;
+    // the scope's entries are written as the input is (a `file:` input's are `file:` URLs)
+    let given = a.input.clone();
+    let a = &Args { input, ..a.clone() };
     if a.url.is_none() && std::path::Path::new(&a.input).is_dir() {
         return Err(Fail::Usage("a local directory needs --url, the store URL (ending in /) it is served from".into()));
     }
-    if let Some(scope) = &a.scope {
-        // before anything is read
-        if store::is_store(&a.input) {
-            return Err(Fail::Usage("a store input reads the objects its listing gives: --scope is for a file input".into()));
-        }
-        vsi::scope_keys(&a.input, scope)?;
+    // before anything is read
+    if a.scope.is_some() && is_store {
+        return Err(Fail::Usage("a store input reads the objects its listing gives: --scope is for a file input".into()));
     }
+    let scope = a.scope.as_deref().map(|s| vsi::scope_keys(&given, s)).transpose()?.flatten();
     let policy = policy::Policy { allow_private_hosts: a.allow_private_hosts };
     let client = http::Client::new(policy, Duration::from_secs(60));
-    let hub = store::hub_endpoint(std::env::var("HF_ENDPOINT").ok().as_deref())?;
-    let (fmt, summary, archive) = if store::is_store(&a.input) {
+    let hub = refkv_ir::host::hub_endpoint(std::env::var("HF_ENDPOINT").ok().as_deref())?;
+    let (fmt, summary, archive) = if is_store {
         let s = store::Store::open(&a.input, a.url.as_deref(), &client, a.workers, &hub)?;
         let (fmt, out) = store::zarrify_store(&s, a.checksums)?;
         let summary = out.summary.clone();
@@ -207,15 +220,15 @@ fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
             output::checksums(&mut archive, s.listing().workers, |i, o, n| s.read_range(&objects[i], o, n))?;
         }
         (fmt, summary, archive)
-    } else if store::hub_page(&a.input, &hub) {
+    } else if refkv_ir::host::hub_page(&a.input, &hub) {
         // a Hub tree's web page (spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
         return Err(Fail::Rejected(format!("{} is a Hub repository's page, not a file: end it in / to zarrify the repository", a.input)));
     } else if let Some(beside) = run::beside_format(&transport::Transport::open(&a.input, &client)?)? {
-        zarrify_beside(a, &client, beside)?
+        zarrify_beside(a, &client, beside, scope)?
     } else {
         let t = transport::Transport::open(&a.input, &client)?;
         match run::zarrify_file(&a.input, a.url.as_deref(), &t, a.connections, a.byte_cost, a.checksums)? {
-            run::Zarrified::Beside(beside) => zarrify_beside(a, &client, beside)?,
+            run::Zarrified::Beside(beside) => zarrify_beside(a, &client, beside, scope)?,
             run::Zarrified::File(fmt, out) => {
                 let summary = out.summary.clone();
                 // the ETag is pinned only when the archive names the URL that was read
@@ -253,7 +266,7 @@ fn main() -> ExitCode {
     };
     match r {
         Ok(info) => {
-            println!("{}", pyjson::dumps(&info));
+            println!("{info}");
             ExitCode::SUCCESS
         }
         Err(Fail::Rejected(m)) => {

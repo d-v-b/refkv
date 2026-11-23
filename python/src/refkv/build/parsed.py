@@ -25,7 +25,7 @@ import refkv.zarrify as _zarrify  # its parse, read at call time: refkv.zarrify 
 from refkv import Range, ReferenceStore, Source, _core, _sync
 from refkv.entries import MERGE_GAP
 from refkv.errors import NoIrError, RefkvError
-from refkv.host.urls import object_url
+from refkv.host.urls import object_url, object_urls
 from refkv.ir import Ir, Kind
 from refkv.ir.output import Output, reading_own_files
 from refkv.ir.store import StoreIrOutput, StoreParse
@@ -103,8 +103,9 @@ class Parsed:
         self.version: int = PROFILES[parse.fmt][1]
         if isinstance(run, StoreParse):  # every object the run listed, by key
             self._objects = sorted(run.sizes, key=lambda k: k.encode())
-            self.sources: tuple[Source, ...] = tuple(Source(url=object_url(run.url, k), size=run.sizes[k])
-                                                     for k in self._objects)
+            urls = object_urls(run.url, self._objects)
+            self.sources: tuple[Source, ...] = tuple(
+                Source(url=u, size=run.sizes[k]) for k, u in zip(self._objects, urls, strict=True))
         else:
             self._objects = []
             self.sources = (Source(url=run.url, size=run.size, etag=run.etag),)
