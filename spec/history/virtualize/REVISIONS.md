@@ -9,8 +9,9 @@ outputs are compared with the maintained implementations by
 `compare.py --impl`, and the document is revised from the differences and
 the notes. Each round's document is kept beside this file
 (`VIRTUALIZE.r<N>.md`), its notes in `design/conformance/virtualize/r<N>/`,
-and its implementations in `conformance/impls/virtualize/`, which holds only
-the latest round; earlier rounds are in git history. Paths in the entries
+and its implementations were in `conformance/impls/virtualize/` (later
+`conformance/impls/zarrify/`), which held only the latest round. The last round's
+were removed after revision 4 had long been superseded; every round is in git history. Paths in the entries
 below are as they were when each entry was written.
 
 ## Round 1 (revision 1)
