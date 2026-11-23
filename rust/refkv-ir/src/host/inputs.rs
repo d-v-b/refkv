@@ -17,6 +17,13 @@ pub fn url_scheme(location: &str) -> Option<String> {
     (b.first().is_some_and(u8::is_ascii_alphabetic) && b.iter().all(|&c| c.is_ascii_alphanumeric() || matches!(c, b'+' | b'.' | b'-'))).then(|| s.to_ascii_lowercase())
 }
 
+/// Whether `location` is written as a URL: one with an authority ([`url_scheme`]), or a `file:` URL
+/// in any form (RFC 8089's minimal `file:/x` among them). An input written so has its directory and
+/// scope as URLs ([`split_input`], [`scope_keys`]), whatever local path a `file:` URL names.
+pub fn is_url(location: &str) -> bool {
+    url_scheme(location).is_some() || location.as_bytes().get(..5).is_some_and(|p| p.eq_ignore_ascii_case(b"file:"))
+}
+
 /// What a location names (spec/zarrify.md §1.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
 #[derive(Debug, PartialEq)]
@@ -53,7 +60,7 @@ pub fn input(location: &str, windows: bool, allow_file_hosts: bool) -> Result<In
 /// file named otherwise is no object a store can have); for a local path, its directory and its
 /// name, as Python's `os.path.split` gives them (`ntpath`'s when `windows`).
 pub fn split_input(location: &str, title: &str, windows: bool) -> Result<(String, String), Fail> {
-    if url_scheme(location).is_some() {
+    if is_url(location) {
         if location.contains(['?', '#']) {
             return rejected(format!("{title} input {location:?} has a query or a fragment"));
         }
@@ -121,6 +128,7 @@ mod tests {
         assert_eq!(input("日本.tif", false, false).unwrap(), Input::Local { path: "日本.tif".into() });
         assert_eq!(url_scheme("HTTP://h/"), Some("http".into()));
         assert_eq!(url_scheme("a b://h/"), None);
+        assert!(is_url("file:/d/x") && is_url("FILE:///d/x") && is_url("s3://b/k") && !is_url("d/x") && !is_url("C:\\x"));
     }
 
     #[test]
@@ -173,6 +181,8 @@ mod tests {
         assert_eq!(k(&["https://h/d/a.nhdr", "https://h/d/f/", "https://h/d/b%20c.raw"]), Some(vec!["f/".into(), "b c.raw".into()]));
         assert_eq!(k(&["https://h/d/x", "https://h/d/"]), None);
         assert_eq!(k(&[]), Some(vec![]));
+        let minimal = scope_keys("file:/d/a.nhdr", &["file:/d/sub/".into(), "file:/d/a%20b.raw".into()]).unwrap();
+        assert_eq!(minimal, Some(vec!["sub/".into(), "a b.raw".into()]));
     }
 
     #[test]
