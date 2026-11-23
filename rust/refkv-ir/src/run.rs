@@ -4,7 +4,7 @@
 
 use crate::ir::Ir;
 use crate::step::Step;
-use crate::out::Out;
+use crate::out::{Chunking, Out};
 use crate::plan::{Planner, Request};
 use crate::project::Copied;
 use crate::Parser;
@@ -78,18 +78,19 @@ pub trait FileProfile: Sync {
     /// The image projection: today's hierarchy, without `refkv_source`, from the IR and the
     /// parser's description of the source (the design of d-v-b/refkv#278, "The description",
     /// each profile's in its document's section "The description"). `copied` holds the bytes of
-    /// the ranges `reads` gives.
-    fn project(&self, ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String>;
+    /// the ranges `reads` gives, which `reads` gave for the same `chunking`.
+    fn project(&self, ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> Result<Out, String>;
     /// `project`, with the layouts the output writes beside the image (None: every one), for a
     /// profile whose projection writes some.
-    fn project_layouts(&self, ir: &Ir, description: &J, url: &str, copied: &Copied, layouts: Option<&[String]>) -> Result<Out, String> {
+    fn project_layouts(&self, ir: &Ir, description: &J, url: &str, copied: &Copied, layouts: Option<&[String]>,
+                       chunking: &Chunking) -> Result<Out, String> {
         let _ = layouts;
-        self.project(ir, description, url, copied)
+        self.project(ir, description, url, copied, chunking)
     }
-    /// The source's ranges the projection copies into the archive or decodes, which the run
-    /// reads after the parser: a projection reads nothing itself.
-    fn reads(&self, ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
-        let _ = (ir, description);
+    /// The source's ranges the projection with `chunking` copies into the archive or decodes,
+    /// which the run reads after the parser: a projection reads nothing itself.
+    fn reads(&self, ir: &Ir, description: &J, chunking: &Chunking) -> Result<Vec<(u64, u64)>, String> {
+        let _ = (ir, description, chunking);
         Ok(Vec::new())
     }
     /// The parser's counts (`requests`, `requested`, `rounds`) the output's summary holds, after
@@ -198,10 +199,19 @@ pub struct Run {
     done: bool,
     /// The parser found the file names siblings (`Step::Beside`).
     beside: bool,
+    /// How the projection cuts the source, from the run's start: its reads depend on it
+    chunking: Chunking,
 }
 
 impl Run {
+    /// A run with the convention's chunking (`Chunking::default`).
     pub fn new(format: Format, size: u64, remote: bool, concurrency: usize) -> Self {
+        Self::with_chunking(format, size, remote, concurrency, Chunking::default())
+    }
+
+    /// A run whose projection cuts the source as `chunking` says: it reads the ranges that
+    /// projection copies, and every output made of it is cut so.
+    pub fn with_chunking(format: Format, size: u64, remote: bool, concurrency: usize, chunking: Chunking) -> Self {
         Run {
             format,
             parser: Some(AnyParser::new(format, size)),
@@ -217,7 +227,13 @@ impl Run {
             in_batch: false,
             done: false,
             beside: false,
+            chunking,
         }
+    }
+
+    /// How the run's projection cuts the source.
+    pub fn chunking(&self) -> Chunking {
+        self.chunking
     }
 
     /// The requests to make now, concurrently; None when the parser is done.
@@ -314,7 +330,7 @@ impl Run {
     /// copies none.
     fn begin_copies(&mut self) -> Result<bool, String> {
         let (ir, description, _) = self.parsed.as_ref().ok_or("internal: no IR")?;
-        let mut ranges = crate::project::reads(self.format, ir, description)?;
+        let mut ranges = crate::project::reads(self.format, ir, description, &self.chunking)?;
         ranges.sort_unstable();
         ranges.dedup();
         if ranges.is_empty() {
@@ -392,7 +408,7 @@ impl Run {
         }
         let (ir, description) = self.parsed()?;
         let counts = self.parsed.as_ref().map(|p| &p.2).ok_or_else(|| "internal: no IR".to_string())?;
-        let options = Options { layouts, checksums, written };
+        let options = Options { layouts, checksums, written, chunking: self.chunking };
         output(self.format, ir, description, counts, self.stats(), url, mirror, &self.copied, &options)
     }
 
@@ -454,13 +470,15 @@ pub struct Finished {
 }
 
 /// What an output is made with besides the parse: the layouts written beside the image (None:
-/// every one), whether the host records the ranges' checksums, and whether it writes this
-/// output as it is (`output`).
+/// every one), whether the host records the ranges' checksums, whether it writes this output as
+/// it is, and how its projection cuts the source, as the run that read its copies did
+/// (`output`).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Options<'a> {
     pub layouts: Option<&'a [String]>,
     pub checksums: bool,
     pub written: bool,
+    pub chunking: Chunking,
 }
 
 /// The parser's own counts (`requests`, `requested`, `rounds`), which a parser returns with its
@@ -505,8 +523,8 @@ pub fn unread_shown(ir: &Ir, profile: &str) -> Vec<(u32, u64, u64)> {
 #[allow(clippy::too_many_arguments)]
 pub fn output(format: Format, ir: &Ir, description: &serde_json::Value, counts: &serde_json::Value, stats: serde_json::Value,
               url: &str, mirror: bool, copied: &crate::project::Copied, options: &Options) -> Result<crate::out::Out, crate::seal::Refusal> {
-    let Options { layouts, checksums, written } = *options;
-    let mut out = crate::project::project(format, ir, description, url, copied, layouts)?;
+    let Options { layouts, checksums, written, chunking } = *options;
+    let mut out = crate::project::project(format, ir, description, url, copied, layouts, &chunking)?;
     crate::shard::apply_all(&mut out, !checksums)?;
     if let Some(m) = out.summary.as_object_mut() {
         for &k in format.profile().summary_counts() {
@@ -546,9 +564,9 @@ impl Run {
     /// Finishes, projects and mirrors: the output (`output`), for a host that records the
     /// ranges' checksums when `checksums`.
     pub fn into_output(self, url: &str, mirror: bool, checksums: bool) -> Result<crate::out::Out, crate::seal::Refusal> {
-        let format = self.format;
+        let (format, chunking) = (self.format, self.chunking);
         let f = self.finish_copied()?;
-        let options = Options { layouts: None, checksums, written: true };
+        let options = Options { layouts: None, checksums, written: true, chunking };
         output(format, &f.ir, &f.description, &f.counts, f.stats, url, mirror, &f.copied, &options)
     }
 }

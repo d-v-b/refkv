@@ -132,12 +132,11 @@ def outcome(make: Any) -> tuple[str, Any]:
 
 
 @pytest.fixture(params=[None, 64], ids=["payload-limit", "copied-edges"])
-def copy_threshold(request):
-    """The payload past which an edge chunk is copied: refkv's, and one small enough that the
-    fixtures' edge chunks are copied, which no fixture is large enough for otherwise."""
-    _core._set_copy_threshold(request.param)
-    yield request.param
-    _core._set_copy_threshold(None)
+def chunking(request):
+    """The chunking whose payload past which an edge chunk is copied is refkv's, or one small
+    enough that the fixtures' edge chunks are copied, which no fixture is large enough for
+    otherwise."""
+    return _core.Chunking(copy_threshold=request.param)
 
 
 def sizeless(tmp_path: Path) -> Path:
@@ -152,7 +151,7 @@ def sizeless(tmp_path: Path) -> Path:
 
 
 @pytest.mark.parametrize("checksums", [False, True], ids=["plain", "checksums"])
-def test_a_projection_written_with_the_public_tools_writes_what_zarrify_writes(monkeypatch, tmp_path, copy_threshold,
+def test_a_projection_written_with_the_public_tools_writes_what_zarrify_writes(monkeypatch, tmp_path, chunking,
                                                                               checksums):
     """Every NumPy fixture: `.npy` files and archives, either order and byte order, fixed-length
     bytes, structures, scalars, arrays of no elements, arrays cut into chunks with a padded or a
@@ -162,13 +161,13 @@ def test_a_projection_written_with_the_public_tools_writes_what_zarrify_writes(m
         async def no_output(_self):
             raise AssertionError("refkv's own output was built")
 
-        with monkeypatch.context() as m, read(str(path), checksums=checksums) as parsed:
+        with monkeypatch.context() as m, read(str(path), checksums=checksums, chunking=chunking) as parsed:
             m.setattr(Parsed, "_output_async", no_output)
             return seal(projected(parsed), [parsed])
 
     seen: dict[str, int] = dict.fromkeys(("output", "rejected", "copied", "padded", "deflated", "transposed"), 0)
     for path in [*FIXTURES, sizeless(tmp_path)]:
-        want = outcome(lambda path=path: zarrify(str(path), checksums=checksums))
+        want = outcome(lambda path=path: zarrify(str(path), checksums=checksums, chunking=chunking))
         got = outcome(lambda path=path: rebuilt(path))
         assert got == want, path.name
         assert path.parent != tmp_path or "array/c/0/0" in got[1]["entries"], "the array with no grid has its chunk"
@@ -182,4 +181,4 @@ def test_a_projection_written_with_the_public_tools_writes_what_zarrify_writes(m
             seen["copied"] += any(isinstance(v, bytes) for v in chunks)
             seen["padded"] += any(not isinstance(v, bytes) and len(getattr(v, "parts", ())) == 2 for v in chunks)
     assert all(seen[kind] for kind in ("output", "rejected", "deflated", "transposed")), seen
-    assert seen["copied" if copy_threshold else "padded"], seen
+    assert seen["copied" if chunking != _core.Chunking() else "padded"], seen

@@ -618,12 +618,12 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<crate::tiff::Tiff>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
         crate::project::ndpi::project(ir, description, url)
     }
     /// The projection reads nothing; refkv's plan is made here, so that a run rejects the file
     /// before it is done, as the plan does (`tiff::plan::plan`).
-    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value, _chunking: &crate::out::Chunking) -> Result<Vec<(u64, u64)>, String> {
         crate::tiff::plan::plan("ndpi", description).map(|_| Vec::new())
     }
 }

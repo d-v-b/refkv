@@ -1018,7 +1018,7 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Hdf4>(size)
     }
-    fn project(&self, ir: &Ir, description: &J, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &Ir, description: &J, url: &str, copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
         crate::project::hdf4::project(ir, description, url, copied)
     }
     /// The summary holds the parser's `rounds`.

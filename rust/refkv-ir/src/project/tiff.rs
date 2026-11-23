@@ -223,7 +223,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<O
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, copied: &Copied, _chunking: &crate::out::Chunking) -> Result<Out, String> {
     project_set(ir, description, url, copied)
 }
 
