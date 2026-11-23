@@ -1377,11 +1377,10 @@ it through Node. Run <code class="docutils literal notranslate"><span class="pre
 <a class="reference external" href="https://github.com/d-v-b/refkv/tree/main/design/proposals">design/proposals/</a> updates that proposal’s
 <code class="docutils literal notranslate"><span class="pre">Status</span> <span class="pre">(YYYY-MM-DD):</span></code> line and its date: <code class="docutils literal notranslate"><span class="pre">just</span> <span class="pre">sections</span></code> checks that every
 proposal has the line, and can’t tell whether it is still true.</p>
-<p>Open the PR against <code class="docutils literal notranslate"><span class="pre">main</span></code>, not stacked on another PR: PRs merged into a
-branch that was then squash-merged never reached <code class="docutils literal notranslate"><span class="pre">main</span></code>
-(<a class="reference external" href="https://github.com/d-v-b/refkv/pull/20">#20</a>,
-<a class="reference external" href="https://github.com/d-v-b/refkv/pull/30">#30</a>). Put the Neuroglancer fork’s
-PR and the merge order in the description.</p>
+<p>Stack, merge and revise PRs as the “Pull requests” section of
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/CLAUDE.md">CLAUDE.md</a> says: a PR that depends on an unmerged one targets
+its branch, and only PRs based on <code class="docutils literal notranslate"><span class="pre">main</span></code> are merged, bottom-up. Put the
+Neuroglancer fork’s PR and the merge order in the description.</p>
 </section>
 <section id="the-mistakes-that-recurred">
 <span id="9-the-mistakes-that-recurred"></span><h2>9. The mistakes that recurred<a class="headerlink" href="#the-mistakes-that-recurred" title="Link to this heading">¶</a></h2>
