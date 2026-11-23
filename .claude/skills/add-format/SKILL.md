@@ -54,7 +54,10 @@ feasibility.
      what is not described yet.
    - Edit only the format's own files. Never add the format to a list of formats in a
      shared file, in prose or in code: state a rule that names no format, and let the
-     registry or a test enumerate them.
+     registry or a test enumerate them. `just independence origin/main --strict` (a
+     warning in `just preflight`) lists any file the branch changes outside the
+     format's paths and the files shared on purpose; see
+     [§8](../../../docs/adding-a-format.md#8-before-opening-the-pull-request).
 5. **Implement.** See [§5](../../../docs/adding-a-format.md#5-implement-it).
    - The registry file, then `just profiles`.
    - The Rust module, its projection and its source model.

@@ -495,6 +495,10 @@ jobs:
         run: |
           git fetch --no-tags origin "$GITHUB_BASE_REF"
           just sections FETCH_HEAD
+      # on a pull request, the files it changes outside its formats' own paths and the files shared
+      # on purpose, as warnings on its diff (spec/tools/independence.py); it never fails the job
+      - if: github.event_name == 'pull_request'
+        run: just independence FETCH_HEAD --github
       # every Python file passes ruff (pyproject.toml's [tool.ruff])
       - run: just lint
       # every Python file type-checks (pyproject.toml's [tool.pyrefly]; refkv._core through its stub)
