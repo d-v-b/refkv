@@ -115,7 +115,7 @@ fn parse_header(t: &str) -> crate::error::Res<J> {
     if crate::json::has_number_token(t) {
         return Err(Error::rejected(format!("it has the string {:?}, which this parser cannot read", crate::json::NUMBER_TOKEN)));
     }
-    serde_json::from_str::<Strict>(t).map_err(|e| e.to_string())?;
+    serde_json::from_str::<Strict>(t).map_err(|e| Error::Rejected(e.to_string()))?;
     crate::json::parse_binary64(t).ok_or_else(|| Error::rejected("number out of range"))
 }
 
@@ -191,7 +191,7 @@ pub fn check(r: &Rules, size: u64, n: u64, raw: Vec<u8>) -> crate::error::Res<He
         let t = entry(name, value);
         let problem = t.as_ref().err().map_or(crate::expr::V::Absent, |e| text(e));
         r.check("entry", rules::env([("name", text(&short(name))), ("problem", problem)]))?;
-        tensors.push(t.map_err(|e| e.to_string())?);
+        tensors.push(t.map_err(Error::rejected)?);
     }
     for t in &tensors {
         let known = r.entry("types", &t.dtype).is_some();

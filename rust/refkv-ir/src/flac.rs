@@ -622,7 +622,7 @@ impl Flac {
             6 => {
                 let v = picture_fields(&b, len);
                 self.rules.check("picture", rules::env([("at", num(m as f64)), ("valid", flag(v.is_ok()))]))?;
-                let (fields, n, mut j) = v.map_err(|_| "internal: a picture's fields")?;
+                let (fields, n, mut j) = v.map_err(|_| Error::internal("a picture's fields"))?;
                 self.ir.value(s, "fields", NO_INDEX, &bytes(fields), 0, (body, fields), None)?;
                 if n > 0 {
                     let d = self.ir.value(s, "data", NO_INDEX, &bytes(n), 0, (body + fields, n), None)?;
@@ -704,7 +704,7 @@ impl Flac {
                     ("at", num(p as f64)), ("frames", flag(p < e)), ("valid", flag(h.is_ok())), ("why", text(h.err().unwrap_or(""))),
                     ("index", num(j as f64)),
                 ]))?;
-                let h = h.map_err(|_| "internal: an invalid header")?;
+                let h = h.map_err(|_| Error::internal("an invalid header"))?;
                 self.frame_check(p, j, &h)?;
                 Scan { p, head: h, s: p, crc: 0, pending: false }
             }

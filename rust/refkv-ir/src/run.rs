@@ -137,11 +137,11 @@ struct Refused(&'static str);
 
 impl Parse for Refused {
     fn step(&mut self) -> crate::error::Res<Step> {
-        Err(self.0.into())
+        Err(Error::rejected(self.0))
     }
     fn feed(&mut self, _: u64, _: Vec<u8>) {}
     fn finish(self: Box<Self>) -> crate::error::Res<(Ir, J)> {
-        Err(self.0.into())
+        Err(Error::rejected(self.0))
     }
     fn found(&self) -> Option<&'static str> {
         None

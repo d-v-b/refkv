@@ -180,7 +180,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
     let src = ir.sources();
     let listing: Vec<(String, u64)> = src.objects.iter().map(|&o| (ir.key(o), ir.len[o as usize])).collect();
     let text = description["info"].as_str().ok_or_else(|| Error::internal("the description has no info"))?;
-    let info = json::parse(text.as_bytes()).map_err(|e| format!("internal: info: {e}"))?.value;
+    let info = json::parse(text.as_bytes()).map_err(|e| Error::internal(format!("info: {e}")))?.value;
     let data_type = info.get("data_type").and_then(Jv::as_str).unwrap_or("").to_string();
     let channels = info.get("num_channels").and_then(|v| v.int(1, 65535)).unwrap_or(1);
     let image = info.get("type").and_then(Jv::as_str) == Some("image");

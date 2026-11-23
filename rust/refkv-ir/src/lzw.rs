@@ -125,7 +125,7 @@ pub fn scan(data: &[u8], size: u64) -> crate::error::Res<Cut> {
 /// not read): the output. A stream that ends before `size`, or whose code crosses it, is an
 /// error.
 pub fn decode(data: &[u8], size: u64) -> crate::error::Res<Vec<u8>> {
-    let size = usize::try_from(size).map_err(|_| "a chunk too large to decode")?;
+    let size = usize::try_from(size).map_err(|_| Error::rejected("a chunk too large to decode"))?;
     let mut s = State::new();
     // each entry's string is its prefix entry's string and its last byte; `head` its first
     let mut prefix = vec![0u32; MAX_CODE as usize];

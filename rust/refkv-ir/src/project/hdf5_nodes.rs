@@ -78,7 +78,7 @@ struct Ds<'a> {
 
 impl<'a> Ds<'a> {
     fn of(o: &'a J) -> crate::error::Res<Ds<'a>> {
-        let dt = types::parse(&unhex(o["type"].as_str().unwrap_or(""))).map_err(|_| "internal: a dataset's datatype does not read again".to_string())?;
+        let dt = types::parse(&unhex(o["type"].as_str().unwrap_or(""))).map_err(|_| Error::internal("a dataset's datatype does not read again"))?;
         let filters = arr(&o["filters"]);
         Ok(Ds {
             dt,

@@ -120,11 +120,11 @@ fn check_input(path: &Path, files: &BTreeMap<String, Vec<u8>>, out: &Out, ir: &I
         assert!(rebuilt.get(k).is_some_and(|r| r == b), "{path:?}: {k} is not rebuilt");
     }
     let get = entry(out);
-    let back = load(&table_from_out(out).unwrap(), &mut |_, _| Err("no source".into())).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+    let back = load(&table_from_out(out).unwrap(), &mut |_, _| Err(refkv_ir::error::Error::Internal("no source".into()))).unwrap_or_else(|e| panic!("{path:?}: {e}"));
     assert_eq!(back.len(), ir.len(), "{path:?}");
     let bsrc = back.sources();
     let mut read = |v: u64, n: u64| -> refkv_ir::error::Res<Vec<u8>> {
-        let (o, base) = bsrc.at(&back, v).ok_or("no object at that virtual offset")?;
+        let (o, base) = bsrc.at(&back, v).ok_or_else(|| refkv_ir::error::Error::Internal("no object at that virtual offset".into()))?;
         let x = (v - base) as usize;
         let b = &files[&back.key(o)];
         b.get(x..x + n as usize).map(|s| s.to_vec()).ok_or_else(|| refkv_ir::error::Error::Internal(format!("[{x}, {}) runs past {:?}", x + n as usize, back.key(o))))

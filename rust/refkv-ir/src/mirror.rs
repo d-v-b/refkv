@@ -1297,13 +1297,13 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> crate::error::Res<Vec<u
             let v: Vec<i64> = match enc {
                 0 => (0..count as i64).map(|j| x.wrapping_add(j.wrapping_mul(y))).collect(),
                 1 => {
-                    let a = usize::try_from(x).map_err(|_| "a column past its values")?;
+                    let a = usize::try_from(x).map_err(|_| Error::rejected("a column past its values"))?;
                     let vals = t.column_values.get(a..a + count as usize).ok_or_else(|| Error::rejected("a column past its values"))?;
                     let mut acc = 0i64;
                     vals.iter().map(|d| { acc = acc.wrapping_add(*d); acc }).collect()
                 }
                 4 => {
-                    let a = usize::try_from(x).map_err(|_| "a column past its values")?;
+                    let a = usize::try_from(x).map_err(|_| Error::rejected("a column past its values"))?;
                     let k = usize::try_from(y).ok().and_then(|k| k.checked_mul(3)).ok_or_else(|| Error::rejected("a column past its values"))?;
                     let vals = a.checked_add(k).and_then(|end| t.column_values.get(a..end)).ok_or_else(|| Error::rejected("a column past its values"))?;
                     let mut v = Vec::with_capacity(count as usize);
@@ -1334,7 +1334,7 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> crate::error::Res<Vec<u
                         arrays.insert(x, uints(&raw, z, big));
                     }
                     let a = &arrays[&x];
-                    let y = usize::try_from(y).map_err(|_| "a column before its array")?;
+                    let y = usize::try_from(y).map_err(|_| Error::rejected("a column before its array"))?;
                     a.get(y..y + count as usize).ok_or_else(|| Error::rejected("a column past its array"))?.iter().map(|&v| v as i64).collect()
                 }
                 _ => return Err(Error::rejected(format!("column run {q}: encoding {enc}"))),
@@ -1484,7 +1484,7 @@ pub fn table_from(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> crate::error::Res<Ta
                 let key = format!("{SOURCE_NODE}/{p}/c/{coords}");
                 let raw = get(&key).ok_or_else(|| Error::rejected(format!("no chunk {key}")))?;
                 let raw = if deflated {
-                    miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&raw, (cs[0] * cw * item) as usize).map_err(|e| format!("{key}: {e:?}"))?
+                    miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&raw, (cs[0] * cw * item) as usize).map_err(|e| Error::Rejected(format!("{key}: {e:?}")))?
                 } else {
                     raw
                 };
@@ -1561,7 +1561,7 @@ pub fn table_from(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> crate::error::Res<Ta
         let offsets = ints(list("ir/held/offsets")?);
         let data = if offsets.last().is_some_and(|&x| x > 0) { list("ir/held/data")? } else { Vec::new() };
         for w in offsets.windows(2) {
-            let (a, b) = (usize::try_from(w[0]).map_err(|_| "a bad held offset")?, usize::try_from(w[1]).map_err(|_| "a bad held offset")?);
+            let (a, b) = (usize::try_from(w[0]).map_err(|_| Error::rejected("a bad held offset"))?, usize::try_from(w[1]).map_err(|_| Error::rejected("a bad held offset"))?);
             t.held.push(data.get(a..b).ok_or_else(|| Error::rejected("a held object past its data"))?.to_vec());
         }
     }
@@ -1569,7 +1569,7 @@ pub fn table_from(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> crate::error::Res<Ta
         let offsets = ints(list("ir/shared/offsets")?);
         let data = if offsets.last().is_some_and(|&x| x > 0) { list("ir/shared/data")? } else { Vec::new() };
         for w in offsets.windows(2) {
-            let (a, b) = (usize::try_from(w[0]).map_err(|_| "a bad shared offset")?, usize::try_from(w[1]).map_err(|_| "a bad shared offset")?);
+            let (a, b) = (usize::try_from(w[0]).map_err(|_| Error::rejected("a bad shared offset"))?, usize::try_from(w[1]).map_err(|_| Error::rejected("a bad shared offset"))?);
             t.shared.push(data.get(a..b).ok_or_else(|| Error::rejected("a shared source past its data"))?.to_vec());
         }
     }

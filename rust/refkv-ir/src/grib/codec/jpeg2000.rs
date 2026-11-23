@@ -26,9 +26,9 @@ pub const MAX_PRECISION: u32 = 20;
 pub fn decode(b: &[u8], n: usize) -> Res<Vec<u64>> {
     let precision = check(b)?;
     let settings = DecodeSettings { resolve_palette_indices: false, strict: false, target_resolution: None };
-    let image = Image::new(b, &settings).map_err(|e| format!("the JPEG 2000 codestream does not decode: {e}"))?;
+    let image = Image::new(b, &settings).map_err(|e| Error::Rejected(format!("the JPEG 2000 codestream does not decode: {e}")))?;
     let mut context = DecoderContext::default();
-    let decoded = image.decode(&mut context).map_err(|e| format!("the JPEG 2000 codestream does not decode: {e}"))?;
+    let decoded = image.decode(&mut context).map_err(|e| Error::Rejected(format!("the JPEG 2000 codestream does not decode: {e}")))?;
     let samples = decoded.components()[0].samples();
     if samples.len() != n {
         return Err(Error::rejected(format!("the JPEG 2000 image has {} samples, and section 5 gives {n} values", samples.len())));

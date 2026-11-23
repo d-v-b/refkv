@@ -107,7 +107,7 @@ pub fn parse_document(data: &[u8], what: &str) -> crate::error::Res<Element> {
     if data.starts_with(b"\xef\xbb\xbf") {
         return Err(Error::rejected(format!("{what} starts with a byte order mark")));
     }
-    let s = std::str::from_utf8(data).map_err(|_| format!("{what} is not UTF-8"))?;
+    let s = std::str::from_utf8(data).map_err(|_| Error::Rejected(format!("{what} is not UTF-8")))?;
     xmltree::parse(s, what)
 }
 

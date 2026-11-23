@@ -84,7 +84,7 @@ pub fn tiff_plan(data: &[u8]) -> refkv_ir::error::Res<(refkv_ir::ir::Ir, serde_j
                     p.feed(o, data[o as usize..(o + n) as usize].to_vec());
                 }
             }
-            Step::Beside => return Err("the file names siblings, which its bytes alone cannot give".into()),
+            Step::Beside => return Err(refkv_ir::error::Error::rejected("the file names siblings, which its bytes alone cannot give")),
             Step::Done => break,
         }
     }

@@ -313,7 +313,7 @@ fn simple(rules: &Rules, s: &str, scalar: bool) -> crate::error::Res<Dtype> {
     let after = &rest[kind.len()..];
     let digits: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
     let unit = &after[digits.len()..];
-    let size: u64 = digits.parse().map_err(|_| format!("{s:?} is not a NumPy type string"))?;
+    let size: u64 = digits.parse().map_err(|_| Error::Rejected(format!("{s:?} is not a NumPy type string")))?;
     let need_order = |o: Option<bool>, item: u64| -> crate::error::Res<Option<bool>> {
         if item > 1 && o.is_none() {
             return Err(Error::rejected("a type of more than one byte with no byte order"));
@@ -326,7 +326,7 @@ fn simple(rules: &Rules, s: &str, scalar: bool) -> crate::error::Res<Dtype> {
             let inner = unit.strip_prefix('[').and_then(|u| u.strip_suffix(']')).ok_or_else(|| Error::rejected("a datetime or timedelta without a unit"))?;
             let k: String = inner.chars().take_while(|c| c.is_ascii_digit()).collect();
             let u = &inner[k.len()..];
-            let scale: u64 = if k.is_empty() { 1 } else { k.parse().map_err(|_| "a unit's multiple past 2^64")? };
+            let scale: u64 = if k.is_empty() { 1 } else { k.parse().map_err(|_| Error::rejected("a unit's multiple past 2^64"))? };
             if rules.entry("units", u).is_none() || scale == 0 {
                 return Err(Error::rejected(format!("the unit {inner:?} is not one of NumPy's")));
             }

@@ -276,7 +276,7 @@ pub fn classify(cands: &[String], docs: &HashMap<String, crate::error::Res<Vec<u
         let key = doc_key(p);
         let got = docs.get(p).cloned().unwrap_or_else(|| Err(Error::internal(format!("{key} was not read"))));
         let checked = got.and_then(|b| {
-            let d = json::parse(&b).map_err(|e| format!("{key}: {e}"));
+            let d = json::parse(&b).map_err(|e| e.context(|m| format!("{key}: {m}")));
             c.held.insert(p.clone(), d.as_ref().map(|d| d.members.clone()).unwrap_or_default());
             let d = d?;
             Ok((check(shown, &key, &d.value)?, d.value))

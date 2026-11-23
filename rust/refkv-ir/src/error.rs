@@ -85,49 +85,9 @@ impl From<Error> for String {
     }
 }
 
-/// For the migration of d-v-b/refkv#459's step 2a only, removed once every module builds an
-/// `Error` itself: a message of a module that still returns `Result<_, String>`, by the prefix that
-/// module wrote it with (`internal:`, `budget:`), else a rejection, as the hosts read every message
-/// before.
-impl From<String> for Error {
-    fn from(m: String) -> Error {
-        if m.starts_with("internal:") {
-            Error::Internal(m)
-        } else if m.starts_with("budget:") {
-            Error::Budget(m)
-        } else {
-            Error::Rejected(m)
-        }
-    }
-}
-
-/// `From<String>`, for a module's `&str` message during the migration.
-impl From<&str> for Error {
-    fn from(m: &str) -> Error {
-        Error::from(m.to_string())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The migration's conversion reads a module's message by the prefix it was written with, at
-    /// its start only: a message given context before its prefix is read as a rejection, as every
-    /// host read every message before.
-    #[test]
-    fn a_string_is_read_by_its_prefix() {
-        let cases = [
-            ("internal: no IR", Error::Internal("internal: no IR".into())),
-            ("budget: more than 8 reads", Error::Budget("budget: more than 8 reads".into())),
-            ("a short file", Error::Rejected("a short file".into())),
-            ("k: internal: x", Error::Rejected("k: internal: x".into())),
-        ];
-        for (m, want) in cases {
-            assert_eq!(Error::from(m.to_string()), want, "{m}");
-            assert_eq!(Error::from(m), want, "{m}");
-        }
-    }
 
     #[test]
     fn a_message_keeps_its_words_and_its_variant_through_context() {

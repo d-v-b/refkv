@@ -48,7 +48,7 @@ fn datatype_place(h5: &mut H5, rec: &Recorded, base: u64, h: &Header, read: bool
     let Some((k, m)) = one(h, super::DATATYPE) else { return Ok(None) };
     if m.flags & 2 != 0 && read {
         let committed = h5.committed(&m.data).and_then(|(_, at)| h5.header(at));
-        let c = committed.map_err(|_| "internal: a dataset's committed datatype does not read again")?;
+        let c = committed.map_err(|_| crate::error::Error::internal("a dataset's committed datatype does not read again"))?;
         if let Some((k2, m2)) = one(&c, super::DATATYPE) {
             return Ok(Some(msg_place(rec, base, &c, k2, m2, None)));
         }

@@ -99,7 +99,7 @@ pub fn ome_image(profile: &str, ir: &Ir, description: &J, copied: &Copied, check
     let mut nodes = Vec::new();
     for (key, bytes) in &out.entries {
         let Some(path) = key.strip_suffix("zarr.json").map(|p| p.trim_end_matches('/')) else { continue };
-        let doc: J = serde_json::from_slice(bytes).map_err(|e| format!("internal: {e}"))?;
+        let doc: J = serde_json::from_slice(bytes).map_err(crate::error::Error::internal)?;
         let mut attributes = doc["attributes"].as_object().cloned().unwrap_or_default();
         let own = attributes.remove(crate::out::CONVENTION_KEY).and_then(|v| v.get(profile).cloned()).unwrap_or(J::Null);
         attributes.remove("zarr_conventions");
