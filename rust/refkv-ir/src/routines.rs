@@ -2,7 +2,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): a format's coding parameters as
 //! the Zarr codecs and data type its profile writes, each by the function the profile itself
 //! calls, so that a plugin and refkv cannot disagree. `call` takes a routine's name and its
-//! parameters as JSON, and gives its result as JSON.
+//! parameters as JSON, and gives its result as JSON; it also gives the host rules (`crate::host`)
+//! by their names, so that each host reaches every rule through this one entry point.
 
 use crate::out::tiff_codecs;
 use crate::expr::V;
@@ -14,8 +15,11 @@ use serde_json::{json, Map, Value as J};
 pub enum Refused {
     /// the format's section rejects the parameters: no codec undoes them
     NoCodec(String),
-    /// the parameters are not the routine's (a missing or mistyped member)
+    /// the parameters are not the routine's (a missing or mistyped member), or a host rule's
+    /// argument is not one it takes (`host::Fail::Usage`)
     Bad(String),
+    /// a host rule rejects the input (`host::Fail::Rejected`)
+    Rejected(String),
 }
 
 type R<T> = Result<T, Refused>;
@@ -110,7 +114,13 @@ pub fn call(name: &str, p: &J) -> R<J> {
             let level = u8::try_from(level).ok().filter(|l| *l <= 9).map_or_else(|| bad("level is 0 to 9"), Ok)?;
             Ok(J::Array(crate::out::gzip_codecs(uint(p, "skip")?, level)))
         }
-        _ => bad(format!("no routine {name}")),
+        _ => match crate::host::call(name, p) {
+            Some(r) => r.map_err(|e| match e {
+                crate::host::Fail::Rejected(m) => Refused::Rejected(m),
+                crate::host::Fail::Usage(m) | crate::host::Fail::Bad(m) => Refused::Bad(m),
+            }),
+            None => bad(format!("no routine {name}")),
+        },
     }
 }
 

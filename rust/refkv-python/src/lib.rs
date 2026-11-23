@@ -999,9 +999,10 @@ fn grib_decode<'py>(py: Python<'py>, chunk: &[u8], config: &str, chunk_shape: Ve
 }
 
 /// A coding routine of `refkv.zarrify.coding` (spec/layout.md
-/// <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): the routine `name` of the
-/// parameters `params` (JSON), its result as JSON. Raises NoCodec for parameters the format's
-/// section rejects, ValueError for parameters that are not the routine's.
+/// <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>), or a host rule
+/// (rust/refkv-ir/src/host): the routine `name` of the parameters `params` (JSON), its result as
+/// JSON. Raises NoCodec for parameters the format's section rejects, Rejected for an input a host
+/// rule rejects, ValueError for parameters that are not the routine's.
 #[pyfunction]
 fn coding(name: &str, params: &str) -> PyResult<String> {
     let p: serde_json::Value = serde_json::from_str(params).map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -1009,6 +1010,7 @@ fn coding(name: &str, params: &str) -> PyResult<String> {
         Ok(v) => Ok(v.to_string()),
         Err(refkv_ir::routines::Refused::NoCodec(m)) => Err(NoCodec::new_err(m)),
         Err(refkv_ir::routines::Refused::Bad(m)) => Err(PyValueError::new_err(m)),
+        Err(refkv_ir::routines::Refused::Rejected(m)) => Err(Rejected::new_err(m)),
     }
 }
 

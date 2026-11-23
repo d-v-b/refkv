@@ -5,7 +5,8 @@
 
 pub mod pb;
 pub mod sources;
-pub mod uri;
+/// RFC 3986 URI references and `file:` URIs (rust/refkv-uri, which the Rust core shares).
+pub use refkv_uri as uri;
 mod writer;
 
 pub use pb::{CdIndex, Page, Pinned, Range, Source, SourceKind};

@@ -22,7 +22,6 @@
 pub mod jp2;
 pub mod product;
 mod stored;
-pub mod xmltree;
 
 use crate::ir::*;
 use crate::step::Step;
@@ -33,7 +32,7 @@ use jp2::{BandReader, Codestream};
 use product::{Geocoding, Image};
 use serde_json::{Value as J, json};
 use std::collections::{HashMap, HashSet};
-use xmltree::Element;
+use crate::xmltree::Element;
 
 const MARKER: &str = "_$folder$";
 /// The XML documents of at most this many bytes are held, besides the product and tile metadata.

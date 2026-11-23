@@ -16,6 +16,7 @@ pub mod cxml;
 pub mod expr;
 pub mod fed;
 pub mod gz;
+pub mod host;
 pub mod nifti_pair;
 pub mod ir;
 pub mod json;
@@ -42,6 +43,7 @@ pub mod text;
 pub mod types;
 pub mod xlef;
 pub mod xml;
+pub mod xmltree;
 pub mod zip;
 pub mod zarr_stored;
 

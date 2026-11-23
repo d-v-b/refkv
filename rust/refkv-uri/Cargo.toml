@@ -1,0 +1,13 @@
+# RFC 3986 URI references, their strict resolution, and the `file:` URIs of local paths
+# (spec/refkv.md §5): pure functions with no dependencies, shared by the Rust core (rust/refkv-ir,
+# whose wasm32 module compiles them too) and the vzip writer (rust/refkv-vzip, which re-exports
+# them as `refkv_vzip::uri`). A member of the workspace (rust/Cargo.toml).
+[package]
+name = "refkv-uri"
+version = "0.1.0"
+edition = "2024"
+description = "RFC 3986 URI references, strict resolution and file: URIs, as refkv reads them"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]

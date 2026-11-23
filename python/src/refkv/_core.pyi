@@ -50,9 +50,10 @@ class NoCodec(ValueError):  # noqa: N818 (the core's name)
 
 def coding(name: str, params: str) -> str:
     """A coding routine of `refkv.zarrify.coding` (spec/layout.md
-    <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): the routine `name` of the
-    parameters `params` (JSON), its result as JSON. Raises NoCodec for parameters the format's
-    section rejects, ValueError for parameters that are not the routine's."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>), or a host rule
+    (rust/refkv-ir/src/host): the routine `name` of the parameters `params` (JSON), its result as
+    JSON. Raises NoCodec for parameters the format's section rejects, Rejected for an input a host
+    rule rejects, ValueError for parameters that are not the routine's."""
 
 @final
 class ChunkMap:
