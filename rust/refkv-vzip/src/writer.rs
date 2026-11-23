@@ -1,4 +1,4 @@
-//! The archive writer: python/src/refkv/vzip/archive.py's `VZipWriter`, byte for byte. The layout
+//! The archive writer: conformance/vzip/python_writer.py's `VZipWriter` (the pure-Python writer refkv's Python package used before it bound this crate), byte for byte. The layout
 //! (spec/bindings/vzip.md §14.2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#142-recommended-layout-informative>):
 //!

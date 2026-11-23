@@ -5,6 +5,7 @@ for every feature and option of the writer, and for the archives of zarrified fi
 from __future__ import annotations
 
 import io
+import json
 import sys
 import zlib
 from pathlib import Path
@@ -61,16 +62,43 @@ def test_writes_what_the_python_writer_writes(tmp_path: Path, mirror_refs: bool,
     assert build(refkv.vzip.archive.VZipWriter, tmp_path, **kw) == build(PyVZipWriter, tmp_path, **kw)
 
 
-FIXTURES = ["tiff/strips_uint16_pyramid_short.ome.tif", "nifti/nifti_block_x_split.nii", "hdf5/hdf5_filters.h5",
-            "mp4/mp4_h264_aac.mp4", "czi/czi_bgr24_raw.czi", "fits/fits_bintable.fits", "zarr2/zarr2_hierarchy"]
+def test_a_refused_bulk_item_keeps_the_checksums_of_later_sources():
+    """A bulk call refused partway keeps the sources it took (the Rust writer keeps no source of a
+    refused item, where the pure-Python one kept one), and a later range's checksum is asked for
+    its own source's URL."""
+    asked: list[str] = []
+
+    def recorded(url: str, offset: int, length: int) -> int:
+        asked.append(url)
+        return 0
+
+    w = refkv.vzip.archive.VZipWriter(io.BytesIO(), checksum=recorded)
+    w.add_url_refs([("a", "https://example.org/a", 1)])
+    with pytest.raises(ValueError, match="duplicate key"):
+        w.add_url_refs([("b", "https://example.org/b", 1), ("a", "https://example.org/dup", 1)])
+    assert w.n_sources == 2
+    w.add_ranges("c", [Range(source=w.url("https://example.org/c"), length=1)])
+    assert asked[-1] == "https://example.org/c"
+    w.close()
 
 
-@pytest.mark.parametrize("fixture", FIXTURES)
+def one_input_per_manifest() -> list[str]:
+    """The first input of each manifest of the outputs corpus (conformance/outputs/manifests, one
+    per fixture directory) that gives an output: an input of every format, named by no list."""
+    out = []
+    for m in sorted((ROOT / "conformance" / "outputs" / "manifests").glob("*.jsonl")):
+        for line in m.read_text().splitlines():
+            record = json.loads(line)
+            if "error" not in record["plain"]:
+                out.append(record["input"])
+                break
+    return out
+
+
+@pytest.mark.parametrize("fixture", one_input_per_manifest())
 def test_a_zarrified_archive_is_the_python_writer_s(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixture: str):
     path = ROOT / "fixtures" / fixture
-    if not path.exists():
-        pytest.skip(f"no fixture {fixture}")
-    url = f"https://data.example/{fixture}/" if path.is_dir() else None
+    url = f"https://data.example/{fixture}" if fixture.endswith("/") else None
     store = zarrify(str(path), url)
     store.save_vzip(tmp_path / "rust.vzip")
     monkeypatch.setattr(refkv.vzip.archive, "VZipWriter", PyVZipWriter)

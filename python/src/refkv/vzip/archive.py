@@ -41,6 +41,7 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from typing import BinaryIO, Self
 
+from refkv import _core
 from refkv.pb import (
     Concat,
     Range,
@@ -137,14 +138,12 @@ class VZipWriter:
         <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#113-reference-entries>);
         otherwise a reference entry's body is empty.
 
-        `page_size`: if set, also write a CdIndex with pages of ~page_size bytes.
+        `page_size`: if set (and not 0), also write a CdIndex with pages of ~page_size bytes.
 
         `checksum(url, offset, length)`: if set, the CRC-32C of those bytes of a url
         source, recorded on every range of a url source that has none (spec §4.2
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>)."""
-        from refkv import _core  # noqa: PLC0415 (`import refkv` imports no ZIP code)
-
-        self._w = _core.VzipWriter(f, mirror_refs, page_size)
+        self._w = _core.VzipWriter(f, mirror_refs, page_size or None)  # 0, as None: no page index
         self._checksum = checksum
         self._urls: list[str | None] = []  # each source's url (None for another kind), for checksums
         self._count: int | None = None  # the table's sources, once closed
@@ -234,9 +233,12 @@ class VZipWriter:
         Taken 65536 at a time, so that millions of entries are never all held."""
         checksum = self._checksum
         for batch in itertools.batched(items, 1 << 16):
-            self._urls.extend(url for _, url, _ in batch)
-            self._w.add_url_refs([(k, u, n, None if checksum is None else checksum(u, 0, n)) for k, u, n in batch],
-                                 pin_size)
+            before = len(self._urls)
+            try:
+                self._w.add_url_refs([(k, u, n, None if checksum is None else checksum(u, 0, n)) for k, u, n in batch],
+                                     pin_size)
+            finally:  # one url per source the table took, also when an item is refused
+                self._urls.extend(u for _, u, _ in batch[:self._w.source_count() - before])
 
     @property
     def format_sizes(self) -> dict[str, int]:

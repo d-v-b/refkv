@@ -63,9 +63,8 @@ impl PyVzipWriter {
     }
 
     /// How many sources the table has so far.
-    fn source_count(&self) -> PyResult<usize> {
-        let w = self.writer.lock().unwrap();
-        Ok(w.as_ref().ok_or_else(|| PyValueError::new_err("the writer is closed"))?.source_count())
+    fn source_count(&self, py: Python<'_>) -> PyResult<usize> {
+        self.with(py, |w| Ok(w.source_count()))
     }
 
     fn add_bytes(&self, py: Python<'_>, key: &str, data: &[u8], compress: bool, late: bool) -> PyResult<()> {
@@ -97,8 +96,11 @@ impl PyVzipWriter {
 
     /// Writes the source table, the late entries, the page index and the central directory.
     fn close(&self, py: Python<'_>) -> PyResult<()> {
-        let w = self.writer.lock().unwrap().take().ok_or_else(|| PyValueError::new_err("the writer is closed"))?;
-        let (_, sizes) = py.detach(|| w.close_with_sizes()).map_err(write_err)?;
+        // the lock taken with the interpreter released, as `with` does
+        let sizes = py.detach(|| {
+            let w = self.writer.lock().unwrap().take().ok_or_else(|| PyValueError::new_err("the writer is closed"))?;
+            w.close_with_sizes().map(|(_, sizes)| sizes).map_err(write_err)
+        })?;
         *self.sizes.lock().unwrap() = sizes;
         Ok(())
     }
