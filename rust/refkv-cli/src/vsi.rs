@@ -13,7 +13,7 @@
 
 use crate::http::Client;
 use crate::run::{concurrency, map};
-use crate::store::{check_store_url, object_url};
+use refkv_ir::host::{check_store_url, object_url};
 use crate::transport::Transport;
 use crate::Fail;
 use refkv_ir::out::Out;
@@ -23,30 +23,9 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 /// (the directory, the named file's key) of an input of the format `title` names (VSI, NRRD):
-/// for an http(s) URL the URL up to its last `/` and the last segment, percent-decoded; for a
-/// local path, its directory (empty for a bare name) and its file name.
+/// `host::split_input`.
 pub fn split_input(location: &str, title: &str) -> Result<(String, String), Fail> {
-    if location.starts_with("http://") || location.starts_with("https://") {
-        if location.contains('?') || location.contains('#') {
-            return Err(Fail::Rejected(format!("{title} input {location:?} has a query or a fragment")));
-        }
-        let k = location.rfind('/').unwrap_or(0);
-        let name = &location[k + 1..];
-        let key = String::from_utf8(crate::store::percent_decode(name)).map_err(|_| Fail::Rejected(format!("{title} input {location:?}: its file name is not percent-encoded UTF-8")))?;
-        if key.is_empty() || key.contains('/') {
-            return Err(Fail::Rejected(format!("{title} input {location:?} names no file")));
-        }
-        return Ok((location[..=k].to_string(), key));
-    }
-    // as Python's os.path.split: the directory (empty for a bare name), and the name
-    let (dir, name) = match location.rfind(['/', std::path::MAIN_SEPARATOR]) {
-        Some(k) => (&location[..k], &location[k + 1..]),
-        None => ("", location),
-    };
-    if name.is_empty() {
-        return Err(Fail::Other(format!("{location}: not a file name")));
-    }
-    Ok((dir.to_string(), name.to_string()))
+    Ok(refkv_ir::host::split_input(location, title, cfg!(windows))?)
 }
 
 /// `path` with its `.` and `..` components taken out, as Python's `os.path.normpath` does.
@@ -71,25 +50,14 @@ fn lexical(path: &Path) -> PathBuf {
 /// **Scope**) as the keys `StoreRun::scope` takes: each entry is a path or URL written as
 /// `location` is (local paths, or http(s) URLs), the input's directory or a file or directory
 /// below it. A directory's key ends in `/`; the input itself, always in scope, adds no key. None
-/// when the scope holds the input's directory, every key being in it. The twin of
-/// python/src/refkv/host/beside.py's `scope_keys`.
+/// when the scope holds the input's directory, every key being in it. A URL input's is the core's
+/// (`host::scope_keys`); a local one's is made from its absolute paths here.
 pub fn scope_keys(location: &str, scope: &[String]) -> Result<Option<Vec<String>>, Fail> {
+    if refkv_ir::host::url_scheme(location).is_some() {
+        return Ok(refkv_ir::host::scope_keys(location, scope)?);
+    }
     let outside = |e: &str, d: &str| Fail::Usage(format!("scope \"{e}\" is not the input's directory \"{d}\" or below it"));
     let mut keys = Vec::new();
-    if location.starts_with("http://") || location.starts_with("https://") {
-        let (d, named) = split_input(location, "the")?;
-        for e in scope {
-            let rest = e.strip_prefix(d.as_str()).ok_or_else(|| outside(e, &d))?;
-            let key = String::from_utf8(crate::store::percent_decode(rest)).map_err(|_| outside(e, &d))?;
-            if key.is_empty() {
-                return Ok(None);
-            }
-            if key != named {
-                keys.push(key);
-            }
-        }
-        return Ok(Some(keys));
-    }
     let absolute = |p: &str| std::path::absolute(p).map(|a| lexical(&a)).map_err(|e| Fail::Other(format!("{p}: {e}")));
     let named = absolute(location)?;
     let d = named.parent().map(Path::to_path_buf).unwrap_or_default();

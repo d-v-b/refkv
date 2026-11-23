@@ -22,8 +22,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// The bytes the request that opens a remote source reads.
-const OPEN: u64 = 1 << 16;
-const RETRY: [u16; 5] = [429, 500, 502, 503, 504];
+const OPEN: u64 = refkv_ir::host::OPEN;
+const RETRY: [u16; 5] = refkv_ir::host::RETRY;
 
 /// The ETag of every response for one object, for its `etag` pin (spec/zarrify.md §1.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
