@@ -153,6 +153,8 @@ def conventions() -> dict[str, tuple[str, Path]]:
     """Each convention the site publishes: its name, its document's docname, and its schema's path."""
     out = {e["name"]: (f"spec/zarrify/{e['name']}", ROOT / "spec" / "zarrify" / e["name"] / "schema.json")
            for e in profiles.load()}
+    if "provenance" in out:
+        raise ExtensionError("a profile named provenance would share its published name with the provenance convention")
     out["provenance"] = ("spec/provenance", ROOT / "spec" / "provenance" / "schema.json")
     return out
 
