@@ -43,11 +43,11 @@ from refkv.build import (
     seal,
     value,
 )
+from refkv.entries import _Counting
 from refkv.errors import RequestError, ResolutionError
 from refkv.policy import Policy
 from refkv.zarrify import zarrify
 from refkv.zarrify.common import PAGE_SIZE
-from refkv.zarrify.layouts import _Counting
 
 # the module, which the package's `seal` function shadows as an attribute
 seal_module = importlib.import_module("refkv.build.seal")

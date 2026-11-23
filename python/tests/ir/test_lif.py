@@ -17,14 +17,14 @@ from ir_helpers import FIXTURES, ROOT, zarrified
 import refkv.zarr
 from refkv import _core
 from refkv._narrow import at, integer, mapping, ndarray, number, sequence, string
+from refkv.host import object_url
+from refkv.host.beside import VsiFiles, folded, found_key
 from refkv.ir import NamesSiblingsError
 from refkv.ir import zarrify as via_ir
 from refkv.ir.store import StoreIrOutput
 from refkv.policy import Policy
 from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify as zarrify
-from refkv.zarrify.store import object_url
-from refkv.zarrify.store.beside import VsiFiles, folded, found_key
 
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from proxy import Proxy

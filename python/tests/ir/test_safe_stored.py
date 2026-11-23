@@ -46,8 +46,7 @@ import numpy as np
 import pytest
 from ir_helpers import FIXTURES, ROOT
 
-from refkv.ir import Ir
-from refkv.ir.kind import Kind
+from refkv.ir import Ir, Kind
 from refkv.ir.store import StoreIrOutput
 from refkv.ir.stored import Each, ElementPlace, Place, Source, Stored, StoredArray
 from refkv.zarrify import Rejected, _zarrify

@@ -1,6 +1,6 @@
 // The cutting of contiguous values into chunks (spec/conventions.md §7
 // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>,
-// "Contiguous values"); python/tests/test_zarrify_chunks.py has the same cases.
+// "Contiguous values"); python/tests/reference/test_legacy_chunks.py has the same cases.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

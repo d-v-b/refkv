@@ -1,10 +1,16 @@
 """The cutting of contiguous values into chunks (spec/conventions.md §7
 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>, "Contiguous
-values"); js/test/chunks.test.ts has the same cases."""
+values") as the frozen reference profiles do (refkv_reference._legacy_common, the Python twin of
+the Rust core's cut); js/test/chunks.test.ts has the same cases."""
+
+import sys
+from pathlib import Path
 
 import pytest
 
-from refkv.zarrify.common import MAX_CHUNK, grid_chunks, row_chunks
+# the frozen reference twins (conformance/zarrify/reference/refkv_reference)
+sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
+from refkv_reference._legacy_common import MAX_CHUNK, grid_chunks, row_chunks
 
 
 def read(_offset: int, n: int) -> bytes:

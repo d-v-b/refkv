@@ -1,17 +1,22 @@
-"""The zarrifiers' http range reader (refkv.zarrify.common.http_reader): its block
+"""The frozen reference profiles' http range reader (refkv_reference._legacy_common.http_reader): its block
 cache, multi-block reads in one request, prefetched ranges, and use from many threads."""
 
 import random
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import override
 
 import pytest
 
 from refkv.policy import Policy
-from refkv.zarrify import common
-from refkv.zarrify.common import Rejected, http_reader
+
+# the frozen reference twins (conformance/zarrify/reference/refkv_reference)
+sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
+from refkv_reference import _legacy_common as common
+from refkv_reference._legacy_common import Rejected, http_reader
 
 BODY = bytes(random.Random(0).randrange(256) for _ in range(1000))
 BLOCK = 16

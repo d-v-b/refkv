@@ -2,7 +2,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>, §1.5
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): the host's side
 //! of a store run (rust/refkv-ir/src/store.rs), as python/src/refkv/ir/store.py and
-//! python/src/refkv/zarrify/store/stores.py have it. The core is sans-IO: the host lists the store
+//! python/src/refkv/host/stores.py have it. The core is sans-IO: the host lists the store
 //! (`DirStore`: a local directory; `HttpStore`: S3 `ListObjectsV2`, or a Hugging Face Hub
 //! repository's tree at a commit, every request under the reader policy), gives the listing to a
 //! run, and performs the object reads the run asks for, at most the store's workers at a time.
@@ -546,7 +546,7 @@ pub struct HttpStore {
     pub listing: Listing,
 }
 
-/// A request's failure, for the retries of python/src/refkv/zarrify/common.py's `_retry`.
+/// A request's failure, for the retries of python/src/refkv/host/http.py's `_retry`.
 enum Failure {
     Status(u16),
     Network(String),

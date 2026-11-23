@@ -22,13 +22,11 @@ from pathlib import Path
 from typing import Literal, Protocol, override
 
 from refkv._narrow import JSON, integer, string
-from refkv.ir.planner import Objects, registered
-from refkv.policy import Policy
-from refkv.reader import Resolver, _send
-from refkv.zarrify.common import UA, Rejected, _retry, _ThreadConnections, follow
-from refkv.zarrify.store.documents import MAX_DOCUMENT, parse_json
-from refkv.zarrify.store.listing import next_link, parse_hub_revision, parse_hub_tree, parse_listing
-from refkv.zarrify.store.urls import (
+from refkv.errors import Rejected
+from refkv.host.documents import MAX_DOCUMENT, parse_json
+from refkv.host.http import _retry, _ThreadConnections, follow
+from refkv.host.listing import next_link, parse_hub_revision, parse_hub_tree, parse_listing
+from refkv.host.urls import (
     HubRepo,
     check_directory_url,
     check_store_url,
@@ -39,6 +37,9 @@ from refkv.zarrify.store.urls import (
     object_url,
     query_encode,
 )
+from refkv.ir.planner import UA, Objects, registered
+from refkv.policy import Policy
+from refkv.reader import Resolver, _send
 
 
 class ListingFailed(OSError):  # noqa: N818 (public name)

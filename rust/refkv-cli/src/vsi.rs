@@ -9,7 +9,7 @@
 //! and one that does not exist (a missing local file, an HTTP 404) is absent. A LAS X project's files
 //! (spec/zarrify/lif.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#8-las-x-documents>)
 //! are named in another case than they have, so a local directory's are found by listing it. The twin of
-//! python/src/refkv/zarrify/store/beside.py.
+//! python/src/refkv/host/beside.py.
 
 use crate::http::Client;
 use crate::run::{concurrency, map};
@@ -72,7 +72,7 @@ fn lexical(path: &Path) -> PathBuf {
 /// `location` is (local paths, or http(s) URLs), the input's directory or a file or directory
 /// below it. A directory's key ends in `/`; the input itself, always in scope, adds no key. None
 /// when the scope holds the input's directory, every key being in it. The twin of
-/// python/src/refkv/zarrify/store/beside.py's `scope_keys`.
+/// python/src/refkv/host/beside.py's `scope_keys`.
 pub fn scope_keys(location: &str, scope: &[String]) -> Result<Option<Vec<String>>, Fail> {
     let outside = |e: &str, d: &str| Fail::Usage(format!("scope \"{e}\" is not the input's directory \"{d}\" or below it"));
     let mut keys = Vec::new();

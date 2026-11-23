@@ -1,5 +1,5 @@
 //! A zarrifier's output as an archive, as Python writes it: the output's source table and
-//! references (python/src/refkv/zarrify/common.py `Output.to_store`, and
+//! references (python/src/refkv/ir/output.py `Output.to_store`, and
 //! python/src/refkv/ir/store.py `StoreIrOutput.to_store` for a store), laid out by
 //! `reference_store` (the references first, in order of their keys, then the bytes entries, a
 //! late one, read when the archive opens, the others compressed, 64 KiB pages), and saved by

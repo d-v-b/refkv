@@ -7,7 +7,7 @@ from collections.abc import Mapping
 
 from refkv._narrow import JSON
 from refkv.zarrify.common import Rejected
-from refkv.zarrify.store.documents import as_int
+from refkv.host.documents import as_int
 
 BLOSC_NAMES = ("blosclz", "lz4", "lz4hc", "snappy", "zlib", "zstd")
 MAX_BLOCK = 2**31 - 1

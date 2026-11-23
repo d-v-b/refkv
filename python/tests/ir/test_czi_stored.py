@@ -53,7 +53,7 @@ import pytest
 from described import Described, described
 from ir_helpers import FIXTURES, ROOT
 
-from refkv.ir.kind import Kind
+from refkv.ir import Kind
 from refkv.ir.stored import Each, ElementPlace, ExtentPlace, Place
 
 REJECTS = ROOT / "conformance" / "zarrify" / "rejects" / "czi.json"

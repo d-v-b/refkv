@@ -14,14 +14,14 @@ import numpy as np
 import pytest
 import zarr
 from ir_helpers import FIXTURES, REVISED, as_the_reference, assert_rebuilds, same_hierarchy, zarrified
-from refkv_reference import virtualize  # the frozen reference (ir_helpers)
+from refkv_reference import _legacy_common, virtualize  # the frozen reference (ir_helpers)
 
 import refkv.zarr
 from refkv import _core
 from refkv._narrow import at, integer
 from refkv.ir import zarrify as via_ir
 from refkv.ir.store import StoreIrOutput
-from refkv.zarrify import Rejected, common
+from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify as zarrify_input
 
 NIIS = sorted((FIXTURES / "nifti").glob("*.nii"))
@@ -65,7 +65,7 @@ def test_edge_chunks_past_the_payload_are_copied_as_the_reference_copies_them(tm
     NIfTI's chunk limit no file reaches it in practice, so both sides take a payload limit
     of 8 bytes here: every padded edge chunk is copied, by the run's last batch, and the
     hierarchy is the frozen reference's."""
-    monkeypatch.setattr(common, "MAX_PAYLOAD", 8)
+    monkeypatch.setattr(_legacy_common, "MAX_PAYLOAD", 8)
     _core._set_copy_threshold(8)
     copied = 0
     try:
@@ -221,7 +221,7 @@ def test_a_pair_is_read_as_nibabel_reads_it(header, monkeypatch):
     magic and read as a store: its array is nibabel's, with its edge chunks copied or not; its root names the
     image file, and its chunks are ranges of that file. Its mirror rebuilds the two files."""
     image_name = header.name[:-4] + {".hdr": ".img", ".HDR": ".IMG"}[header.suffix]
-    monkeypatch.setattr(common, "MAX_PAYLOAD", 8)
+    monkeypatch.setattr(_legacy_common, "MAX_PAYLOAD", 8)
     _core._set_copy_threshold(8)
     try:
         copied_fmt, copied_out = via_named(header)

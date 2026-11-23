@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from refkv import _core
 from refkv.build.values import Part, Ref, Value
-from refkv.zarrify.common import Rejected
+from refkv.errors import Rejected
 
 if TYPE_CHECKING:
     from refkv.build.parsed import Parsed

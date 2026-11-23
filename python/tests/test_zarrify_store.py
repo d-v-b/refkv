@@ -17,25 +17,24 @@ from typing import override
 
 import pytest
 
-from refkv.pb import Range, decode_source_table
-from refkv.vzip.archive import VZipWriter
-from refkv.zarrify import Rejected
-from refkv.zarrify.store import (
+from refkv.host import (
     HttpStore,
     ListingFailed,
     StoreLimit,
-    StoreOutput,
-    classify,
-    find_chunks,
     listing_endpoint,
     object_url,
     open_store,
     parse_json,
     parse_listing,
 )
+from refkv.pb import Range, decode_source_table
+from refkv.vzip.archive import VZipWriter
+from refkv.zarrify import Rejected
 
-# the frozen reference twins (conformance/zarrify/reference/refkv_reference), for one test
+# the frozen reference twins (conformance/zarrify/reference/refkv_reference), and the store
+# hierarchy and output they share
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "zarrify" / "reference"))
+from refkv_reference._legacy_store import StoreOutput, classify, find_chunks
 from refkv_reference.legacy import declare  # the frozen profiles' names: vzip_source
 from refkv_reference.n5.virtualize import virtualize_n5  # the frozen N5 profile (revision 25)
 from refkv_reference.zarr2.virtualize import virtualize_zarr2  # the frozen profile: revision 25's rules

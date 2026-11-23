@@ -9,10 +9,9 @@ or private host needs
 import json
 import sys
 
-from refkv.errors import ResolutionError
+from refkv.errors import Rejected, ResolutionError
 from refkv.ir import zarrify
 from refkv.policy import Policy
-from refkv.zarrify.common import Rejected
 
 USAGE = ("usage: python -m refkv.ir <url or path> <out.vzip> [--url <source url>] [--no-mirror]"
          " [--allow-private-hosts] [--format vzip|phkv]")

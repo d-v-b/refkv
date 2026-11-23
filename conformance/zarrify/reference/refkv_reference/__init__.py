@@ -4,7 +4,8 @@ and of the Zarr v2, N5 and OME-Zarr store profiles: the Python implementations
 unchanged (but for their import paths, and the revision their roots record) so that
 `compare.py` can compare the IR path against an independent implementation. Nothing shipped
 imports this package. Every other format, and what the profiles share
-(`refkv.zarrify.common`, `refkv.zarrify.store`, through `refkv_reference.legacy`, which
+(`refkv.zarrify.common`, `refkv.host` and the parts of them copied here when they left
+the package, through `refkv_reference.legacy`, which
 keeps the names their revisions wrote), is the shipped code.
 
 `virtualize(location, url, checksums=...)` is `refkv.zarrify._virtualize` (the

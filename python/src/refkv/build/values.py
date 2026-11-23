@@ -10,8 +10,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Self
 
 from refkv import Range
+from refkv.entries import CRC_FIELD, MAX_OPEN, MAX_PAYLOAD, chunk_key
 from refkv.policy import MAX_SOURCES
-from refkv.zarrify.layouts import CRC_FIELD, MAX_OPEN, MAX_PAYLOAD, chunk_key
 
 if TYPE_CHECKING:
     from refkv.build.parsed import Parsed

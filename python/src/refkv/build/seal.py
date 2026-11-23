@@ -11,20 +11,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, BinaryIO, cast
 
 from refkv import Concat, Range, ReferenceStore, Source, _core
+from refkv.entries import DOCUMENTS, MAX_OPEN, PAGE_ENTRY, STORED, _Counting, _deflate_bound
 from refkv.errors import ResolutionError
+from refkv.ir.output import PAGE_SIZE, reading_own_files
 from refkv.policy import MAX_SOURCES, Policy, crc32c
 from refkv.reader import Registry, Resolver
 from refkv.uri import file_uri, resolve
 from refkv.vzip.names import INDEX_KEY, SOURCES_KEY
-from refkv.zarrify.common import PAGE_SIZE, reading_own_files
-from refkv.zarrify.layouts import (
-    DOCUMENTS,
-    MAX_OPEN,
-    PAGE_ENTRY,
-    STORED,
-    _Counting,
-    _deflate_bound,
-)
 
 from . import parsed as _parsed  # the module, its Parsed read at call time: refkv.zarrify imports this one (a cycle)
 from .values import Copy, Data, Literal, Part, Ref, Shared, Value, Written, Zeros, value

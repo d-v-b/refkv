@@ -9,7 +9,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from refkv import ReferenceStore
-from refkv.zarrify.common import Rejected
+from refkv.errors import Rejected
 from refkv.zarrify.layouts import (
     BASE_PROFILES,
     LayoutFailed,
