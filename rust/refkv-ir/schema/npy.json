@@ -43,7 +43,7 @@
     "about": "The IR of a NumPy file. In a .npy file the NPY elements are the root's; in a .npz archive, a member's, below entries/<i>/data: a stored member's at its offsets in the file, a deflated member's in the space of its data element, at its offsets in what its stream inflates to (o = 0). p is the preamble's length (10 or 12), n the header's, B the data's.",
     "preamble": {"kind": "value", "type": "{magic:bytes[6],major:u1,minor:u1,header_length:<u2} (version 1), or <u4 for header_length", "extent": "(o, p)"},
     "header": {"kind": "value", "type": "ascii[n]", "extent": "(o + p, n), when n > 0"},
-    "data": {"kind": "data", "form": "{geometry: {data_type, shape, order}, codec: {endian}, recipe: [[src, 0, null]]}", "extent": "(o + p + n, B), when presented and B > 0"},
+    "data": {"kind": "data", "form": "{recipe: [[src, 0, null]]}", "extent": "(o + p + n, B), when presented and B > 0"},
     "end, end_comment, zip64_locator, zip64_end, central_directory/**": {"kind": "value", "about": "a .npz archive's end records and central directory (spec/zarrify/safe.md §6.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>)"},
     "entries/<i>": {"kind": "struct", "extent": "[lho, ds + cs): member i's local header (local_header, name, extra) and data"},
     "entries/<i>/data": {"kind": "struct, derived or value", "about": "a stored member whose NPY preamble and header were read (struct); a deflated member (derived): form {transform: deflate, prefix: p + n} when its preamble and header were read, with size: us when its array is presented, and the NPY elements in its space, else form {transform: deflate} and nothing in its space; any other member's bytes (value bytes[cs])"},

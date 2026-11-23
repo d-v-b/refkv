@@ -577,15 +577,17 @@ indexes. Every chunk struct holds `header`
 
 A chunk whose bytes an earlier element claims is an alias of it.
 
-**The form of `pixels`.** With `R = uiWidth × uiComp × uiBpcInMemory / 8` and `D` the
-`data_type` ([§4.3](#43-output)), it is
-`{"geometry":{"shape":[uiHeight,uiWidth,uiComp],"dtype":D},"codec":C,"recipe":P}`, with
+**The form of `pixels`.** With `R = uiWidth × uiComp × uiBpcInMemory / 8`, it is
+`{"geometry":{"shape":[uiHeight,uiWidth,uiComp],"bits":uiBpcInMemory},"codec":{"compression":"zlib"},"recipe":P}`
+for a compressed frame and the same without `codec` for an uncompressed one, in the file's terms:
+the data type and codecs of [§4.3](#43-output) are the projection's
+([conventions §8.5](../conventions.md#85-forms-and-recipes)). `P` is
 
-| frame | `C` | `P` |
-|---|---|---|
-| compressed | `["zlib","bytes"]` | `[["src",0,d − 8]]`, `d` its chunk's data length |
-| uncompressed, `uiWidthBytes = R` | `["bytes"]` | `[["src",0,uiHeight × R]]` |
-| uncompressed, padded rows | `["bytes"]` | `[["rows",0,uiWidthBytes,R,uiHeight]]` ([conventions §8.5](../conventions.md#85-forms-and-recipes)) |
+| frame | `P` |
+|---|---|
+| compressed | `[["src",0,d − 8]]`, `d` its chunk's data length |
+| uncompressed, `uiWidthBytes = R` | `[["src",0,uiHeight × R]]` |
+| uncompressed, padded rows | `[["rows",0,uiWidthBytes,R,uiHeight]]` ([conventions §8.5](../conventions.md#85-forms-and-recipes)) |
 
 The recipe describes the whole frame, whatever row blocks its chunks are ([§7.3](#73-frames)).
 An uncompressed frame's `pixels` has the extent of its `uiHeight × uiWidthBytes` bytes, or of those

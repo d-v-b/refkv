@@ -350,7 +350,7 @@ frame's length.
 | `id3v2/<k>/footer` | value | `bytes[10]` | its footer, when it has one |
 | `info` | value | `bytes[L]` | the info frame ([§2](#2-frames)), when the stream starts with one |
 | `frames` | struct | | the audio frames: from the first's start to the last's end |
-| `frames/<j>` | data | | audio frame `j`, `j` from 0, `(offset, L)`, header included; its form's geometry is `{"samples": S, "channels": C, "data_type": "float32"}`, its codec `{"name": "mp3", "version": V, "sample_rate": r}`, and its recipe `[["src", 0, null]]` |
+| `frames/<j>` | data | | audio frame `j`, `j` from 0, `(offset, L)`, header included; its form's geometry is `{"samples": S, "channels": C}` (no data type: what the decoded samples are stored as is the projection's, [conventions §8.5](../conventions.md#85-forms-and-recipes)), its codec `{"name": "mp3", "version": V, "sample_rate": r}`, and its recipe `[["src", 0, null]]` |
 | `id3v1` | value | `{tag:ascii[3],title:cstr[30],artist:cstr[30],album:cstr[30],year:ascii[4],comment:cstr[30],genre:u1}` | the ID3v1 tag, `(size − 128, 128)`, when there is one |
 | `ape` | value | `bytes[n]` | the APE tag, header and footer included, when there is one, opaque |
 | `gaps/<offset>` | gap | | bytes no other element claims: junk between frames, a truncated last frame, bytes after the last frame |

@@ -35,6 +35,9 @@ use std::collections::HashSet;
 pub const MAGIC: &[u8; 6] = b"\x93NUMPY";
 /// The first read, and the window read after each candidate member's local header.
 const WINDOW: u64 = 4096;
+/// The form of an array's `data` element (spec/zarrify/npy.md §5.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#53-elements>).
+const DATA_FORM: &str = r#"{"recipe":[["src",0,null]]}"#;
 
 /// Whether a file's first bytes are a `.npy` file's (spec/zarrify/npy.md §8.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#81-signature>).
@@ -228,17 +231,14 @@ impl Array {
             }),
             _ => None,
         };
-        let (Some((o, b)), Some(t), Some(h)) = (self.data, &self.dtype, &self.header) else { return Ok((None, reached)) };
+        let (Some((o, b)), Some(_), Some(_)) = (self.data, &self.dtype, &self.header) else { return Ok((None, reached)) };
         if b == 0 {
             return Ok((None, reached));
         }
-        let endian = t.little.map(|l| if l { "little" } else { "big" });
-        let form = json!({
-            "geometry": {"data_type": t.zarr, "shape": h.shape, "order": if h.fortran_order { "F" } else { "C" }},
-            "codec": {"endian": endian},
-            "recipe": [["src", 0, null]],
-        });
-        let data = ir.data(parent, "data", NO_INDEX, space, (o, b), &form.to_string())?;
+        // its recipe alone: its type, order and shape are its header's, and an output's data type
+        // and codec are its projection's (conventions §8.5
+        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)
+        let data = ir.data(parent, "data", NO_INDEX, space, (o, b), DATA_FORM)?;
         Ok((Some(data), reached.map(|r| Reached { data: Some(data), ..r })))
     }
 

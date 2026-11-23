@@ -421,8 +421,10 @@ impl Mp3 {
         let (first_o, last) = (frames[0].0, frames[frames.len() - 1]);
         let span = last.0 + last.1.length() - first_o;
         let frames_struct = self.ir.struct_(0, "frames", NO_INDEX, 0, Some((first_o, span)))?;
+        // no data type: what a decoder makes of the samples is an output's decision (conventions
+        // §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)
         let form = json!({
-            "geometry": {"samples": s.samples(), "channels": s.channels(), "data_type": "float32"},
+            "geometry": {"samples": s.samples(), "channels": s.channels()},
             "codec": {"name": "mp3", "version": VERSIONS[s.version as usize], "sample_rate": s.rate()},
             "recipe": [["src", 0, null]],
         })
