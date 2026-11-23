@@ -15,12 +15,13 @@ _PCT = r"%[0-9A-Fa-f]{2}"
 _UNRESERVED = r"A-Za-z0-9\-._~"
 _SUB = r"!$&'()*+,;="
 _PCHAR = rf"(?:[{_UNRESERVED}{_SUB}:@]|{_PCT})"
-_SPLIT = re.compile(r"^(?:([^:/?#]+):)?(?://([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#(.*))?\Z")
+# RFC 3986 Appendix B, of any string (DOTALL: a fragment may hold a newline, which is then refused)
+_SPLIT = re.compile(r"^(?:([^:/?#]+):)?(?://([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#(.*))?\Z", re.DOTALL)
 _SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*\Z")
 _USERINFO_HOST_PORT = re.compile(
     rf"^(?:(?:[{_UNRESERVED}{_SUB}:]|{_PCT})*@)?"
     rf"(?:\[[0-9A-Fa-f:.vV{_UNRESERVED}{_SUB}]+\]|(?:[{_UNRESERVED}{_SUB}]|{_PCT})*)"
-    r"(?::[0-9]*)?$"
+    r"(?::[0-9]*)?\Z"  # not `$`, which matches before a final newline
 )
 _PATH = re.compile(rf"^(?:{_PCHAR}|/)*\Z")
 _QUERY = re.compile(rf"^(?:{_PCHAR}|[/?])*\Z")
