@@ -31,7 +31,7 @@ fn planned(data: &[u8]) -> Result<(refkv_ir::ir::Ir, serde_json::Value), String>
 /// (`project::mp4::planned_track`), a video or audio track's key as `declared_by`.
 fn with_plan(description: &serde_json::Value) -> Result<serde_json::Value, String> {
     use refkv_ir::project::mp4::{plan, planned_track};
-    let p = plan(description)?;
+    let p = plan(description, &Default::default())?;
     let tracks: Vec<serde_json::Value> = description["tracks"].as_array().unwrap().iter().zip(p["tracks"].as_array().unwrap())
         .map(|(t, f)| {
             let mut m = planned_track(t, f);

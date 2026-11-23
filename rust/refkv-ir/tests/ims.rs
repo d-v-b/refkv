@@ -37,7 +37,7 @@ fn ims_with_room(data: &[u8], room: Option<u64>) -> (refkv_ir::ir::Ir, serde_jso
 #[test]
 fn past_the_walks_room_the_image_is_described_and_the_rest_is_gaps() {
     let project = |ir: &refkv_ir::ir::Ir, facts: &serde_json::Value| {
-        let out = refkv_ir::project::project(refkv_ir::run::Format::Ims, ir, facts, "u", &Default::default(), None).unwrap();
+        let out = refkv_ir::project::project(refkv_ir::run::Format::Ims, ir, facts, "u", &Default::default(), None, &Default::default()).unwrap();
         out.refs.iter().map(|(k, p)| format!("{k}{p:?}")).collect::<Vec<_>>()
     };
     // dense links and attributes (fractal heaps, version 2 B-trees), huge attributes, and

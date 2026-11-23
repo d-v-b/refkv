@@ -12,7 +12,7 @@ use super::{arr, audio, n, Copied};
 use crate::ir::Ir;
 use crate::mp4::{pcm_of_entry, PcmEntry};
 use crate::rules::{self, num, text};
-use crate::out::{array_json, bytes_codec, declared_group, group_doc, gzip_array, rectilinear_array_json, stream_parts, Out, Part};
+use crate::out::{array_json, bytes_codec, declared_group, group_doc, gzip_array, rectilinear_array_json, stream_parts, Chunking, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -527,10 +527,10 @@ pub fn track_plans(description: &J) -> Vec<J> {
 /// refkv's plan of the file a description describes (spec/zarrify/mp4.md §8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>, §8.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>): `tracks`, each
-/// track's plan (`track_plans`), and `chunk_frames`, the most frames of a chunk. An error, the
+/// track's plan (`track_plans`), and `chunk_frames`, the most frames of a chunk (`chunking`'s). An error, the
 /// profile's, when it zarrifies no track. The plan is public data that belongs to refkv's
 /// convention, not to the IR.
-pub fn plan(description: &J) -> Result<J, String> {
+pub fn plan(description: &J, chunking: &Chunking) -> Result<J, String> {
     let tracks = track_plans(description);
     let described = arr(&description["tracks"]);
     let reasons: Vec<String> = described
@@ -544,7 +544,7 @@ pub fn plan(description: &J) -> Result<J, String> {
         .collect();
     let projected = tracks.len() - reasons.len();
     rules::of("mp4").check("tracks", rules::env([("projected", num(projected as f64)), ("reasons", text(&reasons.join("; ")))]))?;
-    Ok(json!({"tracks": tracks, "chunk_frames": crate::mp3::chunk_frames()}))
+    Ok(json!({"tracks": tracks, "chunk_frames": chunking.chunk_frames.max(1)}))
 }
 
 /// A track as refkv's convention reads it: its description (`t`) and its plan (`f`) together, with
@@ -561,8 +561,8 @@ pub fn planned_track(t: &J, f: &J) -> J {
     J::Object(m)
 }
 
-pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied) -> Result<Out, String> {
-    let plan = plan(description)?;
+pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied, chunking: &Chunking) -> Result<Out, String> {
+    let plan = plan(description, chunking)?;
     let limit = n(&plan["chunk_frames"]).max(1);
     let tracks: Vec<J> = arr(&description["tracks"]).iter().zip(arr(&plan["tracks"])).map(|(t, f)| planned_track(t, f)).collect();
     // the root (§5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#51-the-root>)
@@ -845,6 +845,6 @@ mod plan_tests {
     #[test]
     fn a_file_with_no_track_to_zarrify_has_no_plan() {
         let d = json!({"tracks": [track("text", 2, json!({"type": "tx3g"}))]});
-        assert_eq!(plan(&d).unwrap_err(), "no track can be zarrified: track 2 (tx3g): a text track");
+        assert_eq!(plan(&d, &crate::out::Chunking::default()).unwrap_err(), "no track can be zarrified: track 2 (tx3g): a text track");
     }
 }

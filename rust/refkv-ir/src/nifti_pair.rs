@@ -43,6 +43,8 @@ pub struct NiftiPair {
     /// the sizes of the header's dimensions, in its order, and the bits of a voxel
     dims: Vec<u64>,
     bits: u64,
+    /// how the projection cuts the voxels, which gives the edge chunks it copies
+    chunking: crate::out::Chunking,
     copies: Vec<(u64, u64)>,
     copied: Vec<(u64, u64, Vec<u8>)>,
     got: HashMap<(usize, u64), Vec<u8>>,
@@ -60,8 +62,9 @@ fn image_key(key: &str) -> Option<String> {
 }
 
 impl NiftiPair {
-    /// The listing's IR, its objects' elements and keys: one key, the header file.
-    pub fn new(ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<NiftiPair> {
+    /// The listing's IR, its objects' elements and keys: one key, the header file; the projection
+    /// cuts the voxels as `chunking` says.
+    pub fn new(ir: Ir, objects: Vec<u32>, keys: &[(String, u64)], chunking: crate::out::Chunking) -> Res<NiftiPair> {
         if keys.len() != 1 || keys[0].0.contains('/') {
             return Err(format!("a NIfTI pair's run starts from the header file alone, not {} objects", keys.len()));
         }
@@ -77,6 +80,7 @@ impl NiftiPair {
             total: 0,
             dims: Vec::new(),
             bits: 0,
+            chunking,
             copies: Vec::new(),
             copied: Vec::new(),
             got: HashMap::new(),
@@ -114,7 +118,7 @@ impl NiftiPair {
             ]),
         )?;
         let h = crate::nifti::header(&self.head, self.version);
-        self.copies = crate::project::nifti::copy_ranges(&h, self.vox)?;
+        self.copies = crate::project::nifti::copy_ranges(&h, self.vox, &self.chunking)?;
         Ok(())
     }
 

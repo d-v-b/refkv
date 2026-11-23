@@ -470,17 +470,19 @@ def concurrency(transport: Transport, connections: int | None = None) -> int:
     return int(env) if env else CONNECTIONS
 
 
-def new_run(fmt: str, transport: Transport, conc: int | None = None, byte_cost: float | None = None) -> _core.Run:
+def new_run(fmt: str, transport: Transport, conc: int | None = None, byte_cost: float | None = None,
+            chunking: _core.Chunking | None = None) -> _core.Run:
     """A Rust run of format `fmt` over the transport, seeded with the bytes that opened
     it. `byte_cost`: seconds of wall time a byte fetched costs the planner (default:
-    the core's, 0.1 s per MB); REFKV_BYTE_COST (seconds per MB) sets it for experiments."""
+    the core's, 0.1 s per MB); REFKV_BYTE_COST (seconds per MB) sets it for experiments.
+    `chunking`: how the run's projection cuts the source (default: the convention's)."""
     amp = os.environ.get("REFKV_AMPLIFICATION")  # for experiments
     env_cost = os.environ.get("REFKV_BYTE_COST")
     if byte_cost is None and env_cost:
         byte_cost = float(env_cost) * 1e-6
     whole = os.environ.get("REFKV_WHOLE_BELOW")  # for experiments: the size read whole (bytes)
     run = _core.Run(fmt, transport.size, transport.remote, concurrency(transport, conc),
-                      float(amp) if amp else None, byte_cost, int(whole) if whole else None)
+                      float(amp) if amp else None, byte_cost, int(whole) if whole else None, chunking)
     if os.environ.get("REFKV_MULTIRANGE") == "0":
         run.multirange = False
     o, head, dt = transport.head

@@ -333,6 +333,8 @@ class StoreParse:
         self.description: dict[str, Any] = json.loads(run.description())
         # the objects' sizes, from the IR: the listing's, and a VSI input's files probed into it
         self.sizes: dict[str, int] = {k: n for k, _, n in self.ir.object_bases()}
+        # how the run's parser and projection cut the store's arrays, given at its start
+        self.chunking: _core.Chunking = run.chunking
 
     def output(self, mirror: bool = True, checksums: bool = False, written: bool = True) -> StoreIrOutput:
         """The built-in output: the format's projection and, with `mirror`, the mirror, sealed as
@@ -347,14 +349,16 @@ class StoreParse:
         return out
 
 
-async def parse_store_async(store: Store, fmt: str = "zarr2", *, scope: Sequence[str] | None = None) -> StoreParse:
+async def parse_store_async(store: Store, fmt: str = "zarr2", *, scope: Sequence[str] | None = None,
+                            chunking: _core.Chunking | None = None) -> StoreParse:
     """The listed `store` parsed by the core's store format `fmt`, with no output made of it: a
     `StoreParse`. The keys its listing ignores are given to the run (the recorded ignored keys,
     which the projection records, and the empty `d/` keys, a SAFE directory's directories), and
     its objects are read at most `store.workers` at a time. A rejection names `fmt`
     (`Rejected.format`), or the profile the run decided. `scope`, when given, is the input's
-    scope (`StoreRun.scope`): `store` is asked to probe no key outside it. The calls that block
-    (the core's, on a listing of millions of objects) run on a thread."""
+    scope (`StoreRun.scope`): `store` is asked to probe no key outside it. `chunking` is how the
+    run's parser and projection cut the store's arrays (default: the convention's). The calls that
+    block (the core's, on a listing of millions of objects) run on a thread."""
 
     def start() -> _core.StoreRun:
         if store._prefetch is not None:  # noqa: SLF001 (the store's reads)
@@ -362,7 +366,7 @@ async def parse_store_async(store: Store, fmt: str = "zarr2", *, scope: Sequence
             # the rest itself, so that at most `store.workers` reads are in flight
             store._prefetch.drain()  # noqa: SLF001 (the store's reads)
         try:
-            run = _core.StoreRun(fmt, listing(store), max(1, store.workers))
+            run = _core.StoreRun(fmt, listing(store), max(1, store.workers), chunking)
             run.ignore(list(getattr(store, "ignored", [])), list(getattr(store, "folders", [])))
             if scope is not None:
                 run.scope(list(scope))
@@ -376,8 +380,8 @@ async def parse_store_async(store: Store, fmt: str = "zarr2", *, scope: Sequence
 
 
 async def run_store_async(store: Store, fmt: str = "zarr2", mirror: bool = True, checksums: bool = False,
-                          written: bool = True, *,
-                          scope: Sequence[str] | None = None) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
+                          written: bool = True, *, scope: Sequence[str] | None = None,
+                          chunking: _core.Chunking | None = None) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
     """(output, IR, run counts) of the listed `store`, parsed by the core's store format `fmt`:
     the keys its listing ignores given to the run (the recorded ignored keys, which the
     projection records, and the empty `d/` keys, a SAFE directory's directories), its objects
@@ -390,26 +394,29 @@ async def run_store_async(store: Store, fmt: str = "zarr2", mirror: bool = True,
     them). `scope`,
     when given, is the input's scope (`StoreRun.scope`): `store` is asked to probe no key outside
     it. The calls that block (the core's, on a listing of millions of objects) run on a thread.
-    This is `parse_store_async`, then `StoreParse.output`."""
-    parsed = await parse_store_async(store, fmt, scope=scope)
+    This is `parse_store_async` (with `chunking`), then `StoreParse.output`."""
+    parsed = await parse_store_async(store, fmt, scope=scope, chunking=chunking)
     out = await asyncio.to_thread(parsed.output, mirror, checksums, written)
     return out, parsed.ir, parsed.stats
 
 
 def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True, checksums: bool = False,
-              written: bool = True) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
+              written: bool = True, *, chunking: _core.Chunking | None = None,
+              ) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
     """`run_store_async`, the caller's thread waiting for it (`refkv._sync.run`)."""
-    return _sync.run(run_store_async(store, fmt, mirror, checksums, written))
+    return _sync.run(run_store_async(store, fmt, mirror, checksums, written, chunking=chunking))
 
 
 def zarrify_store(location: str, url: str | None = None, fmt: str = "zarr2", mirror: bool = True,
                   policy: Policy | None = None, workers: int | None = None,
-                  opener: Opener | None = None) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
+                  opener: Opener | None = None,
+                  chunking: _core.Chunking | None = None) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
     """(output, IR, run counts) of the store at `location` (an http(s) store URL, listed and
     read under `policy`, or a local directory served at `url`), parsed by the core's store
-    format `fmt`, as `run_store` (`mirror` false: no mirror, and no record of the ignored keys)."""
+    format `fmt`, as `run_store` (`mirror` false: no mirror, and no record of the ignored keys;
+    `chunking` is `parse_store_async`'s)."""
     store = open_store(location, url, policy=policy, opener=opener, workers=WORKERS if workers is None else workers)
     try:
-        return run_store(store, fmt, mirror)
+        return run_store(store, fmt, mirror, chunking=chunking)
     finally:
         store.close()

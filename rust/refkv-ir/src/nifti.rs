@@ -32,16 +32,6 @@ use crate::rules::{self, Rules, flag, num, text};
 use crate::sans;
 use serde_json::{Value as J, json};
 
-/// For tests: the payload past which an edge chunk is copied (None: MAX_PAYLOAD), of
-/// every profile that cuts contiguous values (`out::set_copy_threshold`). With NIfTI's
-/// chunk limit no file pads an edge chunk past MAX_PAYLOAD in practice, so the copy
-/// (spec/zarrify/nifti.md §7.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>) is reached
-/// this way.
-pub fn set_copy_threshold(n: Option<usize>) {
-    crate::out::set_copy_threshold(n);
-}
-
 /// The bytes a run reads first, of the file or of a gzipped file's stream.
 const HEAD: u64 = 552;
 /// The bytes of the chain read at a time.
@@ -504,15 +494,15 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Nifti>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        crate::project::nifti::project(ir, description, url, copied)
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
+        crate::project::nifti::project(ir, description, url, copied, chunking)
     }
-    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
-        crate::project::nifti::reads(ir, description)
+    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value, chunking: &crate::out::Chunking) -> Result<Vec<(u64, u64)>, String> {
+        crate::project::nifti::reads(ir, description, chunking)
     }
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
-    Ok(Box::new(crate::nifti_pair::NiftiPair::new(ir, objects, keys)?))
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)], chunking: &crate::out::Chunking) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+    Ok(Box::new(crate::nifti_pair::NiftiPair::new(ir, objects, keys, *chunking)?))
 }

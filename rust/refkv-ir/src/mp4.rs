@@ -1625,13 +1625,13 @@ impl crate::run::FileProfile for Profile {
     fn whole(&self) -> bool {
         false
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        crate::project::mp4::project(ir, description, url, copied)
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
+        crate::project::mp4::project(ir, description, url, copied, chunking)
     }
     /// Nothing to copy; refkv's plan of the file (`project::mp4::plan`) is made here, so that a run
     /// rejects a file with no track to zarrify before it is done, as the profile's other checks do.
-    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
-        crate::project::mp4::plan(description)?;
+    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value, chunking: &crate::out::Chunking) -> Result<Vec<(u64, u64)>, String> {
+        crate::project::mp4::plan(description, chunking)?;
         Ok(Vec::new())
     }
 }

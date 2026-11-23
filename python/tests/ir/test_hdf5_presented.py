@@ -25,7 +25,7 @@ import h5py
 import numpy as np
 import pytest
 from described import Described, described
-from ir_helpers import FIXTURES, core_setting
+from ir_helpers import FIXTURES
 
 from refkv import _core
 from refkv._narrow import JSON, at, integer, mapping, sequence, string
@@ -115,9 +115,10 @@ def item_size(data_type: JSON) -> int | None:
 
 
 @cache
-def presented(path: Path) -> tuple[Presented, ...]:
-    """The arrays the profile wrote of the file at `path`, but the source metadata node's."""
-    d = described(path)
+def presented(path: Path, chunking: _core.Chunking | None = None) -> tuple[Presented, ...]:
+    """The arrays the profile wrote of the file at `path` (cut as `chunking` says), but the source
+    metadata node's."""
+    d = described(path, chunking)
     out = d.out
     entries = out.bytes_entries if isinstance(out, Output) else out.entries
     docs = {k[:-len("zarr.json")]: mapping(json.loads(v), k) for k, v in entries.items()
@@ -286,10 +287,10 @@ def check_array(d: Described, k: int, p: Presented, seen: Counter) -> list[str]:
 
 
 @cache
-def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
-    """(what the descriptions of the file at `path` say other than the profile's arrays; how many
-    of each thing were compared)."""
-    d = described(path)
+def compared(path: Path, chunking: _core.Chunking | None = None) -> tuple[tuple[str, ...], Counter]:
+    """(what the descriptions of the file at `path` say other than the profile's arrays, cut as
+    `chunking` says; how many of each thing were compared)."""
+    d = described(path, chunking)
     by_header: dict[tuple[str | None, int], int] = {}
     for k, a in enumerate(d.stored.arrays):
         prefix = d.ir.child(a.element, "prefix")
@@ -298,7 +299,7 @@ def compared(path: Path) -> tuple[tuple[str, ...], Counter]:
     said: list[str] = []
     seen: Counter = Counter()
     matched = set()
-    for p in presented(path):
+    for p in presented(path, chunking):
         k = by_header.get((p.key, p.header))
         if k is None:
             said.append(f"/{p.path}: no description of the object at {p.header} of {p.key}")
@@ -347,8 +348,7 @@ def test_data_no_fixture_stores_is_written_as_its_descriptions_give(tmp_path):
         with h5py.File(tmp_path / name, "w") as f:
             f["whole"] = np.arange(701 * 500, dtype="<i4").reshape(701, 500)
             f.create_dataset("strings", data=np.array([b"ab", b"cde", b"f", b"ghijk", b""], "S5"), chunks=(2,))
-        with core_setting(_core._set_copy_threshold, threshold):
-            said, seen = compared(tmp_path / name)
+        said, seen = compared(tmp_path / name, _core.Chunking(copy_threshold=threshold))
         assert said == ()
         assert dict(seen) == {
             "arrays": 2,

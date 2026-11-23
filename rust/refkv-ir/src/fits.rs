@@ -1255,11 +1255,11 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Fits>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        crate::project::fits::project(ir, description, url, copied)
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
+        crate::project::fits::project(ir, description, url, copied, chunking)
     }
-    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
-        crate::project::fits::reads(ir, description)
+    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value, chunking: &crate::out::Chunking) -> Result<Vec<(u64, u64)>, String> {
+        crate::project::fits::reads(ir, description, chunking)
     }
 }
 
