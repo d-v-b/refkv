@@ -286,15 +286,15 @@ fn sniff_finds_a_vsi_file_before_a_tiff() {
 #[test]
 fn a_vsi_file_run_is_refused() {
     let data = std::fs::read(fixtures().join("vsi_raw_tzc.vsi")).unwrap();
-    assert_eq!(refkv_ir::run::run_bytes(Format::Vsi, &data).err().as_deref(), Some("a VSI file is zarrified as a store run, with its tile files"));
+    assert_eq!(refkv_ir::run::run_bytes(Format::Vsi, &data).err().map(String::from).as_deref(), Some("a VSI file is zarrified as a store run, with its tile files"));
 }
 
 #[test]
 fn a_listing_of_more_than_the_vsi_file_is_refused() {
     let r = StoreRun::new(StoreFormat::Vsi, vec![("a.vsi".into(), 100), ("b.ets".into(), 100)], 1);
-    assert!(r.err().unwrap().starts_with("a VSI run starts from the .vsi file alone"));
+    assert!(r.err().unwrap().to_string().starts_with("a VSI run starts from the .vsi file alone"));
     let r = StoreRun::new(StoreFormat::Vsi, vec![("a.tif".into(), 100)], 1);
-    assert!(r.err().unwrap().contains("is not the name of a .vsi file"));
+    assert!(r.err().unwrap().to_string().contains("is not the name of a .vsi file"));
 }
 
 /// PNG and BMP tiles are chunks of imagecodecs-zarr's codecs of those names (spec/zarrify/vsi.md

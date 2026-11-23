@@ -4,6 +4,7 @@
 
 use serde_json::{json, Value as J};
 use refkv_ir::ir::{Ir, Res, NO_INDEX};
+use refkv_ir::error::Error;
 use refkv_ir::store::{ObjectRequest, StoreFormat, StoreParser, StoreRun, StoreStep};
 
 /// A parser that asks for `batches` in turn, then holds the objects `hold` (one value each).
@@ -46,7 +47,7 @@ fn bytes(k: usize) -> Vec<u8> {
     (0..keys()[k].1).map(|i| (i % 251) as u8 + k as u8).collect()
 }
 
-fn run(batches: Vec<Vec<(usize, u64, u64)>>, hold: Vec<usize>) -> Res<StoreRun> {
+fn run(batches: Vec<Vec<(usize, u64, u64)>>, hold: Vec<usize>) -> refkv_ir::error::Res<StoreRun> {
     StoreRun::with(StoreFormat::Zarr2, keys(), 4, &|ir, objects, _| {
         Ok(Box::new(Asks { ir: Some(ir), objects, batches: batches.clone(), hold: hold.clone(), fed: Vec::new(), folders: Vec::new() }))
     })
@@ -109,26 +110,26 @@ fn a_batch_of_empty_ranges_alone_is_fed_without_a_request() {
 #[test]
 fn a_batch_of_no_reads_is_refused() {
     let mut r = run(vec![vec![]], vec![]).unwrap();
-    assert_eq!(r.poll().unwrap_err(), "internal: a batch of no reads");
+    assert_eq!(r.poll().unwrap_err(), Error::internal("a batch of no reads"));
 }
 
 #[test]
 fn a_read_outside_its_object_is_refused() {
     let mut r = run(vec![vec![(2, 1, 3)]], vec![]).unwrap();
-    assert_eq!(r.poll().unwrap_err(), "b: a read of [1, 4) outside its 3 bytes");
+    assert_eq!(r.poll().unwrap_err(), Error::rejected("b: a read of [1, 4) outside its 3 bytes"));
 }
 
 #[test]
 fn a_read_of_no_listed_object_is_refused() {
     let mut r = run(vec![vec![(3, 0, 1)]], vec![]).unwrap();
-    assert_eq!(r.poll().unwrap_err(), "internal: a read of object 3, which the listing has not");
+    assert_eq!(r.poll().unwrap_err(), Error::internal("a read of object 3, which the listing has not"));
 }
 
 #[test]
 fn bytes_other_than_the_spans_asked_are_refused() {
     let mut r = run(vec![vec![(0, 0, 10)]], vec![]).unwrap();
     r.poll().unwrap();
-    assert_eq!(r.complete(0, vec![vec![0; 9]]).unwrap_err(), "a/.zarray: the bytes given are not those of the spans asked");
+    assert_eq!(r.complete(0, vec![vec![0; 9]]).unwrap_err(), Error::Failed("a/.zarray: the bytes given are not those of the spans asked".into()));
 }
 
 #[test]
@@ -147,27 +148,27 @@ fn the_ignored_keys_reach_the_parser_and_the_facts() {
 fn ignored_keys_after_the_first_poll_are_refused() {
     let mut r = run(vec![vec![(2, 0, 3)]], vec![]).unwrap();
     r.poll().unwrap();
-    assert!(r.ignore(vec!["a//b".into()], vec![]).unwrap_err().contains("after the first poll"));
+    assert!(r.ignore(vec!["a//b".into()], vec![]).unwrap_err().to_string().contains("after the first poll"));
 }
 
 #[test]
 fn a_poll_before_the_batch_completed_is_refused() {
     let mut r = run(vec![vec![(0, 0, 10)]], vec![]).unwrap();
     r.poll().unwrap();
-    assert_eq!(r.poll().unwrap_err(), "poll before every request of the batch completed");
+    assert_eq!(r.poll().unwrap_err(), Error::Internal("poll before every request of the batch completed".into()));
 }
 
 #[test]
 fn a_held_object_not_read_whole_is_refused() {
     let mut r = run(vec![vec![(0, 0, 5)]], vec![0]).unwrap();
     drive(&mut r).unwrap();
-    assert_eq!(r.finish().err().unwrap(), "internal: the held object \"a/.zarray\" was not read whole");
+    assert_eq!(r.finish().err().unwrap(), Error::internal("the held object \"a/.zarray\" was not read whole"));
 }
 
 #[test]
 fn a_listing_the_ir_cannot_hold_is_refused() {
     let e = StoreRun::new(StoreFormat::Zarr2, vec![("a/./b".into(), 1)], 4).err().unwrap();
-    assert_eq!(e, "key \"a/./b\" has an empty, . or .. segment");
+    assert_eq!(e, Error::rejected("key \"a/./b\" has an empty, . or .. segment"));
 }
 
 #[test]

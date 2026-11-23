@@ -8,6 +8,7 @@ pub mod array;
 pub mod beside;
 pub mod canon;
 pub mod czi_set;
+pub mod error;
 pub mod tiff_set;
 pub mod transform;
 pub mod check;

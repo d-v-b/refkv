@@ -47,6 +47,7 @@
 //! - **Budget.** Every request and byte is charged: requests at most
 //!   2^20 + size / 64, bytes at most 2^24 + 2 × size.
 
+use crate::error::{Error, Res};
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -272,14 +273,14 @@ impl Planner {
         plan_spans(ranges, threshold, cap, self.concurrency)
     }
 
-    fn charge(&mut self, n: u64) -> Result<(), String> {
+    fn charge(&mut self, n: u64) -> Res<()> {
         self.stats.requests += 1;
         self.stats.bytes += n;
         if self.stats.requests > self.reads_limit {
-            return Err(format!("budget: more than {} reads", self.reads_limit));
+            return Err(Error::budget(format!("more than {} reads", self.reads_limit)));
         }
         if self.stats.bytes > self.bytes_limit {
-            return Err(format!("budget: more than {} read", self.bytes_limit));
+            return Err(Error::budget(format!("more than {} read", self.bytes_limit)));
         }
         Ok(())
     }
@@ -436,15 +437,15 @@ impl Planner {
 
     /// Request `k` of the round completed: each span's bytes, or None for a
     /// multi-range request the server did not answer with its ranges.
-    pub fn complete(&mut self, k: usize, data: Option<Vec<Vec<u8>>>, seconds: f64) -> Result<(), String> {
-        let req = self.round.get(k).ok_or("no such request")?.clone();
+    pub fn complete(&mut self, k: usize, data: Option<Vec<Vec<u8>>>, seconds: f64) -> Res<()> {
+        let req = self.round.get(k).ok_or_else(|| Error::Internal("no such request".into()))?.clone();
         if self.got.get(k).is_none_or(|g| g.is_some()) {
-            return Err("a request completed twice".into());
+            return Err(Error::Internal("a request completed twice".into()));
         }
         match &data {
             Some(parts) => {
                 if parts.len() != req.spans.len() || parts.iter().zip(&req.spans).any(|(p, s)| p.len() as u64 != s.1 - s.0) {
-                    return Err("a response of the wrong length".into());
+                    return Err(Error::Failed("a response of the wrong length".into()));
                 }
                 let n: u64 = parts.iter().map(|p| p.len() as u64).sum();
                 self.charge(n)?;
@@ -456,7 +457,7 @@ impl Planner {
             }
             None => {
                 if req.spans.len() < 2 {
-                    return Err("a range request was not answered".into());
+                    return Err(Error::Failed("a range request was not answered".into()));
                 }
                 self.charge(0)?;
             }
@@ -586,9 +587,9 @@ impl Planner {
     /// The batch's bytes, once `requests()` is empty: each range asked (offset, bytes),
     /// in the order asked; with `whole`, the ranges served from the read-ahead window,
     /// then the responses as fetched.
-    pub fn take(&mut self) -> Result<Vec<(u64, Vec<u8>)>, String> {
+    pub fn take(&mut self) -> Res<Vec<(u64, Vec<u8>)>> {
         if !self.round.is_empty() || !self.todo.is_empty() {
-            return Err("the batch is not complete".into());
+            return Err(Error::Internal("the batch is not complete".into()));
         }
         if let Some(m) = self.asked.iter().map(|r| r.0 + r.1).max() {
             self.last_end = Some(m);
@@ -608,7 +609,7 @@ impl Planner {
         for r in &asked {
             match self.out.get(r) {
                 Some(b) => v.push((r.0, b.clone())),
-                None => return Err(format!("internal: no bytes for [{}, {})", r.0, r.0 + r.1)),
+                None => return Err(Error::internal(format!("no bytes for [{}, {})", r.0, r.0 + r.1))),
             }
         }
         self.out.clear();

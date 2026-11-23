@@ -108,7 +108,8 @@ fn output_of(objects: &[(String, Vec<u8>)]) -> (Result<refkv_ir::out::Out, Strin
     let k2 = keys.clone();
     let t = std::time::Instant::now();
     let r = run_store(StoreFormat::Zarr2, keys, &|k| by[k2[k].0.as_str()].clone())
-        .and_then(|(ir, facts, stats, read)| store_output(StoreFormat::Zarr2, &ir, &facts, stats, &read, "https://example.org/s/", true, false).map_err(String::from));
+        .and_then(|(ir, facts, stats, read)| store_output(StoreFormat::Zarr2, &ir, &facts, stats, &read, "https://example.org/s/", true, false))
+        .map_err(String::from);
     (r, t.elapsed())
 }
 

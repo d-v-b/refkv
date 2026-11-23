@@ -101,7 +101,7 @@ fn store_formats(all: &[Entry]) -> String {
     for (e, run) in &runs {
         writeln!(text, "            StoreFormat::{} => {},", e.variant(), run.case).unwrap();
     }
-    text.push_str("        }\n    }\n\n    fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {\n        match self {\n");
+    text.push_str("        }\n    }\n\n    fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn StoreParser>> {\n        match self {\n");
     for (e, _) in &runs {
         writeln!(text, "            StoreFormat::{} => crate::{}::store_parser(ir, objects, keys),", e.variant(), e.module()).unwrap();
     }

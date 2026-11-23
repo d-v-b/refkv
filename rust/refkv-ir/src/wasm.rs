@@ -174,27 +174,23 @@ pub unsafe extern "C" fn vz_finish(p: *mut AnyParser) -> i64 {
 
 // ---- runs: a parser, the read planner, the projection and the mirror
 
+use crate::error::Error;
 use crate::run::{Format, Run};
 
-fn err_out(e: String) -> i64 {
-    FAILED.store(false, std::sync::atomic::Ordering::Relaxed);
-    -(set_out(e.into_bytes()) as i64)
+/// The core's error at `vz_out()` (minus its length), recording whether it is a failure of refkv's
+/// rather than a rejection of the input (`vz_failed`).
+fn err_out(e: Error) -> i64 {
+    FAILED.store(!e.is_rejection(), std::sync::atomic::Ordering::Relaxed);
+    -(set_out(e.to_string().into_bytes()) as i64)
 }
 
-/// Whether the last output refused was a failure of the zarrifier, not a rejection of the input.
+/// Whether the last error was a failure of refkv's, not a rejection of the input.
 static FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// An output's refusal (`err_out`), recording whether it is a failure (`vz_failed`).
-fn refused_out(r: crate::seal::Refusal) -> i64 {
-    let failed = matches!(r, crate::seal::Refusal::Failed(_));
-    let n = err_out(r.into());
-    FAILED.store(failed, std::sync::atomic::Ordering::Relaxed);
-    n
-}
-
-/// Whether the last refusal of `vz_run_output` or `vz_store_output` was a failure of the
-/// zarrifier (1: a payload over the limit only with its checksums, spec/zarrify.md §1.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), not a rejection (0).
+/// Whether the last error a run's or a store run's call gave (a negative result) was a failure of
+/// refkv's on an input it accepted (1: a payload over the limit only with its checksums,
+/// spec/zarrify.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>, or a
+/// bug: `crate::error::Error`), not a rejection of the input (0).
 #[unsafe(no_mangle)]
 pub extern "C" fn vz_failed() -> u32 {
     FAILED.load(std::sync::atomic::Ordering::Relaxed) as u32
@@ -213,7 +209,7 @@ pub unsafe extern "C" fn vz_run_new(format: *mut u8, nf: usize, size: u64, remot
     let name = String::from_utf8(unsafe { Vec::from_raw_parts(format, nf, nf) }).unwrap_or_default();
     match Format::from_name(&name) {
         Some(f) => Box::into_raw(Box::new(Run::new(f, size, remote != 0, concurrency as usize))) as usize as i64,
-        None => err_out(format!("no format {name:?}")),
+        None => err_out(Error::Internal(format!("no format {name:?}"))),
     }
 }
 
@@ -318,13 +314,13 @@ pub unsafe extern "C" fn vz_run_complete(p: *mut Run, k: u32, ok: u32, data: *mu
         for (a, e) in reqs {
             let len = (e - a) as usize;
             if at + len > v.len() {
-                return err_out("a response of the wrong length".into());
+                return err_out(Error::Failed("a response of the wrong length".into()));
             }
             parts.push(v[at..at + len].to_vec());
             at += len;
         }
         if at != v.len() {
-            return err_out("a response of the wrong length".into());
+            return err_out(Error::Failed("a response of the wrong length".into()));
         }
         Some(parts)
     } else {
@@ -359,7 +355,7 @@ pub unsafe extern "C" fn vz_run_output(p: *mut Run, url: *mut u8, n: usize, flag
     let url = String::from_utf8(unsafe { Vec::from_raw_parts(url, n, n) }).unwrap_or_default();
     match r.into_output(&url, flags & 1 != 0, flags & 2 != 0) {
         Ok(o) => set_out(o.encode()) as i64,
-        Err(e) => refused_out(e),
+        Err(e) => err_out(e),
     }
 }
 
@@ -388,9 +384,9 @@ use crate::store::{StoreFormat, StoreRun};
 pub unsafe extern "C" fn vz_store_new(format: *mut u8, nf: usize, listing: *mut u8, nl: usize, concurrency: u32) -> i64 {
     let f = String::from_utf8(unsafe { Vec::from_raw_parts(format, nf, nf) }).unwrap_or_default();
     let l = unsafe { Vec::from_raw_parts(listing, nl, nl) };
-    let made = (|| -> Result<StoreRun, String> {
-        let f = StoreFormat::from_name(&f).ok_or(format!("no store format {f:?}"))?;
-        let keys: Vec<(String, u64)> = serde_json::from_slice(&l).map_err(|e| format!("the listing: {e}"))?;
+    let made = (|| -> crate::error::Res<StoreRun> {
+        let f = StoreFormat::from_name(&f).ok_or_else(|| Error::Internal(format!("no store format {f:?}")))?;
+        let keys: Vec<(String, u64)> = serde_json::from_slice(&l).map_err(|e| Error::Internal(format!("the listing: {e}")))?;
         StoreRun::new(f, keys, concurrency as usize)
     })();
     match made {
@@ -442,13 +438,13 @@ pub unsafe extern "C" fn vz_store_complete(p: *mut StoreRun, k: u32, data: *mut 
     for len in lens {
         let len = len as usize;
         if at + len > v.len() {
-            return err_out("a response of the wrong length".into());
+            return err_out(Error::Failed("a response of the wrong length".into()));
         }
         parts.push(v[at..at + len].to_vec());
         at += len;
     }
     if at != v.len() {
-        return err_out("a response of the wrong length".into());
+        return err_out(Error::Failed("a response of the wrong length".into()));
     }
     match r.complete(k as usize, parts) {
         Ok(()) => 0,
@@ -470,7 +466,7 @@ pub unsafe extern "C" fn vz_store_output(p: *mut StoreRun, url: *mut u8, n: usiz
     let url = String::from_utf8(unsafe { Vec::from_raw_parts(url, n, n) }).unwrap_or_default();
     match r.into_output(&url, flags & 1 != 0, flags & 2 != 0) {
         Ok(o) => set_out(o.encode()) as i64,
-        Err(e) => refused_out(e),
+        Err(e) => err_out(e),
     }
 }
 
@@ -485,7 +481,7 @@ pub unsafe extern "C" fn vz_store_output(p: *mut StoreRun, url: *mut u8, n: usiz
 pub unsafe extern "C" fn vz_store_ignore(p: *mut StoreRun, json: *mut u8, n: usize) -> i64 {
     let r = unsafe { &mut *p };
     let b = unsafe { Vec::from_raw_parts(json, n, n) };
-    let got = serde_json::from_slice::<(Vec<String>, Vec<String>)>(&b).map_err(|e| format!("the ignored keys: {e}"))
+    let got = serde_json::from_slice::<(Vec<String>, Vec<String>)>(&b).map_err(|e| Error::Internal(format!("the ignored keys: {e}")))
         .and_then(|(keys, folders)| r.ignore(keys, folders));
     match got {
         Ok(()) => 0,
@@ -503,7 +499,7 @@ pub unsafe extern "C" fn vz_store_ignore(p: *mut StoreRun, json: *mut u8, n: usi
 pub unsafe extern "C" fn vz_store_scope(p: *mut StoreRun, json: *mut u8, n: usize) -> i64 {
     let r = unsafe { &mut *p };
     let b = unsafe { Vec::from_raw_parts(json, n, n) };
-    match serde_json::from_slice::<Vec<String>>(&b).map_err(|e| format!("the scope: {e}")).and_then(|w| r.scope(w)) {
+    match serde_json::from_slice::<Vec<String>>(&b).map_err(|e| Error::Internal(format!("the scope: {e}"))).and_then(|w| r.scope(w)) {
         Ok(()) => 0,
         Err(e) => err_out(e),
     }
@@ -569,8 +565,8 @@ pub unsafe extern "C" fn vz_store_free(p: *mut StoreRun) {
 pub unsafe extern "C" fn vz_test_mirror(json: *mut u8, n: usize, profile: *mut u8, np: usize) -> i64 {
     let b = unsafe { Vec::from_raw_parts(json, n, n) };
     let profile = String::from_utf8(unsafe { Vec::from_raw_parts(profile, np, np) }).unwrap_or_default();
-    let built = (|| -> Result<crate::out::Out, String> {
-        let v: serde_json::Value = serde_json::from_slice(&b).map_err(|e| e.to_string())?;
+    let built = (|| -> crate::error::Res<crate::out::Out> {
+        let v: serde_json::Value = serde_json::from_slice(&b).map_err(|e| Error::Internal(e.to_string()))?;
         let nums = |k: &str| -> Vec<i64> { v[k].as_array().map(|a| a.iter().filter_map(|x| x.as_i64()).collect()).unwrap_or_default() };
         let mut ir = crate::ir::Ir { size: v["size"].as_u64().unwrap_or(0), budget: None, ..Default::default() };
         ir.types.id("");
@@ -594,7 +590,7 @@ pub unsafe extern "C" fn vz_test_mirror(json: *mut u8, n: usize, profile: *mut u
         }
         ir.finished = true;
         ir.build_children();
-        let format = Format::from_name(&profile).ok_or("no such profile")?;
+        let format = Format::from_name(&profile).ok_or_else(|| Error::Internal("no such profile".into()))?;
         let mut out = crate::out::Out::new("");
         crate::mirror::mirror(&ir, &mut out, format.name())?;
         Ok(out)

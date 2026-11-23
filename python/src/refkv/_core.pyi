@@ -181,8 +181,9 @@ class Run:
     `finish()` gives the IR, the parser's description (JSON) and the planner's counts, with the
     parser's as `parser` (JSON).
 
-    The constructor raises ValueError for an unknown `format`; `poll` and `complete` raise
-    Rejected when the parser rejects the input."""
+    The constructor raises ValueError for an unknown `format`. A call raises Rejected when the
+    parser rejects the input, and Failed for a failure of refkv's on an input it accepted (a bug, a
+    host's misuse of the run, or a payload over the limit only with its checksums)."""
 
     def __init__(
         self,
@@ -263,8 +264,9 @@ class StoreRun:
     `poll()` gives None; then `output(url, mirror)` or `finish()`. `ignore(keys, folders)`,
     before the first poll, gives the keys the listing ignores.
 
-    The constructor raises ValueError for an unknown store `format`; it, `poll` and
-    `complete` raise Rejected when the store is rejected."""
+    The constructor raises ValueError for an unknown store `format`. A call raises Rejected when
+    the store is rejected, and Failed for a failure of refkv's on a store it accepted (a bug, a
+    host's misuse of the run, or a payload over the limit only with its checksums)."""
 
     def __init__(self, format: str, listing: Sequence[tuple[str, int]], concurrency: int) -> None: ...  # noqa: A002 (the core's name)
     def poll(self) -> list[tuple[int, str, list[tuple[int, int]]]] | None: ...

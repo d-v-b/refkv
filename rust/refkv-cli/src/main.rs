@@ -65,15 +65,13 @@ pub enum Fail {
     Other(String),
 }
 
-impl From<refkv_ir::seal::Refusal> for Fail {
-    /// The core's refusal of an output: a rejection, or a failure (status 1), such as a payload
-    /// over the limit only with its checksums (spec/zarrify.md §1.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
-    fn from(r: refkv_ir::seal::Refusal) -> Fail {
-        match r {
-            refkv_ir::seal::Refusal::Rejected(e) => Fail::Rejected(e),
-            refkv_ir::seal::Refusal::Failed(e) => Fail::Other(e),
-        }
+impl From<refkv_ir::error::Error> for Fail {
+    /// The core's error, by its variant: a rejection of the input (status 3), or a failure of
+    /// refkv's (status 1), such as a payload over the limit only with its checksums
+    /// (spec/zarrify.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)
+    /// or a bug.
+    fn from(e: refkv_ir::error::Error) -> Fail {
+        if e.is_rejection() { Fail::Rejected(e.to_string()) } else { Fail::Other(e.to_string()) }
     }
 }
 
