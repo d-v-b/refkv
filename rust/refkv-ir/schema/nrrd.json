@@ -142,7 +142,7 @@
   "elements": {
     "about": "The store IR of a NRRD input: the header file's object, and a detached header's data file's object, each described in place. h is the header's length, through the blank line that ends it (or the file's end); D the data's start in its object; B the raw data's size, or the gzip stream's (to the object's end).",
     "lines/<i>": {"kind": "value", "type": "ascii[k]", "extent": "line i of the header, its line end included: the magic first, the blank line last when one ends the header"},
-    "data": {"kind": "data", "form": "{geometry: {data_type, shape}, codec: {encoding, endian}, recipe: [[src, 0, null]]}", "extent": "(D, B) of the data's object"},
+    "data": {"kind": "data", "form": "{geometry: {type: the header's type, shape}, codec: {encoding, endian}, recipe: [[src, 0, null]]}", "extent": "(D, B) of the data's object"},
     "gaps/<offset>": {"kind": "gap", "about": "the lines and bytes line skip and byte skip pass over, the bytes after the data, and a detached header's bytes after its blank line"}
   },
   "roles": {
