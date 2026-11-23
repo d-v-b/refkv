@@ -682,6 +682,27 @@ code is organized by language.</p>
 zarrifiers against the frozen reference), <code class="docutils literal notranslate"><span class="pre">just</span> <span class="pre">conformance</span></code> (the vzip
 binding’s independent implementations).</p>
 </section>
+<section id="development">
+<h2>Development<a class="headerlink" href="#development" title="Link to this heading">¶</a></h2>
+<p><a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/pixi.toml">pixi.toml</a> declares the whole toolchain, and <a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/pixi.lock">pixi.lock</a> pins it for Linux,
+macOS and Windows: Rust with its wasm32 standard library, Python and uv, Node, binaryen’s
+<code class="docutils literal notranslate"><span class="pre">wasm-opt</span></code> and <code class="docutils literal notranslate"><span class="pre">just</span></code>. CI installs the same environment (<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/.github/actions/setup/action.yml">.github/actions/setup</a>),
+so a recipe that passes in it passes in CI. With <a class="reference external" href="https://pixi.sh">pixi</a> installed, enter it and
+run recipes:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pixi<span class="w"> </span>shell
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>just<span class="w"> </span>preflight
+</pre></div>
+</div>
+<p>or run one recipe without entering it, <code class="docutils literal notranslate"><span class="pre">pixi</span> <span class="pre">run</span> <span class="pre">just</span> <span class="pre">test</span></code>. Inside, uv builds the Python
+environment (<code class="docutils literal notranslate"><span class="pre">.venv</span></code>, from <code class="docutils literal notranslate"><span class="pre">uv.lock</span></code>) with pixi’s Python, and <code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">ci</span></code> in <code class="docutils literal notranslate"><span class="pre">js/</span></code> installs the browser
+code’s packages. Since pixi’s environment is active too, name <code class="docutils literal notranslate"><span class="pre">.venv</span></code> in a <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">pip</span></code> command
+(<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">pip</span> <span class="pre">install</span> <span class="pre">--python</span> <span class="pre">.venv</span> <span class="pre">...</span></code>), or it installs into pixi’s. <code class="docutils literal notranslate"><span class="pre">pixi</span> <span class="pre">run</span> <span class="pre">-e</span> <span class="pre">node-newest</span> <span class="pre">just</span> <span class="pre">js::test</span></code> runs the browser code’s tests on the newest
+Node; the default environment has the oldest that <code class="docutils literal notranslate"><span class="pre">js/package.json</span></code> allows. To change a tool’s
+version, change <code class="docutils literal notranslate"><span class="pre">pixi.toml</span></code> and run <code class="docutils literal notranslate"><span class="pre">pixi</span> <span class="pre">lock</span></code>. Release wheels are the one exception: maturin
+builds them in PyPA’s manylinux containers (<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/.github/workflows/release.yml">release.yml</a>).</p>
+</section>
 <section id="license">
 <h2>License<a class="headerlink" href="#license" title="Link to this heading">¶</a></h2>
 <p>Licensed under either of</p>
@@ -773,6 +794,7 @@ its <a class="reference external" href="https://github.com/d-v-b/refkv/blob/main
 <li><a class="reference internal" href="#the-model">The model</a></li>
 <li><a class="reference internal" href="#documentation">Documentation</a></li>
 <li><a class="reference internal" href="#layout">Layout</a></li>
+<li><a class="reference internal" href="#development">Development</a></li>
 <li><a class="reference internal" href="#license">License</a><ul>
 <li><a class="reference internal" href="#third-party-data">Third-party data</a><ul>
 </ul>

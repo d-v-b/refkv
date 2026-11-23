@@ -1368,7 +1368,8 @@ GRIB or HDF5, <code class="docutils literal notranslate"><span class="pre">just<
 <li><p>A rebase can leave the wasm stale, and <code class="docutils literal notranslate"><span class="pre">just</span> <span class="pre">test</span></code>’s conventions test runs
 it through Node. Run <code class="docutils literal notranslate"><span class="pre">just</span> <span class="pre">js::wasm</span></code>.</p></li>
 <li><p>A fresh worktree has no wasm build and no <code class="docutils literal notranslate"><span class="pre">js/node_modules</span></code>. Run
-<code class="docutils literal notranslate"><span class="pre">just</span> <span class="pre">js::wasm</span></code> and <code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">ci</span></code> in <code class="docutils literal notranslate"><span class="pre">js/</span></code> before trusting a failure.</p></li>
+<code class="docutils literal notranslate"><span class="pre">just</span> <span class="pre">js::wasm</span></code> and <code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">ci</span></code> in <code class="docutils literal notranslate"><span class="pre">js/</span></code>, in pixi’s environment
+(<code class="docutils literal notranslate"><span class="pre">pixi</span> <span class="pre">shell</span></code>), before trusting a failure.</p></li>
 <li><p>Leave <code class="docutils literal notranslate"><span class="pre">CARGO_TARGET_DIR</span></code> unset; don’t set it to an empty string.</p></li>
 </ul>
 <p>A PR that lands a step of a proposal in
