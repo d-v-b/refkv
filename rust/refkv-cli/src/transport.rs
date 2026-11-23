@@ -22,8 +22,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// The bytes the request that opens a remote source reads.
-const OPEN: u64 = 1 << 16;
-const RETRY: [u16; 5] = [429, 500, 502, 503, 504];
+const OPEN: u64 = refkv_ir::host::OPEN;
+const RETRY: [u16; 5] = refkv_ir::host::RETRY;
 
 /// The ETag of every response for one object, for its `etag` pin (spec/zarrify.md §1.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
@@ -160,8 +160,8 @@ impl HttpTransport {
                 break r;
             }
             let new = http::redirect(&start, &url, &r, &self.client.policy)?;
-            if hop == 5 {
-                return Err(Attempt::Fatal(Fail::Refused(format!("{start}: more than 5 redirects"))));
+            if hop == refkv_ir::host::MAX_REDIRECTS {
+                return Err(Attempt::Fatal(Fail::Refused(format!("{start}: more than {} redirects", refkv_ir::host::MAX_REDIRECTS))));
             }
             hop += 1;
             url = new;
@@ -306,7 +306,7 @@ pub enum Transport {
 
 impl Transport {
     pub fn open(location: &str, client: &Arc<Client>) -> Result<Transport, Fail> {
-        if location.starts_with("http://") || location.starts_with("https://") {
+        if refkv_ir::host::url_scheme(location).is_some_and(|s| s == "http" || s == "https") {
             Ok(Transport::Http(HttpTransport::open(location, client.clone())?))
         } else {
             Ok(Transport::File(FileTransport::open(location)?))
