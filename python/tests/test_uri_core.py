@@ -30,7 +30,7 @@ BASES = [
     "http://a/b/c/d;p?q", "http://a/b/c/d;p?q#frag", "http://h", "http://h/x?", "https://u@h:443/p/q/",
     "file:///data/a.vzip", "s3://bucket/key/", "s://h", "scheme:", "scheme:foo/bar", "mailto:a@b",
     "foo:/", "foo:/.", "a:/b/..", "x:/bar/baz/.%2E/", "http://h/a b/", "rel/base", "http://h/#a\nb",
-    "http://h/?a\nb",
+    "http://h/?a\nb", "é/x", "x:é/y", "./é/x",
 ]
 # RFC 3986 §5.4, against its base http://a/b/c/d;p?q
 EXAMPLES = [
@@ -75,6 +75,8 @@ def test_python_and_core_agree():
         + [("http://a/b/c/d;p?q", r) for r in EXAMPLES]
     )
     accepted = [r for r in refs if is_uri_reference(r) != core("is_uri_reference", ref=r)]
-    assert accepted == [], f"{len(accepted)} references accepted by one only, e.g. {accepted[:5]}"
     resolved = [(b, r) for b, r in pairs if python_resolve(b, r) != core("resolve_reference", base=b, ref=r)]
-    assert resolved == [], f"{len(resolved)} resolutions differ, e.g. {resolved[:5]}"
+    assert (accepted, resolved) == ([], []), (
+        f"{len(accepted)} references accepted by one only, e.g. {accepted[:5]}; "
+        f"{len(resolved)} resolutions differ, e.g. {resolved[:5]}"
+    )

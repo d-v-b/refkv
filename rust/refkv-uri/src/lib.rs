@@ -156,7 +156,8 @@ pub fn remove_dot_segments(path: &str) -> String {
         } else if p == "." || p == ".." {
             p = "";
         } else {
-            let i = p[1..].find('/').map_or(p.len(), |i| i + 1);
+            // by bytes: `p` may start with a multi-byte character (a base is any string)
+            let i = p.bytes().skip(1).position(|c| c == b'/').map_or(p.len(), |i| i + 1);
             out.push(&p[..i]);
             p = &p[i..];
         }
@@ -517,6 +518,8 @@ mod tests {
         }
         assert_eq!(resolve("http://h", "x").unwrap(), "http://h/x");
         assert_eq!(resolve("file:///data/a.vzip", "img.tif").unwrap(), "file:///data/img.tif");
+        assert_eq!(resolve("é/x", "g").unwrap(), "é/g");
+        assert_eq!(resolve("x:é/y", "./g").unwrap(), "x:é/g");
     }
 
     #[test]
