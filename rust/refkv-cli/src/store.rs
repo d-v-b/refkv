@@ -466,7 +466,7 @@ mod tests {
     fn inputs() {
         assert_eq!(input("https://h/s/").unwrap(), ("https://h/s/".to_string(), true));
         assert_eq!(input("HTTP://h/x.tif").unwrap(), ("HTTP://h/x.tif".to_string(), false));
-        let (path, dir) = input(&format!("file://{}", std::env::temp_dir().display())).unwrap();
+        let (path, dir) = input(&refkv_vzip::uri::file_uri(&std::env::temp_dir()).unwrap()).unwrap();
         assert!(dir && std::path::Path::new(&path).is_dir());
     }
 
