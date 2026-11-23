@@ -1,7 +1,10 @@
 # The toolchain of every CI job, from pixi.toml and pixi.lock: the declaration development uses
 # too (README.md, "Development"). It puts Rust with its wasm32 standard library, Python and uv, Node,
-# binaryen's wasm-opt and just on PATH for the job's later steps, and restores the caches of
-# uv's downloads, npm's and cargo's builds.
+# binaryen's wasm-opt and just on PATH for the job's later steps, and restores npm's downloads and
+# cargo's builds. uv's cache is not kept: one key for every job, saved unpruned (a composite action
+# has no post step to run `uv cache prune --ci` in), would hold whichever job's packages finished
+# first, and the slow part of `uv sync`, building refkv's Rust core, is cargo's, which rust-cache
+# keeps.
 name: setup
 description: Install pixi's environment and activate it for the job, with the build caches
 
@@ -25,17 +28,12 @@ runs:
         environments: ${{ inputs.environment }}
         activate-environment: ${{ inputs.environment }}
         locked: true
-    # uv's and npm's caches, wherever the activated tools keep them
-    - id: dirs
+    # npm's cache, wherever the activated Node keeps it; every job that caches it runs `npm ci`
+    # on the one lock, so they all save the same packages
+    - if: inputs.npm == 'true'
+      id: dirs
       shell: bash
-      run: |
-        echo "uv=$(uv cache dir)" >> "$GITHUB_OUTPUT"
-        echo "npm=$(npm config get cache)" >> "$GITHUB_OUTPUT"
-    - uses: actions/cache@v4
-      with:
-        path: ${{ steps.dirs.outputs.uv }}
-        key: uv-${{ runner.os }}-${{ hashFiles('uv.lock') }}
-        restore-keys: uv-${{ runner.os }}-
+      run: echo "npm=$(npm config get cache)" >> "$GITHUB_OUTPUT"
     - if: inputs.npm == 'true'
       uses: actions/cache@v4
       with:

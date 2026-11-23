@@ -151,7 +151,8 @@ just preflight
 
 or run one recipe without entering it, `pixi run just test`. Inside, uv builds the Python
 environment (`.venv`, from `uv.lock`) with pixi's Python, and `npm ci` in `js/` installs the browser
-code's packages. `pixi run -e node-newest just js::test` runs the browser code's tests on the newest
+code's packages. Since pixi's environment is active too, name `.venv` in a `uv pip` command
+(`uv pip install --python .venv ...`), or it installs into pixi's. `pixi run -e node-newest just js::test` runs the browser code's tests on the newest
 Node; the default environment has the oldest that `js/package.json` allows. To change a tool's
 version, change `pixi.toml` and run `pixi lock`. Release wheels are the one exception: maturin
 builds them in PyPA's manylinux containers ([release.yml](.github/workflows/release.yml)).

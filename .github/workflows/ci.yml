@@ -101,15 +101,21 @@ jobs:
           uv sync --all-groups --locked --python 3.14t
           --no-install-package eccodeslib --no-install-package eckitlib --no-install-package astropy
           --no-install-package pylibczirw --no-install-package jpype1 --no-install-package imagecodecs
-      - run: uv pip install "imagecodecs>=2026.10.10"
+      # into .venv by name: pixi's activated environment and its UV_PYTHON would otherwise take it
+      - run: uv pip install --python .venv "imagecodecs>=2026.10.10"
       - run: npm ci
         working-directory: js
       - run: just js::wasm
-      # the GIL stays disabled with refkv and the extras imported
-      - run: >-
+      # the GIL stays disabled with refkv and the extras imported; `uv run` asks for 3.14t (.venv's),
+      # not the 3.12 of pixi's UV_PYTHON (a step's env takes precedence over the activated one)
+      - env:
+          UV_PYTHON: "3.14t"
+        run: >-
           uv run python -c 'import sys, refkv._core, refkv.zarr, imagecodecs, av;
           assert not sys._is_gil_enabled(), "an import re-enabled the GIL"'
-      - run: >-
+      - env:
+          UV_PYTHON: "3.14t"
+        run: >-
           uv run pytest -q python/tests
           --ignore=python/tests/ir/test_fits.py --ignore=python/tests/ir/test_zero_padding.py
           --ignore=python/tests/ir/test_fits_stored.py --ignore=python/tests/ir/test_fits_presented.py
@@ -145,7 +151,7 @@ jobs:
           upgrades=()
           while read -r name; do upgrades+=(--upgrade-package "$name"); done \
             < <(uv run python python/tools/floors.py names)
-          uv pip install --resolution lowest-direct "${upgrades[@]}" \
+          uv pip install --python .venv --resolution lowest-direct "${upgrades[@]}" \
             "./python[zarr,images,media,precomputed,layouts,obstore,virtualizarr]"
       # every floor took: a newer version left in place would pass without testing it
       - run: uv run python python/tools/floors.py check
