@@ -40,8 +40,10 @@ path: in quotes or backticks on both sides, after `.`, `/` or `::`, before `/` o
 `mod`, `import` or `from` (`"fits"`, `` `tiff` ``, `zarrify/fits.md`, `refkv.grib`, `crate::nifti`,
 `mod vsi;`). One with a digit or a `-` (`hdf5`, `nd2`, `zarr2`, `ome-zarr`) is no word, and counts
 anywhere. What this misses: such a name as a bare key or field (`nifti: [...]`, which looks like
-the parameter `safe: impl Fn`), or after `.` alone (`grib.md` in a relative link, like
-`fits.then_some`). A title of several words (`Neuroglancer precomputed`)
+the parameter `safe: impl Fn`), or before a `.` alone (`grib.md` in a relative link, which looks
+like `fits.then_some`). What it still counts: an identifier quoted or joined that only shares a
+profile's name (the function `refkv.build.fits`, `"fits"` in its `__all__`).
+A title of several words (`Neuroglancer precomputed`)
 is no spelling, nor is one that holds `Zarr` (`OME-Zarr`, `Zarr v3`), which names refkv's output as
 often as the profile; their names (`precomputed`, `ome-zarr`, `zarr3`) still are.
 One more format added to a shared list, in prose or in code, is a line naming it; a change to
