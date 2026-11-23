@@ -22,7 +22,7 @@ input is converted:
   it would refuse, a missing file or object, an invalid store URL, an empty file), whose exit
   statuses must be the same.
 
-    uv run python rust/refkv-cli/tests/identical.py [--vzip rust/refkv-cli/target/release/vzip]
+    uv run python rust/refkv-cli/tests/identical.py [--vzip rust/target/release/vzip]
         [--only <substring>] [--modes local,http,ranges,checksums,errors] [--jobs N] [--shard k/n]
 
 The summaries are compared without the read planner's counts and model (`planner`), which depend on
@@ -201,7 +201,7 @@ def convert(cmd: list[str], args: list[str], out: Path, env: dict) -> tuple[int,
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--vzip", default=str(ROOT / "rust" / "refkv-cli" / "target" / "release" / "vzip"))
+    ap.add_argument("--vzip", default=str(ROOT / "rust" / "target" / "release" / "vzip"))
     ap.add_argument("--only", default="")
     ap.add_argument("--modes", default="local,http,ranges,checksums,errors")
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 4)

@@ -23,16 +23,11 @@ conformance/results/
 # Test scratch output
 conformance/impls/typescript/test/.tmp/
 
-# The IR core's build output
-rust/refkv-ir/target/
-# the archive writer's, the phkv crate's and the CLI's (rust/refkv-vzip, rust/refkv-phkv, rust/refkv-cli)
-rust/refkv-vzip/target/
-rust/refkv-phkv/target/
-rust/refkv-cli/target/
-# the Python bindings' build output, and its place in a checkout built before the crate moved
-# from python/
-rust/refkv-python/target/
-python/target/
+# The Rust workspace's build output (rust/Cargo.toml), the wasm32 modules (rust/target/web,
+# rust/target/web-test) included
+rust/target/
+# and each crate's own, which builds before the workspace left: delete them (`rm -rf rust/*/target`)
+rust/*/target/
 
 # the Python bindings to the Rust core, compiled into the package by `uv sync` (python/pyproject.toml)
 python/src/refkv/_core*.so

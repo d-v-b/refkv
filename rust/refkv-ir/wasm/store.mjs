@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 
 const args = process.argv.slice(2);
-let wasmPath = new URL("../target/web/refkv_ir.wasm", import.meta.url);
+let wasmPath = new URL("../../target/web/refkv_ir.wasm", import.meta.url);
 let format = "zarr2";
 for (;;) {
   if (args[0] === "--wasm") { wasmPath = args[1]; args.splice(0, 2); continue; }

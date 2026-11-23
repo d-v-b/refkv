@@ -46,8 +46,8 @@ refkv's version is git's, not a number in a file. [pyproject.toml](pyproject.tom
 committed version is a placeholder, `0.0.0`. Before each build, the release workflow runs
 `tools/version.py write` ([tools/version.py](tools/version.py); `just python::version-write`
 does the same), which writes the version `git describe --tags --match 'v*'` gives into
-`Cargo.toml` and `Cargo.lock` (on a tag push, the pushed tag's, even when its commit also
-carries another, such as a release candidate's):
+`Cargo.toml` and the workspace's [rust/Cargo.lock](../rust/Cargo.lock) (on a tag push, the
+pushed tag's, even when its commit also carries another, such as a release candidate's):
 
 | commit | semver (Cargo.toml) | PEP 440 (the wheel's name) |
 |---|---|---|

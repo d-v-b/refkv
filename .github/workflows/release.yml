@@ -25,6 +25,10 @@ on:
       - python/tools/**
       - python/tests/check_base_install.py
       - rust/refkv-ir/**
+      - rust/refkv-vzip/**
+      - rust/refkv-phkv/**
+      - rust/Cargo.toml
+      - rust/Cargo.lock
       - .github/workflows/release.yml
   workflow_dispatch:
 

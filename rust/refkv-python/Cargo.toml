@@ -1,8 +1,7 @@
 # refkv's Python bindings: the extension module refkv._core, over the Rust core rust/refkv-ir,
 # which maturin compiles into the refkv wheel (python/pyproject.toml, whose `manifest-path`
-# names this crate). A crate of its own, not a member of a Cargo workspace: the core keeps its
-# own lock and profiles (its wasm32 profile only applies at its own root), and this one has no
-# tests of its own.
+# names this crate). A member of the workspace (rust/Cargo.toml), whose Cargo.lock it is built
+# with; it has no tests of its own.
 [package]
 name = "refkv-python"
 # A placeholder: python/tools/version.py writes the version git describes, in release builds
@@ -32,7 +31,3 @@ serde_json = { version = "1", features = ["preserve_order", "float_roundtrip", "
 
 [build-dependencies]
 pyo3-build-config = "0.29"
-
-[profile.release]
-opt-level = 3
-debug = false

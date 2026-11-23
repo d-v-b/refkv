@@ -554,7 +554,7 @@ pub unsafe extern "C" fn vz_store_free(p: *mut StoreRun) {
 }
 
 // ---- test hooks (feature `test-hooks`, built by `wasm/build.sh test` into
-// target/web-test; never in the shipped module)
+// rust/target/web-test; never in the shipped module)
 
 /// The mirror of a crafted IR, for the browser's tests of the mirror's rejections:
 /// `json` (from `vz_alloc`, consumed) is `{"size", "kind", "parent", "name", "nidx",
