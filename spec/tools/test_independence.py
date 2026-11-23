@@ -7,8 +7,8 @@ import pytest
 from independence import Change, declared, owner, report, spellings
 
 TITLES = {"dicom": "DICOM", "fits": "FITS", "grib": "GRIB", "mp3": "MP3", "mrc": "MRC", "mrc-dataset": "MRC dataset",
-          "nifti": "NIfTI", "npy": "NumPy", "ome-zarr": "OME-Zarr", "safe": "Sentinel-2 SAFE",
-          "safetensors": "safetensors", "tiff": "TIFF", "zarr2": "Zarr v2"}
+          "nifti": "NIfTI", "npy": "NumPy", "ome-zarr": "OME-Zarr", "precomputed": "Neuroglancer precomputed",
+          "safe": "Sentinel-2 SAFE", "safetensors": "safetensors", "tiff": "TIFF", "zarr2": "Zarr v2"}
 NAMES = sorted(TITLES)
 SPELLED = spellings([{"name": n, "title": t, "kind": "file"} for n, t in TITLES.items()])
 
@@ -57,7 +57,7 @@ def test_what_is_not_reported():
         # a file of no format, whose added lines name no profile (thread-safe, safe_l1c, tiff_set, the titles that
         # hold Zarr, and a name with no capital letter where code names nothing): shared machinery
         Change("python/src/refkv/ir/store.py", ("# thread-safe: a safe_l1c run, or a tiff_set,",
-                                                "# read as OME-Zarr or Zarr v2, or Neuroglancer precomputed",
+                                                "# read as OME-Zarr or Zarr v2, or a precomputed table",
                                                 "    const safe = (v: bigint) => v;  // none fits, so: fits.",
                                                 "    Ok(fits.then_some(x)) && safe.test(c); `fits(value)` gives")),
     ]
@@ -77,7 +77,7 @@ def test_what_is_not_reported():
     assert {line: independence.mentions(line, SPELLED) for line in [
         'for name in ["dicom", "npy"]:', "NumPy's and NIfTI's, and an NPY file", "a SAFE product, `mrc-dataset`",
         "Tiff, Dicom, nifti_pair, refkv.grib", "OME-Zarr, Zarr v2, 'ome-zarr', zarr2.md",
-        "a safetensors file, an MRC dataset, Sentinel-2 SAFE",
+        "a safetensors file, an MRC dataset, Sentinel-2 SAFE", "Neuroglancer precomputed volumes, a precomputed table",
         "use crate::tiff::Ifd; see spec/zarrify/fits.md and zarrify/mp3/", "it fits; a safe tiff, mrc-dataset",
         "pub mod tiff;", "from refkv.zarrify import common, safe", "use crate::{fits, grib};", "import fits, tiff",
         "far from safe; import fits from the model; and zarr2", "  nifti: [...], `fits(value)`, fits.then_some",
@@ -88,6 +88,7 @@ def test_what_is_not_reported():
         "Tiff, Dicom, nifti_pair, refkv.grib": {"grib"},
         "OME-Zarr, Zarr v2, 'ome-zarr', zarr2.md": {"ome-zarr", "zarr2"},
         "a safetensors file, an MRC dataset, Sentinel-2 SAFE": {"safetensors", "mrc-dataset", "safe"},  # titles
+        "Neuroglancer precomputed volumes, a precomputed table": {"precomputed"},  # by the title alone
         "use crate::tiff::Ifd; see spec/zarrify/fits.md and zarrify/mp3/": {"tiff", "fits", "mp3"},
         "it fits; a safe tiff, mrc-dataset": {"mrc-dataset"},  # a name with a digit or `-` is no word
         "pub mod tiff;": {"tiff"},
