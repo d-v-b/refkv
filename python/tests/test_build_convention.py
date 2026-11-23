@@ -34,13 +34,9 @@ FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 NPY = str(FIXTURES / "npy" / "npy_c_float64.npy")
 
 
-@pytest.fixture
-def small_payloads():
-    """An edge chunk's padded reference passes the payload limit at 64 bytes, so that small
-    arrays have copied chunks."""
-    _core._set_copy_threshold(64)
-    yield
-    _core._set_copy_threshold(None)
+# an edge chunk's padded reference passes the payload limit at 64 bytes, so that small arrays have
+# copied chunks
+SMALL_PAYLOADS = _core.Chunking(copy_threshold=64)
 
 
 def _array(tmp_path, shape, dtype="|u1"):
@@ -51,7 +47,6 @@ def _array(tmp_path, shape, dtype="|u1"):
     return str(path), path.stat().st_size - values.nbytes, values
 
 
-@pytest.mark.usefixtures("small_payloads")
 @pytest.mark.parametrize(("shape", "dtype", "limit"), [
     ((), "<i4", 1 << 20),  # a scalar: one chunk of no coordinates
     ((6, 4), "<i2", 1 << 20),  # the whole array in one chunk
@@ -63,11 +58,11 @@ def _array(tmp_path, shape, dtype="|u1"):
 ])
 def test_grid_cuts_contiguous_values_into_chunks_that_tile_them(tmp_path, shape, dtype, limit):
     """Each chunk is a range of the span, in C order and at most `limit` bytes; an edge chunk is
-    padded with zeros to the chunk shape, or copied; and the chunks, filled and laid on the grid,
-    hold the array's values."""
+    padded with zeros to the chunk shape, or copied, as the input's chunking says; and the chunks,
+    filled and laid on the grid, hold the array's values."""
     path, offset, values = _array(tmp_path, shape, dtype)
     item = values.dtype.itemsize
-    with read(path) as p:
+    with read(path, chunking=SMALL_PAYLOADS) as p:
         chunk_shape, chunks = grid(Ref(p, 0, offset, values.nbytes), shape, item, limit=limit)
         assert len(chunk_shape) == len(shape)
         full = math.prod(chunk_shape) * item

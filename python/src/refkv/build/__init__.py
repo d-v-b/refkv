@@ -18,6 +18,7 @@ routines that build on them come later. The routines of each format's convention
 
 from typing import Any
 
+from refkv._core import Chunking
 from refkv.entries import MAX_PAYLOAD
 
 from . import routines
@@ -52,6 +53,7 @@ __all__ = [
     "MAX_PAYLOAD",
     "MAX_SOURCES",
     "Array",
+    "Chunking",
     "Copy",
     "Data",
     "Literal",

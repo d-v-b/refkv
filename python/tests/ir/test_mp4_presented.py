@@ -26,7 +26,7 @@ import av
 import numpy as np
 import pytest
 from described import Described, described
-from ir_helpers import FIXTURES, core_setting
+from ir_helpers import FIXTURES
 
 from refkv import _core
 from refkv._narrow import JSON, at, integer, mapping, sequence, string
@@ -191,8 +191,8 @@ def compared(path: Path, frames: int) -> tuple[tuple[str, ...], Counter]:
     """What differs between the arrays the profile wrote of the file at `path`, of at most `frames`
     pictures a chunk, and the file's descriptions, and what the comparison saw."""
     d = described(path)
-    with core_setting(_core._set_chunk_frames, None if frames == MOST else frames):
-        _, out = _zarrify(str(path), scope=str(path.parent))
+    chunking = _core.Chunking(chunk_frames=None if frames == MOST else frames)
+    _, out = _zarrify(str(path), scope=str(path.parent), chunking=chunking)
     assert isinstance(out, Output), "an MP4 is one file"
     root = mapping(json.loads(out.bytes_entries["zarr.json"]), "root")
     tracks = sequence(at(root, "attributes", "refkv_zarrified", "mp4", "tracks"))

@@ -14,7 +14,7 @@ import nrrd
 import numpy as np
 import pytest
 import zarr
-from ir_helpers import FIXTURES, ROOT, core_setting
+from ir_helpers import FIXTURES, ROOT
 
 import refkv.zarr
 from refkv import _core
@@ -41,8 +41,9 @@ def duplicate_keys(monkeypatch):
     monkeypatch.setattr(nrrd.reader, "ALLOW_DUPLICATE_FIELD", True)
 
 
-def zarrified(path: Path, url: str | None = None, policy: Policy | None = None) -> tuple[StoreIrOutput, zarr.Group]:
-    fmt, out = zarrify(str(path), url=url, policy=policy)
+def zarrified(path: Path, url: str | None = None, policy: Policy | None = None,
+              chunking: _core.Chunking | None = None) -> tuple[StoreIrOutput, zarr.Group]:
+    fmt, out = zarrify(str(path), url=url, policy=policy, chunking=chunking)
     assert fmt == "nrrd"
     assert isinstance(out, StoreIrOutput)
     return out, zarr.open_group(refkv.zarr.store(out.to_store(policy=policy)), mode="r", zarr_format=3)
@@ -103,8 +104,7 @@ def test_edge_chunks_past_the_payload_are_copied(tmp_path):
     limit of 8 bytes, the padded edge chunk of nrrd_chunk_edge.nrrd is copied, by the run's last
     batch, and the array is still pynrrd's."""
     path = NRRD / "nrrd_chunk_edge.nrrd"
-    with core_setting(_core._set_copy_threshold, 8):
-        out, root = zarrified(path)
+    out, root = zarrified(path, chunking=_core.Chunking(copy_threshold=8))
     assert "0/c/2/0/0" in out.entries
     assert "0/c/2/0/0" not in out.refs
     assert np.array_equal(ndarray(root.get_array("0")[...]), expected(path, root, tmp_path))

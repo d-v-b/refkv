@@ -678,13 +678,13 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, _size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::refused("a GRIB file is zarrified as a store run, with its index")
     }
-    fn project(&self, _: &Ir, _: &J, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
+    fn project(&self, _: &Ir, _: &J, _: &str, _: &crate::project::Copied, _chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
         Err("a GRIB file is zarrified as a store run".into())
     }
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)], _chunking: &crate::out::Chunking) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
     Ok(Box::new(Grib::new(ir, objects, keys)?))
 }
 

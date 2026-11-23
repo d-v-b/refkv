@@ -11,9 +11,9 @@
 //! plan of it (`plan`).
 
 use super::{arr, base64, n, Copied};
-use crate::flac::{data_type, shard_frames};
+use crate::flac::data_type;
 use crate::ir::Ir;
-use crate::out::{array_json, blob_chunks, bytes_codec, declared_group, group_doc, stream_parts, Chunk, Out};
+use crate::out::{array_json, blob_chunks, bytes_codec, declared_group, group_doc, stream_parts, Chunk, Chunking, Out};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -33,21 +33,21 @@ pub fn setup(streaminfo: &[u8]) -> Vec<u8> {
 /// refkv's plan of the file a description describes (spec/zarrify/flac.md §4.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#41-the-array>, §8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#82-shards>): `shard_frames`,
-/// the frames of a shard (512, or every frame when there are fewer), and `data_type`, the
+/// the frames of a shard (`chunking`'s, 512, or every frame when there are fewer), and `data_type`, the
 /// samples' Zarr data type, the smallest signed integer that holds STREAMINFO's bits. The plan is
 /// public data that belongs to refkv's convention, not to the IR.
-pub fn plan(description: &J) -> Result<J, String> {
+pub fn plan(description: &J, chunking: &Chunking) -> Result<J, String> {
     let count = n(&description["frames"]) as usize;
     if count == 0 {
         return Err("internal: the description has no frames".into());
     }
     let bits = n(&description["streaminfo"]["bits_per_sample"]);
-    Ok(json!({"shard_frames": shard_frames().max(1).min(count), "data_type": data_type(bits)}))
+    Ok(json!({"shard_frames": chunking.shard_frames.max(1).min(count), "data_type": data_type(bits)}))
 }
 
-pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied, chunking: &Chunking) -> Result<Out, String> {
     let d = description;
-    let plan = plan(d)?;
+    let plan = plan(d, chunking)?;
     let per = n(&plan["shard_frames"]) as usize;
     let first = n(&d["elements"]["frames"]) as usize;
     let count = n(&d["frames"]) as usize;
@@ -143,25 +143,25 @@ pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied) -> Result<
 #[cfg(test)]
 mod tests {
     use super::plan;
-    use crate::flac::{set_shard_frames, DEFAULT_SHARD_FRAMES};
+    use crate::flac::DEFAULT_SHARD_FRAMES;
+    use crate::out::Chunking;
     use serde_json::json;
 
     /// A shard holds 512 frames, or every frame when there are fewer; the data type is the smallest
     /// signed integer that holds the samples' bits.
     #[test]
     fn the_plan_sizes_shards_and_picks_the_data_type() {
-        set_shard_frames(None);
         let d = |frames, bits| json!({"frames": frames, "streaminfo": {"bits_per_sample": bits}});
         let cases = [(1000, 16, DEFAULT_SHARD_FRAMES, "int16"), (7, 8, 7, "int8"), (600, 12, DEFAULT_SHARD_FRAMES, "int16"),
                      (3, 24, 3, "int32"), (512, 32, 512, "int32")];
         for (frames, bits, shard, dtype) in cases {
-            assert_eq!(plan(&d(frames, bits)).unwrap(), json!({"shard_frames": shard, "data_type": dtype}), "{frames} {bits}");
+            assert_eq!(plan(&d(frames, bits), &Chunking::default()).unwrap(), json!({"shard_frames": shard, "data_type": dtype}), "{frames} {bits}");
         }
     }
 
     #[test]
     fn a_description_of_no_frames_has_no_plan() {
         let d = json!({"frames": 0, "streaminfo": {"bits_per_sample": 16}});
-        assert!(plan(&d).unwrap_err().contains("no frames"));
+        assert!(plan(&d, &Chunking::default()).unwrap_err().contains("no frames"));
     }
 }

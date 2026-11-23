@@ -491,6 +491,42 @@ fn czi_bands(h: u64, h2: u64, r: u64, w: u64, q: u64, uncompressed: bool) -> (St
 #[pyclass(name = "Run", module = "refkv._core")]
 pub struct PyRun {
     r: Option<refkv_ir::run::Run>,
+    chunking: refkv_ir::out::Chunking,
+}
+
+/// How refkv's convention cuts a source into chunks (`out::Chunking`): the edge chunk payload past
+/// which a projection copies (`copy_threshold`), the frames of an MP3 chunk and the most of an MP4
+/// or H5J one (`chunk_frames`), and the frames of a FLAC shard (`shard_frames`), each the
+/// convention's when not given. A run holds one from its start (`Run(..., chunking=)`,
+/// `StoreRun(..., chunking=)`); another than the convention's is for tests, and its output is not
+/// the convention's.
+#[pyclass(name = "Chunking", module = "refkv._core", frozen, eq, hash, from_py_object)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PyChunking(pub refkv_ir::out::Chunking);
+
+#[pymethods]
+impl PyChunking {
+    #[new]
+    #[pyo3(signature = (*, copy_threshold=None, chunk_frames=None, shard_frames=None))]
+    fn new(copy_threshold: Option<usize>, chunk_frames: Option<usize>, shard_frames: Option<usize>) -> Self {
+        PyChunking(refkv_ir::out::Chunking::new(copy_threshold, chunk_frames, shard_frames))
+    }
+    #[getter]
+    fn copy_threshold(&self) -> usize {
+        self.0.copy_threshold
+    }
+    #[getter]
+    fn chunk_frames(&self) -> usize {
+        self.0.chunk_frames
+    }
+    #[getter]
+    fn shard_frames(&self) -> usize {
+        self.0.shard_frames
+    }
+    fn __repr__(&self) -> String {
+        let c = self.0;
+        format!("Chunking(copy_threshold={}, chunk_frames={}, shard_frames={})", c.copy_threshold, c.chunk_frames, c.shard_frames)
+    }
 }
 
 impl PyRun {
@@ -502,11 +538,13 @@ impl PyRun {
 #[pymethods]
 impl PyRun {
     #[new]
-    #[pyo3(signature = (format, size, remote, concurrency, amplification=None, byte_cost=None, whole_below=None))]
+    #[pyo3(signature = (format, size, remote, concurrency, amplification=None, byte_cost=None, whole_below=None, chunking=None))]
+    #[allow(clippy::too_many_arguments)]
     fn new(format: &str, size: u64, remote: bool, concurrency: usize, amplification: Option<f64>, byte_cost: Option<f64>,
-           whole_below: Option<u64>) -> PyResult<Self> {
+           whole_below: Option<u64>, chunking: Option<PyChunking>) -> PyResult<Self> {
         let f = refkv_ir::run::Format::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no format {format:?}")))?;
-        let mut r = refkv_ir::run::Run::new(f, size, remote, concurrency);
+        let chunking = chunking.map(|c| c.0).unwrap_or_default();
+        let mut r = refkv_ir::run::Run::with_chunking(f, size, remote, concurrency, chunking);
         r.planner.cap_override = amplification;
         if let Some(c) = byte_cost {
             r.planner.byte_cost = c;
@@ -514,7 +552,12 @@ impl PyRun {
         if let Some(w) = whole_below {
             r.planner.whole_below = w;
         }
-        Ok(PyRun { r: Some(r) })
+        Ok(PyRun { r: Some(r), chunking })
+    }
+    /// How the run's projection cuts the source, given at its start.
+    #[getter]
+    fn chunking(&self) -> PyChunking {
+        PyChunking(self.chunking)
     }
     fn poll(&mut self, py: Python<'_>) -> PyResult<Option<Vec<Vec<(u64, u64)>>>> {
         let r = self.get()?;
@@ -572,11 +615,11 @@ impl PyRun {
     fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, layouts: Option<Vec<String>>, checksums: bool,
                    written: bool) -> PyResult<(Bound<'py, PyAny>, PyIr)> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
-        let format = r.format;
+        let (format, chunking) = (r.format, r.chunking());
         let (o, ir) = py
             .detach(|| -> Result<_, refkv_ir::seal::Refusal> {
                 let f = r.finish_copied()?;
-                let options = refkv_ir::run::Options { layouts: layouts.as_deref(), checksums, written };
+                let options = refkv_ir::run::Options { layouts: layouts.as_deref(), checksums, written, chunking };
                 Ok((refkv_ir::run::output(format, &f.ir, &f.description, &f.counts, f.stats, url, mirror, &f.copied, &options)?, f.ir))
             })
             .map_err(refused)?;
@@ -613,7 +656,7 @@ impl PyRun {
     fn view(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         let r = self.get()?;
         let (ir, description) = r.shared().map_err(PyValueError::new_err)?;
-        formats::view(py, r.format.name(), &formats::View { ir, description, store: false, held: None })
+        formats::view(py, r.format.name(), &formats::View { ir, description, store: false, held: None, chunking: r.chunking() })
     }
     /// What makes the mirror of a run that is done (`Mirror`): its IR and description, shared with the
     /// run, which is kept and may be used while the mirror is made.
@@ -677,6 +720,7 @@ pub struct PyStoreRun {
     /// the run finished without an output (`parse`): its format, IR, description, and the run's counts
     /// with what it read for the projection, kept
     parsed: Option<(refkv_ir::store::StoreFormat, Arc<Ir>, Arc<serde_json::Value>, (serde_json::Value, Arc<refkv_ir::store::Read>))>,
+    chunking: refkv_ir::out::Chunking,
 }
 
 impl PyStoreRun {
@@ -688,10 +732,17 @@ impl PyStoreRun {
 #[pymethods]
 impl PyStoreRun {
     #[new]
-    fn new(format: &str, listing: Vec<(String, u64)>, concurrency: usize) -> PyResult<Self> {
+    #[pyo3(signature = (format, listing, concurrency, chunking=None))]
+    fn new(format: &str, listing: Vec<(String, u64)>, concurrency: usize, chunking: Option<PyChunking>) -> PyResult<Self> {
         let f = refkv_ir::store::StoreFormat::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no store format {format:?}")))?;
-        let r = refkv_ir::store::StoreRun::new(f, listing, concurrency).map_err(Rejected::new_err)?;
-        Ok(PyStoreRun { r: Some(r), parsed: None })
+        let chunking = chunking.map(|c| c.0).unwrap_or_default();
+        let r = refkv_ir::store::StoreRun::with_chunking(f, listing, concurrency, chunking).map_err(Rejected::new_err)?;
+        Ok(PyStoreRun { r: Some(r), parsed: None, chunking })
+    }
+    /// How the run's parser and projection cut the store's arrays, given at its start.
+    #[getter]
+    fn chunking(&self) -> PyChunking {
+        PyChunking(self.chunking)
     }
     #[allow(clippy::type_complexity)]
     fn poll(&mut self, py: Python<'_>) -> PyResult<Option<Vec<(usize, String, Vec<(u64, u64)>)>>> {
@@ -773,7 +824,8 @@ impl PyStoreRun {
     /// None for a format that has none.
     fn view(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         let (format, ir, description, (_, read)) = self.parsed.as_ref().ok_or_else(|| PyValueError::new_err("not parsed"))?;
-        let v = formats::View { ir: Arc::clone(ir), description: Arc::clone(description), store: true, held: Some(Arc::clone(read)) };
+        let v = formats::View { ir: Arc::clone(ir), description: Arc::clone(description), store: true, held: Some(Arc::clone(read)),
+                                chunking: read.chunking };
         formats::view(py, format.name(), &v)
     }
     /// The profile's description of the input (JSON), of a run `parse` finished.
@@ -1019,14 +1071,15 @@ type GridChunk = (Vec<u64>, u64, u64, u64, bool);
 /// The C-order array of `shape`, of `item`-byte elements contiguous at `offset`, cut as
 /// conventions §7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
-/// contiguous values into chunks of at most `limit` bytes (`out::grid_chunks`, with the copy
-/// threshold the built-in projections use): its chunk shape and its chunks, or None when an
-/// element is larger than `limit` or the sizes overflow.
+/// contiguous values into chunks of at most `limit` bytes (`out::grid_chunks`), an edge chunk
+/// copied past `copy_threshold` (a run's `Chunking.copy_threshold`, as its projection copies): its
+/// chunk shape and its chunks, or None when an element is larger than `limit` or the sizes
+/// overflow.
 #[pyfunction]
-fn grid_chunks(py: Python<'_>, offset: u64, shape: Vec<u64>, item: u64, limit: u64) -> Option<(Vec<u64>, Vec<GridChunk>)> {
+fn grid_chunks(py: Python<'_>, offset: u64, shape: Vec<u64>, item: u64, limit: u64, copy_threshold: usize) -> Option<(Vec<u64>, Vec<GridChunk>)> {
     use refkv_ir::out::{Chunk, Part};
     py.detach(|| {
-        let (grid, chunks) = refkv_ir::out::grid_chunks(offset, &shape, item, limit, refkv_ir::out::copy_threshold())?;
+        let (grid, chunks) = refkv_ir::out::grid_chunks(offset, &shape, item, limit, copy_threshold)?;
         let chunks = chunks.into_iter().map(|(coords, chunk)| match chunk {
             Chunk::Copy(o, n, pad) => Some((coords, o, n, pad, true)),
             Chunk::Ranges(parts) => match parts.as_slice() {
@@ -1063,37 +1116,8 @@ fn gzip_frame<'py>(py: Python<'py>, crc32: u32, size: u64) -> (Bound<'py, PyByte
     (PyBytes::new(py, &refkv_ir::out::GZIP_HEADER), PyBytes::new(py, &trailer))
 }
 
-/// For tests: the reference payload past which a NIfTI or MRC edge chunk is copied (None:
-/// the payload limit), so that small files reach the copy (spec/zarrify/nifti.md §7.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>,
-/// spec/zarrify/mrc.md §8.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#82-chunks>).
-#[pyfunction]
-#[pyo3(signature = (n=None))]
-fn _set_copy_threshold(n: Option<usize>) {
-    refkv_ir::out::set_copy_threshold(n);
-}
-
-/// For tests: the frames of a FLAC shard (None: 512), so that small files have several shards
-/// (spec/zarrify/flac.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#82-shards>).
-#[pyfunction]
-#[pyo3(signature = (n=None))]
-fn _set_shard_frames(n: Option<usize>) {
-    refkv_ir::flac::set_shard_frames(n);
-}
-
-/// For tests: the frames of an MP3 chunk (None: 256), so that small files have several chunks,
-/// each with its lead-in (spec/zarrify/mp3.md §8.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#82-chunks>).
-#[pyfunction]
-#[pyo3(signature = (n=None))]
-fn _set_chunk_frames(n: Option<usize>) {
-    refkv_ir::mp3::set_chunk_frames(n);
-}
-
 // Safe without the GIL (`gil_used = false`), so a free-threaded Python keeps it disabled on
-// import. The process-wide settings above are atomics, which each run reads once, into its
-// description. A run (`Run`, `StoreRun`, ...) takes `&mut self` and is driven by one
+// import: the core holds no process-wide setting (a run's `Chunking` is its own). A run (`Run`, `StoreRun`, ...) takes `&mut self` and is driven by one
 // thread at a time: a second thread's call while one is under way raises RuntimeError
 // ("Already borrowed"), on any build, since a call detaches while the core works.
 #[pymodule(gil_used = false)]
@@ -1113,9 +1137,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(h5_bitshuffle_decode, m)?)?;
     m.add_function(wrap_pyfunction!(grib_decode, m)?)?;
     m.add_function(wrap_pyfunction!(coding, m)?)?;
-    m.add_function(wrap_pyfunction!(_set_copy_threshold, m)?)?;
-    m.add_function(wrap_pyfunction!(_set_chunk_frames, m)?)?;
-    m.add_function(wrap_pyfunction!(_set_shard_frames, m)?)?;
+    m.add_class::<PyChunking>()?;
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
     m.add_class::<PyMirror>()?;
     formats::register(m)?;

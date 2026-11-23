@@ -15,7 +15,7 @@ use super::{arr, contiguous, key, Copied, CopiedChunk};
 use crate::beside::{written_key, Written};
 use crate::hdf5;
 use crate::ir::Ir;
-use crate::out::{copy_threshold, declare, declared_group, grid_chunks, Chunk, Out, Part};
+use crate::out::{declare, declared_group, grid_chunks, Chunk, Chunking, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 use std::collections::HashMap;
@@ -65,8 +65,8 @@ fn contiguous_chunks(a: &J, threshold: usize) -> Result<Option<(Vec<u64>, Vec<(V
 }
 
 /// The source's ranges of the contiguous edge chunks the projection copies.
-pub fn reads(_ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
-    let threshold = copy_threshold();
+pub fn reads(_ir: &Ir, description: &J, chunking: &Chunking) -> Result<Vec<(u64, u64)>, String> {
+    let threshold = chunking.copy_threshold;
     let mut out = Vec::new();
     for node in &nodes(description)?.nodes {
         if let Some((_, chunks)) = contiguous_chunks(&node["array"], threshold)? {
@@ -200,9 +200,9 @@ fn run_of(chunk: &Chunk, item: u64) -> (u64, u64, u64) {
     }
 }
 
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> Result<Out, String> {
     let Nodes { nodes, summary } = nodes(description)?;
-    build(ir, &nodes, summary, url, url, copied, copy_threshold(), None)
+    build(ir, &nodes, summary, url, url, copied, chunking.copy_threshold, None)
 }
 
 /// The HDF5 convention's hierarchy of a file run's description (a description, spec/zarrify/hdf5.md
@@ -210,7 +210,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<O
 /// store run's (`store`): its nodes, and its documents and chunks as the projection writes them,
 /// but for the edge chunks it copies, which it gives apart, as ranges to copy: it reads nothing. The
 /// routine a layout calls for the convention's hierarchy (`refkv.build.hdf5_hierarchy`).
-pub fn hierarchy(ir: &Ir, description: &J, store: bool) -> Result<(Vec<J>, Out, Vec<CopiedChunk>), String> {
+pub fn hierarchy(ir: &Ir, description: &J, store: bool, chunking: &Chunking) -> Result<(Vec<J>, Out, Vec<CopiedChunk>), String> {
     let mut copies = Vec::new();
     let (nodes, out) = if store {
         let (nodes, summary, named) = store_nodes(description)?;
@@ -218,7 +218,7 @@ pub fn hierarchy(ir: &Ir, description: &J, store: bool) -> Result<(Vec<J>, Out, 
         (nodes, out)
     } else {
         let Nodes { nodes, summary } = nodes(description)?;
-        let out = build(ir, &nodes, summary, "", "", &Copied::new(), copy_threshold(), Some(&mut copies))?;
+        let out = build(ir, &nodes, summary, "", "", &Copied::new(), chunking.copy_threshold, Some(&mut copies))?;
         (nodes, out)
     };
     Ok((nodes, out, copies))
@@ -562,7 +562,7 @@ fn build(ir: &Ir, nodes: &[J], mut summary: J, url: &str, source: &str, copied: 
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> Result<Out, String> {
     project_store(ir, description, url)
 }
 

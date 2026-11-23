@@ -10,6 +10,7 @@ import jsonschema
 import pytest
 from ir_helpers import ROOT
 
+from refkv import _core
 from refkv.ir import Ir, Kind
 from refkv.ir.store import StoreIrOutput
 from refkv.ir.stored import ElementPlace, Place, Stored
@@ -81,11 +82,12 @@ def object_keys(ir: Ir) -> dict[int, str]:
 
 
 @cache
-def described(path: Path) -> Described:
+def described(path: Path, chunking: _core.Chunking | None = None) -> Described:
     """The IR of the file at `path`, read with the files beside it or below its directory that it
     names (an external file, an external link's target, a detached data file), its descriptions'
-    document checked against the schema."""
-    _, out = _zarrify(str(path), scope=str(path.parent))
+    document checked against the schema; its output cut as `chunking` says (default: the
+    convention's)."""
+    _, out = _zarrify(str(path), scope=str(path.parent), chunking=chunking)
     core = out.ir
     assert core is not None
     jsonschema.validate(json.loads(core.stored_arrays()), SCHEMA)
