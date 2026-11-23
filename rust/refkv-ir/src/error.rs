@@ -110,6 +110,23 @@ impl From<&str> for Error {
 mod tests {
     use super::*;
 
+    /// The migration's conversion reads a module's message by the prefix it was written with, at
+    /// its start only: a message given context before its prefix is read as a rejection, as every
+    /// host read every message before.
+    #[test]
+    fn a_string_is_read_by_its_prefix() {
+        let cases = [
+            ("internal: no IR", Error::Internal("internal: no IR".into())),
+            ("budget: more than 8 reads", Error::Budget("budget: more than 8 reads".into())),
+            ("a short file", Error::Rejected("a short file".into())),
+            ("k: internal: x", Error::Rejected("k: internal: x".into())),
+        ];
+        for (m, want) in cases {
+            assert_eq!(Error::from(m.to_string()), want, "{m}");
+            assert_eq!(Error::from(m), want, "{m}");
+        }
+    }
+
     #[test]
     fn a_message_keeps_its_words_and_its_variant_through_context() {
         let cases = [

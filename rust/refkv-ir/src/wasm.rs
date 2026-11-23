@@ -200,7 +200,8 @@ pub extern "C" fn vz_failed() -> u32 {
 /// `Format::from_name`, such as `tiff`; a TIFF run becomes an NDPI one when its parser finds the
 /// file is NDPI: the output's summary names the format) over a source of `size` bytes, remote or
 /// not, read by the host at most `concurrency` requests at a time: the run (a pointer, positive),
-/// or minus the length of a rejection's message at `vz_out()` for a name that is no format's.
+/// or minus the length of an error's message at `vz_out()` for a name that is no format's (a
+/// failure of the host's: `vz_failed`).
 ///
 /// # Safety
 /// `format` and `nf` from `vz_alloc(nf)`.
@@ -262,7 +263,7 @@ pub unsafe extern "C" fn vz_run_multirange(p: *mut Run, v: i32) {
 /// The requests to make now: 1 + the byte length at `vz_out()` of u32 count, then per
 /// request a u32 span count and its spans as u64 (start, end) pairs (one span: a
 /// plain range request; several: a multi-range one); 0 when the run is done; or
-/// minus the length of a rejection's message.
+/// minus the length of an error's message (`vz_failed` tells a failure from a rejection).
 ///
 /// # Safety
 /// `p` from `vz_run_new`.
@@ -299,7 +300,7 @@ pub unsafe extern "C" fn vz_run_beside(p: *mut Run) -> i32 {
 /// Request `k` of the last poll completed in `seconds`: with `ok`, `data`/`n` (from
 /// `vz_alloc`, consumed) are its spans' bytes one after another; without, a
 /// multi-range request the server did not answer with its ranges (`data` null).
-/// 0, or minus the length of a rejection's message.
+/// 0, or minus the length of an error's message (`vz_failed` tells a failure from a rejection).
 ///
 /// # Safety
 /// `p` from `vz_run_new`; `data`, `n` from `vz_alloc(n)` or null and 0.
@@ -376,7 +377,8 @@ use crate::store::{StoreFormat, StoreRun};
 /// A store run of the store format named `format` (UTF-8, e.g. `zarr2`) over the
 /// listing `listing` (the JSON `[[key, size], ...]`; both from `vz_alloc`, consumed), the
 /// host reading at most `concurrency` objects at a time: the run (a pointer, positive), or
-/// minus the length of a rejection's message at `vz_out()`.
+/// minus the length of an error's message at `vz_out()` (`vz_failed` tells a failure from a
+/// rejection).
 ///
 /// # Safety
 /// `format`/`nf` and `listing`/`nl` from `vz_alloc`.
@@ -398,7 +400,7 @@ pub unsafe extern "C" fn vz_store_new(format: *mut u8, nf: usize, listing: *mut 
 /// The object reads to make now: 1 + the byte length at `vz_out()` of a u32 count, then per
 /// request the u32 index of its object in the listing, a u32 span count and the spans as
 /// u64 (start, end) pairs (each a range request; a whole object is one span); 0 when the
-/// run is done; or minus the length of a rejection's message.
+/// run is done; or minus the length of an error's message (`vz_failed` tells a failure from a rejection).
 ///
 /// # Safety
 /// `p` from `vz_store_new`.
@@ -424,7 +426,7 @@ pub unsafe extern "C" fn vz_store_poll(p: *mut StoreRun) -> i64 {
 }
 
 /// Request `k` of the last poll completed: `data`/`n` (from `vz_alloc`, consumed) are its
-/// spans' bytes one after another. 0, or minus the length of a rejection's message.
+/// spans' bytes one after another. 0, or minus the length of an error's message (`vz_failed` tells a failure from a rejection).
 ///
 /// # Safety
 /// `p` from `vz_store_new`; `data`, `n` from `vz_alloc(n)` (or null and 0).
@@ -473,7 +475,7 @@ pub unsafe extern "C" fn vz_store_output(p: *mut StoreRun, url: *mut u8, n: usiz
 /// The keys the listing ignores, before the first poll (`StoreRun::ignore`): `json` (from
 /// `vz_alloc`, consumed) is `[[key, ...], [folder, ...]]`, the relative keys the store reader
 /// ignored and recorded, which the projection records, and the empty `d/` keys, which a SAFE
-/// directory's parser reads as directories. 0, or minus the length of a rejection's message.
+/// directory's parser reads as directories. 0, or minus the length of an error's message (`vz_failed` tells a failure from a rejection).
 ///
 /// # Safety
 /// `p` from `vz_store_new`; `json`, `n` from `vz_alloc(n)`.
@@ -491,7 +493,7 @@ pub unsafe extern "C" fn vz_store_ignore(p: *mut StoreRun, json: *mut u8, n: usi
 
 /// The scope of the input, before the first poll (`StoreRun::scope`): `json` (from `vz_alloc`,
 /// consumed) is `[key, ...]`, each a key or a directory's key followed by `/`. 0, or minus the
-/// length of a rejection's message.
+/// length of an error's message (`vz_failed` tells a failure from a rejection).
 ///
 /// # Safety
 /// `p` from `vz_store_new`; `json`, `n` from `vz_alloc(n)`.
@@ -518,7 +520,7 @@ pub unsafe extern "C" fn vz_store_probes(p: *mut StoreRun) -> i64 {
 }
 
 /// The answer to the next probe of the batch: the key's size, or −1 when it does not exist. 0,
-/// or minus the length of a rejection's message.
+/// or minus the length of an error's message (`vz_failed` tells a failure from a rejection).
 ///
 /// # Safety
 /// `p` from `vz_store_new`.

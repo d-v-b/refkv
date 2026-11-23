@@ -609,9 +609,11 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
       `ListingFailed` and `StoreLimit` (`refkv.zarrify`) are the two of a store: its listing
       could not be read (a network error, or a 408, 429 or 5xx status), or it lists more than
       `max_objects` objects. A registered store raises its own errors, as it raises them.
-    - `Failed` (`refkv.zarrify.Failed`, a `ValueError`): the output would pass the payload limit
-      only with its checksums, which is no rejection of the input (spec/zarrify.md §1.2
-      <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
+    - `Failed` (`refkv.zarrify.Failed`, a `ValueError`): refkv failed on an input it accepted, which
+      is no rejection of the input (spec/zarrify.md §1.2
+      <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): the output would pass
+      the payload limit only with its checksums, a response did not match its request, or a bug
+      of refkv's.
     - `ValueError`: a `file:` URL that names no local path (one with a query, say), or an
       argument out of range.
     - `TypeError`: a read option passed beside a source or store instance.

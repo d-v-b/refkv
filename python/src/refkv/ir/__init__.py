@@ -327,7 +327,8 @@ async def zarrify_async(location: str, url: str | None = None, mirror: bool = Tr
     the ranges' checksums, so that a sharded array's ranges are not joined across inner chunks
     (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>),
     and, when `written` (the output is written as it is, not only built from), a payload over the
-    limit only with them is `refkv._core.Failed`."""
+    limit only with them is `refkv._core.Failed`, as a bug of refkv's or a response that does not
+    match its request is."""
     parsed = await parse_async(location, url, policy, transport, connections, byte_cost, fmt)
     out = await parsed.output_async(mirror, layouts, checksums, written)
     return parsed.fmt, out, parsed.ir
