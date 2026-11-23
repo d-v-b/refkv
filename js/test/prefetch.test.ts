@@ -9,6 +9,9 @@ import path from "node:path";
 import { test } from "node:test";
 import { zarrifyStore } from "../src/zarrify/index.ts";
 import { objectUrl, openHttpStore, Prefetch } from "../src/zarrify/store.ts";
+import { ir } from "../src/zarrify/ir/wasm.ts";
+
+await ir(); // the store rules these tests call are the core's host rules
 
 const FIXTURES = path.join(import.meta.dirname, "../../fixtures");
 const URL = "http://h/b/s/";
