@@ -52,12 +52,12 @@ fn check_directory(path: &Path, files: &BTreeMap<String, Vec<u8>>, out: &Out, ir
         }
     }
     // the band files are described in place; the XML documents read whole are held
-    let back = load(&table_from_out(out).unwrap(), &mut |_, _| Err("no source".into())).unwrap();
+    let back = load(&table_from_out(out).unwrap(), &mut |_, _| Err(refkv_ir::error::Error::Internal("no source".into()))).unwrap();
     let src = back.sources();
     let jp2 = src.objects.iter().filter(|&&o| back.in_place(o)).count();
     assert!(jp2 > 0 && src.objects.iter().all(|&o| back.kind[o as usize] == OBJECT), "{path:?}");
     let mut read = |v: u64, n: u64| -> refkv_ir::error::Res<Vec<u8>> {
-        let (o, base) = src.at(&back, v).ok_or("no object at that virtual offset")?;
+        let (o, base) = src.at(&back, v).ok_or_else(|| refkv_ir::error::Error::Internal("no object at that virtual offset".into()))?;
         let x = v - base;
         if x + n > back.len[o as usize] {
             return Err(Error::Internal(format!("[{x}, {}) runs past {:?}", x + n, back.key(o))));

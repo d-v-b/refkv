@@ -449,7 +449,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
     for n in description["nodes"].as_array().map(Vec::as_slice).unwrap_or(&[]) {
         let path = n["path"].as_str().unwrap_or("").to_string();
         let text = n["json"].as_str().ok_or_else(|| Error::internal(format!("{} has no document", document_key(&path))))?;
-        docs.insert(path.clone(), json::parse(text.as_bytes()).map_err(|e| format!("internal: {}: {e}", document_key(&path)))?.value);
+        docs.insert(path.clone(), json::parse(text.as_bytes()).map_err(|e| Error::internal(format!("{}: {e}", document_key(&path))))?.value);
         kinds.insert(path, n["kind"] == "dataset");
     }
     let nodes: BTreeSet<String> = kinds.keys().cloned().collect();

@@ -34,7 +34,7 @@ fn entry(out: &Out) -> impl Fn(&str) -> Option<Vec<u8>> + '_ {
 }
 
 fn no_source(_: u64, _: u64) -> refkv_ir::error::Res<Vec<u8>> {
-    Err("a store's mirror reads no source".into())
+    Err(refkv_ir::error::Error::Internal("a store's mirror reads no source".into()))
 }
 
 #[test]

@@ -86,7 +86,7 @@ fn candidates<'a>(keys: impl Iterator<Item = &'a str>) -> Res<Vec<String>> {
         }
     }
     if !c.contains("") {
-        return Err(NOT_ZARR.into());
+        return Err(Error::rejected(NOT_ZARR));
     }
     let mut v: Vec<String> = c.into_iter().collect();
     v.sort_by(|a, b| (depth(a), a.as_str()).cmp(&(depth(b), b.as_str())));

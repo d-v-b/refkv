@@ -1559,7 +1559,7 @@ impl StoredArray {
             return Err(Error::rejected(format!("is keyed by an element in the run {}, which an unfold would leave behind", named(ctx.ir, ctx.roots[self.element as usize]))));
         }
         for p in &self.declarations {
-            ctx.place(p).map_err(|e| format!("a declaration {e}"))?;
+            ctx.place(p).map_err(|e| e.context(|m| format!("a declaration {m}")))?;
         }
         if self.shape.is_none() {
             let what = [(self.grid.is_some(), "a grid"), (self.axes.is_some(), "axes"), (self.pad_from.is_some(), "pad_from")];
@@ -1622,7 +1622,7 @@ impl StoredArray {
                 Param::Value(J::String(s)) => crate::zarr2::base64(s).map(|b| b.len() as u64).ok_or_else(|| Error::rejected("its fill value is not base64"))?,
                 Param::Value(_) => return Err(Error::rejected("its fill value is not a base64 string")),
                 Param::Source(p) => {
-                    ctx.place(p).map_err(|e| format!("its fill {e}"))?;
+                    ctx.place(p).map_err(|e| e.context(|m| format!("its fill {m}")))?;
                     match p {
                         Place::Element { range: Some((_, n)), .. } | Place::Extent { length: n, .. } => *n,
                         Place::Element { element, .. } => ctx.ir.len[*element as usize],
@@ -1676,7 +1676,7 @@ fn check_chains(ctx: &Ctx, chains: &[Chain]) -> Res<()> {
                     return Err(Error::internal(format!("chain {k}'s codec {} has the parameter {name:?}, which its entry has not", codec.name)));
                 }
                 if let Param::Source(p) = p {
-                    ctx.place(p).map_err(|e| format!("internal: chain {k}'s codec {}'s parameter {name:?} {e}", codec.name))?;
+                    ctx.place(p).map_err(|e| Error::internal(format!("chain {k}'s codec {}'s parameter {name:?} {e}", codec.name)))?;
                 }
             }
         }
@@ -1904,7 +1904,7 @@ pub fn check_with(ir: &Ir, codecs: &[CodecEntry]) -> Res<()> {
     check_undescribed(ir, keys.as_ref())?;
     let ctx = Ctx { ir, codecs, roots: ir.run_roots(), keys };
     for a in &s.arrays {
-        a.check(&ctx, &s.chains).map_err(|e| format!("internal: the stored array of {}: {e}", named(ir, a.element)))?;
+        a.check(&ctx, &s.chains).map_err(|e| Error::internal(format!("the stored array of {}: {e}", named(ir, a.element))))?;
     }
     // the keys: (element, index) once each, and on each element no index or 0 to n - 1
     let mut on: BTreeMap<u32, Vec<Option<u64>>> = BTreeMap::new();

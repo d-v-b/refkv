@@ -20,7 +20,7 @@ fn run_project(dir: &Path, named: &str) -> refkv_ir::error::Res<(refkv_ir::ir::I
     while let Some(reqs) = run.poll()? {
         if reqs.is_empty() {
             for k in run.probes().to_vec() {
-                let found = beside::found_key(&k, list).map_err(|(a, b)| format!("{a} {b}"))?;
+                let found = beside::found_key(&k, list).map_err(|(a, b)| refkv_ir::error::Error::Rejected(format!("{a} {b}")))?;
                 match found.filter(|f: &String| dir.join(f).is_file()) {
                     Some(f) => {
                         let data = read(&f);

@@ -116,7 +116,7 @@ pub fn record_ignored(out: &mut Out, description: &J, profile: &str) -> crate::e
     }
     let key = format!("{}/zarr.json", crate::out::SOURCE_NODE);
     let Some(e) = out.entries.iter().find(|e| e.0 == key) else { return Ok(()) };
-    let mut doc: J = serde_json::from_slice(&e.1).map_err(|e| format!("internal: {e}"))?;
+    let mut doc: J = serde_json::from_slice(&e.1).map_err(Error::internal)?;
     let own = doc["attributes"][CONVENTION_KEY][profile].as_object_mut().ok_or_else(|| Error::internal("refkv_source declares no mirror"))?;
     for (m, v) in members {
         own.insert(m.into(), json!(v));

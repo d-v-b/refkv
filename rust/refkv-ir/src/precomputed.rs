@@ -257,7 +257,7 @@ impl StoreParser for Precomputed {
             return Ok(StoreStep::Read(vec![(k, 0, size)]));
         }
         let b = self.got.take().ok_or_else(|| Error::internal("info not read"))?;
-        let doc = json::parse(&b).map_err(|e| format!("{DOCUMENT}: {e}"))?;
+        let doc = json::parse(&b).map_err(|e| e.context(|m| format!("{DOCUMENT}: {m}")))?;
         let v = &doc.value;
         rules.check("info", &mut Vars(vec![
             ("value", v.to_v()),
@@ -273,7 +273,7 @@ impl StoreParser for Precomputed {
 
     fn feed(&mut self, object: usize, offset: u64, data: &[u8]) {
         if offset != 0 || data.len() as u64 != self.sizes[object] {
-            self.error.get_or_insert_with(|| "internal: the document read in part".into());
+            self.error.get_or_insert_with(|| Error::internal("the document read in part"));
             return;
         }
         self.got = Some(data.to_vec());

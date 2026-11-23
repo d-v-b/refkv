@@ -294,7 +294,7 @@ fn three() -> Table {
 }
 
 fn no_read(_: u64, _: u64) -> refkv_ir::error::Res<Vec<u8>> {
-    Err("no reads".into())
+    Err(refkv_ir::error::Error::Internal("no reads".into()))
 }
 
 /// A table of a 10-byte source: the root and a derived element of its bytes, 8 bytes derived,

@@ -133,7 +133,7 @@ impl<'a> Refs<'a> {
             Some(Err(e)) => return Err(Error::rejected(format!("form {form}: {e}"))),
             _ => return Err(Error::internal(format!("form {form} has no recipe"))),
         };
-        let past = || format!("form {form}: a recipe part past 2^64 bytes");
+        let past = || Error::Rejected(format!("form {form}: a recipe part past 2^64 bytes"));
         let at = |o: u64| start.checked_add(o).ok_or_else(past);
         let mut out = Vec::with_capacity(steps.len());
         for s in steps {
@@ -142,7 +142,7 @@ impl<'a> Refs<'a> {
                     let n = match n {
                         Some(n) => n,
                         None => length.checked_sub(o).ok_or_else(|| {
-                            format!("form {form}: a src part to the element's end from {o}, past its {length} bytes")
+                            Error::Rejected(format!("form {form}: a src part to the element's end from {o}, past its {length} bytes"))
                         })?,
                     };
                     out.push(Part::Src(at(o)?, n));
@@ -391,7 +391,7 @@ mod tests {
     #[test]
     fn rejects_a_recipe_that_is_not_a_list() {
         assert_eq!(recipe_parts(r#"{"src":[0,4]}"#, 10, 20),
-                   Err(r#"form 0: its recipe {"src":[0,4]} is not a list of parts"#.into()));
+                   Err(crate::error::Error::rejected(r#"form 0: its recipe {"src":[0,4]} is not a list of parts"#)));
     }
 
     #[test]

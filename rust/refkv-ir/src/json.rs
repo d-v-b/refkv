@@ -328,7 +328,7 @@ pub fn parse_within(data: &[u8], max_depth: usize) -> crate::error::Res<Doc> {
     if data.starts_with(b"\xef\xbb\xbf") {
         return Err(Error::rejected("JSON document starts with a byte order mark"));
     }
-    let text = std::str::from_utf8(data).map_err(|_| "JSON document is not UTF-8".to_string())?;
+    let text = std::str::from_utf8(data).map_err(|_| Error::rejected("JSON document is not UTF-8"))?;
     let mut p = P { s: text.as_bytes(), at: 0, depth: 0, max_depth, members: Vec::new() };
     p.ws();
     let value = p.value(true)?;

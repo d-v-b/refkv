@@ -58,7 +58,7 @@ pub fn decode(b: &[u8]) -> Res<Vec<u64>> {
     let row = (width * pixel).div_ceil(8);
     let size = height.checked_mul(row + 1).ok_or_else(|| Error::rejected("the PNG image is too large"))?;
     let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&idat, size)
-        .map_err(|e| format!("the PNG image's data does not inflate: {:?}", e.status))?;
+        .map_err(|e| Error::Rejected(format!("the PNG image's data does not inflate: {:?}", e.status)))?;
     if raw.len() != size {
         return Err(Error::rejected(format!("the PNG image's data inflates to {} bytes, not {size}", raw.len())));
     }

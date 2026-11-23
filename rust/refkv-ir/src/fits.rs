@@ -611,7 +611,7 @@ impl Fits {
     fn decode(&mut self, o: u64, n: u64) -> Res<Vec<u8>> {
         let d = self.decoded.as_mut().ok_or_else(|| Error::internal("no stream"))?;
         let name = method(d.transform);
-        let failed = |e: std::io::Error| format!("the {name} stream does not decode: {e}");
+        let failed = |e: std::io::Error| Error::Rejected(format!("the {name} stream does not decode: {e}"));
         std::io::copy(&mut (&mut d.reader).take(o.saturating_sub(d.at)), &mut std::io::sink()).map_err(failed)?;
         let mut b = Vec::with_capacity(n as usize);
         (&mut d.reader).take(n).read_to_end(&mut b).map_err(failed)?;
@@ -629,7 +629,7 @@ impl Fits {
         let decoded = std::io::copy(&mut transform.reader(&raw[..]), &mut std::io::sink());
         let reason = decoded.as_ref().err().map_or(String::new(), |e| e.to_string());
         self.rules.check("stream", rules::env([("method", name), ("ok", flag(decoded.is_ok())), ("reason", text(&reason))]))?;
-        let size = decoded.map_err(|e| e.to_string())?;
+        let size = decoded.map_err(|e| Error::Rejected(e.to_string()))?;
         let length = raw.len() as u64;
         let form = json!({"transform": transform.name(), "size": size}).to_string();
         self.space = self.ir.derived(0, "stream", 0, (0, length), &form)?;

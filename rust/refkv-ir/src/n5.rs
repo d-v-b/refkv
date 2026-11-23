@@ -122,7 +122,7 @@ impl N5 {
             let (path, k) = self.cands[c].clone();
             let key = document_key(&path);
             let b = self.got.remove(&k).ok_or_else(|| Error::internal("a document not read"))?;
-            let doc = json::parse(&b).map_err(|e| format!("{key}: {e}"))?;
+            let doc = json::parse(&b).map_err(|e| e.context(|m| format!("{key}: {m}")))?;
             rules.check("document", &mut Vars(vec![("key", text(&key)), ("value", doc.value.to_v())]))?;
             let dataset = doc.value.has("dimensions");
             if dataset {
@@ -197,7 +197,7 @@ impl StoreParser for N5 {
 
     fn feed(&mut self, object: usize, offset: u64, data: &[u8]) {
         if offset != 0 || data.len() as u64 != self.sizes[object] {
-            self.error.get_or_insert_with(|| "internal: a document read in part".into());
+            self.error.get_or_insert_with(|| Error::internal("a document read in part"));
             return;
         }
         self.got.insert(object, data.to_vec());
