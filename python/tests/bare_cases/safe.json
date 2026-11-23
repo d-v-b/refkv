@@ -1,0 +1,4 @@
+[
+  {"input": "safe_l1c.SAFE.zip", "needs": "imagecodecs"},
+  {"input": "safe_l1c", "needs": "imagecodecs"}
+]

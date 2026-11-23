@@ -1,0 +1,4 @@
+[
+  {"input": "st_dtypes.safetensors", "needs": "ml_dtypes"},
+  {"input": "st_store_model", "needs": "ml_dtypes"}
+]

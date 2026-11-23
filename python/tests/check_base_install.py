@@ -170,12 +170,15 @@ with tempfile.TemporaryDirectory() as d:
         import zarr
         import zarr.registry
 
-        # each codec of refkv's entry points, by name, as zarr resolves it when an array names it
+        # each codec of refkv's entry points, by name, as zarr resolves it when an array names it;
+        # every module of the installed refkv/zarr/codecs/ (one per codec) is one entry point's, so
+        # that a codec added without its entry point fails here, and no list of codecs is kept
         assert "refkv.zarr" not in sys.modules
         points = {e.name: e for e in importlib.metadata.distribution("refkv").entry_points
                   if e.group == "zarr.codecs"}
-        assert set(points) == {"n5_default", "packbits", "refkv.fits_tiles", "refkv.grib", "refkv.h5_bitshuffle",
-                               "refkv.precomputed", "refkv.skip", "refkv.stream", "refkv.tiff_lzw"}, points
+        modules = {f"refkv.zarr.codecs.{p.stem}" for p in (package / "zarr" / "codecs").glob("*.py")
+                   if p.stem != "__init__"}
+        assert sorted(e.module for e in points.values()) == sorted(modules), points
         for name, point in points.items():
             assert zarr.registry.get_codec_class(name) is point.load(), name
         assert zarr.config.get("codecs.n5_default", None) is None  # zarr-n5's, if installed, is not overridden

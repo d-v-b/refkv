@@ -1,0 +1,4 @@
+[
+  {"input": "mrc_chunk_rows.mrc", "layouts": ["dataset"], "why": "with a dataset layout"},
+  {"input": "mrc_chunk_rows.mrc", "checksums": true, "layouts": ["dataset"]}
+]

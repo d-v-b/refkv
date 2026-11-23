@@ -1,0 +1,4 @@
+[
+  {"input": "fits_bintable.fits"},
+  {"input": "fits_gzip_image.fits.gz"}
+]

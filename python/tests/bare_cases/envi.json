@@ -1,0 +1,4 @@
+[
+  {"input": "envi_bil_int16_big.hdr", "why": "a file read as a store, transposed"},
+  {"input": "envi_gzip_header_offset.hdr"}
+]

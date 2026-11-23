@@ -503,9 +503,11 @@ reaches:
 - the bindings in `rust/refkv-python/src/lib.rs` and
   `python/src/refkv/_core.pyi`;
 - `python/src/refkv/zarr/codecs/<codec>.py`, and its `zarr.codecs` entry point
-  in `python/pyproject.toml`, which `python/tests/check_base_install.py` lists too;
+  in `python/pyproject.toml` (`python/tests/check_base_install.py` fails when a
+  module of `refkv/zarr/codecs/` has none);
 - the wasm export, for the browser;
-- a section in `spec/conventions.md`.
+- a section in the profile's own document, as
+  [precomputed §6](../spec/zarrify/precomputed.md#6-the-codec-refkvprecomputed) is.
 
 Every codec an archive may name, refkv's own or another package's, is a row of the table of codec
 names in [conventions §3](../spec/conventions.md#3-arrays), sorted by name; a codec the profile
@@ -658,6 +660,9 @@ valid inputs, comparing every value, and one test per error case.
   reader's values. `test_mrc_stored.py` is a model.
 - **Check that a new test fails on the old code.** Several fixes say so: "run
   against the unfixed parser, both tests fail."
+- **Add a case table for the example layout `bare`**, `python/tests/bare_cases/<dir>.json`:
+  a fixture or two of the profile, each with the module its arrays need to decode, if any
+  (`python/tests/test_example_bare.py` says the form, and fails for a profile with none).
 - **A profile with a frozen reference that changes a fixture's layout or verdict** adds the fixture's name to
   `conformance/zarrify/revised/<p>.txt`, in sorted order, and says why in the file's top comment. See
   [its README](../conformance/zarrify/revised/README.md).

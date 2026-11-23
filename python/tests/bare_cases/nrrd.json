@@ -1,0 +1,4 @@
+[
+  {"input": "nrrd_gzip_3d.nrrd"},
+  {"input": "nrrd_detached_raw.nhdr"}
+]
