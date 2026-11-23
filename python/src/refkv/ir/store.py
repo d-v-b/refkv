@@ -36,17 +36,19 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import itertools
 import json
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from refkv import _core, _sync
 from refkv._files import replacing
+from refkv._rules import PAGE_SIZE, late
 from refkv.errors import Rejected
-from refkv.host import WORKERS, Opener, Store, object_url, open_store
+from refkv.host import WORKERS, Opener, Store, object_urls, open_store
 from refkv.ir.output import reference_store
 from refkv.pb import Range, Source
 from refkv.policy import Policy
@@ -206,7 +208,7 @@ class StoreIrOutput:
         <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#88-the-source-table>).
         A reference's parts become (source, offset, length) or bytes."""
         objects, data, refs = self._numbered()
-        return [object_url(self.url, k) for k in objects], data, refs
+        return object_urls(self.url, objects), data, refs
 
     def _numbered(self) -> tuple[list[str], list[bytes], dict[str, list[Ref]]]:
         """`table`, with the url sources as the object keys they are the urls of."""
@@ -241,18 +243,24 @@ class StoreIrOutput:
 
     def write(self, out_path: str) -> None:
         with replacing(out_path) as fh:
-            w = VZipWriter(fh, page_size=1 << 16, checksum=self.checksum)
+            w = VZipWriter(fh, page_size=PAGE_SIZE, checksum=self.checksum)
             whole = self._whole_objects()
             if not self.data and len(whole) == len(self.refs) and len(set(whole.values())) == len(whole):
                 # every reference one whole object of its own (a Zarr v2 store's): the bulk path
                 # (no interning, for millions of chunks) writes the same table, one source per
                 # reference in order of the entries' keys, its size pinned
                 keys = sorted(self.refs, key=lambda k: k.encode())
-                w.add_url_refs(((k, object_url(self.url, whole[k]), self.sizes[whole[k]]) for k in keys), pin_size=True)
+                # the URLs made a batch at a time, so that millions of chunks are never all in memory
+                def url_refs() -> Iterator[tuple[str, str, int]]:
+                    for batch in itertools.batched(keys, 1 << 16):
+                        urls = object_urls(self.url, [whole[k] for k in batch])
+                        yield from ((k, u, self.sizes[whole[k]]) for k, u in zip(batch, urls, strict=True))
+
+                w.add_url_refs(url_refs(), pin_size=True)
             else:
                 objects, data, refs = self._numbered()
-                for i, k in enumerate(objects):
-                    if w.source(Source(url=object_url(self.url, k), size=self.sizes.get(k))) != i:
+                for i, (k, u) in enumerate(zip(objects, object_urls(self.url, objects), strict=True)):
+                    if w.source(Source(url=u, size=self.sizes.get(k))) != i:
                         raise AssertionError("url sources out of order")
                 for i, value in enumerate(data):
                     if w.blob(value) != len(objects) + i:
@@ -260,9 +268,9 @@ class StoreIrOutput:
                 for key, ranges in refs.items():
                     w.add_ranges(key, [Range(data=r) if isinstance(r, bytes) else
                                        Range(source=r[0], offset=r[1], length=r[2]) for r in ranges])
-            for key in sorted(self.entries):
-                late = key.endswith("zarr.json") and not key.startswith(self.lazy)
-                w.add_bytes(key, self.entries[key], compress=not late, late=late)
+            keys = sorted(self.entries)
+            for key, is_late in zip(keys, late(keys, self.lazy), strict=True):
+                w.add_bytes(key, self.entries[key], compress=not is_late, late=is_late)
             w.close()
 
     def to_store(self, *, policy: Policy | None = None, registry: Registry | None = None,
@@ -270,12 +278,13 @@ class StoreIrOutput:
         """The output as a `refkv.ReferenceStore`, which `save_vzip` writes as the archive
         `write` writes, byte for byte (`refkv.ir.output.reference_store`)."""
         objects, data, table = self._numbered()
-        sources = [Source(url=object_url(self.url, k), size=self.sizes.get(k)) for k in objects] + \
+        urls = object_urls(self.url, objects)
+        sources = [Source(url=u, size=self.sizes.get(k)) for k, u in zip(objects, urls, strict=True)] + \
             [Source(data=v) for v in data]
         refs = [(key, [Range(data=r) if isinstance(r, bytes) else Range(source=r[0], offset=r[1], length=r[2])
                        for r in ranges]) for key, ranges in table.items()]
-        entries = [(key, self.entries[key], key.endswith("zarr.json") and not key.startswith(self.lazy))
-                   for key in sorted(self.entries)]
+        keys = sorted(self.entries)
+        entries = [(key, self.entries[key], is_late) for key, is_late in zip(keys, late(keys, self.lazy), strict=True)]
         return reference_store(refs, entries, sources, checksum=self.checksum, policy=policy, registry=registry,
                                info=info)
 

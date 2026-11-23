@@ -5,10 +5,12 @@ machinery, one module per concern, whose names this package gathers. It sits bel
 `refkv.zarrify` (whose `refkv.zarrify.store` re-exports it), so that `refkv.ir`'s store runs read
 stores without importing `refkv.zarrify`.
 
+- The rules themselves are the Rust core's (rust/refkv-ir/src/host), which `refkv._rules` gives
+  by name; `urls`, `listing`, `stores` and `beside` give them Python's types and do the I/O.
 - `urls`: a store URL's checks, the URL of each object (`object_url`), the listing
   endpoint of an S3-style store, and the repository of a Hub store (`hub_repo`).
-- `listing`: the XML subset a listing is read in, the objects of one ListObjectsV2
-  response (`parse_listing`), and a Hub store's commit, tree page and next link.
+- `listing`: the objects of one ListObjectsV2 response (`parse_listing`), and a Hub store's
+  commit, tree page and next link.
 - `documents`: the strict JSON reader of metadata documents (`parse_json`), and its limits.
 - `stores`: the store readers (`Store`, `HttpStore`, `HubStore`, `DirStore`), their prefetch of
   documents, `open_store`, and the store profile a store's root keys select
@@ -24,7 +26,7 @@ by `refkv.ir.store`, and writes their outputs (`refkv.ir.store.StoreIrOutput`).
 from __future__ import annotations
 
 from refkv.host.documents import MAX_DEPTH, MAX_DOCUMENT, MAX_SAFE, as_int, is_number, num, parse_json
-from refkv.host.listing import Element, next_link, parse_hub_revision, parse_hub_tree, parse_listing, parse_xml
+from refkv.host.listing import next_link, parse_hub_revision, parse_hub_tree, parse_listing
 from refkv.host.stores import (
     PREFETCH_BYTES,
     WORKERS,
@@ -48,7 +50,9 @@ from refkv.host.urls import (
     hub_page,
     hub_repo,
     listing_endpoint,
+    listing_url,
     object_url,
+    object_urls,
     query_encode,
 )
 
@@ -60,7 +64,6 @@ __all__ = [
     "PREFETCH_BYTES",
     "WORKERS",
     "DirStore",
-    "Element",
     "HttpStore",
     "HubRepo",
     "HubStore",
@@ -78,14 +81,15 @@ __all__ = [
     "hub_repo",
     "is_number",
     "listing_endpoint",
+    "listing_url",
     "next_link",
     "num",
     "object_url",
+    "object_urls",
     "open_store",
     "parse_hub_revision",
     "parse_hub_tree",
     "parse_json",
     "parse_listing",
-    "parse_xml",
     "query_encode",
 ]
