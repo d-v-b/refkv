@@ -319,7 +319,8 @@ pub fn windows_file_uri(abs: &str) -> Result<String, String> {
     if d.len() == 2 && d[0].is_ascii_alphabetic() && d[1] == b':' {
         return Ok(format!("file://{}", quote(format!("/{drive}{path}").as_bytes(), PATH_SAFE)));
     }
-    let (server, share) = drive[2..].split_once('\\').unwrap_or((&drive[2..], ""));
+    let unc = drive.get(2..).unwrap_or(""); // a rooted path with no drive (`\\x`) has none
+    let (server, share) = unc.split_once('\\').unwrap_or((unc, ""));
     if share.is_empty() || server.is_empty() || !server.bytes().all(|c| unreserved(c) || sub_delim(c)) {
         return Err(format!("{abs:?}: a UNC path is \\\\server\\share\\..., with a plain host name"));
     }
@@ -608,7 +609,8 @@ mod tests {
         assert_eq!(windows_split_drive("//host/été/x"), ("//host/été", "/x"));
         assert_eq!(windows_split_drive("\\\\?\\UNC\\server\\share\\x"), ("\\\\?\\UNC\\server\\share", "\\x"));
         assert_eq!(windows_split_drive("\\\\?\\C:\\über\\x"), ("\\\\?\\C:", "\\über\\x"));
-        assert!(windows_file_uri("\\\\?\\Ü\\x").is_err());
+        assert!(windows_file_uri("\\\\?\\abcÜ\\x").is_err());
+        assert!(windows_file_uri("\\x").is_err());
     }
 
     #[test]
