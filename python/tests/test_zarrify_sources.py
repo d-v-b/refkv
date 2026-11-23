@@ -8,7 +8,9 @@ from pathlib import Path
 import pytest
 
 from refkv._narrow import string
+from refkv.host import WORKERS
 from refkv.policy import Policy
+from refkv.profiles import REGISTRY
 from refkv.zarrify import (
     Dataset,
     Image,
@@ -25,8 +27,6 @@ from refkv.zarrify import (
     zarrify,
 )
 from refkv.zarrify.profile_classes import CLASSES
-from refkv.zarrify.profiles import REGISTRY
-from refkv.zarrify.store import WORKERS
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "zarrify"))
 from proxy import Proxy

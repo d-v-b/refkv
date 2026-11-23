@@ -28,7 +28,7 @@ sys.path.insert(0, str(ROOT / "python" / "tests" / "ir"))
 from netcdf3_oracle import problems  # noqa: E402
 
 import refkv.zarr  # noqa: E402
-from refkv.zarrify.profiles import REGISTRY  # noqa: E402
+from refkv.profiles import REGISTRY  # noqa: E402
 
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import mirror_problems  # noqa: E402

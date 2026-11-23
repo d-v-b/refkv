@@ -459,7 +459,7 @@ whose root has `.zarray` or `.zgroup` as well is read as Zarr v2, whose conventi
 `zarr.json` as an other object ([zarr2.md §5](zarr2.md#5-other-objects)), as it did before this
 profile; zarr-python 3 would open such a store as Zarr v3, and a store that holds both versions
 is left to the version its existing profile reads. In each host the choosers test the keys as
-`choose_profile` in `python/src/refkv/zarrify/store/stores.py` does.
+`choose_profile` in `python/src/refkv/host/stores.py` does.
 
 **Zipped form.** The **signature** ([spec/zarrify.md §1.2](../zarrify.md#12-input), tested at the
 precedence of [profiles/zarr3.json](profiles/zarr3.json), after NumPy's `.npz` and before SAFE's

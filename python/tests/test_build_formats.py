@@ -28,8 +28,8 @@ from refkv.build import (
     seal,
     zarr_hierarchy,
 )
+from refkv.entries import chunk_key, undeclared
 from refkv.zarrify import Rejected
-from refkv.zarrify.layouts import chunk_key, undeclared
 from refkv.zarrify.layouts.examples.hdf5_rechunk import Hdf5Rechunk
 from refkv.zarrify.layouts.examples.xarray_v2 import XarrayV2
 from refkv.zarrify.layouts.virtualizarr import VirtualiZarr

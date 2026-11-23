@@ -15,8 +15,7 @@ from typing import override
 
 import pytest
 
-from refkv.zarrify import Rejected, zarrify
-from refkv.zarrify.store import (
+from refkv.host import (
     HUB,
     HubStore,
     ListingFailed,
@@ -26,6 +25,7 @@ from refkv.zarrify.store import (
     hub_repo,
     open_store,
 )
+from refkv.zarrify import Rejected, zarrify
 
 SHA = "1bae0e1088993b9b82de08f59de5be5a34e42170"
 API = "https://huggingface.co/api/models/deepseek-ai/DeepSeek-V4.1-Flash-1017"

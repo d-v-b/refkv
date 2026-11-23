@@ -22,7 +22,7 @@ from refkv.vzip.archive import VZipWriter
 from refkv.zarrify.common import CONVENTION_KEY, Rejected, reference_store
 from refkv_reference._legacy_common import declare
 from refkv_reference._legacy_store.hierarchy import join
-from refkv.zarrify.store.urls import object_url
+from refkv.host.urls import object_url
 
 GROUP_IMPLICIT: dict[str, object] = {"zarr_format": 3, "node_type": "group", "attributes": {}}
 SOURCE_GROUP = "refkv_source"

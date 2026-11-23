@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
+from refkv.host.beside import VsiFiles
 from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify as zarrify
-from refkv.zarrify.store.beside import VsiFiles
 
 NRRD = Path(__file__).parents[2] / "fixtures" / "nrrd"
 

@@ -39,6 +39,7 @@ import os
 import random
 import re
 import socket
+import threading
 import time
 from collections.abc import Buffer, Callable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -48,11 +49,41 @@ from urllib.parse import urljoin, urlparse
 
 from refkv import _core, _sync
 from refkv._narrow import integer
-from refkv.errors import ResolutionError
+from refkv.errors import Rejected, ResolutionError
 from refkv.policy import Policy
 from refkv.reader import _POOL, Check, Resolver, _check_http_url, _connect, _proxy
 from refkv.reader import _send as reader_send
-from refkv.zarrify.common import UA, EtagLog, Rejected
+
+
+class EtagLog:
+    """The ETag of every response for one object, for its `etag` pin (spec/zarrify.md §1.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)."""
+
+    def __init__(self) -> None:
+        self.seen: set[str | None] = set()
+        self._lock = threading.Lock()
+
+    def saw(self, etag: str | None) -> None:
+        with self._lock:
+            self.seen.add(etag)
+            strong = {e for e in self.seen if e is not None and not e.startswith("W/")}
+        if len(strong) > 1:  # the object changed while it was read: a failure, not a rejection
+            raise OSError(f"the object changed while it was read (ETags {sorted(strong)})")
+
+    def pin(self) -> str | None:
+        """The object's strong ETag, if every response gave the same one, else None."""
+        if len(self.seen) != 1:
+            return None
+        (etag,) = self.seen
+        return etag if etag is not None and STRONG_ETAG.match(etag) else None
+
+
+STRONG_ETAG = re.compile(r'^"[\x21\x23-\x7e]*"$')
+
+
+# Some servers (Mendeley Data) refuse urllib's default User-Agent; the store reads send this one.
+UA = "refkv-zarrify"
+
 
 RETRY = (429, 500, 502, 503, 504)
 REDIRECTS = (301, 302, 303, 307, 308)

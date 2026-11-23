@@ -14,24 +14,38 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import enum
 import json
 from typing import Any
 
 from refkv import _core, _sync
-from refkv.ir.kind import Kind as Kind  # re-exported: refkv.ir.Kind
-from refkv.ir.output import from_rust
+from refkv.errors import Rejected
+from refkv.ir.output import Output, from_rust
 from refkv.ir.planner import Transport, drive, drive_async, new_run, open_transport
 from refkv.ir.stored import Stored
 from refkv.ir.stored import read as _read_stored
 from refkv.policy import Policy
+from refkv.profiles import REGISTRY
 from refkv.uri import path_reference
-from refkv.zarrify.common import Output, Rejected
-from refkv.zarrify.profiles import REGISTRY
 
 # the TIFF variants, by name and title: the profiles the TIFF profile's reading chooses (their
 # registry entries' `chosen_by`; spec/zarrify.md §1.2
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)
 TIFF_VARIANTS = {e["name"]: e["title"] for e in REGISTRY if e["chosen_by"] == "tiff"}
+
+
+class Kind(enum.IntEnum):
+    """An IR element's kind (spec/conventions.md §8.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>), as `Ir.kind`
+    gives it."""
+
+    STRUCT = 0
+    VALUE = 1
+    DATA = 2
+    DERIVED = 3
+    ALIAS = 4
+    GAP = 5
+    OBJECT = 6  # a store IR's object: a file of a file read as a store, or an object of a store
 
 
 # A decoded IR value (`Ir.value`), as `refkv._core` gives it.

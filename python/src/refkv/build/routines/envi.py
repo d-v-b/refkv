@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from refkv import _core
 from refkv.build.values import Ref, Value
-from refkv.zarrify.store.urls import object_url
+from refkv.host.urls import object_url
 
 if TYPE_CHECKING:
     from refkv.build.parsed import Parsed

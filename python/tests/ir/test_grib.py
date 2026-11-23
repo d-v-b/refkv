@@ -20,9 +20,9 @@ from ir_helpers import FIXTURES
 import refkv.zarr
 from refkv import _core
 from refkv._narrow import at, integer, mapping, ndarray, sequence, string
+from refkv.host import object_url
 from refkv.ir.store import StoreIrOutput
 from refkv.zarrify import _zarrify as zarrify
-from refkv.zarrify.store import object_url
 
 try:
     import eccodes

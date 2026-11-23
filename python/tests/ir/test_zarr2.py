@@ -20,10 +20,10 @@ from zarr.storage import LocalStore
 import refkv.zarr
 from refkv import _core
 from refkv._narrow import at, mapping, ndarray, sequence, string
+from refkv.host import object_url
 from refkv.ir.store import StoreIrOutput
 from refkv.policy import Policy
 from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
-from refkv.zarrify.store import object_url
 
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify"))
 from proxy import Proxy

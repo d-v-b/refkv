@@ -23,6 +23,7 @@ from email.message import Message
 
 from refkv.policy import Policy
 from refkv.reader import _send
+from refkv.host.http import _retry, _ThreadConnections, follow
 from refkv.zarrify.common import *  # noqa: F403
 from refkv.zarrify.common import (
     CONVENTION_KEY,
@@ -34,10 +35,7 @@ from refkv.zarrify.common import (
     Output,
     Part,
     Rejected,
-    _retry,
-    _ThreadConnections,
     convention,
-    follow,
 )
 type Chunk = list[Part] | bytes
 """A chunk of a metadata array: the ranges of the source that hold it, or its bytes when copied."""

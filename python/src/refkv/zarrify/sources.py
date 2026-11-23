@@ -27,12 +27,12 @@ from typing import ClassVar
 from urllib.parse import urlsplit
 
 from refkv._narrow import string
+from refkv.host import WORKERS
+from refkv.host.beside import Scope
 from refkv.ir.planner import url_scheme
 from refkv.policy import Policy
+from refkv.profiles import REGISTRY
 from refkv.reader import Registry
-from refkv.zarrify.profiles import REGISTRY
-from refkv.zarrify.store import WORKERS
-from refkv.zarrify.store.beside import Scope
 
 
 @dataclass(frozen=True)
