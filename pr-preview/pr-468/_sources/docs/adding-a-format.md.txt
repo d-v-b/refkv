@@ -588,7 +588,7 @@ The hosts register it by hand:
 - a row in the table of root keys in
   [zarrify §1.4](../spec/zarrify.md#14-store-inputs), and its test in all three
   choosers, with one rejection message: `choose_profile` in
-  `python/src/refkv/zarrify/store/stores.py`, `chooseProfile` in
+  `python/src/refkv/host/stores.py`, `chooseProfile` in
   `js/src/zarrify/store.ts`, and `choose_profile` in `rust/refkv-cli/src/store.rs`.
   The message changes the reject tables' entries of the other store profiles;
 - its dispatch: `zarrifyStoreProfile` in `js/src/zarrify/index.ts`, and `zarrify_store`

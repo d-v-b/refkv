@@ -1131,7 +1131,7 @@ JSON Schema (`spec/zarrify/<p>/schema.json`, written by
 `spec/generate_schemas.py`), and checks that every node with source
 metadata declares it. `just tag-conventions` creates the
 `zarrify-<p>-v<N>` tags that the convention URLs name, on `main`, from
-version 1 on; at version 0 the URLs name `main` itself ([conventions §1](conventions.md#1-conventions)).
+version 1 on; at version 0 the URLs name the documentation site ([conventions §1](conventions.md#1-conventions)).
 
 Only the TIFF and ND2 profiles have been through the independent
 implementation rounds (revisions 1 to 4); every profile added since

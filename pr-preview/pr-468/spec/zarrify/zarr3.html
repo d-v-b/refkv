@@ -626,8 +626,8 @@ mirror on <code class="docutils literal notranslate"><span class="pre">refkv_sou
 source metadata declares it with <code class="docutils literal notranslate"><span class="pre">{&quot;zarr3&quot;:</span> <span class="pre">S}</span></code>. Its CMO is:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
 <span class="w">  </span><span class="nt">"uuid"</span><span class="p">:</span><span class="w"> </span><span class="s2">"95203d0a-6586-426a-b920-3db2f4f1e97e"</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">"schema_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/zarr3/schema.json"</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">"spec_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"schema_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://d-v-b.github.io/refkv/conventions/zarr3/schema.json"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"spec_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://d-v-b.github.io/refkv/conventions/zarr3/"</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"refkv_zarrified"</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">"description"</span><span class="p">:</span><span class="w"> </span><span class="s2">"The Zarr layout of a Zarr v3 source zarrified by refkv, and the source's metadata"</span>
 <span class="p">}</span>
@@ -1116,8 +1116,8 @@ When the root is an array, the mirror’s keys and the objects’ keys are plain
 <span class="w">    </span><span class="nt">"zarr_conventions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">      </span><span class="p">{</span>
 <span class="w">        </span><span class="nt">"uuid"</span><span class="p">:</span><span class="w"> </span><span class="s2">"95203d0a-6586-426a-b920-3db2f4f1e97e"</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">"schema_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/zarr3/schema.json"</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">"spec_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md"</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"schema_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://d-v-b.github.io/refkv/conventions/zarr3/schema.json"</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"spec_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://d-v-b.github.io/refkv/conventions/zarr3/"</span><span class="p">,</span>
 <span class="w">        </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"refkv_zarrified"</span><span class="p">,</span>
 <span class="w">        </span><span class="nt">"description"</span><span class="p">:</span><span class="w"> </span><span class="s2">"The Zarr layout of a Zarr v3 source zarrified by refkv, and the source's metadata"</span>
 <span class="w">      </span><span class="p">},</span>
@@ -1202,7 +1202,7 @@ whose root has <code class="docutils literal notranslate"><span class="pre">.zar
 <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code> as an other object (<a class="reference internal" href="zarr2.html#other-objects"><span class="std std-ref">zarr2.md §5</span></a>), as it did before this
 profile; zarr-python 3 would open such a store as Zarr v3, and a store that holds both versions
 is left to the version its existing profile reads. In each host the choosers test the keys as
-<code class="docutils literal notranslate"><span class="pre">choose_profile</span></code> in <code class="docutils literal notranslate"><span class="pre">python/src/refkv/zarrify/store/stores.py</span></code> does.</p>
+<code class="docutils literal notranslate"><span class="pre">choose_profile</span></code> in <code class="docutils literal notranslate"><span class="pre">python/src/refkv/host/stores.py</span></code> does.</p>
 <p><strong>Zipped form.</strong> The <strong>signature</strong> (<a class="reference internal" href="../zarrify.html#input"><span class="std std-ref">spec/zarrify.md §1.2</span></a>, tested at the
 precedence of <a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/profiles/zarr3.json">profiles/zarr3.json</a>, after NumPy’s <code class="docutils literal notranslate"><span class="pre">.npz</span></code> and before SAFE’s
 zip form): bytes 0–3 of <code class="docutils literal notranslate"><span class="pre">H</span></code> are <code class="docutils literal notranslate"><span class="pre">50</span> <span class="pre">4B</span> <span class="pre">03</span> <span class="pre">04</span></code>, a ZIP local file header, and its name (bytes from

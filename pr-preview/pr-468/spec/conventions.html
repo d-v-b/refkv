@@ -691,9 +691,13 @@ the Convention Metadata Object (CMO)</p>
 <span class="p">}</span>
 </pre></div>
 </div>
-<p>with no other members. At version 0, which has no tag, the URLs name the
-development branch instead: <code class="docutils literal notranslate"><span class="pre">.../refs/heads/main/spec/zarrify/&lt;p&gt;/schema.json</span></code>
-and <code class="docutils literal notranslate"><span class="pre">.../blob/main/spec/zarrify/&lt;p&gt;.md</span></code>. <code class="docutils literal notranslate"><span class="pre">T</span></code> is the format’s title, the <code class="docutils literal notranslate"><span class="pre">title</span></code> of its
+<p>with no other members. At version 0, which has no tag, the URLs are instead the documentation
+site’s names for the convention, which follow the development branch:
+<code class="docutils literal notranslate"><span class="pre">https://d-v-b.github.io/refkv/conventions/&lt;p&gt;/schema.json</span></code> and
+<code class="docutils literal notranslate"><span class="pre">https://d-v-b.github.io/refkv/conventions/&lt;p&gt;/</span></code>. They name the convention, not a file of the
+repository: the site MUST serve them (the schema, and the document’s page or a redirect to it)
+wherever the files live, and its build fails when it does not; a tag’s files never change. So
+no CMO’s URLs break. <code class="docutils literal notranslate"><span class="pre">T</span></code> is the format’s title, the <code class="docutils literal notranslate"><span class="pre">title</span></code> of its
 entry in the profile registry (<a class="reference external" href="https://github.com/d-v-b/refkv/tree/main/spec/zarrify/profiles">zarrify/profiles/</a><code class="docutils literal notranslate"><span class="pre">&lt;p&gt;.json</span></code>: <code class="docutils literal notranslate"><span class="pre">TIFF</span></code>,
 <code class="docutils literal notranslate"><span class="pre">Zarr</span> <span class="pre">v2</span></code>, <code class="docutils literal notranslate"><span class="pre">Sentinel-2</span> <span class="pre">SAFE</span></code>, …). The UUID is the same for every version; the version is in
 the URLs. All conventions nest their property under one key, <code class="docutils literal notranslate"><span class="pre">refkv_zarrified</span></code>, which is
@@ -719,12 +723,12 @@ other type tables):</p>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">schema_url</span></code></p></td>
 <td><p>string</p></td>
 <td><p>required</p></td>
-<td><p>the URL of <code class="docutils literal notranslate"><span class="pre">zarrify/&lt;p&gt;/schema.json</span></code> at the tag <code class="docutils literal notranslate"><span class="pre">zarrify-&lt;p&gt;-v&lt;N&gt;</span></code> (at version 0, at <code class="docutils literal notranslate"><span class="pre">main</span></code>)</p></td>
+<td><p>the URL of <code class="docutils literal notranslate"><span class="pre">zarrify/&lt;p&gt;/schema.json</span></code> at the tag <code class="docutils literal notranslate"><span class="pre">zarrify-&lt;p&gt;-v&lt;N&gt;</span></code> (at version 0, on the documentation site)</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">spec_url</span></code></p></td>
 <td><p>string</p></td>
 <td><p>required</p></td>
-<td><p>the URL of <code class="docutils literal notranslate"><span class="pre">zarrify/&lt;p&gt;.md</span></code> at the same tag (at version 0, at <code class="docutils literal notranslate"><span class="pre">main</span></code>)</p></td>
+<td><p>the URL of <code class="docutils literal notranslate"><span class="pre">zarrify/&lt;p&gt;.md</span></code> at the same tag (at version 0, its page on the documentation site)</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
 <td><p>string</p></td>
