@@ -1,5 +1,6 @@
-//! The rules of a zarrifier's host that do no I/O (spec/zarrify.md §1.2–§1.9
-//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): what a location names, the
+//! The rules of a zarrifier's host that do no I/O (spec/zarrify.md §1.2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input> to §1.9
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>): what a location names, the
 //! store URL rules and the URL of each object, the S3 listing and the Hugging Face Hub's tree and
 //! `Link` fields, the keys a listing ignores, the directory and scope of an input read with the
 //! files beside it, the archive an output is written as, and the hosts' defaults. Each host (the

@@ -29,8 +29,9 @@ pub enum Input {
 }
 
 /// What `location` names: a URL (not a `file:` one), a store input when its path ends in `/`; else
-/// a local path, a `file:` URL's (spec/zarrify.md §1.2: one an implementation accepts names the
-/// local file or directory it is the URL of) on Windows when `windows`, its host allowed when
+/// a local path, a `file:` URL's (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>: one an implementation
+/// accepts names the local file or directory it is the URL of) on Windows when `windows`, its host allowed when
 /// `allow_file_hosts` (spec/refkv.md §6.7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>); a usage error for a
 /// `file:` URL that names no local path.

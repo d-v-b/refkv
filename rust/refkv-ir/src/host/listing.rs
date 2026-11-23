@@ -1,7 +1,7 @@
 //! A store's listing (spec/zarrify.md §1.4
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>, §1.5
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): the objects
-//! and continuation token of one S3 ListObjectsV2 response, read in the XML subset of §1.5
+//! and continuation token of one S3 ListObjectsV2 response, read in the XML subset of that section
 //! (`crate::xmltree`); a Hub store's commit, the objects of one page of its tree, and the page's
 //! next link; and the keys a whole listing gives a store run, its ignored keys and its folder
 //! markers.
