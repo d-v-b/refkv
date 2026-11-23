@@ -418,8 +418,8 @@ Notes:
 4. The TypeScript twin, module by module, compared with Python by
    `compare.py` on fixtures and corpus.
 5. The shared documents (§2), the schema, `REVISIONS.md` (revision 17), and
-   an independent implementation round from the documents alone
-   (`conformance/impls/zarrify/`), as the other profiles had.
+   an independent implementation round from the documents alone, as the
+   TIFF and ND2 profiles had.
 
 ## 8. Open questions, and their decisions
 

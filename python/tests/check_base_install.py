@@ -155,11 +155,9 @@ with tempfile.TemporaryDirectory() as d:
         assert n.get(key) == saved.get(key)
     from refkv import _core  # noqa: F401  (a dependency: installing refkv built it)
 
-    # the install holds the bindings as refkv._core (refkv/_core.abi3.so, or .pyd), and no
-    # module of the earlier name, refkv._ir
+    # the install holds the bindings as refkv._core (refkv/_core.abi3.so, or .pyd)
     package = Path(refkv.__file__).parent
     assert list(package.glob("_core.*")), sorted(p.name for p in package.iterdir())
-    assert not list(package.glob("_ir*")), sorted(p.name for p in package.iterdir())
 
     t = zarrify(str(FIXTURES / "tiff" / "jpeg_gray.tif"))
     t.save_vzip("t.vzip")

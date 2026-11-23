@@ -1089,8 +1089,8 @@ its run on a 470000-chunk OpenOrganelle level is recorded in
 `spec/history/virtualize/REVISIONS.md` (revision 12). Store profiles do not shard
 ([§2.1](#21-virtual-shards)): no store convention asks for shards.
 
-Implementations written from this document alone, round by round, are in
-`conformance/impls/zarrify/`; `spec/history/virtualize/REVISIONS.md` records what each
+Implementations were written from this document alone, round by round (they are in git
+history); `spec/history/virtualize/REVISIONS.md` records what each
 round found and how this document changed, up to revision 29; since then each
 profile's document records its own changes.
 
@@ -1135,7 +1135,4 @@ version 1 on; at version 0 the URLs name the documentation site ([conventions §
 
 Only the TIFF and ND2 profiles have been through the independent
 implementation rounds (revisions 1 to 4); every profile added since
-(`spec/history/virtualize/REVISIONS.md` says when) has not, and the round
-implementations in `conformance/impls/zarrify/` still write JPEG headers
-as literals and ranges of the file, and predate the conventions (revisions
-15 and 16).
+(`spec/history/virtualize/REVISIONS.md` says when) has not.

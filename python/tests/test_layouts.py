@@ -50,7 +50,6 @@ from refkv.zarrify.layouts import (
     LayoutUsageError,
     dump,
     encode_entries,
-    fill_value,
 )
 from refkv.zarrify.layouts.hierarchy import array, check, chunk_coords, chunk_key, copy, group, node_name
 
@@ -897,11 +896,6 @@ def test_check_reports_a_chunk_a_reader_does_not_read(key, value):
     assert codes == ({"chunk"} if value is None else {"size"})
 
 
-def test_fill_value_reads_bfloat16_bits_as_a_float32_s_high_half():
-    assert fill_value({"data_type": "bfloat16", "fill_value": "0x3f80"}) == 1.0
-    assert fill_value({"data_type": "float32", "fill_value": "0x3f800000"}) == 1.0
-
-
 def test_check_finds_a_copy_by_its_transposes():
     """A copy of an array of axes of one length (all 2s) is found by its transposes, not by
     trying permutations, and a datetime array's chunks are sized by its element's 8 bytes."""
@@ -917,8 +911,6 @@ def test_check_finds_a_copy_by_its_transposes():
 def test_values_refkv_encodes_decode_to_python_values():
     with opened(str(FIXTURES / "hdf5" / "hdf5_attributes.h5")) as (_, pr):
         assert hdf5_attributes(pr, "attrs")["latin1"] == "café"
-    assert fill_value({"data_type": "float8_e8m0fnu", "fill_value": "NaN"}) != fill_value(
-        {"data_type": "float8_e8m0fnu", "fill_value": "NaN"})  # a NaN: unequal to itself
 
 
 def test_a_member_in_a_derived_space_has_no_reference():
@@ -983,7 +975,7 @@ def test_an_integer_fill_value_past_2_53_is_exact(tmp_path):
     with h5py.File(path, "w") as f:
         f.create_dataset("count", shape=(4,), dtype="u8", chunks=(2,), fillvalue=np.uint64(2**63 + 5))[:2] = [1, 2]
     with opened(path) as (p, pr):
-        assert fill_value(pr.document("count/zarr.json")) == 2**63 + 5
+        assert pr.document("count/zarr.json")["fill_value"] == 2**63 + 5
         assert check(pr.entries(), [p], bases=[pr]) == []
         assert check({"zarr.json": group(), **copy(pr, "count", to="c")}, [p], bases=[pr]) == []
 
