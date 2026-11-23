@@ -1,5 +1,5 @@
 # RFC 3986 URI references, their strict resolution, and the `file:` URIs of local paths
-# (spec/refkv.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>): pure functions with no dependencies, shared by the Rust core (rust/refkv-ir,
+# (spec/refkv.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>): pure functions, shared by the Rust core (rust/refkv-ir,
 # whose wasm32 module compiles them too) and the vzip writer (rust/refkv-vzip, which re-exports
 # them as `refkv_vzip::uri`). A member of the workspace (rust/Cargo.toml).
 [package]
@@ -11,3 +11,5 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
+# percent-decoding (`percent_decode`), pure Rust with no dependencies of its own
+percent-encoding = "2.3"

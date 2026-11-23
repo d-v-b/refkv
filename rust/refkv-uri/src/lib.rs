@@ -1,6 +1,16 @@
 //! RFC 3986 URI references, strict resolution, and the `file:` base URI of a local path (spec/refkv.md
 //! §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>), as
 //! python/src/refkv/uri.py has them.
+//!
+//! The RFC 3986 parts (`split`, `is_uri_reference`, `remove_dot_segments`, `resolve`) are written
+//! here, not taken from a crate, because the spec forbids normalizing a reference and every host
+//! must accept the same ones; python/tests/test_uri_core.py compares them with uri.py's. The
+//! strict crates differ: `iri-string` and `fluent-uri` refuse a lax IP literal (`//[v.x]`) these
+//! accept, remove a percent-encoded dot segment (`%2E%2E`) while resolving, write `/.//` for a
+//! path that would start with `//` with no authority, and refuse a base that is not a URI;
+//! `fluent-uri` also refuses a reference against a base with a rootless path and no authority.
+//! `url` follows the WHATWG URL Standard, which normalizes (`http://H/a/./b c` is
+//! `http://h/a/b%20c`). `split` takes any string, which no crate's parser does.
 
 /// The components of a URI reference (RFC 3986 Appendix B): scheme, authority, path, query and
 /// fragment, each but the path absent when its delimiter is.
@@ -380,19 +390,7 @@ fn encoded_reference(path: &str) -> String {
 /// The bytes `s` percent-decodes to, as Python's `urllib.parse.unquote_to_bytes`: each `%XX` of
 /// two hexadecimal digits is its byte, and any other `%` is itself.
 pub fn percent_decode(s: &str) -> Vec<u8> {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'%' && i + 2 < b.len() && b[i + 1].is_ascii_hexdigit() && b[i + 2].is_ascii_hexdigit() {
-            out.push(u8::from_str_radix(&s[i + 1..i + 3], 16).unwrap_or(0));
-            i += 3;
-        } else {
-            out.push(b[i]);
-            i += 1;
-        }
-    }
-    out
+    percent_encoding::percent_decode_str(s).collect()
 }
 
 /// The local path a `file:` URI names (spec/refkv.md §5
