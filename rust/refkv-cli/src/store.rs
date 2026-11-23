@@ -206,7 +206,7 @@ impl HttpStore {
     /// (the URL that answered, its response) of `get`'s request.
     fn request(&self, url: &str, headers: &[(&str, &str)]) -> Result<(String, http::Response), Failure> {
         let mut url = url.to_string();
-        for hop in 0..6 {
+        for hop in 0..=host::MAX_REDIRECTS {
             self.client.policy.check(&self.location, &url).map_err(|e| Failure::Fatal(Fail::Refused(e)))?;
             let r = self.client.get(&url, headers, |_, _| true).map_err(|e| match e {
                 http::SendError::Refused(m) => Failure::Fatal(Fail::Refused(m)),
@@ -216,8 +216,8 @@ impl HttpStore {
                 return Ok((url, r));
             }
             let new = http::redirect(&self.location, &url, &r, &self.client.policy).map_err(Failure::Fatal)?;
-            if hop == 5 {
-                return Err(Failure::Fatal(Fail::Refused(format!("{}: more than 5 redirects", self.location))));
+            if hop == host::MAX_REDIRECTS {
+                return Err(Failure::Fatal(Fail::Refused(format!("{}: more than {} redirects", self.location, host::MAX_REDIRECTS))));
             }
             url = new;
         }
@@ -226,10 +226,11 @@ impl HttpStore {
 
     /// `f`, retried on 429 and 5xx statuses and on network errors: 5 attempts, 1, 2, 4 and 8 s apart.
     fn retry<T>(f: impl Fn() -> Result<T, Failure>) -> Result<T, Failure> {
-        for attempt in 0..5 {
+        let last = host::ATTEMPTS - 1;
+        for attempt in 0..host::ATTEMPTS {
             match f() {
-                Err(Failure::Status(s)) if [429, 500, 502, 503, 504].contains(&s) && attempt < 4 => {}
-                Err(Failure::Network(_)) if attempt < 4 => {}
+                Err(Failure::Status(s)) if host::RETRY.contains(&s) && attempt < last => {}
+                Err(Failure::Network(_)) if attempt < last => {}
                 r => return r,
             }
             std::thread::sleep(std::time::Duration::from_secs(1 << attempt));
@@ -322,7 +323,7 @@ impl Store {
     /// and named `url` in the output if given): a Hub store when it is under the Hub's endpoint
     /// `hub` (`host::hub_endpoint`), else an S3-style one. Or a local directory served at `url`.
     pub fn open(location: &str, url: Option<&str>, client: &Arc<Client>, workers: usize, hub: &str) -> Result<Store, Fail> {
-        if location.starts_with("http://") || location.starts_with("https://") {
+        if host::url_scheme(location).is_some_and(|s| s == "http" || s == "https") {
             let mut s = match host::hub_repo(location, hub)? {
                 Some(repo) => HttpStore::open_hub(location, &repo, client.clone(), workers, None)?,
                 None => HttpStore::open(location, client.clone(), workers, None)?,
@@ -441,7 +442,15 @@ pub fn zarrify_store(store: &Store, checksums: bool) -> Result<(String, refkv_ir
 /// whether it is a store input: a URL ending in `/`, or a local directory.
 pub fn input(location: &str) -> Result<(String, bool), Fail> {
     Ok(match host::input(location, cfg!(windows), false)? {
-        host::Input::Url { store } => (location.to_string(), store),
+        host::Input::Url { store } => {
+            // a URL of another scheme names a store the application registers (spec/zarrify.md
+            // §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): this CLI
+            // registers none
+            match host::url_scheme(location).as_deref() {
+                Some("http" | "https") => (location.to_string(), store),
+                s => return Err(Fail::Other(format!("{location}: the CLI reads no {} URL, only http(s) ones and local paths", s.unwrap_or("")))),
+            }
+        }
         host::Input::Local { path } => {
             let dir = std::path::Path::new(&path).is_dir();
             (path, dir)
