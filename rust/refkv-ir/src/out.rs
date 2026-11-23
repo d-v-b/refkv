@@ -8,10 +8,11 @@
 //! Also the shared parts of the conventions every projection uses (conventions §2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>–§5
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>,
-//! §7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>;
-//! `refkv/zarrify/common.py` in Python): arrays' and groups' documents,
-//! OME-NGFF multiscales, the convention's declaration, reference sizes, and the
-//! cuts of metadata arrays.
+//! §7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>):
+//! arrays' and groups' documents, OME-NGFF multiscales, the convention's declaration, reference
+//! sizes, and the cuts of metadata arrays. Python reaches them through the bindings; the frozen
+//! reference's Python twins of the documents and cuts are in
+//! conformance/zarrify/reference/refkv_reference/_legacy_common.py.
 
 use serde_json::{json, Map, Value as J};
 use std::collections::HashMap;
