@@ -8,6 +8,8 @@ from collections.abc import Mapping
 from refkv import _core
 from refkv._narrow import JSON, mapping, sequence, string
 
+__all__ = ["BESIDE", "CASE", "ON_DEMAND", "REGISTRY"]
+
 REGISTRY: tuple[Mapping[str, JSON], ...] = tuple(
     mapping(e, "registry entry") for e in sequence(json.loads(_core.registry()), "registry"))
 

@@ -5,7 +5,7 @@ which revision 27 changed. Their source metadata node is
 metadata names its URLs under d-v-b/vzip and calls the layout "virtualized by vzip".
 
 The frozen profiles import what they share with the shipped code from here: this
-module is `refkv.zarrify.common` and `refkv.zarrify.store`, with the parts of them that only the
+module is `refkv.zarrify.common` and `refkv.host`, with the parts of them that only the
 frozen profiles use (`_legacy_common`, `_legacy_store`, copied from the package when they left
 it), but for those names
 and the functions that write them (`convention`, `declare`, `root_json`, `emit_plans`,

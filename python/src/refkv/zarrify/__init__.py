@@ -70,18 +70,30 @@ import threading
 from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 
-# the package, not its names: refkv.ir imports refkv.zarrify.common, so it is still loading when
-# refkv.ir is imported first
 from refkv import _sync, ir
-from refkv._core import Failed
+from refkv.errors import Failed, Rejected
+from refkv.host import (
+    WORKERS,
+    ListingFailed,
+    StoreLimit,
+    choose_profile,
+    hub_endpoint,
+    hub_page,
+    object_url,
+    open_store,
+)
+from refkv.host import Store as Listed
+from refkv.host.beside import Scope, VsiFiles, scope_keys
+from refkv.host.stores import DirStore
+from refkv.ir.output import Output
 from refkv.ir.planner import Transport, open_transport, url_scheme
 from refkv.ir.store import StoreIrOutput, StoreParse, parse_store_async
 from refkv.policy import Policy, crc32c
+from refkv.profiles import BESIDE, CASE, ON_DEMAND
 from refkv.reader import Registry, Resolver
 from refkv.refstore import ReferenceStore
 from refkv.uri import file_path
 from refkv.zarrify import profile_classes
-from refkv.zarrify.common import Output, Rejected
 from refkv.zarrify.dicom_series import SeriesOutput, zarrify_series_async
 from refkv.zarrify.layouts import (
     Layout,
@@ -93,21 +105,7 @@ from refkv.zarrify.layouts import (
     plan,
 )
 from refkv.zarrify.profile_classes import *  # noqa: F403 (one class per profile: profile_classes.__all__)
-from refkv.zarrify.profiles import BESIDE, CASE, ON_DEMAND
 from refkv.zarrify.sources import Dataset, Image, Source, Store, layout_names
-from refkv.zarrify.store import (
-    WORKERS,
-    ListingFailed,
-    StoreLimit,
-    choose_profile,
-    hub_endpoint,
-    hub_page,
-    object_url,
-    open_store,
-)
-from refkv.zarrify.store import Store as Listed
-from refkv.zarrify.store.beside import Scope, VsiFiles, scope_keys
-from refkv.zarrify.store.stores import DirStore
 
 # a plugin layout is given the input parsed (refkv.build.read's Parsed) and its output is sealed
 # (refkv.build.seal): modules of refkv.build, which reads its inputs with this module's parse, so
@@ -294,7 +292,7 @@ async def _parse_beside_async(fmt: str, location: str, url: str | None, transpor
     header file, whose data file a detached header names (spec/zarrify/nrrd.md §8.3
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#83-the-data-file>): a store
     run of the core's `fmt` format over the files, probed as the run asks for them
-    (`refkv.zarrify.store.beside.VsiFiles`). `url`, when given, is the URL of the named file's
+    (`refkv.host.beside.VsiFiles`). `url`, when given, is the URL of the named file's
     directory (ending in `/`), the store URL the output's object URLs are made from. `scope`, when
     given, the keys of the input's scope (§1.9
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,

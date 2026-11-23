@@ -166,9 +166,21 @@ def test_importing_refkv_imports_no_zip_code():
                                    "refkv.build.seal", "refkv.build.plugin", "refkv.zarrify.layouts.examples.bare"])
 def test_each_side_of_the_zarrify_and_build_cycle_imports_first(first):
     """refkv.zarrify gives a plugin layout its input through refkv.build, which reads inputs with
-    refkv.zarrify's parse, and both use refkv.ir, which imports refkv.zarrify: each of them can be
-    the first module of them a process imports."""
+    refkv.zarrify's parse, and both use refkv.ir: each of them can be the first module of them a
+    process imports."""
     code = f"import {first}, refkv.ir, refkv.zarrify, refkv.build; print(refkv.build.apply.__name__)"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
     assert (out.returncode, out.stdout.strip()) == (0, "apply"), out.stderr
 
+
+
+@pytest.mark.parametrize("module", ["refkv.errors", "refkv.profiles", "refkv.entries", "refkv.ir", "refkv.ir.output",
+                                    "refkv.ir.planner", "refkv.ir.stored", "refkv.ir.cmirror", "refkv.ir.store",
+                                    "refkv.host", "refkv.host.beside"])
+def test_the_layers_below_zarrify_import_without_it(module):
+    """The errors, the profile registry, the rules of an output's entries, the host of the Rust
+    core (refkv.ir) and the store readers (refkv.host) import nothing of refkv.zarrify, which builds
+    on them: no cycle runs through them."""
+    code = f"import sys, {module}; print(sorted(n for n in sys.modules if n.startswith('refkv.zarrify')))"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "[]", out.stdout

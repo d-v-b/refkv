@@ -3,7 +3,7 @@
 input that the Rust core parses, projects and mirrors.
 
 The core is sans-IO. The host lists the store and reads its objects through the store readers
-of `refkv.zarrify.store` (`HttpStore`: S3 `ListObjectsV2` and range requests, every request
+of `refkv.host` (`HttpStore`: S3 `ListObjectsV2` and range requests, every request
 under the reader policy of spec/refkv.md §6.7
 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>; `DirStore`: a local
 directory), and drives the run:
@@ -28,7 +28,7 @@ spec/zarrify/safe.md), a SAFE product's directory form, `n5`, and `vsi`
 (rust/refkv-ir/src/vsi/, spec/zarrify/vsi.md), whose run starts from the `.vsi` file alone
 and **probes** for its tile files: a `poll()` that gives an empty list is a batch of probes,
 each key of `run.probes()` answered by `run.found(size)` with the key's size, or None when it
-does not exist (`Store.probe`; `refkv.zarrify.store.beside.VsiFiles` opens the files beside the
+does not exist (`Store.probe`; `refkv.host.beside.VsiFiles` opens the files beside the
 `.vsi`).
 """
 
@@ -45,13 +45,14 @@ from typing import Any, Literal
 
 from refkv import _core, _sync
 from refkv._files import replacing
+from refkv.errors import Rejected
+from refkv.host import WORKERS, Opener, Store, object_url, open_store
+from refkv.ir.output import reference_store
 from refkv.pb import Range, Source
 from refkv.policy import Policy
 from refkv.reader import Registry
 from refkv.refstore import ReferenceStore
 from refkv.vzip.archive import VZipWriter
-from refkv.zarrify.common import Rejected, reference_store
-from refkv.zarrify.store import WORKERS, Opener, Store, object_url, open_store
 
 type StorePart = tuple[Literal["object"], str, int, int] | tuple[int, int, int] | bytes
 """A part of a store run's reference: ("object", key, offset, length) of a store's object,

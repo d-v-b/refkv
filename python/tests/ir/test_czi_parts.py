@@ -19,11 +19,11 @@ import refkv.zarr
 from refkv import _core
 from refkv._narrow import at, integer, mapping, ndarray
 from refkv.build import read as read_input
+from refkv.host.beside import VsiFiles
 from refkv.ir.store import StoreIrOutput
 from refkv.policy import Policy
 from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify as zarrify
-from refkv.zarrify.store.beside import VsiFiles
 
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from proxy import Proxy

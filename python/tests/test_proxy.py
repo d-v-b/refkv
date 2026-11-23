@@ -125,8 +125,8 @@ def test_proxy_serves_fixture_stores_as_a_hub_repository(tmp_path):
         (tmp_path / "s" / "a" / str(i)).write_bytes(DATA[:i])
     p = proxy.Proxy(tmp_path, tmp_path / "cache")
     sys.path.insert(0, str(ROOT / "python" / "src"))
+    from refkv.host import HubStore, open_store  # noqa: PLC0415 (as above)
     from refkv.policy import Policy  # noqa: PLC0415 (the package, after the path above)
-    from refkv.zarrify.store import HubStore, open_store  # noqa: PLC0415 (as above)
 
     store = open_store(p.hub_fixture_store("s"), policy=Policy(allow_private_hosts=True), hub=p.hub_endpoint)
     assert isinstance(store, HubStore)

@@ -4,12 +4,12 @@ import sys
 import traceback
 
 from refkv.errors import ResolutionError
+from refkv.host import WORKERS
+from refkv.host.beside import scope_keys
 from refkv.ir.planner import url_scheme
 from refkv.policy import Policy
 from refkv.zarrify import Failed, Rejected, is_store, zarrify
 from refkv.zarrify.layouts import Layout, LayoutFailed, LayoutUsageError
-from refkv.zarrify.store import WORKERS
-from refkv.zarrify.store.beside import scope_keys
 
 # the store kinds, in the words of `vzip convert`'s usage (rust/refkv-cli/src/main.rs)
 STORES = ("a Zarr v3, Zarr v2, OME-Zarr 0.4 or N5 store, a Neuroglancer precomputed volume, a Sentinel-2 .SAFE "

@@ -24,13 +24,13 @@ from ir_helpers import FIXTURES, ROOT
 import refkv.zarr
 from refkv import _core
 from refkv._narrow import at, mapping, ndarray
+from refkv.host import object_url
 from refkv.ir.store import StoreIrOutput
 from refkv.policy import Policy
 from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify as zarrify
 from refkv.zarrify import zarrify as zarrify_named
 from refkv.zarrify.profile_classes import EnviSource
-from refkv.zarrify.store import object_url
 
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from proxy import Proxy

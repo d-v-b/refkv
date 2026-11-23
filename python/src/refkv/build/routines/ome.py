@@ -6,8 +6,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from refkv import _core
-from refkv.zarrify.common import Rejected
-from refkv.zarrify.store.urls import object_url
+from refkv.errors import Rejected
+from refkv.host.urls import object_url
 
 from ._hierarchy import _Hierarchy
 

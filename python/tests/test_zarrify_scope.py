@@ -13,6 +13,7 @@ from pathlib import Path
 import h5py
 import pytest
 
+from refkv.host.beside import Scope, VsiFiles, scope_keys
 from refkv.zarrify import (
     CziSource,
     Hdf5Source,
@@ -24,7 +25,6 @@ from refkv.zarrify import (
     VsiSource,
     zarrify,
 )
-from refkv.zarrify.store.beside import Scope, VsiFiles, scope_keys
 
 FIXTURES = Path(__file__).parents[2] / "fixtures"
 GRIB = FIXTURES / "grib" / "grib_simple.grib2"

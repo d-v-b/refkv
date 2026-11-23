@@ -1,8 +1,18 @@
-"""Error classes of spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>.
+"""refkv's error classes, in a module that imports none of refkv's packages, so that each of them
+(`refkv.ir`, `refkv.build`, `refkv.zarrify`) can raise and catch them.
 
+The reader's errors are those of spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>.
 Each is a ValueError, and its `cls` is the class's name as the spec gives it and readers
 report it (spec §6.5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#65-error-reporting>):
-"archive", "entry", "body", "payload", "resolution" or "request"."""
+"archive", "entry", "body", "payload", "resolution" or "request".
+
+A zarrify call's are `Rejected`, the input is not accepted, `Failed`, the Rust core failed on
+an input it accepted, and `NoIrError`, an input `refkv.build.read` has no IR of."""
+
+from refkv._core import Failed
+
+__all__ = ["ArchiveError", "BodyError", "EntryError", "Failed", "NoIrError", "PayloadError", "RefkvError",
+           "Rejected", "RequestError", "ResolutionError"]
 
 
 class RefkvError(ValueError):
@@ -53,3 +63,21 @@ class RequestError(RefkvError):
     reads or bytes one get may take: that operation fails."""
 
     cls = "request"
+
+
+class Rejected(Exception):  # noqa: N818 (public name)
+    """The input is not accepted by the profile (spec/zarrify.md §1.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>). `format`: the Rust
+    core's store format that refused it once a store run was started, or the profile that run
+    decided (`ome-zarr` once the 0.4 test passed) for a rejection of the output's checks; else
+    None."""
+
+    def __init__(self, *args: object, format: str | None = None) -> None:  # noqa: A002 (the public keyword)
+        super().__init__(*args)
+        self.format = format
+
+
+class NoIrError(ValueError):
+    """An input whose run keeps no IR, so that `refkv.build.read` has nothing to give: a store of
+    DICOM files, which is joined from its files' outputs
+    (spec/zarrify/dicom.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#9-the-store-form>)."""

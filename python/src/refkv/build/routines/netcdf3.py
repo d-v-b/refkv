@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from refkv import _core
-from refkv.zarrify.common import Rejected
+from refkv.errors import Rejected
 
 from ._hierarchy import _Hierarchy
 

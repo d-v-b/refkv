@@ -20,8 +20,8 @@ import sys
 from pathlib import Path
 
 from refkv._narrow import string
+from refkv.profiles import REGISTRY
 from refkv.zarrify.common import CONVENTION_KEY, PROFILES, convention
-from refkv.zarrify.profiles import REGISTRY
 
 HERE = Path(__file__).parent
 STORES = {e["name"] for e in REGISTRY if e["kind"] == "store"}

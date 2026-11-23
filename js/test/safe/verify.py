@@ -69,9 +69,9 @@ from refkv_reference.safe import zipdir  # noqa: E402
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
 from refkv import _core  # noqa: E402
 from refkv._narrow import ndarray  # noqa: E402
+from refkv.host import object_url, open_store  # noqa: E402
 from refkv.ir.cmirror import Archive, canonical_problem, rebuild_from_archive, view_problem  # noqa: E402
 from refkv.pb import decode_source_table  # noqa: E402
-from refkv.zarrify.store import object_url, open_store  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES  # noqa: E402

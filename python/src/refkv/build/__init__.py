@@ -18,7 +18,7 @@ routines that build on them come later. The routines of each format's convention
 
 from typing import Any
 
-from refkv.zarrify.layouts import MAX_PAYLOAD
+from refkv.entries import MAX_PAYLOAD
 
 from . import routines
 from .convention import declaration, filled, grid, gzip_member, mirror

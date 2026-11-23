@@ -20,10 +20,10 @@ from xml.sax.saxutils import escape
 import pytest
 
 from refkv import _core
+from refkv.host import object_url
 from refkv.ir.store import StoreIrOutput, zarrify_store
 from refkv.pb import decode_source_table
 from refkv.zarrify.common import Rejected
-from refkv.zarrify.store import object_url
 
 FIXTURES = Path(__file__).parents[3] / "fixtures"
 STORES = sorted(p for f in ("zarr2", "ome-zarr") for p in (FIXTURES / f).iterdir() if p.is_dir())

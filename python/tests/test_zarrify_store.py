@@ -17,10 +17,7 @@ from typing import override
 
 import pytest
 
-from refkv.pb import Range, decode_source_table
-from refkv.vzip.archive import VZipWriter
-from refkv.zarrify import Rejected
-from refkv.zarrify.store import (
+from refkv.host import (
     HttpStore,
     ListingFailed,
     StoreLimit,
@@ -30,6 +27,9 @@ from refkv.zarrify.store import (
     parse_json,
     parse_listing,
 )
+from refkv.pb import Range, decode_source_table
+from refkv.vzip.archive import VZipWriter
+from refkv.zarrify import Rejected
 
 # the frozen reference twins (conformance/zarrify/reference/refkv_reference), and the store
 # hierarchy and output they share

@@ -55,7 +55,7 @@ from described import Described, described
 from ir_helpers import FIXTURES, ROOT
 from test_vsi import bioformats
 
-from refkv.ir.kind import Kind
+from refkv.ir import Kind
 from refkv.ir.stored import Codec, Each, ElementPlace, Given, Place, Source, StoredArray, Value
 
 VSI = FIXTURES / "vsi"

@@ -10,8 +10,7 @@ import jsonschema
 import pytest
 from ir_helpers import ROOT
 
-from refkv.ir import Ir
-from refkv.ir.kind import Kind
+from refkv.ir import Ir, Kind
 from refkv.ir.store import StoreIrOutput
 from refkv.ir.stored import ElementPlace, Place, Stored
 from refkv.zarrify import _zarrify

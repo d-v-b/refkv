@@ -19,11 +19,11 @@ from xml.sax.saxutils import escape
 import pytest
 
 import refkv.zarrify
+from refkv.host import object_url, open_store
+from refkv.host.stores import _Prefetch
 from refkv.policy import Policy
 from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify_store as zarrify_store  # the profile output, not the store
-from refkv.zarrify.store import object_url, open_store
-from refkv.zarrify.store.stores import _Prefetch
 
 FIXTURES = Path(__file__).parents[2] / "fixtures"
 STORES = sorted(p for f in ("n5", "zarr2", "ome-zarr") for p in (FIXTURES / f).iterdir() if p.is_dir())

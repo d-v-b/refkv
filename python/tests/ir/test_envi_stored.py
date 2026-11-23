@@ -30,7 +30,7 @@ from gdal_envi import gdal
 from ir_helpers import FIXTURES
 
 from refkv.build import read
-from refkv.ir.kind import Kind
+from refkv.ir import Kind
 from refkv.ir.stored import Each, ElementPlace, Source, StoredArray, Value
 
 FILES = sorted(p for p in (FIXTURES / "envi").iterdir() if p.suffix in (".hdr", ".HDR") and "reject" not in p.name)
