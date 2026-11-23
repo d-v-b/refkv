@@ -1,7 +1,6 @@
 """Section references (§n) in refkv: links to the headings they mean, and a check.
 
     uv run python spec/tools/sections.py check [paths...]
-    uv run python spec/tools/sections.py migrate [--write] [--report refs.tsv]
 
 A reference to a section of a document of this repository is a link to that
 section's heading, never a bare "§n":
@@ -12,42 +11,31 @@ section's heading, never a bare "§n":
   source models), the "§n" followed by the heading's URL in angle brackets:
   `spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>`.
 
-`check` fails on a bare reference outside the records of past states (EXCLUDED)
-and the user-facing strings listed in bare_refs_allowed.txt, and on a link
-(relative, or a full URL of this repository) to a document or heading that does
-not exist. A reference to another standard ("RFC 9110 §5.6.7", "PS3.5 §6.2.2")
-is not one to this repository, and stays as it is.
-
-`migrate` was the one-time conversion: it resolves each bare reference to the
-heading it means, by the words before it ("spec/refkv.md", "conventions", "the
-profile", or an old name such as "SPEC.md"), else by where it is (a format's code
-cites that format's document), and rewrites it as a link. section_overrides.tsv
-settles what that cannot. The report lists every reference and its heading.
+`check` fails on a bare reference outside the records of past states (EXCLUDED),
+and on a link (relative, or a full URL of this repository) to a document or
+heading that does not exist. A reference to another standard ("RFC 9110 §5.6.7",
+"PS3.5 §6.2.2") is not one to this repository, and stays as it is.
 """
 
 from __future__ import annotations
 
 import argparse
 import bisect
-import csv
 import io
-import json
 import re
 import subprocess
 import sys
 import tokenize
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from fnmatch import fnmatch
 from functools import cache
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[2]
 URL = "https://github.com/d-v-b/refkv/blob/main/"
-HERE = Path(__file__).resolve().parent
 
 # Records of past states: their references cite the documents as they were then, so
-# a bare one is allowed. (Where the snapshot of that revision is in spec/history/,
-# migrate linked to it.)
+# a bare one is allowed.
 EXCLUDED = (
     "spec/history/**",
     "spec/tools/**",  # this tool, whose examples and tests are bare references
@@ -59,41 +47,6 @@ EXCLUDED = (
     "design/plans/**",
     "CHANGELOG.md",  # release-please writes it from the merged PRs' titles
 )
-# Records that migrate left as they are: frozen snapshots, the frozen reference
-# twins and their tests (revision 20, of which there is no snapshot), and dated notes.
-LEFT_ALONE = (
-    "spec/history/**",
-    "spec/tools/**",  # this tool, whose examples and tests are bare references
-    "python/tests/reference/**",
-    "conformance/zarrify/reference/**",
-    "design/IR_NOTES.md",
-    "design/plans/**",
-    "CHANGELOG.md",  # release-please writes it from the merged PRs' titles
-)
-# Written by spec/generate_schemas.py.
-GENERATED = ("spec/zarrify/*/schema.json",)
-
-# The profile registry (spec/zarrify/profiles/<name>.json, one file per profile): the format
-# documents, each numbered on its own (its profile is its Part 2, numbered after its Part 1), and
-# the dataset layouts' conventions (spec/conventions.md §9), a document each without a profile.
-REGISTRY: list[dict] = sorted(
-    (json.loads(p.read_text(encoding="utf-8")) for p in (ROOT / "spec" / "zarrify" / "profiles").glob("*.json")),
-    key=lambda e: e["name"],
-)
-FORMATS: tuple[str, ...] = tuple(e["name"] for e in REGISTRY if e["kind"] != "layout")
-LAYOUTS: tuple[str, ...] = tuple(e["name"] for e in REGISTRY if e["kind"] == "layout")
-DOCS = FORMATS + LAYOUTS
-
-# Old names of the documents, from before the repository was reorganized.
-OLD_NAMES = {
-    "SPEC.md": "spec",
-    "spec/archive.md": "spec",
-    "ZARRIFY.md": "spec/zarrify.md",
-    "VIRTUALIZE.md": "spec/zarrify.md",
-    "conventions/README.md": "spec/conventions.md",
-    "TECHNIQUES.md": "spec/TECHNIQUES.md",
-    "ARCHITECTURE.md": "design/ARCHITECTURE.md",
-}
 
 # ---------------------------------------------------------------- headings
 
@@ -177,16 +130,6 @@ def anchors(doc: str) -> frozenset[str]:
     if path.is_file():
         found |= set(re.findall(r"""<a\s+(?:id|name)=["']([^"']+)["']""", path.read_text(encoding="utf-8")))
     return frozenset(found)
-
-
-def format_of_doc(doc: str) -> str | None:
-    m = re.fullmatch(r"spec/zarrify/([\w-]+)\.md", doc)
-    return m.group(1) if m and m.group(1) in DOCS else None
-
-
-def numbered(doc: str, number: str, part: int | None = None) -> list[Heading]:
-    """The headings of `doc` numbered `number` (in `part`, if given)."""
-    return [h for h in headings(doc) if h.number == number and (part is None or h.part == part)]
 
 
 # ---------------------------------------------------------------- where references are
@@ -421,15 +364,6 @@ class Ref:
     number: str
     kind: str
     line: int
-    qualifier: str | None = None  # the words naming the document, if any
-    qstart: int | None = None  # their offset, when they are plain text on this line
-    doc: str | None = None  # the document the qualifier names
-    part: int | None = None
-    target: Heading | None = None
-    status: str = ""  # linked, external, ok, review, ambiguous, unresolved, kept
-    note: str = ""
-    text: str | None = None  # the "§n" to write, if not the one there
-    candidates: list[Heading] = field(default_factory=list)
 
 
 CODE_SPAN = re.compile(r"(`+)(?!`).+?(?<!`)\1(?!`)", re.DOTALL)
@@ -475,68 +409,7 @@ def preceding(text: str, start: int, back: int = 120) -> str:
     return LEADER.sub(" ", text[max(0, start - back) : start])
 
 
-# ---------------------------------------------------------------- resolution
-
-
-def fmt_of_path(path: str) -> str | None:
-    """The format whose code (or tests, fixtures, schema) a file is, if any."""
-    p = path.replace("ome_zarr", "ome-zarr")
-    for f in sorted(DOCS, key=len, reverse=True):
-        if re.search(rf"(?:^|/){re.escape(f)}(?:/|\.rs$|\.json$)", p):
-            return f
-        if re.search(rf"(?:^|/)test_zarrify_{re.escape(f)}\.py$", p):
-            return f
-    return None
-
-
-# The default document of a bare reference, by the file it is in: (glob, rule). A
-# rule is "self" (the file's own headings), "fmt" (the document of the file's format,
-# by fmt_of_path, then spec/zarrify.md), "history:<archive|virtualize>" (the
-# snapshot of the round, by the file's rN directory), "spec" (the specification's two
-# documents, spec/refkv.md and spec/bindings/vzip.md, numbered as one), or a document.
-CONTEXTS: list[tuple[str, str]] = [
-    ("spec/refkv.md", "spec"),
-    ("spec/bindings/vzip.md", "spec"),
-    ("spec/*.md", "self"),
-    ("spec/bindings/*.md", "self"),
-    ("spec/zarrify/*.md", "self"),
-    ("design/ARCHITECTURE.md", "self"),
-    ("design/conformance/archive/**", "history:archive"),
-    ("design/conformance/virtualize/**", "history:virtualize"),
-    ("conformance/impls/**", "spec/history/archive/SPEC.r7.md"),
-    ("conformance/vzip/**", "spec"),
-    ("conformance/zarrify/**", "spec/zarrify.md"),
-    ("design/comparison/**", "spec"),
-    ("design/experiments/**", "spec"),
-    ("design/*.md", "spec"),
-    ("python/src/refkv/zarrify/*/**", "fmt"),
-    ("python/src/refkv/zarrify/**", "spec/zarrify.md"),
-    ("python/src/refkv/ir/**", "spec/conventions.md"),
-    ("python/src/refkv/**", "spec"),
-    ("js/src/zarrify/ir/**", "spec/conventions.md"),
-    ("js/src/zarrify/*/**", "fmt"),
-    ("js/src/zarrify/**", "spec/zarrify.md"),
-    ("js/src/**", "spec"),
-    ("demo/map/**", "spec/zarrify/safe.md"),
-    ("js/conformance/**", "spec/zarrify.md"),
-    ("js/test/*/**", "fmt"),
-    ("js/test/ir_mirror.py", "spec/conventions.md"),
-    ("js/test/store.test.ts", "spec/zarrify.md"),
-    ("js/test/chunks.test.ts", "spec/zarrify.md"),
-    ("js/test/**", "spec"),
-    ("python/tests/ir/**", "spec/conventions.md"),
-    ("python/tests/reference/**", "fmt"),
-    ("python/tests/test_zarrify_*.py", "fmt"),
-    ("python/tests/test_compare.py", "spec/zarrify.md"),
-    ("python/tests/**", "spec"),
-    ("fixtures/**", "fmt"),
-    ("rust/refkv-ir/**", "fmt:spec/conventions.md"),
-    ("spec/generate_schemas.py", "spec/zarrify.md"),
-    ("docs/**", "spec/zarrify.md"),
-    (".github/**", "spec/zarrify.md"),
-    ("justfile", "spec/zarrify.md"),
-    ("js/README.md", "spec"),
-]
+# ---------------------------------------------------------------- paths
 
 
 def matches(path: str, pattern: str) -> bool:
@@ -553,48 +426,6 @@ def excluded(path: str) -> bool:
     return any(matches(path, p) for p in EXCLUDED)
 
 
-def context(path: str) -> str | None:
-    return next((rule for pattern, rule in CONTEXTS if matches(path, pattern)), None)
-
-
-def history_doc(path: str, which: str) -> str | None:
-    m = re.search(r"/r(\d+)/", path)
-    if not m:
-        return None
-    name = "SPEC" if which == "archive" else "VIRTUALIZE"
-    doc = f"spec/history/{which}/{name}.r{m.group(1)}.md"
-    return doc if (ROOT / doc).is_file() else None
-
-
-def snapshots(path: str) -> dict[str, str] | None:
-    """For a record of a past state, the snapshots in spec/history/ of the documents it
-    cited (by their names now, and "HARNESS.md"), else None."""
-    m = re.search(r"/r(\d+)/", path)
-    if matches(path, "design/conformance/archive/**") and m:
-        spec, harness = f"SPEC.r{m.group(1)}", f"HARNESS.r{m.group(1)}"
-        which = "archive"
-    elif matches(path, "design/conformance/virtualize/**") and m:
-        spec, harness, which = f"VIRTUALIZE.r{m.group(1)}", None, "virtualize"
-    elif matches(path, "conformance/impls/**"):
-        spec, harness, which = "SPEC.r7", "HARNESS.r7", "archive"
-    else:
-        return None
-    out = {}
-    if (ROOT / f"spec/history/{which}/{spec}.md").is_file():
-        out["spec/archive.md" if which == "archive" else "spec/zarrify.md"] = f"spec/history/{which}/{spec}.md"
-        if which == "archive":
-            out["spec"] = out["spec/archive.md"]
-    if harness and (ROOT / f"spec/history/{which}/{harness}.md").is_file():
-        out["HARNESS.md"] = out[f"conformance/{which}/HARNESS.md"] = f"spec/history/{which}/{harness}.md"
-    return out
-
-
-@cache
-def repo_md_files() -> frozenset[str]:
-    out = subprocess.run(["git", "ls-files", "*.md"], cwd=ROOT, capture_output=True, text=True, check=True)
-    return frozenset(out.stdout.split())
-
-
 def _normalize(parts: tuple[str, ...]) -> list[str]:
     out: list[str] = []
     for p in parts:
@@ -604,422 +435,6 @@ def _normalize(parts: tuple[str, ...]) -> list[str]:
         elif p != ".":
             out.append(p)
     return out
-
-
-def doc_for_name(name: str, path: str) -> str | None:
-    """The document a name in the text means: a path from the file or the root, a
-    document's old name, or a file name that only one document has."""
-    if name in OLD_NAMES:
-        return OLD_NAMES[name]
-    m = re.fullmatch(r"(?:\.\./)*conventions/([\w-]+)/README\.md", name)
-    if m:
-        f = m.group(1).replace("_", "-")
-        return f"spec/zarrify/{f}.md" if f in DOCS else None
-    if re.fullmatch(r"(?:\.\./)*profiles/([\w-]+)\.md", name):
-        return "spec/zarrify.md"
-    here = PurePosixPath(path).parent
-    for cand in (here / name, PurePosixPath(name)):
-        norm = "/".join(_normalize(cand.parts))
-        if norm in repo_md_files():
-            return norm
-    hits = sorted(p for p in repo_md_files() if p.endswith("/" + name) and not p.startswith("spec/history/"))
-    spec_hits = [p for p in hits if p.startswith("spec/")]
-    if len(spec_hits) == 1:
-        return spec_hits[0]
-    return hits[0] if len(hits) == 1 else None
-
-
-# The words that name a format's document: its name and its title, lowercase (the registry's).
-FORMAT_WORDS: dict[str, str] = {w: e["name"] for e in REGISTRY for w in (e["name"], e["title"].lower())}
-# A format's words, the longest first (so that "mrc-dataset" is not read as "mrc").
-_FMT_WORDS = "|".join(re.escape(w) for w in sorted(FORMAT_WORDS, key=len, reverse=True))
-_FMT = r"(?:the\s+)?(?:(" + _FMT_WORDS + r")\s+)?"
-# A format's title as written ("TIFF", "Zarr v2"), or its name in capitals where its title holds
-# it ("SAFE" of "Sentinel-2 SAFE").
-_FORMAT_NAMES: list[str] = sorted({e["title"] for e in REGISTRY}
-                       | {e["name"].upper() for e in REGISTRY if re.search(rf"\b{e['name'].upper()}\b", e["title"])},
-                       key=len, reverse=True)
-Q_PATH = re.compile(r"(?<![\w/.\-\[])(\[?((?:\.{1,2}/)*[\w.\-]+(?:/[\w.\-]+)*\.md)(?:\]\([^()\s]*\))?)(?:'s)?,?\s*$")
-Q_OLD = re.compile(r"(?<![\w/])(SPEC|ZARRIFY|VIRTUALIZE)(?:'s)?\s*$")
-Q_CONVENTIONS = re.compile(r"(?<![\w/\-])(conventions)(?:'s?)?\s*$", re.IGNORECASE)
-Q_CONVENTION = re.compile(r"(?<![\w/\-])(" + _FMT + r"convention)(?:'s)?\s*$", re.IGNORECASE)
-Q_PROFILE = re.compile(r"(?<![\w/\-])(" + _FMT + r"profile)(?:'s)?\s*$", re.IGNORECASE)
-# A format's name alone ("TIFF §3"): its convention.
-Q_FORMAT = re.compile(r"(?<![\w/\-])(" + "|".join(re.escape(w) for w in _FORMAT_NAMES) + r")\s*$")
-Q_SPEC = re.compile(r"(?<![\w/\-])((?:the\s+)?(?:archive\s+)?spec)(?:'s)?\s*$")
-
-
-def qualify(path: str, text: str, ref: Ref) -> tuple[str | None, str | None, int | None, int | None]:
-    """(document, its words, their offset when plain text on the line, part) that the
-    words just before a reference name: "external" for another standard, "unknown"
-    for a name that is no document, None for none."""
-    pre = preceding(text, ref.start)
-    line_start = text.rfind("\n", 0, ref.start) + 1
-
-    def offset(m: re.Match[str]) -> int | None:
-        # the words' offset in the file, when they are plain text on the reference's line
-        q = m.group(1)
-        if "[" in q or "]" in q:
-            return None
-        k = text.rfind(q, line_start, ref.start)
-        if k < 0 or text[k + len(q) : ref.start].strip():
-            return None
-        return k
-
-    if EXTERNAL.search(pre):
-        return "external", None, None, None
-    m = Q_PATH.search(pre)
-    if m:
-        doc = doc_for_name(m.group(2), path)
-        if doc is None:
-            return "unknown", m.group(2), None, None
-        return doc, m.group(2), offset(m), None
-    m = Q_OLD.search(pre)
-    if m:
-        return ("spec" if m.group(1) == "SPEC" else "spec/zarrify.md"), m.group(1), offset(m), None
-    m = Q_CONVENTIONS.search(pre)
-    if m:
-        return "spec/conventions.md", m.group(1), offset(m), None
-    for q, part in ((Q_CONVENTION, 1), (Q_PROFILE, 2)):
-        m = q.search(pre)
-        if m:
-            f = FORMAT_WORDS.get((m.group(2) or "").lower()) or format_of_doc(path) or fmt_of_path(path)
-            return (f"spec/zarrify/{f}.md" if f else "unknown"), m.group(1), offset(m), part
-    m = Q_FORMAT.search(pre)
-    if m:
-        return f"spec/zarrify/{FORMAT_WORDS[m.group(1).lower()]}.md", m.group(1), offset(m), 1
-    m = Q_SPEC.search(pre)
-    if m:
-        return "spec", m.group(1), offset(m), None
-    return None, None, None, None
-
-
-def part_at(path: str, line: int) -> int | None:
-    part = None
-    for h in headings(path):
-        if h.line > line:
-            break
-        part = h.part
-    return part
-
-
-# The specification: its two documents, whose section numbers are distinct.
-SPEC: list[tuple[str, int | None]] = [("spec/refkv.md", None), ("spec/bindings/vzip.md", None)]
-
-
-def tiers(path: str, ref: Ref) -> list[list[tuple[str, int | None]]]:
-    """Where a bare reference may point, tier by tier: the first tier with a heading of
-    its number settles it (two headings make it ambiguous)."""
-    rule = context(path)
-    if rule is None:
-        return []
-    if rule == "self":
-        if format_of_doc(path):
-            if part_at(path, ref.line) == 2:
-                return [[(path, 2)], [("spec/zarrify.md", None)], [(path, 1)]]
-            return [[(path, 1)], [(path, 2)], [("spec/zarrify.md", None)]]
-        return [[(path, None)]]
-    if rule == "spec":
-        return [SPEC]
-    if rule.startswith("history:"):
-        doc = history_doc(path, rule.split(":", 1)[1])
-        return [[(doc, None)]] if doc else []
-    if rule.startswith("fmt"):
-        # the format's document, else (a file of no format) the fallback, then spec/zarrify.md
-        f = fmt_of_path(path)
-        if f is None:
-            fallback = rule.partition(":")[2]
-            first: list[list[tuple[str, int | None]]] = [[(fallback, None)]] if fallback else []
-            return [*first, [("spec/zarrify.md", None)]]
-        doc = f"spec/zarrify/{f}.md"
-        return [[(doc, 1), (doc, 2)], [("spec/zarrify.md", None)]]
-    return [[(rule, None)]]
-
-
-# A format document's example: code does not cite it (its "§6" is the profile's).
-EXAMPLE = re.compile(r"^\d+\.? Example$")
-
-
-def resolve(path: str, text: str, ref: Ref, prev: Ref | None) -> None:
-    """Settles a reference's target and status."""
-    if is_linked_md(text, ref.start, ref.end) if ref.kind == "md" else is_linked_code(text, ref.end):
-        ref.status = "linked"
-        return
-    if not ref.number[0].isdigit():
-        ref.status = "external"
-        return
-    doc, words, offset, part = qualify(path, text, ref)
-    chained = prev is not None and CHAIN.match(LEADER.sub(" ", text[prev.end : ref.start])) is not None
-    if doc is None and chained:
-        if prev.status == "external":
-            doc = "external"
-        elif prev.doc is not None:
-            doc, part, ref.qualifier = prev.doc, prev.part, prev.qualifier
-    if doc == "external":
-        ref.status = "external"
-        return
-    then = snapshots(path)
-    if then is not None and doc is not None and words is not None:
-        # a record of a past state cites the documents as they were: their snapshots
-        name = words if doc == "unknown" else doc
-        if name not in then:
-            ref.status, ref.note = "unresolved", f"no snapshot of {name!r} of that revision"
-            return
-        doc = then[name]
-    if doc == "unknown":
-        ref.status, ref.note = "unresolved", f"no document {words!r}"
-        return
-    if words is not None:
-        ref.qualifier, ref.qstart = words, offset
-    ref.doc, ref.part = doc, part
-    if doc is not None:
-        if doc == "spec":
-            order = [SPEC]
-        elif format_of_doc(doc) and part is None:
-            # a format's document by its path: Part 1 (its profile is cited as spec/zarrify.md §n)
-            order: list[list[tuple[str, int | None]]] = [[(doc, 1)], [(doc, 2)]]
-        else:
-            order = [[(doc, part)]]
-    else:
-        order = tiers(path, ref)
-        if not order:
-            ref.status, ref.note = "unresolved", "no default document for this file"
-            return
-    for i, tier in enumerate(order):
-        cands = [
-            h for d, p in tier for h in numbered(d, ref.number, p) if ref.kind == "md" or not EXAMPLE.match(h.title)
-        ]
-        if len(cands) == 1:
-            ref.target = cands[0]
-            ref.status = "ok" if i == 0 else "review"
-            ref.note = "" if i == 0 else f"tier {i + 1}"
-            return
-        if len(cands) > 1:
-            ref.status, ref.candidates = "ambiguous", cands
-            ref.note = " | ".join(f"{h.doc}#{h.anchor}" for h in cands)
-            return
-    ref.status = "unresolved"
-    ref.note = f"no heading {ref.number} in " + ", ".join(sorted({d for t in order for d, _ in t}))
-
-
-# ---------------------------------------------------------------- overrides
-
-OVERRIDES_FILE = HERE / "section_overrides.tsv"
-
-
-@cache
-def overrides() -> dict[tuple[str, int, str, int], tuple[str, str]]:
-    """(path, line, "§n", which one of those on the line) -> (target, new text): the
-    target "doc#anchor", or "keep" to leave the reference; the new text a "§n" to
-    write instead (for a reference to a renumbered section), or ""."""
-    out: dict[tuple[str, int, str, int], tuple[str, str]] = {}
-    if not OVERRIDES_FILE.is_file():
-        return out
-    for row in csv.reader(OVERRIDES_FILE.read_text(encoding="utf-8").splitlines(), delimiter="\t"):
-        if not row or row[0].startswith("#"):
-            continue
-        path, line, token, nth, target, new = (row + [""] * 6)[:6]
-        out[(path, int(line), token, int(nth))] = (target, new)
-    return out
-
-
-def apply_override(ref: Ref, text: str, nth: int) -> None:
-    key = (ref.path, ref.line, text[ref.start : ref.end], nth)
-    o = overrides().get(key)
-    if o is None:
-        return
-    target, new = o
-    if target == "keep":
-        ref.status, ref.target, ref.note = "kept", None, "override: keep"
-        return
-    doc, anchor = target.split("#", 1)
-    h = next((h for h in headings(doc) if h.anchor == anchor), None)
-    if h is None:
-        raise SystemExit(f"override {key}: no heading #{anchor} in {doc}")
-    ref.target, ref.status = h, "ok"
-    ref.note = "override" + (f", written {new}" if new else "")
-    ref.text = new or None
-
-
-# ---------------------------------------------------------------- rewriting
-
-
-def relpath(target: str, frm: str) -> str:
-    a = PurePosixPath(target).parts
-    b = PurePosixPath(frm).parent.parts
-    k = 0
-    while k < len(a) - 1 and k < len(b) and a[k] == b[k]:
-        k += 1
-    return "/".join([".."] * (len(b) - k) + list(a[k:]))
-
-
-def link_for(ref: Ref) -> str:
-    h = ref.target
-    assert h is not None
-    if ref.kind == "md":
-        return "#" + h.anchor if h.doc == ref.path else relpath(h.doc, ref.path) + "#" + h.anchor
-    return URL + h.doc + "#" + h.anchor
-
-
-WIDTH = 100
-JSDOC_LINE = re.compile(r"^([ \t]*)/\*\* (.*?) ?\*/$")
-COMMENT_LINE = re.compile(r"^([ \t]*(?:#+|//[/!]?|\*)[ \t]?)(?=\S)")
-
-
-def wrap(line: str, prefix: str, width: int) -> list[str]:
-    """A line of comment text wrapped at spaces to `width`, each line after the first
-    starting with `prefix`; a word (a URL) is never broken."""
-    words = line[len(prefix) :].split(" ")
-    out, cur = [], prefix
-    for w in words:
-        if cur.strip() and cur != prefix and len(cur) + 1 + len(w) > width:
-            out.append(cur)
-            cur = prefix + w
-        else:
-            cur = cur + w if cur == prefix else cur + " " + w
-    out.append(cur)
-    return out
-
-
-def rewrap(text: str, changed: set[int], docstring_lines: set[int]) -> str:
-    """The lines a rewrite lengthened past WIDTH, wrapped when they are comment or
-    docstring text alone (a line that also holds code or a string is left as it is).
-    The last piece joins the next line when that line continues the same text and
-    the two fit."""
-    lines = text.split("\n")
-    out: list[str] = []
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        if i not in changed or len(line) <= WIDTH:
-            out.append(line)
-            i += 1
-            continue
-        jsdoc = JSDOC_LINE.match(line)
-        if jsdoc:
-            # a one-line JSDoc comment becomes a block of lines
-            indent = jsdoc.group(1)
-            out.append(indent + "/**")
-            out.extend(wrap(indent + " * " + jsdoc.group(2), indent + " * ", WIDTH))
-            out.append(indent + " */")
-            i += 1
-            continue
-        m = COMMENT_LINE.match(line)
-        if m and not line.lstrip().startswith("/**"):
-            prefix = m.group(1)
-            if prefix.strip() == "*" and not prefix.endswith(" "):
-                prefix += " "
-        elif i in docstring_lines:
-            prefix = line[: len(line) - len(line.lstrip())]
-        else:
-            out.append(line)
-            i += 1
-            continue
-        pieces = wrap(line, prefix, WIDTH)
-        nxt = lines[i + 1] if i + 1 < len(lines) else None
-        if len(pieces) > 1 and nxt is not None and i + 1 not in changed and nxt.startswith(prefix):
-            rest = nxt[len(prefix) :]
-            tail = pieces[-1][len(prefix) :]
-            if (
-                rest
-                and rest[0] not in " -*|>`#0123456789"
-                and "*/" not in nxt
-                and '"""' not in tail
-                and "'''" not in tail
-                and len(prefix) + len(tail) + 1 + len(rest) <= WIDTH
-            ):
-                lines[i + 1] = prefix + tail + " " + rest
-                pieces.pop()
-        out.extend(pieces)
-        i += 1
-    return "\n".join(out)
-
-
-def rewrite(text: str, refs: list[Ref]) -> str:
-    """The text with each settled reference made a link: in Markdown a relative link,
-    elsewhere the URL after the reference (and a comment line it makes too long
-    wrapped)."""
-    edits: list[tuple[int, int, str]] = []
-    for ref in refs:
-        if ref.status not in ("ok", "review") or ref.target is None:
-            continue
-        token = ref.text or text[ref.start : ref.end]
-        if ref.kind == "md":
-            s = ref.qstart if ref.qstart is not None else ref.start
-            edits.append((s, ref.end, f"[{text[s : ref.start]}{token}]({link_for(ref)})"))
-        else:
-            edits.append((ref.start, ref.end, f"{token} <{link_for(ref)}>"))
-    changed: set[int] = set()
-    docstring: set[int] = set()
-    for ref in refs:
-        if ref.kind != "md" and ref.status in ("ok", "review") and ref.target is not None:
-            changed.add(ref.line - 1)
-            if ref.kind == "docstring":
-                docstring.add(ref.line - 1)
-    for s, e, new in sorted(edits, reverse=True):
-        text = text[:s] + new + text[e:]
-    return rewrap(text, changed, docstring) if changed else text
-
-
-def analyze(path: str, text: str) -> list[Ref]:
-    """Every reference of a file, resolved."""
-    refs = find_refs(path, text)
-    prev = None
-    seen: dict[tuple[int, str], int] = {}
-    for ref in refs:
-        resolve(path, text, ref, prev)
-        tok = text[ref.start : ref.end]
-        nth = seen.get((ref.line, tok), 0)
-        seen[(ref.line, tok)] = nth + 1
-        if ref.status not in ("linked", "external"):
-            apply_override(ref, text, nth)
-        prev = ref
-    return refs
-
-
-def files_with_refs() -> list[str]:
-    out = subprocess.run(["git", "grep", "-lI", "§"], cwd=ROOT, capture_output=True, text=True, check=False)
-    return sorted(out.stdout.split())
-
-
-def migrate(args: argparse.Namespace) -> int:
-    rows: list[tuple[str, int, str, str, str, str, str, str, str, str]] = []
-    for path in args.paths or files_with_refs():
-        if any(matches(path, p) for p in GENERATED + LEFT_ALONE):
-            continue
-        text = (ROOT / path).read_text(encoding="utf-8")
-        refs = analyze(path, text)
-        for ref in refs:
-            ls = text.rfind("\n", 0, ref.start) + 1
-            le = text.find("\n", ref.end)
-            rows.append(
-                (
-                    path,
-                    ref.line,
-                    ref.kind,
-                    text[ref.start : ref.end],
-                    ref.qualifier or "",
-                    ref.status,
-                    f"{ref.target.doc}#{ref.target.anchor}" if ref.target else "",
-                    ref.target.title if ref.target else "",
-                    ref.note,
-                    text[ls : le if le >= 0 else None].strip()[:400],
-                )
-            )
-        if args.write:
-            new = rewrite(text, refs)
-            if new != text:
-                (ROOT / path).write_text(new, encoding="utf-8")
-    if args.report:
-        with open(args.report, "w", newline="", encoding="utf-8") as fh:
-            w = csv.writer(fh, delimiter="\t")
-            w.writerow(["path", "line", "kind", "token", "qualifier", "status", "target", "title", "note", "text"])
-            w.writerows(rows)
-    counts: dict[str, int] = {}
-    for r in rows:
-        counts[r[5]] = counts.get(r[5], 0) + 1
-    print(" ".join(f"{k}={v}" for k, v in sorted(counts.items())))
-    return 0
 
 
 # ---------------------------------------------------------------- the check
@@ -1124,16 +539,11 @@ def check(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Section references: a check, and the conversion to links.")
+    ap = argparse.ArgumentParser(description="Section references: a check.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("check", help="fail on bare references and on links to missing headings")
     c.add_argument("paths", nargs="*", help="the files (default: every text file git tracks or would)")
-    m = sub.add_parser("migrate", help="rewrite bare references as links")
-    m.add_argument("paths", nargs="*", help="the files (default: every file with a §)")
-    m.add_argument("--write", action="store_true", help="rewrite the files (else report only)")
-    m.add_argument("--report", help="a TSV of every reference and its heading")
-    args = ap.parse_args(argv)
-    return check(args) if args.cmd == "check" else migrate(args)
+    return check(ap.parse_args(argv))
 
 
 if __name__ == "__main__":

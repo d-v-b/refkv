@@ -106,8 +106,8 @@ refkv = { workspace = true }
 [tool.ruff]
 target-version = "py312"
 line-length = 120
-# the frozen reference implementation, kept as it was written (conformance/zarrify/reference/README.md),
-# and the experiments' records, kept as they ran
+# the frozen reference implementation, kept as it was written (conformance/zarrify/HARNESS.md says
+# why), and the experiments' records, kept as they ran
 extend-exclude = ["conformance/zarrify/reference", "design/experiments"]
 
 [tool.ruff.lint]
