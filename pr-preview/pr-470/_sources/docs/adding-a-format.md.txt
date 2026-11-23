@@ -402,8 +402,8 @@ registry. Add:
 
 - `src/<m>.rs` (where `<m>` is the name with `-` as `_`):
   - a `pub struct Profile` implementing `FileProfile` (`src/run.rs`: `detect`,
-    `parser`, `project` (from the IR and the parser's description), and optionally
-    `reads`, `mirrored`, `whole`, `summary_counts`);
+    `parser`, `project` (from the IR, the parser's description and the run's `out::Chunking`),
+    and optionally `reads`, `mirrored`, `whole`, `summary_counts`);
   - a sans-IO parser with `new(size)`, `step`, `feed` and `finish`;
 - `src/project/<m>.rs`, the projection to the Zarr layout;
 - `src/<m>/stored.rs`, which builds the stored-array descriptions, their codec
@@ -464,8 +464,12 @@ rejection names it and `section` is the anchor of the section of the profile's d
 The documentation site lists it in the table of [zarrify §1.8](../spec/zarrify.md#18-files-read-as-stores). Then
 add two functions, which `build.rs` calls from the `StoreFormat` it generates:
 
-- `pub fn store_parser(ir, objects, keys)` in `src/<m>.rs`;
-- `pub fn store_project(ir, description, url, copied)` in `src/project/<m>.rs`.
+- `pub fn store_parser(ir, objects, keys, chunking)` in `src/<m>.rs`;
+- `pub fn store_project(ir, description, url, copied, chunking)` in `src/project/<m>.rs`.
+
+`chunking` is the run's `out::Chunking`, how refkv's convention cuts the source: a parser or
+projection that cuts contiguous values, and so chooses the edge chunks to copy, uses its
+`copy_threshold` rather than a constant, as `FileProfile::{project, reads}` do with theirs.
 
 A parser that reads bytes for the projection apart from what it describes (edge chunks it copies,
 windows it samples) gives them through `StoreParser::copied`, by their offset and length, and its
