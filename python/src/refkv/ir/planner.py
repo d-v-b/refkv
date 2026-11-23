@@ -49,6 +49,7 @@ from urllib.parse import urljoin, urlparse
 
 from refkv import _core, _sync
 from refkv._narrow import integer
+from refkv._rules import DEFAULTS
 from refkv.errors import Rejected, ResolutionError
 from refkv.policy import Policy
 from refkv.reader import _POOL, Check, Resolver, _check_http_url, _connect, _proxy
@@ -82,12 +83,12 @@ STRONG_ETAG = re.compile(r'^"[\x21\x23-\x7e]*"$')
 
 
 # Some servers (Mendeley Data) refuse urllib's default User-Agent; the store reads send this one.
-UA = "refkv-zarrify"
+UA: str = DEFAULTS["user_agent"]
 
 
-RETRY = (429, 500, 502, 503, 504)
-REDIRECTS = (301, 302, 303, 307, 308)
-OPEN = 1 << 16  # the bytes the request that opens a remote source reads
+RETRY: tuple[int, ...] = tuple(DEFAULTS["retry"])
+REDIRECTS: tuple[int, ...] = tuple(DEFAULTS["redirects"])
+OPEN: int = DEFAULTS["open"]  # the bytes the request that opens a remote source reads
 _SCHEME = re.compile(r"([A-Za-z][A-Za-z0-9+.-]*)://")
 
 
@@ -455,7 +456,7 @@ def open_transport(location: str, policy: Policy | None = None,
     return FileTransport(location)
 
 
-CONNECTIONS = 8  # requests at a time to a remote host, by default (a browser has 6)
+CONNECTIONS: int = DEFAULTS["connections"]  # requests at a time to a remote host, by default (a browser has 6)
 
 
 def concurrency(transport: Transport, connections: int | None = None) -> int:

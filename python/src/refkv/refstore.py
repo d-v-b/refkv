@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, BinaryIO, TypedDict, Unpack, override
 
 from refkv._files import replacing
+from refkv._rules import late
 from refkv._sync import run
 from refkv.bounds import Bound, derive
 from refkv.bounds import check as check_bounds
@@ -252,9 +253,10 @@ class ReferenceStore(ReferenceReader):
         for name, keys in (("read_at_open", read_at_open), ("compressed", compressed)):
             if isinstance(keys, (str, bytes, bytearray, memoryview)):
                 raise TypeError(f"{name} is an iterable of keys, not a single {type(keys).__name__}")
-        self._read_at_open = frozenset(
-            k for k in values if k.endswith("zarr.json")) if read_at_open is None else frozenset(
-            read_at_open)
+        if read_at_open is None:  # the hierarchy's documents (`refkv_ir::host::late`)
+            documents = [k for k in values if k.endswith("zarr.json")]
+            read_at_open = [k for k, is_late in zip(documents, late(documents), strict=True) if is_late]
+        self._read_at_open = frozenset(read_at_open)
         self._compressed = frozenset(compressed)
         for key in self._compressed:
             if not isinstance(values.get(key), bytes):

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from refkv._files import replacing
+from refkv._rules import PAGE_SIZE, late
 from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy
 from refkv.reader import Registry
@@ -69,7 +70,7 @@ class Output:
 
     def write(self, out_path: str) -> None:
         with replacing(out_path) as fh:
-            w = VZipWriter(fh, page_size=1 << 16, checksum=self.checksum)
+            w = VZipWriter(fh, page_size=PAGE_SIZE, checksum=self.checksum)
             src = w.source(Source(url=self.url, size=self.size, etag=self.etag))
             for value, i in self.data.items():
                 if w.blob(value) != i:
@@ -84,11 +85,11 @@ class Output:
 
             for key in sorted(self.refs):
                 w.add_ranges(key, [rng(r) for r in self.refs[key]])
-            for key in sorted(self.bytes_entries):
-                # The hierarchy's documents are read when the archive opens; those of
-                # the source metadata node (and the lazy prefixes), like chunks, only when asked for.
-                late = key.endswith("zarr.json") and not key.startswith(self.lazy)
-                w.add_bytes(key, self.bytes_entries[key], compress=not late, late=late)
+            keys = sorted(self.bytes_entries)
+            # The hierarchy's documents are read when the archive opens; those of
+            # the source metadata node (and the lazy prefixes), like chunks, only when asked for.
+            for key, is_late in zip(keys, late(keys, self.lazy), strict=True):
+                w.add_bytes(key, self.bytes_entries[key], compress=not is_late, late=is_late)
             w.close()
 
     def to_store(self, *, policy: Policy | None = None, registry: Registry | None = None,
@@ -109,15 +110,13 @@ class Output:
             return Range(source=0, offset=r[0], length=r[1])
 
         refs = [(key, [rng(r) for r in self.refs[key]]) for key in sorted(self.refs)]
-        entries = [(key, self.bytes_entries[key],
-                    key.endswith("zarr.json") and not key.startswith(self.lazy))
-                   for key in sorted(self.bytes_entries)]
+        keys = sorted(self.bytes_entries)
+        entries = [(key, self.bytes_entries[key], is_late)
+                   for key, is_late in zip(keys, late(keys, self.lazy), strict=True)]
         return reference_store(refs, entries, sources, checksum=self.checksum, policy=policy, registry=registry,
                                info=info)
 
 
-PAGE_SIZE = 1 << 16  # the page index of a zarrified archive (spec/bindings/vzip.md §12
-# <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#12-page-index-optional>)
 
 
 def reference_store(refs: Iterable[tuple[str, list[Range]]], entries: Iterable[tuple[str, bytes, bool]],

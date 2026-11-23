@@ -66,11 +66,13 @@ import asyncio
 import contextlib
 import dataclasses
 import functools
+import os
 import threading
 from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 
 from refkv import _sync, ir
+from refkv._rules import rule as _host_rule
 from refkv.errors import Failed, Rejected
 from refkv.host import (
     WORKERS,
@@ -80,13 +82,14 @@ from refkv.host import (
     hub_endpoint,
     hub_page,
     object_url,
+    object_urls,
     open_store,
 )
 from refkv.host import Store as Listed
 from refkv.host.beside import Scope, VsiFiles, scope_keys
 from refkv.host.stores import DirStore
 from refkv.ir.output import Output
-from refkv.ir.planner import Transport, open_transport, url_scheme
+from refkv.ir.planner import Transport, open_transport
 from refkv.ir.store import StoreIrOutput, StoreParse, parse_store_async
 from refkv.policy import Policy, crc32c
 from refkv.profiles import BESIDE, CASE, ON_DEMAND
@@ -239,7 +242,7 @@ def _store_output(parsed: StoreParse, store: Listed,
         out = await asyncio.to_thread(parsed.output, True, checksums, written)
         out.ir = parsed.ir
         if checksums:
-            keys = {object_url(store.url, k): k for k in store.objects}
+            keys = dict(zip(object_urls(store.url, list(store.objects)), store.objects, strict=True))
             out.checksum = lambda u, offset, length: crc32c(store.read_range(keys[u], offset, length))
         return out
 
@@ -326,13 +329,15 @@ def local_path(location: str, policy: Policy | None = None) -> str:
 def is_store(location: str) -> bool:
     """Whether `location` is a store input (§1.2
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): a URL (not a `file:` one)
-    whose path ends in `/`, or a local directory, by its path or its `file:` URL."""
-    if url_scheme(location) not in (None, "file"):
-        return location.split("?", 1)[0].split("#", 1)[0].endswith("/")
-    try:  # a path, or a `file:` URL in either form
-        return Path(local_path(location)).is_dir()
-    except ValueError:  # not a local path (a ResolutionError among them): read as a file, which fails there
+    whose path ends in `/`, or a local directory, by its path or its `file:` URL (the core's
+    `refkv_ir::host::input`, under the default policy's `file:` rules)."""
+    try:
+        r = _host_rule("input", location=location, windows=os.name == "nt", allow_file_hosts=False)
+    except ValueError:  # a `file:` URL that names no local path: read as a file, which fails there
         return False
+    if r["kind"] != "local":
+        return r["kind"] == "store"
+    return Path(r["path"]).is_dir()
 
 
 async def _zarrify_async(location: str, url: str | None = None, *, checksums: bool = False,
