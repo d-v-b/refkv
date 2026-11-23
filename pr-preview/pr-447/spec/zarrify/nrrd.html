@@ -1,0 +1,1741 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../../genindex.html"><link rel="search" title="Search" href="../../search.html"><link rel="next" title="NRRD" href="../../docs/zarrify/nrrd/README.html"><link rel="prev" title="NumPy: stored arrays" href="npy/stored-arrays.html">
+        <link rel="canonical" href="https://d-v-b.github.io/refkv/spec/zarrify/nrrd.html">
+
+    <!-- Generated with Sphinx 9.1.1 and Furo 2025.12.19 -->
+        <title>NRRD - refkv</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="../../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../../README.html"><div class="brand">refkv</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../../README.html">
+  
+  <span class="sidebar-brand-text">refkv</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/README.html">refkv documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/adding-a-format.html">Adding a file format</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/build.html">Building an output from the IR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/combining-stores.html">Combining stores</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/layout-plugins.html">Writing a layout plugin</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/tiff-stack.html">A stack of TIFF files as one array</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/virtual-datasets.html">Virtual datasets with xarray</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Specification</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../TECHNIQUES.html">Mapping image formats to Zarr: techniques</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../conventions.html">refkv’s Zarr conventions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../layout.html">Layouts written by plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../provenance.html">refkv’s provenance convention</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../refkv.html">refkv: a reference value type for key-value stores</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../refkv.html#part-1-reference-values">Part 1. Reference values</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../stored-array.html">Stored arrays in the IR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../zarrify.html">Zarrifying files and stores as Zarr in refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/phkv.html">phkv: the perfect-hash binding of refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/phkv.html#part-3-the-perfect-hash-binding">Part 3. The perfect-hash binding</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/vzip.html">vzip: the ZIP binding of refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/vzip.html#part-2-the-zip-binding">Part 2. The ZIP binding</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Formats</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="czi.html">CZI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="czi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="czi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/czi/README.html">CZI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="czi/stored-arrays.html">CZI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="dicom.html">DICOM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dicom.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="dicom.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/dicom/README.html">DICOM, including whole-slide images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dicom/stored-arrays.html">DICOM: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="envi.html">ENVI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="envi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="envi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/envi/README.html">ENVI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="envi/stored-arrays.html">ENVI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="fits.html">FITS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fits.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="fits.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/fits/README.html">FITS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="fits/stored-arrays.html">FITS: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="flac.html">FLAC</a></li>
+<li class="toctree-l1"><a class="reference internal" href="flac.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="flac.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-5" name="toctree-checkbox-5" role="switch" type="checkbox"/><label for="toctree-checkbox-5"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/flac/README.html">FLAC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="flac/stored-arrays.html">FLAC: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="grib.html">GRIB</a></li>
+<li class="toctree-l1"><a class="reference internal" href="grib.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="grib.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-6" name="toctree-checkbox-6" role="switch" type="checkbox"/><label for="toctree-checkbox-6"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/grib/README.html">GRIB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="grib/stored-arrays.html">GRIB: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="h5j.html">H5J</a></li>
+<li class="toctree-l1"><a class="reference internal" href="h5j.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="h5j.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-7" name="toctree-checkbox-7" role="switch" type="checkbox"/><label for="toctree-checkbox-7"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/h5j/README.html">H5J</a></li>
+<li class="toctree-l2"><a class="reference internal" href="h5j/stored-arrays.html">H5J: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="hdf4.html">HDF4</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hdf4.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="hdf4.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-8" name="toctree-checkbox-8" role="switch" type="checkbox"/><label for="toctree-checkbox-8"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/hdf4/README.html">HDF4 and HDF-EOS2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="hdf4/stored-arrays.html">HDF4: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="hdf5.html">HDF5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hdf5.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="hdf5.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-9" name="toctree-checkbox-9" role="switch" type="checkbox"/><label for="toctree-checkbox-9"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/hdf5/README.html">HDF5 and NWB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="hdf5/stored-arrays.html">HDF5: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ims.html">IMS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ims.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ims.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-10" name="toctree-checkbox-10" role="switch" type="checkbox"/><label for="toctree-checkbox-10"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/ims/README.html">Imaris IMS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ims/stored-arrays.html">IMS: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="lif.html">LIF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lif.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="lif.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-11" name="toctree-checkbox-11" role="switch" type="checkbox"/><label for="toctree-checkbox-11"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/lif/README.html">LIF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lif/stored-arrays.html">LIF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="mp3.html">MP3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mp3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mp3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-12" name="toctree-checkbox-12" role="switch" type="checkbox"/><label for="toctree-checkbox-12"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/mp3/README.html">MP3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mp3/stored-arrays.html">MP3: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="mp4.html">MP4</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mp4.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mp4.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-13" name="toctree-checkbox-13" role="switch" type="checkbox"/><label for="toctree-checkbox-13"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/mp4/README.html">MP4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mp4/stored-arrays.html">MP4: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="mrc.html">MRC</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mrc.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mrc.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-14" name="toctree-checkbox-14" role="switch" type="checkbox"/><label for="toctree-checkbox-14"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/mrc/README.html">MRC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mrc/stored-arrays.html">MRC: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mrc-dataset.html">MRC as a dataset</a><input aria-label="Toggle navigation of MRC as a dataset" class="toctree-checkbox" id="toctree-checkbox-15" name="toctree-checkbox-15" role="switch" type="checkbox"/><label for="toctree-checkbox-15"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul class="simple">
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="n5.html">N5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="n5.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="n5.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-16" name="toctree-checkbox-16" role="switch" type="checkbox"/><label for="toctree-checkbox-16"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/n5/README.html">N5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="n5/stored-arrays.html">N5: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="nd2.html">ND2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nd2.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="nd2.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-17" name="toctree-checkbox-17" role="switch" type="checkbox"/><label for="toctree-checkbox-17"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/nd2/README.html">Nikon ND2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nd2/stored-arrays.html">ND2: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ndpi.html">NDPI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ndpi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ndpi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-18" name="toctree-checkbox-18" role="switch" type="checkbox"/><label for="toctree-checkbox-18"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/ndpi/README.html">Hamamatsu NDPI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ndpi/stored-arrays.html">NDPI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="netcdf3.html">netCDF3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="netcdf3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="netcdf3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-19" name="toctree-checkbox-19" role="switch" type="checkbox"/><label for="toctree-checkbox-19"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/netcdf3/README.html">netCDF3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="netcdf3/stored-arrays.html">netCDF3: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="nifti.html">NIfTI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nifti.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="nifti.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-20" name="toctree-checkbox-20" role="switch" type="checkbox"/><label for="toctree-checkbox-20"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/nifti/README.html">NIfTI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nifti/stored-arrays.html">NIfTI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="npy.html">NumPy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="npy.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="npy.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-21" name="toctree-checkbox-21" role="switch" type="checkbox"/><label for="toctree-checkbox-21"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/npy/README.html">NumPy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="npy/stored-arrays.html">NumPy: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">NRRD</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-22" name="toctree-checkbox-22" role="switch" type="checkbox"/><label for="toctree-checkbox-22"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/nrrd/README.html">NRRD</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nrrd/stored-arrays.html">NRRD: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ome-zarr.html">OME-Zarr</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ome-zarr.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ome-zarr.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-23" name="toctree-checkbox-23" role="switch" type="checkbox"/><label for="toctree-checkbox-23"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/ome-zarr/README.html">OME-Zarr 0.4 to 0.5, in place</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ome-zarr/stored-arrays.html">OME-Zarr: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="precomputed.html">Neuroglancer precomputed</a></li>
+<li class="toctree-l1"><a class="reference internal" href="precomputed.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="precomputed.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-24" name="toctree-checkbox-24" role="switch" type="checkbox"/><label for="toctree-checkbox-24"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/precomputed/README.html">Neuroglancer precomputed</a></li>
+<li class="toctree-l2"><a class="reference internal" href="precomputed/stored-arrays.html">Neuroglancer precomputed: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="qptiff.html">QPTIFF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="qptiff.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="qptiff.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-25" name="toctree-checkbox-25" role="switch" type="checkbox"/><label for="toctree-checkbox-25"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/qptiff/README.html">Akoya QPTIFF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="qptiff/stored-arrays.html">QPTIFF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="safe.html">SAFE</a></li>
+<li class="toctree-l1"><a class="reference internal" href="safe.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="safe.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-26" name="toctree-checkbox-26" role="switch" type="checkbox"/><label for="toctree-checkbox-26"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/safe/README.html">Sentinel-2 SAFE</a></li>
+<li class="toctree-l2"><a class="reference internal" href="safe/stored-arrays.html">SAFE: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="safetensors.html">safetensors</a></li>
+<li class="toctree-l1"><a class="reference internal" href="safetensors.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="safetensors.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-27" name="toctree-checkbox-27" role="switch" type="checkbox"/><label for="toctree-checkbox-27"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/safetensors/README.html">safetensors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="safetensors/stored-arrays.html">safetensors: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="tiff.html">TIFF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tiff.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="tiff.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-28" name="toctree-checkbox-28" role="switch" type="checkbox"/><label for="toctree-checkbox-28"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/tiff/README.html">TIFF, OME-TIFF and Aperio SVS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tiff/stored-arrays.html">TIFF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="vsi.html">VSI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="vsi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="vsi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-29" name="toctree-checkbox-29" role="switch" type="checkbox"/><label for="toctree-checkbox-29"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/vsi/README.html">VSI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="vsi/stored-arrays.html">VSI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarr2.html">Zarr v2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarr2.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarr2.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-30" name="toctree-checkbox-30" role="switch" type="checkbox"/><label for="toctree-checkbox-30"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/zarr2/README.html">Zarr v2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarr2/stored-arrays.html">Zarr v2: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarr3.html">Zarr v3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarr3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarr3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-31" name="toctree-checkbox-31" role="switch" type="checkbox"/><label for="toctree-checkbox-31"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/zarr3/README.html">Zarr v3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarr3/stored-arrays.html">Zarr v3: stored arrays</a></li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/d-v-b/refkv/edit/main/spec/zarrify/nrrd.md" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="nrrd">
+<h1>NRRD<a class="headerlink" href="#nrrd" title="Link to this heading">¶</a></h1>
+<p>The Zarr layout of a NRRD input (Teem’s “nearly raw raster data”: a <code class="docutils literal notranslate"><span class="pre">.nrrd</span></code> file whose text
+header is followed by its data, or a detached header, <code class="docutils literal notranslate"><span class="pre">.nhdr</span></code>, and the data file it names), and
+the translation of its header into JSON. What all of refkv’s conventions share is in
+<a class="reference internal" href="../conventions.html"><span class="std std-doc">spec/conventions.md</span></a>, cited here as “conventions §n”. How refkv produces
+this layout as a reference store, which files it reads and which inputs it rejects, is the NRRD
+profile, <a class="reference internal" href="#part-2-the-profile">Part 2</a> below. The format is Teem’s
+<a class="reference external" href="https://teem.sourceforge.net/nrrd/format.html">Definition of NRRD File Format</a>, cited here as
+“the NRRD definition”.</p>
+<p>Convention version: 0 (until release, <a class="reference internal" href="../conventions.html#conventions"><span class="std std-ref">conventions §1</span></a>) · UUID: <code class="docutils literal notranslate"><span class="pre">23e0c600-8da6-40f1-81e7-ab246e948e88</span></code> ·
+Schema: <a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd/schema.json">schema.json</a></p>
+<p>Changes: <a class="reference external" href="https://github.com/d-v-b/refkv/tree/main/spec/zarrify/changes/nrrd">changes/nrrd/</a>, one file per change.</p>
+<p>Added 2026-10-25.</p>
+<p>This document has two parts (<a class="reference internal" href="../conventions.html#parts"><span class="std std-ref">conventions §11.1</span></a>).</p>
+</section>
+<section id="part-1-the-convention">
+<h1>Part 1. The convention<a class="headerlink" href="#part-1-the-convention" title="Link to this heading">¶</a></h1>
+<section id="layout">
+<h2>Layout<a class="headerlink" href="#layout" title="Link to this heading">¶</a></h2>
+<p>The hierarchy’s entries (<a class="reference internal" href="../conventions.html#layout-tables"><span class="std std-ref">conventions §11.5</span></a>):</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>prefix</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>structure</p></th>
+<th class="head"><p>description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json</span></code></p></td>
+<td><p>group</p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-imagegroup"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">ImageGroup</span></code></span></a></p></td>
+<td><p>the root: the image (<a class="reference internal" href="#the-image">§4</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/ome</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-omeimage"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">OmeImage</span></code></span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">M</span></code>: one level, the array <code class="docutils literal notranslate"><span class="pre">0</span></code>, with the scales and translation of <a class="reference internal" href="#scales-units-and-position">§4.3</a>, and <code class="docutils literal notranslate"><span class="pre">omero</span></code> as <a class="reference internal" href="#channels">§4.4</a> says</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/zarr_conventions</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p>array of <a class="reference internal" href="../conventions.html#type-conventionmetadata"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">ConventionMetadata</span></code></span></a></p></td>
+<td><p>the CMO of <a class="reference internal" href="#declaration">§1</a></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/refkv_zarrified</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-rootproperty"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">RootProperty</span></code></span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">profile</span></code> <code class="docutils literal notranslate"><span class="pre">&quot;nrrd&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">version</span></code> <code class="docutils literal notranslate"><span class="pre">0</span></code>, <code class="docutils literal notranslate"><span class="pre">source.url</span></code> the header file’s URL (the object URL of its key in the store, <a class="reference internal" href="../zarrify.html#store-inputs"><span class="std std-ref">spec/zarrify.md §1.4</span></a>), for an attached or a detached header (<a class="reference internal" href="#declaration">§1</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/refkv_zarrified/nrrd</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="#type-nrrdroot"><code class="docutils literal notranslate"><span class="pre">NrrdRoot</span></code></a></p></td>
+<td><p>the root’s source metadata (<a class="reference internal" href="#the-root">§5.1</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">0/zarr.json</span></code></p></td>
+<td><p>array</p></td>
+<td><p><a class="reference internal" href="#type-nrrdarray"><code class="docutils literal notranslate"><span class="pre">NrrdArray</span></code></a></p></td>
+<td><p>the data’s values (<a class="reference internal" href="#the-array">§4.1</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">0/c/&lt;coords&gt;</span></code></p></td>
+<td><p>chunk</p></td>
+<td><p><a class="reference internal" href="#type-nrrdchunk"><code class="docutils literal notranslate"><span class="pre">NrrdChunk</span></code></a> or <a class="reference internal" href="#type-nrrdgzipchunk"><code class="docutils literal notranslate"><span class="pre">NrrdGzipChunk</span></code></a></p></td>
+<td><p>every chunk of the array (<a class="reference internal" href="#chunks">§8.5</a>): an <code class="docutils literal notranslate"><span class="pre">NrrdChunk</span></code> for the raw encoding, the one <code class="docutils literal notranslate"><span class="pre">NrrdGzipChunk</span></code> for the gzip encoding</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">refkv_source/**</span></code></p></td>
+<td><p>subtree</p></td>
+<td><p><a class="reference internal" href="../conventions.html#table-mirror"><span class="std std-ref">the mirror’s entries</span></a></p></td>
+<td><p>the IR mirror, a store IR (<a class="reference internal" href="#the-ir-mirror">§5.2</a>): its elements are <a class="reference internal" href="#elements">§5.3</a>’s; a detached header’s file, held, is under <code class="docutils literal notranslate"><span class="pre">refkv_source/ir/held/**</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>placeholder</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;coords&gt;</span></code></p></td>
+<td><p>the chunk’s coordinates along the array’s axes, in decimal, one key segment each: <code class="docutils literal notranslate"><span class="pre">&lt;t&gt;/&lt;c&gt;/&lt;z&gt;/&lt;y&gt;/&lt;x&gt;</span></code>, each only for the axes present (so it stands for two to five segments); all 0 for the gzip encoding’s one chunk</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="declaration">
+<span id="1-declaration"></span><h2>1. Declaration<a class="headerlink" href="#declaration" title="Link to this heading">¶</a></h2>
+<p>The root and <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> declare the convention
+(<a class="reference internal" href="../conventions.html#declaration"><span class="std std-ref">conventions §11.2</span></a>), the root with the header file’s URL
+as <code class="docutils literal notranslate"><span class="pre">source.url</span></code> (the object URL of its key in the store,
+<a class="reference internal" href="../zarrify.html#store-inputs"><span class="std std-ref">spec/zarrify.md §1.4</span></a>) and its source metadata of
+<a class="reference internal" href="#the-root">§5.1</a> as the member <code class="docutils literal notranslate"><span class="pre">&quot;nrrd&quot;</span></code>. Its CMO is:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"uuid"</span><span class="p">:</span><span class="w"> </span><span class="s2">"23e0c600-8da6-40f1-81e7-ab246e948e88"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"schema_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/nrrd/schema.json"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"spec_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"refkv_zarrified"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"description"</span><span class="p">:</span><span class="w"> </span><span class="s2">"The Zarr layout of a NRRD source zarrified by refkv, and the source's metadata"</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>The array has no attributes.</p>
+</section>
+<section id="the-header">
+<span id="2-the-header"></span><h2>2. The header<a class="headerlink" href="#the-header" title="Link to this heading">¶</a></h2>
+<p>A NRRD input is one array. Its <strong>header</strong> is text: lines, each ended by a LF (<code class="docutils literal notranslate"><span class="pre">0A</span></code>), a CR
+(<code class="docutils literal notranslate"><span class="pre">0D</span></code>) before the LF being part of the line end. A line’s <strong>text</strong> is its bytes without its line
+end; the last line of a file may end at the file’s end, without a LF, its text all of it. The
+first line is the <strong>magic</strong>, <code class="docutils literal notranslate"><span class="pre">NRRD0001</span></code> to <code class="docutils literal notranslate"><span class="pre">NRRD0005</span></code>. Each later line is, in this order of
+tests (the first row that matches it applies):</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>line</p></th>
+<th class="head"><p>when its text</p></th>
+<th class="head"><p>what it holds</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>a <strong>comment</strong></p></td>
+<td><p>starts with <code class="docutils literal notranslate"><span class="pre">#</span></code></p></td>
+<td><p>the comment: the text from its first byte that is neither <code class="docutils literal notranslate"><span class="pre">#</span></code> nor a space (a comment of no bytes is not kept)</p></td>
+</tr>
+<tr class="row-odd"><td><p>a <strong>key/value pair</strong></p></td>
+<td><p>holds <code class="docutils literal notranslate"><span class="pre">:=</span></code></p></td>
+<td><p>the key, the text before the first <code class="docutils literal notranslate"><span class="pre">:=</span></code>, and the value, the text after it, each unescaped (<code class="docutils literal notranslate"><span class="pre">\n</span></code> is a LF and <code class="docutils literal notranslate"><span class="pre">\\</span></code> a backslash; any other backslash is itself). A key given twice keeps its last value, at its first place</p></td>
+</tr>
+<tr class="row-even"><td><p>a <strong>field</strong></p></td>
+<td><p>otherwise</p></td>
+<td><p>its <strong>identifier</strong>, the text before the first <code class="docutils literal notranslate"><span class="pre">:</span></code>, in any case, and its <strong>descriptor</strong>, the text after the <code class="docutils literal notranslate"><span class="pre">:</span></code> (which a space follows, <a class="reference internal" href="#id1">§8.1</a>), without the spaces and tabs that start it and the whitespace (space, tab, CR, LF, VT, FF) that ends it</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The header of an <strong>attached</strong> input ends with a <strong>blank line</strong>, a line of no text after the
+magic, and the data follows it in the same file. A <strong>detached</strong> header (one with a <code class="docutils literal notranslate"><span class="pre">data</span> <span class="pre">file</span></code>
+field) ends with a blank line or at its file’s end, and its data is in its <strong>data file</strong>
+(<a class="reference internal" href="#the-data-file">§8.3</a>).</p>
+<p>The fields are those of the NRRD definition, each named here by its name there; some have an
+alternate identifier, which names the same field:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>field</p></th>
+<th class="head"><p>alternate identifier</p></th>
+<th class="head"><p>what it holds</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dimension</span></code></p></td>
+<td><p></p></td>
+<td><p>the number of axes, <code class="docutils literal notranslate"><span class="pre">n</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">type</span></code></p></td>
+<td><p></p></td>
+<td><p>the data type (<a class="reference internal" href="#data-types-and-encodings">§3</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">block</span> <span class="pre">size</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">blocksize</span></code></p></td>
+<td><p>the bytes of a <code class="docutils literal notranslate"><span class="pre">block</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">encoding</span></code></p></td>
+<td><p></p></td>
+<td><p>how the data is written (<a class="reference internal" href="#data-types-and-encodings">§3</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">endian</span></code></p></td>
+<td><p></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">little</span></code> or <code class="docutils literal notranslate"><span class="pre">big</span></code>: the data’s byte order</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">content</span></code></p></td>
+<td><p></p></td>
+<td><p>a description of the array</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">min</span></code>, <code class="docutils literal notranslate"><span class="pre">max</span></code></p></td>
+<td><p></p></td>
+<td><p>the data’s least and greatest values</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">old</span> <span class="pre">min</span></code>, <code class="docutils literal notranslate"><span class="pre">old</span> <span class="pre">max</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">oldmin</span></code>, <code class="docutils literal notranslate"><span class="pre">oldmax</span></code></p></td>
+<td><p>the range quantized integer data came from</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">data</span> <span class="pre">file</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">datafile</span></code></p></td>
+<td><p>a detached header’s data file or files</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">line</span> <span class="pre">skip</span></code>, <code class="docutils literal notranslate"><span class="pre">byte</span> <span class="pre">skip</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">lineskip</span></code>, <code class="docutils literal notranslate"><span class="pre">byteskip</span></code></p></td>
+<td><p>the lines, then the bytes, before the data</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">number</span></code></p></td>
+<td><p></p></td>
+<td><p>the number of values (ignored by the NRRD definition)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">sample</span> <span class="pre">units</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">sampleunits</span></code></p></td>
+<td><p>the values’ unit</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sizes</span></code></p></td>
+<td><p></p></td>
+<td><p>the axes’ sizes, one per axis</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">spacings</span></code>, <code class="docutils literal notranslate"><span class="pre">thicknesses</span></code></p></td>
+<td><p></p></td>
+<td><p>per axis, numbers</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">axis</span> <span class="pre">mins</span></code>, <code class="docutils literal notranslate"><span class="pre">axis</span> <span class="pre">maxs</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">axismins</span></code>, <code class="docutils literal notranslate"><span class="pre">axismaxs</span></code></p></td>
+<td><p>per axis, numbers</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">centers</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">centerings</span></code></p></td>
+<td><p>per axis, <code class="docutils literal notranslate"><span class="pre">cell</span></code>, <code class="docutils literal notranslate"><span class="pre">node</span></code>, <code class="docutils literal notranslate"><span class="pre">???</span></code> or <code class="docutils literal notranslate"><span class="pre">none</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">labels</span></code>, <code class="docutils literal notranslate"><span class="pre">units</span></code></p></td>
+<td><p></p></td>
+<td><p>per axis, quoted strings</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">kinds</span></code></p></td>
+<td><p></p></td>
+<td><p>per axis, what the axis’s samples are (<a class="reference internal" href="#the-array">§4.1</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">space</span></code>, <code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">dimension</span></code></p></td>
+<td><p></p></td>
+<td><p>the space the array lies in, or its dimension <code class="docutils literal notranslate"><span class="pre">d</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">units</span></code></p></td>
+<td><p></p></td>
+<td><p>per space coordinate, quoted strings</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">origin</span></code></p></td>
+<td><p></p></td>
+<td><p>a vector: the first sample’s position</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">directions</span></code></p></td>
+<td><p></p></td>
+<td><p>per axis, a vector or <code class="docutils literal notranslate"><span class="pre">none</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">measurement</span> <span class="pre">frame</span></code></p></td>
+<td><p></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">d</span></code> vectors</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The axes are numbered from 0, the <strong>fastest</strong> first: the data holds the array in the order in
+which axis 0 varies fastest and axis <code class="docutils literal notranslate"><span class="pre">n</span> <span class="pre">−</span> <span class="pre">1</span></code> slowest. These conventions read the descriptors:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>value</p></th>
+<th class="head"><p>read as</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>an <strong>integer</strong></p></td>
+<td><p>an optional sign and decimal digits</p></td>
+</tr>
+<tr class="row-odd"><td><p>a <strong>number</strong></p></td>
+<td><p>as the NRRD definition (its section 2) reads floating-point text: one that holds <code class="docutils literal notranslate"><span class="pre">nan</span></code> (in any case) is NaN, else one that holds <code class="docutils literal notranslate"><span class="pre">-inf</span></code> is −∞, else one that holds <code class="docutils literal notranslate"><span class="pre">inf</span></code> is +∞, and any other is a decimal number (an optional sign, digits with an optional fraction, and an optional exponent), correctly rounded to binary64</p></td>
+</tr>
+<tr class="row-even"><td><p>per-axis numbers and kinds</p></td>
+<td><p>separated by spaces and tabs</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>quoted strings</strong></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;</span></code>, any bytes (<code class="docutils literal notranslate"><span class="pre">\&quot;</span></code> standing for a <code class="docutils literal notranslate"><span class="pre">&quot;</span></code>), <code class="docutils literal notranslate"><span class="pre">&quot;</span></code>, separated by spaces and tabs</p></td>
+</tr>
+<tr class="row-even"><td><p>a <strong>vector</strong></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">(</span></code>, numbers separated by <code class="docutils literal notranslate"><span class="pre">,</span></code> (spaces and tabs allowed around them), <code class="docutils literal notranslate"><span class="pre">)</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>a list of vectors</p></td>
+<td><p>vectors and <code class="docutils literal notranslate"><span class="pre">none</span></code> (in any case) separated by spaces and tabs</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="data-types-and-encodings">
+<span id="3-data-types-and-encodings"></span><h2>3. Data types and encodings<a class="headerlink" href="#data-types-and-encodings" title="Link to this heading">¶</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">type</span></code> field’s descriptor, in lower case, gives the data type:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p><code class="docutils literal notranslate"><span class="pre">type</span></code></p></th>
+<th class="head"><p>Zarr data type</p></th>
+<th class="head"><p>bytes <code class="docutils literal notranslate"><span class="pre">b</span></code></p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">signed</span> <span class="pre">char</span></code>, <code class="docutils literal notranslate"><span class="pre">int8</span></code>, <code class="docutils literal notranslate"><span class="pre">int8_t</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">int8</span></code></p></td>
+<td><p>1</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">uchar</span></code>, <code class="docutils literal notranslate"><span class="pre">unsigned</span> <span class="pre">char</span></code>, <code class="docutils literal notranslate"><span class="pre">uint8</span></code>, <code class="docutils literal notranslate"><span class="pre">uint8_t</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">uint8</span></code></p></td>
+<td><p>1</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">short</span></code>, <code class="docutils literal notranslate"><span class="pre">short</span> <span class="pre">int</span></code>, <code class="docutils literal notranslate"><span class="pre">signed</span> <span class="pre">short</span></code>, <code class="docutils literal notranslate"><span class="pre">signed</span> <span class="pre">short</span> <span class="pre">int</span></code>, <code class="docutils literal notranslate"><span class="pre">int16</span></code>, <code class="docutils literal notranslate"><span class="pre">int16_t</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">int16</span></code></p></td>
+<td><p>2</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ushort</span></code>, <code class="docutils literal notranslate"><span class="pre">unsigned</span> <span class="pre">short</span></code>, <code class="docutils literal notranslate"><span class="pre">unsigned</span> <span class="pre">short</span> <span class="pre">int</span></code>, <code class="docutils literal notranslate"><span class="pre">uint16</span></code>, <code class="docutils literal notranslate"><span class="pre">uint16_t</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">uint16</span></code></p></td>
+<td><p>2</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">int</span></code>, <code class="docutils literal notranslate"><span class="pre">signed</span> <span class="pre">int</span></code>, <code class="docutils literal notranslate"><span class="pre">int32</span></code>, <code class="docutils literal notranslate"><span class="pre">int32_t</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">int32</span></code></p></td>
+<td><p>4</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">uint</span></code>, <code class="docutils literal notranslate"><span class="pre">unsigned</span> <span class="pre">int</span></code>, <code class="docutils literal notranslate"><span class="pre">uint32</span></code>, <code class="docutils literal notranslate"><span class="pre">uint32_t</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">uint32</span></code></p></td>
+<td><p>4</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">longlong</span></code>, <code class="docutils literal notranslate"><span class="pre">long</span> <span class="pre">long</span></code>, <code class="docutils literal notranslate"><span class="pre">long</span> <span class="pre">long</span> <span class="pre">int</span></code>, <code class="docutils literal notranslate"><span class="pre">signed</span> <span class="pre">long</span> <span class="pre">long</span></code>, <code class="docutils literal notranslate"><span class="pre">signed</span> <span class="pre">long</span> <span class="pre">long</span> <span class="pre">int</span></code>, <code class="docutils literal notranslate"><span class="pre">int64</span></code>, <code class="docutils literal notranslate"><span class="pre">int64_t</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">int64</span></code></p></td>
+<td><p>8</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ulonglong</span></code>, <code class="docutils literal notranslate"><span class="pre">unsigned</span> <span class="pre">long</span> <span class="pre">long</span></code>, <code class="docutils literal notranslate"><span class="pre">unsigned</span> <span class="pre">long</span> <span class="pre">long</span> <span class="pre">int</span></code>, <code class="docutils literal notranslate"><span class="pre">uint64</span></code>, <code class="docutils literal notranslate"><span class="pre">uint64_t</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">uint64</span></code></p></td>
+<td><p>8</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">float</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">float32</span></code></p></td>
+<td><p>4</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">double</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">float64</span></code></p></td>
+<td><p>8</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The layout has two <strong>encodings</strong>, from the <code class="docutils literal notranslate"><span class="pre">encoding</span></code> field’s descriptor in lower case (<code class="docutils literal notranslate"><span class="pre">B</span> <span class="pre">=</span> <span class="pre">b</span> <span class="pre">×</span> <span class="pre">s_0</span> <span class="pre">×</span> <span class="pre">…</span> <span class="pre">×</span> <span class="pre">s_{n−1}</span></code>, <code class="docutils literal notranslate"><span class="pre">s_i</span></code> the sizes):</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p><code class="docutils literal notranslate"><span class="pre">encoding</span></code></p></th>
+<th class="head"><p>encoding</p></th>
+<th class="head"><p>the data</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">raw</span></code></p></td>
+<td><p>raw</p></td>
+<td><p>the array’s <code class="docutils literal notranslate"><span class="pre">B</span></code> bytes as they are in memory, in the byte order of the <code class="docutils literal notranslate"><span class="pre">endian</span></code> field</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">gzip</span></code>, <code class="docutils literal notranslate"><span class="pre">gz</span></code></p></td>
+<td><p>gzip</p></td>
+<td><p>those bytes compressed into a gzip stream (RFC 1952), which runs to the end of its file</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The profile rejects the others (<a class="reference internal" href="#the-fields">§8.2</a>).</p>
+</section>
+<section id="the-image">
+<span id="4-the-image"></span><h2>4. The image<a class="headerlink" href="#the-image" title="Link to this heading">¶</a></h2>
+<p>The hierarchy is one image at the root (<a class="reference internal" href="../conventions.html#images"><span class="std std-ref">conventions §4</span></a>), without
+a name, with one array at path <code class="docutils literal notranslate"><span class="pre">&quot;0&quot;</span></code>: the root <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code> is <code class="docutils literal notranslate"><span class="pre">{&quot;zarr_format&quot;:</span> <span class="pre">3,</span> <span class="pre">&quot;node_type&quot;:</span> <span class="pre">&quot;group&quot;,</span> <span class="pre">&quot;attributes&quot;:</span> <span class="pre">A}</span></code> (an <a class="reference internal" href="../conventions.html#type-imagegroup"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">ImageGroup</span></code></span></a>), where <code class="docutils literal notranslate"><span class="pre">A</span></code>
+has <code class="docutils literal notranslate"><span class="pre">ome</span></code> (<code class="docutils literal notranslate"><span class="pre">M</span></code>, below, an <a class="reference internal" href="../conventions.html#type-omeimage"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">OmeImage</span></code></span></a>), <code class="docutils literal notranslate"><span class="pre">zarr_conventions</span></code>
+and <code class="docutils literal notranslate"><span class="pre">refkv_zarrified</span></code> (<a class="reference internal" href="#declaration">§1</a>).</p>
+<section id="the-array">
+<span id="41-the-array"></span><h3>4.1 The array<a class="headerlink" href="#the-array" title="Link to this heading">¶</a></h3>
+<p><strong>Axes.</strong> Each header axis <code class="docutils literal notranslate"><span class="pre">i</span></code> has a <strong>role</strong>, by its kind when the header has <code class="docutils literal notranslate"><span class="pre">kinds</span></code> and the
+kind is neither <code class="docutils literal notranslate"><span class="pre">???</span></code> nor <code class="docutils literal notranslate"><span class="pre">none</span></code>, and otherwise by <code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">directions</span></code> (the first row that
+matches it applies):</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>axis <code class="docutils literal notranslate"><span class="pre">i</span></code></p></th>
+<th class="head"><p>role</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>its kind is <code class="docutils literal notranslate"><span class="pre">domain</span></code> or <code class="docutils literal notranslate"><span class="pre">space</span></code></p></td>
+<td><p><strong>space</strong></p></td>
+</tr>
+<tr class="row-odd"><td><p>its kind is <code class="docutils literal notranslate"><span class="pre">time</span></code></p></td>
+<td><p><strong>time</strong></p></td>
+</tr>
+<tr class="row-even"><td><p>its kind is any other (<code class="docutils literal notranslate"><span class="pre">list</span></code>, <code class="docutils literal notranslate"><span class="pre">vector</span></code>, <code class="docutils literal notranslate"><span class="pre">RGB-color</span></code>, <code class="docutils literal notranslate"><span class="pre">3D-symmetric-matrix</span></code>, …, <code class="docutils literal notranslate"><span class="pre">stub</span></code>, <code class="docutils literal notranslate"><span class="pre">scalar</span></code>)</p></td>
+<td><p><strong>channel</strong></p></td>
+</tr>
+<tr class="row-odd"><td><p>it has no kind (no <code class="docutils literal notranslate"><span class="pre">kinds</span></code>, or <code class="docutils literal notranslate"><span class="pre">???</span></code> or <code class="docutils literal notranslate"><span class="pre">none</span></code>), and the header has <code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">directions</span></code> and axis <code class="docutils literal notranslate"><span class="pre">i</span></code>’s is <code class="docutils literal notranslate"><span class="pre">none</span></code></p></td>
+<td><p><strong>channel</strong></p></td>
+</tr>
+<tr class="row-even"><td><p>it has no kind, otherwise</p></td>
+<td><p><strong>space</strong></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The profile accepts 2 or 3 axes of the role space, at most one of time and at most one of
+channel (<a class="reference internal" href="#the-fields">§8.2</a>). The axes of the role space are, in the header’s order, <code class="docutils literal notranslate"><span class="pre">x</span></code>,
+<code class="docutils literal notranslate"><span class="pre">y</span></code> and <code class="docutils literal notranslate"><span class="pre">z</span></code>; the axis of the role time is <code class="docutils literal notranslate"><span class="pre">t</span></code> and that of the role channel <code class="docutils literal notranslate"><span class="pre">c</span></code>. The array’s
+axes are <code class="docutils literal notranslate"><span class="pre">t</span></code>, <code class="docutils literal notranslate"><span class="pre">c</span></code>, <code class="docutils literal notranslate"><span class="pre">z</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code>, <code class="docutils literal notranslate"><span class="pre">x</span></code>, each only when present, in that order (<a class="reference internal" href="../conventions.html#images"><span class="std std-ref">conventions §4</span></a>), and
+the root’s source metadata records each header axis’s image axis (<a class="reference internal" href="#the-root">§5.1</a>).</p>
+<p><strong>Stored order.</strong> The data is a row-major array <code class="docutils literal notranslate"><span class="pre">V</span></code> whose axes are the header’s, slowest first
+(axis <code class="docutils literal notranslate"><span class="pre">n</span> <span class="pre">−</span> <span class="pre">1</span></code> outermost, axis 0 innermost), each of its size; its elements are <code class="docutils literal notranslate"><span class="pre">b</span></code> bytes. Its
+axes are the array’s, in another order when the header’s axes are not in the order <code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code>,
+<code class="docutils literal notranslate"><span class="pre">z</span></code>, <code class="docutils literal notranslate"><span class="pre">c</span></code>, <code class="docutils literal notranslate"><span class="pre">t</span></code> (a color axis stored fastest, a time axis inside the volumes).</p>
+<p><span id="type-nrrdarray"></span><strong><code class="docutils literal notranslate"><span class="pre">NrrdArray</span></code></strong>, the array’s <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code>: an
+<a class="reference internal" href="../conventions.html#type-arraydocument"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">ArrayDocument</span></code></span></a> with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">shape</span></code></p></td>
+<td><p>array of integer</p></td>
+<td><p>required</p></td>
+<td><p>each axis’s size, in the array’s order</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data_type</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p>from <a class="reference internal" href="#data-types-and-encodings">§3</a></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">chunk_grid</span></code></p></td>
+<td><p>object</p></td>
+<td><p>required</p></td>
+<td><p>regular. <strong>Chunk shape:</strong> for the raw encoding, <code class="docutils literal notranslate"><span class="pre">V</span></code> is cut as <a class="reference internal" href="../conventions.html#source-values-as-arrays"><span class="std std-ref">conventions §7</span></a> cuts contiguous values, with the chunk limit <code class="docutils literal notranslate"><span class="pre">L</span> <span class="pre">=</span> <span class="pre">131072</span></code> (2^17) bytes, as the NIfTI convention cuts its voxels; the array’s chunk shape is that chunk shape, each axis’s size in the array’s axis order. For the gzip encoding, it is the array’s shape: one chunk (<a class="reference internal" href="#the-gzip-encoding">§4.2</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">codecs</span></code></p></td>
+<td><p>array of object</p></td>
+<td><p>required</p></td>
+<td><p>the codecs below (<a class="reference internal" href="../conventions.html#arrays"><span class="std std-ref">conventions §3</span></a>), in their order: <code class="docutils literal notranslate"><span class="pre">transpose</span></code>, <code class="docutils literal notranslate"><span class="pre">refkv.skip</span></code> and <code class="docutils literal notranslate"><span class="pre">gzip</span></code> when their rows say, and always one <code class="docutils literal notranslate"><span class="pre">bytes</span></code> codec</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dimension_names</span></code></p></td>
+<td><p>array of string</p></td>
+<td><p>required</p></td>
+<td><p>the axes: <code class="docutils literal notranslate"><span class="pre">t</span></code>, <code class="docutils literal notranslate"><span class="pre">c</span></code>, <code class="docutils literal notranslate"><span class="pre">z</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code>, <code class="docutils literal notranslate"><span class="pre">x</span></code>, each only when present (<strong>Axes</strong>, above)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">attributes</span></code></p></td>
+<td><p>object</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code> (<a class="reference internal" href="#declaration">§1</a>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Its codecs, in this order:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>codec</p></th>
+<th class="head"><p>when</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">{&quot;name&quot;:</span> <span class="pre">&quot;transpose&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;order&quot;:</span> <span class="pre">[...]}}</span></code></p></td>
+<td><p>the axes of <code class="docutils literal notranslate"><span class="pre">V</span></code> are in another order than the array’s: <code class="docutils literal notranslate"><span class="pre">order</span></code> is the index in the array’s axes of each axis of <code class="docutils literal notranslate"><span class="pre">V</span></code>, in the order of <code class="docutils literal notranslate"><span class="pre">V</span></code> (<code class="docutils literal notranslate"><span class="pre">[1,</span> <span class="pre">2,</span> <span class="pre">0]</span></code> for an image whose axis 0 is a color axis, <code class="docutils literal notranslate"><span class="pre">c</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code>, <code class="docutils literal notranslate"><span class="pre">x</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">{&quot;name&quot;:</span> <span class="pre">&quot;bytes&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;endian&quot;:</span> <span class="pre">E}}</span></code></p></td>
+<td><p>the data type is larger than 1 byte: <code class="docutils literal notranslate"><span class="pre">E</span></code> is the <code class="docutils literal notranslate"><span class="pre">endian</span></code> field’s (<code class="docutils literal notranslate"><span class="pre">&quot;little&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;big&quot;</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">{&quot;name&quot;:</span> <span class="pre">&quot;bytes&quot;}</span></code></p></td>
+<td><p>the data type is 1 byte</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">{&quot;name&quot;:</span> <span class="pre">&quot;refkv.skip&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;length&quot;:</span> <span class="pre">k}}</span></code></p></td>
+<td><p>the gzip encoding with a <code class="docutils literal notranslate"><span class="pre">byte</span> <span class="pre">skip</span></code> <code class="docutils literal notranslate"><span class="pre">k</span></code> above 0: the NRRD definition skips those bytes in the decompressed data</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">{&quot;name&quot;:</span> <span class="pre">&quot;gzip&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;level&quot;:</span> <span class="pre">1}}</span></code></p></td>
+<td><p>the gzip encoding: its level, which decoding ignores, is written as the <code class="docutils literal notranslate"><span class="pre">numcodecs.zlib</span></code> codec’s is</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Chunks:</strong> every chunk is present. The chunk with coords <code class="docutils literal notranslate"><span class="pre">q_a</span></code> along each axis <code class="docutils literal notranslate"><span class="pre">a</span></code> is the
+chunk of <code class="docutils literal notranslate"><span class="pre">V</span></code> with the same coords along the same axes: for the raw encoding, the bytes that
+<a class="reference internal" href="../conventions.html#source-values-as-arrays"><span class="std std-ref">conventions §7</span></a> gives it, in the order of <code class="docutils literal notranslate"><span class="pre">V</span></code>,
+which the transpose codec puts in the array’s order, an edge chunk along the cut axis followed
+by zero bytes up to the whole chunk (<a class="reference internal" href="#type-nrrdchunk"><code class="docutils literal notranslate"><span class="pre">NrrdChunk</span></code></a>); for the gzip encoding,
+the gzip stream (<a class="reference internal" href="#type-nrrdgzipchunk"><code class="docutils literal notranslate"><span class="pre">NrrdGzipChunk</span></code></a>).</p>
+<p>The array holds the data’s values; nothing the header says about them (<code class="docutils literal notranslate"><span class="pre">min</span></code>, <code class="docutils literal notranslate"><span class="pre">max</span></code>, <code class="docutils literal notranslate"><span class="pre">old</span> <span class="pre">min</span></code>,
+<code class="docutils literal notranslate"><span class="pre">old</span> <span class="pre">max</span></code>, <code class="docutils literal notranslate"><span class="pre">sample</span> <span class="pre">units</span></code>) is applied. They are in the source metadata (<a class="reference internal" href="#source-metadata">§5</a>).</p>
+</section>
+<section id="the-gzip-encoding">
+<span id="42-the-gzip-encoding"></span><h3>4.2 The gzip encoding<a class="headerlink" href="#the-gzip-encoding" title="Link to this heading">¶</a></h3>
+<p>A gzip-encoded NRRD’s data is one deflate stream of the whole array, as the <code class="docutils literal notranslate"><span class="pre">gzip</span></code> program
+writes it. A deflate stream has no index: its blocks start at bit offsets that only decoding
+finds, and each block may refer to the 32 KiB of output before it, so no part of the stream can
+be decoded without decoding the stream up to it. The layout could therefore only cut the array
+into chunks at block boundaries by decompressing the data (which a zarrifier must not read,
+<a class="reference internal" href="../zarrify.html#input"><span class="std std-ref">spec/zarrify.md §1.2</span></a>, “Structure only”), and then would need a codec
+that starts mid-stream from a given window. It takes the one form that keeps the stream as it
+is: <strong>one chunk of the whole array</strong>, a reference to the stream, which Zarr’s <code class="docutils literal notranslate"><span class="pre">gzip</span></code> codec
+decodes.</p>
+<p>The cost is reads: nothing is copied and every value is exact, but the chunk is coarse. A reader
+decompresses the whole stream to read any value, holds the whole array in memory to do so, and
+reads it with no concurrency. This suits the inputs gzip NRRDs usually are (volumes of a few
+hundred megabytes at most, such as the IMPC’s embryo scans); a reader that needs random access
+to a large volume should decompress it once and store it chunked. The profile does not decompress
+the stream, so a stream that does not decode to exactly <code class="docutils literal notranslate"><span class="pre">B</span></code> bytes (a damaged file, or one with
+other bytes after its gzip members, or whose <code class="docutils literal notranslate"><span class="pre">byte</span> <span class="pre">skip</span></code> is wrong) is not detected: reading its
+chunk fails.</p>
+<p>The bzip2 encoding is rejected for the same reason and one more: bzip2’s blocks are independent,
+but they too start at bit offsets that only a scan of the compressed data finds, and Zarr v3 has
+no <code class="docutils literal notranslate"><span class="pre">bzip2</span></code> codec that both of refkv’s readers decode (zarr-python has none of its own; numcodecs’
+<code class="docutils literal notranslate"><span class="pre">numcodecs.bz2</span></code> has no counterpart in the browser).</p>
+</section>
+<section id="scales-units-and-position">
+<span id="43-scales-units-and-position"></span><h3>4.3 Scales, units and position<a class="headerlink" href="#scales-units-and-position" title="Link to this heading">¶</a></h3>
+<p>A number is <strong>valid</strong> if it is finite and positive. The NRRD definition places an image in a
+<strong>space</strong> by <code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">directions</span></code> (a vector per axis: the step in space from one sample to the next
+along it) and <code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">origin</span></code> (the first sample’s position), and otherwise by <code class="docutils literal notranslate"><span class="pre">spacings</span></code>.
+OME-NGFF 0.5 places an image only by a scale and a translation per axis, so the orientation is
+<strong>applied</strong> only when it is <strong>axis-aligned</strong>: when the header has <code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">directions</span></code>, every axis
+of the role space has a vector, and the vector of the axis <code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code> or <code class="docutils literal notranslate"><span class="pre">z</span></code> (the <code class="docutils literal notranslate"><span class="pre">j</span></code>-th, from 0)
+has a component <code class="docutils literal notranslate"><span class="pre">j</span></code> (the space has more than <code class="docutils literal notranslate"><span class="pre">j</span></code> coordinates), which is valid, and every other
+component 0. (A space of more coordinates than spatial
+axes, such as a 2-D image in a 3-D space, or a space with a time coordinate, is axis-aligned when
+those components are 0.)</p>
+<p><strong>Scales.</strong></p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>axis</p></th>
+<th class="head"><p>scale</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code>, <code class="docutils literal notranslate"><span class="pre">z</span></code></p></td>
+<td><p>with an applied orientation, component <code class="docutils literal notranslate"><span class="pre">j</span></code> of the axis’s vector. Otherwise, for an axis that has a vector, the vector’s length, <code class="docutils literal notranslate"><span class="pre">sqrt(v_0²</span> <span class="pre">+</span> <span class="pre">…</span> <span class="pre">+</span> <span class="pre">v_{d−1}²)</span></code> (squares summed in order, each operation in binary64, <a class="reference internal" href="../zarrify.html#arithmetic"><span class="std std-ref">spec/zarrify.md §1.3</span></a>), when every component is finite and the length is valid; and for an axis without one, its <code class="docutils literal notranslate"><span class="pre">spacings</span></code> value when the header has <code class="docutils literal notranslate"><span class="pre">spacings</span></code> and the value is valid. Otherwise 1</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">t</span></code></p></td>
+<td><p>its <code class="docutils literal notranslate"><span class="pre">spacings</span></code> value when valid, else 1</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">c</span></code></p></td>
+<td><p>1</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>So an oblique or flipped orientation, such as the common left-posterior-superior one whose <code class="docutils literal notranslate"><span class="pre">x</span></code>
+step is negative, places the image by the directions’ lengths alone: it is not rotated or
+flipped, and has no translation. The directions themselves are always in the source metadata.</p>
+<p><strong>Units.</strong> An axis whose scale is not 1 for a lack of a valid value has a unit when:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>axis</p></th>
+<th class="head"><p>it has a unit when</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>with an applied orientation, axis <code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code> or <code class="docutils literal notranslate"><span class="pre">z</span></code> (the <code class="docutils literal notranslate"><span class="pre">j</span></code>-th)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">units</span></code> value <code class="docutils literal notranslate"><span class="pre">j</span></code> is a length symbol of <a class="reference internal" href="../conventions.html#units"><span class="std std-ref">conventions §5</span></a> (<code class="docutils literal notranslate"><span class="pre">mm</span></code>, <code class="docutils literal notranslate"><span class="pre">um</span></code>, <code class="docutils literal notranslate"><span class="pre">µm</span></code>, <code class="docutils literal notranslate"><span class="pre">nm</span></code>, …)</p></td>
+</tr>
+<tr class="row-odd"><td><p>with an orientation that is not applied, an axis with a vector</p></td>
+<td><p>every <code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">units</span></code> value is the same length symbol</p></td>
+</tr>
+<tr class="row-even"><td><p>an axis without a vector, or <code class="docutils literal notranslate"><span class="pre">t</span></code></p></td>
+<td><p>its <code class="docutils literal notranslate"><span class="pre">units</span></code> value is a length symbol (<code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code>, <code class="docutils literal notranslate"><span class="pre">z</span></code>) or a time symbol (<code class="docutils literal notranslate"><span class="pre">s</span></code>, <code class="docutils literal notranslate"><span class="pre">ms</span></code>, <code class="docutils literal notranslate"><span class="pre">min</span></code>, <code class="docutils literal notranslate"><span class="pre">h</span></code>; <code class="docutils literal notranslate"><span class="pre">t</span></code>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The unit is the symbol’s, as <a class="reference internal" href="../conventions.html#units"><span class="std std-ref">conventions §5</span></a> maps it; any other symbol gives no unit.</p>
+<p><strong>Translation.</strong> With an applied orientation and a <code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">origin</span></code> whose components are all
+finite, the image has a translation (<a class="reference internal" href="../conventions.html#units"><span class="std std-ref">conventions §5</span></a>): component <code class="docutils literal notranslate"><span class="pre">j</span></code>
+of the origin for the axis <code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code> or <code class="docutils literal notranslate"><span class="pre">z</span></code> (the <code class="docutils literal notranslate"><span class="pre">j</span></code>-th), and 0 for <code class="docutils literal notranslate"><span class="pre">t</span></code> and <code class="docutils literal notranslate"><span class="pre">c</span></code>. Otherwise it has
+none.</p>
+</section>
+<section id="channels">
+<span id="44-channels"></span><h3>4.4 Channels<a class="headerlink" href="#channels" title="Link to this heading">¶</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">M</span></code> has an <code class="docutils literal notranslate"><span class="pre">&quot;omero&quot;</span></code> member, an <a class="reference internal" href="../conventions.html#type-omero"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Omero</span></code></span></a>, <code class="docutils literal notranslate"><span class="pre">{&quot;channels&quot;:</span> <span class="pre">[...]}</span></code>, in these two cases, and in no other. Its <code class="docutils literal notranslate"><span class="pre">channels</span></code> are
+<a class="reference internal" href="../conventions.html#type-omerochannel"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">OmeroChannel</span></code></span></a>s, each <code class="docutils literal notranslate"><span class="pre">{&quot;label&quot;:</span> <span class="pre">l,</span> <span class="pre">&quot;color&quot;:</span> <span class="pre">k,</span> <span class="pre">&quot;active&quot;:</span> <span class="pre">true,</span> <span class="pre">&quot;window&quot;:</span> <span class="pre">W}</span></code>, <code class="docutils literal notranslate"><span class="pre">W</span></code> a <a class="reference internal" href="../conventions.html#type-window"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Window</span></code></span></a>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>case</p></th>
+<th class="head"><p>when</p></th>
+<th class="head"><p>channels</p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">label</span></code> and <code class="docutils literal notranslate"><span class="pre">color</span></code>, <code class="docutils literal notranslate"><span class="pre">(l,</span> <span class="pre">k)</span></code></p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">window</span></code></p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>color</strong></p></td>
+<td><p>the image has a <code class="docutils literal notranslate"><span class="pre">c</span></code> axis whose kind is <code class="docutils literal notranslate"><span class="pre">RGB-color</span></code> of size 3 or <code class="docutils literal notranslate"><span class="pre">RGBA-color</span></code> of size 4, and its data type is <code class="docutils literal notranslate"><span class="pre">uint8</span></code></p></td>
+<td><p>one per sample</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">(&quot;R&quot;,</span> <span class="pre">&quot;FF0000&quot;)</span></code>, <code class="docutils literal notranslate"><span class="pre">(&quot;G&quot;,</span> <span class="pre">&quot;00FF00&quot;)</span></code>, <code class="docutils literal notranslate"><span class="pre">(&quot;B&quot;,</span> <span class="pre">&quot;0000FF&quot;)</span></code> and, for <code class="docutils literal notranslate"><span class="pre">RGBA-color</span></code>, <code class="docutils literal notranslate"><span class="pre">(&quot;A&quot;,</span> <span class="pre">&quot;FFFFFF&quot;)</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{&quot;min&quot;:</span> <span class="pre">0,</span> <span class="pre">&quot;max&quot;:</span> <span class="pre">255,</span> <span class="pre">&quot;start&quot;:</span> <span class="pre">0,</span> <span class="pre">&quot;end&quot;:</span> <span class="pre">255}</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>display range</strong></p></td>
+<td><p>otherwise, when the <code class="docutils literal notranslate"><span class="pre">min</span></code> and <code class="docutils literal notranslate"><span class="pre">max</span></code> fields are numbers (<a class="reference internal" href="#the-header">§2</a>) that are finite and <code class="docutils literal notranslate"><span class="pre">max</span> <span class="pre">&gt;</span> <span class="pre">min</span></code>, and the image’s <code class="docutils literal notranslate"><span class="pre">c</span></code> axis has at most 64 samples (1 when it has none)</p></td>
+<td><p>one per index <code class="docutils literal notranslate"><span class="pre">k</span></code> along <code class="docutils literal notranslate"><span class="pre">c</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">(&quot;C&lt;k&gt;&quot;,</span> <span class="pre">&quot;FFFFFF&quot;)</span></code>, <code class="docutils literal notranslate"><span class="pre">k</span></code> in decimal</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{&quot;min&quot;:</span> <span class="pre">lo,</span> <span class="pre">&quot;max&quot;:</span> <span class="pre">hi,</span> <span class="pre">&quot;start&quot;:</span> <span class="pre">lo,</span> <span class="pre">&quot;end&quot;:</span> <span class="pre">hi}</span></code>, <code class="docutils literal notranslate"><span class="pre">lo</span></code> and <code class="docutils literal notranslate"><span class="pre">hi</span></code> the two numbers</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</section>
+<section id="source-metadata">
+<span id="5-source-metadata"></span><h2>5. Source metadata<a class="headerlink" href="#source-metadata" title="Link to this heading">¶</a></h2>
+<p>The root’s source metadata <code class="docutils literal notranslate"><span class="pre">S</span></code> (<a class="reference internal" href="../conventions.html#attributes"><span class="std std-ref">conventions §2</span></a>) is an object
+with the members of <a class="reference internal" href="#the-root">§5.1</a>, in that order, translated by
+<a class="reference internal" href="../conventions.html#source-metadata-as-json"><span class="std std-ref">conventions §6</span></a>. Everything the files hold is on
+<code class="docutils literal notranslate"><span class="pre">refkv_source</span></code>, the input’s <strong>IR mirror</strong> (<a class="reference internal" href="#the-ir-mirror">§5.2</a>).</p>
+<section id="the-root">
+<span id="51-the-root"></span><h3>5.1 The root<a class="headerlink" href="#the-root" title="Link to this heading">¶</a></h3>
+<p><span id="type-nrrdroot"></span><strong><code class="docutils literal notranslate"><span class="pre">NrrdRoot</span></code></strong>, the root’s <code class="docutils literal notranslate"><span class="pre">S</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">magic</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p>the magic, <code class="docutils literal notranslate"><span class="pre">&quot;NRRD0001&quot;</span></code> to <code class="docutils literal notranslate"><span class="pre">&quot;NRRD0005&quot;</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">fields</span></code></p></td>
+<td><p>object of <a class="reference internal" href="../conventions.html#type-text"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Text</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p>one member per field of the header, in the header’s order, named by the field’s name of <a class="reference internal" href="#the-header">§2</a> (a field given by its alternate identifier is named as its field: <code class="docutils literal notranslate"><span class="pre">datafile</span></code> is <code class="docutils literal notranslate"><span class="pre">&quot;data</span> <span class="pre">file&quot;</span></code>), whose value is its descriptor as a text value. Every field is here, those the layout does not read included (<code class="docutils literal notranslate"><span class="pre">content</span></code>, <code class="docutils literal notranslate"><span class="pre">labels</span></code>, <code class="docutils literal notranslate"><span class="pre">centers</span></code>, <code class="docutils literal notranslate"><span class="pre">thicknesses</span></code>, <code class="docutils literal notranslate"><span class="pre">measurement</span> <span class="pre">frame</span></code>, …), and as written: <code class="docutils literal notranslate"><span class="pre">&quot;space</span> <span class="pre">directions&quot;:</span> <span class="pre">&quot;(0.5,0,0)</span> <span class="pre">(0,0.75,0)</span> <span class="pre">(0,0,1.25)&quot;</span></code>. Its names are those of the first column of <a class="reference internal" href="#the-header">§2</a>’s table, and <code class="docutils literal notranslate"><span class="pre">dimension</span></code>, <code class="docutils literal notranslate"><span class="pre">type</span></code>, <code class="docutils literal notranslate"><span class="pre">encoding</span></code> and <code class="docutils literal notranslate"><span class="pre">sizes</span></code>, which the profile requires (<a class="reference internal" href="#the-fields">§8.2</a>), are always among them</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">key_values</span></code></p></td>
+<td><p>object of <a class="reference internal" href="../conventions.html#type-text"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Text</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p>one member per key/value pair, named by its key (unescaped, a <a class="reference internal" href="../conventions.html#type-name"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Name</span></code></span></a>, as <a class="reference internal" href="../conventions.html#source-metadata-as-json"><span class="std std-ref">conventions §6</span></a> reads one), whose value is the pair’s last value, unescaped, as a text value. Spaces around <code class="docutils literal notranslate"><span class="pre">:=</span></code> belong to the key and the value, as the NRRD definition says</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">comments</span></code></p></td>
+<td><p>array of <a class="reference internal" href="../conventions.html#type-text"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Text</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p>the comments, in order, as text values</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">data_type</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p>the Zarr data type (<a class="reference internal" href="#data-types-and-encodings">§3</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">encoding</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;raw&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;gzip&quot;</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">byte_order</span></code></p></td>
+<td><p>string</p></td>
+<td><p>optional</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;little&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;big&quot;</span></code>, present when the header has an <code class="docutils literal notranslate"><span class="pre">endian</span></code> field</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">axes</span></code></p></td>
+<td><p>array of string</p></td>
+<td><p>required</p></td>
+<td><p>each header axis’s image axis (<code class="docutils literal notranslate"><span class="pre">&quot;x&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;y&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;z&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;t&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;c&quot;</span></code>), in the header’s order, the fastest first</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">data_file</span></code></p></td>
+<td><p>string</p></td>
+<td><p>optional</p></td>
+<td><p>a detached header’s data file, its key (<a class="reference internal" href="#the-data-file">§8.3</a>); present for a detached header only</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">orientation</span></code></p></td>
+<td><p><a class="reference internal" href="#type-nrrdorientation"><code class="docutils literal notranslate"><span class="pre">NrrdOrientation</span></code></a></p></td>
+<td><p>optional</p></td>
+<td><p>present when the header has <code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">directions</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-nrrdorientation"></span><strong><code class="docutils literal notranslate"><span class="pre">NrrdOrientation</span></code></strong>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">applied</span></code></p></td>
+<td><p>boolean</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">A</span></code>, whether the orientation is applied (<a class="reference internal" href="#scales-units-and-position">§4.3</a>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">fields</span></code>, <code class="docutils literal notranslate"><span class="pre">key_values</span></code> and <code class="docutils literal notranslate"><span class="pre">comments</span></code> hold the whole header but its line ends, so that a reader
+who needs, say, a diffusion scan’s gradients (key/value pairs such as <code class="docutils literal notranslate"><span class="pre">DWMRI_gradient_0001</span></code>), its
+measurement frame, or the full orientation of an oblique volume finds it here, as the header
+wrote it. The other members are derived from them, so that a reader need not repeat the rules of
+<a class="reference internal" href="#data-types-and-encodings">§3</a> and <a class="reference internal" href="#the-image">§4</a>.</p>
+</section>
+<section id="the-ir-mirror">
+<span id="52-the-ir-mirror"></span><h3>5.2 The IR mirror<a class="headerlink" href="#the-ir-mirror" title="Link to this heading">¶</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> is the input’s <strong>IR mirror</strong> (<a class="reference internal" href="../conventions.html#the-ir-mirror"><span class="std std-ref">conventions §8</span></a>),
+a <strong>store IR</strong> (<a class="reference internal" href="../conventions.html#stores"><span class="std std-ref">conventions §8.9</span></a>) whose objects are the files the
+profile read. Its leaves partition each object. A file the chunks reference is <strong>described in
+place</strong>: its bytes stay in the file, which is a source of the archive (<a class="reference internal" href="#chunks">§8.5</a>), and
+the table holds none of them. A file no chunk references, and so no source names, is <strong>held</strong>:
+the table holds its bytes (<code class="docutils literal notranslate"><span class="pre">refkv_source/ir/held</span></code>), as a store’s documents are held
+(<a class="reference internal" href="../conventions.html#stores"><span class="std std-ref">conventions §8.9</span></a>), so that the mirror alone rebuilds it.</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>object</p></th>
+<th class="head"><p>key</p></th>
+<th class="head"><p>in the mirror</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>an attached header’s file, which holds the data</p></td>
+<td><p>its key</p></td>
+<td><p>described in place</p></td>
+</tr>
+<tr class="row-odd"><td><p>a detached header’s file</p></td>
+<td><p>its key</p></td>
+<td><p>held</p></td>
+</tr>
+<tr class="row-even"><td><p>a detached header’s data file</p></td>
+<td><p>its key below the header’s directory (<a class="reference internal" href="#the-data-file">§8.3</a>)</p></td>
+<td><p>described in place</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The view, <code class="docutils literal notranslate"><span class="pre">refkv_source/tree</span></code>, shows the header’s lines; the data and the gaps are not shown.</p>
+</section>
+<section id="elements">
+<span id="53-elements"></span><h3>5.3 Elements<a class="headerlink" href="#elements" title="Link to this heading">¶</a></h3>
+<p>Paths are relative to the IR’s root (<a class="reference internal" href="../conventions.html#elements"><span class="std std-ref">conventions §8.1</span></a>), whose
+children are the objects and directories; the paths below are relative to each object. Types are
+those of <a class="reference internal" href="../conventions.html#types"><span class="std std-ref">conventions §8.6</span></a>.</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>path</p></th>
+<th class="head"><p>kind</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>extent: what</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lines/&lt;i&gt;</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ascii[k]</span></code></p></td>
+<td><p>in the header file: line <code class="docutils literal notranslate"><span class="pre">i</span></code> of the header, its line end included (<code class="docutils literal notranslate"><span class="pre">k</span></code> bytes): the magic first, the blank line last when one ends the header</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data</span></code></p></td>
+<td><p>data</p></td>
+<td><p></p></td>
+<td><p>in the data’s file (the header file for an attached header, the data file for a detached one): <code class="docutils literal notranslate"><span class="pre">(D,</span> <span class="pre">B)</span></code> for the raw encoding, <code class="docutils literal notranslate"><span class="pre">(D,</span> <span class="pre">size</span> <span class="pre">−</span> <span class="pre">D)</span></code>, the stream to the file’s end, for the gzip encoding (<a class="reference internal" href="#the-data">§8.4</a>); its form <code class="docutils literal notranslate"><span class="pre">{&quot;geometry&quot;:</span> <span class="pre">{&quot;type&quot;:</span> <span class="pre">T,</span> <span class="pre">&quot;shape&quot;:</span> <span class="pre">S},</span> <span class="pre">&quot;codec&quot;:</span> <span class="pre">{&quot;encoding&quot;:</span> <span class="pre">E,</span> <span class="pre">&quot;endian&quot;:</span> <span class="pre">e},</span> <span class="pre">&quot;recipe&quot;:</span> <span class="pre">[[&quot;src&quot;,</span> <span class="pre">0,</span> <span class="pre">null]]}</span></code>, <code class="docutils literal notranslate"><span class="pre">T</span></code> the <code class="docutils literal notranslate"><span class="pre">type</span></code> field’s descriptor, trimmed, in lower case (a name of <a class="reference internal" href="#data-types-and-encodings">§3</a>’s table, not a Zarr data type, which is the projection’s, <a class="reference internal" href="../conventions.html#forms-and-recipes"><span class="std std-ref">conventions §8.5</span></a>), <code class="docutils literal notranslate"><span class="pre">S</span></code> the shape of <code class="docutils literal notranslate"><span class="pre">V</span></code> (<a class="reference internal" href="#the-array">§4.1</a>) and <code class="docutils literal notranslate"><span class="pre">endian</span></code> present when the header has an <code class="docutils literal notranslate"><span class="pre">endian</span></code> field</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">gaps/&lt;offset&gt;</span></code></p></td>
+<td><p>gap</p></td>
+<td><p></p></td>
+<td><p>bytes no other element claims: the lines and bytes line skip and byte skip pass over, the bytes after the data, and a detached header’s bytes after its blank line</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="equivalence">
+<span id="54-equivalence"></span><h3>5.4 Equivalence<a class="headerlink" href="#equivalence" title="Link to this heading">¶</a></h3>
+<p>The elements are determined by the files. Hierarchies of one input are compared entry for entry,
+<code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> included (<a class="reference internal" href="../conventions.html#equivalence"><span class="std std-ref">conventions §11.4</span></a>).</p>
+</section>
+</section>
+<section id="example">
+<span id="6-example"></span><h2>6. Example<a class="headerlink" href="#example" title="Link to this heading">¶</a></h2>
+<p>The fixture <code class="docutils literal notranslate"><span class="pre">fixtures/nrrd/nrrd_space_lps_aligned.nrrd</span></code>, served at
+<code class="docutils literal notranslate"><span class="pre">https://example.org/brain/nrrd_space_lps_aligned.nrrd</span></code>, is this header and 240 bytes of
+little-endian <code class="docutils literal notranslate"><span class="pre">int16</span></code> data after it:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">NRRD0004</span>
+<span class="nb">type</span><span class="p">:</span> <span class="n">short</span>
+<span class="n">dimension</span><span class="p">:</span> <span class="mi">3</span>
+<span class="n">sizes</span><span class="p">:</span> <span class="mi">6</span> <span class="mi">5</span> <span class="mi">4</span>
+<span class="n">endian</span><span class="p">:</span> <span class="n">little</span>
+<span class="n">encoding</span><span class="p">:</span> <span class="n">raw</span>
+<span class="n">space</span><span class="p">:</span> <span class="n">left</span><span class="o">-</span><span class="n">posterior</span><span class="o">-</span><span class="n">superior</span>
+<span class="n">space</span> <span class="n">directions</span><span class="p">:</span> <span class="p">(</span><span class="mf">0.5</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">)</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="mf">0.75</span><span class="p">,</span><span class="mi">0</span><span class="p">)</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="mf">1.25</span><span class="p">)</span>
+<span class="n">space</span> <span class="n">origin</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="mi">12</span><span class="p">,</span><span class="mf">3.5</span><span class="p">,</span><span class="mi">40</span><span class="p">)</span>
+<span class="n">space</span> <span class="n">units</span><span class="p">:</span> <span class="s2">"mm"</span> <span class="s2">"mm"</span> <span class="s2">"mm"</span>
+<span class="n">kinds</span><span class="p">:</span> <span class="n">domain</span> <span class="n">domain</span> <span class="n">domain</span>
+
+</pre></div>
+</div>
+<p>Its axes are <code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code> and <code class="docutils literal notranslate"><span class="pre">z</span></code>, in that order, and its orientation is axis-aligned, so its root
+<code class="docutils literal notranslate"><span class="pre">zarr.json</span></code> has these attributes (the CMO elided):</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"ome"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0.5"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"multiscales"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">      </span><span class="nt">"axes"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"z"</span><span class="p">,</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"space"</span><span class="p">,</span><span class="w"> </span><span class="nt">"unit"</span><span class="p">:</span><span class="w"> </span><span class="s2">"millimeter"</span><span class="p">},</span>
+<span class="w">               </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"y"</span><span class="p">,</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"space"</span><span class="p">,</span><span class="w"> </span><span class="nt">"unit"</span><span class="p">:</span><span class="w"> </span><span class="s2">"millimeter"</span><span class="p">},</span>
+<span class="w">               </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"x"</span><span class="p">,</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"space"</span><span class="p">,</span><span class="w"> </span><span class="nt">"unit"</span><span class="p">:</span><span class="w"> </span><span class="s2">"millimeter"</span><span class="p">}],</span>
+<span class="w">      </span><span class="nt">"datasets"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">"path"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0"</span><span class="p">,</span><span class="w"> </span><span class="nt">"coordinateTransformations"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="p">{</span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"scale"</span><span class="p">,</span><span class="w"> </span><span class="nt">"scale"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mf">1.25</span><span class="p">,</span><span class="w"> </span><span class="mf">0.75</span><span class="p">,</span><span class="w"> </span><span class="mf">0.5</span><span class="p">]},</span>
+<span class="w">        </span><span class="p">{</span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"translation"</span><span class="p">,</span><span class="w"> </span><span class="nt">"translation"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mf">40.0</span><span class="p">,</span><span class="w"> </span><span class="mf">3.5</span><span class="p">,</span><span class="w"> </span><span class="mf">-12.0</span><span class="p">]}]}]</span>
+<span class="w">    </span><span class="p">}]</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">"zarr_conventions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="err">C</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"refkv_zarrified"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"profile"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nrrd"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"source"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://example.org/brain/nrrd_space_lps_aligned.nrrd"</span><span class="p">},</span>
+<span class="w">    </span><span class="nt">"nrrd"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"magic"</span><span class="p">:</span><span class="w"> </span><span class="s2">"NRRD0004"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"fields"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"short"</span><span class="p">,</span><span class="w"> </span><span class="nt">"dimension"</span><span class="p">:</span><span class="w"> </span><span class="s2">"3"</span><span class="p">,</span><span class="w"> </span><span class="nt">"sizes"</span><span class="p">:</span><span class="w"> </span><span class="s2">"6 5 4"</span><span class="p">,</span><span class="w"> </span><span class="nt">"endian"</span><span class="p">:</span><span class="w"> </span><span class="s2">"little"</span><span class="p">,</span><span class="w"> </span><span class="nt">"encoding"</span><span class="p">:</span><span class="w"> </span><span class="s2">"raw"</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"space"</span><span class="p">:</span><span class="w"> </span><span class="s2">"left-posterior-superior"</span><span class="p">,</span><span class="w"> </span><span class="nt">"space directions"</span><span class="p">:</span><span class="w"> </span><span class="s2">"(0.5,0,0) (0,0.75,0) (0,0,1.25)"</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"space origin"</span><span class="p">:</span><span class="w"> </span><span class="s2">"(-12,3.5,40)"</span><span class="p">,</span><span class="w"> </span><span class="nt">"space units"</span><span class="p">:</span><span class="w"> </span><span class="s2">"\"mm\" \"mm\" \"mm\""</span><span class="p">,</span><span class="w"> </span><span class="nt">"kinds"</span><span class="p">:</span><span class="w"> </span><span class="s2">"domain domain domain"</span>
+<span class="w">      </span><span class="p">},</span>
+<span class="w">      </span><span class="nt">"key_values"</span><span class="p">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">      </span><span class="nt">"comments"</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">      </span><span class="nt">"data_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"int16"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"encoding"</span><span class="p">:</span><span class="w"> </span><span class="s2">"raw"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"byte_order"</span><span class="p">:</span><span class="w"> </span><span class="s2">"little"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"axes"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"x"</span><span class="p">,</span><span class="w"> </span><span class="s2">"y"</span><span class="p">,</span><span class="w"> </span><span class="s2">"z"</span><span class="p">],</span>
+<span class="w">      </span><span class="nt">"orientation"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"applied"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Its array has the shape and chunk shape <code class="docutils literal notranslate"><span class="pre">[4,</span> <span class="pre">5,</span> <span class="pre">6]</span></code>, the codecs <code class="docutils literal notranslate"><span class="pre">[{&quot;name&quot;:</span> <span class="pre">&quot;bytes&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;endian&quot;:</span> <span class="pre">&quot;little&quot;}}]</span></code>, and its one chunk <code class="docutils literal notranslate"><span class="pre">0/c/0/0/0</span></code> is the range <code class="docutils literal notranslate"><span class="pre">(241,</span> <span class="pre">240)</span></code>
+of the file, the data after the header’s 241 bytes.</p>
+<p>The detached header <code class="docutils literal notranslate"><span class="pre">fixtures/nrrd/nrrd_detached_gzip.nhdr</span></code> names the data file
+<code class="docutils literal notranslate"><span class="pre">./nrrd_detached_gzip_files/data.raw.gz</span></code>, whose first line its <code class="docutils literal notranslate"><span class="pre">line</span> <span class="pre">skip:</span> <span class="pre">1</span></code> passes over: the
+array’s one chunk is the range <code class="docutils literal notranslate"><span class="pre">(8,</span> <span class="pre">140)</span></code> of the object <code class="docutils literal notranslate"><span class="pre">nrrd_detached_gzip_files/data.raw.gz</span></code>,
+the gzip stream to the file’s end, its codecs <code class="docutils literal notranslate"><span class="pre">bytes</span></code> and <code class="docutils literal notranslate"><span class="pre">gzip</span></code>; the archive’s one url source is
+that file’s URL, and the root’s <code class="docutils literal notranslate"><span class="pre">source.url</span></code> the header’s.</p>
+</section>
+<section id="what-the-layout-does-not-express">
+<span id="7-what-the-layout-does-not-express"></span><h2>7. What the layout does not express<a class="headerlink" href="#what-the-layout-does-not-express" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><strong>Several data files.</strong> A detached header whose <code class="docutils literal notranslate"><span class="pre">data</span> <span class="pre">file</span></code> field is a list (<code class="docutils literal notranslate"><span class="pre">LIST</span></code>) or a
+pattern (<code class="docutils literal notranslate"><span class="pre">slice%03d.raw</span> <span class="pre">1</span> <span class="pre">60</span> <span class="pre">1</span></code>) splits the array across files, one slab per file, each with its
+own line and byte skips. Each could be a run of chunks of its own file, but a gzip slab is a
+chunk only when the slabs cut the array along chunk boundaries, and the profile’s store run
+would probe a file per slab; the profile reads one data file.</p></li>
+<li><p><strong>Text and hex data</strong>, which no chunk can reference as binary values, and <strong>bzip2</strong>
+(<a class="reference internal" href="#the-gzip-encoding">§4.2</a>).</p></li>
+<li><p><strong>Block data</strong> (<code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">block</span></code>), opaque records of no data type.</p></li>
+<li><p><strong>Axes OME-NGFF cannot place</strong>: one spatial axis or more than three, two time axes, or two
+channel axes (a list axis beside a color axis, a matrix stored as two axes). Such inputs are
+rejected rather than given a layout of their own.</p></li>
+<li><p><strong>Oblique orientations</strong>, which are recorded but not applied (<a class="reference internal" href="#scales-units-and-position">§4.3</a>).</p></li>
+</ul>
+</section>
+</section>
+<section id="part-2-the-profile">
+<h1>Part 2. The profile<a class="headerlink" href="#part-2-the-profile" title="Link to this heading">¶</a></h1>
+<p>The NRRD profile of <a class="reference internal" href="../zarrify.html"><span class="std std-doc">spec/zarrify.md</span></a> is <a class="reference internal" href="#nrrd-profile">§8</a> of this document.
+What every profile’s Part 2 shares is in <a class="reference internal" href="../zarrify.html#profiles"><span class="std std-ref">spec/zarrify.md, Profiles</span></a>.
+The input is the header file and, for a detached header, its data file, and the profile also
+says which of them are read.</p>
+<section id="nrrd-profile">
+<span id="8-nrrd-profile"></span><h2>8. NRRD profile<a class="headerlink" href="#nrrd-profile" title="Link to this heading">¶</a></h2>
+<p>The input is a <strong>file input</strong> that names the header file (a URL, or a local path), which its
+<strong>signature</strong> (<a class="reference internal" href="../zarrify.html#input"><span class="std std-ref">spec/zarrify.md §1.2</span></a>, tested at the precedence of
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/profiles/nrrd.json">profiles/nrrd.json</a>) chose: bytes 0–6 of <code class="docutils literal notranslate"><span class="pre">H</span></code> are <code class="docutils literal notranslate"><span class="pre">NRRD000</span></code> (<code class="docutils literal notranslate"><span class="pre">4E</span> <span class="pre">52</span> <span class="pre">52</span> <span class="pre">44</span> <span class="pre">30</span> <span class="pre">30</span> <span class="pre">30</span></code>), byte 7 is a digit from <code class="docutils literal notranslate"><span class="pre">1</span></code> to <code class="docutils literal notranslate"><span class="pre">5</span></code>, and byte 8 is a LF or a CR. (The magic of 1998’s
+files, <code class="docutils literal notranslate"><span class="pre">NRRD00.01</span></code>, does not match.) The profile reads the input as a <strong>file read as a store</strong>
+(<a class="reference internal" href="../zarrify.html#files-read-as-stores"><span class="std std-ref">spec/zarrify.md §1.8</span></a>): the store URL is the header
+file’s directory, its objects are the header file, at its key, and a detached header’s data
+file, which the profile probes for (<a class="reference internal" href="#the-data-file">§8.3</a>), and the root’s <code class="docutils literal notranslate"><span class="pre">source.url</span></code> is
+the header file’s object URL.</p>
+<section id="id1">
+<span id="81-the-header"></span><h3>8.1 The header<a class="headerlink" href="#id1" title="Link to this heading">¶</a></h3>
+<p>The header file is read from its start: its first <code class="docutils literal notranslate"><span class="pre">min(size,</span> <span class="pre">65536)</span></code> bytes, then, while the
+bytes read hold no blank line after the magic and do not reach the file’s end, as many bytes
+again as are held (each read doubling them), up to 2^24 bytes in all. A detached header’s file,
+which the mirror holds (<a class="reference internal" href="#the-ir-mirror">the convention §5.2</a>), is read whole: by its first
+read when it is at most 65536 bytes, by the reads of its header when they reach its end, else in
+one request in the run’s last batch. The header
+(<a class="reference internal" href="#the-header">§2</a>) is the bytes through the blank line that ends it, or, when none does, the
+whole file. The input is rejected when:</p>
+<ul class="simple">
+<li><p>its first line is not <code class="docutils literal notranslate"><span class="pre">NRRD0001</span></code> to <code class="docutils literal notranslate"><span class="pre">NRRD0005</span></code> (the file’s first line is checked as soon as it
+is read, or its first 8 bytes when the line is longer): <code class="docutils literal notranslate"><span class="pre">not</span> <span class="pre">a</span> <span class="pre">NRRD</span> <span class="pre">header:</span> <span class="pre">its</span> <span class="pre">first</span> <span class="pre">line</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">NRRD0001</span> <span class="pre">to</span> <span class="pre">NRRD0005</span></code>;</p></li>
+<li><p>2^24 bytes do not hold a blank line and the file is longer: <code class="docutils literal notranslate"><span class="pre">no</span> <span class="pre">blank</span> <span class="pre">line</span> <span class="pre">ends</span> <span class="pre">the</span> <span class="pre">NRRD</span> <span class="pre">header</span> <span class="pre">within</span> <span class="pre">its</span> <span class="pre">first</span> <span class="pre">16777216</span> <span class="pre">bytes</span></code>;</p></li>
+<li><p>a line is none of a comment, a key/value pair and a field; a key/value pair’s key is empty; a
+field’s identifier is not followed by a space or the line’s end, is not a field’s of
+<a class="reference internal" href="#the-header">§2</a> in any case, or names a field the header has given already: <code class="docutils literal notranslate"><span class="pre">line</span> <span class="pre">&lt;n&gt;</span> <span class="pre">of</span> <span class="pre">the</span> <span class="pre">header:</span> <span class="pre">...</span></code>, <code class="docutils literal notranslate"><span class="pre">&lt;n&gt;</span></code> the line’s number, the magic’s 1;</p></li>
+<li><p>the header has no <code class="docutils literal notranslate"><span class="pre">data</span> <span class="pre">file</span></code> field and no blank line ends it: <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">header</span> <span class="pre">ends</span> <span class="pre">at</span> <span class="pre">the</span> <span class="pre">end</span> <span class="pre">of</span> <span class="pre">the</span> <span class="pre">file,</span> <span class="pre">without</span> <span class="pre">the</span> <span class="pre">blank</span> <span class="pre">line</span> <span class="pre">before</span> <span class="pre">the</span> <span class="pre">data</span></code>.</p></li>
+</ul>
+<p>The lines after a <code class="docutils literal notranslate"><span class="pre">data</span> <span class="pre">file</span></code> field whose descriptor’s first word is <code class="docutils literal notranslate"><span class="pre">LIST</span></code> are the names of the
+data files (the NRRD definition’s third form, which ends the header), not fields: they are not
+read as lines of the header, and <a class="reference internal" href="#the-data-file">§8.3</a> rejects the input.</p>
+</section>
+<section id="the-fields">
+<span id="82-the-fields"></span><h3>8.2 The fields<a class="headerlink" href="#the-fields" title="Link to this heading">¶</a></h3>
+<p>The fields are checked in this order, each only by what the layout reads of it; the descriptor
+is read without the spaces and tabs around it where one value is read. A field the header lacks
+is not checked, unless it is required.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">dimension</span></code> is required, an integer from 1 to 16: <code class="docutils literal notranslate"><span class="pre">n</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">type</span></code> is required, in the table of <a class="reference internal" href="#data-types-and-encodings">§3</a> (in lower case); <code class="docutils literal notranslate"><span class="pre">block</span></code>
+is rejected: <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">NRRD</span> <span class="pre">type</span> <span class="pre">block</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">supported:</span> <span class="pre">its</span> <span class="pre">blocks</span> <span class="pre">are</span> <span class="pre">opaque,</span> <span class="pre">of</span> <span class="pre">no</span> <span class="pre">data</span> <span class="pre">type</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">encoding</span></code> is required, <code class="docutils literal notranslate"><span class="pre">raw</span></code>, <code class="docutils literal notranslate"><span class="pre">gz</span></code> or <code class="docutils literal notranslate"><span class="pre">gzip</span></code> (in lower case). <code class="docutils literal notranslate"><span class="pre">ascii</span></code>, <code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">txt</span></code> and <code class="docutils literal notranslate"><span class="pre">hex</span></code>
+are rejected (their values or bytes are text, which no chunk can reference as binary), and so
+are <code class="docutils literal notranslate"><span class="pre">bz2</span></code> and <code class="docutils literal notranslate"><span class="pre">bzip2</span></code> (<a class="reference internal" href="#the-gzip-encoding">§4.2</a>): <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">NRRD</span> <span class="pre">encoding</span> <span class="pre">&lt;e&gt;</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">supported:</span> <span class="pre">&lt;why&gt;</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">endian</span></code>, when present, is <code class="docutils literal notranslate"><span class="pre">little</span></code> or <code class="docutils literal notranslate"><span class="pre">big</span></code> (in lower case); it is required when the data
+type is larger than 1 byte.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">sizes</span></code> is required: <code class="docutils literal notranslate"><span class="pre">n</span></code> integers from 1 to 2^53 − 1.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">line</span> <span class="pre">skip</span></code> is an integer from 0 to 2^53 − 1, and <code class="docutils literal notranslate"><span class="pre">byte</span> <span class="pre">skip</span></code> from −1 to 2^53 − 1. With the
+gzip encoding, <code class="docutils literal notranslate"><span class="pre">byte</span> <span class="pre">skip</span></code> MUST NOT be −1: it counts back from the data’s end, which only
+decompressing can find.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">data</span> <span class="pre">file</span></code>: <a class="reference internal" href="#the-data-file">§8.3</a>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">space</span></code> and <code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">dimension</span></code> are not both present. <code class="docutils literal notranslate"><span class="pre">space</span></code> is one of the NRRD definition’s
+spaces (in lower case: <code class="docutils literal notranslate"><span class="pre">right-anterior-superior</span></code> or <code class="docutils literal notranslate"><span class="pre">RAS</span></code>, …, <code class="docutils literal notranslate"><span class="pre">3D-left-handed-time</span></code>), whose
+dimension is <code class="docutils literal notranslate"><span class="pre">d</span></code>; <code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">dimension</span></code> is an integer from 1 to 16, <code class="docutils literal notranslate"><span class="pre">d</span></code>. <code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">directions</span></code>, <code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">origin</span></code>, <code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">units</span></code> and <code class="docutils literal notranslate"><span class="pre">measurement</span> <span class="pre">frame</span></code> are present only with one of them.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">directions</span></code>: <code class="docutils literal notranslate"><span class="pre">n</span></code> vectors and <code class="docutils literal notranslate"><span class="pre">none</span></code>, each vector of <code class="docutils literal notranslate"><span class="pre">d</span></code> numbers. <code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">origin</span></code>: one
+vector of <code class="docutils literal notranslate"><span class="pre">d</span></code> numbers. <code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">units</span></code>: <code class="docutils literal notranslate"><span class="pre">d</span></code> quoted strings.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">spacings</span></code>: <code class="docutils literal notranslate"><span class="pre">n</span></code> numbers. <code class="docutils literal notranslate"><span class="pre">units</span></code>: <code class="docutils literal notranslate"><span class="pre">n</span></code> quoted strings. <code class="docutils literal notranslate"><span class="pre">kinds</span></code>: <code class="docutils literal notranslate"><span class="pre">n</span></code> kinds of the NRRD
+definition (in lower case: <code class="docutils literal notranslate"><span class="pre">domain</span></code>, <code class="docutils literal notranslate"><span class="pre">space</span></code>, <code class="docutils literal notranslate"><span class="pre">time</span></code>, <code class="docutils literal notranslate"><span class="pre">list</span></code>, …, <code class="docutils literal notranslate"><span class="pre">???</span></code>, <code class="docutils literal notranslate"><span class="pre">none</span></code>).</p></li>
+<li><p>The axes’ roles (<a class="reference internal" href="#the-array">§4.1</a>): 2 or 3 of the role space, at most one of time and at
+most one of channel.</p></li>
+</ul>
+<p>A value that is not as these require is rejected: <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">&lt;field&gt;</span> <span class="pre">field</span> <span class="pre">&quot;&lt;descriptor&gt;&quot;</span> <span class="pre">...</span></code>. <code class="docutils literal notranslate"><span class="pre">min</span></code>
+and <code class="docutils literal notranslate"><span class="pre">max</span></code> are read as numbers when they are (<a class="reference internal" href="#channels">§4.4</a>) and are never rejected; no
+other field is checked: <code class="docutils literal notranslate"><span class="pre">content</span></code>, <code class="docutils literal notranslate"><span class="pre">block</span> <span class="pre">size</span></code>, <code class="docutils literal notranslate"><span class="pre">old</span> <span class="pre">min</span></code>, <code class="docutils literal notranslate"><span class="pre">old</span> <span class="pre">max</span></code>, <code class="docutils literal notranslate"><span class="pre">number</span></code>, <code class="docutils literal notranslate"><span class="pre">sample</span> <span class="pre">units</span></code>,
+<code class="docutils literal notranslate"><span class="pre">thicknesses</span></code>, <code class="docutils literal notranslate"><span class="pre">axis</span> <span class="pre">mins</span></code>, <code class="docutils literal notranslate"><span class="pre">axis</span> <span class="pre">maxs</span></code>, <code class="docutils literal notranslate"><span class="pre">centers</span></code>, <code class="docutils literal notranslate"><span class="pre">labels</span></code> and <code class="docutils literal notranslate"><span class="pre">measurement</span> <span class="pre">frame</span></code>’s vectors
+are recorded as written (<a class="reference internal" href="#the-root">§5.1</a>).</p>
+</section>
+<section id="the-data-file">
+<span id="83-the-data-file"></span><h3>8.3 The data file<a class="headerlink" href="#the-data-file" title="Link to this heading">¶</a></h3>
+<p>A detached header’s <code class="docutils literal notranslate"><span class="pre">data</span> <span class="pre">file</span></code> descriptor names its one data file: a path relative to the header file’s directory. Its <strong>key</strong> is the descriptor’s
+segments (the parts between <code class="docutils literal notranslate"><span class="pre">/</span></code>) without the segments <code class="docutils literal notranslate"><span class="pre">.</span></code>, joined by <code class="docutils literal notranslate"><span class="pre">/</span></code>. The input is rejected
+when:</p>
+<ul class="simple">
+<li><p>the descriptor’s words (separated by spaces and tabs) are <code class="docutils literal notranslate"><span class="pre">LIST</span></code> and any others, or are 4 or 5
+words of which the first holds <code class="docutils literal notranslate"><span class="pre">%</span></code> and the others are integers: <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">data</span> <span class="pre">file</span> <span class="pre">field</span> <span class="pre">&quot;&lt;descriptor&gt;&quot;</span> <span class="pre">names</span> <span class="pre">several</span> <span class="pre">data</span> <span class="pre">files,</span> <span class="pre">which</span> <span class="pre">the</span> <span class="pre">profile</span> <span class="pre">does</span> <span class="pre">not</span> <span class="pre">read</span></code>;</p></li>
+<li><p>the descriptor is not UTF-8, starts with <code class="docutils literal notranslate"><span class="pre">/</span></code>, has no segment but <code class="docutils literal notranslate"><span class="pre">.</span></code>, or has an empty segment,
+a segment <code class="docutils literal notranslate"><span class="pre">..</span></code>, or a segment that holds <code class="docutils literal notranslate"><span class="pre">\</span></code> or <code class="docutils literal notranslate"><span class="pre">:</span></code> (a Windows path, a drive, a URL’s scheme,
+which could name a file outside the directory): <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">data</span> <span class="pre">file</span> <span class="pre">&quot;&lt;descriptor&gt;&quot;</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">a</span> <span class="pre">path</span> <span class="pre">below</span> <span class="pre">the</span> <span class="pre">header's</span> <span class="pre">directory</span></code>;</p></li>
+<li><p>the key is the header file’s: <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">data</span> <span class="pre">file</span> <span class="pre">&quot;&lt;descriptor&gt;&quot;</span> <span class="pre">is</span> <span class="pre">the</span> <span class="pre">header's</span> <span class="pre">own</span> <span class="pre">file</span></code>.</p></li>
+</ul>
+<p>The data file is then <strong>probed</strong>, as the VSI profile probes a tile file
+(<a class="reference internal" href="vsi.html#id2"><span class="std std-ref">vsi.md §9.2</span></a>): the host says whether the object at its key exists,
+and its size (a local file that is there, or an HTTP object whose response to the first request
+is not a 404; a 404 is absent, any other failure a failure, not a rejection). An absent data file
+rejects the input: <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">data</span> <span class="pre">file</span> <span class="pre">&quot;&lt;key&gt;&quot;</span> <span class="pre">does</span> <span class="pre">not</span> <span class="pre">exist</span></code>.</p>
+</section>
+<section id="the-data">
+<span id="84-the-data"></span><h3>8.4 The data<a class="headerlink" href="#the-data" title="Link to this heading">¶</a></h3>
+<p>The data’s <strong>file</strong> is the header file for an attached header and the data file for a detached
+one; its <strong>start</strong> is the header’s end for an attached header, and 0 for a detached one.</p>
+<p><strong>Line skip.</strong> When <code class="docutils literal notranslate"><span class="pre">line</span> <span class="pre">skip</span></code> is <code class="docutils literal notranslate"><span class="pre">L</span> <span class="pre">&gt;</span> <span class="pre">0</span></code> and <code class="docutils literal notranslate"><span class="pre">byte</span> <span class="pre">skip</span></code> is not −1, the file is read in windows
+of 65536 bytes from the start, and the start moves past the <code class="docutils literal notranslate"><span class="pre">L</span></code>-th LF. The input is rejected when
+the file ends first (<code class="docutils literal notranslate"><span class="pre">line</span> <span class="pre">skip</span> <span class="pre">&lt;L&gt;</span> <span class="pre">passes</span> <span class="pre">the</span> <span class="pre">end</span> <span class="pre">of</span> <span class="pre">&lt;file&gt;</span></code>), or when 2^24 bytes are read first.</p>
+<p><strong>Byte skip.</strong> The data starts at <code class="docutils literal notranslate"><span class="pre">D</span></code>: the start plus <code class="docutils literal notranslate"><span class="pre">byte</span> <span class="pre">skip</span></code>, or, for <code class="docutils literal notranslate"><span class="pre">byte</span> <span class="pre">skip</span></code> −1, at
+<code class="docutils literal notranslate"><span class="pre">size</span> <span class="pre">−</span> <span class="pre">B</span></code> of its file, <code class="docutils literal notranslate"><span class="pre">B</span></code> the raw data’s bytes (<a class="reference internal" href="#data-types-and-encodings">§3</a>), so that the
+data ends at the file’s end. For the gzip encoding, <code class="docutils literal notranslate"><span class="pre">D</span></code> is the start: <code class="docutils literal notranslate"><span class="pre">byte</span> <span class="pre">skip</span></code> counts bytes
+of the decompressed data, which the <code class="docutils literal notranslate"><span class="pre">refkv.skip</span></code> codec passes over (<a class="reference internal" href="#the-array">§4.1</a>). The input is rejected unless all of these hold:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">B</span></code> is at most 2^53 − 1;</p></li>
+<li><p>for the raw encoding, <code class="docutils literal notranslate"><span class="pre">D</span> <span class="pre">+</span> <span class="pre">B</span></code> is at most the file’s size;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">D</span></code> is at least the start (the data does not begin inside the header or the skipped lines);</p></li>
+<li><p>for the gzip encoding, the stream, the <code class="docutils literal notranslate"><span class="pre">size</span> <span class="pre">−</span> <span class="pre">D</span></code> bytes from <code class="docutils literal notranslate"><span class="pre">D</span></code> to the file’s end, is at
+least 18 bytes (a gzip member’s header and trailer), and its first three bytes are <code class="docutils literal notranslate"><span class="pre">1F</span> <span class="pre">8B</span> <span class="pre">08</span></code>
+(a gzip member of deflate data). The stream is not otherwise read: the output does not depend
+on the pixel data (<a class="reference internal" href="../zarrify.html#input"><span class="std std-ref">spec/zarrify.md §1.2</span></a>).</p></li>
+</ul>
+<p>Bytes of the file after the data are not read, as the NRRD definition says.</p>
+</section>
+<section id="chunks">
+<span id="85-chunks"></span><h3>8.5 Chunks<a class="headerlink" href="#chunks" title="Link to this heading">¶</a></h3>
+<p>Every chunk of the convention’s array (<a class="reference internal" href="#the-array">§4.1</a>) is present, at <code class="docutils literal notranslate"><span class="pre">0/c/&lt;coords&gt;</span></code>,
+and references the data’s file; the output copies no data, but an edge chunk below.</p>
+<ul class="simple">
+<li><p><strong>Raw:</strong> the chunk is referenced as <a class="reference internal" href="../conventions.html#source-values-as-arrays"><span class="std std-ref">conventions §7</span></a>
+references a chunk of contiguous values of <code class="docutils literal notranslate"><span class="pre">V</span></code> at <code class="docutils literal notranslate"><span class="pre">D</span></code> (with the chunk limit 2^17 bytes): one
+range of the data’s file, followed for an edge chunk by its zero padding. Where
+<a class="reference internal" href="../conventions.html#source-values-as-arrays"><span class="std std-ref">conventions §7</span></a> makes that padding a literal
+range, it is instead the range <code class="docutils literal notranslate"><span class="pre">(1,</span> <span class="pre">0,</span> <span class="pre">p)</span></code> of the output’s <strong>zero data source</strong>
+(<a class="reference internal" href="../zarrify.html#input"><span class="std std-ref">spec/zarrify.md §1.2</span></a>), <code class="docutils literal notranslate"><span class="pre">p</span></code> the padding’s bytes: the source holds as
+many zero bytes as the most padding any reference of the output holds. Where that section
+copies the chunk (when its reference, with the padding as a literal range, would not fit in a
+payload), the chunk is copied, with its padding (its bytes are read in the run’s last batch).</p></li>
+<li><p><strong>Gzip:</strong> the one chunk, <code class="docutils literal notranslate"><span class="pre">0/c/0/.../0</span></code>, is one range of the data’s file: <code class="docutils literal notranslate"><span class="pre">(D,</span> <span class="pre">size</span> <span class="pre">−</span> <span class="pre">D)</span></code>.</p></li>
+</ul>
+<p><span id="type-nrrdchunk"></span><strong><code class="docutils literal notranslate"><span class="pre">NrrdChunk</span></code></strong>, a chunk of the raw encoding: the chunk of <code class="docutils literal notranslate"><span class="pre">V</span></code>
+that starts <code class="docutils literal notranslate"><span class="pre">o</span></code> bytes into the data and holds <code class="docutils literal notranslate"><span class="pre">l</span></code> of its bytes, padded with <code class="docutils literal notranslate"><span class="pre">p</span></code> zero bytes
+(by <a class="reference internal" href="../conventions.html#source-values-as-arrays"><span class="std std-ref">conventions §7</span></a>, for the chunk at
+<code class="docutils literal notranslate"><span class="pre">(i_0,</span> <span class="pre">…,</span> <span class="pre">i_{a−1},</span> <span class="pre">q,</span> <span class="pre">0,</span> <span class="pre">…,</span> <span class="pre">0)</span></code>, <code class="docutils literal notranslate"><span class="pre">o</span></code> is the offset it gives the chunk’s bytes, <code class="docutils literal notranslate"><span class="pre">l</span> <span class="pre">=</span> <span class="pre">m</span> <span class="pre">×</span> <span class="pre">s_a</span></code>
+and <code class="docutils literal notranslate"><span class="pre">p</span> <span class="pre">=</span> <span class="pre">(c</span> <span class="pre">−</span> <span class="pre">m)</span> <span class="pre">×</span> <span class="pre">s_a</span></code>, which is 0 but for an edge chunk along the cut axis):</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>part</p></th>
+<th class="head"><p>range</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>the values</p></td>
+<td><p>source range <code class="docutils literal notranslate"><span class="pre">(0,</span> <span class="pre">D</span> <span class="pre">+</span> <span class="pre">o,</span> <span class="pre">l)</span></code></p></td>
+<td><p>required</p></td>
+<td><p>the chunk’s bytes in the data’s file</p></td>
+</tr>
+<tr class="row-odd"><td><p>the padding</p></td>
+<td><p>source range <code class="docutils literal notranslate"><span class="pre">(1,</span> <span class="pre">0,</span> <span class="pre">p)</span></code></p></td>
+<td><p>optional</p></td>
+<td><p>when <code class="docutils literal notranslate"><span class="pre">p</span> <span class="pre">&gt;</span> <span class="pre">0</span></code>: the first <code class="docutils literal notranslate"><span class="pre">p</span></code> bytes of the zero data source</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Where <a class="reference internal" href="../conventions.html#source-values-as-arrays"><span class="std std-ref">conventions §7</span></a> copies the chunk, it is
+instead <code class="docutils literal notranslate"><span class="pre">bytes</span></code>: the <code class="docutils literal notranslate"><span class="pre">l</span></code> bytes and the <code class="docutils literal notranslate"><span class="pre">p</span></code> zero bytes.</p>
+<p><span id="type-nrrdgzipchunk"></span><strong><code class="docutils literal notranslate"><span class="pre">NrrdGzipChunk</span></code></strong>, the gzip encoding’s one chunk,
+<code class="docutils literal notranslate"><span class="pre">0/c/0/.../0</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>part</p></th>
+<th class="head"><p>range</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>the stream</p></td>
+<td><p>source range <code class="docutils literal notranslate"><span class="pre">(0,</span> <span class="pre">D,</span> <span class="pre">size</span> <span class="pre">−</span> <span class="pre">D)</span></code></p></td>
+<td><p>required</p></td>
+<td><p>the gzip stream, from <code class="docutils literal notranslate"><span class="pre">D</span></code> to the end of the data’s file (<code class="docutils literal notranslate"><span class="pre">size</span></code> its size), which the <code class="docutils literal notranslate"><span class="pre">gzip</span></code> codec decodes (<a class="reference internal" href="#the-gzip-encoding">§4.2</a>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The source table is one url source per file some reference uses, its size pinned
+(<a class="reference internal" href="../zarrify.html#store-inputs"><span class="std std-ref">spec/zarrify.md §1.4</span></a>): the data’s file, which is the header
+file for an attached header. A detached header’s file is no source: the mirror holds it
+(<a class="reference internal" href="#the-ir-mirror">the convention §5.2</a>). The url source, source 0, is followed by the zero data
+source, source 1, when a reference is padded; the output has no other data source:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>source</p></th>
+<th class="head"><p>what</p></th>
+<th class="head"><p>when</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>0</p></td>
+<td><p>a url source: the data’s file’s object URL, its size pinned: the header file for an attached header, the data file for a detached one</p></td>
+<td><p>always</p></td>
+</tr>
+<tr class="row-odd"><td><p>1</p></td>
+<td><p>the zero data source (<a class="reference internal" href="../zarrify.html#input"><span class="std std-ref">spec/zarrify.md §1.2</span></a>): as many zero bytes as the most padding any reference holds</p></td>
+<td><p>when a reference is padded (the raw encoding only)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> is the IR mirror (<a class="reference internal" href="#the-ir-mirror">the convention §5.2</a>). The archive
+has no other entries than the root’s and the array’s <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code>, the array’s chunks, and the
+mirror’s.</p>
+</section>
+<section id="summary">
+<span id="86-summary"></span><h3>8.6 Summary<a class="headerlink" href="#summary" title="Link to this heading">¶</a></h3>
+<p>This section is informative. Both implementations print a one-line JSON summary, with these
+members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sizes</span></code></p></td>
+<td><p>each axis’s size, by the axis’s name</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dataType</span></code></p></td>
+<td><p>the array’s data type</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">encoding</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;raw&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;gzip&quot;</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">detached</span></code></p></td>
+<td><p>whether the data is in a data file</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dataFile</span></code></p></td>
+<td><p>the data’s file’s key</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">chunkShape</span></code></p></td>
+<td><p>the array’s chunk shape</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">chunks</span></code></p></td>
+<td><p>the number of the array’s chunks</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">orientation</span></code></p></td>
+<td><p>whether it is applied, or <code class="docutils literal notranslate"><span class="pre">null</span></code> without space directions</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">translation</span></code></p></td>
+<td><p>whether the image has one</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">batches</span></code></p></td>
+<td><p>the read batches, the probe included</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">elements</span></code></p></td>
+<td><p>the IR’s elements</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">objects</span></code></p></td>
+<td><p>the IR’s objects</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">listingRequests</span></code></p></td>
+<td><p>the files opened beyond the header file</p></td>
+</tr>
+<tr class="row-odd"><td><p>the run’s counts</p></td>
+<td><p>the other members the run gives (<code class="docutils literal notranslate"><span class="pre">reads</span></code>, <code class="docutils literal notranslate"><span class="pre">folded</span></code>, …)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="the-description">
+<span id="87-the-description"></span><h3>8.7 The description<a class="headerlink" href="#the-description" title="Link to this heading">¶</a></h3>
+<p>This section is not part of the convention: nothing it specifies is written in an output. Beside the
+IR, the parser returns a <strong>description</strong> of the input: what it found of the header and its data, in
+NRRD’s own terms, for a projection to read with the IR and its stored arrays
+(<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>). Its JSON Schema is
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd/description.json">nrrd/description.json</a>. It holds none of an output’s decisions: the Zarr
+data type of a type (<a class="reference internal" href="#data-types-and-encodings">§3</a>), the axes’ roles and the image’s axes
+(<a class="reference internal" href="#the-array">§4.1</a>), the scales, units, position and orientation (<a class="reference internal" href="#scales-units-and-position">§4.3</a>),
+the channels (<a class="reference internal" href="#channels">§4.4</a>), the chunks (<a class="reference internal" href="#chunks">§8.5</a>) and the root’s source metadata
+(<a class="reference internal" href="#source-metadata">§5</a>) are the projection’s.</p>
+<p>It is a JSON object with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">magic</span></code>, <code class="docutils literal notranslate"><span class="pre">fields</span></code>, <code class="docutils literal notranslate"><span class="pre">key_values</span></code>, <code class="docutils literal notranslate"><span class="pre">comments</span></code></p></td>
+<td><p>as <a class="reference internal" href="#type-nrrdroot"><code class="docutils literal notranslate"><span class="pre">NrrdRoot</span></code></a> gives them</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dimension</span></code>, <code class="docutils literal notranslate"><span class="pre">sizes</span></code>, <code class="docutils literal notranslate"><span class="pre">line_skip</span></code>, <code class="docutils literal notranslate"><span class="pre">byte_skip</span></code></p></td>
+<td><p>the fields’ values as <a class="reference internal" href="#the-fields">§8.2</a> reads them: <code class="docutils literal notranslate"><span class="pre">n</span></code>, the sizes, and the skips (0 for a field the header lacks)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">type</span></code></p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">type</span></code> field’s descriptor, trimmed, in lower case: a name of <a class="reference internal" href="#data-types-and-encodings">§3</a>’s table</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">item</span></code></p></td>
+<td><p>the bytes of a value of the type</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">encoding</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">raw</span></code> or <code class="docutils literal notranslate"><span class="pre">gzip</span></code> (<code class="docutils literal notranslate"><span class="pre">gz</span></code> is <code class="docutils literal notranslate"><span class="pre">gzip</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">endian</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">little</span></code> or <code class="docutils literal notranslate"><span class="pre">big</span></code>, or null without an <code class="docutils literal notranslate"><span class="pre">endian</span></code> field</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">directions</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">directions</span></code>’ vectors, each an array of numbers or null for <code class="docutils literal notranslate"><span class="pre">none</span></code>; null without the field</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">origin</span></code>, <code class="docutils literal notranslate"><span class="pre">spacings</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">origin</span></code>’s vector and <code class="docutils literal notranslate"><span class="pre">spacings</span></code>’ numbers; null without the field</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">space_units</span></code>, <code class="docutils literal notranslate"><span class="pre">units</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">space</span> <span class="pre">units</span></code>’ and <code class="docutils literal notranslate"><span class="pre">units</span></code>’ strings, as text values; null without the field</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">kinds</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">kinds</span></code>’ names, in lower case; null without the field</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">min</span></code>, <code class="docutils literal notranslate"><span class="pre">max</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">min</span></code> and <code class="docutils literal notranslate"><span class="pre">max</span></code> as numbers, null when they are none or not finite</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">header_key</span></code>, <code class="docutils literal notranslate"><span class="pre">header_size</span></code></p></td>
+<td><p>the header file’s key and size</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">data_key</span></code></p></td>
+<td><p>the data’s file’s key: the header file’s, or a detached header’s data file’s (<a class="reference internal" href="#the-data-file">§8.3</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data</span></code></p></td>
+<td><p>the data’s range in that file, <code class="docutils literal notranslate"><span class="pre">offset</span></code> and <code class="docutils literal notranslate"><span class="pre">bytes</span></code> (<a class="reference internal" href="#the-data">§8.4</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">elements</span></code></p></td>
+<td><p>the ids of its IR elements (<a class="reference internal" href="#elements">§5.3</a>) by name: <code class="docutils literal notranslate"><span class="pre">header_file</span></code> and <code class="docutils literal notranslate"><span class="pre">data_file</span></code>, the two objects (the same for an attached header); <code class="docutils literal notranslate"><span class="pre">lines</span></code>, the header’s lines in order; and <code class="docutils literal notranslate"><span class="pre">data</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A number of <code class="docutils literal notranslate"><span class="pre">directions</span></code>, <code class="docutils literal notranslate"><span class="pre">origin</span></code> or <code class="docutils literal notranslate"><span class="pre">spacings</span></code> that is not finite is null. The array’s stored
+description is keyed by <code class="docutils literal notranslate"><span class="pre">header_file</span></code> (<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>).
+The projection makes every decision of <a class="reference internal" href="#data-types-and-encodings">§3</a>, <a class="reference internal" href="#the-image">§4</a>,
+<a class="reference internal" href="#source-metadata">§5</a> and <a class="reference internal" href="#chunks">§8.5</a> from the description. The store run also reads the
+edge chunks the projection copies (<a class="reference internal" href="#the-data">§8.4</a>), which it gives the projection apart from
+the description, by their offset and length in the data’s file, with its count of <code class="docutils literal notranslate"><span class="pre">batches</span></code>, which
+the summary holds (<a class="reference internal" href="#summary">§8.6</a>).</p>
+<p>The parser still makes one decision of the output: the <code class="docutils literal notranslate"><span class="pre">data</span></code> element’s form names the Zarr data
+type of <a class="reference internal" href="#data-types-and-encodings">§3</a> (<a class="reference internal" href="#elements">§5.3</a>). It checks the axes’ roles
+(<a class="reference internal" href="#the-fields">§8.2</a>), and the projection names the axes from them.</p>
+<div class="toctree-wrapper compound">
+</div>
+</section>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="../../docs/zarrify/nrrd/README.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">NRRD</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="npy/stored-arrays.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">NumPy: stored arrays</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; the refkv authors
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer no-toc">
+      
+      
+      
+    </aside>
+  </div>
+</div><script src="../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/scripts/furo.js?v=46bd48cc"></script>
+    </body>
+</html>

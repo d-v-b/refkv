@@ -1,0 +1,794 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="refkv’s provenance convention" href="provenance.html"><link rel="prev" title="refkv’s Zarr conventions" href="conventions.html">
+        <link rel="canonical" href="https://d-v-b.github.io/refkv/spec/layout.html">
+
+    <!-- Generated with Sphinx 9.1.1 and Furo 2025.12.19 -->
+        <title>Layouts written by plugins - refkv</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../README.html"><div class="brand">refkv</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../README.html">
+  
+  <span class="sidebar-brand-text">refkv</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../docs/README.html">refkv documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../docs/adding-a-format.html">Adding a file format</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../docs/build.html">Building an output from the IR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../docs/combining-stores.html">Combining stores</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../docs/layout-plugins.html">Writing a layout plugin</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../docs/tiff-stack.html">A stack of TIFF files as one array</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../docs/virtual-datasets.html">Virtual datasets with xarray</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Specification</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="TECHNIQUES.html">Mapping image formats to Zarr: techniques</a></li>
+<li class="toctree-l1"><a class="reference internal" href="conventions.html">refkv’s Zarr conventions</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Layouts written by plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="provenance.html">refkv’s provenance convention</a></li>
+<li class="toctree-l1"><a class="reference internal" href="refkv.html">refkv: a reference value type for key-value stores</a></li>
+<li class="toctree-l1"><a class="reference internal" href="refkv.html#part-1-reference-values">Part 1. Reference values</a></li>
+<li class="toctree-l1"><a class="reference internal" href="stored-array.html">Stored arrays in the IR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify.html">Zarrifying files and stores as Zarr in refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="bindings/phkv.html">phkv: the perfect-hash binding of refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="bindings/phkv.html#part-3-the-perfect-hash-binding">Part 3. The perfect-hash binding</a></li>
+<li class="toctree-l1"><a class="reference internal" href="bindings/vzip.html">vzip: the ZIP binding of refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="bindings/vzip.html#part-2-the-zip-binding">Part 2. The ZIP binding</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Formats</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/czi.html">CZI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/czi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/czi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/czi/README.html">CZI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/czi/stored-arrays.html">CZI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/dicom.html">DICOM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/dicom.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/dicom.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/dicom/README.html">DICOM, including whole-slide images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/dicom/stored-arrays.html">DICOM: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/envi.html">ENVI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/envi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/envi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/envi/README.html">ENVI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/envi/stored-arrays.html">ENVI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/fits.html">FITS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/fits.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/fits.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/fits/README.html">FITS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/fits/stored-arrays.html">FITS: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/flac.html">FLAC</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/flac.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/flac.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-5" name="toctree-checkbox-5" role="switch" type="checkbox"/><label for="toctree-checkbox-5"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/flac/README.html">FLAC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/flac/stored-arrays.html">FLAC: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/grib.html">GRIB</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/grib.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/grib.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-6" name="toctree-checkbox-6" role="switch" type="checkbox"/><label for="toctree-checkbox-6"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/grib/README.html">GRIB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/grib/stored-arrays.html">GRIB: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/h5j.html">H5J</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/h5j.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/h5j.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-7" name="toctree-checkbox-7" role="switch" type="checkbox"/><label for="toctree-checkbox-7"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/h5j/README.html">H5J</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/h5j/stored-arrays.html">H5J: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/hdf4.html">HDF4</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/hdf4.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/hdf4.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-8" name="toctree-checkbox-8" role="switch" type="checkbox"/><label for="toctree-checkbox-8"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/hdf4/README.html">HDF4 and HDF-EOS2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/hdf4/stored-arrays.html">HDF4: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/hdf5.html">HDF5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/hdf5.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/hdf5.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-9" name="toctree-checkbox-9" role="switch" type="checkbox"/><label for="toctree-checkbox-9"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/hdf5/README.html">HDF5 and NWB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/hdf5/stored-arrays.html">HDF5: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/ims.html">IMS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/ims.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/ims.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-10" name="toctree-checkbox-10" role="switch" type="checkbox"/><label for="toctree-checkbox-10"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/ims/README.html">Imaris IMS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/ims/stored-arrays.html">IMS: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/lif.html">LIF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/lif.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/lif.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-11" name="toctree-checkbox-11" role="switch" type="checkbox"/><label for="toctree-checkbox-11"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/lif/README.html">LIF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/lif/stored-arrays.html">LIF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/mp3.html">MP3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/mp3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/mp3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-12" name="toctree-checkbox-12" role="switch" type="checkbox"/><label for="toctree-checkbox-12"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/mp3/README.html">MP3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/mp3/stored-arrays.html">MP3: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/mp4.html">MP4</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/mp4.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/mp4.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-13" name="toctree-checkbox-13" role="switch" type="checkbox"/><label for="toctree-checkbox-13"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/mp4/README.html">MP4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/mp4/stored-arrays.html">MP4: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/mrc.html">MRC</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/mrc.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/mrc.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-14" name="toctree-checkbox-14" role="switch" type="checkbox"/><label for="toctree-checkbox-14"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/mrc/README.html">MRC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/mrc/stored-arrays.html">MRC: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/mrc-dataset.html">MRC as a dataset</a><input aria-label="Toggle navigation of MRC as a dataset" class="toctree-checkbox" id="toctree-checkbox-15" name="toctree-checkbox-15" role="switch" type="checkbox"/><label for="toctree-checkbox-15"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul class="simple">
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/n5.html">N5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/n5.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/n5.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-16" name="toctree-checkbox-16" role="switch" type="checkbox"/><label for="toctree-checkbox-16"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/n5/README.html">N5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/n5/stored-arrays.html">N5: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/nd2.html">ND2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/nd2.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/nd2.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-17" name="toctree-checkbox-17" role="switch" type="checkbox"/><label for="toctree-checkbox-17"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/nd2/README.html">Nikon ND2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/nd2/stored-arrays.html">ND2: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/ndpi.html">NDPI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/ndpi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/ndpi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-18" name="toctree-checkbox-18" role="switch" type="checkbox"/><label for="toctree-checkbox-18"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/ndpi/README.html">Hamamatsu NDPI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/ndpi/stored-arrays.html">NDPI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/netcdf3.html">netCDF3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/netcdf3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/netcdf3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-19" name="toctree-checkbox-19" role="switch" type="checkbox"/><label for="toctree-checkbox-19"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/netcdf3/README.html">netCDF3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/netcdf3/stored-arrays.html">netCDF3: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/nifti.html">NIfTI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/nifti.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/nifti.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-20" name="toctree-checkbox-20" role="switch" type="checkbox"/><label for="toctree-checkbox-20"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/nifti/README.html">NIfTI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/nifti/stored-arrays.html">NIfTI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/npy.html">NumPy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/npy.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/npy.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-21" name="toctree-checkbox-21" role="switch" type="checkbox"/><label for="toctree-checkbox-21"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/npy/README.html">NumPy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/npy/stored-arrays.html">NumPy: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/nrrd.html">NRRD</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/nrrd.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/nrrd.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-22" name="toctree-checkbox-22" role="switch" type="checkbox"/><label for="toctree-checkbox-22"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/nrrd/README.html">NRRD</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/nrrd/stored-arrays.html">NRRD: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/ome-zarr.html">OME-Zarr</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/ome-zarr.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/ome-zarr.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-23" name="toctree-checkbox-23" role="switch" type="checkbox"/><label for="toctree-checkbox-23"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/ome-zarr/README.html">OME-Zarr 0.4 to 0.5, in place</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/ome-zarr/stored-arrays.html">OME-Zarr: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/precomputed.html">Neuroglancer precomputed</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/precomputed.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/precomputed.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-24" name="toctree-checkbox-24" role="switch" type="checkbox"/><label for="toctree-checkbox-24"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/precomputed/README.html">Neuroglancer precomputed</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/precomputed/stored-arrays.html">Neuroglancer precomputed: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/qptiff.html">QPTIFF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/qptiff.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/qptiff.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-25" name="toctree-checkbox-25" role="switch" type="checkbox"/><label for="toctree-checkbox-25"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/qptiff/README.html">Akoya QPTIFF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/qptiff/stored-arrays.html">QPTIFF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/safe.html">SAFE</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/safe.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/safe.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-26" name="toctree-checkbox-26" role="switch" type="checkbox"/><label for="toctree-checkbox-26"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/safe/README.html">Sentinel-2 SAFE</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/safe/stored-arrays.html">SAFE: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/safetensors.html">safetensors</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/safetensors.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/safetensors.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-27" name="toctree-checkbox-27" role="switch" type="checkbox"/><label for="toctree-checkbox-27"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/safetensors/README.html">safetensors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/safetensors/stored-arrays.html">safetensors: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/tiff.html">TIFF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/tiff.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/tiff.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-28" name="toctree-checkbox-28" role="switch" type="checkbox"/><label for="toctree-checkbox-28"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/tiff/README.html">TIFF, OME-TIFF and Aperio SVS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/tiff/stored-arrays.html">TIFF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/vsi.html">VSI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/vsi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/vsi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-29" name="toctree-checkbox-29" role="switch" type="checkbox"/><label for="toctree-checkbox-29"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/vsi/README.html">VSI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/vsi/stored-arrays.html">VSI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/zarr2.html">Zarr v2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/zarr2.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/zarr2.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-30" name="toctree-checkbox-30" role="switch" type="checkbox"/><label for="toctree-checkbox-30"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/zarr2/README.html">Zarr v2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/zarr2/stored-arrays.html">Zarr v2: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/zarr3.html">Zarr v3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarrify/zarr3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarrify/zarr3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-31" name="toctree-checkbox-31" role="switch" type="checkbox"/><label for="toctree-checkbox-31"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../docs/zarrify/zarr3/README.html">Zarr v3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarrify/zarr3/stored-arrays.html">Zarr v3: stored arrays</a></li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/d-v-b/refkv/blob/main/spec/layout.md?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/d-v-b/refkv/edit/main/spec/layout.md" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="layouts-written-by-plugins">
+<h1>Layouts written by plugins<a class="headerlink" href="#layouts-written-by-plugins" title="Link to this heading">¶</a></h1>
+<p>A <strong>plugin layout</strong> is the whole output of a zarrify call, written by a program other than
+refkv’s profiles: a Python package’s plugin, named by the call
+(<a class="reference internal" href="zarrify.html#named-inputs-and-layouts"><span class="std std-ref">spec/zarrify.md §1.7</span></a>), builds it from the input as a
+built-in profile’s parser read it, its IR (<a class="reference internal" href="conventions.html#the-ir-mirror"><span class="std std-ref">conventions §8</span></a>). A
+plugin layout is a projection of the IR, as the profile’s own output is: neither is built from
+the other, and a plugin is given no output of refkv’s. The plugin has total control over the
+output’s hierarchy: refkv writes exactly the entries the plugin returns, once it has checked that
+every reference reads bytes of a source refkv opened, within it, and that the archive can hold
+the output. This document is not a convention: nothing it specifies is declared in an output, and
+an output a plugin wrote declares whatever the plugin wrote.</p>
+<p>Added 2026-11-06. The design and its reviews are in d-v-b/refkv#278 (design/proposals/profile-plugins.md).
+Changed 2026-11-20: a plugin is given the parsed inputs, not the built-in output (the <strong>base</strong> of
+this document’s first version), which it asks for where it wants it; and what refkv checks of a
+plugin’s output is the seal of <a class="reference internal" href="#sealing-the-output">§4</a>, for any number of inputs.</p>
+<p>The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be interpreted as described in
+RFC 2119.</p>
+<section id="plugins">
+<span id="1-plugins"></span><h2>1. Plugins<a class="headerlink" href="#plugins" title="Link to this heading">¶</a></h2>
+<p>A plugin has a <strong>name</strong>, <code class="docutils literal notranslate"><span class="pre">&lt;distribution&gt;.&lt;layout&gt;</span></code>: segments of <code class="docutils literal notranslate"><span class="pre">[a-z0-9-]+</span></code> joined by <code class="docutils literal notranslate"><span class="pre">.</span></code>. A
+plugin found by its name (a Python entry point of the group <code class="docutils literal notranslate"><span class="pre">refkv.layouts</span></code>, its key the name) is
+provided by the distribution whose normalized name (<a class="reference external" href="https://peps.python.org/pep-0503/">PEP
+503</a>) is the first segment; names whose first segment is
+<code class="docutils literal notranslate"><span class="pre">refkv</span></code> are refkv’s, for its examples. A plugin given as an object is checked against the pattern
+alone. A name is for choosing a plugin and is not written in the output.</p>
+<p>A plugin has <strong>formats</strong>: <code class="docutils literal notranslate"><span class="pre">&quot;*&quot;</span></code>, every file and store profile at every version of its
+convention, or a map from profile names, file or store profiles (exactly: <code class="docutils literal notranslate"><span class="pre">ndpi</span></code> is not <code class="docutils literal notranslate"><span class="pre">tiff</span></code>,
+nor <code class="docutils literal notranslate"><span class="pre">ome-zarr</span></code> <code class="docutils literal notranslate"><span class="pre">zarr2</span></code>), to the versions of that profile’s convention it reads. Names a refkv’s
+registry has no file or store profile of are ignored, and at least one of the names must be one
+it has. A store input’s IR is a store IR
+(<a class="reference internal" href="conventions.html#stores"><span class="std std-ref">conventions §8.9</span></a>); the DICOM store form
+(<a class="reference internal" href="zarrify/dicom.html#the-store-form"><span class="std std-ref">zarrify/dicom.md §9</span></a>) keeps no IR, and takes no plugin. A call whose input is of a profile or version the plugin
+does not read is a rejection of the layout request (<a class="reference internal" href="#errors">§6</a>), made once the input is
+parsed and before anything is built of it.</p>
+<p>A plugin has <strong>options</strong>: the call gives a JSON object (<code class="docutils literal notranslate"><span class="pre">{}</span></code> when it gives none); the plugin puts
+it in canonical form, a JSON object as it is (no <code class="docutils literal notranslate"><span class="pre">NaN</span></code>, no lone surrogate, nothing but objects,
+arrays, strings, numbers, booleans and null), or refuses it, before the input is opened. Each <code class="docutils literal notranslate"><span class="pre">write</span></code>
+is given a copy of the canonical options of its own.</p>
+<p>A plugin’s <strong>write</strong> returns the output: its entries, keys from the output’s root (<a class="reference internal" href="#the-output">§3</a>).</p>
+</section>
+<section id="the-inputs">
+<span id="2-the-inputs"></span><h2>2. The inputs<a class="headerlink" href="#the-inputs" title="Link to this heading">¶</a></h2>
+<p>A plugin’s <code class="docutils literal notranslate"><span class="pre">write</span></code> is given the <strong>inputs</strong> of the call, each as its profile’s parser read it, and
+the plugin’s options. A zarrify call has one input; the same rules hold for an output built of
+several. An input gives, read only:</p>
+<ul class="simple">
+<li><p>its profile and the version of that profile’s convention;</p></li>
+<li><p>its sources, in the IR’s order, each url source with its size and pins as refkv found them
+(<a class="reference internal" href="zarrify.html#input"><span class="std std-ref">zarrify §1.2</span></a>): one for a file, one for each object of a store or of a
+file read with those beside it (<a class="reference internal" href="conventions.html#stores"><span class="std std-ref">conventions §8.9</span></a>);</p></li>
+<li><p>the IR, its elements’ paths, kinds, types, extents, values, forms
+(<a class="reference internal" href="conventions.html#forms-and-recipes"><span class="std std-ref">conventions §8.5</span></a>), targets and data members, and its
+stored arrays and chunk map (<a class="reference internal" href="stored-array.html"><span class="std std-doc">stored-array.md</span></a>);</p></li>
+<li><p>the <strong>reference</strong> of an IR element (or of a data member of one): a range of the source that
+holds its bytes, or, when its form has a recipe, the parts of the recipe. An alias is read by
+its own extent and form, and its data members are its target’s. An element in a derived space,
+a derived element, and one whose form changes how it decodes from its siblings’ (an HDF5 chunk
+whose filter mask skips a filter) have none;</p></li>
+<li><p>an element’s <strong>span</strong>, the range of a source its own bytes take, no recipe applied; and for a
+byte of a source, the innermost data element that holds it, or the struct whose data member
+holds it;</p></li>
+<li><p>the bytes of a source, read through the input as refkv read them, within a bound the caller
+sets.</p></li>
+</ul>
+<p>A reference is a <strong>value</strong>: a sequence of parts, each naming what it reads: a range of one of an
+input’s sources; bytes many references share, which become a data source; a range of a data
+source of the plugin’s own; zero bytes, of the zero data source
+(<a class="reference internal" href="zarrify.html#input"><span class="std std-ref">zarrify §1.2</span></a>); or bytes in the reference itself. A value names its
+sources by the input they are of, not by a number: the source table is numbered when the output
+is sealed (<a class="reference internal" href="#sealing-the-output">§4</a>).</p>
+<p><strong>The built-in output.</strong> An input’s profile has its own projection of the IR, the output a
+zarrify call without a plugin writes (with every layout the format has, and <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code>). A
+plugin that wants it asks for it, and is given its entries, documents, arrays and attributes
+(a node’s attributes without refkv’s declarations, and its source metadata,
+<a class="reference internal" href="conventions.html#attributes"><span class="std std-ref">conventions §2</span></a>), its references as values of the input, and for
+each chunk of one of its arrays the IR elements its parts run across. It is made when first
+asked for, with the reads that output alone makes, and not otherwise: a plugin that does not ask
+pays nothing for it, and does not depend on what it presents. It depends on the input, the refkv
+release, and whether the call asks for checksums, which changes how a profile joins a shard’s
+ranges (<a class="reference internal" href="zarrify.html#virtual-shards"><span class="std std-ref">zarrify §2.1</span></a>).</p>
+<p><strong>Structure only</strong> (<a class="reference internal" href="zarrify.html#input"><span class="std std-ref">zarrify §1.2</span></a>) binds refkv’s conventions: an output
+that keeps refkv’s declarations claims to follow them, Structure only with them. A plugin’s
+output that keeps none claims nothing of them, whatever it read.</p>
+</section>
+<section id="the-output">
+<span id="3-the-output"></span><h2>3. The output<a class="headerlink" href="#the-output" title="Link to this heading">¶</a></h2>
+<p>The output is a map from keys to values. A value is bytes, or a reference
+(<a class="reference internal" href="#the-inputs">§2</a>), which is written as a <code class="docutils literal notranslate"><span class="pre">Range</span></code>
+(<a class="reference internal" href="refkv.html#range"><span class="std std-ref">spec/refkv.md §4.2</span></a>) or a <code class="docutils literal notranslate"><span class="pre">Concat</span></code> of them (<a class="reference internal" href="refkv.html#concat"><span class="std std-ref">§4.3</span></a>). The
+output has exactly these entries: refkv writes no node, path or attribute the plugin did not
+return. A plugin may write any hierarchy, Zarr v3 or v2 or neither.</p>
+<p>A plugin may also say, of a bytes entry, whether a vzip reader is given it at open (its
+<strong>placement</strong>) and whether it is kept uncompressed (<code class="docutils literal notranslate"><span class="pre">stored</span></code>); each such key MUST be a bytes entry
+of the output. These are placement choices of the vzip binding
+(<a class="reference internal" href="bindings/vzip.html#recommended-layout-informative"><span class="std std-ref">vzip §14.2</span></a>); a phkv store places entries
+by its own size threshold and ignores both. An entry the plugin takes from the built-in output
+as it is comes with that output’s placement, which the plugin keeps by keeping the entry in the
+map it was given in; refkv infers no placement from an entry’s bytes.</p>
+</section>
+<section id="sealing-the-output">
+<span id="4-sealing-the-output"></span><h2>4. Sealing the output<a class="headerlink" href="#sealing-the-output" title="Link to this heading">¶</a></h2>
+<p>A zarrifier <strong>seals</strong> an output built of parsed inputs in these steps; a check that fails is a
+failure of the call (<a class="reference internal" href="#errors">§6</a>), and no output is written. The built-in outputs are sealed
+by the same steps.</p>
+<ol class="arabic simple">
+<li><p><strong>Keys.</strong> Every key MUST be a string, non-empty, valid UTF-8, of at most 65535 bytes, and MUST
+NOT begin with <code class="docutils literal notranslate"><span class="pre">__vz__/</span></code> (<a class="reference internal" href="refkv.html#keys"><span class="std std-ref">spec/refkv.md §2.1</span></a>,
+<a class="reference internal" href="bindings/vzip.html#file-names"><span class="std std-ref">vzip §10.3</span></a>, <a class="reference internal" href="bindings/vzip.html#hidden-entries"><span class="std std-ref">§11.4</span></a>).
+Keys are otherwise the plugin’s: <code class="docutils literal notranslate"><span class="pre">a/../b</span></code> is an ordinary key.</p></li>
+<li><p><strong>The source table</strong> is numbered by first use, over the references in the order of their
+keys’ UTF-8 bytes and, within a reference, of its parts: the url sources first, then the data
+sources (each distinct byte string references share or the plugin gave, and one zero data
+source as long as the longest run of zero bytes any value holds, at most 256 MiB). One input
+that is a plain file (not a store, with one source) is source 0 whether or not a value uses
+it, as <a class="reference internal" href="zarrify.html#input"><span class="std std-ref">zarrify §1.2</span></a> says; otherwise a source no value uses is not in
+the table. Equal url sources (URL and pins) are one; one URL with different pins is refused,
+and so is a part that names an input the output was not sealed with. A <code class="docutils literal notranslate"><span class="pre">Concat</span></code> of one part
+is written as that part’s <code class="docutils literal notranslate"><span class="pre">Range</span></code> (<a class="reference internal" href="refkv.html#reference-payloads"><span class="std std-ref">spec/refkv.md §4.4</span></a>).</p></li>
+<li><p><strong>References.</strong> Every range MUST have natural numbers for offset and length, <code class="docutils literal notranslate"><span class="pre">offset</span> <span class="pre">+</span> <span class="pre">length</span></code> at most 2^64 − 1 and within its source: within a url source’s size as the input’s
+parser found it, or within a data source’s bytes. A value’s ranges total at most 2^64 − 1
+bytes. Every reference’s payload, as written, MUST be at most 65519 bytes
+(<a class="reference internal" href="zarrify.html#input"><span class="std std-ref">zarrify §1.2</span></a>, <a class="reference internal" href="bindings/vzip.html#reference-entries"><span class="std std-ref">vzip §11.3</span></a>);
+when the inputs were read for checksums, with each url range’s <code class="docutils literal notranslate"><span class="pre">crc32c</span></code> field at its largest
+(6 bytes), so that whether an output is sealed never depends on its bytes. How many reads or
+bytes a reference takes is its reader’s limit
+(<a class="reference internal" href="refkv.html#reader-policy"><span class="std std-ref">spec/refkv.md §6.7</span></a> rule 5), not the output’s.</p></li>
+<li><p><strong>Placement.</strong> A bytes entry is read at open as its placement says; one with none, when its
+key’s last segment is <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code>, <code class="docutils literal notranslate"><span class="pre">.zgroup</span></code>, <code class="docutils literal notranslate"><span class="pre">.zarray</span></code>, <code class="docutils literal notranslate"><span class="pre">.zattrs</span></code> or <code class="docutils literal notranslate"><span class="pre">.zmetadata</span></code>. A bytes
+entry is compressed unless it is read at open, is <code class="docutils literal notranslate"><span class="pre">stored</span></code>, or its DEFLATE stream could reach
+0xFFFFFFFF bytes (zlib’s worst-case bound, <a class="reference internal" href="bindings/vzip.html#requirements"><span class="std std-ref">vzip §14.1</span></a>).
+The bytes entries read at open total at most 256 MiB. The references come first, by key, then
+the bytes entries, by key.</p></li>
+<li><p><strong>The archive.</strong> Its structure MUST be one the writer accepts, and its source table and page
+index each at most 256 MiB, the default <code class="docutils literal notranslate"><span class="pre">max_format_entry</span></code> of
+<a class="reference internal" href="refkv.html#reader-policy"><span class="std std-ref">spec/refkv.md §6.7</span></a> (<a class="reference internal" href="bindings/vzip.html#opening"><span class="std std-ref">vzip §13.1</span></a>),
+or the store’s reader policy’s, when that is less. The output’s keys, each with 16 bytes for
+its page entry, total at most 256 MiB, as a phkv store’s page index can hold every key and a
+reader reads it at open (<a class="reference internal" href="bindings/phkv.html"><span class="std std-doc">phkv</span></a>).</p></li>
+<li><p><strong>Checksums.</strong> When the inputs were read for checksums, every range of a url source is given
+the CRC-32C of its bytes, read through the inputs, which must still be open; inputs read with
+and without checksums are refused together. Without checksums, sealing reads nothing.</p></li>
+</ol>
+<p>These checks guard against a plugin’s mistakes, not against a hostile plugin, which runs in the
+caller’s process and can do anything the caller can.</p>
+</section>
+<section id="helpers">
+<span id="5-helpers"></span><h2>5. Helpers<a class="headerlink" href="#helpers" title="Link to this heading">¶</a></h2>
+<p><strong>Copying an array.</strong> An array of the built-in output (<a class="reference internal" href="#the-inputs">§2</a>) is copied by these
+rules, so that two producers copy one alike. The copy’s document is that array’s, its
+<code class="docutils literal notranslate"><span class="pre">attributes</span></code> those the plugin gives (<code class="docutils literal notranslate"><span class="pre">{}</span></code> by default), its <code class="docutils literal notranslate"><span class="pre">dimension_names</span></code> those the plugin
+gives (each a string or null), in the copy’s axis order and not permuted, or else the array’s;
+its chunks are the array’s entries, as they are.</p>
+<p>A copy may be <strong>transposed</strong> by a permutation <code class="docutils literal notranslate"><span class="pre">order</span></code> of the array’s <code class="docutils literal notranslate"><span class="pre">n</span></code> axes, as
+<code class="docutils literal notranslate"><span class="pre">numpy.transpose</span></code> takes one: the copy’s axis <code class="docutils literal notranslate"><span class="pre">i</span></code> is the array’s axis <code class="docutils literal notranslate"><span class="pre">order[i]</span></code>. Then its shape,
+its chunk grid’s <code class="docutils literal notranslate"><span class="pre">chunk_shape</span></code> (a <code class="docutils literal notranslate"><span class="pre">rectilinear</span></code> grid’s <code class="docutils literal notranslate"><span class="pre">chunk_shapes</span></code>), its <code class="docutils literal notranslate"><span class="pre">dimension_names</span></code>
+when the plugin gives none, and each chunk key’s indexes (in the array’s chunk key encoding,
+<code class="docutils literal notranslate"><span class="pre">default</span></code> or <code class="docutils literal notranslate"><span class="pre">v2</span></code>, with its separator) are permuted by <code class="docutils literal notranslate"><span class="pre">order</span></code>. With <code class="docutils literal notranslate"><span class="pre">q</span></code> the inverse of <code class="docutils literal notranslate"><span class="pre">order</span></code>:</p>
+<ul class="simple">
+<li><p>an array whose first codec is not <code class="docutils literal notranslate"><span class="pre">sharding_indexed</span></code> gets a <code class="docutils literal notranslate"><span class="pre">transpose</span></code> codec of order <code class="docutils literal notranslate"><span class="pre">q</span></code>
+first, composed with a <code class="docutils literal notranslate"><span class="pre">transpose</span></code> of order <code class="docutils literal notranslate"><span class="pre">t</span></code> it already starts with into one of order
+<code class="docutils literal notranslate"><span class="pre">[q[t[i]]</span> <span class="pre">for</span> <span class="pre">each</span> <span class="pre">i]</span></code>, and left out when that is the identity;</p></li>
+<li><p>a sharded array keeps <code class="docutils literal notranslate"><span class="pre">sharding_indexed</span></code> first; its inner <code class="docutils literal notranslate"><span class="pre">chunk_shape</span></code> is permuted, its inner
+codecs get the transpose of order <code class="docutils literal notranslate"><span class="pre">q</span></code> first and its index codecs one of order <code class="docutils literal notranslate"><span class="pre">q</span> <span class="pre">+</span> <span class="pre">[n]</span></code>, each
+composed with a transpose they start with in the same way.</p></li>
+</ul>
+<p><strong>An array by hand</strong> is a Zarr v3 array document with a <code class="docutils literal notranslate"><span class="pre">regular</span></code> chunk grid, or a <code class="docutils literal notranslate"><span class="pre">rectilinear</span></code>
+one (<code class="docutils literal notranslate"><span class="pre">{&quot;kind&quot;:</span> <span class="pre">&quot;inline&quot;,</span> <span class="pre">&quot;chunk_shapes&quot;:</span> <span class="pre">...}</span></code>) when an axis’s chunk lengths are given as a list
+(each a length or a <code class="docutils literal notranslate"><span class="pre">[length,</span> <span class="pre">count]</span></code> run), the <code class="docutils literal notranslate"><span class="pre">default</span></code> chunk key encoding with the separator
+<code class="docutils literal notranslate"><span class="pre">/</span></code>, and the fill value 0 of its data type unless given; its chunks are at the keys that encoding
+gives their coordinates. <strong>A group by hand</strong> is a Zarr v3 group
+document.</p>
+<p><strong>Coding routines.</strong> These give the codecs, after any <code class="docutils literal notranslate"><span class="pre">transpose</span></code>, and the data types the
+built-in profiles write, and add no rule: each is the table or rule of the section it names, with
+the checks the profile applies to those parameters (its source model’s rule roles), and refuses
+parameters the section rejects.</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>routine</p></th>
+<th class="head"><p>section</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>a TIFF IFD’s data type, from SampleFormat and BitsPerSample</p></td>
+<td><p><a class="reference internal" href="zarrify/tiff.html#data-types-and-codecs"><span class="std std-ref">tiff.md §4.3</span></a> (the <code class="docutils literal notranslate"><span class="pre">format</span></code> and <code class="docutils literal notranslate"><span class="pre">image</span></code> roles)</p></td>
+</tr>
+<tr class="row-odd"><td><p>a TIFF IFD’s codecs</p></td>
+<td><p><a class="reference internal" href="zarrify/tiff.html#data-types-and-codecs"><span class="std std-ref">tiff.md §4.3</span></a> (<code class="docutils literal notranslate"><span class="pre">format</span></code>, <code class="docutils literal notranslate"><span class="pre">image</span></code>, <code class="docutils literal notranslate"><span class="pre">samples</span></code>, <code class="docutils literal notranslate"><span class="pre">predictor</span></code>); EER’s for a chunk shape the plugin gives, as its codec decodes one</p></td>
+</tr>
+<tr class="row-even"><td><p>a TIFF IFD’s byte order, its own file’s header’s</p></td>
+<td><p><a class="reference internal" href="zarrify/tiff.html#elements"><span class="std std-ref">tiff.md §5.1</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>a CZI subblock form’s codecs</p></td>
+<td><p><a class="reference internal" href="zarrify/czi.html#pixel-types-and-codecs"><span class="std std-ref">czi.md §3.1</span></a></p></td>
+</tr>
+<tr class="row-even"><td><p>a VSI tile file’s codec</p></td>
+<td><p><a class="reference internal" href="zarrify/vsi.html#the-pyramid"><span class="std std-ref">vsi.md §4.1</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>a DICOM frame’s codec, by its transfer syntax</p></td>
+<td><p><a class="reference internal" href="zarrify/dicom.html#transfer-syntax"><span class="std std-ref">dicom.md §2.1</span></a></p></td>
+</tr>
+<tr class="row-even"><td><p>gzip, after <code class="docutils literal notranslate"><span class="pre">refkv.skip</span></code> of an inflated stream’s first bytes (the codecs after <code class="docutils literal notranslate"><span class="pre">bytes</span></code>)</p></td>
+<td><p><a class="reference internal" href="zarrify/npy.html#the-refkv-skip-codec"><span class="std std-ref">npy.md §4.4</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>an HDF5 node’s attributes, the encodings JSON needed undone by their described datatypes</p></td>
+<td><p><a class="reference internal" href="zarrify/hdf5.html#attributes"><span class="std std-ref">hdf5.md §6</span></a>, <a class="reference internal" href="zarrify/hdf5.html#source-metadata"><span class="std std-ref">§7</span></a></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="errors">
+<span id="6-errors"></span><h2>6. Errors<a class="headerlink" href="#errors" title="Link to this heading">¶</a></h2>
+<p>A layout request that is wrong whatever the input (a name no plugin has, a plugin that fails to
+load or whose attributes break <a class="reference internal" href="#plugins">§1</a>, options the plugin refuses, a plugin layout beside built-in
+layouts) is a <strong>usage error</strong>. An input of a profile or version the plugin does not read, an
+input that keeps no IR (the DICOM store form), or a refusal the
+plugin’s <code class="docutils literal notranslate"><span class="pre">write</span></code> raises for its input, is a <strong>rejection</strong> of the layout request: the input is one
+the profile’s parser accepts, but the call writes no output. A refusal of the input by the
+built-in projection, which a plugin meets only if it asks for the built-in output, is such a
+rejection too. Anything else a plugin raises, and an output
+that breaks <a class="reference internal" href="#the-output">§3</a> or <a class="reference internal" href="#sealing-the-output">§4</a>, is a <strong>failure</strong>. None writes an output.
+A read of the input that fails is none of these, whether the parser, the built-in output a
+plugin asked for, a plugin’s own reading of a source’s bytes through the input, or the seal’s
+checksums made it: the call fails as it fails without a plugin.</p>
+</section>
+<section id="determinism">
+<span id="7-determinism"></span><h2>7. Determinism<a class="headerlink" href="#determinism" title="Link to this heading">¶</a></h2>
+<p>A plugin’s output MUST be a function of its inputs (their IRs, every byte it read through
+them, and their built-in outputs where it asked for them), its canonical options and the
+plugin’s code (its release, and the versions of what it imports), and not of set or dict
+iteration order that hashing changes; the plugin fixes the exact bytes of every bytes entry it writes. Then two runs
+with the same refkv release, input, source URL, checksums choice, plugin code and options write
+the same output, compared entry for entry (<a class="reference internal" href="zarrify.html#output-and-equivalence"><span class="std std-ref">zarrify §1.1</span></a>).
+A zarrifier cannot check this; the plugin promises it.</p>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="provenance.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">refkv’s provenance convention</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="conventions.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">refkv’s Zarr conventions</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; the refkv authors
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Layouts written by plugins</a><ul>
+<li><a class="reference internal" href="#plugins">1. Plugins</a></li>
+<li><a class="reference internal" href="#the-inputs">2. The inputs</a></li>
+<li><a class="reference internal" href="#the-output">3. The output</a></li>
+<li><a class="reference internal" href="#sealing-the-output">4. Sealing the output</a></li>
+<li><a class="reference internal" href="#helpers">5. Helpers</a></li>
+<li><a class="reference internal" href="#errors">6. Errors</a></li>
+<li><a class="reference internal" href="#determinism">7. Determinism</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/scripts/furo.js?v=46bd48cc"></script>
+    </body>
+</html>
