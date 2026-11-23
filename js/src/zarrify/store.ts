@@ -11,10 +11,11 @@
 
 import { checkAddress, checkPolicy, type Policy, RefkvError } from "../archive.ts";
 import { checkedFetch } from "#net";
-import { checkHttpUrl, isUriReference, resolveReference } from "../uri.ts";
+import { checkHttpUrl } from "../uri.ts";
 import { CONVENTION_KEY, declare, type Profile, stringifyJson } from "./common.ts";
 import type { StoreProfile } from "./ir/store.ts";
 import type { ArchiveDesc, EntryDesc } from "../writer.ts";
+import { ir, latin1, rule, RuleError } from "./ir/wasm.ts";
 
 /**
  * The store input is rejected for a reason no single store profile owns (§1.4
@@ -51,39 +52,41 @@ const reject = (message: string): never => {
 export const MAX_SAFE = Number.MAX_SAFE_INTEGER;
 export const MAX_DOCUMENT = 1 << 24;
 const MAX_DEPTH = 256;
+const utf8 = new TextEncoder();
 /**
  * The browser implementation's limit on listed objects (Appendix A
  * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#appendix-a-conformance>).
  */
 export const MAX_OBJECTS = 100000;
 
-const SPLIT = /^(?:([^:/?#]+):)?(?:\/\/([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#(.*))?$/;
-const UNRESERVED = /[A-Za-z0-9\-._~]/;
-const PATH_SAFE = /[A-Za-z0-9\-._~!$&'()*+,;=:@/]/;
-const utf8 = new TextEncoder();
-
-function pct(s: string, safe: RegExp): string {
-  let out = "";
-  for (const b of utf8.encode(s)) {
-    const c = String.fromCharCode(b);
-    out += b < 128 && safe.test(c) ? c : `%${b.toString(16).toUpperCase().padStart(2, "0")}`;
+/** A host rule of the core (rust/refkv-ir/src/host), a rejection as a StoreError. */
+function hostRule<T>(name: string, params: Record<string, unknown>): T {
+  try {
+    return rule<T>(name, params);
+  } catch (e) {
+    if (e instanceof RuleError && e.kind === "rejected") throw new StoreError(e.message);
+    throw e;
   }
-  return out;
 }
 
 /**
  * The URL of the object with relative key `key` (§1.4
- * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>): the core's rule.
  */
 export function objectUrl(storeUrl: string, key: string): string {
-  return storeUrl + pct(key, PATH_SAFE);
+  return hostRule("object_url", { store_url: storeUrl, key });
+}
+
+/** `objectUrl` of each key, in one call of the core. */
+export function objectUrls(storeUrl: string, keys: string[]): string[] {
+  return hostRule("object_urls", { store_url: storeUrl, keys });
 }
 
 /**
  * `enc` of §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>.
  */
 export function queryEncode(s: string): string {
-  return pct(s, UNRESERVED);
+  return hostRule("query_encode", { s });
 }
 
 /**
@@ -91,30 +94,7 @@ export function queryEncode(s: string): string {
  * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), or a rejection.
  */
 export function checkStoreUrl(url: string): [string, string, string] {
-  const m = url.match(SPLIT);
-  if (!isUriReference(url) || m === null) reject(`${JSON.stringify(url)} is not a valid URI`);
-  const [, scheme, authority, path, query, fragment] = m!;
-  if (scheme === undefined || !["http", "https"].includes(scheme.toLowerCase())) {
-    reject(`store URL ${url} is not http or https`);
-  }
-  if (authority === undefined || authority.includes("@")) reject(`store URL ${url} has no authority, or has userinfo`);
-  if (query !== undefined || fragment !== undefined) reject(`store URL ${url} has a query or a fragment`);
-  if (!path.endsWith("/")) reject(`store URL ${url} does not end in /`);
-  return [scheme, authority, path];
-}
-
-function percentDecode(s: string): Uint8Array {
-  const out: number[] = [];
-  for (let i = 0; i < s.length; ) {
-    if (s[i] === "%") {
-      out.push(parseInt(s.slice(i + 1, i + 3), 16));
-      i += 3;
-    } else {
-      out.push(s.charCodeAt(i));
-      i += 1;
-    }
-  }
-  return Uint8Array.from(out);
+  return hostRule("check_store_url", { url });
 }
 
 /**
@@ -122,34 +102,7 @@ function percentDecode(s: string): Uint8Array {
  * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>).
  */
 export function listingEndpoint(url: string): [string, string] {
-  const [scheme, authority, path] = checkStoreUrl(url);
-  let host = authority;
-  if (host.startsWith("[")) host = host.slice(0, host.indexOf("]") + 1);
-  else if (host.includes(":")) host = host.slice(0, host.lastIndexOf(":"));
-  host = host.toLowerCase();
-  const labels = host.split(".");
-  const virtual = host.endsWith(".amazonaws.com") && labels.slice(1).some((l) => l === "s3" || l.startsWith("s3-"));
-  let endpoint: string;
-  let prefixPath: string;
-  if (virtual) {
-    endpoint = `${scheme}://${authority}/`;
-    prefixPath = path.slice(1);
-  } else {
-    if (path === "/") reject(`path-style store URL ${url} names no bucket`);
-    const rest = path.slice(1);
-    const i = rest.indexOf("/");
-    const bucket = rest.slice(0, i);
-    if (bucket === "") reject(`path-style store URL ${url} has an empty bucket`);
-    endpoint = `${scheme}://${authority}/${bucket}/`;
-    prefixPath = rest.slice(i + 1);
-  }
-  let prefix = "";
-  try {
-    prefix = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(percentDecode(prefixPath));
-  } catch {
-    reject(`the key prefix of ${url} is not UTF-8`);
-  }
-  return [endpoint, prefix];
+  return hostRule("listing_endpoint", { url });
 }
 
 // ---------------------------------------------------------------- Hub stores (§1.5
@@ -158,8 +111,6 @@ export function listingEndpoint(url: string): [string, string] {
 /** The Hugging Face Hub's endpoint, unless the application gives another. */
 export const HUB = "https://huggingface.co";
 
-const HUB_NAME = /^[A-Za-z0-9._-]+$/;
-
 /**
  * The Hub's endpoint `E` (§1.5
  * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): `endpoint`, else
@@ -167,15 +118,12 @@ const HUB_NAME = /^[A-Za-z0-9._-]+$/;
  * without userinfo, a query or a fragment.
  */
 export function hubEndpoint(endpoint?: string): string {
-  const e = (endpoint || HUB).replace(/\/+$/, "");
-  const m = e.match(SPLIT);
-  if (m === null || !isUriReference(e)) throw new TypeError(`the Hub endpoint ${JSON.stringify(e)} is not a valid URI`);
-  const [, scheme, authority, , query, fragment] = m;
-  if (scheme === undefined || !["http", "https"].includes(scheme.toLowerCase()) || !authority ||
-    authority.includes("@") || query !== undefined || fragment !== undefined) {
-    throw new TypeError(`the Hub endpoint ${JSON.stringify(e)} is not an http(s) URL without userinfo, query or fragment`);
+  try {
+    return rule("hub_endpoint", { endpoint: endpoint ?? null });
+  } catch (e) {
+    if (e instanceof RuleError) throw new TypeError(e.message);
+    throw e;
   }
-  return e;
 }
 
 /**
@@ -193,18 +141,17 @@ export interface HubRepo {
   directory: string;
 }
 
-/** `A`: the repository's API URL. */
-function hubApi(repo: HubRepo): string {
-  return `${repo.endpoint}/api/${repo.kind}/${repo.owner}/${repo.name}`;
+function hubUrls(repo: HubRepo, commit: string | null): { revision_url: string; tree_url: string; base: string } {
+  const { endpoint, kind, owner, name, revision, directory } = repo;
+  return hostRule("hub_urls", { repo: { endpoint, kind, owner, name, revision, directory }, commit });
 }
 
 export function hubRevisionUrl(repo: HubRepo): string {
-  return `${hubApi(repo)}/revision/${queryEncode(repo.revision)}?expand%5B%5D=sha&expand%5B%5D=gated`;
+  return hubUrls(repo, null).revision_url;
 }
 
 export function hubTreeUrl(repo: HubRepo, commit: string): string {
-  const d = repo.directory ? "/" + pct(repo.directory.slice(0, -1), PATH_SAFE) : "";
-  return `${hubApi(repo)}/tree/${commit}${d}?recursive=true`;
+  return hubUrls(repo, commit).tree_url;
 }
 
 /**
@@ -212,22 +159,8 @@ export function hubTreeUrl(repo: HubRepo, commit: string): string {
  * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>) at `commit`.
  */
 export function hubBase(repo: HubRepo, commit: string): string {
-  const kind = repo.kind === "datasets" ? "/datasets/" : "/";
-  return `${repo.endpoint}${kind}${repo.owner}/${repo.name}/resolve/${commit}/${objectUrl("", repo.directory)}`;
+  return hubUrls(repo, commit).base;
 }
-
-/** The rest of `url`'s path after `endpoint`'s and a `/`, when `url` has `endpoint`'s scheme
- * and authority (in any case) and its path starts so; else undefined. */
-function under(url: string, endpoint: string): string | undefined {
-  const m = url.match(SPLIT);
-  const e = endpoint.match(SPLIT)!;
-  if (m === null || m[1] === undefined || m[2] === undefined) return undefined;
-  if (m[1].toLowerCase() !== e[1].toLowerCase() || m[2].toLowerCase() !== e[2].toLowerCase()) return undefined;
-  const base = e[3] + "/";
-  return m[3].startsWith(base) ? m[3].slice(base.length) : undefined;
-}
-
-const utf8Fatal = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 /**
  * The Hub store that the store URL `url` names under `endpoint` (§1.5
@@ -235,33 +168,10 @@ const utf8Fatal = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
  * `url` is not under it, or a rejection if it is but does not name one.
  */
 export function hubRepo(url: string, endpoint: string): HubRepo | undefined {
-  const rest = under(url, endpoint);
-  if (rest === undefined) return undefined;
-  checkStoreUrl(url);
-  let segments = rest.split("/");
-  let kind: HubRepo["kind"] = "models";
-  if (segments[0] === "datasets") {
-    kind = "datasets";
-    segments = segments.slice(1);
-  }
-  // owner, name, "tree", rev, dir segments..., "" (the trailing /)
-  if (segments.length < 5 || segments[2] !== "tree" || segments[segments.length - 1] !== "" ||
-    !segments.slice(0, 2).every((n) => HUB_NAME.test(n) && n !== "." && n !== "..") ||
-    segments.slice(3, -1).some((x) => !x)) {
-    reject(`Hub store URL ${JSON.stringify(url)} is not <owner>/<repo>/tree/<rev>/[<dir>/] (or that after datasets/)`);
-  }
-  let revision = "";
-  let directory = "";
-  try {
-    revision = utf8Fatal.decode(percentDecode(segments[3]));
-    directory = segments.slice(4, -1).map((x) => utf8Fatal.decode(percentDecode(x)) + "/").join("");
-  } catch {
-    reject(`the revision or directory of ${JSON.stringify(url)} is not UTF-8`);
-  }
-  if (directory.split("/").slice(0, -1).some((x) => x === "." || x === "..")) {
-    reject(`the directory of ${JSON.stringify(url)} has a segment . or ..`);
-  }
-  return { endpoint, kind, owner: segments[0], name: segments[1], revision, directory };
+  const r = hostRule<(HubRepo & { revision_url?: string }) | null>("hub_repo", { url, endpoint });
+  if (r === null) return undefined;
+  const { kind, owner, name, revision, directory } = r;
+  return { endpoint: r.endpoint, kind, owner, name, revision, directory };
 }
 
 /**
@@ -270,243 +180,19 @@ export function hubRepo(url: string, endpoint: string): HubRepo | undefined {
  * that is rejected without being read.
  */
 export function hubPage(url: string, endpoint: string): boolean {
-  const m = url.match(SPLIT);
-  if (m === null || m[4] !== undefined || m[5] !== undefined || url.endsWith("/")) return false;
-  try {
-    return hubRepo(url + "/", endpoint) !== undefined;
-  } catch (e) {
-    if (e instanceof StoreError) return false;
-    throw e;
-  }
+  return hostRule("hub_page", { url, endpoint });
 }
 
 // ---------------------------------------------------------------- listing bodies (§1.5
 // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
-
-function isChar(c: number): boolean {
-  return c === 0x9 || c === 0xa || c === 0xd || (c >= 0x20 && c <= 0xd7ff) || (c >= 0xe000 && c <= 0xfffd) ||
-    (c >= 0x10000 && c <= 0x10ffff);
-}
-
-const NAME_START = /[A-Za-z_:]/;
-const NAME_CHAR = /[A-Za-z0-9_:.-]/;
-const WS = new Set([" ", "\t", "\r", "\n"]);
-const ENTITIES: Record<string, string> = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'" };
-
-export interface XmlElement {
-  name: string;
-  children: XmlElement[];
-  text: string[];
-  /** The attributes, [name, value] in document order, values with references replaced. */
-  attributes: [string, string][];
-}
-
-/** The XML subset of §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store> (the same algorithm as the Python reference); `what` names the
- * document in rejections, and `fail` makes the error. */
-class Xml {
-  pos = 0;
-  depth = 0; // of the element being read
-  readonly s: string;
-  readonly what: string;
-  readonly error: (m: string) => Error;
-  constructor(s: string, what = "listing", error: (m: string) => Error = (m) => new StoreError(m)) {
-    this.s = s;
-    this.what = what;
-    this.error = error;
-  }
-
-  fail(why: string): never {
-    throw this.error(`${this.what} is not well formed: ${why} at ${this.pos}`);
-  }
-  ws() {
-    while (this.pos < this.s.length && WS.has(this.s[this.pos])) this.pos++;
-  }
-  at(t: string): boolean {
-    return this.s.startsWith(t, this.pos);
-  }
-  chars(t: string) {
-    for (const ch of t) {
-      const c = ch.codePointAt(0)!;
-      if (!isChar(c)) this.fail(`character U+${c.toString(16).toUpperCase().padStart(4, "0")}`);
-    }
-  }
-  comment() {
-    const end = this.s.indexOf("--", this.pos + 4);
-    if (end < 0 || !this.s.startsWith("-->", end)) this.fail("bad comment");
-    this.chars(this.s.slice(this.pos + 4, end));
-    this.pos = end + 3;
-  }
-  misc() {
-    for (;;) {
-      this.ws();
-      if (this.at("<!--")) this.comment();
-      else return;
-    }
-  }
-  name(): string {
-    const start = this.pos;
-    if (start >= this.s.length || !NAME_START.test(this.s[start])) this.fail("expected a name");
-    this.pos++;
-    while (this.pos < this.s.length && NAME_CHAR.test(this.s[this.pos])) this.pos++;
-    return this.s.slice(start, this.pos);
-  }
-  reference(): string {
-    const end = this.s.indexOf(";", this.pos);
-    if (end < 0) this.fail("unterminated reference");
-    const body = this.s.slice(this.pos + 1, end);
-    this.pos = end + 1;
-    if (Object.hasOwn(ENTITIES, body)) return ENTITIES[body];
-    let v: number;
-    if (/^#x[0-9a-fA-F]+$/.test(body)) v = body.length < 12 ? parseInt(body.slice(2), 16) : -1;
-    else if (/^#[0-9]+$/.test(body)) v = body.length < 12 ? parseInt(body.slice(1), 10) : -1;
-    else this.fail(`unknown reference &${body};`);
-    if (!isChar(v!)) this.fail(`reference &${body}; is not a character`);
-    return String.fromCodePoint(v!);
-  }
-  chardata(stop: string): string {
-    const start = this.pos;
-    while (this.pos < this.s.length && this.s[this.pos] !== "<" && this.s[this.pos] !== "&" &&
-      this.s[this.pos] !== stop) this.pos++;
-    const t = this.s.slice(start, this.pos);
-    this.chars(t);
-    return t;
-  }
-  element(): XmlElement {
-    if (!this.at("<")) this.fail("expected an element");
-    if (++this.depth > MAX_DEPTH) this.fail(`elements nest more than ${MAX_DEPTH} deep`);
-    const el = this.elementBody();
-    this.depth--;
-    return el;
-  }
-  elementBody(): XmlElement {
-    this.pos++;
-    const el: XmlElement = { name: this.name(), children: [], text: [], attributes: [] };
-    const s = this.s;
-    for (;;) {
-      if (this.pos < s.length && WS.has(s[this.pos])) {
-        this.ws();
-        if (this.pos < s.length && NAME_START.test(s[this.pos])) {
-          const name = this.name();
-          this.ws();
-          if (!this.at("=")) this.fail("expected =");
-          this.pos++;
-          this.ws();
-          const q = this.pos < s.length ? s[this.pos] : "";
-          if (q !== "'" && q !== '"') this.fail("expected a quoted value");
-          this.pos++;
-          const value: string[] = [];
-          for (;;) {
-            value.push(this.chardata(q));
-            if (this.at("&")) value.push(this.reference());
-            else if (this.at(q)) {
-              this.pos++;
-              break;
-            } else this.fail("bad attribute value");
-          }
-          el.attributes.push([name, value.join("")]);
-          continue;
-        }
-      }
-      break;
-    }
-    if (this.at("/>")) {
-      this.pos += 2;
-      return el;
-    }
-    if (!this.at(">")) this.fail("expected >");
-    this.pos++;
-    for (;;) {
-      if (this.pos >= s.length) this.fail("unterminated element");
-      if (this.at("</")) {
-        this.pos += 2;
-        if (this.name() !== el.name) this.fail("mismatched end tag");
-        this.ws();
-        if (!this.at(">")) this.fail("expected >");
-        this.pos++;
-        return el;
-      }
-      if (this.at("<!--")) this.comment();
-      else if (this.at("<!") || this.at("<?")) this.fail("unsupported markup");
-      else if (this.at("<")) el.children.push(this.element());
-      else if (this.at("&")) el.text.push(this.reference());
-      else {
-        const t = this.chardata("<");
-        if (t.includes("]]>")) this.fail("]]> in character data");
-        el.text.push(t);
-      }
-    }
-  }
-  document(): XmlElement {
-    this.ws();
-    if (this.at("<?xml") && this.pos + 5 < this.s.length && WS.has(this.s[this.pos + 5])) {
-      const end = this.s.indexOf("?>", this.pos + 5);
-      if (end < 0) this.fail("unterminated XML declaration");
-      this.chars(this.s.slice(this.pos, end));
-      this.pos = end + 2;
-    }
-    this.misc();
-    const root = this.element();
-    this.misc();
-    if (this.pos !== this.s.length) this.fail("content after the root element");
-    return root;
-  }
-}
-
-/**
- * The root element of a document in the XML subset of §1.5
- * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>, or a rejection
- * (naming `what`).
- */
-export function parseXml(s: string, what: string, error: (m: string) => Error): XmlElement {
-  return new Xml(s, what, error).document();
-}
-
-function text(el: XmlElement): string {
-  if (el.children.length) reject(`listing: <${el.name}> has a child element`);
-  return el.text.join("");
-}
 
 /**
  * The objects listed by one ListObjectsV2 response, and the continuation token if truncated (§1.5
  * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>).
  */
 export function parseListing(body: Uint8Array, prefix: string): { objects: [string, number][]; token?: string } {
-  let s = "";
-  try {
-    s = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(body);
-  } catch {
-    reject("listing is not UTF-8");
-  }
-  const root = new Xml(s).document();
-  if (root.name !== "ListBucketResult") reject(`listing root element is <${root.name}>, not <ListBucketResult>`);
-  const truncated = root.children.filter((c) => c.name === "IsTruncated");
-  if (truncated.length !== 1 || !["true", "false"].includes(text(truncated[0]))) {
-    reject("listing needs exactly one IsTruncated of true or false");
-  }
-  const tokens = root.children.filter((c) => c.name === "NextContinuationToken");
-  if (tokens.length > 1) reject("listing has more than one NextContinuationToken");
-  const token = tokens.length ? text(tokens[0]) : undefined;
-  const objects: [string, number][] = [];
-  for (const c of root.children) {
-    if (c.name !== "Contents") continue;
-    const keys = c.children.filter((x) => x.name === "Key");
-    const sizes = c.children.filter((x) => x.name === "Size");
-    if (keys.length !== 1 || sizes.length !== 1) reject("listing Contents needs exactly one Key and one Size");
-    const key = text(keys[0]);
-    const size = text(sizes[0]);
-    if (!/^[0-9]+$/.test(size) || size.replace(/^0+/, "").length > 16 || Number(size) > MAX_SAFE) {
-      reject(`listing Size ${JSON.stringify(size.slice(0, 40))} is not a size`);
-    }
-    if (!key.startsWith(prefix)) reject(`listed key ${JSON.stringify(key)} is outside the prefix ${JSON.stringify(prefix)}`);
-    objects.push([key, Number(size)]);
-  }
-  if (text(truncated[0]) === "true") {
-    if (!token) reject("truncated listing without a NextContinuationToken");
-    // A page that lists nothing could be followed forever.
-    if (objects.length === 0) reject("truncated listing without a Contents");
-    return { objects, token };
-  }
-  return { objects };
+  const r = hostRule<{ objects: [string, number][]; token: string | null }>("parse_listing", { body: latin1(body), prefix });
+  return r.token === null ? { objects: r.objects } : { objects: r.objects, token: r.token };
 }
 
 // ---------------------------------------------------------------- JSON (§1.6
@@ -603,25 +289,13 @@ export function nesting(s: string): number {
   return deepest;
 }
 
-const COMMIT = /^[0-9a-f]{40}$/;
-const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
-
 /**
  * The commit `C` of a Hub revision's response (§1.5
  * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), or a rejection:
  * a gated repository's too.
  */
 export function parseHubRevision(body: Uint8Array): string {
-  const doc = parseJson(body);
-  if (!isObject(doc)) return reject("the Hub revision is not a JSON object");
-  const sha = has(doc, "sha") ? doc.sha : undefined;
-  if (typeof sha !== "string" || !COMMIT.test(sha)) {
-    reject(`the Hub revision's sha ${show(sha).slice(0, 80)} is not 40 lowercase hex digits`);
-  }
-  if (has(doc, "gated") && doc.gated !== false) {
-    reject(`the Hub repository is gated (${show(doc.gated).slice(0, 40)}): its files are not read anonymously`);
-  }
-  return sha as string;
+  return hostRule("parse_hub_revision", { body: latin1(body) });
 }
 
 /**
@@ -630,89 +304,7 @@ export function parseHubRevision(body: Uint8Array): string {
  * the directory `prefix` (its directories list nothing), and its number of entries.
  */
 export function parseHubTree(body: Uint8Array, prefix: string): { objects: [string, number][]; entries: number } {
-  const doc = parseJson(body);
-  if (!Array.isArray(doc)) return reject("the Hub tree listing is not a JSON array");
-  const objects: [string, number][] = [];
-  for (const entry of doc) {
-    if (!isObject(entry)) reject("a Hub tree entry is not a JSON object");
-    const e = entry as { [k: string]: Json };
-    const kind = has(e, "type") ? e.type : undefined;
-    const path = has(e, "path") ? e.path : undefined;
-    if (kind !== "file" && kind !== "directory") {
-      reject(`a Hub tree entry's type ${show(kind).slice(0, 40)} is neither file nor directory`);
-    }
-    if (typeof path !== "string" || !path.startsWith(prefix) || path.length === prefix.length) {
-      reject(`the Hub tree entry ${show(path).slice(0, 200)} is not under ${JSON.stringify(prefix)}`);
-    }
-    if (LONE_SURROGATE.test(path as string)) reject(`the Hub tree entry ${show(path).slice(0, 200)} is not Unicode`);
-    if (kind === "file") {
-      const size = asInt(has(e, "size") ? e.size : undefined, 0, MAX_SAFE);
-      if (size === undefined) reject(`the Hub tree file ${show(path).slice(0, 200)} has no size from 0 to 2^53 - 1`);
-      objects.push([path as string, size!]);
-    }
-  }
-  return { objects, entries: doc.length };
-}
-
-const LINK_WS = new Set([" ", "\t", "\r", "\n"]);
-const PARAM_NAME = /[A-Za-z0-9-]+/y;
-const TOKEN = /[^ \t\r\n;,"]+/y;
-
-/** The links of a `Link` field value (§1.5
- * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): [URI reference,
- * parameters], or a rejection. */
-function links(value: string): [string, [string, string][]][] {
-  const out: [string, [string, string][]][] = [];
-  const bad = (why: string) => reject(`the Link header ${JSON.stringify(value.slice(0, 200))} ${why}`);
-  const n = value.length;
-  let i = 0;
-  const ws = () => {
-    while (i < n && LINK_WS.has(value[i])) i++;
-  };
-  const match = (re: RegExp): string | undefined => {
-    re.lastIndex = i;
-    const m = re.exec(value);
-    if (m === null) return undefined;
-    i = re.lastIndex;
-    return m[0];
-  };
-  for (;;) {
-    ws();
-    if (i >= n || value[i] !== "<") bad("is not a list of links");
-    const end = value.indexOf(">", i);
-    if (end < 0) bad("has an unterminated <");
-    const target = value.slice(i + 1, end);
-    if (!isUriReference(target)) reject(`the Link header's target ${JSON.stringify(target.slice(0, 200))} is not a URI reference`);
-    i = end + 1;
-    const params: [string, string][] = [];
-    for (;;) {
-      ws();
-      if (i >= n || value[i] !== ";") break;
-      i++;
-      ws();
-      const name = match(PARAM_NAME);
-      if (name === undefined) bad("has a bad parameter");
-      ws();
-      if (i >= n || value[i] !== "=") bad("has a parameter without =");
-      i++;
-      ws();
-      let param: string | undefined;
-      if (i < n && value[i] === '"') {
-        const close = value.indexOf('"', i + 1);
-        if (close < 0) bad("has an unterminated quote");
-        param = value.slice(i + 1, close);
-        i = close + 1;
-      } else {
-        param = match(TOKEN);
-        if (param === undefined) bad("has a parameter without a value");
-      }
-      params.push([name!, param!]);
-    }
-    out.push([target, params]);
-    if (i >= n) return out;
-    if (value[i] !== ",") bad("is not a list of links");
-    i++;
-  }
+  return hostRule("parse_hub_tree", { body: latin1(body), prefix });
 }
 
 /**
@@ -723,19 +315,8 @@ function links(value: string): [string, [string, string][]][] {
  * `endpoint`'s origin.
  */
 export function nextLink(field: string | null, url: string, endpoint: string): string | undefined {
-  if (field === null) return undefined;
-  const found = links(field)
-    .filter(([, params]) => params.some(([k, v]) => k.toLowerCase() === "rel" && v.toLowerCase().split(/[ \t\r\n]+/).includes("next")))
-    .map(([t]) => t);
-  if (found.length > 1) reject("the Hub tree response has more than one next link");
-  if (found.length === 0) return undefined;
-  const next = resolveReference(url, found[0]);
-  const a = next.match(SPLIT)!;
-  const b = endpoint.match(SPLIT)!;
-  if (a[1]?.toLowerCase() !== b[1].toLowerCase() || a[2]?.toLowerCase() !== b[2].toLowerCase()) {
-    reject(`the Hub tree's next link ${JSON.stringify(next.slice(0, 200))} is not on ${JSON.stringify(endpoint)}`);
-  }
-  return next;
+  const next = hostRule<string | null>("next_link", { fields: field === null ? [] : [field], url, endpoint });
+  return next ?? undefined;
 }
 
 /** A value for a message (`JSON.stringify` gives undefined for undefined). */
@@ -796,19 +377,6 @@ export function compareKeys(a: string, b: string): number {
     if (x > 0xffff) i++;
   }
   return a.length - b.length;
-}
-
-function ignored(rel: string): boolean {
-  return rel === "" || rel.endsWith("/") || rel.split("/").some((s) => s === "" || s === "." || s === "..");
-}
-
-/**
- * An ignored object whose key is not recorded (§1.4
- * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>): an empty one whose
- * relative key is empty or ends in /.
- */
-function folderMarker(rel: string, size: number): boolean {
-  return size === 0 && (rel === "" || rel.endsWith("/"));
 }
 
 export interface Store {
@@ -974,21 +542,16 @@ export function closeStore(store: Store) {
   store.prefetch?.close();
 }
 
-/** Adds listed objects to `store`, rejecting a key listed twice (§1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), and
- * records the keys of the ignored ones that are not folder markers (§1.4
- * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>). */
-export function addListed(store: Store, listed: [string, number][], prefix: string, seen: Set<string>) {
-  store.ignored ??= [];
-  store.folders ??= [];
-  for (const [key, size] of listed) {
-    if (seen.has(key)) reject(`key ${JSON.stringify(key)} is listed twice`);
-    seen.add(key);
-    const rel = key.slice(prefix.length);
-    if (!ignored(rel)) store.objects.set(rel, size);
-    else if (!folderMarker(rel, size)) store.ignored.push(rel);
-    else if (rel && !ignored(rel.slice(0, -1))) store.folders.push(rel);
-  }
-  store.listed = seen.size;
+/** Sets the objects of `store` from every object its listing gave (`listed`, each key under
+ * `prefix`), and records the keys of the ignored ones that are not folder markers, and the folder
+ * markers (§1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>): the
+ * core's `store_listing`, which rejects a key listed twice. */
+export function setListing(store: Store, listed: [string, number][], prefix: string) {
+  const r = hostRule<{ objects: [string, number][]; ignored: string[]; folders: string[] }>("store_listing", { listed, prefix });
+  store.objects = new Map(r.objects);
+  store.ignored = r.ignored;
+  store.folders = r.folders;
+  store.listed = listed.length;
 }
 
 /** The JSON document at `key` (§1.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents>). With `keep`, its bytes are kept for the next read
@@ -1115,6 +678,7 @@ export async function openHttpStore(
     hubEndpoint?: string;
   } = {},
 ): Promise<Store> {
+  await ir(); // the host rules are the core's
   const repo = hubRepo(url, hubEndpoint(hub));
   const allow = (u: string) => allowStoreUrl(policy, url, u);
   const send = given ?? storeFetch(url, policy, headers);
@@ -1195,7 +759,7 @@ export async function openHttpStore(
     }
     return r;
   };
-  const seen = new Set<string>();
+  const listed: [string, number][] = [];
   if (repo !== undefined) {
     const commit = parseHubRevision(new Uint8Array(await (await list(hubRevisionUrl(repo))).arrayBuffer()));
     base = store.url = hubBase(repo, commit);
@@ -1207,8 +771,8 @@ export async function openHttpStore(
       // the URL that answered, after redirects (a stand-in fetch may give none)
       const answered = r.url || link;
       const page = parseHubTree(new Uint8Array(await r.arrayBuffer()), repo.directory);
-      addListed(store, page.objects, repo.directory, seen);
-      if (store.listed > maxObjects) throw new StoreLimitError(`the store lists more than ${maxObjects} objects`);
+      for (const o of page.objects) listed.push(o); // a page of any size reaches the limit check
+      if (listed.length > maxObjects) throw new StoreLimitError(`the store lists more than ${maxObjects} objects`);
       link = nextLink(r.headers.get("Link"), answered, repo.endpoint);
       // a page that lists nothing could be followed forever
       if (link !== undefined && page.entries === 0) reject("a Hub tree page with a next link lists nothing");
@@ -1216,18 +780,17 @@ export async function openHttpStore(
         reject(`the Hub tree's next link ${JSON.stringify(link.slice(0, 200))} was requested already`);
       }
     }
+    setListing(store, listed, repo.directory);
     return store;
   }
   const [endpoint, prefix] = listingEndpoint(url);
   const tokens = new Set<string>();
   let token: string | undefined;
   for (;;) {
-    let q = `?list-type=2&prefix=${queryEncode(prefix)}`;
-    if (token !== undefined) q += `&continuation-token=${queryEncode(token)}`;
-    const r = await list(endpoint + q);
+    const r = await list(hostRule("listing_url", { endpoint, prefix, token: token ?? null }));
     const listing = parseListing(new Uint8Array(await r.arrayBuffer()), prefix);
-    addListed(store, listing.objects, prefix, seen);
-    if (store.listed > maxObjects) throw new StoreLimitError(`the store lists more than ${maxObjects} objects`);
+    for (const o of listing.objects) listed.push(o);
+    if (listed.length > maxObjects) throw new StoreLimitError(`the store lists more than ${maxObjects} objects`);
     token = listing.token;
     if (token === undefined) break;
     // The listing would repeat itself (§1.5
@@ -1235,6 +798,7 @@ export async function openHttpStore(
     if (tokens.has(token)) reject(`the listing gives the continuation token ${JSON.stringify(token.slice(0, 80))} again`);
     tokens.add(token);
   }
+  setListing(store, listed, prefix);
   return store;
 }
 

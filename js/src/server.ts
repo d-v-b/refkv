@@ -19,6 +19,7 @@ import { ImageError } from "./zarrify/common.ts";
 import { isStoreUrl, zarrifySource, zarrifyStore } from "./zarrify/index.ts";
 import { REGISTRY } from "./zarrify/profiles.ts";
 import { zarrifyIr } from "./zarrify/ir/run.ts";
+import { ir } from "./zarrify/ir/wasm.ts";
 import { openHttpSource, type RangeSource, readerSource } from "./zarrify/ir/source.ts";
 import { openHttpStore, StoreError, StoreLimitError, StoreReadError } from "./zarrify/store.ts";
 import type { StoreProfile } from "./zarrify/ir/store.ts";
@@ -252,6 +253,7 @@ export function makeHandler(options: HandlerOptions): (request: Request) => Prom
           await attempt(() => saved!.delete(name));
         }
         let virtual;
+        await ir(); // the host rules (`isStoreUrl`) are the core's
         if (kind === "image" && isStoreUrl(url)) {
           virtual = await zarrifyStore(await openHttpStore(url, { policy, ...(fetchStore ? { fetch: fetchStore } : {}) }));
         } else {

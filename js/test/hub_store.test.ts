@@ -21,6 +21,9 @@ import {
   StoreError,
   StoreReadError,
 } from "../src/zarrify/store.ts";
+import { ir } from "../src/zarrify/ir/wasm.ts";
+
+await ir(); // the store rules these tests call are the core's host rules
 
 const utf8 = new TextEncoder();
 const SHA = "1bae0e1088993b9b82de08f59de5be5a34e42170";
