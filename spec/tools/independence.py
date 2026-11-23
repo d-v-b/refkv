@@ -30,22 +30,24 @@ file gains is read the same whatever they are.
 
 **Reported:** a file of a format that is not one of the branch's formats; and a file of no format,
 not in `SHARED` below, when a line the branch adds to it names a profile, whatever the branch's
-formats. A line names one when it holds the profile's name, its name in capitals or its title of
-one word (`fits` or `FITS`, `npy`, `NPY` or `NumPy`, `SAFE`), as a whole word, case and all: words
-split at anything but letters, digits, `_` and `-`, so `safe_l1c`, `tiff_set` and `thread-safe`
-name no profile (and `safetensors` names its own, not `safe`), and `mrc-dataset` is not `mrc`. A
-spelling of lowercase letters alone may be an English word or an identifier (`none fits`,
-`const safe = ...`, `safe.test(c)`), so it names a profile only where code names a module or a
-path: in quotes or backticks on both sides, after `.`, `/` or `::`, before `/` or `::`, or after
-`mod`, `import` or `from` (`"fits"`, `` `tiff` ``, `zarrify/fits.md`, `refkv.grib`, `crate::nifti`,
-`mod vsi;`). One with a digit or a `-` (`hdf5`, `nd2`, `zarr2`, `ome-zarr`) is no word, and counts
-anywhere. What this misses: such a name as a bare key or field (`nifti: [...]`, which looks like
-the parameter `safe: impl Fn`), or before a `.` alone (`grib.md` in a relative link, which looks
-like `fits.then_some`). What it still counts: an identifier quoted or joined that only shares a
-profile's name (the function `refkv.build.fits`, `"fits"` in its `__all__`).
-A title of several words (`Neuroglancer precomputed`)
-is no spelling, nor is one that holds `Zarr` (`OME-Zarr`, `Zarr v3`), which names refkv's output as
-often as the profile; their names (`precomputed`, `ome-zarr`, `zarr3`) still are.
+formats. A line names one when it holds the profile's name, its name in capitals or its title
+(`fits`, `FITS`; `npy`, `NPY`, `NumPy`; `safetensors`; `Neuroglancer precomputed`), as whole words,
+case and all, the longest spelling at each word: words split at anything but letters, digits, `_`
+and `-`, so `safe_l1c`, `tiff_set` and `thread-safe` name no profile (and `safetensors` names its
+own, not `safe`), and `MRC dataset` names mrc-dataset, not mrc. A title that holds `Zarr`
+(`OME-Zarr`, `Zarr v3`) is no spelling, since it names refkv's output as often as the profile; the
+names `ome-zarr` and `zarr3` still are. A name of lowercase letters alone may be an English word or
+an identifier (`none fits`, `far from safe`, `const safe = ...`, `safe.test(c)`), so it names a
+profile only where code names a module or a path: in quotes or backticks on both sides, after `.`,
+`/` or `::`, before `/` or `::`, or in an import or a module declaration (`"fits"`, `` `tiff` ``,
+`zarrify/fits.md`, `refkv.grib`, `crate::nifti`, `mod vsi;`, `use crate::{fits, grib};`,
+`from refkv import common, fits`). A name with a digit or a `-` (`hdf5`, `nd2`, `zarr2`,
+`ome-zarr`) is no word, and counts anywhere. What this misses: such a name as a bare key or field
+(`nifti: [...]`, which looks like the parameter `safe: impl Fn`), alone on a line of a wrapped list
+(`    fits,`), or before a `.` alone (`grib.md` in a relative link, which looks like
+`fits.then_some`). What it still counts: an identifier quoted or joined that only shares a
+profile's name (the function `refkv.build.fits`, `"fits"` in its `__all__`). These are the limits
+of reading words alone; the PR's reviewer judges the rest.
 One more format added to a shared list, in prose or in code, is a line naming it; a change to
 shared machinery that names no format is not reported, whichever formats the branch also changes,
 and neither is a change that only removes lines, such as a fixed format's entry leaving a table of
@@ -121,41 +123,57 @@ def owner(path: str, names: list[str]) -> str | None:
     return None
 
 
-def spellings(entries: list[dict]) -> dict[str, str]:
-    """Each word that names a profile of the registry `entries`: its name, its name in capitals, and
-    its title when that is one word and does not hold `Zarr`."""
-    out = {}
+Spellings = dict[tuple[str, ...], tuple[str, bool]]
+
+
+def spellings(entries: list[dict]) -> Spellings:
+    """Each run of words that names a profile of the registry `entries` (its name, its name in capitals,
+    its title unless that holds `Zarr`), with the profile and whether it counts only where code names a
+    module or a path: the name, when it is lowercase letters alone."""
+    out: Spellings = {}
     for e in entries:
-        title = [e["title"]] if " " not in e["title"] and "Zarr" not in e["title"] else []
-        for word in (e["name"], e["name"].upper(), *title):
-            out[word] = e["name"]
+        name = e["name"]
+        out[(name.upper(),)] = (name, False)
+        if "Zarr" not in e["title"]:
+            out[tuple(e["title"].split())] = (name, False)
+        out.setdefault((name,), (name, name.isalpha() and name.islower()))
     return out
 
 
 QUOTES = "\"'`"
-
-
-KEYWORD = re.compile(r"\b(?:mod|import|from)\s+$")
+# A line that is an import or a module declaration, every word after whose keyword names a module:
+# Rust's `mod x;` and `use a::{x, y};`, Python's `import x, y` and `from a import x, y`.
+STATEMENT = re.compile(r"^\s*(?:(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*;|(?:pub(?:\([^)]*\))?\s+)?use\s+[\w:]*::"
+                       r"|import\s+[\w.]+(?:\s*,\s*[\w.]+)*\s*$|from\s+[\w.]+\s+import\s)")
 
 
 def code_like(line: str, start: int, end: int) -> bool:
     """Whether the word at `line[start:end]` stands where code names a module or a path: in quotes or
-    backticks on both sides, after `.`, `/` or `::`, before `/` or `::`, or after `mod`, `import` or
-    `from`."""
+    backticks on both sides, after `.`, `/` or `::`, before `/` or `::`, or in an import or a module
+    declaration (`STATEMENT`)."""
     before, after = line[start - 1:start] if start else "", line[end:end + 1]
     return ((before != "" and before in QUOTES and after == before) or before in ("/", ".") or after == "/"
             or line[max(start - 2, 0):start] == "::" or line[end:end + 2] == "::"
-            or bool(KEYWORD.search(line[:start])))
+            or bool(STATEMENT.match(line)))
 
 
-def mentions(line: str, spelled: dict[str, str]) -> set[str]:
-    """The profiles a line names, by `spellings`, as whole words: one of lowercase letters alone only
-    where code names a module or a path (`code_like`)."""
-    found = set()
-    for m in re.finditer(r"[\w-]+", line):
-        word, start = m.group().strip("-"), m.start() + (len(m.group()) - len(m.group().lstrip("-")))
-        if word in spelled and (not word.isalpha() or not word.islower() or code_like(line, start, start + len(word))):
-            found.add(spelled[word])
+def mentions(line: str, spelled: Spellings) -> set[str]:
+    """The profiles a line names, by `spellings`, as whole words: at each word the longest spelling that
+    starts there, one that counts only where code names a module or a path only there (`code_like`)."""
+    words = [(m.group().strip("-"), m.start() + len(m.group()) - len(m.group().lstrip("-")))
+             for m in re.finditer(r"[\w-]+", line)]
+    found, i = set(), 0
+    while i < len(words):
+        hits = [s for s in spelled if tuple(w for w, _ in words[i:i + len(s)]) == s]
+        if not hits:
+            i += 1
+            continue
+        spelling = max(hits, key=len)
+        name, strict = spelled[spelling]
+        start = words[i][1]
+        if not strict or code_like(line, start, start + len(spelling[0])):
+            found.add(name)
+        i += len(spelling)
     return found
 
 
@@ -194,7 +212,7 @@ def declared(subjects: list[str], names: list[str]) -> set[str] | None:
 
 
 def report(changes: list[Change], scopes: set[str] | None, names: list[str],
-           spelled: dict[str, str]) -> tuple[set[str], list[tuple[str, str]]]:
+           spelled: Spellings) -> tuple[set[str], list[tuple[str, str]]]:
     """The branch's formats, and each reported file with why (`spelled`: `spellings` of the registry)."""
     formats = branch_formats(changes, scopes, names)
     found = []

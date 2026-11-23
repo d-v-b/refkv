@@ -76,19 +76,25 @@ def test_what_is_not_reported():
     # The profiles a line names: name, name in capitals, title of one word, as whole words, case and all.
     assert {line: independence.mentions(line, SPELLED) for line in [
         'for name in ["dicom", "npy"]:', "NumPy's and NIfTI's, and an NPY file", "a SAFE product, `mrc-dataset`",
-        "Tiff, Dicom, nifti_pair, refkv.grib", "OME-Zarr, Zarr v2, 'ome-zarr', zarr2.md", "a safetensors file",
+        "Tiff, Dicom, nifti_pair, refkv.grib", "OME-Zarr, Zarr v2, 'ome-zarr', zarr2.md",
+        "a safetensors file, an MRC dataset, Sentinel-2 SAFE",
         "use crate::tiff::Ifd; see spec/zarrify/fits.md and zarrify/mp3/", "it fits; a safe tiff, mrc-dataset",
-        "mod tiff; from refkv import safe; and zarr2", "  nifti: [...], `fits(value)`, fits.then_some",
+        "pub mod tiff;", "from refkv.zarrify import common, safe", "use crate::{fits, grib};", "import fits, tiff",
+        "far from safe; import fits from the model; and zarr2", "  nifti: [...], `fits(value)`, fits.then_some",
     ]} == {
         'for name in ["dicom", "npy"]:': {"dicom", "npy"},
         "NumPy's and NIfTI's, and an NPY file": {"npy", "nifti"},
         "a SAFE product, `mrc-dataset`": {"safe", "mrc-dataset"},
         "Tiff, Dicom, nifti_pair, refkv.grib": {"grib"},
         "OME-Zarr, Zarr v2, 'ome-zarr', zarr2.md": {"ome-zarr", "zarr2"},
-        "a safetensors file": set(),  # in prose, a name with no capital letter names nothing
+        "a safetensors file, an MRC dataset, Sentinel-2 SAFE": {"safetensors", "mrc-dataset", "safe"},  # titles
         "use crate::tiff::Ifd; see spec/zarrify/fits.md and zarrify/mp3/": {"tiff", "fits", "mp3"},
         "it fits; a safe tiff, mrc-dataset": {"mrc-dataset"},  # a name with a digit or `-` is no word
-        "mod tiff; from refkv import safe; and zarr2": {"tiff", "safe", "zarr2"},
+        "pub mod tiff;": {"tiff"},
+        "from refkv.zarrify import common, safe": {"safe"},
+        "use crate::{fits, grib};": {"fits", "grib"},
+        "import fits, tiff": {"fits", "tiff"},
+        "far from safe; import fits from the model; and zarr2": {"zarr2"},  # English, but for the name with a digit
         "  nifti: [...], `fits(value)`, fits.then_some": set(),  # what the rule misses, and what it must not count
     }
     assert independence.added_lines("diff --git a/x b/x\n+++ b/x\n@@ -1 +1,2 @@\n-old\n+new\n++plus\n") == (
