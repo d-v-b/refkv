@@ -49,9 +49,7 @@ from refkv.pb import (
     decode_source_table,
     decode_table,
 )
-from refkv.vzip.names import INDEX_KEY as INDEX_KEY  # re-exported: refkv.vzip.store imports them here
-from refkv.vzip.names import RESERVED_PREFIX as RESERVED_PREFIX
-from refkv.vzip.names import SOURCES_KEY as SOURCES_KEY
+from refkv.vzip.names import INDEX_KEY, RESERVED_PREFIX, SOURCES_KEY  # noqa: F401 (refkv.vzip.store imports them here)
 
 MAX_PAYLOAD = 65519
 RANGE_EXTRA_ID = 0x7A76  # "vz": payload is a Range
