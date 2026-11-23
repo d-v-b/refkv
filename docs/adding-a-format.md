@@ -507,7 +507,9 @@ reaches:
   module of `refkv/zarr/codecs/` has none);
 - the wasm export, for the browser;
 - a section in the profile's own document, as
-  [precomputed §6](../spec/zarrify/precomputed.md#6-the-codec-refkvprecomputed) is.
+  [precomputed §6](../spec/zarrify/precomputed.md#6-the-codec-refkvprecomputed) is, or, for a
+  codec several profiles share, in `spec/conventions.md`, as
+  [`refkv.stream`](../spec/conventions.md#10-coded-streams) is.
 
 Every codec an archive may name, refkv's own or another package's, is a row of the table of codec
 names in [conventions §3](../spec/conventions.md#3-arrays), sorted by name; a codec the profile

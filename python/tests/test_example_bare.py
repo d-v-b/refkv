@@ -35,9 +35,20 @@ UUIDS = {uuid.lower() for uuid, *_ in PROFILES.values()}
 # reader needs to decode its arrays (`needs`, if any), whether the call asks for checksums
 # (`checksums`, false if absent), the paths of the dataset layouts refkv's output declares
 # (`layouts`, none if absent), and what the case adds (`why`, optional)
-CASES = [(f"{table.stem}/{c['input']}", c.get("needs"), c.get("checksums", False), c.get("layouts", []))
-         for table in sorted((Path(__file__).parent / "bare_cases").glob("*.json"))
-         for c in json.loads(table.read_text(encoding="utf-8"))]
+KEYS = {"input", "needs", "checksums", "layouts", "why"}
+
+
+def _cases():
+    out = []
+    for table in sorted((Path(__file__).parent / "bare_cases").glob("*.json")):
+        for c in json.loads(table.read_text(encoding="utf-8")):
+            assert "input" in c, f"bare_cases/{table.name}: a case with no input"
+            assert set(c) <= KEYS, f"bare_cases/{table.name}: a case's keys {sorted(set(c) - KEYS)} are not of {KEYS}"
+            out.append((f"{table.stem}/{c['input']}", c.get("needs"), c.get("checksums", False), c.get("layouts", [])))
+    return out
+
+
+CASES = _cases()
 OPTIONS = [{}, {"dataset": False}]
 
 
