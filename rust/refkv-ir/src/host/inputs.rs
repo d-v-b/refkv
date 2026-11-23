@@ -17,6 +17,13 @@ pub fn url_scheme(location: &str) -> Option<String> {
     (b.first().is_some_and(u8::is_ascii_alphabetic) && b.iter().all(|&c| c.is_ascii_alphanumeric() || matches!(c, b'+' | b'.' | b'-'))).then(|| s.to_ascii_lowercase())
 }
 
+/// Whether `location` is written as a URL: one with an authority ([`url_scheme`]), or a `file:` URL
+/// in any form (RFC 8089's minimal `file:/x` among them). An input written so has its directory and
+/// scope as URLs ([`split_input`], [`scope_keys`]), whatever local path a `file:` URL names.
+pub fn is_url(location: &str) -> bool {
+    url_scheme(location).is_some() || location.as_bytes().get(..5).is_some_and(|p| p.eq_ignore_ascii_case(b"file:"))
+}
+
 /// What a location names (spec/zarrify.md §1.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
 #[derive(Debug, PartialEq)]
@@ -53,16 +60,8 @@ pub fn input(location: &str, windows: bool, allow_file_hosts: bool) -> Result<In
 /// file named otherwise is no object a store can have); for a local path, its directory and its
 /// name, as Python's `os.path.split` gives them (`ntpath`'s when `windows`).
 pub fn split_input(location: &str, title: &str, windows: bool) -> Result<(String, String), Fail> {
-    if url_scheme(location).is_some() {
-        if location.contains(['?', '#']) {
-            return rejected(format!("{title} input {location:?} has a query or a fragment"));
-        }
-        let k = location.rfind('/').unwrap_or(0);
-        let key = String::from_utf8(percent_decode(&location[k + 1..])).or_else(|_| rejected(format!("{title} input {location:?}: its file name is not percent-encoded UTF-8")))?;
-        if key.is_empty() || key.contains('/') {
-            return rejected(format!("{title} input {location:?} names no file"));
-        }
-        return Ok((location[..=k].to_string(), key));
+    if is_url(location) {
+        return split_url(location, title);
     }
     let sep = |c: char| c == '/' || (windows && c == '\\');
     // ntpath keeps a drive (`C:`, or a UNC path's `\\server\share`) with the directory
@@ -80,6 +79,22 @@ pub fn split_input(location: &str, title: &str, windows: bool) -> Result<(String
     Ok((dir, name.to_string()))
 }
 
+/// (the directory, the named file's key) of an input at the URL or URI reference `location` (a host
+/// with no local paths, such as a browser, names every input so, relative ones included): the
+/// directory is `location` up to and including its last `/` (empty when it has none), and the key
+/// its last segment, percent-decoded, which must be UTF-8; a rejection for a query or a fragment.
+pub fn split_url(location: &str, title: &str) -> Result<(String, String), Fail> {
+    if location.contains(['?', '#']) {
+        return rejected(format!("{title} input {location:?} has a query or a fragment"));
+    }
+    let k = location.rfind('/').map_or(0, |k| k + 1);
+    let key = String::from_utf8(percent_decode(&location[k..])).or_else(|_| rejected(format!("{title} input {location:?}: its file name is not percent-encoded UTF-8")))?;
+    if key.is_empty() || key.contains('/') {
+        return rejected(format!("{title} input {location:?} names no file"));
+    }
+    Ok((location[..k].to_string(), key))
+}
+
 /// The scope of the file input at the URL `location` (spec/zarrify.md §1.9
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
 /// **Scope**) as the keys a store run's `scope` takes: each entry of `scope` is a URL, the input's
@@ -88,7 +103,7 @@ pub fn split_input(location: &str, title: &str, windows: bool) -> Result<(String
 /// every key being in it. A usage error for an entry outside the directory. (A local input's scope
 /// is the host's: its entries are paths, made absolute and looked at.)
 pub fn scope_keys(location: &str, scope: &[String]) -> Result<Option<Vec<String>>, Fail> {
-    let (d, named) = split_input(location, "the", false)?;
+    let (d, named) = split_url(location, "the")?;
     let outside = |e: &str| usage(format!("scope \"{e}\" is not the input's directory \"{d}\" or below it"));
     let mut keys = Vec::new();
     for e in scope {
@@ -121,6 +136,7 @@ mod tests {
         assert_eq!(input("日本.tif", false, false).unwrap(), Input::Local { path: "日本.tif".into() });
         assert_eq!(url_scheme("HTTP://h/"), Some("http".into()));
         assert_eq!(url_scheme("a b://h/"), None);
+        assert!(is_url("file:/d/x") && is_url("FILE:///d/x") && is_url("s3://b/k") && !is_url("d/x") && !is_url("C:\\x"));
     }
 
     #[test]
@@ -145,6 +161,17 @@ mod tests {
         assert_eq!(s("\\\\server\\share\\d\\x.vsi", true), ("\\\\server\\share\\d".into(), "x.vsi".into()));
         assert_eq!(s("\\\\?\\C:\\über\\x.vsi", true), ("\\\\?\\C:\\über".into(), "x.vsi".into()));
         assert_eq!(s("//host/été/x.vsi", true), ("//host/été/".into(), "x.vsi".into()));
+    }
+
+    #[test]
+    fn splits_urls() {
+        let s = |l: &str| split_url(l, "NRRD").unwrap();
+        assert_eq!(s("data/scan.nhdr"), ("data/".into(), "scan.nhdr".into()));
+        assert_eq!(s("/abs/a%20b.vsi"), ("/abs/".into(), "a b.vsi".into()));
+        assert_eq!(s("x.vsi"), ("".into(), "x.vsi".into()));
+        assert_eq!(s("blob:https://h/id"), ("blob:https://h/".into(), "id".into()));
+        let k = scope_keys("data/scan.nhdr", &["data/scan.raw".into(), "datafoo".into()]);
+        assert!(matches!(k, Err(Fail::Usage(_))));
     }
 
     #[test]
@@ -173,6 +200,8 @@ mod tests {
         assert_eq!(k(&["https://h/d/a.nhdr", "https://h/d/f/", "https://h/d/b%20c.raw"]), Some(vec!["f/".into(), "b c.raw".into()]));
         assert_eq!(k(&["https://h/d/x", "https://h/d/"]), None);
         assert_eq!(k(&[]), Some(vec![]));
+        let minimal = scope_keys("file:/d/a.nhdr", &["file:/d/sub/".into(), "file:/d/a%20b.raw".into()]).unwrap();
+        assert_eq!(minimal, Some(vec!["sub/".into(), "a b.raw".into()]));
     }
 
     #[test]

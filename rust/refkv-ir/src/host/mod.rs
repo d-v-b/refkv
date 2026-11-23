@@ -18,7 +18,7 @@ pub mod listing;
 pub mod urls;
 
 pub use archive::{late, Layout, PAGE_SIZE};
-pub use inputs::{input, scope_keys, split_input, url_scheme, Input};
+pub use inputs::{input, is_url, scope_keys, split_input, split_url, url_scheme, Input};
 pub use listing::{folder_marker, ignored, next_link, parse_hub_revision, parse_hub_tree, parse_listing, store_listing, Listing};
 pub use urls::{check_store_url, hub_endpoint, hub_page, hub_repo, listing_endpoint, listing_url, object_url, query_encode, HubRepo, HUB};
 
@@ -187,8 +187,11 @@ pub fn call(name: &str, p: &J) -> Option<Result<J, Fail>> {
                 Input::Local { path } => json!({"kind": "local", "path": path}),
             })
         })(),
+        "is_url" => s(p, "location").map(|l| J::Bool(is_url(l))),
         "split_input" => (|| {
-            let (d, k) = split_input(s(p, "location")?, s(p, "title")?, flag(p, "windows")?)?;
+            // `url`: the host has no local paths (a browser): every location is a URL reference
+            let (loc, title) = (s(p, "location")?, s(p, "title")?);
+            let (d, k) = if flag(p, "url")? { split_url(loc, title)? } else { split_input(loc, title, flag(p, "windows")?)? };
             Ok(json!([d, k]))
         })(),
         "scope_keys" => (|| Ok(scope_keys(s(p, "location")?, &strings(p, "scope")?)?.map_or(J::Null, |k| json!(k))))(),
@@ -223,6 +226,7 @@ mod tests {
         assert_eq!(ok("store_listing", json!({"listed": [["p/b", 1], ["p/a/", 0]], "prefix": "p/"})), json!({"objects": [["b", 1]], "ignored": [], "folders": ["a/"]}));
         assert_eq!(ok("input", json!({"location": "file:///d/"})), json!({"kind": "local", "path": "/d/"}));
         assert_eq!(ok("input", json!({"location": "https://h/x"})), json!({"kind": "file"}));
+        assert_eq!(ok("is_url", json!({"location": "file:/d/x"})), json!(true));
         assert_eq!(ok("split_input", json!({"location": "https://h/a/x.vsi", "title": "VSI"})), json!(["https://h/a/", "x.vsi"]));
         assert_eq!(ok("scope_keys", json!({"location": "https://h/a/x.vsi", "scope": ["https://h/a/"]})), J::Null);
         assert_eq!(ok("late", json!({"keys": ["zarr.json", "foozarr.json"], "lazy": ["refkv_source/"]})), json!([true, false]));
