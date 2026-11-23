@@ -68,7 +68,7 @@ def test_a_refused_bulk_item_keeps_the_checksums_of_later_sources():
     its own source's URL."""
     asked: list[str] = []
 
-    def recorded(url: str, offset: int, length: int) -> int:
+    def recorded(url: str, _offset: int, _length: int) -> int:
         asked.append(url)
         return 0
 
