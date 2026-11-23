@@ -1,0 +1,32 @@
+"""The modules of `refkv.zarrify.store` that only the frozen reference profiles use, moved here
+from the package (d-v-b/refkv#459): `hierarchy`, the nodes and chunk objects of a Zarr v2 or N5
+store, `blosc`, the blosc codec of their compressors, and `output`, their output (`StoreOutput`).
+The names the package still has (the store readers, the URL, listing and document helpers) are
+imported from `refkv.zarrify.store`, so that this package's names are those it had."""
+
+from __future__ import annotations
+
+from refkv.zarrify.store import *  # noqa: F403
+from refkv_reference._legacy_store.blosc import BLOSC_NAMES, MAX_BLOCK, blosc_codec
+from refkv_reference._legacy_store.hierarchy import (
+    PathTrie,
+    canonical_index,
+    classify,
+    depth,
+    directories_of,
+    find_chunks,
+    grid,
+    implicit_groups,
+    join,
+    parent_of,
+)
+from refkv_reference._legacy_store.output import (
+    EMPTY_KEY,
+    GROUP_IMPLICIT,
+    OBJECTS,
+    SOURCE_GROUP,
+    StoreOutput,
+    doc_key,
+    object_key,
+    source_metadata,
+)

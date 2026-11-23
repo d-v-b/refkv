@@ -5,7 +5,9 @@ which revision 27 changed. Their source metadata node is
 metadata names its URLs under d-v-b/vzip and calls the layout "virtualized by vzip".
 
 The frozen profiles import what they share with the shipped code from here: this
-module is `refkv.zarrify.common` and `refkv.zarrify.store`, but for those names
+module is `refkv.zarrify.common` and `refkv.zarrify.store`, with the parts of them that only the
+frozen profiles use (`_legacy_common`, `_legacy_store`, copied from the package when they left
+it), but for those names
 and the functions that write them (`convention`, `declare`, `root_json`, `emit_plans`,
 `object_key`, `Output`, whose documents under `vzip_source/` are read only when asked
 for, and `StoreOutput`, the store profiles' output, whose methods read the names
@@ -25,13 +27,13 @@ import types
 from dataclasses import dataclass
 
 from refkv.zarrify import common as current
-from refkv.zarrify import store as _store
-from refkv.zarrify.common import *  # noqa: F403
-from refkv.zarrify.store import *  # noqa: F403
-from refkv.zarrify.store.output import _NODE_NAME
-from refkv.zarrify.common import PROFILES, metadata_array, metadata_group
-from refkv.zarrify.common import Output as _Output
-from refkv.zarrify.common import root_property
+from refkv_reference import _legacy_store as _store
+from refkv_reference._legacy_common import *  # noqa: F403
+from refkv_reference._legacy_store import *  # noqa: F403
+from refkv_reference._legacy_store.output import _NODE_NAME
+from refkv_reference._legacy_common import PROFILES, metadata_array, metadata_group
+from refkv_reference._legacy_common import Output as _Output
+from refkv_reference._legacy_common import root_property
 
 SOURCE_NODE = "vzip_source"
 _MAX_SAFE = 2**53 - 1
@@ -152,7 +154,7 @@ def current_names(value, _inside: bool = False):
 
 
 def _with_names(f):
-    """`f`, a function of refkv.zarrify.store, reading this module's names."""
+    """`f`, a function of `_legacy_store`, reading this module's names."""
     names = dict(f.__globals__, SOURCE_GROUP=SOURCE_GROUP, OBJECTS=OBJECTS, EMPTY_KEY=EMPTY_KEY,
                  CONVENTION_KEY=CONVENTION_KEY, declare=declare, object_key=object_key)
     return types.FunctionType(f.__code__, names, f.__name__, f.__defaults__, f.__closure__)
