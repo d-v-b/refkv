@@ -58,8 +58,8 @@ The root and `refkv_source` declare the convention
 ```json
 {
   "uuid": "c9bbe039-8dfa-49f9-a655-756f822a42d6",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/grib/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md",
+  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/grib/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/grib.html",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a GRIB source zarrified by refkv, and the source's metadata"
 }

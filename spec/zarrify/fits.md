@@ -82,8 +82,8 @@ and `heap` arrays have no attributes. Its CMO is:
 ```json
 {
   "uuid": "4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/fits/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md",
+  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/fits/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/fits.html",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a FITS source zarrified by refkv, and the source's metadata"
 }

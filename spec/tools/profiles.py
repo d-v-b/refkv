@@ -66,6 +66,7 @@ COPY_DIR = ROOT / "rust" / "refkv-ir" / "profiles"
 KINDS = ("file", "store", "both", "layout")
 STORE_RUN_FORMS = ("listed", "always", "on_demand")
 CONVENTION_KEY = "refkv_zarrified"
+SITE = "https://d-v-b.github.io/refkv"  # the documentation site (docs-site/)
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 # A flat JSON object with a member "uuid", as a CMO is written (its members are strings).
 CMO_TEXT = re.compile(r'\{[^{}]*"uuid"\s*:[^{}]*\}')
@@ -221,13 +222,18 @@ def stale() -> list[str]:
 def cmo(e: dict) -> dict:
     """The CMO of an entry's convention, as refkv writes it (spec/conventions.md §1
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>): at version 0,
-    which has no tag, its URLs name the development branch."""
+    which has no tag, its URLs are the documentation site's; at version N, the tag's files."""
     p, n = e["name"], e["version"]
-    ref, blob = ("heads/main", "main") if n == 0 else (f"tags/zarrify-{p}-v{n}",) * 2
+    if n == 0:
+        schema_url, spec_url = f"{SITE}/spec/zarrify/{p}/schema.json", f"{SITE}/spec/zarrify/{p}.html"
+    else:
+        t = f"zarrify-{p}-v{n}"
+        schema_url = f"https://raw.githubusercontent.com/d-v-b/refkv/refs/tags/{t}/spec/zarrify/{p}/schema.json"
+        spec_url = f"https://github.com/d-v-b/refkv/blob/{t}/spec/zarrify/{p}.md"
     return {
         "uuid": e["uuid"],
-        "schema_url": f"https://raw.githubusercontent.com/d-v-b/refkv/refs/{ref}/spec/zarrify/{p}/schema.json",
-        "spec_url": f"https://github.com/d-v-b/refkv/blob/{blob}/spec/zarrify/{p}.md",
+        "schema_url": schema_url,
+        "spec_url": spec_url,
         "name": CONVENTION_KEY,
         "description": f"The Zarr layout of a {e['title']} source zarrified by refkv, and the source's metadata",
     }

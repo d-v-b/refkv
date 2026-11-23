@@ -105,8 +105,8 @@ array and `refkv_source` declare it with their own source metadata ([§6.2](#62-
 ```json
 {
   "uuid": "ef81346c-19e8-42ad-93b0-a279ccaf44c1",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/safe/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md",
+  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/safe/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/safe.html",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a Sentinel-2 SAFE source zarrified by refkv, and the source's metadata"
 }
@@ -830,7 +830,7 @@ pixels):
   "codecs": [{"name": "imagecodecs_jpeg2k"}],
   "dimension_names": ["y", "x"],
   "attributes": {
-    "zarr_conventions": [{"uuid": "ef81346c-19e8-42ad-93b0-a279ccaf44c1", "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/safe/schema.json", "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md", "name": "refkv_zarrified", "description": "The Zarr layout of a Sentinel-2 SAFE source zarrified by refkv, and the source's metadata"}],
+    "zarr_conventions": [{"uuid": "ef81346c-19e8-42ad-93b0-a279ccaf44c1", "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/safe/schema.json", "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/safe.html", "name": "refkv_zarrified", "description": "The Zarr layout of a Sentinel-2 SAFE source zarrified by refkv, and the source's metadata"}],
     "refkv_zarrified": {"safe": {
       "IMAGE_FILE": "GRANULE/L2A_T32TNS_A035655_20240103T101328/IMG_DATA/R20m/T32TNS_20240103T101329_B05_20m",
       "bandId": 4, "physicalBand": "B5", "RESOLUTION": 20,

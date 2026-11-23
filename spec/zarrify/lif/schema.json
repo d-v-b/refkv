@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/lif/schema.json",
+  "$id": "https://d-v-b.github.io/refkv/spec/zarrify/lif/schema.json",
   "title": "refkv LIF convention, version 0",
-  "description": "The zarr.json of a node that declares the refkv LIF convention (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md)",
+  "description": "The zarr.json of a node that declares the refkv LIF convention (https://d-v-b.github.io/refkv/spec/zarrify/lif.html)",
   "type": "object",
   "properties": {
     "zarr_format": {
@@ -65,11 +65,11 @@
         },
         "schema_url": {
           "type": "string",
-          "const": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/lif/schema.json"
+          "const": "https://d-v-b.github.io/refkv/spec/zarrify/lif/schema.json"
         },
         "spec_url": {
           "type": "string",
-          "const": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md"
+          "const": "https://d-v-b.github.io/refkv/spec/zarrify/lif.html"
         },
         "name": {
           "type": "string",

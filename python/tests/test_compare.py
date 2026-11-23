@@ -237,11 +237,7 @@ def test_at_revision():
 
     def named(revision, profile, legacy, mirrored=()):
         key, node = ("vzip_virtualized", "vzip_source") if legacy else ("refkv_zarrified", "refkv_source")
-        cmo = convention(profile)
-        if legacy:
-            cmo = {**cmo, "name": key, "schema_url": string(cmo["schema_url"]).replace("/refkv/", "/vzip/"),
-                   "spec_url": string(cmo["spec_url"]).replace("/refkv/", "/vzip/"),
-                   "description": string(cmo["description"]).replace("by refkv", "by vzip")}
+        cmo = compare.legacy.convention(profile) if legacy else convention(profile)
         prop = {"profile": profile, "version": 0, **({} if revision is None else {"revision": revision}),
                 "source": {"url": "u"},
                 profile: {"at": f"{node}/x", "list": [f"{node}/y", "z"], **{m: f"{node}/{m}" for m in mirrored}}}

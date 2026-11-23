@@ -50,8 +50,8 @@ as `source.url` (the object URL of its key in the store,
 ```json
 {
   "uuid": "23e0c600-8da6-40f1-81e7-ab246e948e88",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/nrrd/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md",
+  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/nrrd/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/nrrd.html",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a NRRD source zarrified by refkv, and the source's metadata"
 }

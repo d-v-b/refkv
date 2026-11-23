@@ -75,8 +75,8 @@ source metadata declares it with `{"zarr3": S}`. Its CMO is:
 ```json
 {
   "uuid": "95203d0a-6586-426a-b920-3db2f4f1e97e",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/zarr3/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md",
+  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/zarr3/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/zarr3.html",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a Zarr v3 source zarrified by refkv, and the source's metadata"
 }
@@ -389,8 +389,8 @@ has, in the output, the `zarr.json`
     "zarr_conventions": [
       {
         "uuid": "95203d0a-6586-426a-b920-3db2f4f1e97e",
-        "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/zarr3/schema.json",
-        "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md",
+        "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/zarr3/schema.json",
+        "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/zarr3.html",
         "name": "refkv_zarrified",
         "description": "The Zarr layout of a Zarr v3 source zarrified by refkv, and the source's metadata"
       },

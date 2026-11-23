@@ -54,8 +54,8 @@ metadata of [§5](#5-source-metadata) as the member `"tiff"`. Its CMO is:
 ```json
 {
   "uuid": "48e9ac4e-1156-4a62-955e-20467d9c2700",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/tiff/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md",
+  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/tiff/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/tiff.html",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a TIFF source zarrified by refkv, and the source's metadata"
 }

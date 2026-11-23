@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import posixpath
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -143,6 +144,22 @@ def read(app: Sphinx, docname: str, source: list[str]) -> None:
     source[0] = page(source[0], here, docname, sources)
 
 
+def publish_schemas(app: Sphinx, exception: Exception | None) -> None:
+    """Publish each convention's JSON Schema beside its document, at the URL a version-0 CMO names as
+    its `schema_url` (spec/conventions.md §1
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>):
+    `spec/zarrify/<p>/schema.json`. That path is the site's, not the repository's: when the
+    repository's files move, this copies them to it all the same."""
+    if exception is not None or app.builder.format != "html":
+        return
+    for e in profiles.load():
+        source = ROOT / "spec" / "zarrify" / e["name"] / "schema.json"
+        target = Path(app.outdir) / "spec" / "zarrify" / e["name"] / "schema.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+
+
 def setup(app: Sphinx) -> dict[str, bool]:
     app.connect("source-read", read)
+    app.connect("build-finished", publish_schemas)
     return {"parallel_read_safe": True}

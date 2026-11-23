@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+import json
+
+from refkv import _core
 from refkv._narrow import integer, string
 from refkv.entries import MAX_PAYLOAD
 from refkv.errors import Rejected
@@ -32,15 +35,9 @@ UUIDS = frozenset(uuid for uuid, _, _ in PROFILES.values())
 
 def convention(profile: str) -> dict[str, object]:
     """The Convention Metadata Object of a profile's convention (conventions §2
-    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>)."""
-    uuid, version, title = PROFILES[profile]
-    # Version 0 has no tag: its URLs name the development branch (conventions §1
-    # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>).
-    ref, blob = ("heads/main", "main") if version == 0 else (f"tags/zarrify-{profile}-v{version}",) * 2
-    return {
-        "uuid": uuid,
-        "schema_url": f"https://raw.githubusercontent.com/d-v-b/refkv/refs/{ref}/spec/zarrify/{profile}/schema.json",
-        "spec_url": f"https://github.com/d-v-b/refkv/blob/{blob}/spec/zarrify/{profile}.md",
-        "name": CONVENTION_KEY,
-        "description": f"The Zarr layout of a {title} source zarrified by refkv, and the source's metadata",
-    }
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), as the Rust core
+    writes it at a root (rust/refkv-ir/src/out.rs `convention`): the one place its URLs are built."""
+    attributes = json.loads(_core.coding("declare", json.dumps(
+        {"profile": profile, "url": "", "own": None, "attributes": {}})))
+    (cmo,) = attributes["zarr_conventions"]
+    return dict(cmo)

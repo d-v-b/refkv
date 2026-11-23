@@ -195,17 +195,21 @@ export const PROFILES = Object.fromEntries(
 ) as Record<Profile, [uuid: string, version: number, title: string]>;
 export const UUIDS = new Set(Object.values(PROFILES).map(([uuid]) => uuid));
 
-/** The Convention Metadata Object of a profile's convention. */
+/** The Convention Metadata Object of a profile's convention, as the Rust core writes it
+ * (rust/refkv-ir/src/out.rs `convention`): at version 0, which has no tag, its URLs are the
+ * documentation site's; at version N, the files at the tag `zarrify-<p>-v<N>`. */
 export function convention(profile: Profile): { [k: string]: string } {
   const [uuid, version, title] = PROFILES[profile];
-  // Version 0 has no tag: its URLs name the development branch (conventions §1
-  // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>).
+  const site = "https://d-v-b.github.io/refkv";
   const tag = `zarrify-${profile}-v${version}`;
-  const [ref, blob] = version === 0 ? ["heads/main", "main"] : [`tags/${tag}`, tag];
   return {
     uuid,
-    schema_url: `https://raw.githubusercontent.com/d-v-b/refkv/refs/${ref}/spec/zarrify/${profile}/schema.json`,
-    spec_url: `https://github.com/d-v-b/refkv/blob/${blob}/spec/zarrify/${profile}.md`,
+    schema_url: version === 0
+      ? `${site}/spec/zarrify/${profile}/schema.json`
+      : `https://raw.githubusercontent.com/d-v-b/refkv/refs/tags/${tag}/spec/zarrify/${profile}/schema.json`,
+    spec_url: version === 0
+      ? `${site}/spec/zarrify/${profile}.html`
+      : `https://github.com/d-v-b/refkv/blob/${tag}/spec/zarrify/${profile}.md`,
     name: CONVENTION_KEY,
     description: `The Zarr layout of a ${title} source zarrified by refkv, and the source's metadata`,
   };

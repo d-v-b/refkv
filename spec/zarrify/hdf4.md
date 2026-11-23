@@ -54,8 +54,8 @@ The root, every dataset's array and every group declare the convention
 ```json
 {
   "uuid": "af66c29e-fc1a-44a4-bb71-1055ad5fdb0a",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/hdf4/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf4.md",
+  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/hdf4/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/hdf4.html",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a HDF4 source zarrified by refkv, and the source's metadata"
 }

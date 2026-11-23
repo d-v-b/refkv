@@ -69,8 +69,8 @@ The root and `refkv_source` declare the convention
 ```json
 {
   "uuid": "b099ab1f-f9d4-4276-9006-9ff1193a34b2",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/lif/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md",
+  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/lif/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/lif.html",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a LIF source zarrified by refkv, and the source's metadata"
 }

@@ -48,8 +48,8 @@ The root, every dataset's array and every group with source metadata declare the
 ```json
 {
   "uuid": "6c006834-424b-451b-b786-f8c502ec32af",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/hdf5/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md",
+  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/hdf5/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/hdf5.html",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a HDF5 source zarrified by refkv, and the source's metadata"
 }

@@ -59,8 +59,8 @@ metadata of [§5](#5-source-metadata) as the member `"nd2"`. Its CMO is:
 ```json
 {
   "uuid": "59612f14-e314-4207-ba00-8f422ba71490",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/nd2/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md",
+  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/nd2/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/nd2.html",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a ND2 source zarrified by refkv, and the source's metadata"
 }

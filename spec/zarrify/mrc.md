@@ -49,8 +49,8 @@ metadata of [§5.1](#51-the-root) as the member `"mrc"`. Its CMO is:
 ```json
 {
   "uuid": "2aacd010-2ed1-4748-bc3c-5dd5e840bbce",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/mrc/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md",
+  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/mrc/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/mrc.html",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a MRC source zarrified by refkv, and the source's metadata"
 }
@@ -429,8 +429,8 @@ with the origin `(-1.5, 2, 7.25)` and the values from −100 to 150. Its root
   },
   "zarr_conventions": [{
     "uuid": "2aacd010-2ed1-4748-bc3c-5dd5e840bbce",
-    "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/mrc/schema.json",
-    "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md",
+    "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/mrc/schema.json",
+    "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/mrc.html",
     "name": "refkv_zarrified",
     "description": "The Zarr layout of a MRC source zarrified by refkv, and the source's metadata"
   }],
