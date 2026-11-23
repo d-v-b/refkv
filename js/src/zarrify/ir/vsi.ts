@@ -34,7 +34,8 @@ export const ON_DEMAND: ReadonlySet<string> = new Set(
  * (`refkv_ir::host::split_input`), a rejection as an ImageError. */
 export function splitVsiUrl(url: string, title = "VSI"): [string, string] {
   try {
-    return rule<[string, string]>("split_input", { location: url, title });
+    // the browser has no local paths: every input is a URL reference, relative ones included
+    return rule<[string, string]>("split_input", { location: url, title, url: true });
   } catch (e) {
     if (e instanceof RuleError) throw new ImageError(e.message);
     throw e;

@@ -1,7 +1,7 @@
 // The XML subset of spec/zarrify.md §1.5
 // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store> as a tree
 // (`parseXml`, `XmlElement`), which the frozen SAFE profile reads its documents with, and the URL
-// of a store's object (`objectUrl`): the TypeScript the package had before the Rust core took
+// of a store's object (`objectUrl`), and whether a URL is a store input (`isStoreUrl`): the TypeScript the package had before the Rust core took
 // over the store rules (d-v-b/refkv#459), copied here so that the frozen reference keeps them as
 // they were and needs no WebAssembly instance.
 
@@ -207,3 +207,7 @@ export function parseXml(s: string, what: string, error: (m: string) => Error): 
   return new Xml(s, what, error).document();
 }
 
+/** Is `url` a store input: a URL whose path ends in `/`? */
+export function isStoreUrl(url: string): boolean {
+  return url.split(/[?#]/, 1)[0].endsWith("/");
+}

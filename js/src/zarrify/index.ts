@@ -9,7 +9,7 @@
 
 import { blockReader, type ByteReader, ImageError } from "./common.ts";
 import { type IrFormat, NamesSiblings, zarrifyIr } from "./ir/run.ts";
-import { ir, out, put, rule } from "./ir/wasm.ts";
+import { ir, out, put, rule, RuleError } from "./ir/wasm.ts";
 import { type RangeSource, readerSource } from "./ir/source.ts";
 import { type StoreProfile, zarrifyStoreIr } from "./ir/store.ts";
 import { BESIDE, type BesideFormat, ON_DEMAND, scopeKeys, zarrifyVsi } from "./ir/vsi.ts";
@@ -102,6 +102,7 @@ interface Input {
 }
 
 async function zarrifyWith(url: string, input: Input, pins: PinOptions): Promise<ImageDesc> {
+  await ir(); // the scope rule is the core's
   // the scope's keys, before anything is read
   const within = pins.scope === undefined ? undefined : scopeKeys(url, pins.scope);
   // a VSI file is read with its tile files, and a NRRD header with its data file, as a store
@@ -160,7 +161,12 @@ export async function irFormat(head: Uint8Array): Promise<IrFormat | undefined> 
  * `/`? The core's rule (`refkv_ir::host::input`); the instance must be instantiated (`ir()`).
  */
 export function isStoreUrl(url: string): boolean {
-  return rule<{ kind: string }>("input", { location: url }).kind === "store";
+  try {
+    return rule<{ kind: string }>("input", { location: url }).kind === "store";
+  } catch (e) {
+    if (e instanceof RuleError) return false; // a `file:` URL that names no path: refused later, as a file
+    throw e;
+  }
 }
 
 /** Zarrifies a store by the profile its root keys select (§1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>): a listed one, or the

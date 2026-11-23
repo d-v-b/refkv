@@ -11,7 +11,7 @@
 
 import { checkAddress, checkPolicy, type Policy, RefkvError } from "../archive.ts";
 import { checkedFetch } from "#net";
-import { checkHttpUrl, isUriReference, resolveReference } from "../uri.ts";
+import { checkHttpUrl } from "../uri.ts";
 import { CONVENTION_KEY, declare, type Profile, stringifyJson } from "./common.ts";
 import type { StoreProfile } from "./ir/store.ts";
 import type { ArchiveDesc, EntryDesc } from "../writer.ts";
@@ -771,7 +771,7 @@ export async function openHttpStore(
       // the URL that answered, after redirects (a stand-in fetch may give none)
       const answered = r.url || link;
       const page = parseHubTree(new Uint8Array(await r.arrayBuffer()), repo.directory);
-      listed.push(...page.objects);
+      for (const o of page.objects) listed.push(o); // a page of any size reaches the limit check
       if (listed.length > maxObjects) throw new StoreLimitError(`the store lists more than ${maxObjects} objects`);
       link = nextLink(r.headers.get("Link"), answered, repo.endpoint);
       // a page that lists nothing could be followed forever
@@ -789,7 +789,7 @@ export async function openHttpStore(
   for (;;) {
     const r = await list(hostRule("listing_url", { endpoint, prefix, token: token ?? null }));
     const listing = parseListing(new Uint8Array(await r.arrayBuffer()), prefix);
-    listed.push(...listing.objects);
+    for (const o of listing.objects) listed.push(o);
     if (listed.length > maxObjects) throw new StoreLimitError(`the store lists more than ${maxObjects} objects`);
     token = listing.token;
     if (token === undefined) break;
