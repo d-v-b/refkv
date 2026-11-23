@@ -221,8 +221,8 @@ class VZipWriter:
             if r.data is None:
                 parts.append((r.source, r.offset, r.length, self._crc(r)))
             elif r.crc32c is not None:
-                raise ValueError(f"literal range of {key!r} with a crc32c (spec §7 "
-                                 "<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>)")
+                raise ValueError(
+                    f"literal range of {key!r} with a crc32c (spec §7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>)")
             else:
                 parts.append(bytes(r.data))
         self._w.add_ranges(key, parts)
