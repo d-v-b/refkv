@@ -36,7 +36,7 @@
     "header": {"kind": "value", "type": "the header as one record, a field per field of spec/zarrify/nifti.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#2-the-header> in its order: numbers Ei2, Ei4, Ei8, u1, Ef4, Ef8 (arrays for T[k]), text cstr[k]", "extent": "(0, L)"},
     "extender": {"kind": "value", "type": "u1[4]", "extent": "(L, 4)"},
     "extensions/<i>": {"kind": "value", "type": "{esize:Ei4,ecode:Ei4,data:cstr[d]} for a text ecode (4, 6, 8, 32, 44), {esize:Ei4,ecode:Ei4,data:bytes[d]} otherwise, {esize:Ei4,ecode:Ei4} when d is 0 (d = esize - 8)", "extent": "the extension, when the extender's first byte is not 0, in chain order"},
-    "voxels": {"kind": "data", "form": "{geometry: {data_type, samples}, codec: {endian}, recipe: [[src, 0, null]]}; of a gzipped file, codec: {encoding: gzip, endian, skip: v}", "extent": "(v, B); of a gzipped file, the whole file, and no other element"},
+    "voxels": {"kind": "data", "form": "{geometry: {datatype, samples}, codec: {endian}, recipe: [[src, 0, null]]}; of a gzipped file, codec: {encoding: gzip, endian, skip: v}", "extent": "(v, B); of a gzipped file, the whole file, and no other element"},
     "gaps/<offset>": {"kind": "gap", "about": "padding, bytes the chain does not hold, bytes after the voxel data; of a header-and-image pair, whose elements lie in the objects of a store IR, the bytes after the chain, and those before and after the voxels"}
   },
   "roles": {

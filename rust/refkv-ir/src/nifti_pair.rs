@@ -153,7 +153,10 @@ impl NiftiPair {
         }
         let spec = &self.rules.table("datatypes")[h.get("datatype").i().to_string()];
         let endian = if h.little { "little" } else { "big" };
-        let form = json!({"geometry": {"data_type": spec["dtype"], "samples": spec["samples"]}, "codec": {"endian": endian},
+        // its type as the header's `datatype` code gives it, not an output's data type, which is
+        // its projection's (conventions §8.5
+        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)
+        let form = json!({"geometry": {"datatype": h.get("datatype").i(), "samples": spec["samples"]}, "codec": {"endian": endian},
                           "recipe": [["src", 0, null]]});
         let voxels = ir.data(image_file, "voxels", NO_INDEX, 0, (self.vox, self.total), &form.to_string())?;
         let after = self.vox + self.total;

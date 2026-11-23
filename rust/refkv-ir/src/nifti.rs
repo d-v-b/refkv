@@ -123,12 +123,11 @@ pub fn header(raw: &[u8], version: u8) -> Header<'_> {
 }
 
 /// What the checks of a header give (spec/zarrify/nifti.md §7.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#71-header>): its length, its fields, the voxels' data type and samples, the voxel offset, and the voxel data's size;
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#71-header>): its length, its fields, the voxels' samples, the voxel offset, and the voxel data's size;
 /// and, for the voxels' description, the sizes of the header's `n` dimensions in its order and the bits of a voxel.
 pub(crate) struct Checked<'a> {
     pub length: u64,
     pub h: Header<'a>,
-    pub dtype: String,
     pub samples: u64,
     pub vox: u64,
     pub total: u128,
@@ -173,9 +172,8 @@ pub(crate) fn check_header<'a>(rules: &Rules, got: &'a [u8], version: u8, size: 
         rules::env([("vox", num(vox)), ("integral", flag(integral)), ("shown", text(&shown)), ("first", num(first(length) as f64))]),
     )?;
     let total = sizes[1..6].iter().fold(bits as u128 / 8, |a, &s| a.saturating_mul(s as u128));
-    let dtype = spec["dtype"].as_str().unwrap_or("uint8").to_string();
     let dims = sizes[1..=n as usize].iter().map(|&s| s as u64).collect();
-    Ok(Checked { length, h, dtype, samples, vox: vox as u64, total, dims, bits })
+    Ok(Checked { length, h, samples, vox: vox as u64, total, dims, bits })
 }
 
 /// The extensions in `block`, which starts at offset `q` of the object `parent` (spec/zarrify/nifti.md §5
@@ -325,7 +323,7 @@ impl Nifti {
     fn head(&mut self, got: &[u8], isize: Option<u32>) -> Res<()> {
         let version = detect(got).ok_or("not a NIfTI-1 or NIfTI-2 single file")?;
         let size = if isize.is_some() { got.len() as u64 } else { self.size };
-        let Checked { length, h, dtype, samples, vox, total, dims, bits } = check_header(self.rules, got, version, size, |length| length + 4)?;
+        let Checked { length, h, samples, vox, total, dims, bits } = check_header(self.rules, got, version, size, |length| length + 4)?;
         self.rules.check(
             "voxel_data",
             rules::env([
@@ -348,7 +346,10 @@ impl Nifti {
                 ]),
             )?;
             let endian = if h.little { "little" } else { "big" };
-            let form = json!({"geometry": {"data_type": dtype, "samples": samples},
+            // its type as the header's `datatype` code gives it, not an output's data type, which is
+            // its projection's (conventions §8.5
+            // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)
+            let form = json!({"geometry": {"datatype": h.get("datatype").i(), "samples": samples},
                               "codec": {"encoding": "gzip", "endian": endian, "skip": vox},
                               "recipe": [["src", 0, null]]});
             let voxels = self.ir.data(0, "voxels", NO_INDEX, 0, (0, self.size), &form.to_string())?;
@@ -365,7 +366,10 @@ impl Nifti {
         let header = self.ir.value(0, "header", NO_INDEX, &h.record_type(), 0, (0, length), Some(h.raw))?;
         let extender = self.ir.value(0, "extender", NO_INDEX, "u1[4]", 0, (length, 4), Some(&ext))?;
         let endian = if h.little { "little" } else { "big" };
-        let form = json!({"geometry": {"data_type": dtype, "samples": samples}, "codec": {"endian": endian},
+        // its type as the header's `datatype` code gives it, not an output's data type, which is
+        // its projection's (conventions §8.5
+        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)
+        let form = json!({"geometry": {"datatype": h.get("datatype").i(), "samples": samples}, "codec": {"endian": endian},
                           "recipe": [["src", 0, null]]});
         let voxels = self.ir.data(0, "voxels", NO_INDEX, 0, (vox, total as u64), &form.to_string())?;
         let description = describe(&h, version, Some(&ext), (vox, total as u64), json!({"header": header, "extender": extender, "voxels": voxels}), None);

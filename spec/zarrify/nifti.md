@@ -406,7 +406,7 @@ name index ([conventions §8.1](../conventions.md#81-elements)). Types are those
 | `header` | value | record | `(0, L)`: the header as one record, a field per field of [§2](#2-the-header) in its order and named as there: `Ei2`, `Ei4`, `Ei8`, `u1`, `Ef4` or `Ef8` for its type (`[k]` for `T[k]`), and `cstr[k]` for `char[k]` |
 | `extender` | value | `u1[4]` | `(L, 4)`: the extender bytes |
 | `extensions/<i>` | value | record | extension `i` of the chain, when the extender's first byte is not 0: `{esize:Ei4,ecode:Ei4,data:cstr[d]}` for the ecodes of text extensions, 4 (AFNI, XML), 6 (comment), 8 (XCEDE, XML), 32 (CIFTI, XML) and 44 (MRS, JSON), `{esize:Ei4,ecode:Ei4,data:bytes[d]}` for the others, and `{esize:Ei4,ecode:Ei4}` when `d` is 0, `d = esize − 8` |
-| `voxels` | data | | `(v, B)`: the voxel data; its form's geometry is `{"data_type": D, "samples": s}` ([§3](#3-data-types)), its codec `{"endian": "little" \| "big"}`, and its recipe `[["src", 0, null]]` |
+| `voxels` | data | | `(v, B)`: the voxel data; its form's geometry is `{"datatype": c, "samples": s}` ([§3](#3-data-types)), `c` the header's `datatype` code, in place of a data type (an output's data type is its projection's, [conventions §8.5](../conventions.md#85-forms-and-recipes)), its codec `{"endian": "little" \| "big"}`, and its recipe `[["src", 0, null]]` |
 | `gaps/<offset>` | gap | | bytes no other element claims: padding, bytes the chain does not hold before the voxel data, and bytes after it |
 
 **The chain.** The first extension starts at `q = L + 4`; while `q + 8 ≤ v`,
