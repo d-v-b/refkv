@@ -253,7 +253,7 @@ Paths are relative to the IR's root, whose path is `""`
 | `""` | struct | | the root: the whole file, `(0, size)` |
 | `length` | value | `<u8` | `N`, `(0, 8)` |
 | `header` | value | `ascii[N]` | the header, `(8, N)`, when `N > 0` |
-| `tensors/<i>` | data | | the data of the header's tensor `i` (from 0, in the header's order), `(8 + N + begin, B)`, when `B > 0`; its form's geometry is `{"data_type": D, "shape": S, "bits": k}` (`D` the Zarr data type, `S` the shape), its codec `{"endian": "little" \| null}` (`null` when `k ≤ 8`), and its recipe `[["src", 0, null]]` |
+| `tensors/<i>` | data | | the data of the header's tensor `i` (from 0, in the header's order), `(8 + N + begin, B)`, when `B > 0`; its form is its recipe alone, `{"recipe": [["src", 0, null]]}`: its type and shape are its header entry's, and an output's data type and codec are its projection's ([conventions §8.5](../conventions.md#85-forms-and-recipes)) |
 
 The view ([conventions §8.7](../conventions.md#87-the-view)) shows the values its rules
 show: the length, and the header when it is at most 1024 bytes; not the data. A parser reads
