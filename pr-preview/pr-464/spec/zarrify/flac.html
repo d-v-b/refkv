@@ -1,0 +1,2061 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../../genindex.html"><link rel="search" title="Search" href="../../search.html"><link rel="next" title="FLAC" href="../../docs/zarrify/flac/README.html"><link rel="prev" title="FITS: stored arrays" href="fits/stored-arrays.html">
+        <link rel="canonical" href="https://d-v-b.github.io/refkv/spec/zarrify/flac.html">
+
+    <!-- Generated with Sphinx 9.1.1 and Furo 2025.12.19 -->
+        <title>FLAC - refkv</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="../../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../../README.html"><div class="brand">refkv</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../../README.html">
+  
+  <span class="sidebar-brand-text">refkv</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/README.html">refkv documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/adding-a-format.html">Adding a file format</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/build.html">Building an output from the IR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/combining-stores.html">Combining stores</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/layout-plugins.html">Writing a layout plugin</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/tiff-stack.html">A stack of TIFF files as one array</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/virtual-datasets.html">Virtual datasets with xarray</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Specification</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../TECHNIQUES.html">Mapping image formats to Zarr: techniques</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../conventions.html">refkv’s Zarr conventions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../layout.html">Layouts written by plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../provenance.html">refkv’s provenance convention</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../refkv.html">refkv: a reference value type for key-value stores</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../refkv.html#part-1-reference-values">Part 1. Reference values</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../stored-array.html">Stored arrays in the IR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../zarrify.html">Zarrifying files and stores as Zarr in refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/phkv.html">phkv: the perfect-hash binding of refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/phkv.html#part-3-the-perfect-hash-binding">Part 3. The perfect-hash binding</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/vzip.html">vzip: the ZIP binding of refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/vzip.html#part-2-the-zip-binding">Part 2. The ZIP binding</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Formats</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="czi.html">CZI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="czi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="czi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/czi/README.html">CZI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="czi/stored-arrays.html">CZI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="dicom.html">DICOM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dicom.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="dicom.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/dicom/README.html">DICOM, including whole-slide images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dicom/stored-arrays.html">DICOM: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="envi.html">ENVI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="envi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="envi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/envi/README.html">ENVI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="envi/stored-arrays.html">ENVI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="fits.html">FITS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fits.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="fits.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/fits/README.html">FITS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="fits/stored-arrays.html">FITS: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">FLAC</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-5" name="toctree-checkbox-5" role="switch" type="checkbox"/><label for="toctree-checkbox-5"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/flac/README.html">FLAC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="flac/stored-arrays.html">FLAC: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="grib.html">GRIB</a></li>
+<li class="toctree-l1"><a class="reference internal" href="grib.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="grib.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-6" name="toctree-checkbox-6" role="switch" type="checkbox"/><label for="toctree-checkbox-6"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/grib/README.html">GRIB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="grib/stored-arrays.html">GRIB: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="h5j.html">H5J</a></li>
+<li class="toctree-l1"><a class="reference internal" href="h5j.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="h5j.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-7" name="toctree-checkbox-7" role="switch" type="checkbox"/><label for="toctree-checkbox-7"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/h5j/README.html">H5J</a></li>
+<li class="toctree-l2"><a class="reference internal" href="h5j/stored-arrays.html">H5J: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="hdf4.html">HDF4</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hdf4.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="hdf4.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-8" name="toctree-checkbox-8" role="switch" type="checkbox"/><label for="toctree-checkbox-8"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/hdf4/README.html">HDF4 and HDF-EOS2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="hdf4/stored-arrays.html">HDF4: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="hdf5.html">HDF5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hdf5.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="hdf5.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-9" name="toctree-checkbox-9" role="switch" type="checkbox"/><label for="toctree-checkbox-9"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/hdf5/README.html">HDF5 and NWB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="hdf5/stored-arrays.html">HDF5: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ims.html">IMS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ims.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ims.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-10" name="toctree-checkbox-10" role="switch" type="checkbox"/><label for="toctree-checkbox-10"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/ims/README.html">Imaris IMS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ims/stored-arrays.html">IMS: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="lif.html">LIF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lif.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="lif.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-11" name="toctree-checkbox-11" role="switch" type="checkbox"/><label for="toctree-checkbox-11"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/lif/README.html">LIF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lif/stored-arrays.html">LIF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="mp3.html">MP3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mp3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mp3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-12" name="toctree-checkbox-12" role="switch" type="checkbox"/><label for="toctree-checkbox-12"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/mp3/README.html">MP3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mp3/stored-arrays.html">MP3: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="mp4.html">MP4</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mp4.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mp4.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-13" name="toctree-checkbox-13" role="switch" type="checkbox"/><label for="toctree-checkbox-13"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/mp4/README.html">MP4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mp4/stored-arrays.html">MP4: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="mrc.html">MRC</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mrc.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mrc.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-14" name="toctree-checkbox-14" role="switch" type="checkbox"/><label for="toctree-checkbox-14"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/mrc/README.html">MRC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mrc/stored-arrays.html">MRC: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mrc-dataset.html">MRC as a dataset</a><input aria-label="Toggle navigation of MRC as a dataset" class="toctree-checkbox" id="toctree-checkbox-15" name="toctree-checkbox-15" role="switch" type="checkbox"/><label for="toctree-checkbox-15"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul class="simple">
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="n5.html">N5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="n5.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="n5.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-16" name="toctree-checkbox-16" role="switch" type="checkbox"/><label for="toctree-checkbox-16"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/n5/README.html">N5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="n5/stored-arrays.html">N5: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="nd2.html">ND2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nd2.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="nd2.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-17" name="toctree-checkbox-17" role="switch" type="checkbox"/><label for="toctree-checkbox-17"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/nd2/README.html">Nikon ND2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nd2/stored-arrays.html">ND2: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ndpi.html">NDPI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ndpi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ndpi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-18" name="toctree-checkbox-18" role="switch" type="checkbox"/><label for="toctree-checkbox-18"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/ndpi/README.html">Hamamatsu NDPI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ndpi/stored-arrays.html">NDPI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="netcdf3.html">netCDF3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="netcdf3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="netcdf3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-19" name="toctree-checkbox-19" role="switch" type="checkbox"/><label for="toctree-checkbox-19"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/netcdf3/README.html">netCDF3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="netcdf3/stored-arrays.html">netCDF3: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="nifti.html">NIfTI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nifti.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="nifti.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-20" name="toctree-checkbox-20" role="switch" type="checkbox"/><label for="toctree-checkbox-20"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/nifti/README.html">NIfTI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nifti/stored-arrays.html">NIfTI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="npy.html">NumPy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="npy.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="npy.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-21" name="toctree-checkbox-21" role="switch" type="checkbox"/><label for="toctree-checkbox-21"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/npy/README.html">NumPy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="npy/stored-arrays.html">NumPy: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="nrrd.html">NRRD</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nrrd.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="nrrd.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-22" name="toctree-checkbox-22" role="switch" type="checkbox"/><label for="toctree-checkbox-22"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/nrrd/README.html">NRRD</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nrrd/stored-arrays.html">NRRD: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ome-zarr.html">OME-Zarr</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ome-zarr.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ome-zarr.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-23" name="toctree-checkbox-23" role="switch" type="checkbox"/><label for="toctree-checkbox-23"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/ome-zarr/README.html">OME-Zarr 0.4 to 0.5, in place</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ome-zarr/stored-arrays.html">OME-Zarr: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="precomputed.html">Neuroglancer precomputed</a></li>
+<li class="toctree-l1"><a class="reference internal" href="precomputed.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="precomputed.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-24" name="toctree-checkbox-24" role="switch" type="checkbox"/><label for="toctree-checkbox-24"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/precomputed/README.html">Neuroglancer precomputed</a></li>
+<li class="toctree-l2"><a class="reference internal" href="precomputed/stored-arrays.html">Neuroglancer precomputed: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="qptiff.html">QPTIFF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="qptiff.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="qptiff.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-25" name="toctree-checkbox-25" role="switch" type="checkbox"/><label for="toctree-checkbox-25"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/qptiff/README.html">Akoya QPTIFF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="qptiff/stored-arrays.html">QPTIFF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="safe.html">SAFE</a></li>
+<li class="toctree-l1"><a class="reference internal" href="safe.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="safe.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-26" name="toctree-checkbox-26" role="switch" type="checkbox"/><label for="toctree-checkbox-26"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/safe/README.html">Sentinel-2 SAFE</a></li>
+<li class="toctree-l2"><a class="reference internal" href="safe/stored-arrays.html">SAFE: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="safetensors.html">safetensors</a></li>
+<li class="toctree-l1"><a class="reference internal" href="safetensors.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="safetensors.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-27" name="toctree-checkbox-27" role="switch" type="checkbox"/><label for="toctree-checkbox-27"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/safetensors/README.html">safetensors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="safetensors/stored-arrays.html">safetensors: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="tiff.html">TIFF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tiff.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="tiff.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-28" name="toctree-checkbox-28" role="switch" type="checkbox"/><label for="toctree-checkbox-28"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/tiff/README.html">TIFF, OME-TIFF and Aperio SVS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tiff/stored-arrays.html">TIFF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="vsi.html">VSI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="vsi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="vsi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-29" name="toctree-checkbox-29" role="switch" type="checkbox"/><label for="toctree-checkbox-29"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/vsi/README.html">VSI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="vsi/stored-arrays.html">VSI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarr2.html">Zarr v2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarr2.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarr2.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-30" name="toctree-checkbox-30" role="switch" type="checkbox"/><label for="toctree-checkbox-30"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/zarr2/README.html">Zarr v2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarr2/stored-arrays.html">Zarr v2: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarr3.html">Zarr v3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarr3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarr3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-31" name="toctree-checkbox-31" role="switch" type="checkbox"/><label for="toctree-checkbox-31"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/zarr3/README.html">Zarr v3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarr3/stored-arrays.html">Zarr v3: stored arrays</a></li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/d-v-b/refkv/edit/main/spec/zarrify/flac.md" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="flac">
+<h1>FLAC<a class="headerlink" href="#flac" title="Link to this heading">¶</a></h1>
+<p>The Zarr layout of a FLAC file (Free Lossless Audio Codec, <code class="docutils literal notranslate"><span class="pre">.flac</span></code>,
+<a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9639">RFC 9639</a>), and the translation of
+its metadata blocks and tags into JSON. What all of refkv’s conventions share
+is in <a class="reference internal" href="../conventions.html"><span class="std std-doc">spec/conventions.md</span></a>, cited here as “conventions
+§n”. How refkv produces this layout as a reference store, and which files it
+accepts, is the FLAC profile, <a class="reference internal" href="#part-2-the-profile">Part 2</a> below.</p>
+<p>Convention version: 0 (until release, <a class="reference internal" href="../conventions.html#conventions"><span class="std std-ref">conventions §1</span></a>) · UUID: <code class="docutils literal notranslate"><span class="pre">e9108d07-b24b-432f-a8ce-09d80c8073b4</span></code> ·
+Schema: <a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac/schema.json">schema.json</a></p>
+<p>Changes: <a class="reference external" href="https://github.com/d-v-b/refkv/tree/main/spec/zarrify/changes/flac">changes/flac/</a>, one file per change.</p>
+<p>Added 2026-10-25.</p>
+<p>This document has two parts (<a class="reference internal" href="../conventions.html#parts"><span class="std std-ref">conventions §11.1</span></a>).</p>
+<p>Like MP3’s, the hierarchy holds decoded audio, with no OME-NGFF metadata.
+The samples stay in the file as FLAC frames; the array’s codecs decode them
+when a chunk is read. FLAC is lossless: the array holds the recording’s own
+integer samples, exactly.</p>
+</section>
+<section id="part-1-the-convention">
+<h1>Part 1. The convention<a class="headerlink" href="#part-1-the-convention" title="Link to this heading">¶</a></h1>
+<section id="layout">
+<h2>Layout<a class="headerlink" href="#layout" title="Link to this heading">¶</a></h2>
+<p>The hierarchy’s entries (<a class="reference internal" href="../conventions.html#layout-tables"><span class="std std-ref">conventions §11.5</span></a>):</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>prefix</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>structure</p></th>
+<th class="head"><p>description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json</span></code></p></td>
+<td><p>group</p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-groupdocument"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">GroupDocument</span></code></span></a>, its attributes a <a class="reference internal" href="../conventions.html#type-declaration"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Declaration</span></code></span></a> and nothing else</p></td>
+<td><p>the root (<a class="reference internal" href="#the-layout">§4</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/zarr_conventions</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p>array of <a class="reference internal" href="../conventions.html#type-conventionmetadata"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">ConventionMetadata</span></code></span></a></p></td>
+<td><p>the CMO of <a class="reference internal" href="#declaration">§1</a></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/refkv_zarrified</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-rootproperty"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">RootProperty</span></code></span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">profile</span></code> <code class="docutils literal notranslate"><span class="pre">&quot;flac&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">version</span></code> <code class="docutils literal notranslate"><span class="pre">0</span></code>, <code class="docutils literal notranslate"><span class="pre">source.url</span></code> the file’s URL</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/refkv_zarrified/flac</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="#type-flacroot"><code class="docutils literal notranslate"><span class="pre">FlacRoot</span></code></a></p></td>
+<td><p>the root’s source metadata (<a class="reference internal" href="#the-root">§5.1</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">samples/zarr.json</span></code></p></td>
+<td><p>array</p></td>
+<td><p><a class="reference internal" href="#type-flacarray"><code class="docutils literal notranslate"><span class="pre">FlacArray</span></code></a></p></td>
+<td><p>the decoded samples, a sharded array (<a class="reference internal" href="#the-array">§4.1</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">samples/c/&lt;q&gt;/0</span></code></p></td>
+<td><p>chunk</p></td>
+<td><p>a <a class="reference internal" href="../zarrify.html#type-shard"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Shard</span></code></span></a> of <a class="reference internal" href="#type-flacinnerchunk"><code class="docutils literal notranslate"><span class="pre">FlacInnerChunk</span></code></a>s</p></td>
+<td><p>every shard of the array, a run of <code class="docutils literal notranslate"><span class="pre">F</span></code> frames (<a class="reference internal" href="#shards">§8.2</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pictures/zarr.json</span></code></p></td>
+<td><p>group</p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-groupdocument"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">GroupDocument</span></code></span></a>, attributes <code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+<td><p>present only when some PICTURE block’s data is not empty (<a class="reference internal" href="#the-pictures">§4.2</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pictures/&lt;i&gt;/zarr.json</span></code></p></td>
+<td><p>array</p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-sourcearray"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">SourceArray</span></code></span></a>, of the <a class="reference internal" href="../conventions.html#type-bytes"><span class="std std-ref">bytes</span></a> form</p></td>
+<td><p>the data of the <code class="docutils literal notranslate"><span class="pre">i</span></code>-th PICTURE block, when not empty (<a class="reference internal" href="#the-pictures">§4.2</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pictures/&lt;i&gt;/c/&lt;k&gt;</span></code></p></td>
+<td><p>chunk</p></td>
+<td><p><a class="reference internal" href="#type-flacpicturechunk"><code class="docutils literal notranslate"><span class="pre">FlacPictureChunk</span></code></a></p></td>
+<td><p>every chunk of a picture’s array (<a class="reference internal" href="#shards">§8.2</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">refkv_source/**</span></code></p></td>
+<td><p>subtree</p></td>
+<td><p><a class="reference internal" href="../conventions.html#table-mirror"><span class="std std-ref">the mirror’s entries</span></a></p></td>
+<td><p>the IR mirror (<a class="reference internal" href="#the-ir-mirror">§5.2</a>): its elements are <a class="reference internal" href="#elements">§5.3</a>’s</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>placeholder</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;q&gt;</span></code></p></td>
+<td><p>the shard’s index along <code class="docutils literal notranslate"><span class="pre">time</span></code>, in decimal, from 0 to <code class="docutils literal notranslate"><span class="pre">ceil(N</span> <span class="pre">/</span> <span class="pre">F)</span> <span class="pre">−</span> <span class="pre">1</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;i&gt;</span></code></p></td>
+<td><p>the index of a PICTURE block among the file’s PICTURE blocks, counted from 0, in decimal</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;k&gt;</span></code></p></td>
+<td><p>the chunk’s index along <code class="docutils literal notranslate"><span class="pre">byte</span></code>, in decimal</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="declaration">
+<span id="1-declaration"></span><h2>1. Declaration<a class="headerlink" href="#declaration" title="Link to this heading">¶</a></h2>
+<p>The root and <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> declare the convention
+(<a class="reference internal" href="../conventions.html#declaration"><span class="std std-ref">conventions §11.2</span></a>), the root with its source
+metadata of <a class="reference internal" href="#the-root">§5.1</a> as the member <code class="docutils literal notranslate"><span class="pre">&quot;flac&quot;</span></code>. Its CMO is:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"uuid"</span><span class="p">:</span><span class="w"> </span><span class="s2">"e9108d07-b24b-432f-a8ce-09d80c8073b4"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"schema_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/flac/schema.json"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"spec_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"refkv_zarrified"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"description"</span><span class="p">:</span><span class="w"> </span><span class="s2">"The Zarr layout of a FLAC source zarrified by refkv, and the source's metadata"</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>The root’s attributes are <code class="docutils literal notranslate"><span class="pre">zarr_conventions</span></code> and <code class="docutils literal notranslate"><span class="pre">refkv_zarrified</span></code> and
+nothing else. The arrays and the group <code class="docutils literal notranslate"><span class="pre">pictures</span></code> have no attributes.</p>
+</section>
+<section id="the-stream">
+<span id="2-the-stream"></span><h2>2. The stream<a class="headerlink" href="#the-stream" title="Link to this heading">¶</a></h2>
+<p>A FLAC stream (<a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9639#section-6">RFC 9639 §6</a>)
+is the 4-byte <strong>marker</strong> <code class="docutils literal notranslate"><span class="pre">fLaC</span></code>, then <strong>metadata blocks</strong>, then <strong>frames</strong>.
+All numbers are big-endian but the lengths of a Vorbis comment block, which
+are little-endian.</p>
+<p><strong>Metadata blocks</strong> (<a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9639#section-8">RFC 9639 §8</a>).
+Each is a 4-byte header, then its <strong>body</strong>: bit 7 of the header’s first byte is
+set on the last block, its other 7 bits are the block’s <strong>type</strong>, and the next
+3 bytes are the body’s length <code class="docutils literal notranslate"><span class="pre">n</span></code>. The types:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>type</p></th>
+<th class="head"><p>block</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>0</p></td>
+<td><p>STREAMINFO</p></td>
+</tr>
+<tr class="row-odd"><td><p>1</p></td>
+<td><p>PADDING</p></td>
+</tr>
+<tr class="row-even"><td><p>2</p></td>
+<td><p>APPLICATION</p></td>
+</tr>
+<tr class="row-odd"><td><p>3</p></td>
+<td><p>SEEKTABLE</p></td>
+</tr>
+<tr class="row-even"><td><p>4</p></td>
+<td><p>VORBIS_COMMENT</p></td>
+</tr>
+<tr class="row-odd"><td><p>5</p></td>
+<td><p>CUESHEET</p></td>
+</tr>
+<tr class="row-even"><td><p>6</p></td>
+<td><p>PICTURE</p></td>
+</tr>
+<tr class="row-odd"><td><p>7 to 126</p></td>
+<td><p>reserved</p></td>
+</tr>
+<tr class="row-even"><td><p>127</p></td>
+<td><p>forbidden</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The first block is STREAMINFO, whose body is 34 bytes, these fields in order:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>field</p></th>
+<th class="head"><p>size</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>the minimum block size</p></td>
+<td><p>16 bits</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p>the maximum block size</p></td>
+<td><p>16 bits</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p>the minimum frame size</p></td>
+<td><p>24 bits</p></td>
+<td><p>0: unknown</p></td>
+</tr>
+<tr class="row-odd"><td><p>the maximum frame size</p></td>
+<td><p>24 bits</p></td>
+<td><p>0: unknown</p></td>
+</tr>
+<tr class="row-even"><td><p>the sample rate</p></td>
+<td><p>20 bits</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p>the channel count less 1</p></td>
+<td><p>3 bits</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p>the bits per sample less 1</p></td>
+<td><p>5 bits</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p>the total samples per channel</p></td>
+<td><p>36 bits</p></td>
+<td><p>0: unknown</p></td>
+</tr>
+<tr class="row-even"><td><p>the MD5 of the samples</p></td>
+<td><p>16 bytes</p></td>
+<td><p>all 0: unknown</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A SEEKTABLE body is seek points of 18 bytes, each these fields:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>field</p></th>
+<th class="head"><p>size</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>a sample number</p></td>
+<td><p>64 bits</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">FFFFFFFFFFFFFFFF</span></code> for a placeholder</p></td>
+</tr>
+<tr class="row-odd"><td><p>an offset</p></td>
+<td><p>64 bits</p></td>
+<td><p>the offset of the frame holding it from the first frame</p></td>
+</tr>
+<tr class="row-even"><td><p>a sample count</p></td>
+<td><p>16 bits</p></td>
+<td><p>that frame’s sample count</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A VORBIS_COMMENT body is a vendor string and a list of fields (<code class="docutils literal notranslate"><span class="pre">NAME=value</span></code>),
+each preceded by its 32-bit length, the list by its count. A CUESHEET body, a track and an
+index point are these fields, in order:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>part</p></th>
+<th class="head"><p>field</p></th>
+<th class="head"><p>size</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>the body</p></td>
+<td><p>a media catalog number</p></td>
+<td><p>128 bytes</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p>the body</p></td>
+<td><p>the lead-in samples</p></td>
+<td><p>64 bits</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p>the body</p></td>
+<td><p>a flags byte</p></td>
+<td><p>1 byte</p></td>
+<td><p>bit 7: a CD</p></td>
+</tr>
+<tr class="row-odd"><td><p>the body</p></td>
+<td><p>reserved</p></td>
+<td><p>258 bytes</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p>the body</p></td>
+<td><p>the track count</p></td>
+<td><p>1 byte</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p>the body</p></td>
+<td><p>the tracks</p></td>
+<td><p></p></td>
+<td><p>each a track</p></td>
+</tr>
+<tr class="row-even"><td><p>a track</p></td>
+<td><p>an offset</p></td>
+<td><p>64 bits</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p>a track</p></td>
+<td><p>a number</p></td>
+<td><p>1 byte</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p>a track</p></td>
+<td><p>an ISRC</p></td>
+<td><p>12 bytes</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p>a track</p></td>
+<td><p>a flags byte</p></td>
+<td><p>1 byte</p></td>
+<td><p>bit 7: not audio; bit 6: pre-emphasis</p></td>
+</tr>
+<tr class="row-even"><td><p>a track</p></td>
+<td><p>reserved</p></td>
+<td><p>13 bytes</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p>a track</p></td>
+<td><p>the index point count</p></td>
+<td><p>1 byte</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p>a track</p></td>
+<td><p>the index points</p></td>
+<td><p></p></td>
+<td><p>each an index point</p></td>
+</tr>
+<tr class="row-odd"><td><p>an index point</p></td>
+<td><p>an offset</p></td>
+<td><p>64 bits</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p>an index point</p></td>
+<td><p>a number</p></td>
+<td><p>1 byte</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p>an index point</p></td>
+<td><p>reserved</p></td>
+<td><p>3 bytes</p></td>
+<td><p></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A PICTURE body is these fields, in order:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>field</p></th>
+<th class="head"><p>size</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>the picture type</p></td>
+<td><p>32 bits</p></td>
+</tr>
+<tr class="row-odd"><td><p>the media type’s length, then the media type</p></td>
+<td><p>32 bits, then that many bytes</p></td>
+</tr>
+<tr class="row-even"><td><p>the description’s length, then the description</p></td>
+<td><p>32 bits, then that many bytes</p></td>
+</tr>
+<tr class="row-odd"><td><p>the width</p></td>
+<td><p>32 bits</p></td>
+</tr>
+<tr class="row-even"><td><p>the height</p></td>
+<td><p>32 bits</p></td>
+</tr>
+<tr class="row-odd"><td><p>the color depth</p></td>
+<td><p>32 bits</p></td>
+</tr>
+<tr class="row-even"><td><p>the indexed colors</p></td>
+<td><p>32 bits</p></td>
+</tr>
+<tr class="row-odd"><td><p>the picture data’s length, then the picture data</p></td>
+<td><p>32 bits, then that many bytes</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An APPLICATION body is a 4-byte ID and its data.</p>
+<p><strong>Frames</strong> (<a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9639#section-9">RFC 9639 §9</a>).
+A frame is a header, one subframe per channel, zero bits up to a byte
+boundary, and a 16-bit CRC. The header’s fields, in order:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>field</p></th>
+<th class="head"><p>size</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>the sync code and the <strong>blocking strategy</strong></p></td>
+<td><p>16 bits</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">FF</span> <span class="pre">F8</span></code>, with the blocking strategy in bit 0 of its second byte (<code class="docutils literal notranslate"><span class="pre">F9</span></code>: a variable block size)</p></td>
+</tr>
+<tr class="row-odd"><td><p>the block size code</p></td>
+<td><p>4 bits</p></td>
+<td><p>below</p></td>
+</tr>
+<tr class="row-even"><td><p>the sample rate code</p></td>
+<td><p>4 bits</p></td>
+<td><p>below</p></td>
+</tr>
+<tr class="row-odd"><td><p>the channel assignment</p></td>
+<td><p>4 bits</p></td>
+<td><p>0 to 7 for 1 to 8 independent channels, 8 to 10 for two coded as left-side, side-right or mid-side; 11 to 15 reserved</p></td>
+</tr>
+<tr class="row-even"><td><p>the bit depth code</p></td>
+<td><p>3 bits</p></td>
+<td><p>below; 3 reserved</p></td>
+</tr>
+<tr class="row-odd"><td><p>a reserved bit</p></td>
+<td><p>1 bit</p></td>
+<td><p>0</p></td>
+</tr>
+<tr class="row-even"><td><p>the <strong>coded number</strong></p></td>
+<td><p>up to 7 bytes</p></td>
+<td><p>a frame number in a fixed block size stream (the frames before it) and a sample number in a variable one, coded as UTF-8 is but up to 7 bytes</p></td>
+</tr>
+<tr class="row-odd"><td><p>the block size</p></td>
+<td><p>8 or 16 bits</p></td>
+<td><p>when its code says so</p></td>
+</tr>
+<tr class="row-even"><td><p>the sample rate</p></td>
+<td><p>8 or 16 bits</p></td>
+<td><p>when its code says so</p></td>
+</tr>
+<tr class="row-odd"><td><p>the <strong>CRC-8</strong></p></td>
+<td><p>8 bits</p></td>
+<td><p>of the header’s bytes before it (polynomial <code class="docutils literal notranslate"><span class="pre">x^8</span> <span class="pre">+</span> <span class="pre">x^2</span> <span class="pre">+</span> <span class="pre">x</span> <span class="pre">+</span> <span class="pre">1</span></code>, initial 0)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The codes give:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>code</p></th>
+<th class="head"><p>gives</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>block size 0</p></td>
+<td><p>reserved</p></td>
+</tr>
+<tr class="row-odd"><td><p>block size 1</p></td>
+<td><p>192</p></td>
+</tr>
+<tr class="row-even"><td><p>block size <code class="docutils literal notranslate"><span class="pre">v</span></code>, 2 to 5</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">144</span> <span class="pre">×</span> <span class="pre">2^v</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>block size 6 or 7</p></td>
+<td><p>the 8-bit (6) or 16-bit (7) value after the number, plus 1</p></td>
+</tr>
+<tr class="row-even"><td><p>block size <code class="docutils literal notranslate"><span class="pre">v</span></code>, 8 to 15</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">2^v</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>sample rate 0</p></td>
+<td><p>STREAMINFO’s</p></td>
+</tr>
+<tr class="row-even"><td><p>sample rate 12, 13 or 14</p></td>
+<td><p>the value after the number, in kHz (12), Hz (13) or tens of Hz (14)</p></td>
+</tr>
+<tr class="row-odd"><td><p>another sample rate code</p></td>
+<td><p>one of eleven rates</p></td>
+</tr>
+<tr class="row-even"><td><p>bit depth 0</p></td>
+<td><p>STREAMINFO’s</p></td>
+</tr>
+<tr class="row-odd"><td><p>another bit depth code</p></td>
+<td><p>8, 12, 16, 20, 24 or 32</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The footer’s <strong>CRC-16</strong> (polynomial
+<code class="docutils literal notranslate"><span class="pre">x^16</span> <span class="pre">+</span> <span class="pre">x^15</span> <span class="pre">+</span> <span class="pre">x^2</span> <span class="pre">+</span> <span class="pre">1</span></code>, initial 0) covers the frame’s bytes before it, so
+that the CRC-16 of the whole frame is 0. A frame’s header gives no length:
+its subframes end where their bits do.</p>
+<p>A frame decodes alone: unlike MP3’s or AAC’s, its samples depend on no other
+frame. Its <strong>block size</strong> <code class="docutils literal notranslate"><span class="pre">B</span></code> is the samples per channel it decodes to. In a
+<strong>fixed block size stream</strong> every frame but the last has the same block
+size, and the last may have fewer.</p>
+</section>
+<section id="tags">
+<span id="3-tags"></span><h2>3. Tags<a class="headerlink" href="#tags" title="Link to this heading">¶</a></h2>
+<p>FLAC has no tags of its own beyond its Vorbis comments, but other tools add
+MP3’s: <strong>ID3v2 tags</strong> at the start of the file, before <code class="docutils literal notranslate"><span class="pre">fLaC</span></code>, and an <strong>ID3v1
+tag</strong>, the last 128 bytes of the file when they start with <code class="docutils literal notranslate"><span class="pre">TAG</span></code>, measured
+as <a class="reference internal" href="mp3.html#tags"><span class="std std-ref">mp3.md §3</span></a> says. The convention does not decode an ID3v2
+tag’s frames.</p>
+</section>
+<section id="the-layout">
+<span id="4-the-layout"></span><h2>4. The layout<a class="headerlink" href="#the-layout" title="Link to this heading">¶</a></h2>
+<p>The hierarchy is a group at the root with an array at path <code class="docutils literal notranslate"><span class="pre">samples</span></code> and,
+when the file has PICTURE blocks with data, a group <code class="docutils literal notranslate"><span class="pre">pictures</span></code> of arrays:
+the root <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code> is <code class="docutils literal notranslate"><span class="pre">{&quot;zarr_format&quot;:</span> <span class="pre">3,</span> <span class="pre">&quot;node_type&quot;:</span> <span class="pre">&quot;group&quot;,</span> <span class="pre">&quot;attributes&quot;:</span> <span class="pre">A}</span></code>, where <code class="docutils literal notranslate"><span class="pre">A</span></code> has <code class="docutils literal notranslate"><span class="pre">zarr_conventions</span></code> and <code class="docutils literal notranslate"><span class="pre">refkv_zarrified</span></code>
+(<a class="reference internal" href="#declaration">§1</a>) and nothing else.</p>
+<section id="the-array">
+<span id="41-the-array"></span><h3>4.1 The array<a class="headerlink" href="#the-array" title="Link to this heading">¶</a></h3>
+<p>The stream’s frames are numbered from 0 in file order; <code class="docutils literal notranslate"><span class="pre">N</span></code> is their count,
+<code class="docutils literal notranslate"><span class="pre">B</span></code> the first frame’s block size, <code class="docutils literal notranslate"><span class="pre">C</span></code> the channel count, <code class="docutils literal notranslate"><span class="pre">b</span></code> the bits per
+sample and <code class="docutils literal notranslate"><span class="pre">T</span></code> the samples per channel, the frames’ block sizes summed. The
+array is a <strong>sharded</strong> array (<a class="reference internal" href="../zarrify.html#virtual-shards"><span class="std std-ref">spec/zarrify.md §2.1</span></a>):
+each frame is an <strong>inner chunk</strong>, and each run of <code class="docutils literal notranslate"><span class="pre">F</span></code> frames a <strong>shard</strong>,
+one key of the store. The <strong>inner chunk shape</strong> is <code class="docutils literal notranslate"><span class="pre">[B,</span> <span class="pre">C]</span></code>: inner chunk <code class="docutils literal notranslate"><span class="pre">j</span></code> is frame <code class="docutils literal notranslate"><span class="pre">j</span></code>.
+The <strong>shard shape</strong> is <code class="docutils literal notranslate"><span class="pre">[F,</span> <span class="pre">1]</span></code> inner chunks, with <strong><code class="docutils literal notranslate"><span class="pre">F</span> <span class="pre">=</span> <span class="pre">min(512,</span> <span class="pre">N)</span></code> frames per shard</strong>:
+shard <code class="docutils literal notranslate"><span class="pre">q</span></code>, at <code class="docutils literal notranslate"><span class="pre">samples/c/&lt;q&gt;/0</span></code>, holds the frames <code class="docutils literal notranslate"><span class="pre">q</span> <span class="pre">×</span> <span class="pre">F</span></code> to <code class="docutils literal notranslate"><span class="pre">min(N,</span> <span class="pre">(q</span> <span class="pre">+</span> <span class="pre">1)</span> <span class="pre">×</span> <span class="pre">F)</span> <span class="pre">−</span> <span class="pre">1</span></code>. The
+<strong>inner codecs</strong> are <code class="docutils literal notranslate"><span class="pre">[{&quot;name&quot;:</span> <span class="pre">&quot;refkv.stream&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;format&quot;:</span> <span class="pre">&quot;flac&quot;,</span> <span class="pre">&quot;setup&quot;:</span> <span class="pre">S}}]</span></code> (a <a class="reference internal" href="../conventions.html#type-streamconfiguration"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">StreamConfiguration</span></code></span></a>), where <code class="docutils literal notranslate"><span class="pre">S</span></code> is
+the base64 of the <strong>setup</strong>: <code class="docutils literal notranslate"><span class="pre">fLaC</span></code>, then the 4-byte header <code class="docutils literal notranslate"><span class="pre">80</span> <span class="pre">00</span> <span class="pre">00</span> <span class="pre">22</span></code> (the last block,
+STREAMINFO, 34 bytes), then the file’s STREAMINFO body
+(<a class="reference internal" href="../conventions.html#coded-streams"><span class="std std-ref">conventions §10</span></a>).</p>
+<p><span id="type-flacarray"></span><strong><code class="docutils literal notranslate"><span class="pre">FlacArray</span></code></strong>, the array’s <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code>: a
+<a class="reference internal" href="../zarrify.html#type-shardedarray"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">ShardedArray</span></code></span></a>, sharded as
+<a class="reference internal" href="../zarrify.html#virtual-shards"><span class="std std-ref">spec/zarrify.md §2.1</span></a> says, of an unsharded array that is
+otherwise <a class="reference internal" href="../conventions.html#arrays"><span class="std std-ref">conventions §3</span></a>’s
+(<a class="reference internal" href="../conventions.html#type-arraydocument"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">ArrayDocument</span></code></span></a>, its fill value 0); these are its
+members that differ from an <code class="docutils literal notranslate"><span class="pre">ArrayDocument</span></code>’s:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">shape</span></code></p></td>
+<td><p>array of integer</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[T,</span> <span class="pre">C]</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data_type</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;int8&quot;</span></code> when <code class="docutils literal notranslate"><span class="pre">b</span> <span class="pre">≤</span> <span class="pre">8</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;int16&quot;</span></code> when <code class="docutils literal notranslate"><span class="pre">b</span> <span class="pre">≤</span> <span class="pre">16</span></code>, else <code class="docutils literal notranslate"><span class="pre">&quot;int32&quot;</span></code>: the smallest signed integer that holds a sample</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">chunk_grid</span></code></p></td>
+<td><p>object</p></td>
+<td><p>required</p></td>
+<td><p>regular, its chunk shape the shard’s, <code class="docutils literal notranslate"><span class="pre">[F</span> <span class="pre">×</span> <span class="pre">B,</span> <span class="pre">C]</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">codecs</span></code></p></td>
+<td><p>array of object</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[{&quot;name&quot;:</span> <span class="pre">&quot;sharding_indexed&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;chunk_shape&quot;:</span> <span class="pre">[B,</span> <span class="pre">C],</span> <span class="pre">&quot;codecs&quot;:</span> <span class="pre">[the</span> <span class="pre">inner</span> <span class="pre">codecs],</span> <span class="pre">&quot;index_codecs&quot;:</span> <span class="pre">[{&quot;name&quot;:</span> <span class="pre">&quot;bytes&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;endian&quot;:</span> <span class="pre">&quot;little&quot;}},</span> <span class="pre">{&quot;name&quot;:</span> <span class="pre">&quot;crc32c&quot;}],</span> <span class="pre">&quot;index_location&quot;:</span> <span class="pre">&quot;end&quot;}}]</span></code>, its configuration a <a class="reference internal" href="../zarrify.html#type-shardingconfiguration"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">ShardingConfiguration</span></code></span></a></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dimension_names</span></code></p></td>
+<td><p>array of string</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[&quot;time&quot;,</span> <span class="pre">&quot;channel&quot;]</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">attributes</span></code></p></td>
+<td><p>object</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code> (<a class="reference internal" href="#declaration">§1</a>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Inner chunk <code class="docutils literal notranslate"><span class="pre">j</span></code> of the array, <code class="docutils literal notranslate"><span class="pre">[j</span> <span class="pre">×</span> <span class="pre">B,</span> <span class="pre">(j</span> <span class="pre">+</span> <span class="pre">1)</span> <span class="pre">×</span> <span class="pre">B)</span></code> along <code class="docutils literal notranslate"><span class="pre">time</span></code>, is
+frame <code class="docutils literal notranslate"><span class="pre">j</span></code> as a <code class="docutils literal notranslate"><span class="pre">refkv.stream</span></code> chunk of one frame
+(<a class="reference internal" href="../conventions.html#coded-streams"><span class="std std-ref">conventions §10</span></a>, a
+<a class="reference internal" href="#type-flacinnerchunk"><code class="docutils literal notranslate"><span class="pre">FlacInnerChunk</span></code></a>): the header <code class="docutils literal notranslate"><span class="pre">01</span></code>,
+the frame’s length as a varint and <code class="docutils literal notranslate"><span class="pre">02</span></code> (its position 0, less −1, as a
+zigzag varint), then the frame’s bytes. Its samples fill its first rows: the
+last frame’s, when it holds fewer than <code class="docutils literal notranslate"><span class="pre">B</span></code>, are followed by the fill value,
+past the array’s end. A shard is its frames’ inner chunks, one after the
+other, then the shard index, whose entries past the last frame (in the last
+shard only) are empty (<a class="reference internal" href="../zarrify.html#virtual-shards"><span class="std std-ref">spec/zarrify.md §2.1</span></a>, a
+<a class="reference internal" href="../zarrify.html#type-shard"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Shard</span></code></span></a>).</p>
+<p>So a reader that reads a few samples reads the shard index and the frames
+that hold them, and nothing else; the store holds one key per <code class="docutils literal notranslate"><span class="pre">F</span></code> frames.
+Since frames decode alone, no inner chunk needs another’s frames.</p>
+</section>
+<section id="the-pictures">
+<span id="42-the-pictures"></span><h3>4.2 The pictures<a class="headerlink" href="#the-pictures" title="Link to this heading">¶</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">pictures</span></code> group, <code class="docutils literal notranslate"><span class="pre">{&quot;zarr_format&quot;:</span> <span class="pre">3,</span> <span class="pre">&quot;node_type&quot;:</span> <span class="pre">&quot;group&quot;,</span> <span class="pre">&quot;attributes&quot;:</span> <span class="pre">{}}</span></code>, present only when some PICTURE block’s data is not
+empty, holds for the <code class="docutils literal notranslate"><span class="pre">i</span></code>-th PICTURE block of the file, counted from 0, whose
+picture data is not empty, the array <code class="docutils literal notranslate"><span class="pre">pictures/&lt;i&gt;</span></code>: the data, as <strong>bytes</strong>
+(<a class="reference internal" href="../conventions.html#source-values-as-arrays"><span class="std std-ref">conventions §7</span></a>: <code class="docutils literal notranslate"><span class="pre">uint8</span></code>,
+dimension <code class="docutils literal notranslate"><span class="pre">byte</span></code>; a <a class="reference internal" href="../conventions.html#type-sourcearray"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">SourceArray</span></code></span></a> of the
+<a class="reference internal" href="../conventions.html#type-bytes"><span class="std std-ref">bytes</span></a> form). Its fields are in <code class="docutils literal notranslate"><span class="pre">pictures</span></code> of <a class="reference internal" href="#the-root">§5.1</a>. A
+picture whose media type is <code class="docutils literal notranslate"><span class="pre">--&gt;</span></code> holds a URI, as text, in place of an image;
+its array holds the URI’s bytes.</p>
+</section>
+<section id="the-samples">
+<span id="43-the-samples"></span><h3>4.3 The samples<a class="headerlink" href="#the-samples" title="Link to this heading">¶</a></h3>
+<p>Sample <code class="docutils literal notranslate"><span class="pre">i</span></code> of channel <code class="docutils literal notranslate"><span class="pre">c</span></code> is the <code class="docutils literal notranslate"><span class="pre">i</span></code>th sample of channel <code class="docutils literal notranslate"><span class="pre">c</span></code> that a FLAC
+decoder (<a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9639">RFC 9639</a>) gives decoding the
+frames one after the other: an integer of <code class="docutils literal notranslate"><span class="pre">b</span></code> bits, the recording’s own, after
+the stereo decorrelation is undone, as a signed integer of the array’s data
+type. A decoder that gives the samples in the high bits of a wider integer
+(ffmpeg’s: a 24-bit sample in the top 24 bits of 32) is shifted back. FLAC is
+lossless, and decoding is exact: every conforming decoder gives these values,
+and STREAMINFO’s MD5, when it is not 0, is the MD5 of the array’s samples,
+interleaved, each little-endian in <code class="docutils literal notranslate"><span class="pre">ceil(b</span> <span class="pre">/</span> <span class="pre">8)</span></code> bytes, sign-extended
+(<a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9639#section-8.2">RFC 9639 §8.2</a>).</p>
+<p>The sample rate is <code class="docutils literal notranslate"><span class="pre">sample_rate</span></code> of <a class="reference internal" href="#the-root">§5.1</a>; sample <code class="docutils literal notranslate"><span class="pre">i</span></code> is at
+<code class="docutils literal notranslate"><span class="pre">i</span> <span class="pre">/</span> <span class="pre">sample_rate</span></code> seconds from the stream’s start.</p>
+</section>
+</section>
+<section id="source-metadata">
+<span id="5-source-metadata"></span><h2>5. Source metadata<a class="headerlink" href="#source-metadata" title="Link to this heading">¶</a></h2>
+<p>The root’s source metadata <code class="docutils literal notranslate"><span class="pre">S</span></code> (<a class="reference internal" href="../conventions.html#attributes"><span class="std std-ref">conventions §2</span></a>)
+is a <a class="reference internal" href="#type-flacroot"><code class="docutils literal notranslate"><span class="pre">FlacRoot</span></code></a>, an object with the members of <a class="reference internal" href="#the-root">§5.1</a>, in that order,
+translated by <a class="reference internal" href="../conventions.html#source-metadata-as-json"><span class="std std-ref">conventions §6</span></a>.
+Everything the file holds is on <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code>, the file’s <strong>IR mirror</strong>
+(<a class="reference internal" href="#the-ir-mirror">§5.2</a>), from which the file is rebuilt byte for byte.</p>
+<section id="the-root">
+<span id="51-the-root"></span><h3>5.1 The root<a class="headerlink" href="#the-root" title="Link to this heading">¶</a></h3>
+<p><span id="type-flacroot"></span><strong><code class="docutils literal notranslate"><span class="pre">FlacRoot</span></code></strong>, the root’s <code class="docutils literal notranslate"><span class="pre">S</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sample_rate</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>STREAMINFO’s, which every frame has (<a class="reference internal" href="#id1">§8.1</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channels</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>STREAMINFO’s, likewise</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bits_per_sample</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>STREAMINFO’s, likewise</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">block_size</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">B</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">frames</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">N</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">samples</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">T</span></code>, the samples per channel</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">duration</span></code></p></td>
+<td><p>number or null</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">T</span> <span class="pre">/</span> <span class="pre">sample_rate</span></code>, in seconds, as a number; <code class="docutils literal notranslate"><span class="pre">null</span></code> when the sample rate is 0 (allowed for data that is not audio)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">streaminfo</span></code></p></td>
+<td><p><a class="reference internal" href="#type-flacstreaminfo"><code class="docutils literal notranslate"><span class="pre">FlacStreaminfo</span></code></a></p></td>
+<td><p>required</p></td>
+<td><p>the STREAMINFO block’s fields</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">blocks</span></code></p></td>
+<td><p>array of <a class="reference internal" href="#type-flacblock"><code class="docutils literal notranslate"><span class="pre">FlacBlock</span></code></a></p></td>
+<td><p>required</p></td>
+<td><p>one object per metadata block, in file order</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">seek_table</span></code></p></td>
+<td><p><a class="reference internal" href="#type-flacseektable"><code class="docutils literal notranslate"><span class="pre">FlacSeekTable</span></code></a></p></td>
+<td><p>optional</p></td>
+<td><p>when the file has a SEEKTABLE block</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">vorbis_comment</span></code></p></td>
+<td><p><a class="reference internal" href="#type-flacvorbiscomment"><code class="docutils literal notranslate"><span class="pre">FlacVorbisComment</span></code></a></p></td>
+<td><p>optional</p></td>
+<td><p>when the file has a VORBIS_COMMENT block</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">cuesheets</span></code></p></td>
+<td><p>array of <a class="reference internal" href="#type-flaccuesheet"><code class="docutils literal notranslate"><span class="pre">FlacCuesheet</span></code></a></p></td>
+<td><p>optional</p></td>
+<td><p>when the file has CUESHEET blocks: one object per block, in file order (RFC 9639 does not limit them to one)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pictures</span></code></p></td>
+<td><p>array of <a class="reference internal" href="#type-flacpicture"><code class="docutils literal notranslate"><span class="pre">FlacPicture</span></code></a></p></td>
+<td><p>optional</p></td>
+<td><p>when the file has PICTURE blocks: one object per block, in file order</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">applications</span></code></p></td>
+<td><p>array of <a class="reference internal" href="#type-flacapplication"><code class="docutils literal notranslate"><span class="pre">FlacApplication</span></code></a></p></td>
+<td><p>optional</p></td>
+<td><p>when the file has APPLICATION blocks: one object per block</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id3v2</span></code></p></td>
+<td><p>array of <a class="reference internal" href="mp3.html#type-mp3id3v2"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Mp3Id3v2</span></code></span></a></p></td>
+<td><p>optional</p></td>
+<td><p>one object per ID3v2 tag at the start, as <a class="reference internal" href="mp3.html#the-root"><span class="std std-ref">mp3.md §5.1</span></a> writes it; absent when there is none</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">id3v1</span></code></p></td>
+<td><p><a class="reference internal" href="mp3.html#type-mp3id3v1"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Mp3Id3v1</span></code></span></a></p></td>
+<td><p>optional</p></td>
+<td><p>the ID3v1 tag’s fields, as <a class="reference internal" href="mp3.html#the-root"><span class="std std-ref">mp3.md §5.1</span></a> writes them; absent when there is none</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-flacstreaminfo"></span><strong><code class="docutils literal notranslate"><span class="pre">FlacStreaminfo</span></code></strong>, the STREAMINFO block’s fields
+(<a class="reference internal" href="#the-stream">§2</a>):</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">min_block_size</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the minimum block size</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">max_block_size</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the maximum block size</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">min_frame_size</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the minimum frame size</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">max_frame_size</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the maximum frame size</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sample_rate</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the sample rate</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channels</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the channel count</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bits_per_sample</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the bits per sample</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">total_samples</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the total samples per channel</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">md5</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">h</span></code>, the MD5 as 32 lowercase hexadecimal digits, as <code class="docutils literal notranslate"><span class="pre">md5sum</span></code> and <code class="docutils literal notranslate"><span class="pre">metaflac</span> <span class="pre">--show-md5sum</span></code> print it (not base64: <a class="reference internal" href="../conventions.html#source-metadata-as-json"><span class="std std-ref">conventions §6</span></a> allows a convention its own form)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-flacblock"></span><strong><code class="docutils literal notranslate"><span class="pre">FlacBlock</span></code></strong>, a metadata block:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">type</span></code></p></td>
+<td><p>string or integer</p></td>
+<td><p>required</p></td>
+<td><p>its type’s name (<code class="docutils literal notranslate"><span class="pre">&quot;STREAMINFO&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;PADDING&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;APPLICATION&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;SEEKTABLE&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;VORBIS_COMMENT&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;CUESHEET&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;PICTURE&quot;</span></code>), or its number for a reserved type</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">size</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>its body’s length</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-flacseektable"></span><strong><code class="docutils literal notranslate"><span class="pre">FlacSeekTable</span></code></strong>, the SEEKTABLE block’s:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">points</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>its seek points, the placeholders not counted</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">placeholders</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>its placeholders</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The points themselves are where the frames are, which the array’s shard indexes
+hold too: they are in the mirror (conventions, Reconstruction: the
+layout may be left out).</p>
+<p><span id="type-flacvorbiscomment"></span><strong><code class="docutils literal notranslate"><span class="pre">FlacVorbisComment</span></code></strong>, the VORBIS_COMMENT block’s:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">vendor</span></code></p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-text"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Text</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">V</span></code>, the vendor string, as a text value (UTF-8, or <code class="docutils literal notranslate"><span class="pre">{&quot;latin1&quot;:</span> <span class="pre">...}</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">comments</span></code></p></td>
+<td><p>array of <a class="reference internal" href="../conventions.html#type-text"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Text</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p>each field, in order and whole (<code class="docutils literal notranslate"><span class="pre">&quot;TITLE=A</span> <span class="pre">tone&quot;</span></code>), as text values. Names repeat, and their case differs from file to file, so the fields stay a list</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-flaccuesheet"></span><strong><code class="docutils literal notranslate"><span class="pre">FlacCuesheet</span></code></strong>, a CUESHEET block’s:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">catalog</span></code></p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-text"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Text</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p>the catalog number up to the first NUL, as a text value</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lead_in</span></code></p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-integer"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Integer</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p>the lead-in samples</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">cd</span></code></p></td>
+<td><p>boolean</p></td>
+<td><p>required</p></td>
+<td><p>the flags’ bit 7: a CD</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tracks</span></code></p></td>
+<td><p>array of <a class="reference internal" href="#type-flaccuesheettrack"><code class="docutils literal notranslate"><span class="pre">FlacCuesheetTrack</span></code></a></p></td>
+<td><p>required</p></td>
+<td><p>the tracks, in order</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-flaccuesheettrack"></span><strong><code class="docutils literal notranslate"><span class="pre">FlacCuesheetTrack</span></code></strong>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">offset</span></code></p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-integer"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Integer</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p>its offset</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">number</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>its number</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">isrc</span></code></p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-text"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Text</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p>its ISRC up to the first NUL, as a text value</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">audio</span></code></p></td>
+<td><p>boolean</p></td>
+<td><p>required</p></td>
+<td><p>whether it is audio: its flags’ bit 7 clear</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pre_emphasis</span></code></p></td>
+<td><p>boolean</p></td>
+<td><p>required</p></td>
+<td><p>its flags’ bit 6</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">indexes</span></code></p></td>
+<td><p>array of <a class="reference internal" href="#type-flaccuesheetindex"><code class="docutils literal notranslate"><span class="pre">FlacCuesheetIndex</span></code></a></p></td>
+<td><p>required</p></td>
+<td><p>its index points, in order</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-flaccuesheetindex"></span><strong><code class="docutils literal notranslate"><span class="pre">FlacCuesheetIndex</span></code></strong>, an index point:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">offset</span></code></p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-integer"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Integer</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p>its offset</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">number</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>its number</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-flacpicture"></span><strong><code class="docutils literal notranslate"><span class="pre">FlacPicture</span></code></strong>, a PICTURE block’s fields:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">type</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the picture type</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">media_type</span></code></p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-text"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Text</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p>the media type</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">description</span></code></p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-text"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Text</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p>the description</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">width</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the width</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">height</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the height</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">depth</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the color depth</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">colors</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the indexed colors</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">size</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the data’s length; the data is the array <code class="docutils literal notranslate"><span class="pre">pictures/&lt;i&gt;</span></code> (<a class="reference internal" href="#the-pictures">§4.2</a>), which a picture of size 0 does not have</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-flacapplication"></span><strong><code class="docutils literal notranslate"><span class="pre">FlacApplication</span></code></strong>, an APPLICATION block’s:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id</span></code></p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-text"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Text</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p>its ID as text</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">size</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the length of its data, which the mirror holds</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">sample_rate</span></code> to <code class="docutils literal notranslate"><span class="pre">duration</span></code> describe the array, so that a reader need not
+read STREAMINFO; the blocks’ fields are there so that a reader finds the
+recording’s description, labels, cue points and pictures without decoding
+the blocks.</p>
+</section>
+<section id="the-ir-mirror">
+<span id="52-the-ir-mirror"></span><h3>5.2 The IR mirror<a class="headerlink" href="#the-ir-mirror" title="Link to this heading">¶</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> is the file’s <strong>IR mirror</strong>
+(<a class="reference internal" href="../conventions.html#id1"><span class="std std-ref">conventions §11.3</span></a>).
+The IR’s elements (the FLAC <strong>source model</strong>) are below; nothing is left
+out: the tags, the marker, every metadata block and every frame.</p>
+</section>
+<section id="elements">
+<span id="53-elements"></span><h3>5.3 Elements<a class="headerlink" href="#elements" title="Link to this heading">¶</a></h3>
+<p>Paths are relative to the IR’s root, whose path is <code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code>
+(<a class="reference internal" href="../conventions.html#elements"><span class="std std-ref">conventions §8.1</span></a>). Types are those of
+<a class="reference internal" href="../conventions.html#types"><span class="std std-ref">conventions §8.6</span></a>; <code class="docutils literal notranslate"><span class="pre">n</span></code> is a tag’s size or a
+block’s body’s, <code class="docutils literal notranslate"><span class="pre">f</span></code> the length of a picture’s fields and <code class="docutils literal notranslate"><span class="pre">d</span></code> of its data, <code class="docutils literal notranslate"><span class="pre">L</span></code>
+a frame’s length.</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>path</p></th>
+<th class="head"><p>kind</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>extent: what</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>struct</p></td>
+<td><p></p></td>
+<td><p>the root: the whole file, <code class="docutils literal notranslate"><span class="pre">(0,</span> <span class="pre">size)</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">id3v2/&lt;k&gt;</span></code></p></td>
+<td><p>struct</p></td>
+<td><p></p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">k</span></code>-th ID3v2 tag at the start, <code class="docutils literal notranslate"><span class="pre">k</span></code> from 0: the whole tag</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id3v2/&lt;k&gt;/header</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{id:ascii[3],version:u1[2],flags:u1,size:u1[4]}</span></code></p></td>
+<td><p>its 10-byte header</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">id3v2/&lt;k&gt;/data</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bytes[n]</span></code></p></td>
+<td><p>its <code class="docutils literal notranslate"><span class="pre">n</span></code> bytes of frames and padding, when <code class="docutils literal notranslate"><span class="pre">n</span> <span class="pre">&gt;</span> <span class="pre">0</span></code>, opaque</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id3v2/&lt;k&gt;/footer</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bytes[10]</span></code></p></td>
+<td><p>its footer, when it has one</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">marker</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ascii[4]</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">fLaC</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metadata/&lt;k&gt;</span></code></p></td>
+<td><p>struct</p></td>
+<td><p></p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">k</span></code>-th metadata block, <code class="docutils literal notranslate"><span class="pre">k</span></code> from 0: the whole block</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metadata/&lt;k&gt;/header</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{type:u1,length:u1[3]}</span></code></p></td>
+<td><p>its 4-byte header</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metadata/&lt;k&gt;/streaminfo</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{min_block_size:&gt;u2,max_block_size:&gt;u2,min_frame_size:u1[3],max_frame_size:u1[3],rate_channels_bits_samples:&gt;u8,md5:bytes[16]}</span></code></p></td>
+<td><p>a STREAMINFO body</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metadata/&lt;k&gt;/padding</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bytes[n]</span></code></p></td>
+<td><p>a PADDING body, when <code class="docutils literal notranslate"><span class="pre">n</span> <span class="pre">&gt;</span> <span class="pre">0</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metadata/&lt;k&gt;/id</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ascii[4]</span></code></p></td>
+<td><p>an APPLICATION block’s ID</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metadata/&lt;k&gt;/data</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bytes[n]</span></code></p></td>
+<td><p>an APPLICATION block’s data, a PICTURE block’s picture (<code class="docutils literal notranslate"><span class="pre">d</span></code> bytes), or a reserved type’s body, when not empty, opaque</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metadata/&lt;k&gt;/seek_points</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{sample:&gt;u8,offset:&gt;u8,samples:&gt;u2}[n</span> <span class="pre">/</span> <span class="pre">18]</span></code></p></td>
+<td><p>a SEEKTABLE body, when <code class="docutils literal notranslate"><span class="pre">n</span> <span class="pre">&gt;</span> <span class="pre">0</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metadata/&lt;k&gt;/vorbis_comment</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bytes[n]</span></code></p></td>
+<td><p>a VORBIS_COMMENT body, opaque (<a class="reference internal" href="#the-root">§5.1</a> decodes it)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metadata/&lt;k&gt;/cuesheet</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bytes[n]</span></code></p></td>
+<td><p>a CUESHEET body, opaque (<a class="reference internal" href="#the-root">§5.1</a> decodes it)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metadata/&lt;k&gt;/fields</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bytes[f]</span></code></p></td>
+<td><p>a PICTURE block’s fields before its data, opaque (<a class="reference internal" href="#the-root">§5.1</a> decodes them)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">frames</span></code></p></td>
+<td><p>struct</p></td>
+<td><p></p></td>
+<td><p>the frames: from the first’s start to the last’s end</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">frames/&lt;j&gt;</span></code></p></td>
+<td><p>data</p></td>
+<td><p></p></td>
+<td><p>frame <code class="docutils literal notranslate"><span class="pre">j</span></code>, <code class="docutils literal notranslate"><span class="pre">j</span></code> from 0, <code class="docutils literal notranslate"><span class="pre">(offset,</span> <span class="pre">L)</span></code>, header and footer included; its form’s geometry is <code class="docutils literal notranslate"><span class="pre">{&quot;samples&quot;:</span> <span class="pre">B,</span> <span class="pre">&quot;channels&quot;:</span> <span class="pre">C}</span></code> (<code class="docutils literal notranslate"><span class="pre">B</span></code> its block size; no data type, which is the plan’s, <a class="reference internal" href="../conventions.html#forms-and-recipes"><span class="std std-ref">conventions §8.5</span></a>), its codec <code class="docutils literal notranslate"><span class="pre">{&quot;name&quot;:</span> <span class="pre">&quot;flac&quot;,</span> <span class="pre">&quot;sample_rate&quot;:</span> <span class="pre">r,</span> <span class="pre">&quot;bits_per_sample&quot;:</span> <span class="pre">b}</span></code>, and its recipe <code class="docutils literal notranslate"><span class="pre">[[&quot;src&quot;,</span> <span class="pre">0,</span> <span class="pre">null]]</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id3v1</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{tag:ascii[3],title:cstr[30],artist:cstr[30],album:cstr[30],year:ascii[4],comment:cstr[30],genre:u1}</span></code></p></td>
+<td><p>the ID3v1 tag, <code class="docutils literal notranslate"><span class="pre">(size</span> <span class="pre">−</span> <span class="pre">128,</span> <span class="pre">128)</span></code>, when there is one</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The view (<a class="reference internal" href="../conventions.html#the-view"><span class="std std-ref">conventions §8.7</span></a>) shows each ID3v2
+header, the marker, each block’s header, STREAMINFO, an application’s ID, a
+seek table of at most 56 points, and the ID3v1 tag; opaque bytes are not
+shown.</p>
+</section>
+<section id="equivalence">
+<span id="54-equivalence"></span><h3>5.4 Equivalence<a class="headerlink" href="#equivalence" title="Link to this heading">¶</a></h3>
+<p>Hierarchies of one file are compared entry for entry, <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> included
+(<a class="reference internal" href="../conventions.html#equivalence"><span class="std std-ref">conventions §11.4</span></a>).</p>
+</section>
+</section>
+<section id="example">
+<span id="6-example"></span><h2>6. Example<a class="headerlink" href="#example" title="Link to this heading">¶</a></h2>
+<p>A mono 16-bit stream at 16 kHz of 8 frames of 1024 samples (the last 832),
+with no tags and no blocks but STREAMINFO, at <code class="docutils literal notranslate"><span class="pre">https://example.org/tone.flac</span></code>
+(the fixture <code class="docutils literal notranslate"><span class="pre">fixtures/flac/flac_mono_16.flac</span></code>, 10209 bytes), has this root
+<code class="docutils literal notranslate"><span class="pre">zarr.json</span></code>:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"zarr_format"</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"node_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"group"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"attributes"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"zarr_conventions"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">      </span><span class="nt">"uuid"</span><span class="p">:</span><span class="w"> </span><span class="s2">"e9108d07-b24b-432f-a8ce-09d80c8073b4"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"schema_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/flac/schema.json"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"spec_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"refkv_zarrified"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"description"</span><span class="p">:</span><span class="w"> </span><span class="s2">"The Zarr layout of a FLAC source zarrified by refkv, and the source's metadata"</span>
+<span class="w">    </span><span class="p">}],</span>
+<span class="w">    </span><span class="nt">"refkv_zarrified"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"profile"</span><span class="p">:</span><span class="w"> </span><span class="s2">"flac"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"source"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://example.org/tone.flac"</span><span class="p">},</span>
+<span class="w">      </span><span class="nt">"flac"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">"sample_rate"</span><span class="p">:</span><span class="w"> </span><span class="mi">16000</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"channels"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"bits_per_sample"</span><span class="p">:</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"block_size"</span><span class="p">:</span><span class="w"> </span><span class="mi">1024</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"frames"</span><span class="p">:</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"samples"</span><span class="p">:</span><span class="w"> </span><span class="mi">8000</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"duration"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.5</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"streaminfo"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">          </span><span class="nt">"min_block_size"</span><span class="p">:</span><span class="w"> </span><span class="mi">1024</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">"max_block_size"</span><span class="p">:</span><span class="w"> </span><span class="mi">1024</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">"min_frame_size"</span><span class="p">:</span><span class="w"> </span><span class="mi">1074</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">"max_frame_size"</span><span class="p">:</span><span class="w"> </span><span class="mi">1305</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">"sample_rate"</span><span class="p">:</span><span class="w"> </span><span class="mi">16000</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">"channels"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">"bits_per_sample"</span><span class="p">:</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">"total_samples"</span><span class="p">:</span><span class="w"> </span><span class="mi">8000</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">"md5"</span><span class="p">:</span><span class="w"> </span><span class="s2">"603c633f2f9016a27b9f3a74bdf814d9"</span>
+<span class="w">        </span><span class="p">},</span>
+<span class="w">        </span><span class="nt">"blocks"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"STREAMINFO"</span><span class="p">,</span><span class="w"> </span><span class="nt">"size"</span><span class="p">:</span><span class="w"> </span><span class="mi">34</span><span class="p">}]</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Its array <code class="docutils literal notranslate"><span class="pre">samples/zarr.json</span></code> has the shape <code class="docutils literal notranslate"><span class="pre">[8000,</span> <span class="pre">1]</span></code>, the data type
+<code class="docutils literal notranslate"><span class="pre">int16</span></code>, the chunk shape <code class="docutils literal notranslate"><span class="pre">[8192,</span> <span class="pre">1]</span></code> (one shard of 8 frames), and the codecs
+<code class="docutils literal notranslate"><span class="pre">[{&quot;name&quot;:</span> <span class="pre">&quot;sharding_indexed&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;chunk_shape&quot;:</span> <span class="pre">[1024,</span> <span class="pre">1],</span> <span class="pre">&quot;codecs&quot;:</span> <span class="pre">[{&quot;name&quot;:</span> <span class="pre">&quot;refkv.stream&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;format&quot;:</span> <span class="pre">&quot;flac&quot;,</span> <span class="pre">&quot;setup&quot;:</span> <span class="pre">&quot;ZkxhQ4AAACIEAAQAAAQyAAUZA+gA8AAAH0BgPGM/L5AWonufOnS9+BTZ&quot;}}],</span> <span class="pre">&quot;index_codecs&quot;:</span> <span class="pre">[{&quot;name&quot;:</span> <span class="pre">&quot;bytes&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;endian&quot;:</span> <span class="pre">&quot;little&quot;}},</span> <span class="pre">{&quot;name&quot;:</span> <span class="pre">&quot;crc32c&quot;}],</span> <span class="pre">&quot;index_location&quot;:</span> <span class="pre">&quot;end&quot;}}]</span></code>. The one shard,
+<code class="docutils literal notranslate"><span class="pre">samples/c/0/0</span></code>, is 17 ranges: for each frame a 4-byte literal header (the
+first’s <code class="docutils literal notranslate"><span class="pre">01</span> <span class="pre">92</span> <span class="pre">0A</span> <span class="pre">02</span></code>: one frame, of 1298 bytes, at position 0) and the
+frame’s range of source 0 (the first’s <code class="docutils literal notranslate"><span class="pre">(42,</span> <span class="pre">1298)</span></code>, right after the
+STREAMINFO block), then a 132-byte literal, the index (8 entries, the first
+<code class="docutils literal notranslate"><span class="pre">(0,</span> <span class="pre">1302)</span></code>) and its CRC-32C.</p>
+</section>
+<section id="what-the-layout-does-not-express">
+<span id="7-what-the-layout-does-not-express"></span><h2>7. What the layout does not express<a class="headerlink" href="#what-the-layout-does-not-express" title="Link to this heading">¶</a></h2>
+<p>This section is informative.</p>
+<ul class="simple">
+<li><p><strong>Variable block sizes.</strong> A stream whose frames hold different sample
+counts has no regular grid of frames; the profile rejects it
+(<a class="reference internal" href="#id1">§8.1</a>).</p></li>
+<li><p><strong>The channel layout.</strong> The channels are in the order of the frames’
+channel assignment (<a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9639#section-9.1.3">RFC 9639 §9.1.3</a>),
+or as a <code class="docutils literal notranslate"><span class="pre">WAVEFORMATEXTENSIBLE_CHANNEL_MASK</span></code> Vorbis comment says; the
+convention keeps the comment and does not apply it.</p></li>
+<li><p><strong>The seek table’s points</strong>, the reserved bytes of a cue sheet and the
+frames’ per-frame coding (channel decorrelation, predictors) are in the
+mirror, not in the root.</p></li>
+<li><p><strong>Pictures as images.</strong> A picture is kept as its bytes, not decoded.</p></li>
+</ul>
+</section>
+</section>
+<section id="part-2-the-profile">
+<h1>Part 2. The profile<a class="headerlink" href="#part-2-the-profile" title="Link to this heading">¶</a></h1>
+<p>The FLAC profile of <a class="reference internal" href="../zarrify.html"><span class="std std-doc">spec/zarrify.md</span></a> is <a class="reference internal" href="#flac-profile">§8</a> of this document. What every profile’s Part 2 shares is in
+<a class="reference internal" href="../zarrify.html#profiles"><span class="std std-ref">spec/zarrify.md, Profiles</span></a>.</p>
+<section id="flac-profile">
+<span id="8-flac-profile"></span><h2>8. FLAC profile<a class="headerlink" href="#flac-profile" title="Link to this heading">¶</a></h2>
+<section id="id1">
+<span id="81-the-stream"></span><h3>8.1 The stream<a class="headerlink" href="#id1" title="Link to this heading">¶</a></h3>
+<p>The input is a FLAC file, which its <strong>signature</strong> (<a class="reference internal" href="../zarrify.html#input"><span class="std std-ref">spec/zarrify.md §1.2</span></a>, tested at the precedence of
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/profiles/flac.json">profiles/flac.json</a>) chose: <code class="docutils literal notranslate"><span class="pre">H</span></code> holds the bytes <code class="docutils literal notranslate"><span class="pre">66</span> <span class="pre">4C</span> <span class="pre">61</span> <span class="pre">43</span></code>
+(<code class="docutils literal notranslate"><span class="pre">fLaC</span></code>) at the offset <code class="docutils literal notranslate"><span class="pre">A</span></code> after the ID3v2 tags at its start (0 without one),
+each tag <code class="docutils literal notranslate"><span class="pre">ID3</span></code>, its size bytes each below <code class="docutils literal notranslate"><span class="pre">80</span></code>, measured as
+<a class="reference internal" href="#tags">the convention §3</a> says. Its precedence, 95, is before MP3’s, whose
+signature also takes a file that starts with <code class="docutils literal notranslate"><span class="pre">ID3</span></code>. A FLAC file whose ID3v2
+tags end past <code class="docutils literal notranslate"><span class="pre">H</span></code> (552 bytes) does not match: the MP3 profile’s signature
+then takes it, and that profile rejects it; naming the FLAC profile
+(<code class="docutils literal notranslate"><span class="pre">FlacSource</span></code>, <a class="reference internal" href="../zarrify.html#named-inputs-and-layouts"><span class="std std-ref">spec/zarrify.md §1.7</span></a>) reads it.</p>
+<p><strong>Reads.</strong> A frame’s header gives no length, and no index records every
+frame’s offset: a SEEKTABLE holds a few points, a frame in each run of
+seconds, and a file need not have one. So the profile reads every frame’s
+bytes, as the MP3 profile does, and finds each frame’s end by its CRC-16
+(below). It reads in rounds, so that it holds at most 16 MiB of frames at a
+time: the file’s first 64 KiB and its last 128 bytes; then, while the
+metadata blocks run past what it holds, the 64 KiB from each block header
+it does not hold, and of each block’s body what the profile decodes
+(STREAMINFO, SEEKTABLE, VORBIS_COMMENT and CUESHEET whole, an APPLICATION
+block’s ID, a PICTURE block’s fields up to its data); then the frames, 16 MiB
+at a time. Bytes read per file: every frame, the metadata blocks but the
+data of pictures, padding and applications past the 64 KiB windows, the
+ID3v2 headers, and the last 128 bytes; in <code class="docutils literal notranslate"><span class="pre">1</span> <span class="pre">+</span> <span class="pre">k</span> <span class="pre">+</span> <span class="pre">ceil(M</span> <span class="pre">/</span> <span class="pre">16</span> <span class="pre">MiB)</span></code> rounds
+at most, <code class="docutils literal notranslate"><span class="pre">k</span></code> the block headers past the 64 KiB windows read before them and
+<code class="docutils literal notranslate"><span class="pre">M</span></code> the frames’ bytes. A 3-minute stereo track at 44.1 kHz, about 20 MiB of
+frames after a 1 MiB cover picture, is read in 4 rounds, its picture’s data
+unread but the first 64 KiB.</p>
+<p><strong>Checks.</strong> A zarrifier MUST reject the input unless all of these hold, checked in this
+order:</p>
+<ul class="simple">
+<li><p><strong>ID3v2 tags:</strong> for each tag at the start, as
+<a class="reference internal" href="mp3.html#the-stream"><span class="std std-ref">mp3.md §8.1</span></a> checks them (its header within the
+file, syncsafe size bytes, the tag within the file), with its messages.</p></li>
+<li><p><strong>Marker:</strong> <code class="docutils literal notranslate"><span class="pre">fLaC</span></code> at <code class="docutils literal notranslate"><span class="pre">A</span></code>, before <code class="docutils literal notranslate"><span class="pre">E</span></code>, where <code class="docutils literal notranslate"><span class="pre">E</span></code> is the file’s size, or
+its size less 128 when the last 128 bytes, at or after <code class="docutils literal notranslate"><span class="pre">A</span></code>, start with
+<code class="docutils literal notranslate"><span class="pre">TAG</span></code> (the ID3v1 tag): <code class="docutils literal notranslate"><span class="pre">no</span> <span class="pre">fLaC</span> <span class="pre">marker</span> <span class="pre">at</span> <span class="pre">&lt;A&gt;</span></code>.</p></li>
+<li><p><strong>Metadata blocks:</strong> from <code class="docutils literal notranslate"><span class="pre">A</span> <span class="pre">+</span> <span class="pre">4</span></code>, each block, up to the one whose header
+has bit 7 set: its header is before <code class="docutils literal notranslate"><span class="pre">E</span></code>; its type is not 127; the first
+block is STREAMINFO, and no STREAMINFO, SEEKTABLE or VORBIS_COMMENT block
+follows one of its type; a STREAMINFO body is 34 bytes, a SEEKTABLE body a
+multiple of 18, an APPLICATION body at least 4; the block ends at or before
+<code class="docutils literal notranslate"><span class="pre">E</span></code>; STREAMINFO’s bits per sample are at least 4; and a VORBIS_COMMENT,
+CUESHEET or PICTURE body is its fields exactly, no length past its end and
+no byte after its last field (<code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">PICTURE</span> <span class="pre">block</span> <span class="pre">at</span> <span class="pre">42</span> <span class="pre">is</span> <span class="pre">malformed:</span> <span class="pre">its</span> <span class="pre">fields</span> <span class="pre">and</span> <span class="pre">data</span> <span class="pre">do</span> <span class="pre">not</span> <span class="pre">fit</span> <span class="pre">its</span> <span class="pre">body</span></code>).</p></li>
+<li><p><strong>The first frame:</strong> the frames start right after the last block, at
+<code class="docutils literal notranslate"><span class="pre">P0</span></code>: <code class="docutils literal notranslate"><span class="pre">P0</span> <span class="pre">&lt;</span> <span class="pre">E</span></code> (<code class="docutils literal notranslate"><span class="pre">no</span> <span class="pre">audio</span> <span class="pre">frames:</span> <span class="pre">...</span></code>), and a valid frame header starts
+there (<code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">frame</span> <span class="pre">header</span> <span class="pre">at</span> <span class="pre">42</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">valid:</span> <span class="pre">no</span> <span class="pre">frame</span> <span class="pre">sync</span> <span class="pre">code</span></code>; <code class="docutils literal notranslate"><span class="pre">...:</span> <span class="pre">a</span> <span class="pre">CRC-8</span> <span class="pre">that</span> <span class="pre">does</span> <span class="pre">not</span> <span class="pre">match</span></code>): the sync code, no reserved or forbidden code
+(<a class="reference internal" href="#the-stream">the convention §2</a>), a coded number of the extended UTF-8
+form, and its CRC-8.</p></li>
+<li><p><strong>Each frame:</strong> its blocking strategy is fixed (<code class="docutils literal notranslate"><span class="pre">a</span> <span class="pre">variable</span> <span class="pre">block</span> <span class="pre">size</span> <span class="pre">(the</span> <span class="pre">frame</span> <span class="pre">at</span> <span class="pre">42)</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">supported:</span> <span class="pre">only</span> <span class="pre">a</span> <span class="pre">fixed</span> <span class="pre">block</span> <span class="pre">size</span> <span class="pre">stream</span> <span class="pre">is</span></code>);
+its sample rate, channel count and bit depth, each its own or, for code
+0, STREAMINFO’s, are STREAMINFO’s (<code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">frame</span> <span class="pre">at</span> <span class="pre">180</span> <span class="pre">changes</span> <span class="pre">the</span> <span class="pre">sample</span> <span class="pre">rate</span> <span class="pre">from</span> <span class="pre">8000</span> <span class="pre">to</span> <span class="pre">16000</span></code>); its coded number is its index; it holds no more
+samples than the first frame; and a frame that another follows holds as
+many as the first (<code class="docutils literal notranslate"><span class="pre">only</span> <span class="pre">the</span> <span class="pre">last</span> <span class="pre">frame</span> <span class="pre">may</span> <span class="pre">hold</span> <span class="pre">fewer</span></code>).</p></li>
+<li><p><strong>Each frame’s end</strong> (below) is found within 16 MiB of its start (<code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">frame</span> <span class="pre">at</span> <span class="pre">3939</span> <span class="pre">(frame</span> <span class="pre">3)</span> <span class="pre">has</span> <span class="pre">no</span> <span class="pre">end:</span> <span class="pre">...</span></code>).</p></li>
+<li><p><strong>Total:</strong> when STREAMINFO’s total samples are not 0, the frames hold
+that many samples per channel (<code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">frames</span> <span class="pre">hold</span> <span class="pre">5120</span> <span class="pre">samples</span> <span class="pre">per</span> <span class="pre">channel,</span> <span class="pre">not</span> <span class="pre">STREAMINFO's</span> <span class="pre">8000</span></code>: a stream cut at a frame’s end).</p></li>
+</ul>
+<p><strong>Frames.</strong> Frame 0 starts at <code class="docutils literal notranslate"><span class="pre">P0</span></code>. Frame <code class="docutils literal notranslate"><span class="pre">j</span></code>, starting at <code class="docutils literal notranslate"><span class="pre">p</span></code>, ends at the
+first <code class="docutils literal notranslate"><span class="pre">q</span> <span class="pre">&gt;</span> <span class="pre">p</span> <span class="pre">+</span> <span class="pre">h</span> <span class="pre">+</span> <span class="pre">2</span></code> (<code class="docutils literal notranslate"><span class="pre">h</span></code> its header’s length) at which the CRC-16 of the
+bytes <code class="docutils literal notranslate"><span class="pre">[p,</span> <span class="pre">q)</span></code> is 0 and either <code class="docutils literal notranslate"><span class="pre">q</span> <span class="pre">=</span> <span class="pre">E</span></code> or a valid frame header starts at <code class="docutils literal notranslate"><span class="pre">q</span></code>;
+frame <code class="docutils literal notranslate"><span class="pre">j</span> <span class="pre">+</span> <span class="pre">1</span></code> starts at <code class="docutils literal notranslate"><span class="pre">q</span></code>, and its checks (above) require its number to be
+<code class="docutils literal notranslate"><span class="pre">j</span> <span class="pre">+</span> <span class="pre">1</span></code>. The last frame is the one that ends at <code class="docutils literal notranslate"><span class="pre">E</span></code>. A frame that has no such
+<code class="docutils literal notranslate"><span class="pre">q</span></code> (a byte of it changed, the stream cut inside it, the next header’s CRC-8
+broken) rejects the input.</p>
+<p>So a frame is found by two checks at once: a CRC-16 of 0 over the frame (the
+chance that a wrong end passes it is 2^−16) and a valid header after it, its
+sync code and its CRC-8 (2^−8): a sync code inside a frame’s audio data,
+which FLAC does not prevent, is not taken for a frame. Since the CRC-16 of a
+run of whole frames is 0 at the end of each, a header numbered wrongly ends
+the frame before it (and rejects the input) rather than making it run on to
+the next header that matches. There are no bytes between
+frames, nor after the last but the ID3v1 tag: a stream with junk there has
+no last frame. The frames’ bytes are read to find the frames and check their
+CRCs, not decoded: the output is the frames’ offsets and lengths, which are
+the stream’s structure (<a class="reference internal" href="../zarrify.html#input"><span class="std std-ref">spec/zarrify.md §1.2</span></a>), and
+a stream whose CRCs fail is rejected, as a decoder would stop.</p>
+<p><strong>Why fixed block sizes only.</strong> Zarr’s chunk grids are regular, and
+sharding’s inner chunks are of one shape: a frame is an inner chunk only
+when every frame holds <code class="docutils literal notranslate"><span class="pre">B</span></code> samples. Chunks of whole frames (the MP3
+profile’s layout) need that too: a chunk of <code class="docutils literal notranslate"><span class="pre">k</span></code> frames covers <code class="docutils literal notranslate"><span class="pre">k</span> <span class="pre">×</span> <span class="pre">B</span></code>
+samples only when the frames hold <code class="docutils literal notranslate"><span class="pre">B</span></code> each, and a frame across a chunk
+boundary would be decoded by two chunks and placed by neither. So a variable
+block size stream, rare (libFLAC and ffmpeg write fixed block sizes), is
+rejected by name rather than given another layout.</p>
+</section>
+<section id="shards">
+<span id="82-shards"></span><h3>8.2 Shards<a class="headerlink" href="#shards" title="Link to this heading">¶</a></h3>
+<p>Inner chunk <code class="docutils literal notranslate"><span class="pre">j</span></code> (<a class="reference internal" href="#the-array">the convention §4.1</a>), frame <code class="docutils literal notranslate"><span class="pre">j</span></code> of length
+<code class="docutils literal notranslate"><span class="pre">L</span></code> at <code class="docutils literal notranslate"><span class="pre">o</span></code>, is the reference of two ranges: a literal range of its
+<code class="docutils literal notranslate"><span class="pre">refkv.stream</span></code> header (<code class="docutils literal notranslate"><span class="pre">01</span></code>, <code class="docutils literal notranslate"><span class="pre">varint(L)</span></code>, <code class="docutils literal notranslate"><span class="pre">02</span></code>) and the frame’s range of
+source 0, <code class="docutils literal notranslate"><span class="pre">(o,</span> <span class="pre">L)</span></code>:</p>
+<p><span id="type-flacinnerchunk"></span><strong><code class="docutils literal notranslate"><span class="pre">FlacInnerChunk</span></code></strong>, inner chunk <code class="docutils literal notranslate"><span class="pre">j</span></code>, frame <code class="docutils literal notranslate"><span class="pre">j</span></code> of length <code class="docutils literal notranslate"><span class="pre">L</span></code>
+at <code class="docutils literal notranslate"><span class="pre">o</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>part</p></th>
+<th class="head"><p>range</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>the header</p></td>
+<td><p>literal</p></td>
+<td><p>required</p></td>
+<td><p>the <a class="reference internal" href="../conventions.html#type-streamchunk"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">StreamChunk</span></code></span></a> header of one frame: <code class="docutils literal notranslate"><span class="pre">01</span></code>, <code class="docutils literal notranslate"><span class="pre">varint(L)</span></code>, <code class="docutils literal notranslate"><span class="pre">02</span></code> (its position 0, less −1, as a zigzag varint)</p></td>
+</tr>
+<tr class="row-odd"><td><p>the frame</p></td>
+<td><p>source range <code class="docutils literal notranslate"><span class="pre">(0,</span> <span class="pre">o,</span> <span class="pre">L)</span></code></p></td>
+<td><p>required</p></td>
+<td><p>the frame’s bytes</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The array is sharded as
+<a class="reference internal" href="../zarrify.html#virtual-shards"><span class="std std-ref">spec/zarrify.md §2.1</span></a> says, <code class="docutils literal notranslate"><span class="pre">F</span> <span class="pre">=</span> <span class="pre">min(512,</span> <span class="pre">N)</span></code>
+inner chunks a shard: the array has <code class="docutils literal notranslate"><span class="pre">ceil(N</span> <span class="pre">/</span> <span class="pre">F)</span></code> shards, each present, and
+shard <code class="docutils literal notranslate"><span class="pre">q</span></code>’s reference, a <a class="reference internal" href="../zarrify.html#type-shard"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Shard</span></code></span></a> of the shard shape <code class="docutils literal notranslate"><span class="pre">[F,</span> <span class="pre">1]</span></code>, is
+the headers and ranges of its frames in order, then
+the literal index, <code class="docutils literal notranslate"><span class="pre">16</span> <span class="pre">×</span> <span class="pre">F</span> <span class="pre">+</span> <span class="pre">4</span></code> bytes. No ranges are joined, with or
+without checksums: a header lies between each two frames.</p>
+<p>A shard’s payload is at most <code class="docutils literal notranslate"><span class="pre">41</span> <span class="pre">×</span> <span class="pre">F</span> <span class="pre">+</span> <span class="pre">12</span></code> bytes for frames of less than
+2^28 bytes at offsets below 2^49 (each frame’s literal header part at most 10
+bytes, its source range part at most 15 and its index entry 16, and the
+index’s part at most 12 bytes besides its entries): 21 004 bytes for
+<code class="docutils literal notranslate"><span class="pre">F</span> <span class="pre">=</span> <span class="pre">512</span></code>, and with checksums, each source range part up to 6 bytes longer,
+24 076, within the 32 KiB that shards are sized to and the 65 519 that a
+reference may hold (<a class="reference internal" href="../zarrify.html#input"><span class="std std-ref">spec/zarrify.md §1.2</span></a>). A
+reader of a few frames reads the shard’s index, 8 KiB, and those frames.</p>
+<p>The pictures’ arrays (<a class="reference internal" href="#the-pictures">the convention §4.2</a>) are cut as
+bytes are (<a class="reference internal" href="../conventions.html#source-values-as-arrays"><span class="std std-ref">conventions §7</span></a>), each
+chunk a range of source 0 (the last chunk’s zero padding a literal range):</p>
+<p><span id="type-flacpicturechunk"></span><strong><code class="docutils literal notranslate"><span class="pre">FlacPictureChunk</span></code></strong>, chunk <code class="docutils literal notranslate"><span class="pre">k</span></code> of the array of a picture
+whose data, <code class="docutils literal notranslate"><span class="pre">d</span></code> bytes, starts at <code class="docutils literal notranslate"><span class="pre">s</span></code>, in chunks of <code class="docutils literal notranslate"><span class="pre">c</span></code> bytes, with <code class="docutils literal notranslate"><span class="pre">m</span> <span class="pre">=</span> <span class="pre">min(c,</span> <span class="pre">d</span> <span class="pre">−</span> <span class="pre">k</span> <span class="pre">×</span> <span class="pre">c)</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>part</p></th>
+<th class="head"><p>range</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>the data</p></td>
+<td><p>source range <code class="docutils literal notranslate"><span class="pre">(0,</span> <span class="pre">s</span> <span class="pre">+</span> <span class="pre">k</span> <span class="pre">×</span> <span class="pre">c,</span> <span class="pre">m)</span></code></p></td>
+<td><p>required</p></td>
+<td><p>the chunk’s bytes of the picture’s data</p></td>
+</tr>
+<tr class="row-odd"><td><p>the padding</p></td>
+<td><p>literal</p></td>
+<td><p>optional</p></td>
+<td><p>when <code class="docutils literal notranslate"><span class="pre">m</span> <span class="pre">&lt;</span> <span class="pre">c</span></code> (the last chunk): <code class="docutils literal notranslate"><span class="pre">c</span> <span class="pre">−</span> <span class="pre">m</span></code> zero bytes</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The ranges lie within the file. The output has no data sources: its source
+table is source 0 alone. <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> is the IR mirror
+(<a class="reference internal" href="#the-ir-mirror">the convention §5.2</a>). The archive has no other entries
+than the root’s, the array’s and the pictures’ <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code>, the shards, the
+pictures’ chunks, and the mirror’s.</p>
+</section>
+<section id="summary">
+<span id="83-summary"></span><h3>8.3 Summary<a class="headerlink" href="#summary" title="Link to this heading">¶</a></h3>
+<p>This section is informative. Both implementations print a one-line JSON
+summary, with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sampleRate</span></code></p></td>
+<td><p>the sample rate</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channels</span></code></p></td>
+<td><p>the channel count</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bitsPerSample</span></code></p></td>
+<td><p>the bits per sample</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">blockSize</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">B</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">frames</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">N</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">samples</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">T</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">duration</span></code></p></td>
+<td><p>in seconds</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">shardFrames</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">F</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">shards</span></code></p></td>
+<td><p>the array’s shards</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pictures</span></code></p></td>
+<td><p>the PICTURE blocks</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tags</span></code></p></td>
+<td><p>those of <code class="docutils literal notranslate"><span class="pre">&quot;id3v2&quot;</span></code> and <code class="docutils literal notranslate"><span class="pre">&quot;id3v1&quot;</span></code> the file has, in that order</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">joinRanges</span></code></p></td>
+<td><p>whether ranges adjacent across inner chunks would be joined: not when the zarrifier records checksums, <a class="reference internal" href="../zarrify.html#virtual-shards"><span class="std std-ref">spec/zarrify.md §2.1</span></a></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="the-description">
+<span id="84-the-description"></span><h3>8.4 The description<a class="headerlink" href="#the-description" title="Link to this heading">¶</a></h3>
+<p>This section is not part of the convention: nothing it specifies is written in an output. The
+parser returns, beside the IR, a <strong>description</strong> of the file: what it found of the source, for a
+projection to read with the IR and its stored arrays
+(<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>). It holds none of an output’s
+decisions: the frames of a shard (<a class="reference internal" href="#shards">§8.2</a>), and the array’s data type, shape, chunks
+and codecs (<a class="reference internal" href="#the-array">§4.1</a>) are the projection’s. Its JSON Schema is
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac/description.json"><code class="docutils literal notranslate"><span class="pre">flac/description.json</span></code></a>. It is a JSON object with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">streaminfo</span></code></p></td>
+<td><p>the STREAMINFO block’s fields, a <a class="reference internal" href="#type-flacstreaminfo"><code class="docutils literal notranslate"><span class="pre">FlacStreaminfo</span></code></a></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">frames</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">N</span></code>, the frames</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">block_size</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">B</span></code>, the first frame’s samples per channel, which every frame but the last has (<a class="reference internal" href="#id1">§8.1</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">samples</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">T</span></code>, the frames’ samples per channel</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">blocks</span></code></p></td>
+<td><p>each metadata block, a <a class="reference internal" href="#type-flacblock"><code class="docutils literal notranslate"><span class="pre">FlacBlock</span></code></a>, in file order</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">seek_table</span></code></p></td>
+<td><p>the SEEKTABLE block’s, a <a class="reference internal" href="#type-flacseektable"><code class="docutils literal notranslate"><span class="pre">FlacSeekTable</span></code></a>, or null</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">vorbis_comment</span></code></p></td>
+<td><p>the VORBIS_COMMENT block’s, a <a class="reference internal" href="#type-flacvorbiscomment"><code class="docutils literal notranslate"><span class="pre">FlacVorbisComment</span></code></a>, or null</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">cuesheets</span></code></p></td>
+<td><p>each CUESHEET block’s, a <a class="reference internal" href="#type-flaccuesheet"><code class="docutils literal notranslate"><span class="pre">FlacCuesheet</span></code></a>, in file order</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pictures</span></code></p></td>
+<td><p>each PICTURE block’s fields, a <a class="reference internal" href="#type-flacpicture"><code class="docutils literal notranslate"><span class="pre">FlacPicture</span></code></a>, in file order</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">applications</span></code></p></td>
+<td><p>each APPLICATION block’s, a <a class="reference internal" href="#type-flacapplication"><code class="docutils literal notranslate"><span class="pre">FlacApplication</span></code></a>, in file order</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id3v2</span></code></p></td>
+<td><p>each ID3v2 tag’s header at the start, an <a class="reference internal" href="mp3.html#type-mp3id3v2"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Mp3Id3v2</span></code></span></a>, in order</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">id3v1</span></code></p></td>
+<td><p>the ID3v1 tag’s fields, an <a class="reference internal" href="mp3.html#type-mp3id3v1"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Mp3Id3v1</span></code></span></a>, or null</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">elements</span></code></p></td>
+<td><p>the ids of IR elements (<a class="reference internal" href="#elements">§5.3</a>) by name: <code class="docutils literal notranslate"><span class="pre">frames</span></code>, the first frame’s <code class="docutils literal notranslate"><span class="pre">data</span></code> element, which the others follow; <code class="docutils literal notranslate"><span class="pre">streaminfo</span></code>, the STREAMINFO block’s value, which keys the samples’ stored array (<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>); <code class="docutils literal notranslate"><span class="pre">id3v1</span></code>, the ID3v1 tag’s value, or null; and <code class="docutils literal notranslate"><span class="pre">pictures</span></code>, each picture’s <code class="docutils literal notranslate"><span class="pre">data</span></code> value, in the order of <code class="docutils literal notranslate"><span class="pre">pictures</span></code>, null for a picture of no data</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The root’s source metadata of <a class="reference internal" href="#the-root">§5.1</a> follows from the description: <code class="docutils literal notranslate"><span class="pre">sample_rate</span></code>,
+<code class="docutils literal notranslate"><span class="pre">channels</span></code> and <code class="docutils literal notranslate"><span class="pre">bits_per_sample</span></code> from <code class="docutils literal notranslate"><span class="pre">streaminfo</span></code>, <code class="docutils literal notranslate"><span class="pre">duration</span></code> from <code class="docutils literal notranslate"><span class="pre">samples</span></code> and the sample rate,
+and the other members as the description gives them, each optional one absent when it is null or
+empty; and the <code class="docutils literal notranslate"><span class="pre">refkv.stream</span></code> setup from the bytes of the <code class="docutils literal notranslate"><span class="pre">streaminfo</span></code> element (<a class="reference internal" href="#the-array">§4.1</a>).
+The projection reads them so, and makes <strong>refkv’s plan</strong> of the file from the description alone:
+<code class="docutils literal notranslate"><span class="pre">shard_frames</span></code>, <code class="docutils literal notranslate"><span class="pre">F</span></code> (<a class="reference internal" href="#shards">§8.2</a>), and <code class="docutils literal notranslate"><span class="pre">data_type</span></code>, the array’s data type, from
+<code class="docutils literal notranslate"><span class="pre">bits_per_sample</span></code> (<a class="reference internal" href="#the-array">§4.1</a>). The plan belongs to refkv’s convention, not to the IR.</p>
+<div class="toctree-wrapper compound">
+</div>
+</section>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="../../docs/zarrify/flac/README.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">FLAC</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="fits/stored-arrays.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">FITS: stored arrays</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; the refkv authors
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer no-toc">
+      
+      
+      
+    </aside>
+  </div>
+</div><script src="../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/scripts/furo.js?v=46bd48cc"></script>
+    </body>
+</html>
