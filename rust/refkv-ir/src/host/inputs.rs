@@ -143,6 +143,8 @@ mod tests {
         assert_eq!(s("C:\\x.vsi", true), ("C:\\".into(), "x.vsi".into()));
         assert_eq!(s("\\\\server\\share\\x.vsi", true), ("\\\\server\\share\\".into(), "x.vsi".into()));
         assert_eq!(s("\\\\server\\share\\d\\x.vsi", true), ("\\\\server\\share\\d".into(), "x.vsi".into()));
+        assert_eq!(s("\\\\?\\C:\\über\\x.vsi", true), ("\\\\?\\C:\\über".into(), "x.vsi".into()));
+        assert_eq!(s("//host/été/x.vsi", true), ("//host/été/".into(), "x.vsi".into()));
     }
 
     #[test]

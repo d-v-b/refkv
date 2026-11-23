@@ -272,7 +272,7 @@ pub fn windows_split_drive(p: &str) -> (&str, &str) {
     let n = norm.as_bytes();
     if n.first() == Some(&b'\\') {
         if n.get(1) == Some(&b'\\') {
-            let start = if norm.len() >= 8 && norm[..8].eq_ignore_ascii_case("\\\\?\\UNC\\") { 8 } else { 2 };
+            let start = if norm.as_bytes().get(..8).is_some_and(|p| p.eq_ignore_ascii_case(b"\\\\?\\UNC\\")) { 8 } else { 2 };
             let Some(i) = norm[start..].find('\\').map(|i| i + start) else {
                 return (p, "");
             };
@@ -298,7 +298,7 @@ pub fn windows_file_uri(abs: &str) -> Result<String, String> {
         let rest = abs[4..].to_string();
         let verbatim = abs.as_bytes()[2] == b'?';
         let rb = rest.as_bytes();
-        if verbatim && rest.len() >= 4 && rest[..4].eq_ignore_ascii_case("UNC\\") {
+        if verbatim && rest.as_bytes().get(..4).is_some_and(|p| p.eq_ignore_ascii_case(b"UNC\\")) {
             abs = format!("\\\\{}", &rest[4..]);
         } else if verbatim && rb.len() >= 3 && rb[0].is_ascii_alphabetic() && rb[1] == b':' && rb[2] == b'\\' {
             abs = rest;
@@ -600,6 +600,15 @@ mod tests {
         assert_eq!(windows_split_drive("\\\\srv"), ("\\\\srv", ""));
         assert_eq!(windows_split_drive("C:\\x"), ("C:", "\\x"));
         assert_eq!(windows_split_drive("x"), ("", "x"));
+    }
+
+    #[test]
+    fn splits_non_ascii_drives() {
+        assert_eq!(windows_split_drive("\\\\host\\été\\x"), ("\\\\host\\été", "\\x"));
+        assert_eq!(windows_split_drive("//host/été/x"), ("//host/été", "/x"));
+        assert_eq!(windows_split_drive("\\\\?\\UNC\\server\\share\\x"), ("\\\\?\\UNC\\server\\share", "\\x"));
+        assert_eq!(windows_split_drive("\\\\?\\C:\\über\\x"), ("\\\\?\\C:", "\\über\\x"));
+        assert!(windows_file_uri("\\\\?\\Ü\\x").is_err());
     }
 
     #[test]
