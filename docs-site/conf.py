@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from sphinx.application import Sphinx
+from sphinx.errors import ExtensionError
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "spec" / "tools"))
@@ -145,18 +146,27 @@ def read(app: Sphinx, docname: str, source: list[str]) -> None:
 
 
 def publish_schemas(app: Sphinx, exception: Exception | None) -> None:
-    """Publish each convention's JSON Schema beside its document, at the URL a version-0 CMO names as
-    its `schema_url` (spec/conventions.md §1
-    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>):
-    `spec/zarrify/<p>/schema.json`. That path is the site's, not the repository's: when the
-    repository's files move, this copies them to it all the same."""
+    """Serve every URL a version-0 CMO names on the site (spec/conventions.md §1
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>), or fail the
+    build: its `schema_url`, to which this copies the convention's JSON Schema from the repository
+    (spec/zarrify/<p>/schema.json, a path to update when the schemas move), and its `spec_url`, the
+    format's page, which a move of its document must keep, by a redirect page or otherwise. The
+    paths come from `profiles.cmo`, the CMO refkv writes."""
     if exception is not None or app.builder.format != "html":
         return
+    missing = []
     for e in profiles.load():
-        source = ROOT / "spec" / "zarrify" / e["name"] / "schema.json"
-        target = Path(app.outdir) / "spec" / "zarrify" / e["name"] / "schema.json"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, target)
+        cmo = profiles.cmo(e)
+        schema, page = (str(cmo[k]) for k in ("schema_url", "spec_url"))
+        if schema.startswith(profiles.SITE + "/"):
+            target = Path(app.outdir) / schema.removeprefix(profiles.SITE + "/")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / "spec" / "zarrify" / e["name"] / "schema.json", target)
+        served = Path(app.outdir) / page.removeprefix(profiles.SITE + "/")
+        if page.startswith(profiles.SITE + "/") and not served.is_file():
+            missing.append(page)
+    if missing:
+        raise ExtensionError(f"the site does not serve these CMO URLs: {', '.join(missing)}")
 
 
 def setup(app: Sphinx) -> dict[str, bool]:

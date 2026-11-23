@@ -86,9 +86,9 @@ the Convention Metadata Object (CMO)
 with no other members. At version 0, which has no tag, the URLs are the documentation site's
 instead, which follows the development branch:
 `https://d-v-b.github.io/refkv/spec/zarrify/<p>/schema.json` and
-`https://d-v-b.github.io/refkv/spec/zarrify/<p>.html`. The site keeps both paths when the
-repository's files move (it redirects the document, and publishes the schema at the same path),
-and a tag's files never change, so no CMO's URLs break. `T` is the format's title, the `title` of its
+`https://d-v-b.github.io/refkv/spec/zarrify/<p>.html`. The site MUST keep serving both when the
+repository's files move (the document's page, or a redirect to it, and the schema at the same
+path), and its build fails when it does not; a tag's files never change. So no CMO's URLs break. `T` is the format's title, the `title` of its
 entry in the profile registry ([zarrify/profiles/](zarrify/profiles/)`<p>.json`: `TIFF`,
 `Zarr v2`, `Sentinel-2 SAFE`, ...). The UUID is the same for every version; the version is in
 the URLs. All conventions nest their property under one key, `refkv_zarrified`, which is
