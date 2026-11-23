@@ -28,6 +28,9 @@ import {
   StoreLimitError,
   StoreReadError,
 } from "../../conformance/zarrify/reference/ts/legacy.ts";
+import { ir } from "../src/zarrify/ir/wasm.ts";
+
+await ir(); // the store rules these tests call are the core's host rules
 
 const utf8 = new TextEncoder();
 const XML = (s: string) =>

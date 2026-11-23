@@ -214,8 +214,8 @@ fn an_array_whose_description_has_no_grid_is_projected_from_its_data_element() {
     let s = &ir.stored;
     assert_eq!((s.arrays.len(), s.arrays[0].grid.is_none(), s.map.len()), (1, true, 0));
     assert_eq!(description["arrays"][0]["stored"].as_u64(), Some(s.arrays[0].element as u64));
-    assert!(refkv_ir::project::npy::reads(&ir, &description).unwrap().is_empty());
-    let out = refkv_ir::project::npy::project(&ir, &description, "u", &Default::default()).unwrap();
+    assert!(refkv_ir::project::npy::reads(&ir, &description, &Default::default()).unwrap().is_empty());
+    let out = refkv_ir::project::npy::project(&ir, &description, "u", &Default::default(), &Default::default()).unwrap();
     // three elements of five bytes, uint8 with a trailing axis: one chunk, the data after the header
     assert_eq!(out.refs, vec![("array/c/0/0".to_string(), vec![Part::Src(header_end, 15)])]);
 }
@@ -227,7 +227,7 @@ fn an_array_of_no_elements_projects_whatever_its_other_axes() {
     for shape in ["(4294967296, 4294967296, 0)", "(0, 4294967296, 4294967296)", "(0,)"] {
         let data = npy_of("<f8", shape);
         let (ir, description) = refkv_ir::parse_bytes::<Npy>(&data).unwrap_or_else(|e| panic!("{shape}: {e}"));
-        let out = refkv_ir::project::npy::project(&ir, &description, "u", &Default::default()).unwrap_or_else(|e| panic!("{shape}: {e}"));
+        let out = refkv_ir::project::npy::project(&ir, &description, "u", &Default::default(), &Default::default()).unwrap_or_else(|e| panic!("{shape}: {e}"));
         assert!(out.refs.is_empty() && out.entries.iter().any(|(k, _)| k == "array/zarr.json"), "{shape}");
     }
 }

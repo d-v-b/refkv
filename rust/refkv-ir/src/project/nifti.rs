@@ -15,7 +15,7 @@ use crate::gz;
 use crate::ir::Ir;
 use crate::nifti::header;
 use crate::record::Header;
-use crate::out::{array_json, bytes_codec, copy_threshold, full_window, grid_chunks, gzip_codecs, image_ome, omero_channel, omero_json, root_json, Chunk, Out, GZIP_LEVEL, RGBA};
+use crate::out::{array_json, bytes_codec, full_window, grid_chunks, gzip_codecs, image_ome, omero_channel, omero_json, root_json, Chunk, Chunking, Out, GZIP_LEVEL, RGBA};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 use std::borrow::Cow;
@@ -49,7 +49,7 @@ struct Cut {
     chunks: Vec<(Vec<u64>, Chunk)>,
 }
 
-fn cut(h: &Header, (vox, length): (u64, u64), gzipped: bool) -> Result<Cut, String> {
+fn cut(h: &Header, (vox, length): (u64, u64), gzipped: bool, chunking: &Chunking) -> Result<Cut, String> {
     let dim: Vec<i64> = h.values("dim").iter().map(|x| x.i()).collect();
     let nd = dim[0];
     let size = |i: usize| if (i as i64) <= nd { dim[i] as u64 } else { 1 };
@@ -70,7 +70,7 @@ fn cut(h: &Header, (vox, length): (u64, u64), gzipped: bool) -> Result<Cut, Stri
     let (grid, chunks) = if gzipped {
         contiguous::whole_stream(&shape, (vox, length))
     } else {
-        grid_chunks(vox, &shape, item, CHUNK_BYTES, copy_threshold()).ok_or("internal: the voxel data cannot be cut into chunks")?
+        grid_chunks(vox, &shape, item, CHUNK_BYTES, chunking.copy_threshold).ok_or("internal: the voxel data cannot be cut into chunks")?
     };
     Ok(Cut { axes, stored, shape, item, grid, chunks })
 }
@@ -86,23 +86,24 @@ fn parts<'a>(ir: &'a Ir, description: &J) -> Result<(Cow<'a, [u8]>, u32), String
 }
 
 /// The image file's ranges of the edge chunks a pair's projection copies (§7.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>), of voxels at `vox`.
-pub fn copy_ranges(h: &Header, vox: u64) -> Result<Vec<(u64, u64)>, String> {
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>), of voxels at `vox`,
+/// cut as `chunking` says.
+pub fn copy_ranges(h: &Header, vox: u64, chunking: &Chunking) -> Result<Vec<(u64, u64)>, String> {
     // a pair is not gzipped: only a gzip stream's chunk takes the length
-    Ok(contiguous::copy_reads(&cut(h, (vox, 0), false)?.chunks).collect())
+    Ok(contiguous::copy_reads(&cut(h, (vox, 0), false, chunking)?.chunks).collect())
 }
 
 /// The source's ranges of the edge chunks the projection copies (§7.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>).
-pub fn reads(ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+pub fn reads(ir: &Ir, description: &J, chunking: &Chunking) -> Result<Vec<(u64, u64)>, String> {
     let (raw, voxels) = parts(ir, description)?;
     let h = header(&raw, n(&description["version"]) as u8);
-    let c = cut(&h, (ir.start[voxels as usize], ir.len[voxels as usize]), description["gzip"].is_object())?;
+    let c = cut(&h, (ir.start[voxels as usize], ir.len[voxels as usize]), description["gzip"].is_object(), chunking)?;
     Ok(contiguous::copy_reads(&c.chunks).collect())
 }
 
 /// The output of the input `description` describes; `description` also holds the run's options.
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> Result<Out, String> {
     let (raw, voxels) = parts(ir, description)?;
     let version = n(&description["version"]) as u8;
     let h = header(&raw, version);
@@ -197,7 +198,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<O
     }
 
     // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#41-the-array>)
-    let Cut { axes, stored, shape: stored_shape, item, grid, chunks } = cut(&h, (vox, length), description["gzip"].is_object())?;
+    let Cut { axes, stored, shape: stored_shape, item, grid, chunks } = cut(&h, (vox, length), description["gzip"].is_object(), chunking)?;
     let shape_of = |a: &str| stored_shape[stored.iter().position(|s| *s == a).unwrap()];
     let pos = |a: &str| stored.iter().position(|s| *s == a).unwrap();
     let chunk_shape: Vec<u64> = axes.iter().map(|a| grid[pos(a)]).collect();
@@ -278,6 +279,6 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<O
 /// store URL `url`: the single file's, of the image file's voxels, with the header file's URL as its
 /// source's. `copied` holds the edge chunks the store run read, by their (offset, length) in the
 /// image file.
-pub fn store_project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    project(ir, description, url, copied)
+pub fn store_project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &crate::out::Chunking) -> Result<Out, String> {
+    project(ir, description, url, copied, chunking)
 }

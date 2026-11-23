@@ -10,7 +10,7 @@ import json
 import av
 import numpy as np
 import pytest
-from ir_helpers import FIXTURES, core_setting
+from ir_helpers import FIXTURES
 from ir_helpers import zarrified as shared_zarrified
 
 from refkv import _core
@@ -29,8 +29,7 @@ FFMPEG_MAX, FFMPEG_MEAN = 1, 0.6
 def zarrified(path, tmp_path, chunk_frames=None):
     """(the output, the hierarchy's root group, the IR), with at most `chunk_frames` frames a chunk (None: the
     profile's 256); the archive rebuilds the file (ir_helpers.zarrified)."""
-    with core_setting(_core._set_chunk_frames, chunk_frames):
-        out, root, ir = shared_zarrified(path, tmp_path, "mp3")
+    out, root, ir = shared_zarrified(path, tmp_path, "mp3", chunking=_core.Chunking(chunk_frames=chunk_frames))
     return out, root, ir
 
 def chunk_parts(out, q, data):

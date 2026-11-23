@@ -11,6 +11,7 @@ import { checkHttpUrl } from "../../uri.ts";
 import { checkedFetch } from "#net";
 import { type ByteReader, ImageError } from "../common.ts";
 import { hubEndpoint, hubPage } from "../store.ts";
+import { ir } from "./wasm.ts";
 
 /** A span [start, end) of a source. */
 export type Span = [start: number, end: number];
@@ -386,7 +387,12 @@ function causeOf(e: unknown): string {
  * A Hub repository's page (a tree URL without its trailing `/`, spec/zarrify.md §1.5
  * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>) is rejected
  * (an ImageError) before any request. */
-export function openHttpSource(url: string, options: HttpSourceOptions = {}): Promise<HttpSource> {
+export async function openHttpSource(url: string, options: HttpSourceOptions = {}): Promise<HttpSource> {
+  await ir(); // the Hub page rule is the core's
+  return openLoaded(url, options);
+}
+
+function openLoaded(url: string, options: HttpSourceOptions): Promise<HttpSource> {
   try {
     checkHttpUrl(url);
   } catch (e) {

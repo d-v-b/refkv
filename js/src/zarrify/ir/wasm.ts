@@ -38,19 +38,61 @@ export interface IrExports {
   vz_free(p: number, n: number): void;
   vz_fits_tiles_decode(chunk: number, n: number, config: number, nc: number, shape: number, rank: number): bigint;
   vz_grib_decode(chunk: number, n: number, config: number, nc: number, shape: number, rank: number): bigint;
+  vz_call(name: number, nn: number, params: number, np: number): bigint;
 }
 
 let instance: Promise<IrExports> | undefined;
+/** The instance, once `ir()` has instantiated it. */
+let loaded: IrExports | undefined;
 
 /** The shared instance (instantiated on first use; a failure is retried on the next). */
 export function ir(): Promise<IrExports> {
   instance ??= (async () => {
     const module = await compileIr();
     const { exports } = await WebAssembly.instantiate(module, {});
-    return exports as unknown as IrExports;
+    loaded = exports as unknown as IrExports;
+    return loaded;
   })();
   instance.catch(() => (instance = undefined));
   return instance;
+}
+
+/** A host rule of the core refused its parameters (`vz_call`): `kind` is `rejected` (the input
+ * is rejected), `no_codec` or `bad` (parameters or an argument the rule does not take). */
+export class RuleError extends Error {
+  readonly kind: string;
+  constructor(kind: string, message: string) {
+    super(message);
+    this.kind = kind;
+  }
+}
+
+const utf8 = new TextEncoder();
+
+/**
+ * The core's host rule (or coding routine) `name` of `params`, its JSON result
+ * (rust/refkv-ir/src/host, `vz_call`): synchronous, so the instance must be instantiated
+ * already (`await ir()` first); a RuleError when the rule refuses.
+ */
+export function rule<T = unknown>(name: string, params: Record<string, unknown> = {}): T {
+  const w = loaded;
+  if (w === undefined) throw new Error(`the IR core is not instantiated: await ir() before the rule ${name}`);
+  const n = utf8.encode(name);
+  const p = utf8.encode(JSON.stringify(params));
+  const r = Number(w.vz_call(put(w, n), n.length, put(w, p), p.length));
+  const text = new TextDecoder().decode(out(w, Math.abs(r)));
+  if (r < 0) {
+    const e = JSON.parse(text) as { kind: string; message: string };
+    throw new RuleError(e.kind, e.message);
+  }
+  return JSON.parse(text) as T;
+}
+
+/** A response's bytes as a rule takes them: one character U+0000 to U+00FF per byte. */
+export function latin1(b: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000));
+  return s;
 }
 
 /** Copies `bytes` into memory the core allocates (and takes ownership of): its pointer. */

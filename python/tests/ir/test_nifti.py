@@ -66,22 +66,18 @@ def test_edge_chunks_past_the_payload_are_copied_as_the_reference_copies_them(tm
     of 8 bytes here: every padded edge chunk is copied, by the run's last batch, and the
     hierarchy is the frozen reference's."""
     monkeypatch.setattr(_legacy_common, "MAX_PAYLOAD", 8)
-    _core._set_copy_threshold(8)
     copied = 0
-    try:
-        for path in NIIS:
-            url = f"https://data.test/{path.name}"
-            try:
-                _, ref = virtualize(str(path), url)
-            except Rejected:
-                continue
-            _, out, _ = via_ir(str(path), url)
-            same_hierarchy(ref, out)  # the copied chunks' bytes included
-            copied += sum(k.startswith("0/c/") for k in out.bytes_entries)
-            data = path.read_bytes()
-            assert_rebuilds(out, data, tmp_path)
-    finally:
-        _core._set_copy_threshold(None)
+    for path in NIIS:
+        url = f"https://data.test/{path.name}"
+        try:
+            _, ref = virtualize(str(path), url)
+        except Rejected:
+            continue
+        _, out, _ = via_ir(str(path), url, chunking=_core.Chunking(copy_threshold=8))
+        same_hierarchy(ref, out)  # the copied chunks' bytes included
+        copied += sum(k.startswith("0/c/") for k in out.bytes_entries)
+        data = path.read_bytes()
+        assert_rebuilds(out, data, tmp_path)
     assert copied >= 1  # nifti_chunk_edge_literal.nii's edge chunk
 
 
@@ -222,11 +218,7 @@ def test_a_pair_is_read_as_nibabel_reads_it(header, monkeypatch):
     image file, and its chunks are ranges of that file. Its mirror rebuilds the two files."""
     image_name = header.name[:-4] + {".hdr": ".img", ".HDR": ".IMG"}[header.suffix]
     monkeypatch.setattr(_legacy_common, "MAX_PAYLOAD", 8)
-    _core._set_copy_threshold(8)
-    try:
-        copied_fmt, copied_out = via_named(header)
-    finally:
-        _core._set_copy_threshold(None)
+    copied_fmt, copied_out = via_named(header, _core.Chunking(copy_threshold=8))
     monkeypatch.undo()
     fmt, out = via_named(header)
     assert fmt == copied_fmt == "nifti"
@@ -256,5 +248,5 @@ def pair_values(array: np.ndarray) -> np.ndarray:
     return np.stack([array[name] for name in array.dtype.names], axis=-1)
 
 
-def via_named(path: Path) -> tuple[str, Any]:
-    return zarrify_input(str(path))
+def via_named(path: Path, chunking: _core.Chunking | None = None) -> tuple[str, Any]:
+    return zarrify_input(str(path), chunking=chunking)

@@ -36,7 +36,7 @@ fn a_channel_s_mp4_file_takes_the_place_of_its_data() {
             }
         }
         let nodes = refkv_ir::project::hdf5_nodes::nodes(&facts).unwrap().nodes;
-        let planned = refkv_ir::project::h5j::plan(&facts, &nodes);
+        let planned = refkv_ir::project::h5j::plan(&facts, &nodes, &Default::default());
         let channels = planned["channels"].as_array().unwrap();
         let got: Vec<&str> = channels.iter().filter(|c| c["reason"].is_null()).map(|c| c["name"].as_str().unwrap()).collect();
         assert_eq!(got, presented, "{name}");

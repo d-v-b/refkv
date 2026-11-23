@@ -16,7 +16,7 @@ import { virtualizeIms } from "./ims/virtualize.ts";
 import { detectNdpi, virtualizeNdpi } from "./ndpi/virtualize.ts";
 import { virtualizeTiff } from "./tiff/virtualize.ts";
 
-export { isStoreUrl } from "../../../../js/src/zarrify/index.ts";
+export { isStoreUrl } from "./legacy_store.ts";
 export { virtualizeStore } from "./store.ts";
 
 const NOT_SUPPORTED = "not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file";

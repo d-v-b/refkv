@@ -13,7 +13,7 @@ import av
 import h5py
 import numpy as np
 import pytest
-from ir_helpers import FIXTURES, ROOT, core_setting
+from ir_helpers import FIXTURES, ROOT
 from ir_helpers import zarrified as shared_zarrified
 
 from refkv import _core
@@ -26,8 +26,7 @@ FILES = sorted(p for p in (FIXTURES / "h5j").iterdir() if "reject" not in p.name
 def zarrified(path, tmp_path, chunk_frames=None):
     """(the output, the hierarchy's root group), at most `chunk_frames` pictures a chunk (None: the
     profile's 256)."""
-    with core_setting(_core._set_chunk_frames, chunk_frames):
-        out, root, _ir = shared_zarrified(path, tmp_path, "h5j")
+    out, root, _ir = shared_zarrified(path, tmp_path, "h5j", chunking=_core.Chunking(chunk_frames=chunk_frames))
     return out, root
 
 

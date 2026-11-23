@@ -180,11 +180,11 @@ async def sniffed(transport: Transport) -> str | None:
     return fmt
 
 
-def parse(fmt: str, transport: Transport,
-          conc: int | None = None) -> tuple[_core.Ir, dict[str, object], dict[str, object]]:
+def parse(fmt: str, transport: Transport, conc: int | None = None,
+          chunking: _core.Chunking | None = None) -> tuple[_core.Ir, dict[str, object], dict[str, object]]:
     """(IR, the parser's description, planner counts) of the source the transport reads, or
-    Rejected."""
-    run = new_run(fmt, transport, conc)
+    Rejected; `chunking` is `parse_async`'s."""
+    run = new_run(fmt, transport, conc, chunking=chunking)
     drive(run, transport, conc)
     try:
         ir, description, stats = run.finish()
@@ -246,6 +246,8 @@ class FileParse:
         self.description: dict[str, Any] = json.loads(run.description())
         self.url = url
         self.size = transport.size
+        # how the run's projection cuts the source, given at its start
+        self.chunking: _core.Chunking = run.chunking
 
     @property
     def etag(self) -> str | None:
@@ -286,19 +288,21 @@ class FileParse:
 
 async def parse_async(location: str, url: str | None = None, policy: Policy | None = None,
                       transport: Transport | None = None, connections: int | None = None,
-                      byte_cost: float | None = None, fmt: str | None = None) -> FileParse:
+                      byte_cost: float | None = None, fmt: str | None = None,
+                      chunking: _core.Chunking | None = None) -> FileParse:
     """The source read through the read planner and parsed by the Rust parser of its format
     (`fmt`, else the one its first bytes give; a TIFF variant's file, rejected unless the TIFF
     parser finds that variant), with no output made of it: a `FileParse`. Raises
     `NamesSiblingsError` for a file that names siblings. `connections` and `byte_cost` are
-    `zarrify_async`'s."""
+    `zarrify_async`'s; `chunking` is how its projection cuts the source (default: the
+    convention's; `refkv._core.Chunking`)."""
     transport = transport or await asyncio.to_thread(open_transport, location, policy)
     if fmt is None:
         fmt = await sniffed(transport)
         if fmt is None:
             raise Rejected("not a file of any supported format")
     named = fmt
-    run = new_run("tiff" if fmt in TIFF_VARIANTS else fmt, transport, connections, byte_cost)
+    run = new_run("tiff" if fmt in TIFF_VARIANTS else fmt, transport, connections, byte_cost, chunking)
     run.defer_projection()
     await drive_async(run, transport, connections)
     fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"
@@ -314,7 +318,7 @@ async def zarrify_async(location: str, url: str | None = None, mirror: bool = Tr
                         transport: Transport | None = None, connections: int | None = None,
                         byte_cost: float | None = None, fmt: str | None = None,
                         layouts: list[str] | None = None, checksums: bool = False,
-                        written: bool = True) -> tuple[str, Output, _core.Ir]:
+                        written: bool = True, chunking: _core.Chunking | None = None) -> tuple[str, Output, _core.Ir]:
     """(format, output, IR): the source read through the read planner, parsed by the
     Rust parser of its format (`fmt`, else the one its first bytes give; a TIFF variant's
     file, rejected unless the TIFF parser finds that variant), projected and
@@ -327,8 +331,8 @@ async def zarrify_async(location: str, url: str | None = None, mirror: bool = Tr
     the ranges' checksums, so that a sharded array's ranges are not joined across inner chunks
     (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>),
     and, when `written` (the output is written as it is, not only built from), a payload over the
-    limit only with them is `refkv._core.Failed`."""
-    parsed = await parse_async(location, url, policy, transport, connections, byte_cost, fmt)
+    limit only with them is `refkv._core.Failed`. `chunking` is `parse_async`'s."""
+    parsed = await parse_async(location, url, policy, transport, connections, byte_cost, fmt, chunking)
     out = await parsed.output_async(mirror, layouts, checksums, written)
     return parsed.fmt, out, parsed.ir
 
@@ -336,7 +340,8 @@ async def zarrify_async(location: str, url: str | None = None, mirror: bool = Tr
 def zarrify(location: str, url: str | None = None, mirror: bool = True, policy: Policy | None = None,
             transport: Transport | None = None, connections: int | None = None,
             byte_cost: float | None = None, fmt: str | None = None,
-            layouts: list[str] | None = None, checksums: bool = False) -> tuple[str, Output, _core.Ir]:
+            layouts: list[str] | None = None, checksums: bool = False,
+            chunking: _core.Chunking | None = None) -> tuple[str, Output, _core.Ir]:
     """`zarrify_async`, the caller's thread waiting for it (`refkv._sync.run`)."""
     return _sync.run(zarrify_async(location, url, mirror, policy, transport, connections, byte_cost, fmt,
-                                   layouts, checksums))
+                                   layouts, checksums, chunking=chunking))

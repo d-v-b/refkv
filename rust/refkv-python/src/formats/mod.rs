@@ -8,12 +8,14 @@ use refkv_ir::ir::Ir;
 use std::sync::Arc;
 
 /// What a format's class is made of: the run's IR and description, shared with the run, whether
-/// the run is a store run, and what it read for its projection (a store run's), shared.
+/// the run is a store run, what it read for its projection (a store run's), shared, and how its
+/// projection cuts the source, which the class's routines cut with too.
 pub struct View {
     pub ir: Arc<Ir>,
     pub description: Arc<serde_json::Value>,
     pub store: bool,
     pub held: Option<Arc<refkv_ir::store::Read>>,
+    pub chunking: refkv_ir::out::Chunking,
 }
 
 // `pub mod <m>;` for each profile with a module, `view` and `register` (build.rs)

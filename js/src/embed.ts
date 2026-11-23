@@ -8,7 +8,8 @@
 // refkv_ir.wasm; the host says where that is with `setIrWasmUrl`, or
 // gives the module itself with `setIrWasmModule`.
 
-import type { Policy } from "./archive.ts";
+import { checkPolicy, type Policy, RefkvError } from "./archive.ts";
+import { getScheme } from "./uri.ts";
 import { zarrifySource, zarrifyStore } from "./zarrify/index.ts";
 import { readerSource, type RangeSource } from "./zarrify/ir/source.ts";
 import { ir, out, put } from "./zarrify/ir/wasm.ts";
@@ -33,7 +34,8 @@ export interface EmbedOptions {
    * reader that cannot check a pin of a source refuses it, so a host whose reader checks none
    * for its source's scheme leaves them out. */
   pins?: boolean;
-  /** The reader policy a store URL is listed and read under (spec/refkv.md §6.7
+  /** The reader policy a store URL is listed and read under, and the archive's sources are
+   * checked against (spec/refkv.md §6.7
    * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>; default: private
    * and special hosts refused). */
   policy?: Policy;
@@ -58,6 +60,28 @@ function unpinned(desc: ArchiveDesc): void {
   desc.sources = desc.sources.map(({ size: _size, etag: _etag, modifiedNotAfter: _m, ...s }) => s);
 }
 
+/** Checks every absolute url source of `desc` against the reader policy `policy` (spec/refkv.md
+ * §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>), as the Python
+ * host and the CLI check a store before they save it: a source a reader under the policy could not
+ * read refuses the whole archive (a resolution error, `RefkvError`), and none is written. A
+ * relative source names a file beside the archive, which its reader resolves. */
+function checkSources(desc: ArchiveDesc, policy: Policy): void {
+  const urls = desc.sources.flatMap((s) => (s.url !== undefined && getScheme(s.url) !== undefined ? [s.url] : []));
+  const refused: string[] = [];
+  for (const url of urls) {
+    try {
+      checkPolicy(policy, url, url);
+    } catch (e) {
+      if (!(e instanceof RefkvError)) throw e;
+      refused.push(e.message);
+    }
+  }
+  if (refused.length) {
+    throw new RefkvError("resolution", `not writing the archive: the reader policy given refuses ${refused.length} of its ` +
+      `${desc.sources.length} sources, so a reader could not read them. The first: ${refused[0]}`);
+  }
+}
+
 /** Zarrifies the file `input`, or the store at `input` (an http(s) URL whose path ends in
  * `/`, listed and read by refkv under `options.policy`), and writes its vzip archive. */
 export async function zarrifyToArchive(input: FileInput | string, options: EmbedOptions = {}): Promise<Zarrified> {
@@ -77,6 +101,7 @@ export async function zarrifyToArchive(input: FileInput | string, options: Embed
       } : {}),
     });
   }
+  checkSources(desc, options.policy ?? {});
   if (options.pins === false) unpinned(desc);
   const { format, summary } = desc;
   return { archive: await writeVzip(desc), format: (summary as { format?: string }).format ?? format, summary };

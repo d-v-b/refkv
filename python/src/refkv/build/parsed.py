@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self, TypeVar, overload
 
 import refkv.zarrify as _zarrify  # its parse, read at call time: refkv.zarrify imports this module (a cycle)
-from refkv import Range, ReferenceStore, Source, _sync
+from refkv import Range, ReferenceStore, Source, _core, _sync
 from refkv.entries import MERGE_GAP
 from refkv.errors import NoIrError, RefkvError
 from refkv.host.urls import object_url, object_urls
@@ -94,6 +94,9 @@ class Parsed:
         # the input as its format's own class gives it (`_core.Run.view`), for its routines
         self._view: object | None = run.view
         self._description: dict[str, Any] = run.description
+        #: how the run cut the input, which refkv's own output and the routines cut it with too
+        #: (`refkv.build.grid` among them): `read`'s `chunking`, by default the convention's
+        self.chunking: _core.Chunking = run.chunking
         # the profile the run decided, and the version of its convention, as an output's root
         # declares them
         self.profile: str = parse.fmt
@@ -573,16 +576,18 @@ def _fetched(ranges: list[tuple[int, int, int]], gap: int = MERGE_GAP) -> int:
 
 async def read_async(location: str | os.PathLike[str], url: str | None = None, *, policy: Policy | None = None,
                      registry: Registry | None = None, checksums: bool = False,
-                     max_bytes: int = MAX_BYTES, scope: Scope | None = None) -> Parsed:
+                     max_bytes: int = MAX_BYTES, scope: Scope | None = None,
+                     chunking: _core.Chunking | None = None) -> Parsed:
     """The input at `location` read as `zarrify` reads it (the same sniffing, siblings, pins, reader
-    policy and object stores), as a `Parsed`. `scope` is `zarrify`'s: what a file input may read
-    besides itself. Raises `Rejected` as `zarrify` does, and `NoIrError` (a ValueError)
-    for an input whose run keeps no IR (a store of DICOM files)."""
+    policy and object stores), as a `Parsed`. `scope` and `chunking` are `zarrify`'s: what a file
+    input may read besides itself, and how refkv's convention cuts it (`Parsed.chunking`). Raises
+    `Rejected` as `zarrify` does, and `NoIrError` (a ValueError) for an input whose run keeps no IR
+    (a store of DICOM files)."""
     location = os.fspath(location)
     resolver = Resolver(registry)
     # the built-in output, if asked for, is only built from: `seal` holds what is written to the limits
     parse = await _zarrify._parse_async(location, url, checksums=checksums, policy=policy,  # noqa: SLF001
-                                        registry=resolver, written=False, scope=scope)
+                                        registry=resolver, written=False, scope=scope, chunking=chunking)
     if not isinstance(parse, _zarrify._Parse):  # noqa: SLF001
         raise NoIrError(f"{location}: its run keeps no IR, so refkv.build cannot read it")
     # a `file:` URL, read as its path
@@ -606,7 +611,7 @@ async def parsed_async(parse: _Parse, location: str, url: str | None, *, policy:
         elif isinstance(run, StoreParse) and url is not None:
             # a file read as a store, its objects found beside it: read again as `read` opened them
             local = await _zarrify._parse_async(location, None, policy=policy, registry=resolver,  # noqa: SLF001
-                                                fmt=parse.fmt, scope=scope)
+                                                fmt=parse.fmt, scope=scope, chunking=run.chunking)
             there = local.parse if isinstance(local, _zarrify._Parse) else None  # noqa: SLF001
             if isinstance(local, _zarrify._Parse):  # noqa: SLF001
                 local.close()  # read for where its objects lie, and their sizes
@@ -622,7 +627,7 @@ async def parsed_async(parse: _Parse, location: str, url: str | None, *, policy:
 
 def read(location: str | os.PathLike[str], url: str | None = None, *, policy: Policy | None = None,
          registry: Registry | None = None, checksums: bool = False, max_bytes: int = MAX_BYTES,
-         scope: Scope | None = None) -> Parsed:
+         scope: Scope | None = None, chunking: _core.Chunking | None = None) -> Parsed:
     """`read_async`, the caller's thread waiting for it."""
     return _sync.run(read_async(location, url, policy=policy, registry=registry, checksums=checksums,
-                                max_bytes=max_bytes, scope=scope))
+                                max_bytes=max_bytes, scope=scope, chunking=chunking))
