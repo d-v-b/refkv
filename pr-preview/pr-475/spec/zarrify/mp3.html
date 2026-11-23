@@ -1,0 +1,1734 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../../genindex.html"><link rel="search" title="Search" href="../../search.html"><link rel="next" title="MP3" href="../../docs/zarrify/mp3/README.html"><link rel="prev" title="LIF: stored arrays" href="lif/stored-arrays.html">
+        <link rel="canonical" href="https://d-v-b.github.io/refkv/spec/zarrify/mp3.html">
+
+    <!-- Generated with Sphinx 9.1.1 and Furo 2025.12.19 -->
+        <title>MP3 - refkv</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="../../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../../README.html"><div class="brand">refkv</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../../README.html">
+  
+  <span class="sidebar-brand-text">refkv</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/README.html">refkv documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/adding-a-format.html">Adding a file format</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/build.html">Building an output from the IR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/combining-stores.html">Combining stores</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/layout-plugins.html">Writing a layout plugin</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/tiff-stack.html">A stack of TIFF files as one array</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/virtual-datasets.html">Virtual datasets with xarray</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Specification</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../TECHNIQUES.html">Mapping image formats to Zarr: techniques</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../conventions.html">refkv’s Zarr conventions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../layout.html">Layouts written by plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../provenance.html">refkv’s provenance convention</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../refkv.html">refkv: a reference value type for key-value stores</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../refkv.html#part-1-reference-values">Part 1. Reference values</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../stored-array.html">Stored arrays in the IR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../zarrify.html">Zarrifying files and stores as Zarr in refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/phkv.html">phkv: the perfect-hash binding of refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/phkv.html#part-3-the-perfect-hash-binding">Part 3. The perfect-hash binding</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/vzip.html">vzip: the ZIP binding of refkv</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bindings/vzip.html#part-2-the-zip-binding">Part 2. The ZIP binding</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Formats</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="czi.html">CZI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="czi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="czi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/czi/README.html">CZI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="czi/stored-arrays.html">CZI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="dicom.html">DICOM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dicom.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="dicom.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/dicom/README.html">DICOM, including whole-slide images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dicom/stored-arrays.html">DICOM: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="envi.html">ENVI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="envi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="envi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/envi/README.html">ENVI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="envi/stored-arrays.html">ENVI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="fits.html">FITS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fits.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="fits.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/fits/README.html">FITS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="fits/stored-arrays.html">FITS: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="flac.html">FLAC</a></li>
+<li class="toctree-l1"><a class="reference internal" href="flac.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="flac.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-5" name="toctree-checkbox-5" role="switch" type="checkbox"/><label for="toctree-checkbox-5"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/flac/README.html">FLAC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="flac/stored-arrays.html">FLAC: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="grib.html">GRIB</a></li>
+<li class="toctree-l1"><a class="reference internal" href="grib.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="grib.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-6" name="toctree-checkbox-6" role="switch" type="checkbox"/><label for="toctree-checkbox-6"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/grib/README.html">GRIB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="grib/stored-arrays.html">GRIB: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="h5j.html">H5J</a></li>
+<li class="toctree-l1"><a class="reference internal" href="h5j.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="h5j.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-7" name="toctree-checkbox-7" role="switch" type="checkbox"/><label for="toctree-checkbox-7"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/h5j/README.html">H5J</a></li>
+<li class="toctree-l2"><a class="reference internal" href="h5j/stored-arrays.html">H5J: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="hdf4.html">HDF4</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hdf4.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="hdf4.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-8" name="toctree-checkbox-8" role="switch" type="checkbox"/><label for="toctree-checkbox-8"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/hdf4/README.html">HDF4 and HDF-EOS2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="hdf4/stored-arrays.html">HDF4: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="hdf5.html">HDF5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hdf5.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="hdf5.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-9" name="toctree-checkbox-9" role="switch" type="checkbox"/><label for="toctree-checkbox-9"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/hdf5/README.html">HDF5 and NWB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="hdf5/stored-arrays.html">HDF5: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ims.html">IMS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ims.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ims.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-10" name="toctree-checkbox-10" role="switch" type="checkbox"/><label for="toctree-checkbox-10"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/ims/README.html">Imaris IMS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ims/stored-arrays.html">IMS: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="lif.html">LIF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lif.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="lif.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-11" name="toctree-checkbox-11" role="switch" type="checkbox"/><label for="toctree-checkbox-11"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/lif/README.html">LIF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lif/stored-arrays.html">LIF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">MP3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-12" name="toctree-checkbox-12" role="switch" type="checkbox"/><label for="toctree-checkbox-12"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/mp3/README.html">MP3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mp3/stored-arrays.html">MP3: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="mp4.html">MP4</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mp4.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mp4.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-13" name="toctree-checkbox-13" role="switch" type="checkbox"/><label for="toctree-checkbox-13"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/mp4/README.html">MP4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mp4/stored-arrays.html">MP4: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="mrc.html">MRC</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mrc.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mrc.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-14" name="toctree-checkbox-14" role="switch" type="checkbox"/><label for="toctree-checkbox-14"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/mrc/README.html">MRC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mrc/stored-arrays.html">MRC: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="mrc-dataset.html">MRC as a dataset</a><input aria-label="Toggle navigation of MRC as a dataset" class="toctree-checkbox" id="toctree-checkbox-15" name="toctree-checkbox-15" role="switch" type="checkbox"/><label for="toctree-checkbox-15"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul class="simple">
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="n5.html">N5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="n5.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="n5.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-16" name="toctree-checkbox-16" role="switch" type="checkbox"/><label for="toctree-checkbox-16"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/n5/README.html">N5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="n5/stored-arrays.html">N5: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="nd2.html">ND2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nd2.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="nd2.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-17" name="toctree-checkbox-17" role="switch" type="checkbox"/><label for="toctree-checkbox-17"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/nd2/README.html">Nikon ND2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nd2/stored-arrays.html">ND2: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ndpi.html">NDPI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ndpi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ndpi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-18" name="toctree-checkbox-18" role="switch" type="checkbox"/><label for="toctree-checkbox-18"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/ndpi/README.html">Hamamatsu NDPI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ndpi/stored-arrays.html">NDPI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="netcdf3.html">netCDF3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="netcdf3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="netcdf3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-19" name="toctree-checkbox-19" role="switch" type="checkbox"/><label for="toctree-checkbox-19"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/netcdf3/README.html">netCDF3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="netcdf3/stored-arrays.html">netCDF3: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="nifti.html">NIfTI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nifti.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="nifti.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-20" name="toctree-checkbox-20" role="switch" type="checkbox"/><label for="toctree-checkbox-20"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/nifti/README.html">NIfTI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nifti/stored-arrays.html">NIfTI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="npy.html">NumPy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="npy.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="npy.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-21" name="toctree-checkbox-21" role="switch" type="checkbox"/><label for="toctree-checkbox-21"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/npy/README.html">NumPy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="npy/stored-arrays.html">NumPy: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="nrrd.html">NRRD</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nrrd.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="nrrd.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-22" name="toctree-checkbox-22" role="switch" type="checkbox"/><label for="toctree-checkbox-22"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/nrrd/README.html">NRRD</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nrrd/stored-arrays.html">NRRD: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ome-zarr.html">OME-Zarr</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ome-zarr.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ome-zarr.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-23" name="toctree-checkbox-23" role="switch" type="checkbox"/><label for="toctree-checkbox-23"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/ome-zarr/README.html">OME-Zarr 0.4 to 0.5, in place</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ome-zarr/stored-arrays.html">OME-Zarr: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="precomputed.html">Neuroglancer precomputed</a></li>
+<li class="toctree-l1"><a class="reference internal" href="precomputed.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="precomputed.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-24" name="toctree-checkbox-24" role="switch" type="checkbox"/><label for="toctree-checkbox-24"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/precomputed/README.html">Neuroglancer precomputed</a></li>
+<li class="toctree-l2"><a class="reference internal" href="precomputed/stored-arrays.html">Neuroglancer precomputed: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="qptiff.html">QPTIFF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="qptiff.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="qptiff.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-25" name="toctree-checkbox-25" role="switch" type="checkbox"/><label for="toctree-checkbox-25"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/qptiff/README.html">Akoya QPTIFF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="qptiff/stored-arrays.html">QPTIFF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="safe.html">SAFE</a></li>
+<li class="toctree-l1"><a class="reference internal" href="safe.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="safe.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-26" name="toctree-checkbox-26" role="switch" type="checkbox"/><label for="toctree-checkbox-26"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/safe/README.html">Sentinel-2 SAFE</a></li>
+<li class="toctree-l2"><a class="reference internal" href="safe/stored-arrays.html">SAFE: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="safetensors.html">safetensors</a></li>
+<li class="toctree-l1"><a class="reference internal" href="safetensors.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="safetensors.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-27" name="toctree-checkbox-27" role="switch" type="checkbox"/><label for="toctree-checkbox-27"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/safetensors/README.html">safetensors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="safetensors/stored-arrays.html">safetensors: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="tiff.html">TIFF</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tiff.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="tiff.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-28" name="toctree-checkbox-28" role="switch" type="checkbox"/><label for="toctree-checkbox-28"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/tiff/README.html">TIFF, OME-TIFF and Aperio SVS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tiff/stored-arrays.html">TIFF: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="vsi.html">VSI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="vsi.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="vsi.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-29" name="toctree-checkbox-29" role="switch" type="checkbox"/><label for="toctree-checkbox-29"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/vsi/README.html">VSI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="vsi/stored-arrays.html">VSI: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarr2.html">Zarr v2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarr2.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarr2.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-30" name="toctree-checkbox-30" role="switch" type="checkbox"/><label for="toctree-checkbox-30"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/zarr2/README.html">Zarr v2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarr2/stored-arrays.html">Zarr v2: stored arrays</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="zarr3.html">Zarr v3</a></li>
+<li class="toctree-l1"><a class="reference internal" href="zarr3.html#part-1-the-convention">Part 1. The convention</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="zarr3.html#part-2-the-profile">Part 2. The profile</a><input aria-label="Toggle navigation of Part 2. The profile" class="toctree-checkbox" id="toctree-checkbox-31" name="toctree-checkbox-31" role="switch" type="checkbox"/><label for="toctree-checkbox-31"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../docs/zarrify/zarr3/README.html">Zarr v3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zarr3/stored-arrays.html">Zarr v3: stored arrays</a></li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/d-v-b/refkv/edit/main/spec/zarrify/mp3.md" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="mp3">
+<h1>MP3<a class="headerlink" href="#mp3" title="Link to this heading">¶</a></h1>
+<p>The Zarr layout of an MP3 file (MPEG-1, MPEG-2 or MPEG-2.5 Layer III audio,
+<code class="docutils literal notranslate"><span class="pre">.mp3</span></code>), and the translation of its stream parameters and tags into JSON.
+What all of refkv’s conventions share is in
+<a class="reference internal" href="../conventions.html"><span class="std std-doc">spec/conventions.md</span></a>, cited here as “conventions §n”. How
+refkv produces this layout as a reference store, and which files it accepts,
+is the MP3 profile, <a class="reference internal" href="#part-2-the-profile">Part 2</a> below.</p>
+<p>Convention version: 0 (until release, <a class="reference internal" href="../conventions.html#conventions"><span class="std std-ref">conventions §1</span></a>) · UUID: <code class="docutils literal notranslate"><span class="pre">b6cb0047-9448-4fdc-b03e-10dd3d6aa829</span></code> ·
+Schema: <a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3/schema.json">schema.json</a></p>
+<p>Changes: <a class="reference external" href="https://github.com/d-v-b/refkv/tree/main/spec/zarrify/changes/mp3">changes/mp3/</a>, one file per change.</p>
+<p>Added 2026-10-21.</p>
+<p>This document has two parts (<a class="reference internal" href="../conventions.html#parts"><span class="std std-ref">conventions §11.1</span></a>).</p>
+<p>An MP3 file is not an image: the hierarchy holds the decoded audio as one array of samples, with no
+OME-NGFF metadata. The samples stay in the file as MPEG frames; the array’s
+codec decodes them when a chunk is read.</p>
+</section>
+<section id="part-1-the-convention">
+<h1>Part 1. The convention<a class="headerlink" href="#part-1-the-convention" title="Link to this heading">¶</a></h1>
+<section id="layout">
+<h2>Layout<a class="headerlink" href="#layout" title="Link to this heading">¶</a></h2>
+<p>The hierarchy’s entries (<a class="reference internal" href="../conventions.html#layout-tables"><span class="std std-ref">conventions §11.5</span></a>):</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>prefix</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>structure</p></th>
+<th class="head"><p>description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json</span></code></p></td>
+<td><p>group</p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-groupdocument"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">GroupDocument</span></code></span></a>, its attributes a <a class="reference internal" href="../conventions.html#type-declaration"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Declaration</span></code></span></a> and nothing else</p></td>
+<td><p>the root (<a class="reference internal" href="#the-layout">§4</a>): no <code class="docutils literal notranslate"><span class="pre">ome</span></code> member, since the hierarchy is not an image</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/zarr_conventions</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p>array of <a class="reference internal" href="../conventions.html#type-conventionmetadata"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">ConventionMetadata</span></code></span></a></p></td>
+<td><p>the CMO of <a class="reference internal" href="#declaration">§1</a></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/refkv_zarrified</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-rootproperty"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">RootProperty</span></code></span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">profile</span></code> <code class="docutils literal notranslate"><span class="pre">&quot;mp3&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">version</span></code> <code class="docutils literal notranslate"><span class="pre">0</span></code>, <code class="docutils literal notranslate"><span class="pre">source.url</span></code> the file’s URL</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">zarr.json#/attributes/refkv_zarrified/mp3</span></code></p></td>
+<td><p>attribute</p></td>
+<td><p><a class="reference internal" href="#type-mp3root"><code class="docutils literal notranslate"><span class="pre">Mp3Root</span></code></a></p></td>
+<td><p>the root’s source metadata (<a class="reference internal" href="#the-root">§5.1</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">samples/zarr.json</span></code></p></td>
+<td><p>array</p></td>
+<td><p><a class="reference internal" href="#type-mp3array"><code class="docutils literal notranslate"><span class="pre">Mp3Array</span></code></a></p></td>
+<td><p>the decoded samples (<a class="reference internal" href="#the-array">§4.1</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">samples/c/&lt;q&gt;/0</span></code></p></td>
+<td><p>chunk</p></td>
+<td><p><a class="reference internal" href="#type-mp3chunk"><code class="docutils literal notranslate"><span class="pre">Mp3Chunk</span></code></a></p></td>
+<td><p>every chunk of the array, a run of audio frames (<a class="reference internal" href="#chunks">§8.2</a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">refkv_source/**</span></code></p></td>
+<td><p>subtree</p></td>
+<td><p><a class="reference internal" href="../conventions.html#table-mirror"><span class="std std-ref">the mirror’s entries</span></a></p></td>
+<td><p>the IR mirror (<a class="reference internal" href="#the-ir-mirror">§5.2</a>): its elements are <a class="reference internal" href="#elements">§5.3</a>’s</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>placeholder</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;q&gt;</span></code></p></td>
+<td><p>the chunk’s index along <code class="docutils literal notranslate"><span class="pre">time</span></code>, in decimal, from 0 to <code class="docutils literal notranslate"><span class="pre">ceil(N</span> <span class="pre">/</span> <span class="pre">F)</span> <span class="pre">−</span> <span class="pre">1</span></code> (<a class="reference internal" href="#the-array">§4.1</a>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="declaration">
+<span id="1-declaration"></span><h2>1. Declaration<a class="headerlink" href="#declaration" title="Link to this heading">¶</a></h2>
+<p>The root and <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> declare the convention
+(<a class="reference internal" href="../conventions.html#declaration"><span class="std std-ref">conventions §11.2</span></a>), the root with its source
+metadata of <a class="reference internal" href="#the-root">§5.1</a> as the member <code class="docutils literal notranslate"><span class="pre">&quot;mp3&quot;</span></code>. Its CMO is:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"uuid"</span><span class="p">:</span><span class="w"> </span><span class="s2">"b6cb0047-9448-4fdc-b03e-10dd3d6aa829"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"schema_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://d-v-b.github.io/refkv/conventions/mp3/schema.json"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"spec_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://d-v-b.github.io/refkv/conventions/mp3/"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"refkv_zarrified"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"description"</span><span class="p">:</span><span class="w"> </span><span class="s2">"The Zarr layout of a MP3 source zarrified by refkv, and the source's metadata"</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>The root’s attributes are <code class="docutils literal notranslate"><span class="pre">zarr_conventions</span></code> and <code class="docutils literal notranslate"><span class="pre">refkv_zarrified</span></code> and
+nothing else: there is no <code class="docutils literal notranslate"><span class="pre">ome</span></code> member, since the hierarchy is not an image.
+The array has no attributes.</p>
+</section>
+<section id="frames">
+<span id="2-frames"></span><h2>2. Frames<a class="headerlink" href="#frames" title="Link to this heading">¶</a></h2>
+<p>An MP3 file is a sequence of <strong>frames</strong>, each a 4-byte <strong>header</strong> followed by
+the frame’s data, with tags (<a class="reference internal" href="#tags">§3</a>) before the first frame and after
+the last. The header’s bits, most significant first (byte 0 first):</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>bits</p></th>
+<th class="head"><p>field</p></th>
+<th class="head"><p>values</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>31–21</p></td>
+<td><p>sync</p></td>
+<td><p>all ones (<code class="docutils literal notranslate"><span class="pre">FF</span> <span class="pre">Ex</span></code> to <code class="docutils literal notranslate"><span class="pre">FF</span> <span class="pre">Fx</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p>20–19</p></td>
+<td><p>version</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">00</span></code> MPEG-2.5, <code class="docutils literal notranslate"><span class="pre">01</span></code> reserved, <code class="docutils literal notranslate"><span class="pre">10</span></code> MPEG-2, <code class="docutils literal notranslate"><span class="pre">11</span></code> MPEG-1</p></td>
+</tr>
+<tr class="row-even"><td><p>18–17</p></td>
+<td><p>layer</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">00</span></code> reserved, <code class="docutils literal notranslate"><span class="pre">01</span></code> Layer III, <code class="docutils literal notranslate"><span class="pre">10</span></code> Layer II, <code class="docutils literal notranslate"><span class="pre">11</span></code> Layer I</p></td>
+</tr>
+<tr class="row-odd"><td><p>16</p></td>
+<td><p>protection</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0</span></code>: a 16-bit CRC follows the header; <code class="docutils literal notranslate"><span class="pre">1</span></code>: none</p></td>
+</tr>
+<tr class="row-even"><td><p>15–12</p></td>
+<td><p>bitrate index</p></td>
+<td><p>0 free format, 15 invalid; else a table entry</p></td>
+</tr>
+<tr class="row-odd"><td><p>11–10</p></td>
+<td><p>sample rate index</p></td>
+<td><p>3 invalid; else a table entry</p></td>
+</tr>
+<tr class="row-even"><td><p>9</p></td>
+<td><p>padding</p></td>
+<td><p>the frame is one byte longer</p></td>
+</tr>
+<tr class="row-odd"><td><p>8</p></td>
+<td><p>private</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p>7–6</p></td>
+<td><p>channel mode</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">00</span></code> stereo, <code class="docutils literal notranslate"><span class="pre">01</span></code> joint stereo, <code class="docutils literal notranslate"><span class="pre">10</span></code> dual channel, <code class="docutils literal notranslate"><span class="pre">11</span></code> mono</p></td>
+</tr>
+<tr class="row-odd"><td><p>5–4</p></td>
+<td><p>mode extension</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p>3</p></td>
+<td><p>copyright</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p>2</p></td>
+<td><p>original</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p>1–0</p></td>
+<td><p>emphasis</p></td>
+<td><p></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A header is <strong>valid</strong> when its sync is all ones, its version and layer are
+not reserved, its bitrate index is from 1 to 14 and its sample rate index is
+from 0 to 2. (A free-format header is one that is valid but for a bitrate
+index of 0.) The header gives the <strong>channel count</strong> <code class="docutils literal notranslate"><span class="pre">C</span></code>, 1 for mono and 2 otherwise, and,
+by version, these values; the frame’s length is in integer division, with <code class="docutils literal notranslate"><span class="pre">b</span></code> the bitrate
+in bits per second, <code class="docutils literal notranslate"><span class="pre">r</span></code> the sample rate and <code class="docutils literal notranslate"><span class="pre">p</span></code> the padding bit. Layer I and II frames,
+which the profile rejects, have their own bitrate tables and lengths:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>value</p></th>
+<th class="head"><p>MPEG-1</p></th>
+<th class="head"><p>MPEG-2</p></th>
+<th class="head"><p>MPEG-2.5</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>the <strong>sample rate</strong>, by sample rate index 0, 1, 2</p></td>
+<td><p>44100, 48000, 32000</p></td>
+<td><p>22050, 24000, 16000</p></td>
+<td><p>11025, 12000, 8000</p></td>
+</tr>
+<tr class="row-odd"><td><p>the Layer III <strong>bitrate</strong> in kbps, by bitrate index 1 to 14</p></td>
+<td><p>32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320</p></td>
+<td><p>8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160</p></td>
+<td><p>MPEG-2’s</p></td>
+</tr>
+<tr class="row-even"><td><p>the Layer II bitrate</p></td>
+<td><p>32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384</p></td>
+<td><p>Layer III’s</p></td>
+<td><p>Layer III’s</p></td>
+</tr>
+<tr class="row-odd"><td><p>the Layer I bitrate</p></td>
+<td><p>32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448</p></td>
+<td><p>32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256</p></td>
+<td><p>MPEG-2’s</p></td>
+</tr>
+<tr class="row-even"><td><p>the Layer III frame’s <strong>length</strong> <code class="docutils literal notranslate"><span class="pre">L</span></code> in bytes, header included</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">144</span> <span class="pre">×</span> <span class="pre">b</span> <span class="pre">/</span> <span class="pre">r</span> <span class="pre">+</span> <span class="pre">p</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">72</span> <span class="pre">×</span> <span class="pre">b</span> <span class="pre">/</span> <span class="pre">r</span> <span class="pre">+</span> <span class="pre">p</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">72</span> <span class="pre">×</span> <span class="pre">b</span> <span class="pre">/</span> <span class="pre">r</span> <span class="pre">+</span> <span class="pre">p</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>the Layer II frame’s length</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">144</span> <span class="pre">×</span> <span class="pre">b</span> <span class="pre">/</span> <span class="pre">r</span> <span class="pre">+</span> <span class="pre">p</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">144</span> <span class="pre">×</span> <span class="pre">b</span> <span class="pre">/</span> <span class="pre">r</span> <span class="pre">+</span> <span class="pre">p</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">144</span> <span class="pre">×</span> <span class="pre">b</span> <span class="pre">/</span> <span class="pre">r</span> <span class="pre">+</span> <span class="pre">p</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>the Layer I frame’s length</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">(12</span> <span class="pre">×</span> <span class="pre">b</span> <span class="pre">/</span> <span class="pre">r</span> <span class="pre">+</span> <span class="pre">p)</span> <span class="pre">×</span> <span class="pre">4</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">(12</span> <span class="pre">×</span> <span class="pre">b</span> <span class="pre">/</span> <span class="pre">r</span> <span class="pre">+</span> <span class="pre">p)</span> <span class="pre">×</span> <span class="pre">4</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">(12</span> <span class="pre">×</span> <span class="pre">b</span> <span class="pre">/</span> <span class="pre">r</span> <span class="pre">+</span> <span class="pre">p)</span> <span class="pre">×</span> <span class="pre">4</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>the <strong>samples per channel</strong> <code class="docutils literal notranslate"><span class="pre">S</span></code> a Layer III frame decodes to</p></td>
+<td><p>1152</p></td>
+<td><p>576</p></td>
+<td><p>576</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A Layer III frame is its header, the 2-byte CRC when the protection bit is
+0, the <strong>side information</strong> (MPEG-1: 17 bytes for mono, 32 otherwise;
+MPEG-2 and 2.5: 9 for mono, 17 otherwise), and the <strong>main data</strong> that fills
+the rest of the frame, <code class="docutils literal notranslate"><span class="pre">M</span> <span class="pre">=</span> <span class="pre">L</span> <span class="pre">−</span> <span class="pre">4</span> <span class="pre">−</span> <span class="pre">2</span> <span class="pre">×</span> <span class="pre">crc</span> <span class="pre">−</span> <span class="pre">side</span></code> bytes. A frame’s own
+audio may begin before its main data, in the main data of earlier frames (the
+<strong>bit reservoir</strong>): the side information’s <code class="docutils literal notranslate"><span class="pre">main_data_begin</span></code> says how many
+bytes back, at most 511 for MPEG-1 and 255 for MPEG-2 and 2.5. So a frame
+cannot be decoded alone; <a class="reference internal" href="#the-array">§4.1</a> says what a chunk holds so
+that it can be.</p>
+<p>Two frames are of <strong>one stream</strong> when they agree on the version, the layer,
+the sample rate and the channel count. The bitrate, the padding, the
+protection and the channel mode may differ from frame to frame (a variable
+bitrate stream; joint stereo).</p>
+<p><strong>The info frame.</strong> An encoder may start the stream with a frame that holds
+no audio but a tag describing the stream: a <strong>Xing</strong> or <strong>Info</strong> tag (the
+ASCII <code class="docutils literal notranslate"><span class="pre">Xing</span></code> or <code class="docutils literal notranslate"><span class="pre">Info</span></code> right after the side information, that is at offset
+<code class="docutils literal notranslate"><span class="pre">4</span> <span class="pre">+</span> <span class="pre">2</span> <span class="pre">×</span> <span class="pre">crc</span> <span class="pre">+</span> <span class="pre">side</span></code> of the frame), followed by a 32-bit big-endian flags
+word and, for each flag bit set, in this order:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>flag bit</p></th>
+<th class="head"><p>field</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>0</p></td>
+<td><p>the frame count, 32-bit big-endian</p></td>
+</tr>
+<tr class="row-odd"><td><p>1</p></td>
+<td><p>the byte count, 32-bit big-endian</p></td>
+</tr>
+<tr class="row-even"><td><p>2</p></td>
+<td><p>a 100-byte seek table</p></td>
+</tr>
+<tr class="row-odd"><td><p>3</p></td>
+<td><p>a quality indicator, 32-bit big-endian</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A <strong>LAME tag</strong> may follow: a 9-byte encoder version
+(<code class="docutils literal notranslate"><span class="pre">LAME3.100</span></code>, <code class="docutils literal notranslate"><span class="pre">Lavc61.19</span></code>), then its fields, among them at offset 21 from
+the version’s start the encoder <strong>delay</strong> (12 bits) and <strong>padding</strong> (12
+bits) in samples. A <strong>VBRI</strong> tag is the ASCII <code class="docutils literal notranslate"><span class="pre">VBRI</span></code> at offset 36 of the
+frame, followed by these fields, all big-endian:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>field</p></th>
+<th class="head"><p>size</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>the version</p></td>
+<td><p>16-bit</p></td>
+</tr>
+<tr class="row-odd"><td><p>the delay</p></td>
+<td><p>16-bit</p></td>
+</tr>
+<tr class="row-even"><td><p>the quality</p></td>
+<td><p>16-bit</p></td>
+</tr>
+<tr class="row-odd"><td><p>the byte count</p></td>
+<td><p>32-bit</p></td>
+</tr>
+<tr class="row-even"><td><p>the frame count</p></td>
+<td><p>32-bit</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The convention does
+not count an info frame as audio (<a class="reference internal" href="#the-array">§4.1</a>) and records its
+fields (<a class="reference internal" href="#the-root">§5.1</a>).</p>
+</section>
+<section id="tags">
+<span id="3-tags"></span><h2>3. Tags<a class="headerlink" href="#tags" title="Link to this heading">¶</a></h2>
+<p>An <strong>ID3v2 tag</strong> at the start of the file is its 10-byte header; then <code class="docutils literal notranslate"><span class="pre">size</span></code> bytes of frames
+and padding; then, when bit 4 (<code class="docutils literal notranslate"><span class="pre">10</span></code>) of the flags is set, a 10-byte footer. A file may hold
+several, one after the other. The convention does not decode the tag’s frames. The header:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>bytes</p></th>
+<th class="head"><p>field</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>3</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ID3</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>2</p></td>
+<td><p>the version: the major version and the revision</p></td>
+</tr>
+<tr class="row-even"><td><p>1</p></td>
+<td><p>the flags</p></td>
+</tr>
+<tr class="row-odd"><td><p>4</p></td>
+<td><p>the <strong>syncsafe</strong> size: each byte below <code class="docutils literal notranslate"><span class="pre">80</span></code>; the size is their 7-bit values, most significant first</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An <strong>ID3v1 tag</strong> is the last 128 bytes of the file when they start with
+<code class="docutils literal notranslate"><span class="pre">TAG</span></code>, followed by these fields:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>field</p></th>
+<th class="head"><p>bytes</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>the title</p></td>
+<td><p>30</p></td>
+</tr>
+<tr class="row-odd"><td><p>the artist</p></td>
+<td><p>30</p></td>
+</tr>
+<tr class="row-even"><td><p>the album</p></td>
+<td><p>30</p></td>
+</tr>
+<tr class="row-odd"><td><p>the year</p></td>
+<td><p>4</p></td>
+</tr>
+<tr class="row-even"><td><p>the comment</p></td>
+<td><p>30; in ID3v1.1, when its byte 28 is NUL, byte 29 is the track number</p></td>
+</tr>
+<tr class="row-odd"><td><p>the genre</p></td>
+<td><p>1</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An <strong>APE tag</strong> ends with a 32-byte footer, right before the ID3v1 tag or at
+the end of the file:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>bytes</p></th>
+<th class="head"><p>field</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>8</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">APETAGEX</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>4</p></td>
+<td><p>the version, 32-bit little-endian</p></td>
+</tr>
+<tr class="row-even"><td><p>4</p></td>
+<td><p>the size (the items and the footer, not the header), 32-bit little-endian</p></td>
+</tr>
+<tr class="row-odd"><td><p>4</p></td>
+<td><p>the item count, 32-bit little-endian</p></td>
+</tr>
+<tr class="row-even"><td><p>4</p></td>
+<td><p>the flags, 32-bit little-endian; bit 31: the tag also has a 32-byte header before its items</p></td>
+</tr>
+<tr class="row-odd"><td><p>8</p></td>
+<td><p>reserved</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The tag is <code class="docutils literal notranslate"><span class="pre">size</span></code> bytes, plus 32 when it has
+a header, ending at the footer’s end; a footer whose tag would start before
+the first byte after the ID3v2 tags, or whose size is below 32, is not an
+APE tag. The convention does not decode the items.</p>
+</section>
+<section id="the-layout">
+<span id="4-the-layout"></span><h2>4. The layout<a class="headerlink" href="#the-layout" title="Link to this heading">¶</a></h2>
+<p>The hierarchy is a group at the root with one array at path <code class="docutils literal notranslate"><span class="pre">samples</span></code>: the
+root <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code> is <code class="docutils literal notranslate"><span class="pre">{&quot;zarr_format&quot;:</span> <span class="pre">3,</span> <span class="pre">&quot;node_type&quot;:</span> <span class="pre">&quot;group&quot;,</span> <span class="pre">&quot;attributes&quot;:</span> <span class="pre">A}</span></code>, where <code class="docutils literal notranslate"><span class="pre">A</span></code> has <code class="docutils literal notranslate"><span class="pre">zarr_conventions</span></code> and <code class="docutils literal notranslate"><span class="pre">refkv_zarrified</span></code> (<a class="reference internal" href="#declaration">§1</a>) and
+nothing else.</p>
+<section id="the-array">
+<span id="41-the-array"></span><h3>4.1 The array<a class="headerlink" href="#the-array" title="Link to this heading">¶</a></h3>
+<p>The <strong>audio frames</strong> are the stream’s frames in file order, numbered from 0,
+without the info frame (<a class="reference internal" href="#frames">§2</a>); <code class="docutils literal notranslate"><span class="pre">N</span></code> is their count (<a class="reference internal" href="#the-stream">§8.1</a>
+says which frames those are). Every audio frame has the stream’s <code class="docutils literal notranslate"><span class="pre">S</span></code>
+and <code class="docutils literal notranslate"><span class="pre">C</span></code>. With <strong><code class="docutils literal notranslate"><span class="pre">F</span> <span class="pre">=</span> <span class="pre">256</span></code> frames per chunk</strong>, chunk <code class="docutils literal notranslate"><span class="pre">q</span></code> holds the audio frames <code class="docutils literal notranslate"><span class="pre">q</span> <span class="pre">×</span> <span class="pre">F</span></code> to
+<code class="docutils literal notranslate"><span class="pre">min(N,</span> <span class="pre">(q</span> <span class="pre">+</span> <span class="pre">1)</span> <span class="pre">×</span> <span class="pre">F)</span> <span class="pre">−</span> <span class="pre">1</span></code>, which are <strong>its frames</strong>; the last chunk may hold fewer than <code class="docutils literal notranslate"><span class="pre">F</span></code>,
+and is padded to the chunk shape by the codec. The chunk grid is regular; the chunk keys are
+<code class="docutils literal notranslate"><span class="pre">samples/c/&lt;q&gt;/0</span></code>.</p>
+<p><span id="type-mp3array"></span><strong><code class="docutils literal notranslate"><span class="pre">Mp3Array</span></code></strong>, the array’s <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code>: an
+<a class="reference internal" href="../conventions.html#type-arraydocument"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">ArrayDocument</span></code></span></a>
+(<a class="reference internal" href="../conventions.html#arrays"><span class="std std-ref">conventions §3</span></a>’s, its fill value 0) with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">shape</span></code></p></td>
+<td><p>array of integer</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[N</span> <span class="pre">×</span> <span class="pre">S,</span> <span class="pre">C]</span></code>: the samples per channel, then the channels</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data_type</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;float32&quot;</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">chunk_grid</span></code></p></td>
+<td><p>object</p></td>
+<td><p>required</p></td>
+<td><p>regular, its chunk shape <code class="docutils literal notranslate"><span class="pre">[F</span> <span class="pre">×</span> <span class="pre">S,</span> <span class="pre">C]</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">codecs</span></code></p></td>
+<td><p>array of object</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[{&quot;name&quot;:</span> <span class="pre">&quot;refkv.stream&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;format&quot;:</span> <span class="pre">&quot;mp3&quot;}}]</span></code> (<a class="reference internal" href="../conventions.html#coded-streams"><span class="std std-ref">conventions §10</span></a>): a <a class="reference internal" href="../conventions.html#type-streamconfiguration"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">StreamConfiguration</span></code></span></a> with no <code class="docutils literal notranslate"><span class="pre">setup</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dimension_names</span></code></p></td>
+<td><p>array of string</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[&quot;time&quot;,</span> <span class="pre">&quot;channel&quot;]</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">attributes</span></code></p></td>
+<td><p>object</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code> (<a class="reference internal" href="#declaration">§1</a>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A chunk is a <a class="reference internal" href="../conventions.html#type-streamchunk"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">StreamChunk</span></code></span></a>, a <code class="docutils literal notranslate"><span class="pre">refkv.stream</span></code> chunk of MP3 frames: its own frames, each
+placed at its <code class="docutils literal notranslate"><span class="pre">S</span></code> samples from the chunk’s start, after its <strong>lead-in</strong>,
+the frames before its first frame that a decoder needs to have decoded so
+that it decodes the chunk’s frames as a decoder of the whole stream does
+(<a class="reference internal" href="#chunks">§8.2</a> says which). The lead-in’s frames
+supply the bit reservoir and the overlap state of the filter bank for the
+chunk’s frames, and their own output is dropped.</p>
+</section>
+<section id="the-samples">
+<span id="42-the-samples"></span><h3>4.2 The samples<a class="headerlink" href="#the-samples" title="Link to this heading">¶</a></h3>
+<p>Sample <code class="docutils literal notranslate"><span class="pre">i</span></code> of channel <code class="docutils literal notranslate"><span class="pre">c</span></code> is the output of a Layer III decoder, as ISO/IEC
+11172-3 and 13818-3 define it, decoding the audio frames one after the
+other from the first (the frames alone: not the bytes between them), as a
+binary32 number, the <code class="docutils literal notranslate"><span class="pre">i</span></code>th sample it produces for channel <code class="docutils literal notranslate"><span class="pre">c</span></code>, from −1 to
+1 (a decoder’s output before any conversion to integers); the decoder starts with an empty
+bit reservoir and a zero filter-bank state, and its first frame’s output is
+what it is (the stream’s encoder delay and the decoder’s own delay, about
+529 samples, are in the array; neither is trimmed). The samples of a frame
+are its <code class="docutils literal notranslate"><span class="pre">S</span></code> outputs; a frame the decoder cannot decode (its reservoir
+reaches before the first audio frame) gives zeros. Two conforming decoders
+may differ in the last bits of a sample (the standards allow it); the
+convention does not say which decoder a reader uses, so long as it decodes
+<code class="docutils literal notranslate"><span class="pre">refkv.stream</span></code> (<a class="reference internal" href="../conventions.html#coded-streams"><span class="std std-ref">conventions §10</span></a>), and
+<a class="reference internal" href="../zarrify.html#output-and-equivalence"><span class="std std-ref">spec/zarrify.md §1.1</span></a> compares
+references, not samples.</p>
+<p>The sample rate is <code class="docutils literal notranslate"><span class="pre">sample_rate</span></code> of <a class="reference internal" href="#the-root">§5.1</a>; sample <code class="docutils literal notranslate"><span class="pre">i</span></code> is at
+<code class="docutils literal notranslate"><span class="pre">i</span> <span class="pre">/</span> <span class="pre">sample_rate</span></code> seconds from the stream’s start.</p>
+</section>
+</section>
+<section id="source-metadata">
+<span id="5-source-metadata"></span><h2>5. Source metadata<a class="headerlink" href="#source-metadata" title="Link to this heading">¶</a></h2>
+<p>The root’s source metadata <code class="docutils literal notranslate"><span class="pre">S</span></code> (<a class="reference internal" href="../conventions.html#attributes"><span class="std std-ref">conventions §2</span></a>)
+is an <a class="reference internal" href="#type-mp3root"><code class="docutils literal notranslate"><span class="pre">Mp3Root</span></code></a>, an object with the members of <a class="reference internal" href="#the-root">§5.1</a>, in that order,
+translated by <a class="reference internal" href="../conventions.html#source-metadata-as-json"><span class="std std-ref">conventions §6</span></a>.
+Everything the file holds is on <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code>, the file’s <strong>IR mirror</strong>
+(<a class="reference internal" href="#the-ir-mirror">§5.2</a>), from which the file is rebuilt byte for byte.</p>
+<section id="the-root">
+<span id="51-the-root"></span><h3>5.1 The root<a class="headerlink" href="#the-root" title="Link to this heading">¶</a></h3>
+<p><span id="type-mp3root"></span><strong><code class="docutils literal notranslate"><span class="pre">Mp3Root</span></code></strong>, the root’s <code class="docutils literal notranslate"><span class="pre">S</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">version</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;MPEG-1&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;MPEG-2&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;MPEG-2.5&quot;</span></code>, the stream’s</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">layer</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>3</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sample_rate</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the stream’s, in Hz</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channels</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">C</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_mode</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p>the first audio frame’s: <code class="docutils literal notranslate"><span class="pre">&quot;stereo&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;joint_stereo&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;dual_channel&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;mono&quot;</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">samples_per_frame</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">S</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">frames</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">N</span></code>, the audio frames</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">samples</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">N</span> <span class="pre">×</span> <span class="pre">S</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">duration</span></code></p></td>
+<td><p>number</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">N</span> <span class="pre">×</span> <span class="pre">S</span> <span class="pre">/</span> <span class="pre">sample_rate</span></code>, in seconds, as a number</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">bitrate_mode</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;constant&quot;</span></code> when every audio frame has the same bitrate index, else <code class="docutils literal notranslate"><span class="pre">&quot;variable&quot;</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bitrate_kbps</span></code></p></td>
+<td><p>integer or null</p></td>
+<td><p>required</p></td>
+<td><p>that bitrate in kbps, or <code class="docutils literal notranslate"><span class="pre">null</span></code> when variable</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">crc_frames</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>how many audio frames have the protection bit 0 (a CRC)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">info</span></code></p></td>
+<td><p><a class="reference internal" href="#type-mp3info"><code class="docutils literal notranslate"><span class="pre">Mp3Info</span></code></a></p></td>
+<td><p>optional</p></td>
+<td><p>when the stream starts with an info frame (<a class="reference internal" href="#frames">§2</a>); absent when there is none</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">id3v2</span></code></p></td>
+<td><p>array of <a class="reference internal" href="#type-mp3id3v2"><code class="docutils literal notranslate"><span class="pre">Mp3Id3v2</span></code></a></p></td>
+<td><p>optional</p></td>
+<td><p>one object per ID3v2 tag at the start, in order; absent when there is none</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id3v1</span></code></p></td>
+<td><p><a class="reference internal" href="#type-mp3id3v1"><code class="docutils literal notranslate"><span class="pre">Mp3Id3v1</span></code></a></p></td>
+<td><p>optional</p></td>
+<td><p>when the file ends with an ID3v1 tag; absent otherwise</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ape</span></code></p></td>
+<td><p><a class="reference internal" href="#type-mp3ape"><code class="docutils literal notranslate"><span class="pre">Mp3Ape</span></code></a></p></td>
+<td><p>optional</p></td>
+<td><p>when the file has an APE tag; absent otherwise</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">stray_bytes</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the bytes between the ID3v2 tags and the trailing tags that are in no frame (junk between frames, a truncated last frame, bytes after the last frame)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-mp3info"></span><strong><code class="docutils literal notranslate"><span class="pre">Mp3Info</span></code></strong>, the info frame’s fields:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tag</span></code></p></td>
+<td><p>string</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">T</span></code>: <code class="docutils literal notranslate"><span class="pre">&quot;Xing&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;Info&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;VBRI&quot;</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">frames</span></code></p></td>
+<td><p>integer or null</p></td>
+<td><p>required</p></td>
+<td><p>the frame count the tag holds, <code class="docutils literal notranslate"><span class="pre">null</span></code> when it does not (a Xing or Info flag bit clear; a value past the frame’s end)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bytes</span></code></p></td>
+<td><p>integer or null</p></td>
+<td><p>required</p></td>
+<td><p>the byte count, likewise</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">quality</span></code></p></td>
+<td><p>integer or null</p></td>
+<td><p>required</p></td>
+<td><p>the quality, likewise</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">encoder</span></code></p></td>
+<td><p>string or null</p></td>
+<td><p>required</p></td>
+<td><p>the LAME tag’s 9-byte version as text: its bytes up to the first NUL, when there is at least one, they are printable ASCII (<code class="docutils literal notranslate"><span class="pre">20</span></code> to <code class="docutils literal notranslate"><span class="pre">7E</span></code>) and the first is not a space, trailing spaces removed (<code class="docutils literal notranslate"><span class="pre">LAME3.99r</span></code>, <code class="docutils literal notranslate"><span class="pre">LAME4.0</span></code>, <code class="docutils literal notranslate"><span class="pre">Lavc63.1.</span></code>), else <code class="docutils literal notranslate"><span class="pre">null</span></code>; <code class="docutils literal notranslate"><span class="pre">null</span></code> for a VBRI tag</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">delay</span></code></p></td>
+<td><p>integer or null</p></td>
+<td><p>required</p></td>
+<td><p>the LAME tag’s encoder delay, <code class="docutils literal notranslate"><span class="pre">null</span></code> without an encoder or when the frame ends before it; for a VBRI tag, the tag’s</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">padding</span></code></p></td>
+<td><p>integer or null</p></td>
+<td><p>required</p></td>
+<td><p>the LAME tag’s encoder padding, <code class="docutils literal notranslate"><span class="pre">null</span></code> without an encoder or when the frame ends before it; <code class="docutils literal notranslate"><span class="pre">null</span></code> for a VBRI tag</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-mp3id3v2"></span><strong><code class="docutils literal notranslate"><span class="pre">Mp3Id3v2</span></code></strong>, an ID3v2 tag’s header:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">version</span></code></p></td>
+<td><p>array of integer</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[major,</span> <span class="pre">revision]</span></code>, the header’s bytes 3 and 4</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">flags</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>its flags byte</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">size</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>its size field</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">footer</span></code></p></td>
+<td><p>boolean</p></td>
+<td><p>required</p></td>
+<td><p>whether it has a footer</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-mp3id3v1"></span><strong><code class="docutils literal notranslate"><span class="pre">Mp3Id3v1</span></code></strong>, the ID3v1 tag’s fields:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">title</span></code></p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-text"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Text</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p>the field’s bytes up to its first NUL, as a text value</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">artist</span></code></p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-text"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Text</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p>likewise</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">album</span></code></p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-text"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Text</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p>likewise</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">year</span></code></p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-text"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Text</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p>likewise</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">comment</span></code></p></td>
+<td><p><a class="reference internal" href="../conventions.html#type-text"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">Text</span></code></span></a></p></td>
+<td><p>required</p></td>
+<td><p>likewise</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">track</span></code></p></td>
+<td><p>integer or null</p></td>
+<td><p>required</p></td>
+<td><p>the track number of an ID3v1.1 tag (byte 28 of the comment NUL and byte 29 not), or <code class="docutils literal notranslate"><span class="pre">null</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">genre</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the genre byte</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><span id="type-mp3ape"></span><strong><code class="docutils literal notranslate"><span class="pre">Mp3Ape</span></code></strong>, the APE tag’s:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">version</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">v</span></code>, the footer’s version</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">size</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the tag’s whole size (header included)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">items</span></code></p></td>
+<td><p>integer</p></td>
+<td><p>required</p></td>
+<td><p>the footer’s item count</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">version</span></code> to <code class="docutils literal notranslate"><span class="pre">crc_frames</span></code> are derived from the frames, so that a reader
+need not read a header; the tags’ fields are there so that a reader finds
+the stream’s description and the file’s labels without decoding the tags.
+The ID3v2 and APE tags’ items are in the mirror, not decoded.</p>
+</section>
+<section id="the-ir-mirror">
+<span id="52-the-ir-mirror"></span><h3>5.2 The IR mirror<a class="headerlink" href="#the-ir-mirror" title="Link to this heading">¶</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> is the file’s <strong>IR mirror</strong>
+(<a class="reference internal" href="../conventions.html#id1"><span class="std std-ref">conventions §11.3</span></a>).
+The IR’s elements (the MP3 <strong>source model</strong>) are below; nothing is left out: the
+tags, the info frame, every audio frame, and every byte between or after
+them.</p>
+</section>
+<section id="elements">
+<span id="53-elements"></span><h3>5.3 Elements<a class="headerlink" href="#elements" title="Link to this heading">¶</a></h3>
+<p>Paths are relative to the IR’s root, whose path is <code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code>
+(<a class="reference internal" href="../conventions.html#elements"><span class="std std-ref">conventions §8.1</span></a>). Types are those of
+<a class="reference internal" href="../conventions.html#types"><span class="std std-ref">conventions §8.6</span></a>; <code class="docutils literal notranslate"><span class="pre">n</span></code> is a tag’s size, <code class="docutils literal notranslate"><span class="pre">L</span></code> a
+frame’s length.</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>path</p></th>
+<th class="head"><p>kind</p></th>
+<th class="head"><p>type</p></th>
+<th class="head"><p>extent: what</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>struct</p></td>
+<td><p></p></td>
+<td><p>the root: the whole file, <code class="docutils literal notranslate"><span class="pre">(0,</span> <span class="pre">size)</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">id3v2/&lt;k&gt;</span></code></p></td>
+<td><p>struct</p></td>
+<td><p></p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">k</span></code>-th ID3v2 tag at the start, <code class="docutils literal notranslate"><span class="pre">k</span></code> from 0: the whole tag</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id3v2/&lt;k&gt;/header</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{id:ascii[3],version:u1[2],flags:u1,size:u1[4]}</span></code></p></td>
+<td><p>its 10-byte header</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">id3v2/&lt;k&gt;/data</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bytes[n]</span></code></p></td>
+<td><p>its <code class="docutils literal notranslate"><span class="pre">n</span></code> bytes of frames and padding, when <code class="docutils literal notranslate"><span class="pre">n</span> <span class="pre">&gt;</span> <span class="pre">0</span></code>, opaque</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id3v2/&lt;k&gt;/footer</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bytes[10]</span></code></p></td>
+<td><p>its footer, when it has one</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">info</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bytes[L]</span></code></p></td>
+<td><p>the info frame (<a class="reference internal" href="#frames">§2</a>), when the stream starts with one</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">frames</span></code></p></td>
+<td><p>struct</p></td>
+<td><p></p></td>
+<td><p>the audio frames: from the first’s start to the last’s end</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">frames/&lt;j&gt;</span></code></p></td>
+<td><p>data</p></td>
+<td><p></p></td>
+<td><p>audio frame <code class="docutils literal notranslate"><span class="pre">j</span></code>, <code class="docutils literal notranslate"><span class="pre">j</span></code> from 0, <code class="docutils literal notranslate"><span class="pre">(offset,</span> <span class="pre">L)</span></code>, header included; its form’s geometry is <code class="docutils literal notranslate"><span class="pre">{&quot;samples&quot;:</span> <span class="pre">S,</span> <span class="pre">&quot;channels&quot;:</span> <span class="pre">C}</span></code> (no data type: what the decoded samples are stored as is the projection’s, <a class="reference internal" href="../conventions.html#forms-and-recipes"><span class="std std-ref">conventions §8.5</span></a>), its codec <code class="docutils literal notranslate"><span class="pre">{&quot;name&quot;:</span> <span class="pre">&quot;mp3&quot;,</span> <span class="pre">&quot;version&quot;:</span> <span class="pre">V,</span> <span class="pre">&quot;sample_rate&quot;:</span> <span class="pre">r}</span></code>, and its recipe <code class="docutils literal notranslate"><span class="pre">[[&quot;src&quot;,</span> <span class="pre">0,</span> <span class="pre">null]]</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id3v1</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{tag:ascii[3],title:cstr[30],artist:cstr[30],album:cstr[30],year:ascii[4],comment:cstr[30],genre:u1}</span></code></p></td>
+<td><p>the ID3v1 tag, <code class="docutils literal notranslate"><span class="pre">(size</span> <span class="pre">−</span> <span class="pre">128,</span> <span class="pre">128)</span></code>, when there is one</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ape</span></code></p></td>
+<td><p>value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bytes[n]</span></code></p></td>
+<td><p>the APE tag, header and footer included, when there is one, opaque</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">gaps/&lt;offset&gt;</span></code></p></td>
+<td><p>gap</p></td>
+<td><p></p></td>
+<td><p>bytes no other element claims: junk between frames, a truncated last frame, bytes after the last frame</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The view (<a class="reference internal" href="../conventions.html#the-view"><span class="std std-ref">conventions §8.7</span></a>) shows each ID3v2
+header and the ID3v1 tag; the tags’ bodies, the info frame and the APE tag,
+opaque bytes, are not shown.</p>
+</section>
+<section id="equivalence">
+<span id="54-equivalence"></span><h3>5.4 Equivalence<a class="headerlink" href="#equivalence" title="Link to this heading">¶</a></h3>
+<p>Hierarchies of one file are compared entry for entry, <code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> included
+(<a class="reference internal" href="../conventions.html#equivalence"><span class="std std-ref">conventions §11.4</span></a>).</p>
+</section>
+</section>
+<section id="example">
+<span id="6-example"></span><h2>6. Example<a class="headerlink" href="#example" title="Link to this heading">¶</a></h2>
+<p>A mono MPEG-2 stream at 16 kHz and 32 kbps of 22 frames and no tags, at
+<code class="docutils literal notranslate"><span class="pre">https://example.org/clip.mp3</span></code> (the fixture
+<code class="docutils literal notranslate"><span class="pre">fixtures/mp3/mp3_mpeg2_mono_16k.mp3</span></code>, 3168 bytes of frames of 144 bytes),
+has this root <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code>:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"zarr_format"</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"node_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"group"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"attributes"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"zarr_conventions"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">      </span><span class="nt">"uuid"</span><span class="p">:</span><span class="w"> </span><span class="s2">"b6cb0047-9448-4fdc-b03e-10dd3d6aa829"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"schema_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://d-v-b.github.io/refkv/conventions/mp3/schema.json"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"spec_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://d-v-b.github.io/refkv/conventions/mp3/"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"refkv_zarrified"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"description"</span><span class="p">:</span><span class="w"> </span><span class="s2">"The Zarr layout of a MP3 source zarrified by refkv, and the source's metadata"</span>
+<span class="w">    </span><span class="p">}],</span>
+<span class="w">    </span><span class="nt">"refkv_zarrified"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"profile"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mp3"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"source"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://example.org/clip.mp3"</span><span class="p">},</span>
+<span class="w">      </span><span class="nt">"mp3"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"MPEG-2"</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"layer"</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"sample_rate"</span><span class="p">:</span><span class="w"> </span><span class="mi">16000</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"channels"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"channel_mode"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mono"</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"samples_per_frame"</span><span class="p">:</span><span class="w"> </span><span class="mi">576</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"frames"</span><span class="p">:</span><span class="w"> </span><span class="mi">22</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"samples"</span><span class="p">:</span><span class="w"> </span><span class="mi">12672</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"duration"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.792</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"bitrate_mode"</span><span class="p">:</span><span class="w"> </span><span class="s2">"constant"</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"bitrate_kbps"</span><span class="p">:</span><span class="w"> </span><span class="mi">32</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"crc_frames"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"stray_bytes"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Its array <code class="docutils literal notranslate"><span class="pre">samples/zarr.json</span></code> has the shape <code class="docutils literal notranslate"><span class="pre">[12672,</span> <span class="pre">1]</span></code>, the chunk shape
+<code class="docutils literal notranslate"><span class="pre">[147456,</span> <span class="pre">1]</span></code> (256 frames of 576 samples), the data type <code class="docutils literal notranslate"><span class="pre">float32</span></code>, the codecs
+<code class="docutils literal notranslate"><span class="pre">[{&quot;name&quot;:</span> <span class="pre">&quot;refkv.stream&quot;,</span> <span class="pre">&quot;configuration&quot;:</span> <span class="pre">{&quot;format&quot;:</span> <span class="pre">&quot;mp3&quot;}}]</span></code> and the
+dimension names <code class="docutils literal notranslate"><span class="pre">[&quot;time&quot;,</span> <span class="pre">&quot;channel&quot;]</span></code>. The one chunk, <code class="docutils literal notranslate"><span class="pre">samples/c/0/0</span></code>, is an
+88-byte literal, the header (<code class="docutils literal notranslate"><span class="pre">16</span> <span class="pre">90</span> <span class="pre">01</span> <span class="pre">02</span> <span class="pre">90</span> <span class="pre">01</span> <span class="pre">80</span> <span class="pre">09</span> <span class="pre">...</span></code>: the count 22, then
+each frame’s size 144 and its position’s step, 1 for the first and 576 for
+each after it), then the range <code class="docutils literal notranslate"><span class="pre">(0,</span> <span class="pre">3168)</span></code> of source 0: every frame, no
+lead-in. Read with 4 frames a chunk instead (as the tests
+do), chunk 3 holds frames 12 to 15, and its range is <code class="docutils literal notranslate"><span class="pre">(1152,</span> <span class="pre">1152)</span></code>: it
+starts at frame 8, since the lead-in is frames 10 and 11, the two before
+the chunk, and before them frames 8 and 9, whose main data (131 bytes each:
+<code class="docutils literal notranslate"><span class="pre">144</span> <span class="pre">−</span> <span class="pre">4</span> <span class="pre">−</span> <span class="pre">9</span></code>) holds 262 bytes, at least the 255-byte reservoir of MPEG-2.
+Its header places frames 8 to 11 at −1 and frames 12 to 15 at 0, 576, 1152
+and 1728.</p>
+</section>
+<section id="what-the-layout-does-not-express">
+<span id="7-what-the-layout-does-not-express"></span><h2>7. What the layout does not express<a class="headerlink" href="#what-the-layout-does-not-express" title="Link to this heading">¶</a></h2>
+<p>This section is informative.</p>
+<ul class="simple">
+<li><p><strong>Gapless playback.</strong> The encoder delay and padding of a LAME tag say
+which samples at the start and the end are the encoder’s, not the
+recording’s; players trim them. The array holds every decoded sample and
+records the two counts in <code class="docutils literal notranslate"><span class="pre">info</span></code>, so a reader that wants the recording
+alone drops <code class="docutils literal notranslate"><span class="pre">delay</span> <span class="pre">+</span> <span class="pre">529</span></code> samples at the start (529 being a decoder’s own
+delay) and <code class="docutils literal notranslate"><span class="pre">padding</span> <span class="pre">−</span> <span class="pre">529</span></code> at the end, as players do.</p></li>
+<li><p><strong>The tags’ items.</strong> An ID3v2 tag’s frames (title, artist, cover art,
+lyrics) and an APE tag’s items are kept whole in the mirror and not
+decoded; <code class="docutils literal notranslate"><span class="pre">id3v1</span></code> is, as it is fixed-width.</p></li>
+<li><p><strong>Per-frame values.</strong> The bitrate, padding and channel mode of each
+frame, and the seek table of a Xing tag, are in the frames and the info
+frame in the mirror, not in the root.</p></li>
+<li><p><strong>The decoder.</strong> Which decoder, and whether it uses the gapless
+information or the seek table, is the reader’s choice; the convention
+says what the samples are, to the accuracy the standards allow.</p></li>
+<li><p><strong>A broken reservoir.</strong> A frame whose bit reservoir reaches into frames
+the stream does not hold (two streams cut and joined, a frame lost)
+decodes as the reader’s decoder has it: some decoders skip it, which
+shifts the samples of its chunk by a frame; others give noise or
+silence for it. Only the stream’s first frames, which have no earlier
+frames, are such frames in a well-formed file.</p></li>
+</ul>
+</section>
+</section>
+<section id="part-2-the-profile">
+<h1>Part 2. The profile<a class="headerlink" href="#part-2-the-profile" title="Link to this heading">¶</a></h1>
+<p>The MP3 profile of <a class="reference internal" href="../zarrify.html"><span class="std std-doc">spec/zarrify.md</span></a> is <a class="reference internal" href="#mp3-profile">§8</a> of this document. What every profile’s Part 2 shares is in
+<a class="reference internal" href="../zarrify.html#profiles"><span class="std std-ref">spec/zarrify.md, Profiles</span></a>.</p>
+<section id="mp3-profile">
+<span id="8-mp3-profile"></span><h2>8. MP3 profile<a class="headerlink" href="#mp3-profile" title="Link to this heading">¶</a></h2>
+<section id="the-stream">
+<span id="81-the-stream"></span><h3>8.1 The stream<a class="headerlink" href="#the-stream" title="Link to this heading">¶</a></h3>
+<p>The input is an MP3 file, which its <strong>signature</strong> (<a class="reference internal" href="../zarrify.html#input"><span class="std std-ref">spec/zarrify.md §1.2</span></a>, tested at the precedence of
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/profiles/mp3.json">profiles/mp3.json</a>) chose: bytes
+0–2 of <code class="docutils literal notranslate"><span class="pre">H</span></code> are <code class="docutils literal notranslate"><span class="pre">49</span> <span class="pre">44</span> <span class="pre">33</span></code> (<code class="docutils literal notranslate"><span class="pre">ID3</span></code>), or bytes 0–3 are an MPEG audio frame header: bits 31–21 all
+ones, bits 20–19 not <code class="docutils literal notranslate"><span class="pre">01</span></code>, bits 18–17 not <code class="docutils literal notranslate"><span class="pre">00</span></code>, bits 11–10 not <code class="docutils literal notranslate"><span class="pre">11</span></code> (<a class="reference internal" href="#frames">the convention
+§2</a>; any layer and bitrate index). The whole file is read: an MP3 file has
+no index, and each frame’s header gives the next.</p>
+<p><strong>Checks.</strong> A zarrifier MUST reject the input unless all of these hold, checked in this
+order:</p>
+<ul class="simple">
+<li><p><strong>Size:</strong> the file is at least 4 bytes.</p></li>
+<li><p><strong>ID3v2 tags:</strong> for each tag at the start (<code class="docutils literal notranslate"><span class="pre">ID3</span></code> at offset 0, and again
+at the end of each tag): the file has its 10-byte header; its four size
+bytes are each below <code class="docutils literal notranslate"><span class="pre">80</span></code>; and the tag, footer included, ends within the
+file.</p></li>
+<li><p><strong>The stream:</strong> the file has a first confirmed frame (below), and it is
+Layer III. A Layer I or Layer II first frame rejects by name
+(<code class="docutils literal notranslate"><span class="pre">MPEG-2</span> <span class="pre">Layer</span> <span class="pre">II</span> <span class="pre">(the</span> <span class="pre">frame</span> <span class="pre">at</span> <span class="pre">0)</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">supported:</span> <span class="pre">only</span> <span class="pre">Layer</span> <span class="pre">III</span> <span class="pre">is</span></code>).</p></li>
+<li><p><strong>One stream:</strong> no confirmed frame changes the version, the layer, the
+sample rate or the channel count of the stream (the first confirmed
+frame’s): <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">frame</span> <span class="pre">at</span> <span class="pre">2016</span> <span class="pre">changes</span> <span class="pre">the</span> <span class="pre">sample</span> <span class="pre">rate</span> <span class="pre">from</span> <span class="pre">16000</span> <span class="pre">to</span> <span class="pre">22050</span></code>.</p></li>
+<li><p><strong>Audio:</strong> at least one audio frame. Without one, the input is rejected
+as <code class="docutils literal notranslate"><span class="pre">free-format</span> <span class="pre">bitrate</span> <span class="pre">(the</span> <span class="pre">frame</span> <span class="pre">header</span> <span class="pre">at</span> <span class="pre">&lt;offset&gt;)</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">supported</span></code>
+when the scan met a free-format header (the first one), else as <code class="docutils literal notranslate"><span class="pre">no</span> <span class="pre">MPEG</span> <span class="pre">audio</span> <span class="pre">frames</span></code>.</p></li>
+</ul>
+<p><strong>Tags.</strong> The ID3v2 tags are those at the start, one after the other, each
+as <a class="reference internal" href="#tags">the convention §3</a> measures it; <code class="docutils literal notranslate"><span class="pre">A</span></code> is the offset after the last
+(0 without one). The ID3v1 tag is the last 128 bytes when they start with
+<code class="docutils literal notranslate"><span class="pre">TAG</span></code> and lie at or after <code class="docutils literal notranslate"><span class="pre">A</span></code>; <code class="docutils literal notranslate"><span class="pre">E</span></code> is its offset, else the file’s size. An
+APE footer ending at <code class="docutils literal notranslate"><span class="pre">E</span></code>, whose tag (<a class="reference internal" href="#tags">the convention §3</a>) is at
+least 32 bytes and starts at or after <code class="docutils literal notranslate"><span class="pre">A</span></code>, makes the tag end at <code class="docutils literal notranslate"><span class="pre">E</span></code> and
+moves <code class="docutils literal notranslate"><span class="pre">E</span></code> to the tag’s start. The frames are scanned in <code class="docutils literal notranslate"><span class="pre">[A,</span> <span class="pre">E)</span></code>.</p>
+<p><strong>Frames.</strong> The scan keeps a position <code class="docutils literal notranslate"><span class="pre">p</span></code>, from <code class="docutils literal notranslate"><span class="pre">A</span></code>, and the <strong>stream</strong>
+(the first confirmed frame’s version, layer, sample rate and channel
+count; none at first). At <code class="docutils literal notranslate"><span class="pre">p</span></code>, when <code class="docutils literal notranslate"><span class="pre">p</span> <span class="pre">+</span> <span class="pre">4</span> <span class="pre">≤</span> <span class="pre">E</span></code> and the header at <code class="docutils literal notranslate"><span class="pre">p</span></code> is
+valid (<a class="reference internal" href="#frames">the convention §2</a>), with its frame length <code class="docutils literal notranslate"><span class="pre">L</span></code>, the
+frame <strong>fits</strong> when <code class="docutils literal notranslate"><span class="pre">p</span> <span class="pre">+</span> <span class="pre">L</span> <span class="pre">≤</span> <span class="pre">E</span></code>; it is <strong>consistent</strong> when there is no
+stream yet or it is of the stream; the <strong>next header</strong> is valid and of the
+same stream as this header when <code class="docutils literal notranslate"><span class="pre">p</span> <span class="pre">+</span> <span class="pre">L</span> <span class="pre">+</span> <span class="pre">4</span> <span class="pre">≤</span> <span class="pre">E</span></code> and the 4 bytes at <code class="docutils literal notranslate"><span class="pre">p</span> <span class="pre">+</span> <span class="pre">L</span></code>
+are a valid header that agrees with this one on the version, layer, sample
+rate and channel count. The frame is <strong>confirmed</strong> when it fits and one of
+these holds:</p>
+<ul class="simple">
+<li><p>it is <strong>chained</strong> (the previous confirmed frame ended at <code class="docutils literal notranslate"><span class="pre">p</span></code>) and
+consistent;</p></li>
+<li><p>there is no stream yet and <code class="docutils literal notranslate"><span class="pre">p</span> <span class="pre">+</span> <span class="pre">L</span> <span class="pre">=</span> <span class="pre">E</span></code> (a file of one frame);</p></li>
+<li><p>the next header is valid and of the same stream as this header.</p></li>
+</ul>
+<p>A confirmed frame that is not consistent rejects the input (the one-stream
+check); the first confirmed frame sets the stream (the Layer III check). A
+confirmed frame is a frame: <code class="docutils literal notranslate"><span class="pre">p</span></code> moves to <code class="docutils literal notranslate"><span class="pre">p</span> <span class="pre">+</span> <span class="pre">L</span></code>, and the next frame is
+chained. Otherwise, or when the header at <code class="docutils literal notranslate"><span class="pre">p</span></code> is not valid, <code class="docutils literal notranslate"><span class="pre">p</span></code> moves to
+<code class="docutils literal notranslate"><span class="pre">p</span> <span class="pre">+</span> <span class="pre">1</span></code> and the next frame is not chained. The scan ends when <code class="docutils literal notranslate"><span class="pre">p</span> <span class="pre">+</span> <span class="pre">4</span> <span class="pre">&gt;</span> <span class="pre">E</span></code>.
+A valid header that is not confirmed, a frame that does not fit (the last
+frame, truncated), and every byte between confirmed frames are not frames.</p>
+<p><strong>The info frame.</strong> The first confirmed frame is the <strong>info frame</strong> when it
+holds a Xing, Info or VBRI tag (<a class="reference internal" href="#frames">the convention §2</a>); it is not
+an audio frame. Every other confirmed frame is an audio frame, numbered
+from 0 in order.</p>
+<p>So the scan accepts a frame reached by the chain without looking ahead,
+as decoders do; a frame found after junk (or the first) needs the next
+frame to agree with it, so that a sync in junk is not a frame; a parameter
+change is only taken for one when two frames of the new parameters follow
+each other; and trailing junk, a truncated last frame and a tag the
+convention does not know are bytes between or after frames, kept as gaps
+(<a class="reference internal" href="#elements">the convention §5.3</a>).</p>
+</section>
+<section id="chunks">
+<span id="82-chunks"></span><h3>8.2 Chunks<a class="headerlink" href="#chunks" title="Link to this heading">¶</a></h3>
+<p>The array has <code class="docutils literal notranslate"><span class="pre">ceil(N</span> <span class="pre">/</span> <span class="pre">F)</span></code> chunks, <code class="docutils literal notranslate"><span class="pre">F</span> <span class="pre">=</span> <span class="pre">256</span></code>, chunk <code class="docutils literal notranslate"><span class="pre">q</span></code> holding the audio
+frames <code class="docutils literal notranslate"><span class="pre">a</span> <span class="pre">=</span> <span class="pre">q</span> <span class="pre">×</span> <span class="pre">F</span></code> to <code class="docutils literal notranslate"><span class="pre">b</span> <span class="pre">−</span> <span class="pre">1</span></code>, <code class="docutils literal notranslate"><span class="pre">b</span> <span class="pre">=</span> <span class="pre">min(N,</span> <span class="pre">a</span> <span class="pre">+</span> <span class="pre">F)</span></code>
+(<a class="reference internal" href="#the-array">the convention §4.1</a>). Every chunk is present. Chunk <code class="docutils literal notranslate"><span class="pre">q</span></code>, at
+<code class="docutils literal notranslate"><span class="pre">samples/c/&lt;q&gt;/0</span></code>, is the <code class="docutils literal notranslate"><span class="pre">refkv.stream</span></code> chunk, an <a class="reference internal" href="#type-mp3chunk"><code class="docutils literal notranslate"><span class="pre">Mp3Chunk</span></code></a>
+(<a class="reference internal" href="../conventions.html#coded-streams"><span class="std std-ref">conventions §10</span></a>) of the audio frames <code class="docutils literal notranslate"><span class="pre">l</span></code> to
+<code class="docutils literal notranslate"><span class="pre">b</span> <span class="pre">−</span> <span class="pre">1</span></code>, as a literal range for its header and ranges of source 0 for the
+frames: frame <code class="docutils literal notranslate"><span class="pre">j</span></code>’s position is −1 when <code class="docutils literal notranslate"><span class="pre">j</span> <span class="pre">&lt;</span> <span class="pre">a</span></code>, and <code class="docutils literal notranslate"><span class="pre">(j</span> <span class="pre">−</span> <span class="pre">a)</span> <span class="pre">×</span> <span class="pre">S</span></code>
+otherwise. <code class="docutils literal notranslate"><span class="pre">l</span></code> is the first frame of the <strong>lead-in</strong>:
+<code class="docutils literal notranslate"><span class="pre">l</span> <span class="pre">=</span> <span class="pre">a</span></code> for the first chunk (<code class="docutils literal notranslate"><span class="pre">a</span> <span class="pre">=</span> <span class="pre">0</span></code>); otherwise <code class="docutils literal notranslate"><span class="pre">l</span></code> is the greatest
+index at most <code class="docutils literal notranslate"><span class="pre">a</span> <span class="pre">−</span> <span class="pre">2</span></code> such that the main data of frames <code class="docutils literal notranslate"><span class="pre">l</span></code> to <code class="docutils literal notranslate"><span class="pre">a</span> <span class="pre">−</span> <span class="pre">3</span></code>
+(<a class="reference internal" href="#frames">the convention §2</a>, <code class="docutils literal notranslate"><span class="pre">M</span></code> of each) sums to at least <code class="docutils literal notranslate"><span class="pre">R</span></code>,
+where <code class="docutils literal notranslate"><span class="pre">R</span> <span class="pre">=</span> <span class="pre">511</span></code> for MPEG-1 and <code class="docutils literal notranslate"><span class="pre">255</span></code> for MPEG-2 and 2.5, or <code class="docutils literal notranslate"><span class="pre">l</span> <span class="pre">=</span> <span class="pre">0</span></code> when
+no index does.</p>
+<p><span id="type-mp3chunk"></span><strong><code class="docutils literal notranslate"><span class="pre">Mp3Chunk</span></code></strong>, chunk <code class="docutils literal notranslate"><span class="pre">q</span></code>, of the audio frames <code class="docutils literal notranslate"><span class="pre">l</span></code> to <code class="docutils literal notranslate"><span class="pre">b</span> <span class="pre">−</span> <span class="pre">1</span></code>:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>part</p></th>
+<th class="head"><p>range</p></th>
+<th class="head"><p>presence</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>the header</p></td>
+<td><p>literal</p></td>
+<td><p>required</p></td>
+<td><p>the <a class="reference internal" href="../conventions.html#type-streamchunk"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">StreamChunk</span></code></span></a> header: the frames’ count <code class="docutils literal notranslate"><span class="pre">b</span> <span class="pre">−</span> <span class="pre">l</span></code>, then, for each frame <code class="docutils literal notranslate"><span class="pre">j</span></code> from <code class="docutils literal notranslate"><span class="pre">l</span></code>, its length and its position, −1 when <code class="docutils literal notranslate"><span class="pre">j</span> <span class="pre">&lt;</span> <span class="pre">a</span></code> and <code class="docutils literal notranslate"><span class="pre">(j</span> <span class="pre">−</span> <span class="pre">a)</span> <span class="pre">×</span> <span class="pre">S</span></code> otherwise</p></td>
+</tr>
+<tr class="row-odd"><td><p>the frames</p></td>
+<td><p>source ranges <code class="docutils literal notranslate"><span class="pre">(0,</span> <span class="pre">offset,</span> <span class="pre">length)</span></code></p></td>
+<td><p>required</p></td>
+<td><p>frames <code class="docutils literal notranslate"><span class="pre">l</span></code> to <code class="docutils literal notranslate"><span class="pre">b</span> <span class="pre">−</span> <span class="pre">1</span></code>, in order, each its offset and length <code class="docutils literal notranslate"><span class="pre">L</span></code> in the file; a frame that starts where the one before it ends extends that one’s range (<a class="reference internal" href="../conventions.html#coded-streams"><span class="std std-ref">conventions §10</span></a>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>So the lead-in is the two frames before the chunk, and before them the
+fewest frames whose main data holds the largest bit reservoir the version
+allows: a decoder that decodes the lead-in holds the reservoir the two
+frames need, the two frames give it the filter bank’s overlap and the
+synthesis state the chunk’s first frame needs (the frame before it in
+MPEG-1, where a frame has two granules; the two frames before it in MPEG-2
+and 2.5, where a frame has one), and the chunk’s frames then decode as
+they do in the stream. Decoding the lead-in costs a few frames’ work per
+chunk and no extra reads. The bytes between frames are in no range
+(<a class="reference internal" href="../conventions.html#coded-streams"><span class="std std-ref">conventions §10</span></a> says why).</p>
+<p>The ranges lie within the file (frames are found within <code class="docutils literal notranslate"><span class="pre">[A,</span> <span class="pre">E)</span></code>). The
+output has no data sources: its source table is source 0 alone.
+<code class="docutils literal notranslate"><span class="pre">refkv_source</span></code> is the IR mirror (<a class="reference internal" href="#the-ir-mirror">the convention §5.2</a>). The archive
+has no other entries than the root’s and the array’s <code class="docutils literal notranslate"><span class="pre">zarr.json</span></code>, the
+array’s chunks, and the mirror’s.</p>
+</section>
+<section id="summary">
+<span id="83-summary"></span><h3>8.3 Summary<a class="headerlink" href="#summary" title="Link to this heading">¶</a></h3>
+<p>This section is informative. Both implementations print a one-line JSON
+summary, with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">version</span></code></p></td>
+<td><p>the stream’s version</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">sampleRate</span></code></p></td>
+<td><p>the sample rate</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channels</span></code></p></td>
+<td><p>the channel count</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">frames</span></code></p></td>
+<td><p>the audio frames</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">samples</span></code></p></td>
+<td><p>the samples per channel</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">duration</span></code></p></td>
+<td><p>in seconds</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bitrate</span></code></p></td>
+<td><p>in kbps, or <code class="docutils literal notranslate"><span class="pre">&quot;variable&quot;</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">chunkFrames</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">F</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">chunks</span></code></p></td>
+<td><p>the number of the array’s chunks</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">info</span></code></p></td>
+<td><p>the info frame’s tag, or <code class="docutils literal notranslate"><span class="pre">null</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tags</span></code></p></td>
+<td><p>those of <code class="docutils literal notranslate"><span class="pre">&quot;id3v2&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;id3v1&quot;</span></code> and <code class="docutils literal notranslate"><span class="pre">&quot;ape&quot;</span></code> the file has, in that order</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">strayBytes</span></code></p></td>
+<td><p>the stray bytes</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="the-description">
+<span id="84-the-description"></span><h3>8.4 The description<a class="headerlink" href="#the-description" title="Link to this heading">¶</a></h3>
+<p>This section is not part of the convention: nothing it specifies is written in an output. The
+parser returns, beside the IR, a <strong>description</strong> of the file: what it found of the source, for a
+projection to read with the IR and its stored arrays
+(<a class="reference internal" href="../stored-array.html#the-formats"><span class="std std-ref">spec/stored-array.md §7</span></a>). It holds none of an output’s
+decisions: the frames of a chunk and the lead-ins (<a class="reference internal" href="#chunks">§8.2</a>), and the array’s data type,
+shape, chunks and codecs (<a class="reference internal" href="#the-array">§4.1</a>) are the projection’s. Its JSON Schema is
+<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3/description.json"><code class="docutils literal notranslate"><span class="pre">mp3/description.json</span></code></a>. It is a JSON object with these members:</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>member</p></th>
+<th class="head"><p>value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">version</span></code></p></td>
+<td><p>the stream’s version, <code class="docutils literal notranslate"><span class="pre">&quot;MPEG-1&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;MPEG-2&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;MPEG-2.5&quot;</span></code> (<a class="reference internal" href="#frames">§2</a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">layer</span></code></p></td>
+<td><p>3</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sample_rate</span></code></p></td>
+<td><p>the stream’s, in Hz</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channels</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">C</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_mode</span></code></p></td>
+<td><p>the first audio frame’s: <code class="docutils literal notranslate"><span class="pre">&quot;stereo&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;joint_stereo&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;dual_channel&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;mono&quot;</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">samples_per_frame</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">S</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">frames</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">N</span></code>, the audio frames, the info frame not among them</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">kbps</span></code></p></td>
+<td><p>each audio frame’s bitrate in kbps, in order</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">crc_frames</span></code></p></td>
+<td><p>how many audio frames have the protection bit 0 (a CRC)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">main_data</span></code></p></td>
+<td><p>each audio frame’s main data, <code class="docutils literal notranslate"><span class="pre">M</span></code>, in bytes (<a class="reference internal" href="#frames">§2</a>), in order</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">info</span></code></p></td>
+<td><p>the info frame’s fields, an <a class="reference internal" href="#type-mp3info"><code class="docutils literal notranslate"><span class="pre">Mp3Info</span></code></a>, or null when the stream starts with none</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">id3v2</span></code></p></td>
+<td><p>each ID3v2 tag’s header at the start, an <a class="reference internal" href="#type-mp3id3v2"><code class="docutils literal notranslate"><span class="pre">Mp3Id3v2</span></code></a>, in order</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id3v1</span></code></p></td>
+<td><p>the ID3v1 tag’s fields, an <a class="reference internal" href="#type-mp3id3v1"><code class="docutils literal notranslate"><span class="pre">Mp3Id3v1</span></code></a>, or null</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ape</span></code></p></td>
+<td><p>the APE tag’s, an <a class="reference internal" href="#type-mp3ape"><code class="docutils literal notranslate"><span class="pre">Mp3Ape</span></code></a>, or null</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">stray_bytes</span></code></p></td>
+<td><p>the bytes between the ID3v2 tags and the trailing tags that are in no frame</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">elements</span></code></p></td>
+<td><p>the ids of IR elements (<a class="reference internal" href="#elements">§5.3</a>) by name: <code class="docutils literal notranslate"><span class="pre">frames</span></code>, the first audio frame’s <code class="docutils literal notranslate"><span class="pre">data</span></code> element, which the others follow; <code class="docutils literal notranslate"><span class="pre">info</span></code>, the info frame’s value, and <code class="docutils literal notranslate"><span class="pre">id3v1</span></code>, the ID3v1 tag’s, each null when the file has none</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The root’s source metadata of <a class="reference internal" href="#the-root">§5.1</a> follows from the description: <code class="docutils literal notranslate"><span class="pre">bitrate_mode</span></code>
+and <code class="docutils literal notranslate"><span class="pre">bitrate_kbps</span></code> from <code class="docutils literal notranslate"><span class="pre">kbps</span></code>, <code class="docutils literal notranslate"><span class="pre">samples</span></code> and <code class="docutils literal notranslate"><span class="pre">duration</span></code> from <code class="docutils literal notranslate"><span class="pre">frames</span></code>, <code class="docutils literal notranslate"><span class="pre">samples_per_frame</span></code> and
+<code class="docutils literal notranslate"><span class="pre">sample_rate</span></code>, and the other members as the description gives them. The projection reads them so,
+and makes <strong>refkv’s plan</strong> of the file from the description alone: <code class="docutils literal notranslate"><span class="pre">chunk_frames</span></code>, <code class="docutils literal notranslate"><span class="pre">F</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">leads</span></code>, the first frame <code class="docutils literal notranslate"><span class="pre">l</span></code> of each chunk’s lead-in, from <code class="docutils literal notranslate"><span class="pre">main_data</span></code> and <code class="docutils literal notranslate"><span class="pre">version</span></code>
+(<a class="reference internal" href="#chunks">§8.2</a>). The plan belongs to refkv’s convention, not to the IR; the array’s chunks are
+read from it.</p>
+<div class="toctree-wrapper compound">
+</div>
+</section>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="../../docs/zarrify/mp3/README.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">MP3</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="lif/stored-arrays.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">LIF: stored arrays</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; the refkv authors
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer no-toc">
+      
+      
+      
+    </aside>
+  </div>
+</div><script src="../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/scripts/furo.js?v=46bd48cc"></script>
+    </body>
+</html>
