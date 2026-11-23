@@ -851,7 +851,8 @@ Stale builds gave agents false results more than once:
 - A rebase can leave the wasm stale, and `just test`'s conventions test runs
   it through Node. Run `just js::wasm`.
 - A fresh worktree has no wasm build and no `js/node_modules`. Run
-  `just js::wasm` and `npm ci` in `js/` before trusting a failure.
+  `just js::wasm` and `npm ci` in `js/`, in pixi's environment
+  (`pixi shell`), before trusting a failure.
 - Leave `CARGO_TARGET_DIR` unset; don't set it to an empty string.
 
 A PR that lands a step of a proposal in

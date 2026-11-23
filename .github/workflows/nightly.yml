@@ -21,9 +21,6 @@ concurrency:
   group: nightly-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  NODE_VERSION: "24"
-
 jobs:
   corpus-fingerprints:
     runs-on: ubuntu-latest
@@ -33,13 +30,7 @@ jobs:
       actions: write  # to delete the proxy cache this run supersedes
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
+      - uses: ./.github/actions/setup
       - run: uv sync --all-groups --locked
       # restored and saved in two steps: actions/cache saves only after a job that passed, and a
       # night that fails must still keep the blocks it fetched, or the next one fetches them again
@@ -85,10 +76,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/setup
       - name: Run the examples
         run: |
           mkdir -p examples-out && cd examples-out
@@ -116,23 +104,7 @@ jobs:
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      - uses: extractions/setup-crate@v2
-        with:
-          repo: casey/just
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-      # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
-      - run: sudo apt-get install -y --no-install-recommends binaryen
+      - uses: ./.github/actions/setup
       - run: uv sync --all-groups --locked
       - run: just js::wasm
       # restored and saved in two steps: actions/cache saves only after a job that passed, and a
@@ -182,23 +154,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      - uses: extractions/setup-crate@v2
-        with:
-          repo: casey/just
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-      # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
-      - run: sudo apt-get install -y --no-install-recommends binaryen
+      - uses: ./.github/actions/setup
       - run: uv sync --all-groups --locked
       - run: just js::wasm
       # A new seed each night (the run number), printed so that a failure can be rerun.
