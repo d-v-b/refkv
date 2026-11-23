@@ -52,9 +52,10 @@ class NoCodec(ValueError):  # noqa: N818 (the core's name)
 
 def coding(name: str, params: str) -> str:
     """A coding routine of `refkv.zarrify.coding` (spec/layout.md
-    <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): the routine `name` of the
-    parameters `params` (JSON), its result as JSON. Raises NoCodec for parameters the format's
-    section rejects, ValueError for parameters that are not the routine's."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>), or a host rule
+    (rust/refkv-ir/src/host): the routine `name` of the parameters `params` (JSON), its result as
+    JSON. Raises NoCodec for parameters the format's section rejects, Rejected for an input a host
+    rule rejects, ValueError for parameters that are not the routine's."""
 
 @final
 class ChunkMap:
@@ -174,6 +175,25 @@ class Ir:
         element's name (default `""`) and name index (default none) are `name` and
         `nidx` when given. Raises ValueError for columns of different lengths."""
 
+@final
+class Chunking:
+    """How refkv's convention cuts a source into chunks (`out::Chunking`): the reference payload of
+    an edge chunk past which a projection copies it (`copy_threshold`, the payload limit), the
+    frames of an MP3 chunk and the most of an MP4 or H5J one (`chunk_frames`, 256), and the frames
+    of a FLAC shard (`shard_frames`, 512), each the convention's when not given, the frames at
+    least 1. A run holds one from its start (`Run(..., chunking=)`, `StoreRun(..., chunking=)`);
+    another than the convention's is for tests, so that small files reach the copy, several chunks
+    or several shards, and its output is not the convention's."""
+
+    def __init__(self, *, copy_threshold: int | None = None, chunk_frames: int | None = None,
+                 shard_frames: int | None = None) -> None: ...
+    @property
+    def copy_threshold(self) -> int: ...
+    @property
+    def chunk_frames(self) -> int: ...
+    @property
+    def shard_frames(self) -> int: ...
+
 class Run:
     """A run: a format's parser and the read planner (sans-IO). The host loops
     `poll()` (the requests to make now, each a list of (start, end) spans: one
@@ -196,7 +216,11 @@ class Run:
         amplification: float | None = None,
         byte_cost: float | None = None,
         whole_below: int | None = None,
+        chunking: Chunking | None = None,
     ) -> None: ...
+    @property
+    def chunking(self) -> Chunking:
+        """How the run's projection cuts the source, given at its start (default: the convention's)."""
     def poll(self) -> list[list[tuple[int, int]]] | None: ...
     def complete(self, k: int, parts: Sequence[bytes] | None, seconds: float) -> None: ...
     def observe(self, n: int, seconds: float) -> None:
@@ -270,7 +294,12 @@ class StoreRun:
     the store is rejected, and Failed for a failure of refkv's on a store it accepted (a bug, a
     host's misuse of the run, or a payload over the limit only with its checksums)."""
 
-    def __init__(self, format: str, listing: Sequence[tuple[str, int]], concurrency: int) -> None: ...  # noqa: A002 (the core's name)
+    def __init__(self, format: str, listing: Sequence[tuple[str, int]], concurrency: int,  # noqa: A002 (the core's name)
+                 chunking: Chunking | None = None) -> None: ...
+    @property
+    def chunking(self) -> Chunking:
+        """How the run's parser and projection cut the store's arrays, given at its start (default:
+        the convention's)."""
     def poll(self) -> list[tuple[int, str, list[tuple[int, int]]]] | None: ...
     def complete(self, k: int, parts: Sequence[bytes]) -> None: ...
     def stats(self) -> str:
@@ -361,25 +390,13 @@ def grib_decode(chunk: bytes, config: str, chunk_shape: Sequence[int]) -> bytes:
     of a field of the GRIB message `chunk`, as little-endian float64 in C order over
     `chunk_shape`, NaN where missing, from the codec's configuration (JSON). Raises
     ValueError for a bad configuration or message."""
-def _set_copy_threshold(n: int | None = None) -> None:
-    """For tests: the reference payload past which a NIfTI or MRC edge chunk is copied (None:
-    the payload limit), so that small files reach the copy (spec/zarrify/nifti.md §7.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>,
-    spec/zarrify/mrc.md §8.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#82-chunks>)."""
-def _set_chunk_frames(n: int | None = None) -> None:
-    """For tests: the frames of an MP3 chunk (None: 256), so that small files have several chunks,
-    each with its lead-in (spec/zarrify/mp3.md §8.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#82-chunks>)."""
-def _set_shard_frames(n: int | None = None) -> None:
-    """For tests: the frames of a FLAC shard (None: 512), so that small files have several shards
-    (spec/zarrify/flac.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#82-shards>)."""
-def grid_chunks(offset: int, shape: list[int], item: int,
-                limit: int) -> tuple[list[int], list[tuple[list[int], int, int, int, bool]]] | None:
+def grid_chunks(offset: int, shape: list[int], item: int, limit: int,
+                copy_threshold: int) -> tuple[list[int], list[tuple[list[int], int, int, int, bool]]] | None:
     """The C-order array of `shape`, of `item`-byte elements contiguous at `offset`, cut as
     spec/conventions.md §7 cuts contiguous values into chunks of at most `limit` bytes: its chunk
     shape, and each chunk's coordinates, its range (offset, length), the zero bytes that pad it,
-    and whether the range is to be copied; None when an element is larger than `limit` or the
+    and whether the range is to be copied, as it is past `copy_threshold` (a run's
+    `Chunking.copy_threshold`); None when an element is larger than `limit` or the
     sizes overflow."""
 type FitsPiece = (tuple[Literal["src"], int, int] | tuple[Literal["lit"], bytes] | tuple[Literal["zeros"], int]
                  | tuple[Literal["copy"], int, int])

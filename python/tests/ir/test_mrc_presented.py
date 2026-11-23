@@ -41,7 +41,7 @@ from shutil import copyfile
 import numpy as np
 import pytest
 from described import Described, described
-from ir_helpers import FIXTURES, core_setting
+from ir_helpers import FIXTURES
 from test_mrc_stored import header
 
 from refkv import _core
@@ -292,7 +292,7 @@ def check_array(d: Described, out: Output, prefix: str, want: Want, threshold: i
 def compared(path: Path, threshold: int = PAYLOAD) -> tuple[tuple[str, ...], Counter]:
     """What differs between the arrays the profile wrote of the file at `path` and the file's
     description, and what the comparison saw; `threshold` is the run's payload limit."""
-    d = described(path)
+    d = described(path, _core.Chunking(copy_threshold=threshold))
     out = d.out
     assert isinstance(out, Output), "an MRC file is one file"
     said: list[str] = []
@@ -413,8 +413,7 @@ def test_an_edge_chunk_past_the_payload_is_a_copy_of_what_the_description_gives(
     one of 8 bytes."""
     path = tmp_path / "copied.mrc"
     copyfile(FIXTURES / "mrc" / "mrc_chunk_edge_literal.mrc", path)
-    with core_setting(_core._set_copy_threshold, 8):
-        said, seen = compared(path, 8)
+    said, seen = compared(path, 8)
     assert said == ()
     assert {k: v for k, v in seen.items() if v} == {
         "arrays": 2,

@@ -22,7 +22,6 @@
 pub mod jp2;
 pub mod product;
 mod stored;
-pub mod xmltree;
 
 use crate::ir::*;
 use crate::step::Step;
@@ -33,7 +32,7 @@ use jp2::{BandReader, Codestream};
 use product::{Geocoding, Image};
 use serde_json::{Value as J, json};
 use std::collections::{HashMap, HashSet};
-use xmltree::Element;
+use crate::xmltree::Element;
 
 const MARKER: &str = "_$folder$";
 /// The XML documents of at most this many bytes are held, besides the product and tile metadata.
@@ -693,7 +692,7 @@ impl crate::run::FileProfile for Profile {
     fn whole(&self) -> bool {
         false
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
         crate::project::safe::project(ir, description, url)
     }
     /// Its empty directories and ignored keys beside the mirror, as a SAFE directory's.
@@ -703,7 +702,7 @@ impl crate::run::FileProfile for Profile {
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)], _chunking: &crate::out::Chunking) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
     Ok(Box::new(Safe::new_store(ir, objects, keys)))
 }
 

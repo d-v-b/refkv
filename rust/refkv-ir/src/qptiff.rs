@@ -11,10 +11,10 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<crate::tiff::Tiff>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
         crate::project::qptiff::project(ir, description, url, copied)
     }
-    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value, _chunking: &crate::out::Chunking) -> Result<Vec<(u64, u64)>, String> {
         crate::project::qptiff::reads(ir, description)
     }
 }

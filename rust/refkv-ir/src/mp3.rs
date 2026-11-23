@@ -17,7 +17,6 @@ use crate::step::Step;
 use crate::rules::{self, Rules, flag, num, text};
 use crate::sans;
 use serde_json::{json, Value as J};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The versions by their header bits, and the layers by theirs (1 is Layer III).
 pub const VERSIONS: [&str; 4] = ["MPEG-2.5", "reserved", "MPEG-2", "MPEG-1"];
@@ -45,20 +44,9 @@ const BITRATES: [[[u32; 15]; 3]; 2] = [
 pub const RESERVOIR: [u64; 4] = [255, 0, 255, 511];
 
 /// The frames of a chunk (spec/zarrify/mp3.md §4.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#41-the-array>), but in tests
-/// (`set_chunk_frames`). refkv's plan of a file reads it (`project::mp3::plan`).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#41-the-array>): the default of
+/// `out::Chunking::chunk_frames`, which refkv's plan of a file reads (`project::mp3::plan`).
 pub const DEFAULT_CHUNK_FRAMES: usize = 256;
-static CHUNK_FRAMES: AtomicUsize = AtomicUsize::new(DEFAULT_CHUNK_FRAMES);
-
-/// For tests: the frames of a chunk (None: the default, 256), so that small files have several
-/// chunks and lead-ins.
-pub fn set_chunk_frames(n: Option<usize>) {
-    CHUNK_FRAMES.store(n.unwrap_or(DEFAULT_CHUNK_FRAMES).max(1), Ordering::Relaxed);
-}
-
-pub fn chunk_frames() -> usize {
-    CHUNK_FRAMES.load(Ordering::Relaxed)
-}
 
 /// A frame header's fields (spec/zarrify/mp3.md §2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#2-frames>).
@@ -493,8 +481,8 @@ impl crate::run::FileProfile for Profile {
     fn whole(&self) -> bool {
         false
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        crate::project::mp3::project(ir, description, url, copied)
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
+        crate::project::mp3::project(ir, description, url, copied, chunking)
     }
 }
 

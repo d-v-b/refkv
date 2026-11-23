@@ -26,6 +26,7 @@
 
 use crate::error::{Error, Res};
 use crate::ir::Ir;
+use crate::out::Chunking;
 use serde_json::{json, Value as J};
 use std::collections::HashMap;
 
@@ -113,12 +114,14 @@ impl StoreFormat {
 }
 
 /// What a store run read for the convention's projection, apart from the IR and the description:
-/// the bytes the projection copies (`StoreParser::copied`) and the parser's counts
-/// (`StoreParser::counts`).
+/// the bytes the projection copies (`StoreParser::copied`), the parser's counts
+/// (`StoreParser::counts`), and the chunking the run read them for, which the projection cuts
+/// with.
 #[derive(Clone, Debug, Default)]
 pub struct Read {
     pub copied: crate::project::Copied,
     pub counts: J,
+    pub chunking: Chunking,
 }
 
 /// One request: object `object` (its key `key`), the spans (start, end) to read of it.
@@ -171,19 +174,35 @@ pub struct StoreRun {
     scope: Option<Vec<String>>,
     /// for each probe of the pending batch, whether it is outside the scope (the run answers it)
     outside: Vec<bool>,
+    /// how the parser and the projection cut the store's arrays, from the run's start
+    chunking: Chunking,
 }
 
 impl StoreRun {
     /// A run over the listing `keys` (relative keys, sizes). `concurrency`: the requests the
     /// host makes at a time (it shares a large object's spans among them).
+    /// The run has the convention's chunking (`Chunking::default`).
     pub fn new(format: StoreFormat, keys: Vec<(String, u64)>, concurrency: usize) -> Res<StoreRun> {
-        Self::with(format, keys, concurrency, &|ir, objects, keys| format.parser(ir, objects, keys))
+        Self::with_chunking(format, keys, concurrency, Chunking::default())
     }
 
-    /// A run of the parser `make` gives (for the listing's IR, its objects and keys), as `format`.
+    /// `new`, for a run whose parser and projection cut the store's arrays as `chunking` says:
+    /// it reads the ranges that projection copies, and its output is cut so.
+    pub fn with_chunking(format: StoreFormat, keys: Vec<(String, u64)>, concurrency: usize, chunking: Chunking) -> Res<StoreRun> {
+        Self::build(format, keys, concurrency, chunking, &|ir, objects, keys| format.parser(ir, objects, keys, &chunking))
+    }
+
+    /// A run of the parser `make` gives (for the listing's IR, its objects and keys), as `format`,
+    /// with the convention's chunking.
     #[allow(clippy::type_complexity)]
     pub fn with(format: StoreFormat, keys: Vec<(String, u64)>, concurrency: usize,
                 make: &dyn Fn(Ir, Vec<u32>, &[(String, u64)]) -> crate::ir::Res<Box<dyn StoreParser>>) -> Res<StoreRun> {
+        Self::build(format, keys, concurrency, Chunking::default(), make)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn build(format: StoreFormat, keys: Vec<(String, u64)>, concurrency: usize, chunking: Chunking,
+             make: &dyn Fn(Ir, Vec<u32>, &[(String, u64)]) -> crate::ir::Res<Box<dyn StoreParser>>) -> Res<StoreRun> {
         let mut ir = Ir::new_store();
         let objects = ir.listing(&keys)?;
         let parser = make(ir, objects.clone(), &keys)?;
@@ -210,7 +229,13 @@ impl StoreRun {
             probed: 0,
             scope: None,
             outside: Vec::new(),
+            chunking,
         })
+    }
+
+    /// How the run's parser and projection cut the store's arrays.
+    pub fn chunking(&self) -> Chunking {
+        self.chunking
     }
 
     /// The scope of the input (spec/zarrify.md §1.9
@@ -499,7 +524,7 @@ impl StoreRun {
             return Err(Error::Internal("the run is not done".into()));
         }
         let mut p = self.parser.take().ok_or_else(|| Error::internal("no parser"))?;
-        let read = Read { copied: p.copied(), counts: p.counts() };
+        let read = Read { copied: p.copied(), counts: p.counts(), chunking: self.chunking };
         let (mut ir, mut description) = p.finish()?;
         if let Some(m) = description.as_object_mut().filter(|_| !self.ignored.is_empty()) {
             m.insert("ignored".into(), json!(self.ignored));
@@ -554,7 +579,7 @@ impl StoreRun {
 #[allow(clippy::too_many_arguments)]
 pub fn store_output(format: StoreFormat, ir: &Ir, description: &J, stats: J, read: &Read, url: &str, mirror: bool, checksums: bool)
                     -> Res<crate::out::Out> {
-    let mut out = format.project(ir, description, url, &read.copied)?;
+    let mut out = format.project(ir, description, url, &read.copied, &read.chunking)?;
     crate::shard::refuse(&out)?;
     let mut summary = std::mem::take(&mut out.summary);
     if let Some(m) = summary.as_object_mut() {

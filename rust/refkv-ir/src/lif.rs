@@ -865,17 +865,17 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Lif>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
         crate::project::lif::project(ir, description, url)
     }
     /// The projection reads nothing; refkv's plan is made here, so that a run rejects an input the
     /// plan rejects before it is done (`plan::plan`).
-    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value, _chunking: &crate::out::Chunking) -> Result<Vec<(u64, u64)>, String> {
         plan::plan(description).map(|_| Vec::new())
     }
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)], _chunking: &crate::out::Chunking) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
     Ok(Box::new(crate::xlef::Xlef::new(ir, objects, keys)?))
 }

@@ -18,8 +18,8 @@ from refkv._narrow import mapping, ndarray, sequence, string
 ACCEPTED = sorted(p for p in (FIXTURES / "npy").iterdir() if "reject" not in p.name)
 
 
-def zarrified(path, tmp_path):
-    return shared_zarrified(path, tmp_path, "npy")
+def zarrified(path, tmp_path, chunking=None):
+    return shared_zarrified(path, tmp_path, "npy", chunking=chunking)
 
 
 def as_stored(a: np.ndarray) -> np.ndarray:
@@ -199,11 +199,7 @@ def test_edge_chunks_past_the_payload_are_copied(tmp_path):
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#84-chunks>): with a payload
     limit of 8 bytes, and the array is still `np.load`'s."""
     path = FIXTURES / "npy" / "npy_chunk_edge.npy"
-    _core._set_copy_threshold(8)
-    try:
-        out, root, _ = zarrified(path, tmp_path)
-    finally:
-        _core._set_copy_threshold(None)
+    out, root, _ = zarrified(path, tmp_path, _core.Chunking(copy_threshold=8))
     assert "array/c/1/0" in out.bytes_entries
     assert "array/c/1/0" not in out.refs
     assert len(out.bytes_entries["array/c/1/0"]) == 262 * 2049
