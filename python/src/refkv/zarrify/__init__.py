@@ -71,6 +71,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 
 from refkv import _sync, ir
+from refkv._core import Chunking
 from refkv.errors import Failed, Rejected
 from refkv.host import (
     WORKERS,
@@ -117,8 +118,8 @@ import refkv.build.plugin as _build_plugin
 
 NOT_SUPPORTED = "not a file of any supported format"
 
-__all__ = ["Dataset", "Failed", "Image", "Layout", "ListingFailed", "Rejected", "Source", "Store", "StoreLimit",
-           "zarrify", "zarrify_async", "zarrify_store", "zarrify_store_async"]
+__all__ = ["Chunking", "Dataset", "Failed", "Image", "Layout", "ListingFailed", "Rejected", "Source", "Store",
+           "StoreLimit", "zarrify", "zarrify_async", "zarrify_store", "zarrify_store_async"]
 __all__ += profile_classes.__all__  # the source and store classes, one per profile
 
 
@@ -160,10 +161,11 @@ async def _zarrify_store_async(location: str, url: str | None = None, *, max_obj
                                fmt: str | None = None,
                                layouts: Iterable[Image | Dataset] | None = None,
                                registry: Resolver | None = None, written: bool = True,
-                               ) -> tuple[str, StoreIrOutput | SeriesOutput]:
+                               chunking: Chunking | None = None) -> tuple[str, StoreIrOutput | SeriesOutput]:
     """`_parse_store_async`, and the built-in output of what it parsed."""
     parsed = await _parse_store_async(location, url, max_objects=max_objects, checksums=checksums, workers=workers,
-                                      policy=policy, fmt=fmt, layouts=layouts, registry=registry, written=written)
+                                      policy=policy, fmt=fmt, layouts=layouts, registry=registry, written=written,
+                                      chunking=chunking)
     if isinstance(parsed, SeriesOutput):
         return "dicom", parsed
     out = await parsed.output_async(written)
@@ -177,7 +179,7 @@ async def _parse_store_async(location: str, url: str | None = None, *, max_objec
                              fmt: str | None = None,
                              layouts: Iterable[Image | Dataset] | None = None,
                              registry: Resolver | None = None, written: bool = True,
-                             ) -> _Parse | SeriesOutput:
+                             chunking: Chunking | None = None) -> _Parse | SeriesOutput:
     """The store at `location` parsed (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), its documents
     read by up to `workers` requests at a time; with `checksums`, the output's ranges
@@ -189,7 +191,8 @@ async def _parse_store_async(location: str, url: str | None = None, *, max_objec
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#17-named-inputs-and-layouts>);
     `layouts` the layouts it writes (`refkv.zarrify.sources.layout_names`). A store of DICOM
     files, which is joined from its files' outputs and keeps no IR, is its output already
-    (a `SeriesOutput`, made for `written`)."""
+    (a `SeriesOutput`, made for `written`). `chunking`: how the run cuts the store's arrays
+    (default: the convention's)."""
     location = local_path(location, policy)
     if fmt is not None:
         _no_store_layouts(layouts, fmt)  # before the store is listed
@@ -211,7 +214,8 @@ async def _parse_store_async(location: str, url: str | None = None, *, max_objec
     if fmt == "dicom":
         try:
             return await _zarrify_dicom_store(store, location, url, checksums=checksums, policy=policy,
-                                              workers=workers, registry=registry, written=written)
+                                              workers=workers, registry=registry, written=written,
+                                              chunking=chunking)
         finally:
             store.close()
     try:
@@ -219,7 +223,7 @@ async def _parse_store_async(location: str, url: str | None = None, *, max_objec
             _no_store_layouts(layouts, fmt)  # a named profile's were checked before the store was listed
         # the core's store formats: N5, a SAFE directory, and Zarr v2, which the core decides is
         # OME-Zarr 0.4's or not (the run's profile)
-        parsed = await parse_store_async(store, {"ome-zarr": "zarr2"}.get(fmt, fmt))
+        parsed = await parse_store_async(store, {"ome-zarr": "zarr2"}.get(fmt, fmt), chunking=chunking)
         if fmt in ("zarr2", "ome-zarr"):
             if named == "ome-zarr" and parsed.profile != "ome-zarr":
                 raise Rejected("not an OME-Zarr 0.4 store: the Zarr v2 store format found no OME-NGFF 0.4 "
@@ -248,7 +252,7 @@ def _store_output(parsed: StoreParse, store: Listed,
 
 async def _zarrify_dicom_store(store: Listed, location: str, url: str | None, *, checksums: bool,
                                policy: Policy | None, workers: int, registry: Resolver | None,
-                               written: bool = True) -> SeriesOutput:
+                               written: bool = True, chunking: Chunking | None = None) -> SeriesOutput:
     """The DICOM store form (spec/zarrify/dicom.md §9
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#9-the-store-form>): each key
     ending in `.dcm` zarrified as a file, the others recorded."""
@@ -261,7 +265,7 @@ async def _zarrify_dicom_store(store: Listed, location: str, url: str | None, *,
         where = str(Path(location) / key) if local else object_url(location, key)
         named = object_url(store.url, key) if local or url is not None else None
         fmt, out = await _zarrify_async(where, named, checksums=checksums, policy=policy, fmt="dicom",
-                                        registry=registry, written=written)
+                                        registry=registry, written=written, chunking=chunking)
         return await asyncio.to_thread(out.to_store, policy=policy, registry=registry,
                                        info={"format": fmt, **out.summary})
 
@@ -271,11 +275,13 @@ async def _zarrify_dicom_store(store: Listed, location: str, url: str | None, *,
 def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | None = None,
                    checksums: bool = False, workers: int = WORKERS, policy: Policy | None = None,
                    fmt: str | None = None,
-                   layouts: Iterable[Image | Dataset] | None = None) -> tuple[str, StoreIrOutput]:
+                   layouts: Iterable[Image | Dataset] | None = None,
+                   chunking: Chunking | None = None) -> tuple[str, StoreIrOutput]:
     """`_zarrify_store_async`, the caller's thread waiting for it (`refkv._sync.run`), for a
     store the core reads: a store of DICOM files is joined in `zarrify_async`'s path alone."""
     fmt, out = _sync.run(_zarrify_store_async(location, url, max_objects=max_objects, checksums=checksums,
-                                              workers=workers, policy=policy, fmt=fmt, layouts=layouts))
+                                              workers=workers, policy=policy, fmt=fmt, layouts=layouts,
+                                              chunking=chunking))
     if isinstance(out, SeriesOutput):
         raise TypeError("a store of DICOM files has no IR output: zarrify it with zarrify_store")
     return fmt, out
@@ -284,7 +290,8 @@ def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | 
 async def _parse_beside_async(fmt: str, location: str, url: str | None, transport: Transport, *,
                               checksums: bool = False, policy: Policy | None = None,
                               connections: int | None = None,
-                              scope: list[str] | None = None, registry: Resolver | None = None) -> _Parse:
+                              scope: list[str] | None = None, registry: Resolver | None = None,
+                              chunking: Chunking | None = None) -> _Parse:
     """The parse of the input at `location` of a profile of `BESIDE`, a file (opened as
     `transport`) read with the files beside it: a VSI slide's `.vsi` file, whose tile files lie
     beside it (spec/zarrify/vsi.md §9.2
@@ -296,12 +303,13 @@ async def _parse_beside_async(fmt: str, location: str, url: str | None, transpor
     directory (ending in `/`), the store URL the output's object URLs are made from. `scope`, when
     given, the keys of the input's scope (§1.9
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
-    **Scope**; `scope_keys`): no file outside it is opened."""
+    **Scope**; `scope_keys`): no file outside it is opened. `chunking` is the run's (default: the
+    convention's)."""
     title, noun = BESIDE[fmt]
     store = VsiFiles(location, url, policy=policy, workers=connections, transport=transport, title=title, noun=noun,
                      case=fmt in CASE, registry=registry)
     try:
-        parsed = await parse_store_async(store, fmt, scope=scope)
+        parsed = await parse_store_async(store, fmt, scope=scope, chunking=chunking)
     finally:
         store.close()
     return _Parse(fmt, parsed, _store_output(parsed, store, checksums), store.close_files)
@@ -339,12 +347,12 @@ async def _zarrify_async(location: str, url: str | None = None, *, checksums: bo
                          policy: Policy | None = None, connections: int | None = None,
                          byte_cost: float | None = None, workers: int = WORKERS, fmt: str | None = None,
                          layouts: Iterable[Image | Dataset] | None = None, scope: Scope | None = None,
-                         registry: Resolver | None = None,
-                         written: bool = True) -> tuple[str, Output | StoreIrOutput | SeriesOutput]:
+                         registry: Resolver | None = None, written: bool = True,
+                         chunking: Chunking | None = None) -> tuple[str, Output | StoreIrOutput | SeriesOutput]:
     """`_parse_async`, and the built-in output of what it parsed: (format, output)."""
     parsed = await _parse_async(location, url, checksums=checksums, policy=policy, connections=connections,
                                 byte_cost=byte_cost, workers=workers, fmt=fmt, layouts=layouts, scope=scope,
-                                registry=registry, written=written)
+                                registry=registry, written=written, chunking=chunking)
     if isinstance(parsed, SeriesOutput):
         return "dicom", parsed
     return parsed.fmt, await parsed.output_async(written)
@@ -354,7 +362,8 @@ async def _parse_async(location: str, url: str | None = None, *, checksums: bool
                        policy: Policy | None = None, connections: int | None = None,
                        byte_cost: float | None = None, workers: int = WORKERS, fmt: str | None = None,
                        layouts: Iterable[Image | Dataset] | None = None, scope: Scope | None = None,
-                       registry: Resolver | None = None, written: bool = True) -> _Parse | SeriesOutput:
+                       registry: Resolver | None = None, written: bool = True,
+                       chunking: Chunking | None = None) -> _Parse | SeriesOutput:
     """The parse (`_Parse`) of the file at `location`, by its first bytes, or of
     the store at `location` (a URL ending in `/`, or a directory); for the file at `location`
     by the file profile `fmt`, when given, its first bytes untested (§1.7
@@ -376,7 +385,8 @@ async def _parse_async(location: str, url: str | None = None, *, checksums: bool
     as it is; false for one only built from (`refkv.build.project`), which is not
     held to the payload limit with checksums (`Failed`), as the output built from it is. `scope`:
     what a file input may read besides itself (`scope_keys`); a store input, whose objects are its
-    listing's, takes none.
+    listing's, takes none. `chunking`: how the run's projection cuts the source (default: the
+    convention's; `Chunking`), which the run reads for, so it is given here.
 
     The options that are an output's (`checksums`, `layouts`) are kept for the parse's
     `output_async`, which takes `written`; a store of DICOM files, which keeps no IR, is its
@@ -385,7 +395,7 @@ async def _parse_async(location: str, url: str | None = None, *, checksums: bool
         if scope is not None:
             raise ValueError("a store input reads the objects its listing gives: scope is for a file input")
         return await _parse_store_async(location, url, checksums=checksums, workers=workers, policy=policy,
-                                        layouts=layouts, registry=registry, written=written)
+                                        layouts=layouts, registry=registry, written=written, chunking=chunking)
     within = None if scope is None else scope_keys(location, scope)
     location = local_path(location, policy)  # a `file:` URL, read as its path (its scope keys are the same)
     # a Hub tree's web page (§1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
@@ -401,13 +411,13 @@ async def _parse_async(location: str, url: str | None = None, *, checksums: bool
         names = layout_names(layouts, fmt)
     if fmt in BESIDE and fmt not in ON_DEMAND:
         return await _parse_beside_async(fmt, location, url, transport, checksums=checksums, policy=policy,
-                                         connections=connections, scope=within, registry=registry)
+                                         connections=connections, scope=within, registry=registry, chunking=chunking)
     try:
         parsed = await ir.parse_async(location, url, transport=transport, connections=connections,
-                                      byte_cost=byte_cost, fmt=fmt)
+                                      byte_cost=byte_cost, fmt=fmt, chunking=chunking)
     except ir.NamesSiblingsError as e:
         return await _parse_beside_async(e.args[0], location, url, transport, checksums=checksums, policy=policy,
-                                         connections=connections, scope=within, registry=registry)
+                                         connections=connections, scope=within, registry=registry, chunking=chunking)
 
     async def output(written: bool) -> Output:
         out = await parsed.output_async(layouts=names, checksums=checksums, written=written)
@@ -422,12 +432,12 @@ def _zarrify(location: str, url: str | None = None, *, checksums: bool = False,
              policy: Policy | None = None, connections: int | None = None,
              byte_cost: float | None = None, workers: int = WORKERS, fmt: str | None = None,
              layouts: Iterable[Image | Dataset] | None = None,
-             scope: Scope | None = None) -> tuple[str, Output | StoreIrOutput]:
+             scope: Scope | None = None, chunking: Chunking | None = None) -> tuple[str, Output | StoreIrOutput]:
     """`_zarrify_async`, the caller's thread waiting for it (`refkv._sync.run`), for an input the
     core reads: a store of DICOM files is joined in `zarrify_async`'s path alone."""
     fmt, out = _sync.run(_zarrify_async(location, url, checksums=checksums, policy=policy, connections=connections,
                                         byte_cost=byte_cost, workers=workers, fmt=fmt, layouts=layouts,
-                                        scope=scope))
+                                        scope=scope, chunking=chunking))
     if isinstance(out, SeriesOutput):
         raise TypeError("a store of DICOM files has no IR output: zarrify it with zarrify")
     return fmt, out
@@ -514,7 +524,8 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
                         byte_cost: float | None = None, workers: int | None = None,
                         layouts: Iterable[Image | Dataset] | None = None,
                         scope: Scope | None = None,
-                        registry: Registry | None = None, layout: Layout | None = None) -> ReferenceStore:
+                        registry: Registry | None = None, layout: Layout | None = None,
+                        chunking: Chunking | None = None) -> ReferenceStore:
     """The file at `location` (a local path or `file:` URL, an http(s) URL, or a URL under a
     prefix of `registry`), by its first bytes, or
     the store at `location` (a URL ending in `/`, or a local directory by its path or `file:`
@@ -588,6 +599,10 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
       of a profile the plugin's `formats` name: the output is then the plugin's, written from
       the input as parsed (a `refkv.build.Parsed`) and sealed (`refkv.build.seal`); refkv's own
       output is built only where the plugin asks for it. `layouts` is None.
+    - `chunking`: how refkv's convention cuts the source into chunks (`Chunking`: the edge chunk
+      payload past which a chunk is copied, the frames of an MP3, MP4 or H5J chunk and of a FLAC
+      shard); by default, the convention's. Another is for tests, so that small files reach the
+      cases large ones do, and its output is not the convention's.
 
     `location` may instead be a source or store class's instance, such as
     `TiffSource(url)` or `Zarr2Store(url)` (`refkv.zarrify.sources`), which names the profile,
@@ -632,12 +647,12 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
             where, scoped, parsing = source.store_url, None, _parse_store_async(
                 source.store_url, source.url, max_objects=source.max_objects, checksums=source.checksums,
                 workers=source.workers, policy=source.policy, fmt=source.profile, layouts=layouts,
-                registry=resolver, written=planned is None)
+                registry=resolver, written=planned is None, chunking=chunking)
         else:
             where, scoped, parsing = source.location, source.scope, _parse_async(
                 source.location, source.url, checksums=source.checksums, policy=source.policy,
                 connections=source.connections, byte_cost=source.byte_cost, fmt=source.profile, layouts=layouts,
-                scope=source.scope, registry=resolver, written=planned is None)
+                scope=source.scope, registry=resolver, written=planned is None, chunking=chunking)
         if planned is not None:
             return await _laid_out(planned, await parsing, where, source.url, policy=source.policy,
                                    registry=source.registry, resolver=resolver, checksums=bool(source.checksums),
@@ -646,7 +661,7 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
     resolver = Resolver(registry)
     parsing = _parse_async(location, url, checksums=bool(checksums), policy=policy, connections=connections,
                            byte_cost=byte_cost, workers=WORKERS if workers is None else workers, layouts=layouts,
-                           scope=scope, registry=resolver, written=planned is None)
+                           scope=scope, registry=resolver, written=planned is None, chunking=chunking)
     if planned is not None:
         return await _laid_out(planned, await parsing, location, url, policy=policy, registry=registry,
                                resolver=resolver, checksums=bool(checksums), scope=scope)
@@ -657,38 +672,42 @@ def zarrify(location: str | Source | Store, url: str | None = None, *, checksums
             policy: Policy | None = None, connections: int | None = None,
             byte_cost: float | None = None, workers: int | None = None,
             layouts: Iterable[Image | Dataset] | None = None, scope: Scope | None = None,
-            registry: Registry | None = None, layout: Layout | None = None) -> ReferenceStore:
+            registry: Registry | None = None, layout: Layout | None = None,
+            chunking: Chunking | None = None) -> ReferenceStore:
     """`zarrify_async`, the caller's thread waiting for it: the same arguments, result and errors.
     Called from a coroutine on refkv's own event loop, it raises RuntimeError (await
     `zarrify_async` there)."""
     return _sync.run(zarrify_async(location, url, checksums=checksums, policy=policy, connections=connections,
                                    byte_cost=byte_cost, workers=workers, layouts=layouts, scope=scope,
-                                   registry=registry, layout=layout))
+                                   registry=registry, layout=layout, chunking=chunking))
 
 
 async def zarrify_store_async(location: str, url: str | None = None, *, max_objects: int | None = None,
                               checksums: bool = False, workers: int = WORKERS, policy: Policy | None = None,
                               layouts: Iterable[Image | Dataset] | None = None,
-                              registry: Registry | None = None) -> ReferenceStore:
+                              registry: Registry | None = None, chunking: Chunking | None = None) -> ReferenceStore:
     """The store at `location` (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), zarrified: what
     `zarrify_async` does for a store, with the same `url` (a local directory's own `file:` URL
     by default),
-    `checksums`, `policy`, `workers`, `layouts` and `registry`, and the same errors; `max_objects` caps how
+    `checksums`, `policy`, `workers`, `layouts`, `registry` and `chunking`, and the same errors; `max_objects` caps how
     many objects the store may list (beyond it, `StoreLimit`). `workers`, `max_objects` and
     `policy` apply to a store at an http(s) URL: a local directory is read one document at a
     time, without them."""
     resolver = Resolver(registry)
     fmt, out = await _zarrify_store_async(location, url, max_objects=max_objects, checksums=checksums,
-                                          workers=workers, policy=policy, layouts=layouts, registry=resolver)
+                                          workers=workers, policy=policy, layouts=layouts, registry=resolver,
+                                          chunking=chunking)
     return await asyncio.to_thread(out.to_store, policy=policy, registry=resolver,
                                    info={"format": fmt, **out.summary})
 
 
 def zarrify_store(location: str, url: str | None = None, *, max_objects: int | None = None,
                   checksums: bool = False, workers: int = WORKERS, policy: Policy | None = None,
-                  layouts: Iterable[Image | Dataset] | None = None, registry: Registry | None = None) -> ReferenceStore:
+                  layouts: Iterable[Image | Dataset] | None = None, registry: Registry | None = None,
+                  chunking: Chunking | None = None) -> ReferenceStore:
     """`zarrify_store_async`, the caller's thread waiting for it, as `zarrify` waits for
     `zarrify_async`."""
     return _sync.run(zarrify_store_async(location, url, max_objects=max_objects, checksums=checksums,
-                                         workers=workers, policy=policy, layouts=layouts, registry=registry))
+                                         workers=workers, policy=policy, layouts=layouts, registry=registry,
+                                         chunking=chunking))

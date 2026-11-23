@@ -10,7 +10,7 @@ import av
 import numpy as np
 import pytest
 from imagecodecs import jpeg_decode
-from ir_helpers import FIXTURES, core_setting
+from ir_helpers import FIXTURES
 from ir_helpers import zarrified as shared_zarrified
 from zarr.core.metadata import ArrayV3Metadata
 
@@ -34,8 +34,7 @@ SHIFTED = {"mp4_frag_dash.mp4"}
 def zarrified(path, tmp_path, chunk_frames=None):
     """(the output, the hierarchy's root group), with at most `chunk_frames` frames a chunk (None: the
     profile's 256); the archive rebuilds the file (ir_helpers.zarrified)."""
-    with core_setting(_core._set_chunk_frames, chunk_frames):
-        out, root, _ir = shared_zarrified(path, tmp_path, "mp4")
+    out, root, _ir = shared_zarrified(path, tmp_path, "mp4", chunking=_core.Chunking(chunk_frames=chunk_frames))
     return out, root
 
 def decoded(path, index):

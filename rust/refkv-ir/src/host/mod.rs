@@ -228,6 +228,8 @@ mod tests {
         assert_eq!(ok("input", json!({"location": "https://h/x"})), json!({"kind": "file"}));
         assert_eq!(ok("is_url", json!({"location": "file:/d/x"})), json!(true));
         assert_eq!(ok("split_input", json!({"location": "https://h/a/x.vsi", "title": "VSI"})), json!(["https://h/a/", "x.vsi"]));
+        assert_eq!(ok("split_input", json!({"location": "data/scan.nhdr", "title": "NRRD", "url": true})), json!(["data/", "scan.nhdr"]));
+        assert_eq!(ok("split_input", json!({"location": "data/scan.nhdr", "title": "NRRD"})), json!(["data", "scan.nhdr"]));
         assert_eq!(ok("scope_keys", json!({"location": "https://h/a/x.vsi", "scope": ["https://h/a/"]})), J::Null);
         assert_eq!(ok("late", json!({"keys": ["zarr.json", "foozarr.json"], "lazy": ["refkv_source/"]})), json!([true, false]));
         assert_eq!(ok("defaults", json!({}))["page_size"], 65536);

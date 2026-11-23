@@ -12,7 +12,7 @@
 
 use super::{arr, contiguous, Copied};
 use crate::ir::Ir;
-use crate::out::{array_json, copy_threshold, declared_group, grid_chunks, metadata_group, Chunk, Out, Part};
+use crate::out::{array_json, declared_group, grid_chunks, metadata_group, Chunk, Chunking, Out, Part};
 use crate::safetensors::plan::{plan, plan_store};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
@@ -48,9 +48,9 @@ fn cut(a: &J, threshold: usize) -> Result<Cut, String> {
 
 /// The source's ranges of the edge chunks the projection copies (§8.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#83-chunks>).
-pub fn reads(_ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+pub fn reads(_ir: &Ir, description: &J, chunking: &Chunking) -> Result<Vec<(u64, u64)>, String> {
     let planned = &plan(description)?;
-    let threshold = copy_threshold();
+    let threshold = chunking.copy_threshold;
     let mut out = Vec::new();
     for a in arr(&planned["arrays"]) {
         out.extend(contiguous::copy_reads(&cut(a, threshold)?.1));
@@ -76,9 +76,9 @@ fn array_doc(a: &J, chunk_shape: &[u64]) -> J {
 
 /// The hierarchy of a file whose description is `description`, laid out as refkv's plan of it
 /// says (`safetensors::plan::plan`).
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> Result<Out, String> {
     let planned = &plan(description)?;
-    let threshold = copy_threshold();
+    let threshold = chunking.copy_threshold;
     let arrays = arr(&planned["arrays"]);
     let cuts = arrays.iter().map(|a| cut(a, threshold)).collect::<Result<Vec<Cut>, String>>()?;
     let mut out = Out::new(url);
@@ -193,6 +193,6 @@ pub fn project_store(ir: &Ir, description: &J, url: &str) -> Result<Out, String>
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> Result<Out, String> {
     project_store(ir, description, url)
 }

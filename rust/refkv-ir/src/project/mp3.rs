@@ -10,8 +10,8 @@
 
 use super::{arr, audio, n, Copied};
 use crate::ir::Ir;
-use crate::mp3::{chunk_frames, RESERVOIR, VERSIONS};
-use crate::out::{array_json, declared_group, Out};
+use crate::mp3::{RESERVOIR, VERSIONS};
+use crate::out::{array_json, declared_group, Chunking, Out};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -20,24 +20,24 @@ pub const ARRAY: &str = "samples";
 
 /// refkv's plan of the file a description describes (spec/zarrify/mp3.md §8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#82-chunks>): `chunk_frames`, the
-/// audio frames of a chunk, and `leads`, the first frame of each chunk's lead-in, which holds the
+/// audio frames of a chunk (`chunking`'s), and `leads`, the first frame of each chunk's lead-in, which holds the
 /// version's bit reservoir of main data before the two frames before the chunk. The plan is public
 /// data that belongs to refkv's convention, not to the IR.
-pub fn plan(description: &J) -> Result<J, String> {
+pub fn plan(description: &J, chunking: &Chunking) -> Result<J, String> {
     let count = n(&description["frames"]) as usize;
     let main: Vec<u64> = arr(&description["main_data"]).iter().map(n).collect();
     let version = VERSIONS.iter().position(|v| description["version"] == *v).ok_or("internal: the description has no version")?;
     if count == 0 || main.len() != count {
         return Err("internal: the description does not describe the frames".into());
     }
-    let per = chunk_frames();
+    let per = chunking.chunk_frames.max(1);
     let leads: Vec<usize> = (0..count).step_by(per).map(|a| audio::reservoir_lead(a, RESERVOIR[version], |l| main[l])).collect();
     Ok(json!({"chunk_frames": per, "leads": leads}))
 }
 
-pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied, chunking: &Chunking) -> Result<Out, String> {
     let d = description;
-    let plan = plan(d)?;
+    let plan = plan(d, chunking)?;
     let per_chunk = n(&plan["chunk_frames"]) as usize;
     let leads: Vec<usize> = arr(&plan["leads"]).iter().map(|l| n(l) as usize).collect();
     let first = n(&d["elements"]["frames"]) as usize;
@@ -93,7 +93,8 @@ pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied) -> Result<
 #[cfg(test)]
 mod tests {
     use super::plan;
-    use crate::mp3::{set_chunk_frames, DEFAULT_CHUNK_FRAMES};
+    use crate::mp3::DEFAULT_CHUNK_FRAMES;
+    use crate::out::Chunking;
     use serde_json::json;
 
     /// 600 MPEG-1 frames of 100 bytes of main data in chunks of 256: three chunks, the first with
@@ -101,15 +102,14 @@ mod tests {
     /// MPEG-2's reservoir of 255 takes three.
     #[test]
     fn the_plan_cuts_chunks_and_their_lead_ins() {
-        set_chunk_frames(None);
         let d = |version| json!({"version": version, "frames": 600, "main_data": vec![100; 600]});
-        assert_eq!(plan(&d("MPEG-1")).unwrap(), json!({"chunk_frames": DEFAULT_CHUNK_FRAMES, "leads": [0, 248, 504]}));
-        assert_eq!(plan(&d("MPEG-2")).unwrap()["leads"], json!([0, 251, 507]));
+        assert_eq!(plan(&d("MPEG-1"), &Chunking::default()).unwrap(), json!({"chunk_frames": DEFAULT_CHUNK_FRAMES, "leads": [0, 248, 504]}));
+        assert_eq!(plan(&d("MPEG-2"), &Chunking::default()).unwrap()["leads"], json!([0, 251, 507]));
     }
 
     #[test]
     fn a_description_without_its_frames_main_data_has_no_plan() {
         let d = json!({"version": "MPEG-1", "frames": 3, "main_data": [100, 100]});
-        assert!(plan(&d).unwrap_err().contains("does not describe the frames"));
+        assert!(plan(&d, &Chunking::default()).unwrap_err().contains("does not describe the frames"));
     }
 }

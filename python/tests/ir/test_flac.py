@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 import soundfile
 import zarr
-from ir_helpers import FIXTURES, core_setting
+from ir_helpers import FIXTURES
 from ir_helpers import zarrified as shared_zarrified
 
 import refkv
@@ -35,8 +35,7 @@ SOUNDFILE_BITS = (8, 16, 24)
 def zarrified(path, tmp_path, shard_frames=None):
     """(the output, the hierarchy's root group, the IR), at most `shard_frames` frames a shard
     (None: the profile's 512); the archive rebuilds the file (ir_helpers.zarrified)."""
-    with core_setting(_core._set_shard_frames, shard_frames):
-        return shared_zarrified(path, tmp_path, "flac")
+    return shared_zarrified(path, tmp_path, "flac", chunking=_core.Chunking(shard_frames=shard_frames))
 
 
 def md5(samples: np.ndarray, bits: int) -> str:
