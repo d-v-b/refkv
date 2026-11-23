@@ -120,9 +120,10 @@ def test_a_scope_outside_the_input_directory_is_refused(tmp_path: Path, scope: s
         zarrify(str(tmp_path / "d" / "a.nhdr"), scope=str(tmp_path / "d" / scope) if scope.startswith(".") else scope)
 
 
-@pytest.mark.parametrize("base", ["https://data.test", "s3://bucket"])
+@pytest.mark.parametrize("base", ["https://data.test", "s3://bucket", "file:///data", "file:/data"])
 def test_a_remote_scope_gives_keys_below_the_input_directory(base: str):
-    """An input at a URL of any scheme, as a registered store reads it, has its scope as URLs."""
+    """An input at a URL of any scheme, as a registered store reads it, has its scope as URLs; so
+    does a `file:` input, in either form."""
     keys = scope_keys(f"{base}/d/a.nhdr", [f"{base}/d/a.nhdr", f"{base}/d/f/", f"{base}/d/b%20c.raw"])
     assert keys == ["f/", "b c.raw"]
 

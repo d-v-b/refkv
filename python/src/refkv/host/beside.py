@@ -107,7 +107,11 @@ def scope_keys(location: str, scope: Scope) -> list[str] | None:
     key. None when the scope holds the input's directory, every key being in it."""
     entries = [scope] if isinstance(scope, (str, os.PathLike)) else list(scope)
     keys: list[str] = []
-    if url_scheme(location) is not None:  # the core's rule (`refkv_ir::host::scope_keys`)
+    try:
+        url = rule("is_url", location=location)
+    except UnicodeEncodeError:  # a local path not in UTF-8 (surrogate-escaped), which no URL is
+        url = False
+    if url:  # the core's rule (`refkv_ir::host::scope_keys`)
         return rule("scope_keys", location=location, scope=[os.fspath(x) for x in entries])
     # absolute and with `.` and `..` taken out, links not followed (as the Rust CLI's `lexical`)
     named = Path(os.path.normpath(Path(location).absolute()))
