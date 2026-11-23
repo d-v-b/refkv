@@ -95,8 +95,8 @@ metadata declares it with `{"ome-zarr": S}`. Its CMO is:
 ```json
 {
   "uuid": "b74ea302-65bb-49ae-b81f-f9bb52cd4eed",
-  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/ome-zarr/schema.json",
-  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/ome-zarr.html",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/ome-zarr/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/ome-zarr/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a OME-Zarr source zarrified by refkv, and the source's metadata"
 }
@@ -567,8 +567,8 @@ metadata:
     "zarr_conventions": [
       {
         "uuid": "b74ea302-65bb-49ae-b81f-f9bb52cd4eed",
-        "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/ome-zarr/schema.json",
-        "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/ome-zarr.html",
+        "schema_url": "https://d-v-b.github.io/refkv/conventions/ome-zarr/schema.json",
+        "spec_url": "https://d-v-b.github.io/refkv/conventions/ome-zarr/",
         "name": "refkv_zarrified",
         "description": "The Zarr layout of a OME-Zarr source zarrified by refkv, and the source's metadata"
       }
@@ -632,8 +632,8 @@ and the source metadata names it rather than copying it:
     "zarr_conventions": [
       {
         "uuid": "b74ea302-65bb-49ae-b81f-f9bb52cd4eed",
-        "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/ome-zarr/schema.json",
-        "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/ome-zarr.html",
+        "schema_url": "https://d-v-b.github.io/refkv/conventions/ome-zarr/schema.json",
+        "spec_url": "https://d-v-b.github.io/refkv/conventions/ome-zarr/",
         "name": "refkv_zarrified",
         "description": "The Zarr layout of a OME-Zarr source zarrified by refkv, and the source's metadata"
       }

@@ -54,8 +54,8 @@ metadata of [§5.1](#51-the-root) as the member `"safetensors"`. Its CMO is:
 ```json
 {
   "uuid": "15e7ce39-d4ca-4514-8144-6e19d2a0341b",
-  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/safetensors/schema.json",
-  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/safetensors.html",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/safetensors/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/safetensors/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a safetensors source zarrified by refkv, and the source's metadata"
 }
@@ -276,8 +276,8 @@ attributes:
 {
   "zarr_conventions": [{
     "uuid": "15e7ce39-d4ca-4514-8144-6e19d2a0341b",
-    "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/safetensors/schema.json",
-    "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/safetensors.html",
+    "schema_url": "https://d-v-b.github.io/refkv/conventions/safetensors/schema.json",
+    "spec_url": "https://d-v-b.github.io/refkv/conventions/safetensors/",
     "name": "refkv_zarrified",
     "description": "The Zarr layout of a safetensors source zarrified by refkv, and the source's metadata"
   }],

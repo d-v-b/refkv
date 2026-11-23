@@ -56,8 +56,8 @@ metadata member when `S` of [§5](#5-source-metadata) is not empty. Its CMO is:
 ```json
 {
   "uuid": "6cac71ef-dbb2-4acd-b60c-00389aa4238a",
-  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/ndpi/schema.json",
-  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/ndpi.html",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/ndpi/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/ndpi/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a NDPI source zarrified by refkv, and the source's metadata"
 }

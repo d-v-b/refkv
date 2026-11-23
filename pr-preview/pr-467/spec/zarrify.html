@@ -1922,8 +1922,8 @@ entries. The Python reference has no limit of its own beyond the store IR’s 2^
 its run on a 470000-chunk OpenOrganelle level is recorded in
 <code class="docutils literal notranslate"><span class="pre">spec/history/virtualize/REVISIONS.md</span></code> (revision 12). Store profiles do not shard
 (<a class="reference internal" href="#virtual-shards">§2.1</a>): no store convention asks for shards.</p>
-<p>Implementations written from this document alone, round by round, are in
-<code class="docutils literal notranslate"><span class="pre">conformance/impls/zarrify/</span></code>; <code class="docutils literal notranslate"><span class="pre">spec/history/virtualize/REVISIONS.md</span></code> records what each
+<p>Implementations were written from this document alone, round by round (they are in git
+history); <code class="docutils literal notranslate"><span class="pre">spec/history/virtualize/REVISIONS.md</span></code> records what each
 round found and how this document changed, up to revision 29; since then each
 profile’s document records its own changes.</p>
 <p>Both write the pins of <a class="reference internal" href="#input">§1.2</a> and <a class="reference internal" href="#store-inputs">§1.4</a>, and record checksums when asked to
@@ -1964,10 +1964,7 @@ metadata declares it. <code class="docutils literal notranslate"><span class="pr
 version 1 on; at version 0 the URLs name the documentation site (<a class="reference internal" href="conventions.html#conventions"><span class="std std-ref">conventions §1</span></a>).</p>
 <p>Only the TIFF and ND2 profiles have been through the independent
 implementation rounds (revisions 1 to 4); every profile added since
-(<code class="docutils literal notranslate"><span class="pre">spec/history/virtualize/REVISIONS.md</span></code> says when) has not, and the round
-implementations in <code class="docutils literal notranslate"><span class="pre">conformance/impls/zarrify/</span></code> still write JPEG headers
-as literals and ranges of the file, and predate the conventions (revisions
-15 and 16).</p>
+(<code class="docutils literal notranslate"><span class="pre">spec/history/virtualize/REVISIONS.md</span></code> says when) has not.</p>
 </section>
 </section>
 

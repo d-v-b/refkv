@@ -57,8 +57,8 @@ metadata of [§5](#5-source-metadata) as the member `"dicom"`. Its CMO is:
 ```json
 {
   "uuid": "acf17198-e5a5-48d3-8187-22ec4bb40ea5",
-  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/dicom/schema.json",
-  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/dicom.html",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/dicom/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/dicom/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a DICOM source zarrified by refkv, and the source's metadata"
 }

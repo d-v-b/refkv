@@ -50,8 +50,8 @@ The root and `refkv_source` declare the convention
 ```json
 {
   "uuid": "e9428528-2fe3-43f2-8c02-3850cfed2f62",
-  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/envi/schema.json",
-  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/envi.html",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/envi/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/envi/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a ENVI source zarrified by refkv, and the source's metadata"
 }

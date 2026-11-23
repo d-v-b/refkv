@@ -54,8 +54,8 @@ mirror ([§5](#5-source-metadata)). Its CMO is:
 ```json
 {
   "uuid": "5067a535-8261-4b25-a93c-1985ed333bde",
-  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/ims/schema.json",
-  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/ims.html",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/ims/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/ims/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a IMS source zarrified by refkv, and the source's metadata"
 }

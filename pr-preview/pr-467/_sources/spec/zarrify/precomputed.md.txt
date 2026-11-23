@@ -74,8 +74,8 @@ The root and `refkv_source` declare the convention
 ```json
 {
   "uuid": "c499987a-9518-4b2b-a804-a70a8de1a911",
-  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/precomputed/schema.json",
-  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/precomputed.html",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/precomputed/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/precomputed/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a Neuroglancer precomputed source zarrified by refkv, and the source's metadata"
 }

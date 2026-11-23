@@ -79,8 +79,8 @@ other node that has source metadata declares it with `{"zarr2": S}`. Its CMO is:
 ```json
 {
   "uuid": "8e792619-d671-4687-ab51-752885dd3ee6",
-  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/zarr2/schema.json",
-  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/zarr2.html",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/zarr2/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/zarr2/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a Zarr v2 source zarrified by refkv, and the source's metadata"
 }
@@ -595,8 +595,8 @@ and whose `.zattrs` is `{"_ARRAY_DIMENSIONS": ["x"]}`:
     "zarr_conventions": [
       {
         "uuid": "8e792619-d671-4687-ab51-752885dd3ee6",
-        "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/zarr2/schema.json",
-        "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/zarr2.html",
+        "schema_url": "https://d-v-b.github.io/refkv/conventions/zarr2/schema.json",
+        "spec_url": "https://d-v-b.github.io/refkv/conventions/zarr2/",
         "name": "refkv_zarrified",
         "description": "The Zarr layout of a Zarr v2 source zarrified by refkv, and the source's metadata"
       }

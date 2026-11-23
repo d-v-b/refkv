@@ -60,8 +60,8 @@ metadata of [§5](#5-source-metadata) as the member `"qptiff"`. Its CMO is:
 ```json
 {
   "uuid": "329ea136-2f55-4c27-b6f4-8e60ca2109b8",
-  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/qptiff/schema.json",
-  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/qptiff.html",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/qptiff/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/qptiff/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a QPTIFF source zarrified by refkv, and the source's metadata"
 }

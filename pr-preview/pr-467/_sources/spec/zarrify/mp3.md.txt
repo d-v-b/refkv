@@ -49,8 +49,8 @@ metadata of [§5.1](#51-the-root) as the member `"mp3"`. Its CMO is:
 ```json
 {
   "uuid": "b6cb0047-9448-4fdc-b03e-10dd3d6aa829",
-  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/mp3/schema.json",
-  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/mp3.html",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/mp3/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/mp3/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a MP3 source zarrified by refkv, and the source's metadata"
 }
@@ -378,8 +378,8 @@ has this root `zarr.json`:
   "attributes": {
     "zarr_conventions": [{
       "uuid": "b6cb0047-9448-4fdc-b03e-10dd3d6aa829",
-      "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/mp3/schema.json",
-      "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/mp3.html",
+      "schema_url": "https://d-v-b.github.io/refkv/conventions/mp3/schema.json",
+      "spec_url": "https://d-v-b.github.io/refkv/conventions/mp3/",
       "name": "refkv_zarrified",
       "description": "The Zarr layout of a MP3 source zarrified by refkv, and the source's metadata"
     }],

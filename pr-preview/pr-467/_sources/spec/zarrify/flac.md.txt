@@ -55,8 +55,8 @@ metadata of [§5.1](#51-the-root) as the member `"flac"`. Its CMO is:
 ```json
 {
   "uuid": "e9108d07-b24b-432f-a8ce-09d80c8073b4",
-  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/flac/schema.json",
-  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/flac.html",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/flac/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/flac/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a FLAC source zarrified by refkv, and the source's metadata"
 }
@@ -467,8 +467,8 @@ with no tags and no blocks but STREAMINFO, at `https://example.org/tone.flac`
   "attributes": {
     "zarr_conventions": [{
       "uuid": "e9108d07-b24b-432f-a8ce-09d80c8073b4",
-      "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/flac/schema.json",
-      "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/flac.html",
+      "schema_url": "https://d-v-b.github.io/refkv/conventions/flac/schema.json",
+      "spec_url": "https://d-v-b.github.io/refkv/conventions/flac/",
       "name": "refkv_zarrified",
       "description": "The Zarr layout of a FLAC source zarrified by refkv, and the source's metadata"
     }],
