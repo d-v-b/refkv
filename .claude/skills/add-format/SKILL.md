@@ -143,5 +143,6 @@ feasibility.
 - **Stale builds give false results.** Rebuild after `just profiles` or any
   Rust change. Run `just js::wasm` after a rebase, and in a fresh worktree
   also `npm ci` in `js/`.
-- **Pull requests** go against `main`, never stacked. Name the fork PR and
+- **Pull requests** follow the "Pull requests" section of `CLAUDE.md`: one
+  that depends on an unmerged PR targets its branch. Name the fork PR and
   the merge order in the description.

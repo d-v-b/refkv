@@ -859,11 +859,10 @@ A PR that lands a step of a proposal in
 `Status (YYYY-MM-DD):` line and its date: `just sections` checks that every
 proposal has the line, and can't tell whether it is still true.
 
-Open the PR against `main`, not stacked on another PR: PRs merged into a
-branch that was then squash-merged never reached `main`
-([#20](https://github.com/d-v-b/refkv/pull/20),
-[#30](https://github.com/d-v-b/refkv/pull/30)). Put the Neuroglancer fork's
-PR and the merge order in the description.
+Stack, merge and revise PRs as the "Pull requests" section of
+[CLAUDE.md](../CLAUDE.md) says: a PR that depends on an unmerged one targets
+its branch, and only PRs based on `main` are merged, bottom-up. Put the
+Neuroglancer fork's PR and the merge order in the description.
 
 ## 9. The mistakes that recurred
 
