@@ -22,7 +22,7 @@ This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 Like MP3, HDF5 and NumPy, GRIB's fields are not images: the hierarchy holds no OME-NGFF metadata.
 As with [SAFE](safe.md), it is georeferenced with the GeoZarr conventions. The values stay in the
 file: each chunk is one field's message, decoded by the codec `refkv.grib`
-([conventions §12](../conventions.md#12-grib-messages)).
+([§3.4](#34-the-codec-refkvgrib)).
 
 # Part 1. The convention
 
@@ -198,13 +198,13 @@ including a sub-area of a reduced grid, whose rows do not go round the Earth.
 ### 2.5 Values
 
 A field's values are those `refkv.grib` decodes from its message
-([conventions §12](../conventions.md#12-grib-messages)): binary64, NaN where its bitmap or its
+([§3.4](#34-the-codec-refkvgrib)): binary64, NaN where its bitmap or its
 packing says a value is missing, in the grid's row order. A field whose packing (section 5's
 template) is not one the codec decodes (5.0, 5.2, 5.3, 5.4, 5.40, 5.41 or 5.42) is not
 presented (`packing`). The profile reads no more of section 7 than its header, so a 5.40 field
 whose codestream the codec does not decode (the 9/7 transform, more than 20 bits) is presented,
 and reading its chunk is a decode error
-([conventions §12](../conventions.md#12-grib-messages)).
+([§3.4](#34-the-codec-refkvgrib)).
 
 ### 2.6 What is not presented
 
@@ -332,6 +332,86 @@ the index of [conventions §9](../conventions.md#9-dataset-layouts)'s regular st
 
 <a id="type-gribcoordinate"></a>**`GribCoordinate`**: an [`ArrayDocument`](../conventions.md#type-arraydocument)
 of the table's row, a `float64` coordinate with the fill value `"NaN"`.
+
+### 3.4 The codec `refkv.grib`
+
+A GRIB edition 2 message holds one or more fields, each a grid of values packed by one of FM 92's
+data representation templates, with the grid, the packing's parameters and the bitmap of missing
+points in the message's own sections. The array-to-bytes codec `refkv.grib` decodes a field of a
+message.
+
+**The codec.** `{"name": "refkv.grib", "configuration": C}`, where `C`, which may be absent, is a
+<a id="type-gribconfiguration"></a>**`GribConfiguration`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `field` | integer | optional | the field to decode, from 0, in the order of the message's sections 7; 0 when absent |
+
+There are no other members. A chunk's number of values is section 3's number of points, at most
+2^31. On a grid of rows, its shape is 1 along every dimension but its last two, which are the
+grid's `Nj` and `Ni` (section 3's number of points along a meridian and along a parallel, octets
+35–38 and 31–34 of templates 3.0, 3.1, 3.10, 3.20, 3.30 and 3.40), whose product is that number. On
+a grid with no such rows, a reduced grid (3.0 or 3.40 with a list of the points along each parallel,
+section 3's octet 11 not 0 and octet 12, 1) or 3.101, its shape is 1 along every dimension but its
+last, which is that number. The array's data type is `float64` or `float32`.
+
+**A chunk's bytes** are one message, sections 0 to 8, as a GRIB file holds it, and no more: the
+chunk's length is the message's.
+
+**Decoding a chunk.**
+
+1. **The field.** The sections are walked from section 0; the field's sections 3, 5, 6 and 7 are
+   the last of each number at or before its section 7. A message that does not parse (a section
+   past the message's length, no `7777` at its end) or has too few fields is an error.
+2. **Unpacking.** Section 5's template gives the field's `n` values (octets 6–9):
+   - **5.0**, simple packing, **5.2**, complex packing, and **5.3**, complex packing with
+     spatial differencing of order 1 or 2: scaled integers `X`, each value
+     `(R + X × 2^E) × 10^−D`, where `R` is octets 12–15, an IEEE binary32, and `E` and `D`
+     octets 16–17 and 18–19, signed integers (sign and magnitude), computed in binary64:
+     `2^E` exactly, and `10^−D` as `D` successive divisions of 1 by 10 (for a negative `D`,
+     `−D` successive multiplications), which for `D` ≥ 6 is not always the binary64 nearest
+     `10^−D`, but is what ecCodes computes. A bit width of 0 (octet 20), or complex packing
+     with no groups, makes every value `R`, as ecCodes, NCEP's g2c and their encoders read it,
+     though FM 92's formula would scale it. Complex packing's missing values (missing value
+     management, octet 23, 1 or 2) are NaN; with spatial differencing, the differences run
+     over the values that are not missing, and the first values (octets 1–6 of section 7's
+     start) are unsigned, the overall minimum signed.
+   - **5.4**: IEEE floating point values, binary32 or binary64 (octet 12), as they are.
+   - **5.40**: section 7 is a JPEG 2000 codestream (ITU-T T.800 | ISO/IEC 15444-1, not a JP2
+     file) of `X`: one unsigned component, not subsampled, of at most 20 bits, whose image has
+     `n` samples (`Ni × Nj`, or `n × 1` with a bitmap, as NCEP's g2c writes it), of the
+     reversible 5/3 wavelet transform, lossless or truncated at a rate (ecCodes' lossy 5.40,
+     octet 22 = 1, keeps the 5/3 transform). `X` is the samples OpenJPEG decodes, which ecCodes
+     calls: the 5/3 transform in integers, a truncated coefficient at the midpoint of its
+     interval, the samples clamped to the precision's range. Then as 5.0. The irreversible 9/7
+     transform is an error (decoders compute it in floating point, each in its own order, and
+     their samples differ by 1 at some points), as are samples of more than 20 bits (within
+     which a decoder that computes the 5/3 transform in binary32 is exact).
+   - **5.41**: section 7 is a PNG image of `X`, not interlaced and with no palette, a gray
+     sample of 1 to 16 bits, or an RGB or RGBA sample of 24 or 32 bits as one integer; then as
+     5.0.
+   - **5.42**: section 7 is a CCSDS 121.0-B adaptive entropy coded stream of `X`, unsigned, of
+     the flags, block size and reference sample interval of octets 22–25; then as 5.0.
+
+   Any other template (the spectral 5.50 and 5.51; 5.61; 5.200), or 5.4 of another precision, is
+   an error.
+3. **Placing.** With a bitmap (section 6's indicator 0; or 254, the bitmap of the last earlier
+   field of the message whose indicator is 0), the `n` values fill, in order, the points whose
+   bit is 1, and the others are NaN; the number of bits that are 1 must be `n`. Without one
+   (255), `n` must be the grid's number of points. An indicator from 1 to 253 is an error.
+4. **Ordering.** The points, in the file's order, are its lines: `Nj` lines of `Ni` points, or,
+   when bit 3 (`0x20`) of section 3's scanning mode is set, `Ni` lines of `Nj` points (the points
+   consecutive along `j`). When bit 4 (`0x10`) is set, so that every other line runs the
+   opposite way, those lines (the second, the fourth, …) are reversed. Then, with bit 3, the
+   lines are transposed, so that the result is `Nj` rows of `Ni` points. Bits 1 and 2, the
+   directions of `i` and `j`, are kept: the first row is the one the file gives first.
+   Scanning-mode bits 5 to 8 (`0x0F`) must be 0. A reduced grid's scanning mode must have none of
+   bits 3 to 8 set, and it and 3.101, which has none, are one line of their points, in the file's
+   order.
+5. **Type.** The values are converted to the array's data type: `float64` as they are, `float32`
+   to nearest.
+
+The codec has no encoder.
 
 ## 4. Georeferencing
 

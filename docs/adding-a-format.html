@@ -984,9 +984,13 @@ reaches:</p>
 <li><p>the bindings in <code class="docutils literal notranslate"><span class="pre">rust/refkv-python/src/lib.rs</span></code> and
 <code class="docutils literal notranslate"><span class="pre">python/src/refkv/_core.pyi</span></code>;</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">python/src/refkv/zarr/codecs/&lt;codec&gt;.py</span></code>, and its <code class="docutils literal notranslate"><span class="pre">zarr.codecs</span></code> entry point
-in <code class="docutils literal notranslate"><span class="pre">python/pyproject.toml</span></code>, which <code class="docutils literal notranslate"><span class="pre">python/tests/check_base_install.py</span></code> lists too;</p></li>
+in <code class="docutils literal notranslate"><span class="pre">python/pyproject.toml</span></code> (<code class="docutils literal notranslate"><span class="pre">python/tests/check_base_install.py</span></code> fails when a
+module of <code class="docutils literal notranslate"><span class="pre">refkv/zarr/codecs/</span></code> has none);</p></li>
 <li><p>the wasm export, for the browser;</p></li>
-<li><p>a section in <code class="docutils literal notranslate"><span class="pre">spec/conventions.md</span></code>.</p></li>
+<li><p>a section in the profile’s own document, as
+<a class="reference internal" href="../spec/zarrify/precomputed.html#the-codec-refkv-precomputed"><span class="std std-ref">precomputed §6</span></a> is, or, for a
+codec several profiles share, in <code class="docutils literal notranslate"><span class="pre">spec/conventions.md</span></code>, as
+<a class="reference internal" href="../spec/conventions.html#coded-streams"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">refkv.stream</span></code></span></a> is.</p></li>
 </ul>
 <p>Every codec an archive may name, refkv’s own or another package’s, is a row of the table of codec
 names in <a class="reference internal" href="../spec/conventions.html#arrays"><span class="std std-ref">conventions §3</span></a>, sorted by name; a codec the profile
@@ -1134,6 +1138,9 @@ and chain, and its rows’ bytes, decoded through the chain, against the
 reader’s values. <code class="docutils literal notranslate"><span class="pre">test_mrc_stored.py</span></code> is a model.</p></li>
 <li><p><strong>Check that a new test fails on the old code.</strong> Several fixes say so: “run
 against the unfixed parser, both tests fail.”</p></li>
+<li><p><strong>Add a case table for the example layout <code class="docutils literal notranslate"><span class="pre">bare</span></code></strong>, <code class="docutils literal notranslate"><span class="pre">python/tests/bare_cases/&lt;dir&gt;.json</span></code>:
+a fixture or two of the profile, each with the module its arrays need to decode, if any
+(<code class="docutils literal notranslate"><span class="pre">python/tests/test_example_bare.py</span></code> says the form, and fails for a profile with none).</p></li>
 <li><p><strong>A profile with a frozen reference that changes a fixture’s layout or verdict</strong> adds the fixture’s name to
 <code class="docutils literal notranslate"><span class="pre">conformance/zarrify/revised/&lt;p&gt;.txt</span></code>, in sorted order, and says why in the file’s top comment. See
 <a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/conformance/zarrify/revised/README.md">its README</a>.</p></li>
@@ -1320,6 +1327,17 @@ values against Python.</p></li>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">just</span> <span class="pre">preflight</span></code> runs the last three together, with <code class="docutils literal notranslate"><span class="pre">just</span> <span class="pre">sections</span></code> against <code class="docutils literal notranslate"><span class="pre">origin/main</span></code>, and builds the documentation site (<code class="docutils literal notranslate"><span class="pre">just</span> <span class="pre">docs</span></code>), which fails on any warning; run it before every push.</p>
+<p><code class="docutils literal notranslate"><span class="pre">just</span> <span class="pre">preflight</span></code> also runs <code class="docutils literal notranslate"><span class="pre">just</span> <span class="pre">independence</span></code>, which lists each file your
+branch changes outside your format’s own paths and the few files shared on
+purpose (<a class="reference external" href="https://github.com/d-v-b/refkv/blob/main/spec/tools/independence.py">spec/tools/independence.py</a>). A path
+is your format’s when one of its components is named for it
+(<code class="docutils literal notranslate"><span class="pre">rust/refkv-ir/src/&lt;p&gt;.rs</span></code>, <code class="docutils literal notranslate"><span class="pre">spec/zarrify/changes/&lt;p&gt;/</span></code>, <code class="docutils literal notranslate"><span class="pre">test_&lt;p&gt;_stored.py</span></code>,
+<code class="docutils literal notranslate"><span class="pre">fixtures/&lt;p&gt;_series/</span></code>). Your format is the one your commits’ scopes name
+(<code class="docutils literal notranslate"><span class="pre">feat(&lt;p&gt;):</span> <span class="pre">...</span></code>). The report is a warning: it never fails preflight or CI,
+where it shows as annotations on the PR’s diff. For each file it lists,
+either move what you wrote into your format’s own files (a file of your
+own, or a rule that names no format), or say in the PR why the shared file
+had to change. A new format should need neither; <code class="docutils literal notranslate"><span class="pre">just</span> <span class="pre">independence</span> <span class="pre">origin/main</span> <span class="pre">--strict</span></code> fails on any report.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>just<span class="w"> </span><span class="nb">test</span>
 </pre></div>
 </div>
