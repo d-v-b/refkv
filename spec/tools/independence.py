@@ -32,11 +32,18 @@ file gains is read the same whatever they are.
 not in `SHARED` below, when a line the branch adds to it names a profile, whatever the branch's
 formats. A line names one when it holds the profile's name, its name in capitals or its title of
 one word (`fits` or `FITS`, `npy`, `NPY` or `NumPy`, `SAFE`), as a whole word, case and all: words
-split at anything but letters, digits, `_` and `-`, so `safe_l1c`, `safetensors`, `tiff_set` and
-`thread-safe` name nothing, and `mrc-dataset` is not `mrc`. A title of several words
-(`Neuroglancer precomputed`) is no spelling, nor is one that holds `Zarr` (`OME-Zarr`, `Zarr v3`),
-which names refkv's output as often as the profile; their names (`precomputed`, `ome-zarr`,
-`zarr3`) still are.
+split at anything but letters, digits, `_` and `-`, so `safe_l1c`, `tiff_set` and `thread-safe`
+name no profile (and `safetensors` names its own, not `safe`), and `mrc-dataset` is not `mrc`. A
+spelling of lowercase letters alone may be an English word or an identifier (`none fits`,
+`const safe = ...`, `safe.test(c)`), so it names a profile only where code names a module or a
+path: in quotes or backticks on both sides, after `.`, `/` or `::`, before `/` or `::`, or after
+`mod`, `import` or `from` (`"fits"`, `` `tiff` ``, `zarrify/fits.md`, `refkv.grib`, `crate::nifti`,
+`mod vsi;`). One with a digit or a `-` (`hdf5`, `nd2`, `zarr2`, `ome-zarr`) is no word, and counts
+anywhere. What this misses: such a name as a bare key or field (`nifti: [...]`, which looks like
+the parameter `safe: impl Fn`), or after `.` alone (`grib.md` in a relative link, like
+`fits.then_some`). A title of several words (`Neuroglancer precomputed`)
+is no spelling, nor is one that holds `Zarr` (`OME-Zarr`, `Zarr v3`), which names refkv's output as
+often as the profile; their names (`precomputed`, `ome-zarr`, `zarr3`) still are.
 One more format added to a shared list, in prose or in code, is a line naming it; a change to
 shared machinery that names no format is not reported, whichever formats the branch also changes,
 and neither is a change that only removes lines, such as a fixed format's entry leaving a table of
@@ -123,9 +130,31 @@ def spellings(entries: list[dict]) -> dict[str, str]:
     return out
 
 
+QUOTES = "\"'`"
+
+
+KEYWORD = re.compile(r"\b(?:mod|import|from)\s+$")
+
+
+def code_like(line: str, start: int, end: int) -> bool:
+    """Whether the word at `line[start:end]` stands where code names a module or a path: in quotes or
+    backticks on both sides, after `.`, `/` or `::`, before `/` or `::`, or after `mod`, `import` or
+    `from`."""
+    before, after = line[start - 1:start] if start else "", line[end:end + 1]
+    return ((before != "" and before in QUOTES and after == before) or before in ("/", ".") or after == "/"
+            or line[max(start - 2, 0):start] == "::" or line[end:end + 2] == "::"
+            or bool(KEYWORD.search(line[:start])))
+
+
 def mentions(line: str, spelled: dict[str, str]) -> set[str]:
-    """The profiles a line names, by `spellings`, as whole words."""
-    return {spelled[w] for w in (w.strip("-") for w in re.findall(r"[\w-]+", line)) if w in spelled}
+    """The profiles a line names, by `spellings`, as whole words: one of lowercase letters alone only
+    where code names a module or a path (`code_like`)."""
+    found = set()
+    for m in re.finditer(r"[\w-]+", line):
+        word, start = m.group().strip("-"), m.start() + (len(m.group()) - len(m.group().lstrip("-")))
+        if word in spelled and (not word.isalpha() or not word.islower() or code_like(line, start, start + len(word))):
+            found.add(spelled[word])
+    return found
 
 
 def directory(change: Change, row: tuple[str, str | None], names: list[str]) -> str | None:

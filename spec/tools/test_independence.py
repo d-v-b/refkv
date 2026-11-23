@@ -6,8 +6,9 @@ import independence
 import pytest
 from independence import Change, declared, owner, report, spellings
 
-TITLES = {"dicom": "DICOM", "grib": "GRIB", "mp3": "MP3", "mrc": "MRC", "mrc-dataset": "MRC dataset", "nifti": "NIfTI",
-          "npy": "NumPy", "ome-zarr": "OME-Zarr", "safe": "Sentinel-2 SAFE", "tiff": "TIFF", "zarr2": "Zarr v2"}
+TITLES = {"dicom": "DICOM", "fits": "FITS", "grib": "GRIB", "mp3": "MP3", "mrc": "MRC", "mrc-dataset": "MRC dataset",
+          "nifti": "NIfTI", "npy": "NumPy", "ome-zarr": "OME-Zarr", "safe": "Sentinel-2 SAFE",
+          "safetensors": "safetensors", "tiff": "TIFF", "zarr2": "Zarr v2"}
 NAMES = sorted(TITLES)
 SPELLED = spellings([{"name": n, "title": t, "kind": "file"} for n, t in TITLES.items()])
 
@@ -51,12 +52,14 @@ def test_what_is_not_reported():
         Change("rust/refkv-ir/src/npy/mod.rs"),
         Change("spec/zarrify/npy.md"),
         npy_in_grib,
-        Change("rust/refkv-ir/src/run.rs", ("    npy: Npy,",)),  # shared on purpose
+        Change("rust/refkv-ir/src/run.rs", ('    "npy" => Npy,',)),  # shared on purpose, though it names npy
         Change("python/tests/test_ir_has_no_zarr.py"),  # only removes lines: an entry leaves a list
-        # a file of no format, whose added lines name no profile (thread-safe, safe_l1c, safetensors, tiff_set
-        # and the titles that hold Zarr are no spellings): shared machinery
-        Change("python/src/refkv/ir/store.py", ("# thread-safe: a safe_l1c or safetensors run, or a tiff_set,",
-                                                "# read as OME-Zarr or Zarr v2, or Neuroglancer precomputed")),
+        # a file of no format, whose added lines name no profile (thread-safe, safe_l1c, tiff_set, the titles that
+        # hold Zarr, and a name with no capital letter where code names nothing): shared machinery
+        Change("python/src/refkv/ir/store.py", ("# thread-safe: a safe_l1c run, or a tiff_set,",
+                                                "# read as OME-Zarr or Zarr v2, or Neuroglancer precomputed",
+                                                "    const safe = (v: bigint) => v;  // none fits, so: fits.",
+                                                "    Ok(fits.then_some(x)) && safe.test(c); `fits(value)` gives")),
     ]
     assert report(format_branch, {"npy"}, NAMES, SPELLED) == ({"npy"}, [])
     assert report([*format_branch, refused], None, NAMES, SPELLED) == ({"npy", "dicom"}, [])
@@ -72,14 +75,21 @@ def test_what_is_not_reported():
                   SPELLED) == (set(), [])
     # The profiles a line names: name, name in capitals, title of one word, as whole words, case and all.
     assert {line: independence.mentions(line, SPELLED) for line in [
-        'for name in ["dicom", "npy"]:', "NumPy's and NIfTI's, and an NPY file", "a SAFE product, mrc-dataset",
-        "Tiff, Dicom, nifti_pair, refkv.grib", "OME-Zarr, Zarr v2, ome-zarr, zarr2",
+        'for name in ["dicom", "npy"]:', "NumPy's and NIfTI's, and an NPY file", "a SAFE product, `mrc-dataset`",
+        "Tiff, Dicom, nifti_pair, refkv.grib", "OME-Zarr, Zarr v2, 'ome-zarr', zarr2.md", "a safetensors file",
+        "use crate::tiff::Ifd; see spec/zarrify/fits.md and zarrify/mp3/", "it fits; a safe tiff, mrc-dataset",
+        "mod tiff; from refkv import safe; and zarr2", "  nifti: [...], `fits(value)`, fits.then_some",
     ]} == {
         'for name in ["dicom", "npy"]:': {"dicom", "npy"},
         "NumPy's and NIfTI's, and an NPY file": {"npy", "nifti"},
-        "a SAFE product, mrc-dataset": {"safe", "mrc-dataset"},
+        "a SAFE product, `mrc-dataset`": {"safe", "mrc-dataset"},
         "Tiff, Dicom, nifti_pair, refkv.grib": {"grib"},
-        "OME-Zarr, Zarr v2, ome-zarr, zarr2": {"ome-zarr", "zarr2"},
+        "OME-Zarr, Zarr v2, 'ome-zarr', zarr2.md": {"ome-zarr", "zarr2"},
+        "a safetensors file": set(),  # in prose, a name with no capital letter names nothing
+        "use crate::tiff::Ifd; see spec/zarrify/fits.md and zarrify/mp3/": {"tiff", "fits", "mp3"},
+        "it fits; a safe tiff, mrc-dataset": {"mrc-dataset"},  # a name with a digit or `-` is no word
+        "mod tiff; from refkv import safe; and zarr2": {"tiff", "safe", "zarr2"},
+        "  nifti: [...], `fits(value)`, fits.then_some": set(),  # what the rule misses, and what it must not count
     }
     assert independence.added_lines("diff --git a/x b/x\n+++ b/x\n@@ -1 +1,2 @@\n-old\n+new\n++plus\n") == (
         "new", "+plus")
@@ -160,7 +170,7 @@ def test_the_branch_s_changes_from_git(tmp_path, monkeypatch, capsys):
 
 def test_strict_fails_on_a_report(tmp_path, monkeypatch):
     commit = git_repo(tmp_path, monkeypatch)
-    commit("fix(npy): a", {"rust/src/npy.rs": b"y\n", "docs/list.md": b"a\nb\nnpy\n"})
+    commit("fix(npy): a", {"rust/src/npy.rs": b"y\n", "docs/list.md": b'a\nb\n"npy",\n'})
     independence.main(["--base", "main"])  # a warning
     with pytest.raises(SystemExit) as e:
         independence.main(["--base", "main", "--strict"])
