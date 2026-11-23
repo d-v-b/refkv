@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://d-v-b.github.io/refkv/spec/zarrify/dicom/schema.json",
+  "$id": "https://d-v-b.github.io/refkv/conventions/dicom/schema.json",
   "title": "refkv DICOM convention, version 0",
-  "description": "The zarr.json of a node that declares the refkv DICOM convention (https://d-v-b.github.io/refkv/spec/zarrify/dicom.html)",
+  "description": "The zarr.json of a node that declares the refkv DICOM convention (https://d-v-b.github.io/refkv/conventions/dicom/)",
   "type": "object",
   "properties": {
     "zarr_format": {
@@ -65,11 +65,11 @@
         },
         "schema_url": {
           "type": "string",
-          "const": "https://d-v-b.github.io/refkv/spec/zarrify/dicom/schema.json"
+          "const": "https://d-v-b.github.io/refkv/conventions/dicom/schema.json"
         },
         "spec_url": {
           "type": "string",
-          "const": "https://d-v-b.github.io/refkv/spec/zarrify/dicom.html"
+          "const": "https://d-v-b.github.io/refkv/conventions/dicom/"
         },
         "name": {
           "type": "string",

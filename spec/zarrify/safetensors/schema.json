@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://d-v-b.github.io/refkv/spec/zarrify/safetensors/schema.json",
+  "$id": "https://d-v-b.github.io/refkv/conventions/safetensors/schema.json",
   "title": "refkv safetensors convention, version 0",
-  "description": "The zarr.json of a node that declares the refkv safetensors convention (https://d-v-b.github.io/refkv/spec/zarrify/safetensors.html)",
+  "description": "The zarr.json of a node that declares the refkv safetensors convention (https://d-v-b.github.io/refkv/conventions/safetensors/)",
   "type": "object",
   "properties": {
     "zarr_format": {
@@ -65,11 +65,11 @@
         },
         "schema_url": {
           "type": "string",
-          "const": "https://d-v-b.github.io/refkv/spec/zarrify/safetensors/schema.json"
+          "const": "https://d-v-b.github.io/refkv/conventions/safetensors/schema.json"
         },
         "spec_url": {
           "type": "string",
-          "const": "https://d-v-b.github.io/refkv/spec/zarrify/safetensors.html"
+          "const": "https://d-v-b.github.io/refkv/conventions/safetensors/"
         },
         "name": {
           "type": "string",

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://d-v-b.github.io/refkv/spec/zarrify/envi/schema.json",
+  "$id": "https://d-v-b.github.io/refkv/conventions/envi/schema.json",
   "title": "refkv ENVI convention, version 0",
-  "description": "The zarr.json of a node that declares the refkv ENVI convention (https://d-v-b.github.io/refkv/spec/zarrify/envi.html)",
+  "description": "The zarr.json of a node that declares the refkv ENVI convention (https://d-v-b.github.io/refkv/conventions/envi/)",
   "type": "object",
   "properties": {
     "zarr_format": {
@@ -65,11 +65,11 @@
         },
         "schema_url": {
           "type": "string",
-          "const": "https://d-v-b.github.io/refkv/spec/zarrify/envi/schema.json"
+          "const": "https://d-v-b.github.io/refkv/conventions/envi/schema.json"
         },
         "spec_url": {
           "type": "string",
-          "const": "https://d-v-b.github.io/refkv/spec/zarrify/envi.html"
+          "const": "https://d-v-b.github.io/refkv/conventions/envi/"
         },
         "name": {
           "type": "string",

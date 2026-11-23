@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://d-v-b.github.io/refkv/spec/zarrify/nd2/schema.json",
+  "$id": "https://d-v-b.github.io/refkv/conventions/nd2/schema.json",
   "title": "refkv ND2 convention, version 0",
-  "description": "The zarr.json of a node that declares the refkv ND2 convention (https://d-v-b.github.io/refkv/spec/zarrify/nd2.html)",
+  "description": "The zarr.json of a node that declares the refkv ND2 convention (https://d-v-b.github.io/refkv/conventions/nd2/)",
   "type": "object",
   "properties": {
     "zarr_format": {
@@ -65,11 +65,11 @@
         },
         "schema_url": {
           "type": "string",
-          "const": "https://d-v-b.github.io/refkv/spec/zarrify/nd2/schema.json"
+          "const": "https://d-v-b.github.io/refkv/conventions/nd2/schema.json"
         },
         "spec_url": {
           "type": "string",
-          "const": "https://d-v-b.github.io/refkv/spec/zarrify/nd2.html"
+          "const": "https://d-v-b.github.io/refkv/conventions/nd2/"
         },
         "name": {
           "type": "string",

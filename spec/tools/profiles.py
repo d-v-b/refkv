@@ -222,10 +222,11 @@ def stale() -> list[str]:
 def cmo(e: dict) -> dict:
     """The CMO of an entry's convention, as refkv writes it (spec/conventions.md §1
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>): at version 0,
-    which has no tag, its URLs are the documentation site's; at version N, the tag's files."""
+    which has no tag, its URLs are the documentation site's names for the convention,
+    `conventions/<p>/` and `conventions/<p>/schema.json`; at version N, the tag's files."""
     p, n = e["name"], e["version"]
     if n == 0:
-        schema_url, spec_url = f"{SITE}/spec/zarrify/{p}/schema.json", f"{SITE}/spec/zarrify/{p}.html"
+        schema_url, spec_url = f"{SITE}/conventions/{p}/schema.json", f"{SITE}/conventions/{p}/"
     else:
         t = f"zarrify-{p}-v{n}"
         schema_url = f"https://raw.githubusercontent.com/d-v-b/refkv/refs/tags/{t}/spec/zarrify/{p}/schema.json"

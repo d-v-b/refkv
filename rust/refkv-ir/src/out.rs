@@ -291,18 +291,19 @@ pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
     (e["uuid"].as_str().unwrap(), e["version"].as_u64().unwrap(), e["title"].as_str().unwrap())
 }
 
-/// The documentation site, where a convention's document and schema are published at a path that
-/// a later move of the repository's files redirects or keeps.
+/// The documentation site, which publishes each convention at `conventions/<p>/` (its document) and
+/// `conventions/<p>/schema.json`, names tied to no path of the repository (docs-site/conf.py).
 pub const SITE: &str = "https://d-v-b.github.io/refkv";
 
 /// The Convention Metadata Object of a profile's convention (conventions §1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>): at version 0,
-/// which has no tag, its URLs are the documentation site's, which follows the development branch;
+/// which has no tag, its URLs are the documentation site's names for it, which follow the
+/// development branch;
 /// at version N, the files at the tag `zarrify-<p>-v<N>`, which never change.
 pub fn convention(p: &str) -> J {
     let (uuid, version, title) = profile(p);
     let (schema_url, spec_url) = if version == 0 {
-        (format!("{SITE}/spec/zarrify/{p}/schema.json"), format!("{SITE}/spec/zarrify/{p}.html"))
+        (format!("{SITE}/conventions/{p}/schema.json"), format!("{SITE}/conventions/{p}/"))
     } else {
         let t = format!("zarrify-{p}-v{version}");
         (

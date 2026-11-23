@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://d-v-b.github.io/refkv/spec/zarrify/nifti/schema.json",
+  "$id": "https://d-v-b.github.io/refkv/conventions/nifti/schema.json",
   "title": "refkv NIfTI convention, version 0",
-  "description": "The zarr.json of a node that declares the refkv NIfTI convention (https://d-v-b.github.io/refkv/spec/zarrify/nifti.html)",
+  "description": "The zarr.json of a node that declares the refkv NIfTI convention (https://d-v-b.github.io/refkv/conventions/nifti/)",
   "type": "object",
   "properties": {
     "zarr_format": {
@@ -65,11 +65,11 @@
         },
         "schema_url": {
           "type": "string",
-          "const": "https://d-v-b.github.io/refkv/spec/zarrify/nifti/schema.json"
+          "const": "https://d-v-b.github.io/refkv/conventions/nifti/schema.json"
         },
         "spec_url": {
           "type": "string",
-          "const": "https://d-v-b.github.io/refkv/spec/zarrify/nifti.html"
+          "const": "https://d-v-b.github.io/refkv/conventions/nifti/"
         },
         "name": {
           "type": "string",

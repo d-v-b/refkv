@@ -205,10 +205,10 @@ export function convention(profile: Profile): { [k: string]: string } {
   return {
     uuid,
     schema_url: version === 0
-      ? `${site}/spec/zarrify/${profile}/schema.json`
+      ? `${site}/conventions/${profile}/schema.json`
       : `https://raw.githubusercontent.com/d-v-b/refkv/refs/tags/${tag}/spec/zarrify/${profile}/schema.json`,
     spec_url: version === 0
-      ? `${site}/spec/zarrify/${profile}.html`
+      ? `${site}/conventions/${profile}/`
       : `https://github.com/d-v-b/refkv/blob/${tag}/spec/zarrify/${profile}.md`,
     name: CONVENTION_KEY,
     description: `The Zarr layout of a ${title} source zarrified by refkv, and the source's metadata`,

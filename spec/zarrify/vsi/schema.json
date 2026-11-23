@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://d-v-b.github.io/refkv/spec/zarrify/vsi/schema.json",
+  "$id": "https://d-v-b.github.io/refkv/conventions/vsi/schema.json",
   "title": "refkv VSI convention, version 0",
-  "description": "The zarr.json of a node that declares the refkv VSI convention (https://d-v-b.github.io/refkv/spec/zarrify/vsi.html)",
+  "description": "The zarr.json of a node that declares the refkv VSI convention (https://d-v-b.github.io/refkv/conventions/vsi/)",
   "type": "object",
   "properties": {
     "zarr_format": {
@@ -65,11 +65,11 @@
         },
         "schema_url": {
           "type": "string",
-          "const": "https://d-v-b.github.io/refkv/spec/zarrify/vsi/schema.json"
+          "const": "https://d-v-b.github.io/refkv/conventions/vsi/schema.json"
         },
         "spec_url": {
           "type": "string",
-          "const": "https://d-v-b.github.io/refkv/spec/zarrify/vsi.html"
+          "const": "https://d-v-b.github.io/refkv/conventions/vsi/"
         },
         "name": {
           "type": "string",

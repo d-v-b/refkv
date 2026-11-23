@@ -82,8 +82,8 @@ metadata of [§5.1](#51-the-root) as the member `"czi"`. Its CMO is:
 ```json
 {
   "uuid": "7a0733c7-d4be-4482-a64f-6904d9354ea5",
-  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/czi/schema.json",
-  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/czi.html",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/czi/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/czi/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a CZI source zarrified by refkv, and the source's metadata"
 }

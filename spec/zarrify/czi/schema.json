@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://d-v-b.github.io/refkv/spec/zarrify/czi/schema.json",
+  "$id": "https://d-v-b.github.io/refkv/conventions/czi/schema.json",
   "title": "refkv CZI convention, version 0",
-  "description": "The zarr.json of a node that declares the refkv CZI convention (https://d-v-b.github.io/refkv/spec/zarrify/czi.html)",
+  "description": "The zarr.json of a node that declares the refkv CZI convention (https://d-v-b.github.io/refkv/conventions/czi/)",
   "type": "object",
   "properties": {
     "zarr_format": {
@@ -65,11 +65,11 @@
         },
         "schema_url": {
           "type": "string",
-          "const": "https://d-v-b.github.io/refkv/spec/zarrify/czi/schema.json"
+          "const": "https://d-v-b.github.io/refkv/conventions/czi/schema.json"
         },
         "spec_url": {
           "type": "string",
-          "const": "https://d-v-b.github.io/refkv/spec/zarrify/czi.html"
+          "const": "https://d-v-b.github.io/refkv/conventions/czi/"
         },
         "name": {
           "type": "string",

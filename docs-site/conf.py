@@ -145,30 +145,62 @@ def read(app: Sphinx, docname: str, source: list[str]) -> None:
     source[0] = page(source[0], here, docname, sources)
 
 
-def publish_schemas(app: Sphinx, exception: Exception | None) -> None:
-    """Serve every URL a version-0 CMO names on the site (spec/conventions.md §1
-    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>), or fail the
-    build: its `schema_url`, to which this copies the convention's JSON Schema from the repository
-    (spec/zarrify/<p>/schema.json, a path to update when the schemas move), and its `spec_url`, the
-    format's page, which a move of its document must keep, by a redirect page or otherwise. The
-    paths come from `profiles.cmo`, the CMO refkv writes, at version 0 whatever a format's current
-    version: the archives written at version 0 name them for good."""
+# Each convention's document and schema in the repository, by the name the site publishes it under:
+# `conventions/<name>/` (a redirect to the document's page) and `conventions/<name>/schema.json`
+# (spec/conventions.md §1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>).
+# The names never change; when the files move, only these paths do.
+def conventions() -> dict[str, tuple[str, Path]]:
+    """Each convention the site publishes: its name, its document's docname, and its schema's path."""
+    out = {e["name"]: (f"spec/zarrify/{e['name']}", ROOT / "spec" / "zarrify" / e["name"] / "schema.json")
+           for e in profiles.load()}
+    out["provenance"] = ("spec/provenance", ROOT / "spec" / "provenance" / "schema.json")
+    return out
+
+
+REDIRECT = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>refkv convention {name}</title>
+<link rel="canonical" href="{target}">
+<meta http-equiv="refresh" content="0; url={target}">
+</head>
+<body><p>The refkv convention <code>{name}</code> is specified at <a href="{target}">{target}</a>.</p></body>
+</html>
+"""
+
+
+def publish_conventions(app: Sphinx, exception: Exception | None) -> None:
+    """Serve every convention under the names a version-0 CMO gives it, or fail the build:
+    `conventions/<name>/`, a page that redirects to the convention's document, and
+    `conventions/<name>/schema.json`, a copy of its JSON Schema. Every format's names are served
+    whatever its current version, since the archives written at version 0 name them for good, and
+    they match `profiles.cmo`, the CMO refkv writes."""
     if exception is not None or app.builder.format != "html":
         return
+    out = Path(app.outdir)
     missing = []
+    for name, (docname, schema) in conventions().items():
+        page = out / f"{docname}.html"
+        if not page.is_file() or not schema.is_file():
+            missing.append(name)
+            continue
+        here = out / "conventions" / name
+        here.mkdir(parents=True, exist_ok=True)
+        target = posixpath.relpath(f"{docname}.html", f"conventions/{name}")
+        (here / "index.html").write_text(REDIRECT.format(name=name, target=target), encoding="utf-8")
+        shutil.copyfile(schema, here / "schema.json")
     for e in profiles.load():
         cmo = profiles.cmo({**e, "version": 0})
-        schema, page = (str(cmo[k]).removeprefix(profiles.SITE + "/") for k in ("schema_url", "spec_url"))
-        target = Path(app.outdir) / schema
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(ROOT / "spec" / "zarrify" / e["name"] / "schema.json", target)
-        if not (Path(app.outdir) / page).is_file():
-            missing.append(str(cmo["spec_url"]))
+        for url in (str(cmo["spec_url"]), str(cmo["schema_url"])):
+            served = out / url.removeprefix(profiles.SITE + "/")
+            if not (served / "index.html" if url.endswith("/") else served).is_file():
+                missing.append(url)
     if missing:
-        raise ExtensionError(f"the site does not serve these CMO URLs: {', '.join(missing)}")
+        raise ExtensionError(f"the site does not serve these conventions or CMO URLs: {', '.join(missing)}")
 
 
 def setup(app: Sphinx) -> dict[str, bool]:
     app.connect("source-read", read)
-    app.connect("build-finished", publish_schemas)
+    app.connect("build-finished", publish_conventions)
     return {"parallel_read_safe": True}

@@ -222,7 +222,7 @@ def test_schemas_reject_an_unknown_version():
         validator = schema(profile)
         root = mapping(at(doc, "attributes", CONVENTION_KEY))
         assert not list(validator.iter_errors(doc)), profile
-        site = "https://d-v-b.github.io/refkv/spec/zarrify"
+        site = "https://d-v-b.github.io/refkv/conventions"
         assert convention(profile)["schema_url"] == f"{site}/{profile}/schema.json", profile
         doc["attributes"][CONVENTION_KEY] = {**root, "version": 1}
         assert list(validator.iter_errors(doc)), profile

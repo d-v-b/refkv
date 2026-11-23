@@ -53,8 +53,8 @@ as the member `"mrc-dataset"`. Its CMO is:
 ```json
 {
   "uuid": "f139bf4e-7bab-4c3c-9b2d-66ba747f9b93",
-  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/mrc-dataset/schema.json",
-  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/mrc-dataset.html",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/mrc-dataset/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/mrc-dataset/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a MRC dataset source zarrified by refkv, and the source's metadata"
 }

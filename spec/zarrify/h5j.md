@@ -56,8 +56,8 @@ The root, each channel's group and `refkv_source` declare the convention
 ```json
 {
   "uuid": "5bd31fac-d92d-452b-bcb6-15ca89c0f931",
-  "schema_url": "https://d-v-b.github.io/refkv/spec/zarrify/h5j/schema.json",
-  "spec_url": "https://d-v-b.github.io/refkv/spec/zarrify/h5j.html",
+  "schema_url": "https://d-v-b.github.io/refkv/conventions/h5j/schema.json",
+  "spec_url": "https://d-v-b.github.io/refkv/conventions/h5j/",
   "name": "refkv_zarrified",
   "description": "The Zarr layout of a H5J source zarrified by refkv, and the source's metadata"
 }
