@@ -314,6 +314,27 @@ pub mod typed {
 mod tests {
     use super::*;
 
+    #[test]
+    fn host_rules_by_name() {
+        assert_eq!(call("object_url", &json!({"store_url": "http://h/", "key": "a b"})).unwrap(), json!("http://h/a%20b"));
+    }
+
+    #[test]
+    fn gives_a_host_rule_rejection_as_one() {
+        assert!(matches!(call("check_store_url", &json!({"url": "ftp://h/"})), Err(Refused::Rejected(_))));
+    }
+
+    #[test]
+    fn gives_a_host_rule_usage_error_as_bad() {
+        let scope = json!({"location": "https://h/a/x", "scope": ["https://e/"]});
+        assert!(matches!(call("scope_keys", &scope), Err(Refused::Bad(_))));
+    }
+
+    #[test]
+    fn refuses_an_unknown_name() {
+        assert!(matches!(call("no such routine", &json!({})), Err(Refused::Bad(m)) if m == "no routine no such routine"));
+    }
+
     fn tags(pairs: &[(u16, J)]) -> J {
         J::Object(pairs.iter().map(|(t, v)| (t.to_string(), v.clone())).collect())
     }

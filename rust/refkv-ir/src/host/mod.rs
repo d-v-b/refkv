@@ -7,7 +7,10 @@
 //! Python bindings, the wasm32 module, the CLI) does the I/O and calls these, so that the hosts
 //! cannot disagree; the Rust functions are the API, and [`call`] gives each by name with its
 //! parameters and result as JSON (`routines::call`, which the Python bindings bind as
-//! `refkv._core.coding` and the wasm32 module exports as `vz_call`).
+//! `refkv._core.coding` and the wasm32 module exports as `vz_call`). The archive's layout
+//! (`archive::file_layout`, `archive::store_layout`, `Layout::checksummed`) works on an output the
+//! core made (`out::Out`), so it has no JSON form: a host reaches it through the binding of the
+//! run that made the output; only its `late` rule and page size are given by name.
 
 pub mod archive;
 pub mod inputs;
