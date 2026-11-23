@@ -591,6 +591,8 @@ pub struct Nrrd {
     found_lines: u64,
     scan: u64,
     scan_from: u64,
+    /// how the projection cuts the data, which gives the edge chunks it copies
+    chunking: crate::out::Chunking,
     copies: Vec<(u64, u64)>,
     copied: Vec<(u64, Vec<u8>)>,
     asked: Vec<(usize, u64, u64)>,
@@ -599,8 +601,9 @@ pub struct Nrrd {
 }
 
 impl Nrrd {
-    /// The listing's IR, its objects' elements and keys: one key, the header file.
-    pub fn new(ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Nrrd> {
+    /// The listing's IR, its objects' elements and keys: one key, the header file; the projection
+    /// cuts the data as `chunking` says.
+    pub fn new(ir: Ir, objects: Vec<u32>, keys: &[(String, u64)], chunking: crate::out::Chunking) -> Res<Nrrd> {
         if keys.len() != 1 || keys[0].0.contains('/') {
             return Err(Error::rejected(format!("a NRRD run starts from the header file alone, not {} objects", keys.len())));
         }
@@ -621,6 +624,7 @@ impl Nrrd {
             found_lines: 0,
             scan: 0,
             scan_from: 0,
+            chunking,
             copies: Vec::new(),
             copied: Vec::new(),
             asked: Vec::new(),
@@ -888,7 +892,7 @@ impl Nrrd {
                         self.rules.check("gzip", rules::env([("ok", flag(b == [0x1f, 0x8b, 8])), ("start", num(self.start as f64)), ("key", text(&key))]))?;
                     } else {
                         let item = self.fields.as_ref().map_or(1, |f| f.item);
-                        let (_, chunks) = grid_chunks(self.start, &self.stored_shape(), item, CHUNK_BYTES, crate::out::copy_threshold())
+                        let (_, chunks) = grid_chunks(self.start, &self.stored_shape(), item, CHUNK_BYTES, self.chunking.copy_threshold)
                             .ok_or_else(|| Error::internal("the data cannot be cut into chunks"))?;
                         self.copies = chunks.iter().filter_map(|(_, c)| match c {
                             Chunk::Copy(o, n, _) => Some((*o, *n)),
@@ -999,12 +1003,12 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, _size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::refused("a NRRD file is zarrified as a store run, with its data file")
     }
-    fn project(&self, _: &Ir, _: &J, _: &str, _: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
+    fn project(&self, _: &Ir, _: &J, _: &str, _: &crate::project::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
         Err(Error::rejected("a NRRD input is zarrified as a store run"))
     }
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
-    Ok(Box::new(Nrrd::new(ir, objects, keys)?))
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)], chunking: &crate::out::Chunking) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+    Ok(Box::new(Nrrd::new(ir, objects, keys, *chunking)?))
 }

@@ -15,7 +15,7 @@ use super::{arr, contiguous, image_axes, key, n, translation, Copied};
 use super::vsi::object_url;
 use crate::ir::Ir;
 use crate::nrrd::CHUNK_BYTES;
-use crate::out::{array_json, bytes_codec, copy_threshold, full_window, grid_chunks, gzip_codecs, image_ome, omero_channel, omero_json, root_json, Chunk, Out, Part, RGBA};
+use crate::out::{array_json, bytes_codec, full_window, grid_chunks, gzip_codecs, image_ome, omero_channel, omero_json, root_json, Chunk, Chunking, Out, Part, RGBA};
 use crate::refs::Refs;
 use crate::rules;
 use serde_json::{json, Map, Value as J};
@@ -155,7 +155,7 @@ fn own(d: &J, data_type: &str, axes: &[&str]) -> Map<String, J> {
 
 /// The output of the input `description` describes; `copied` holds the edge chunks the store run
 /// read for it, by their (offset, length) in the data's object.
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> crate::error::Res<Out> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> crate::error::Res<Out> {
     let a = description;
     let nrrd_axes = header_axes(a)?;
     let sizes: Vec<u64> = arr(&a["sizes"]).iter().map(n).collect();
@@ -221,7 +221,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> crate::e
     let (grid, chunks) = if gzip {
         contiguous::whole_stream(&stored_shape, (start, length))
     } else {
-        grid_chunks(start, &stored_shape, item, CHUNK_BYTES, copy_threshold()).ok_or_else(|| Error::internal("the data cannot be cut into chunks"))?
+        grid_chunks(start, &stored_shape, item, CHUNK_BYTES, chunking.copy_threshold).ok_or_else(|| Error::internal("the data cannot be cut into chunks"))?
     };
     let chunk_shape: Vec<u64> = axes.iter().map(|x| grid[pos(x)]).collect();
     out.json("0/zarr.json", &array_json(&shape, data_type, json!(chunk_shape), J::Array(codecs), &axes));
@@ -264,6 +264,6 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> crate::e
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> crate::error::Res<Out> {
-    project(ir, description, url, copied)
+pub fn store_project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &crate::out::Chunking) -> crate::error::Res<Out> {
+    project(ir, description, url, copied, chunking)
 }

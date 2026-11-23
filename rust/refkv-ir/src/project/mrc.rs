@@ -15,7 +15,7 @@ use crate::gz;
 use crate::ir::Ir;
 use crate::mrc::{data_type, header};
 use crate::record::Header;
-use crate::out::{array_json, copy_threshold, bytes_codec, declared_group, full_window, grid_chunks, gzip_array, gzip_codecs, image_ome, omero_channel, omero_json, root_json, Chunk, Out, Part, GZIP_LEVEL};
+use crate::out::{array_json, bytes_codec, declared_group, full_window, grid_chunks, gzip_array, gzip_codecs, image_ome, omero_channel, omero_json, root_json, Chunk, Chunking, Out, Part, GZIP_LEVEL};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 use std::borrow::Cow;
@@ -63,7 +63,7 @@ struct Cut {
     chunks: Vec<(Vec<u64>, Chunk)>,
 }
 
-fn cut(h: &Header, (offset, length): (u64, u64), description: &J) -> crate::error::Res<Cut> {
+fn cut(h: &Header, (offset, length): (u64, u64), description: &J, chunking: &Chunking) -> crate::error::Res<Cut> {
     let (nx, ny, nz) = (h.get("nx").i() as u64, h.get("ny").i() as u64, h.get("nz").i() as u64);
     let (ispg, mz) = (h.get("ispg").i(), h.get("mz").i());
     let spec = &crate::rules::of("mrc").table("modes")[h.get("mode").i().to_string()];
@@ -87,7 +87,7 @@ fn cut(h: &Header, (offset, length): (u64, u64), description: &J) -> crate::erro
         _ => (named.clone(), vec![nz, ny, nx]),
     };
     let bits = spec["bits"].as_u64();
-    let threshold = copy_threshold();
+    let threshold = chunking.copy_threshold;
     let cut = match bits {
         _ if description["gzip"].is_object() => Some(contiguous::whole_stream(&shape, (offset, length))),
         Some(k) => contiguous::packed_chunks(offset, &shape, k, CHUNK_BYTES, threshold).filter(|_| (nx * k).is_multiple_of(8)).or_else(|| Some(row_chunks(offset, &shape, k))),
@@ -139,10 +139,10 @@ fn parts<'a>(ir: &'a Ir, description: &J) -> crate::error::Res<(Cow<'a, [u8]>, u
 
 /// The source's ranges of the edge chunks the projection copies (§8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#82-chunks>).
-pub fn reads(ir: &Ir, description: &J) -> crate::error::Res<Vec<(u64, u64)>> {
+pub fn reads(ir: &Ir, description: &J, chunking: &Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
     let (raw, data) = parts(ir, description)?;
     let h = header(&raw);
-    let c = cut(&h, (ir.start[data as usize], ir.len[data as usize]), description)?;
+    let c = cut(&h, (ir.start[data as usize], ir.len[data as usize]), description, chunking)?;
     Ok(contiguous::copy_reads(&c.chunks).collect())
 }
 
@@ -152,7 +152,7 @@ fn valid(v: f64) -> bool {
 
 /// The output of the file `description` describes, with the layouts `layouts` names beside the
 /// image (None: every one).
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, layouts: Option<&[String]>) -> crate::error::Res<Out> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, layouts: Option<&[String]>, chunking: &Chunking) -> crate::error::Res<Out> {
     let (raw, data) = parts(ir, description)?;
     let h = header(&raw);
     let (offset, form) = (ir.start[data as usize], ir.form_id(data).ok_or_else(|| Error::internal("the data has no form"))?);
@@ -183,7 +183,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, layouts: Op
     };
 
     // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#41-the-array>)
-    let Cut { kind, axes, names, mapped, shape, item, bits, grid, chunks } = cut(&h, (offset, length), description)?;
+    let Cut { kind, axes, names, mapped, shape, item, bits, grid, chunks } = cut(&h, (offset, length), description, chunking)?;
     let mut units: Map<String, J> = Map::new();
     let scales: Vec<J> = axes
         .iter()

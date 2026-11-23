@@ -36,24 +36,50 @@ pub enum Part {
 
 pub const MAX_PAYLOAD: usize = 65519;
 
-/// The largest reference payload of a chunk, past which a projection of contiguous values
-/// copies an edge chunk (conventions §7
-/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>):
-/// MAX_PAYLOAD, but in tests (`set_copy_threshold`). A parser that still returns its projection's
-/// facts reads it once, into them; a projection over a description reads it each time it runs, so
-/// the setting must not change between a run's `reads` and its projection.
-static COPY_THRESHOLD: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(MAX_PAYLOAD);
-
-/// For tests: the payload past which an edge chunk is copied (None: MAX_PAYLOAD), so that
-/// small files reach the copy.
-pub fn set_copy_threshold(n: Option<usize>) {
-    COPY_THRESHOLD.store(n.unwrap_or(MAX_PAYLOAD), std::sync::atomic::Ordering::Relaxed);
+/// How refkv's convention cuts a source into chunks, where that is a setting rather than the
+/// source's: a run holds one from its start (`Run::with_chunking`, `StoreRun::with_chunking`) and
+/// gives it to its projection, its reads and the routines made from it, so two runs in one
+/// process never share one. `Default` is the convention's; any other is for tests, so that small
+/// files reach the cases a large one does, and its output is not the convention's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Chunking {
+    /// The largest reference payload of a chunk, past which a projection of contiguous values
+    /// copies an edge chunk (conventions §7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>):
+    /// `MAX_PAYLOAD`.
+    pub copy_threshold: usize,
+    /// The frames of an MP3 chunk (spec/zarrify/mp3.md §4.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#41-the-array>) and the most
+    /// of an MP4 or H5J chunk (`project::mp4::plan`): `mp3::DEFAULT_CHUNK_FRAMES`, at least 1.
+    pub chunk_frames: usize,
+    /// The frames of a FLAC shard (spec/zarrify/flac.md §4.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#41-the-array>):
+    /// `flac::DEFAULT_SHARD_FRAMES`, at least 1.
+    pub shard_frames: usize,
 }
 
-/// The payload past which an edge chunk is copied (`COPY_THRESHOLD`).
-pub fn copy_threshold() -> usize {
-    COPY_THRESHOLD.load(std::sync::atomic::Ordering::Relaxed)
+impl Default for Chunking {
+    fn default() -> Self {
+        Chunking {
+            copy_threshold: MAX_PAYLOAD,
+            chunk_frames: crate::mp3::DEFAULT_CHUNK_FRAMES,
+            shard_frames: crate::flac::DEFAULT_SHARD_FRAMES,
+        }
+    }
 }
+
+impl Chunking {
+    /// The convention's chunking but for the settings given, the frames at least 1.
+    pub fn new(copy_threshold: Option<usize>, chunk_frames: Option<usize>, shard_frames: Option<usize>) -> Self {
+        let d = Chunking::default();
+        Chunking {
+            copy_threshold: copy_threshold.unwrap_or(d.copy_threshold),
+            chunk_frames: chunk_frames.unwrap_or(d.chunk_frames).max(1),
+            shard_frames: shard_frames.unwrap_or(d.shard_frames).max(1),
+        }
+    }
+}
+
 pub const SOURCE_NODE: &str = "refkv_source";
 
 #[derive(Default)]

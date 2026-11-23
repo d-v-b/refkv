@@ -18,7 +18,7 @@ use crate::ir::Ir;
 use crate::out::{array_json, convention, declare_array, group_doc, payload_size, root_property, transpose_codec, Out, Part, CONVENTION_KEY, MAX_PAYLOAD};
 use crate::safe::jp2::{self, Codestream};
 use crate::safe::product::{band_metadata, multiscales_cmo, proj_cmo, root_metadata, spatial_cmo, wkt2, Geocoding};
-use crate::safe::xmltree::Element;
+use crate::xmltree::Element;
 use std::collections::HashSet;
 use serde_json::{json, Map, Value as J};
 
@@ -227,6 +227,6 @@ pub fn project(_ir: &Ir, d: &J, url: &str) -> crate::error::Res<Out> {
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied) -> crate::error::Res<Out> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<Out> {
     project(ir, description, url)
 }

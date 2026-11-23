@@ -2864,16 +2864,16 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Tiff>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
         crate::project::tiff::project(ir, description, url, copied)
     }
-    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value) -> crate::error::Res<Vec<(u64, u64)>> {
+    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value, _chunking: &crate::out::Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
         crate::project::tiff::reads(ir, description)
     }
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)], _chunking: &crate::out::Chunking) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
     Ok(Box::new(crate::tiff_set::TiffSet::new(ir, objects, keys)?))
 }
 

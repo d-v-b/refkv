@@ -216,6 +216,6 @@ fn images(ir: &Ir, plan: &J, refs: &mut Refs) -> crate::error::Res<u64> {
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied) -> crate::error::Res<Out> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<Out> {
     project_set(ir, description, url)
 }

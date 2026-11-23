@@ -14,7 +14,7 @@ use crate::error::Error;
 use super::{contiguous, key, Copied, CopiedChunk};
 use crate::ir::Ir;
 use crate::netcdf3::{named, Ty};
-use crate::out::{bytes_codec, copy_threshold, declare, declared_group, grid_chunks, Chunk, Out, Part};
+use crate::out::{bytes_codec, declare, declared_group, grid_chunks, Chunk, Chunking, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, HashSet};
@@ -298,8 +298,8 @@ fn prefix(path: &str, rank: usize) -> String {
 }
 
 /// The source's ranges of the edge chunks the projection copies.
-pub fn reads(_ir: &Ir, description: &J) -> crate::error::Res<Vec<(u64, u64)>> {
-    let threshold = copy_threshold();
+pub fn reads(_ir: &Ir, description: &J, chunking: &Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
+    let threshold = chunking.copy_threshold;
     let mut out = Vec::new();
     for node in nodes(description)?.0 {
         if let Some((_, chunks)) = cut(&node, threshold)? {
@@ -309,9 +309,9 @@ pub fn reads(_ir: &Ir, description: &J) -> crate::error::Res<Vec<(u64, u64)>> {
     Ok(out)
 }
 
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> crate::error::Res<Out> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> crate::error::Res<Out> {
     let (nodes, summary) = nodes(description)?;
-    build(ir, &nodes, summary, url, copied, copy_threshold(), None)
+    build(ir, &nodes, summary, url, copied, chunking.copy_threshold, None)
 }
 
 /// The netCDF3 convention's hierarchy of a file's description (spec/zarrify/netcdf3.md §7.7
@@ -319,10 +319,10 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> crate::e
 /// nodes (`nodes`), and its documents and chunks as the projection writes them, but for the edge
 /// chunks it copies, which it gives apart, as ranges to copy: it reads nothing. The routine a
 /// layout calls for the convention's hierarchy (`refkv.build.netcdf3_hierarchy`).
-pub fn hierarchy(ir: &Ir, description: &J) -> crate::error::Res<(Vec<J>, Out, Vec<CopiedChunk>)> {
+pub fn hierarchy(ir: &Ir, description: &J, chunking: &Chunking) -> crate::error::Res<(Vec<J>, Out, Vec<CopiedChunk>)> {
     let (nodes, summary) = nodes(description)?;
     let mut copies = Vec::new();
-    let out = build(ir, &nodes, summary, "", &Copied::new(), copy_threshold(), Some(&mut copies))?;
+    let out = build(ir, &nodes, summary, "", &Copied::new(), chunking.copy_threshold, Some(&mut copies))?;
     Ok((nodes, out, copies))
 }
 

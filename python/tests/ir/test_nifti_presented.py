@@ -37,7 +37,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from described import Described, described
-from ir_helpers import FIXTURES, core_setting
+from ir_helpers import FIXTURES
 from test_nifti_stored import header, voxels
 
 from refkv import _core
@@ -225,8 +225,7 @@ def check(d: Described, copying: bool, seen: Counter) -> list[str]:
 def compared(path: Path, copying: bool = False) -> tuple[tuple[str, ...], Counter]:
     """What differs between the array the profile wrote of the file at `path` and the file's
     description, and what the comparison saw; `copying`, in a run of a payload of `SMALL_PAYLOAD`."""
-    with core_setting(_core._set_copy_threshold, SMALL_PAYLOAD if copying else None):
-        d = described(path)
+    d = described(path, _core.Chunking(copy_threshold=SMALL_PAYLOAD if copying else None))
     seen: Counter = Counter()
     said = ["descriptions dropped for room"] if d.stored.undescribed else []
     said += check(d, copying, seen)

@@ -27,6 +27,7 @@ on:
       - rust/refkv-ir/**
       - rust/refkv-vzip/**
       - rust/refkv-phkv/**
+      - rust/refkv-uri/**
       - rust/Cargo.toml
       - rust/Cargo.lock
       - .github/workflows/release.yml

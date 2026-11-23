@@ -317,15 +317,15 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Mrc>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
-        crate::project::mrc::project(ir, description, url, copied, None)
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
+        crate::project::mrc::project(ir, description, url, copied, None, chunking)
     }
     /// The dataset layout (`mrc-dataset`) is written unless `layouts` leaves it out.
     fn project_layouts(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied,
-                       layouts: Option<&[String]>) -> crate::error::Res<crate::out::Out> {
-        crate::project::mrc::project(ir, description, url, copied, layouts)
+                       layouts: Option<&[String]>, chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
+        crate::project::mrc::project(ir, description, url, copied, layouts, chunking)
     }
-    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value) -> crate::error::Res<Vec<(u64, u64)>> {
-        crate::project::mrc::reads(ir, description)
+    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value, chunking: &crate::out::Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
+        crate::project::mrc::reads(ir, description, chunking)
     }
 }

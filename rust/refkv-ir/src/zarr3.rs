@@ -266,7 +266,7 @@ impl StoreParser for Zarr3Store {
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_parser(ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {
+pub fn store_parser(ir: Ir, objects: Vec<u32>, keys: &[(String, u64)], _chunking: &crate::out::Chunking) -> Res<Box<dyn StoreParser>> {
     Ok(Box::new(Zarr3Store::new(ir, objects, keys)?))
 }
 
@@ -640,7 +640,7 @@ impl crate::run::FileProfile for Profile {
     fn whole(&self) -> bool {
         false
     }
-    fn project(&self, ir: &Ir, description: &J, url: &str, _copied: &crate::project::Copied) -> Res<crate::out::Out> {
+    fn project(&self, ir: &Ir, description: &J, url: &str, _copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> Res<crate::out::Out> {
         crate::project::zarr3::project(ir, description, url)
     }
     /// The ignored entries' names beside the mirror, as a listed store's ignored keys.

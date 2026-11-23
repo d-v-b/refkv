@@ -15,6 +15,7 @@ pub struct PyHdf5 {
     ir: Arc<Ir>,
     description: Arc<serde_json::Value>,
     store: bool,
+    chunking: refkv_ir::out::Chunking,
 }
 
 #[pymethods]
@@ -25,7 +26,7 @@ impl PyHdf5 {
     #[allow(clippy::type_complexity)]
     fn hierarchy<'py>(&self, py: Python<'py>) -> PyResult<(String, Bound<'py, PyAny>, Vec<(String, u64, u64, u64)>)> {
         let (nodes, out, copies) = py
-            .detach(|| refkv_ir::project::hdf5::hierarchy(&self.ir, &self.description, self.store))
+            .detach(|| refkv_ir::project::hdf5::hierarchy(&self.ir, &self.description, self.store, &self.chunking))
             .map_err(refused)?;
         Ok((serde_json::Value::Array(nodes).to_string(), out_py(py, &out)?, copies))
     }
@@ -37,7 +38,7 @@ impl PyHdf5 {
 }
 
 pub fn view(py: Python<'_>, v: &View) -> PyResult<Py<PyAny>> {
-    Ok(Py::new(py, PyHdf5 { ir: Arc::clone(&v.ir), description: Arc::clone(&v.description), store: v.store })?.into_any())
+    Ok(Py::new(py, PyHdf5 { ir: Arc::clone(&v.ir), description: Arc::clone(&v.description), store: v.store, chunking: v.chunking })?.into_any())
 }
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {

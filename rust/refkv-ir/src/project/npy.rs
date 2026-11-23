@@ -21,7 +21,7 @@ use crate::error::Error;
 use super::{arr, contiguous, Copied};
 use crate::ir::Ir;
 use crate::npy::header::{self, Dtype, Header};
-use crate::out::{array_json, copy_threshold, declared_group, grid_chunks, Chunk, Out, Part, GZIP_HEADER, GZIP_LEVEL};
+use crate::out::{array_json, declared_group, grid_chunks, Chunk, Chunking, Out, Part, GZIP_HEADER, GZIP_LEVEL};
 use crate::refs::Refs;
 use crate::rules;
 use serde_json::{json, Map, Value as J};
@@ -190,11 +190,11 @@ fn cut(a: &Presented, threshold: usize) -> crate::error::Res<Cut> {
 
 /// The source's ranges of the edge chunks the projection copies (§8.4
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#84-chunks>).
-pub fn reads(ir: &Ir, description: &J) -> crate::error::Res<Vec<(u64, u64)>> {
+pub fn reads(ir: &Ir, description: &J, chunking: &Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
     let described = Described::of(ir);
     let mut out = Vec::new();
     for a in arr(&description["arrays"]) {
-        out.extend(contiguous::copy_reads(&cut(&presented(ir, &described, a)?, copy_threshold())?.chunks));
+        out.extend(contiguous::copy_reads(&cut(&presented(ir, &described, a)?, chunking.copy_threshold)?.chunks));
     }
     Ok(out)
 }
@@ -230,8 +230,8 @@ fn array_doc(a: &Presented, c: &Cut) -> J {
     doc
 }
 
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> crate::error::Res<Out> {
-    let threshold = copy_threshold();
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> crate::error::Res<Out> {
+    let threshold = chunking.copy_threshold;
     let described = Described::of(ir);
     let arrays = arr(&description["arrays"]).iter().map(|a| presented(ir, &described, a)).collect::<crate::error::Res<Vec<Presented>>>()?;
     let cuts = arrays.iter().map(|a| cut(a, threshold)).collect::<crate::error::Res<Vec<Cut>>>()?;

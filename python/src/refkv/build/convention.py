@@ -36,9 +36,9 @@ def grid(span: Ref, shape: Sequence[int], item_size: int, *,
     coordinates.
 
     A chunk is its range of `span`. An edge chunk, shorter than the chunk shape, is its range and
-    then `Zeros`, the padding; where that reference would pass the payload limit, its range is a
-    `Copy`, which the caller writes as bytes (`filled`). An array with an axis of length 0 has no
-    chunks.
+    then `Zeros`, the padding; where that reference would pass the payload limit (the input's
+    `Parsed.chunking.copy_threshold`, as refkv's own output cuts it), its range is a `Copy`, which
+    the caller writes as bytes (`filled`). An array with an axis of length 0 has no chunks.
 
     ValueError when `span` is not as long as the array, or an element is larger than `limit`."""
     if not isinstance(span, Ref):
@@ -55,7 +55,7 @@ def grid(span: Ref, shape: Sequence[int], item_size: int, *,
                          f"{span.length}")
     if item > most:
         raise ValueError(f"an element of {item} bytes is larger than a chunk's {most}")
-    cut = _core.grid_chunks(span.offset, dims, item, most)
+    cut = _core.grid_chunks(span.offset, dims, item, most, span.parsed.chunking.copy_threshold)
     if cut is None:
         raise ValueError(f"an array of shape {dims} and {item}-byte elements cannot be cut into chunks")
     chunk_shape, rows = cut

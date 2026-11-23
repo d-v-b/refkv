@@ -1740,7 +1740,7 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Dicom>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
         crate::project::dicom::project(ir, description, url)
     }
 }

@@ -2,7 +2,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): a format's coding parameters as
 //! the Zarr codecs and data type its profile writes, each by the function the profile itself
 //! calls, so that a plugin and refkv cannot disagree. `call` takes a routine's name and its
-//! parameters as JSON, and gives its result as JSON.
+//! parameters as JSON, and gives its result as JSON; it also gives the host rules (`crate::host`)
+//! by their names, so that each host reaches every rule through this one entry point.
 
 use crate::error::Error;
 
@@ -16,8 +17,11 @@ use serde_json::{json, Map, Value as J};
 pub enum Refused {
     /// the format's section rejects the parameters: no codec undoes them
     NoCodec(String),
-    /// the parameters are not the routine's (a missing or mistyped member)
+    /// the parameters are not the routine's (a missing or mistyped member), or a host rule's
+    /// argument is not one it takes (`host::Fail::Usage`)
     Bad(String),
+    /// a host rule rejects the input (`host::Fail::Rejected`)
+    Rejected(String),
 }
 
 type R<T> = Result<T, Refused>;
@@ -112,7 +116,13 @@ pub fn call(name: &str, p: &J) -> R<J> {
             let level = u8::try_from(level).ok().filter(|l| *l <= 9).map_or_else(|| bad("level is 0 to 9"), Ok)?;
             Ok(J::Array(crate::out::gzip_codecs(uint(p, "skip")?, level)))
         }
-        _ => bad(format!("no routine {name}")),
+        _ => match crate::host::call(name, p) {
+            Some(r) => r.map_err(|e| match e {
+                crate::host::Fail::Rejected(m) => Refused::Rejected(m),
+                crate::host::Fail::Usage(m) | crate::host::Fail::Bad(m) => Refused::Bad(m),
+            }),
+            None => bad(format!("no routine {name}")),
+        },
     }
 }
 
@@ -305,6 +315,27 @@ pub mod typed {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_rules_by_name() {
+        assert_eq!(call("object_url", &json!({"store_url": "http://h/", "key": "a b"})).unwrap(), json!("http://h/a%20b"));
+    }
+
+    #[test]
+    fn gives_a_host_rule_rejection_as_one() {
+        assert!(matches!(call("check_store_url", &json!({"url": "ftp://h/"})), Err(Refused::Rejected(_))));
+    }
+
+    #[test]
+    fn gives_a_host_rule_usage_error_as_bad() {
+        let scope = json!({"location": "https://h/a/x", "scope": ["https://e/"]});
+        assert!(matches!(call("scope_keys", &scope), Err(Refused::Bad(_))));
+    }
+
+    #[test]
+    fn refuses_an_unknown_name() {
+        assert!(matches!(call("no such routine", &json!({})), Err(Refused::Bad(m)) if m == "no routine no such routine"));
+    }
 
     fn tags(pairs: &[(u16, J)]) -> J {
         J::Object(pairs.iter().map(|(t, v)| (t.to_string(), v.clone())).collect())

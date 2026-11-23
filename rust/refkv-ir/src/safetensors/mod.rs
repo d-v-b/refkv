@@ -377,16 +377,16 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Safetensors>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
-        crate::project::safetensors::project(ir, description, url, copied)
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
+        crate::project::safetensors::project(ir, description, url, copied, chunking)
     }
-    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value) -> crate::error::Res<Vec<(u64, u64)>> {
-        crate::project::safetensors::reads(ir, description)
+    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value, chunking: &crate::out::Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
+        crate::project::safetensors::reads(ir, description, chunking)
     }
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)], _chunking: &crate::out::Chunking) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
     Ok(Box::new(store::SafetensorsStore::new(ir, objects, keys)?))
 }
 

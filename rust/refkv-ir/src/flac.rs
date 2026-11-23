@@ -23,7 +23,6 @@ use crate::rules::{self, Rules, flag, num, text};
 use crate::sans::{self, Asked};
 use crate::text::text_json;
 use serde_json::{json, Value as J};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The first read, and the most a metadata read asks for beyond what it needs.
 const HEAD: u64 = 1 << 16;
@@ -49,19 +48,9 @@ pub const ID3V2_HEADER_TYPE: &str = crate::mp3::ID3V2_HEADER_TYPE;
 pub const ID3V1_TYPE: &str = crate::mp3::ID3V1_TYPE;
 
 /// The frames of a shard (spec/zarrify/flac.md §4.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#41-the-array>), but in tests
-/// (`set_shard_frames`). refkv's plan of a file reads it (`project::flac::plan`).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#41-the-array>): the default of
+/// `out::Chunking::shard_frames`, which refkv's plan of a file reads (`project::flac::plan`).
 pub const DEFAULT_SHARD_FRAMES: usize = 512;
-static SHARD_FRAMES: AtomicUsize = AtomicUsize::new(DEFAULT_SHARD_FRAMES);
-
-/// For tests: the frames of a shard (None: the default, 512), so that small files have several.
-pub fn set_shard_frames(n: Option<usize>) {
-    SHARD_FRAMES.store(n.unwrap_or(DEFAULT_SHARD_FRAMES).max(1), Ordering::Relaxed);
-}
-
-pub fn shard_frames() -> usize {
-    SHARD_FRAMES.load(Ordering::Relaxed)
-}
 
 /// The CRC-8 of a frame header (RFC 9639 §9.1.8): polynomial x^8 + x^2 + x + 1, initial 0.
 pub fn crc8(b: &[u8]) -> u8 {
@@ -874,7 +863,7 @@ impl crate::run::FileProfile for Profile {
     fn whole(&self) -> bool {
         false
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
-        crate::project::flac::project(ir, description, url, copied)
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
+        crate::project::flac::project(ir, description, url, copied, chunking)
     }
 }

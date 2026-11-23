@@ -15,6 +15,7 @@ pub struct PyFits {
     ir: Arc<Ir>,
     description: Arc<serde_json::Value>,
     heaps: std::sync::OnceLock<refkv_ir::project::fits::Heaps>,
+    chunking: refkv_ir::out::Chunking,
 }
 
 #[pymethods]
@@ -27,7 +28,7 @@ impl PyFits {
     fn arrays<'py>(&self, py: Python<'py>, index: u64) -> PyResult<Vec<(String, String, Vec<(Vec<u64>, Vec<Bound<'py, PyAny>>)>)>> {
         let arrays = py.detach(|| {
             let heaps = self.heaps.get_or_init(|| refkv_ir::project::fits::Heaps::of(&self.ir));
-            refkv_ir::project::fits::hdu_arrays(&self.ir, &self.description, index, heaps)
+            refkv_ir::project::fits::hdu_arrays(&self.ir, &self.description, index, heaps, &self.chunking)
         }).map_err(|e| PyValueError::new_err(e.to_string()))?;
         arrays.into_iter().map(|a| {
             let chunks = a.chunks.iter().map(|(coords, pieces)| {
@@ -45,7 +46,8 @@ impl PyFits {
 }
 
 pub fn view(py: Python<'_>, v: &View) -> PyResult<Py<PyAny>> {
-    let fits = PyFits { ir: Arc::clone(&v.ir), description: Arc::clone(&v.description), heaps: std::sync::OnceLock::new() };
+    let fits = PyFits { ir: Arc::clone(&v.ir), description: Arc::clone(&v.description), heaps: std::sync::OnceLock::new(),
+                       chunking: v.chunking };
     Ok(Py::new(py, fits)?.into_any())
 }
 

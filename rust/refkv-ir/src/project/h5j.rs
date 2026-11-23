@@ -10,7 +10,7 @@ use crate::error::Error;
 use super::mp4::{grid_lengths, stream_codec, video_chunk, video_chunks};
 use super::{arr, n};
 use crate::ir::Ir;
-use crate::out::{declare, declared_group, full_window, group_doc, image_ome, omero_channel, omero_json, rectilinear_array_json, Out};
+use crate::out::{declare, declared_group, full_window, group_doc, image_ome, omero_channel, omero_json, rectilinear_array_json, Chunking, Out};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -49,9 +49,9 @@ fn attributes<'a>(nodes: &'a [J], path: &str) -> &'a J {
 /// plan of it together (`project::mp4::planned_track`); an error, the convention's, when it
 /// zarrifies no track (spec/zarrify/mp4.md §8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>).
-fn planned(description: &J) -> crate::error::Res<J> {
+fn planned(description: &J, chunking: &Chunking) -> crate::error::Res<J> {
     use super::mp4::{plan, planned_track};
-    let p = plan(description)?;
+    let p = plan(description, chunking)?;
     let tracks: Vec<J> = arr(&description["tracks"]).iter().zip(arr(&p["tracks"])).map(|(t, f)| planned_track(t, f)).collect();
     Ok(json!({
         "brand": description["brand"], "timescale": description["timescale"], "duration": description["duration"],
@@ -64,16 +64,17 @@ fn planned(description: &J) -> crate::error::Res<J> {
 /// description's channels and the padding `/Channels` gives: its `name`, `path`, `offset`, `length`
 /// and `attributes`; its `reason`, null for a channel the convention zarrifies; and of such a
 /// channel its MP4 file's `brand`, `timescale`, `duration` and `chunk_frames`, and its one track as
-/// refkv's MP4 plan reads it (`track`, null for another).
-pub fn channels(described: &[J], pad: &crate::error::Res<(u64, u64)>) -> Vec<J> {
+/// refkv's MP4 plan reads it (`track`, null for another). `chunking` gives `chunk_frames`, and no
+/// reason.
+pub fn channels(described: &[J], pad: &crate::error::Res<(u64, u64)>, chunking: &Chunking) -> Vec<J> {
     described.iter().map(|c| {
         let mut m = Map::new();
         for k in ["name", "path", "offset", "length", "attributes"] {
             m.insert(k.into(), c[k].clone());
         }
         let file = match (c["unread"].as_str(), &c["mp4"]) {
-            (Some(r), _) => Err(Error::rejected(r)),
-            (None, d) => planned(d).map_err(|e| e.context(|m| format!("its MP4 file: {m}"))),
+            (Some(r), _) => Err(r.to_string()),
+            (None, d) => planned(d, chunking).map_err(|e| format!("its MP4 file: {e}")),
         };
         let reason = match &file {
             Err(r) => Some(r.to_string()),
@@ -110,16 +111,16 @@ pub fn channels(described: &[J], pad: &crate::error::Res<(u64, u64)>) -> Vec<J> 
 
 /// refkv's plan of the file: its channels (`channels`) and the padding (right, bottom), null when
 /// `/Channels`'s attributes give none that reads.
-pub fn plan(description: &J, nodes: &[J]) -> J {
+pub fn plan(description: &J, nodes: &[J], chunking: &Chunking) -> J {
     let pad = crate::h5j::pad(attributes(nodes, crate::h5j::GROUP));
     let pad_json = pad.as_ref().map_or(J::Null, |&(r, b)| json!([r, b]));
-    json!({"channels": channels(arr(&description["h5j"]["channels"]), &pad), "pad": pad_json})
+    json!({"channels": channels(arr(&description["h5j"]["channels"]), &pad, chunking), "pad": pad_json})
 }
 
 /// The output of the file `description` describes, through refkv's plan of it (`plan`).
-pub fn project(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
+pub fn project(ir: &Ir, description: &J, url: &str, chunking: &Chunking) -> crate::error::Res<Out> {
     let nodes = super::hdf5_nodes::nodes(description)?.nodes;
-    let h = &plan(description, &nodes);
+    let h = &plan(description, &nodes, chunking);
     let root = attributes(&nodes, "");
     let channels = arr(&h["channels"]);
     let (pad_right, pad_bottom) = (n(&h["pad"][0]), n(&h["pad"][1]));

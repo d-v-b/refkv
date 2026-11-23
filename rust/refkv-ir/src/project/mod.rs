@@ -29,7 +29,7 @@ include!(concat!(env!("OUT_DIR"), "/projections.rs"));
 
 use crate::fed::uint;
 use crate::ir::Ir;
-use crate::out::Out;
+use crate::out::{Chunking, Out};
 use crate::record::{Header, Num, width};
 use crate::text::text_json;
 use crate::run::Format;
@@ -45,18 +45,19 @@ pub type Copied = std::collections::HashMap<(u64, u64), Vec<u8>>;
 pub type CopiedChunk = (String, u64, u64, u64);
 
 /// The image projection of `format`: today's hierarchy, without `refkv_source`, from the IR and
-/// the parser's description. `copied` holds the bytes of the ranges `reads` gives, and `layouts`
-/// names the layouts written beside the image (None: every one).
-pub fn project(format: Format, ir: &Ir, description: &J, url: &str, copied: &Copied, layouts: Option<&[String]>) -> crate::error::Res<Out> {
-    format.profile().project_layouts(ir, description, url, copied, layouts)
+/// the parser's description. `copied` holds the bytes of the ranges `reads` gives for the same
+/// `chunking`, and `layouts` names the layouts written beside the image (None: every one).
+pub fn project(format: Format, ir: &Ir, description: &J, url: &str, copied: &Copied, layouts: Option<&[String]>,
+               chunking: &Chunking) -> crate::error::Res<Out> {
+    format.profile().project_layouts(ir, description, url, copied, layouts, chunking)
 }
 
 /// The source's ranges the projection of `format` copies into the archive (NIfTI's and
 /// MRC's edge chunks whose padding does not fit in a reference) or decodes (the TIFF and
 /// QPTIFF chunks their `omero` windows sample), which the run reads after the parser: a
 /// projection reads nothing itself.
-pub fn reads(format: Format, ir: &Ir, description: &J) -> crate::error::Res<Vec<(u64, u64)>> {
-    format.profile().reads(ir, description)
+pub fn reads(format: Format, ir: &Ir, description: &J, chunking: &Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
+    format.profile().reads(ir, description, chunking)
 }
 
 /// The source's ranges the OME image of `profile` (`tiff`, `qptiff`, `ndpi` or `ims`, `ome_image`)

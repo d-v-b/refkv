@@ -12,6 +12,8 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
+# RFC 3986 URI references and file: URIs, shared with the Rust core (`uri`, re-exported)
+refkv-uri = { path = "../refkv-uri" }
 crc32fast = "1.5"
 # DEFLATE through zlib itself, built from its sources: the bytes Python's zlib.compressobj(9,
 # DEFLATED, -15) gives, so that an archive matches the Python writer's byte for byte (miniz_oxide

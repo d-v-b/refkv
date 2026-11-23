@@ -13,6 +13,7 @@ use std::sync::Arc;
 pub struct PyNetcdf3 {
     ir: Arc<Ir>,
     description: Arc<serde_json::Value>,
+    chunking: refkv_ir::out::Chunking,
 }
 
 #[pymethods]
@@ -23,14 +24,14 @@ impl PyNetcdf3 {
     #[allow(clippy::type_complexity)]
     fn hierarchy<'py>(&self, py: Python<'py>) -> PyResult<(String, Bound<'py, PyAny>, Vec<(String, u64, u64, u64)>)> {
         let (nodes, out, copies) = py
-            .detach(|| refkv_ir::project::netcdf3::hierarchy(&self.ir, &self.description))
+            .detach(|| refkv_ir::project::netcdf3::hierarchy(&self.ir, &self.description, &self.chunking))
             .map_err(refused)?;
         Ok((serde_json::Value::Array(nodes).to_string(), out_py(py, &out)?, copies))
     }
 }
 
 pub fn view(py: Python<'_>, v: &View) -> PyResult<Py<PyAny>> {
-    Ok(Py::new(py, PyNetcdf3 { ir: Arc::clone(&v.ir), description: Arc::clone(&v.description) })?.into_any())
+    Ok(Py::new(py, PyNetcdf3 { ir: Arc::clone(&v.ir), description: Arc::clone(&v.description), chunking: v.chunking })?.into_any())
 }
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {

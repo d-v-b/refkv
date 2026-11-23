@@ -13,7 +13,7 @@ use crate::fed::Word;
 use crate::fits::{card, parse_cards, row_struct, tile_cut, Card, Value};
 use crate::fits_tiles::{prefix, TileRecord};
 use crate::ir::Ir;
-use crate::out::{array_json, blob_chunks, bytes_codec, copy_threshold, declare_array, declared_group, grid_chunks, int_json, item_size, json_size, Chunk, Out, Part};
+use crate::out::{array_json, blob_chunks, bytes_codec, declare_array, declared_group, grid_chunks, int_json, item_size, json_size, Chunk, Chunking, Out, Part};
 use crate::rules;
 use std::collections::HashMap;
 use crate::refs::Refs;
@@ -241,8 +241,8 @@ fn cut_arrays(ir: &Ir, h: &J, row: Option<&J>, threshold: usize) -> crate::error
 }
 
 /// The source's ranges of the edge chunks the projection copies.
-pub fn reads(ir: &Ir, description: &J) -> crate::error::Res<Vec<(u64, u64)>> {
-    let threshold = copy_threshold();
+pub fn reads(ir: &Ir, description: &J, chunking: &Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
+    let threshold = chunking.copy_threshold;
     let mut out = Vec::new();
     for h in description["hdus"].as_array().into_iter().flatten() {
         if !h["compression"].is_null() {
@@ -257,8 +257,8 @@ pub fn reads(ir: &Ir, description: &J) -> crate::error::Res<Vec<(u64, u64)>> {
     Ok(out)
 }
 
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied) -> crate::error::Res<Out> {
-    let threshold = copy_threshold();
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> crate::error::Res<Out> {
+    let threshold = chunking.copy_threshold;
     let hdus = description["hdus"].as_array().cloned().unwrap_or_default();
     let stream = &description["stream"];
     let mut out = Out::new(url);
@@ -475,7 +475,7 @@ pub struct HduArray {
 /// projection writes them but for their declarations (the routine of
 /// design/proposals/profile-plugins.md "The routines" for FITS): an image's, a table's rows and
 /// heap, a tile-compressed image's. None for an HDU of no data. `heaps` is the file's (`Heaps::of`).
-pub fn hdu_arrays(ir: &Ir, description: &J, index: u64, heaps: &Heaps) -> crate::error::Res<Vec<HduArray>> {
+pub fn hdu_arrays(ir: &Ir, description: &J, index: u64, heaps: &Heaps, chunking: &Chunking) -> crate::error::Res<Vec<HduArray>> {
     let h = hdu(description, index)?;
     let under = |path: &str| path.strip_prefix(&index.to_string()).unwrap_or(path).trim_start_matches('/').to_string();
     if !h["compression"].is_null() {
@@ -499,7 +499,7 @@ pub fn hdu_arrays(ir: &Ir, description: &J, index: u64, heaps: &Heaps) -> crate:
     let cards = cards_of(ir, h)?;
     let mut out = Vec::new();
     let row = row_of(h, &cards).and_then(Result::ok);
-    for node in arrays(ir, h, row.as_ref(), copy_threshold(), &description["stream"])? {
+    for node in arrays(ir, h, row.as_ref(), chunking.copy_threshold, &description["stream"])? {
         let doc = node_doc(&node, &description["stream"]);
         let chunks = node.chunks.into_iter().map(|(coords, chunk)| {
             let pieces = match chunk {

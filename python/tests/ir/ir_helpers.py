@@ -4,7 +4,6 @@ both directories are on sys.path)."""
 import io
 import json
 import sys
-from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +12,7 @@ import tifffile
 import zarr
 
 import refkv.zarr
+from refkv import _core
 from refkv._narrow import JSON, at, integer, mapping, ndarray, sequence, string
 from refkv.ir import zarrify as via_ir
 from refkv.ir.cmirror import rebuild_from_archive
@@ -48,11 +48,11 @@ def assert_rebuilds(out, data: bytes, tmp_path, name: str = "a.vzip") -> None:
     assert buf.getvalue() == data
 
 
-def zarrified(path, tmp_path, fmt: str, url: str | None = None):
+def zarrified(path, tmp_path, fmt: str, url: str | None = None, chunking: _core.Chunking | None = None):
     """(the output, the hierarchy's root group, read in memory from the output, the IR) of the
-    file at `path`, which the IR reads as `fmt`; the IR is valid and the archive rebuilds the
-    file."""
-    fmt_read, out, ir = via_ir(str(path), url)
+    file at `path`, which the IR reads as `fmt`, cut as `chunking` says (default: the
+    convention's); the IR is valid and the archive rebuilds the file."""
+    fmt_read, out, ir = via_ir(str(path), url, chunking=chunking)
     assert fmt_read == fmt
     ir.check()
     assert_rebuilds(out, path.read_bytes(), tmp_path)
@@ -76,17 +76,6 @@ def as_the_reference(path, tmp_path, fmt: str, *, same_message: bool = False, na
     out, _, _ = zarrified(path, tmp_path, fmt, url)
     same_hierarchy(ref, out)
     return out
-
-
-@contextmanager
-def core_setting(setter, value):
-    """The core's test setting `setter` (`_core._set_chunk_frames`, `_core._set_copy_threshold`)
-    at `value` within the block, and at its default (None) after it."""
-    setter(value)
-    try:
-        yield
-    finally:
-        setter(None)
 
 
 # The members of a frozen root's source metadata the IR's mirror holds instead, for the

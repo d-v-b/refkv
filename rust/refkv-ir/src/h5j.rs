@@ -224,7 +224,8 @@ impl Channels {
     /// None.
     pub fn none_presented(&self) -> Option<Error> {
         let described = self.described(|_, e| Ok(e)).ok()?;
-        let planned = crate::project::h5j::channels(&described, &self.pad);
+        // which channels are presented does not depend on the chunking
+        let planned = crate::project::h5j::channels(&described, &self.pad, &crate::out::Chunking::default());
         let presented = planned.iter().filter(|c| c["reason"].is_null()).count();
         let reasons: Vec<String> = planned.iter().filter_map(|c| Some(format!("{}: {}", c["name"].as_str()?, c["reason"].as_str()?))).collect();
         self.rules.check("presented", rules::env([("presented", num(presented as f64)), ("reasons", text(&reasons.join("; ")))])).err()
@@ -252,8 +253,8 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<crate::hdf5::file::H5jParser>(size)
     }
-    fn project(&self, ir: &Ir, description: &J, url: &str, _copied: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
-        crate::project::h5j::project(ir, description, url)
+    fn project(&self, ir: &Ir, description: &J, url: &str, _copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
+        crate::project::h5j::project(ir, description, url, chunking)
     }
 }
 

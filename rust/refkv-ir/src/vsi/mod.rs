@@ -623,12 +623,12 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, _size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::refused("a VSI file is zarrified as a store run, with its tile files")
     }
-    fn project(&self, _: &crate::ir::Ir, _: &serde_json::Value, _: &str, _: &crate::project::Copied) -> crate::error::Res<crate::out::Out> {
+    fn project(&self, _: &crate::ir::Ir, _: &serde_json::Value, _: &str, _: &crate::project::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
         Err(Error::rejected("a VSI input is zarrified as a store run"))
     }
 }
 
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)], _chunking: &crate::out::Chunking) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
     Ok(Box::new(Vsi::new(ir, objects, keys)?))
 }
