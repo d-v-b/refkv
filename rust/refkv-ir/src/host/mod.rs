@@ -7,7 +7,10 @@
 //! Python bindings, the wasm32 module, the CLI) does the I/O and calls these, so that the hosts
 //! cannot disagree; the Rust functions are the API, and [`call`] gives each by name with its
 //! parameters and result as JSON (`routines::call`, which the Python bindings bind as
-//! `refkv._core.coding` and the wasm32 module exports as `vz_call`).
+//! `refkv._core.coding` and the wasm32 module exports as `vz_call`). The archive's layout
+//! (`archive::file_layout`, `archive::store_layout`, `Layout::checksummed`) works on an output the
+//! core made (`out::Out`), so it has no JSON form: a host reaches it through the binding of the
+//! run that made the output; only its `late` rule and page size are given by name.
 
 pub mod archive;
 pub mod inputs;
@@ -148,8 +151,12 @@ pub fn call(name: &str, p: &J) -> Option<Result<J, Fail>> {
         "hub_endpoint" => opt_s(p, "endpoint").and_then(hub_endpoint).map(J::String),
         "hub_repo" => (|| Ok(hub_repo(s(p, "url")?, s(p, "endpoint")?)?.as_ref().map_or(J::Null, repo_json)))(),
         "hub_urls" => (|| {
-            let (r, c) = (repo_of(p)?, s(p, "commit")?);
-            Ok(json!({"tree_url": r.tree_url(c), "base": r.base(c)}))
+            // the revision's URL, and with a commit, the tree's first page and the store's base
+            let r = repo_of(p)?;
+            Ok(match opt_s(p, "commit")? {
+                Some(c) => json!({"revision_url": r.revision_url(), "tree_url": r.tree_url(c), "base": r.base(c)}),
+                None => json!({"revision_url": r.revision_url()}),
+            })
         })(),
         "hub_page" => (|| Ok(J::Bool(hub_page(s(p, "url")?, s(p, "endpoint")?))))(),
         "parse_listing" => (|| {
@@ -209,6 +216,7 @@ mod tests {
         assert_eq!(repo["directory"], "d/");
         let sha = "1bae0e1088993b9b82de08f59de5be5a34e42170";
         assert_eq!(ok("hub_urls", json!({"repo": repo, "commit": sha}))["base"], format!("https://huggingface.co/o/r/resolve/{sha}/d/"));
+        assert_eq!(ok("hub_urls", json!({"repo": repo}))["revision_url"], repo["revision_url"]);
         let page = "<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>p/\u{e9}</Key><Size>1</Size></Contents></ListBucketResult>";
         let latin1: String = page.as_bytes().iter().map(|&b| b as char).collect();
         assert_eq!(ok("parse_listing", json!({"body": latin1, "prefix": "p/"})), json!({"objects": [["p/\u{e9}", 1]], "token": null}));

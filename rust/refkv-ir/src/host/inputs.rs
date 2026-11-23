@@ -36,7 +36,7 @@ pub enum Input {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>); a usage error for a
 /// `file:` URL that names no local path.
 pub fn input(location: &str, windows: bool, allow_file_hosts: bool) -> Result<Input, Fail> {
-    if location.len() >= 5 && location[..5].eq_ignore_ascii_case("file:") {
+    if location.as_bytes().get(..5).is_some_and(|p| p.eq_ignore_ascii_case(b"file:")) {
         return refkv_uri::file_path(location, windows, allow_file_hosts).map(|path| Input::Local { path }).or_else(|e| usage(format!("{location}: {e}")));
     }
     if url_scheme(location).is_some() {
@@ -65,8 +65,8 @@ pub fn split_input(location: &str, title: &str, windows: bool) -> Result<(String
         return Ok((location[..=k].to_string(), key));
     }
     let sep = |c: char| c == '/' || (windows && c == '\\');
-    // ntpath keeps a drive (`C:`) with the directory
-    let drive = if windows && location.as_bytes().get(1) == Some(&b':') { 2 } else { 0 };
+    // ntpath keeps a drive (`C:`, or a UNC path's `\\server\share`) with the directory
+    let drive = if windows { refkv_uri::windows_split_drive(location).0.len() } else { 0 };
     let (head, name) = match location[drive..].rfind(sep) {
         Some(k) => (&location[..drive + k + 1], &location[drive + k + 1..]),
         None => (&location[..drive], &location[drive..]),
@@ -117,6 +117,8 @@ mod tests {
         assert_eq!(input("C:\\data", true, false).unwrap(), Input::Local { path: "C:\\data".into() });
         assert_eq!(input("file:///d/a%20b/", false, false).unwrap(), Input::Local { path: "/d/a b/".into() });
         assert_eq!(input("FILE:/x", false, false).unwrap(), Input::Local { path: "/x".into() });
+        assert_eq!(input("größe.tif", false, false).unwrap(), Input::Local { path: "größe.tif".into() });
+        assert_eq!(input("日本.tif", false, false).unwrap(), Input::Local { path: "日本.tif".into() });
         assert_eq!(url_scheme("HTTP://h/"), Some("http".into()));
         assert_eq!(url_scheme("a b://h/"), None);
     }
@@ -139,6 +141,8 @@ mod tests {
         assert_eq!(s("C:\\d\\x.vsi", true), ("C:\\d".into(), "x.vsi".into()));
         assert_eq!(s("C:x.vsi", true), ("C:".into(), "x.vsi".into()));
         assert_eq!(s("C:\\x.vsi", true), ("C:\\".into(), "x.vsi".into()));
+        assert_eq!(s("\\\\server\\share\\x.vsi", true), ("\\\\server\\share\\".into(), "x.vsi".into()));
+        assert_eq!(s("\\\\server\\share\\d\\x.vsi", true), ("\\\\server\\share\\d".into(), "x.vsi".into()));
     }
 
     #[test]
