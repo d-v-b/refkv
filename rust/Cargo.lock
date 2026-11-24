@@ -779,6 +779,9 @@ dependencies = [
 [[package]]
 name = "refkv-uri"
 version = "0.1.0"
+dependencies = [
+ "percent-encoding",
+]
 
 [[package]]
 name = "refkv-vzip"

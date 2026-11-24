@@ -1,7 +1,8 @@
 //! The rules of a zarrifier's host that do no I/O (spec/zarrify.md §1.2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input> to §1.9
-//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>): what a location names, the
-//! store URL rules and the URL of each object, the S3 listing and the Hugging Face Hub's tree and
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>): what a
+//! location names, which strings are URI references and how one resolves (`refkv_uri`), the store
+//! URL rules and the URL of each object, the S3 listing and the Hugging Face Hub's tree and
 //! `Link` fields, the keys a listing ignores, the directory and scope of an input read with the
 //! files beside it, the archive an output is written as, and the hosts' defaults. Each host (the
 //! Python bindings, the wasm32 module, the CLI) does the I/O and calls these, so that the hosts
@@ -196,6 +197,8 @@ pub fn call(name: &str, p: &J) -> Option<Result<J, Fail>> {
             })
         })(),
         "is_url" => s(p, "location").map(|l| J::Bool(is_url(l))),
+        "is_uri_reference" => s(p, "ref").map(|r| J::Bool(refkv_uri::is_uri_reference(r))),
+        "resolve_reference" => (|| Ok(J::String(refkv_uri::resolve(s(p, "base")?, s(p, "ref")?).map_err(Fail::Rejected)?)))(),
         "split_input" => (|| {
             // `url`: the host has no local paths (a browser): every location is a URL reference
             let (loc, title) = (s(p, "location")?, s(p, "title")?);
@@ -235,6 +238,8 @@ mod tests {
         assert_eq!(ok("input", json!({"location": "file:///d/"})), json!({"kind": "local", "path": "/d/"}));
         assert_eq!(ok("input", json!({"location": "https://h/x"})), json!({"kind": "file"}));
         assert_eq!(ok("is_url", json!({"location": "file:/d/x"})), json!(true));
+        assert_eq!(ok("is_uri_reference", json!({"ref": "./a:b"})), json!(true));
+        assert_eq!(ok("resolve_reference", json!({"base": "http://a/b/c/d;p?q", "ref": "../g"})), json!("http://a/b/g"));
         assert_eq!(ok("split_input", json!({"location": "https://h/a/x.vsi", "title": "VSI"})), json!(["https://h/a/", "x.vsi"]));
         assert_eq!(ok("split_input", json!({"location": "data/scan.nhdr", "title": "NRRD", "url": true})), json!(["data/", "scan.nhdr"]));
         assert_eq!(ok("split_input", json!({"location": "data/scan.nhdr", "title": "NRRD"})), json!(["data", "scan.nhdr"]));
@@ -257,6 +262,11 @@ mod tests {
     #[test]
     fn gives_a_rejection_as_one() {
         assert!(matches!(call("check_store_url", &json!({"url": "ftp://h/"})), Some(Err(Fail::Rejected(_)))));
+    }
+
+    #[test]
+    fn rejects_a_reference_that_is_not_one() {
+        assert!(matches!(call("resolve_reference", &json!({"base": "http://h/", "ref": "a b"})), Some(Err(Fail::Rejected(_)))));
     }
 
     #[test]

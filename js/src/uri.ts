@@ -12,8 +12,9 @@ const PCT = "%[0-9A-Fa-f]{2}";
 const UNRESERVED = "A-Za-z0-9\\-._~";
 const SUB_DELIMS = "!$&'()*+,;=";
 const PCHAR = `(?:[${UNRESERVED}${SUB_DELIMS}:@]|${PCT})`;
+// RFC 3986 Appendix B, of any string (`s`: a fragment may hold a newline, which is then refused)
 const SPLIT =
-  /^(?:([^:/?#]+):)?(?:\/\/([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#(.*))?$/;
+  /^(?:([^:/?#]+):)?(?:\/\/([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#(.*))?$/s;
 const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*$/;
 const AUTHORITY = new RegExp(
   `^(?:(?:[${UNRESERVED}${SUB_DELIMS}:]|${PCT})*@)?` +
