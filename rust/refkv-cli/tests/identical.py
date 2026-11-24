@@ -134,14 +134,25 @@ def cases(files: list[str], stores: list[str], base: str, modes: set[str],
         out += [(f"local {p}", [p], False, {}) for p in encoded]
         # inputs by their `file:` URLs, read as the local paths they name (spec/zarrify.md §1.2
         # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): a file, a store
-        # directory, and a file read with the one beside it, its scope a `file:` URL too
+        # directory, and a file read with the one beside it, its scope a `file:` URL too; and in RFC
+        # 8089's minimal form (`file:/x`), a VSI slide under a percent-encoded directory scoped to
+        # its tile directory, and the NRRD scoped to its data file, whose keys the URL form gives
         nrrd = FIXTURES / "nrrd" / "nrrd_detached_raw.nhdr"
+        vsi = Path(encoded[1])
+
+        def minimal(p: Path, slash: str = "") -> str:
+            return "file:/" + p.absolute().as_uri().removeprefix("file:///") + slash
+
         out += [
             ("local file: a file", [(FIXTURES / files[0]).absolute().as_uri()], False, {}),
             ("local file: a store", [(FIXTURES / stores[0]).absolute().as_uri() + "/", "--url",
                                      f"https://data.example/{urllib.parse.quote(stores[0])}/"], False, {}),
             ("local file: a scope", [nrrd.absolute().as_uri(), "--scope", nrrd.parent.absolute().as_uri() + "/"],
              False, {}),
+            ("local file:/ a scope of a subdirectory",
+             [minimal(vsi), "--scope", minimal(vsi.parent / "_vsi_raw_bgr_", "/")], False, {}),
+            ("local file:/ a scope of a file",
+             [minimal(nrrd), "--scope", minimal(nrrd.with_suffix(".raw"))], False, {}),
         ]
     for i, f in enumerate(files):
         if "local" in modes:
@@ -186,6 +197,9 @@ def cases(files: list[str], stores: list[str], base: str, modes: set[str],
     return out
 
 
+# the cases whose names hold this convert (exit 0) in both hosts: the `file:` inputs, whose
+# rules the hosts share through the core, so that agreeing on a refusal would hide a regression
+CONVERTS = "local file:"
 # a case without the output argument
 NO_OUTPUT = "<no output>"
 # an empty file (`main` makes it)
@@ -247,6 +261,8 @@ def main() -> int:
                     problems.append(f"the archives differ ({len(py[1] or b'')} and {len(rs[1] or b'')} bytes)")
                 if summary(py[2], remote) != summary(rs[2], remote):
                     problems.append(f"the summaries differ\n  python: {py[2].strip()}\n  rust: {rs[2].strip()}")
+            if CONVERTS in name and py[0] != 0:  # agreeing is not enough: these inputs convert
+                problems.append(f"exit {py[0]}, not 0, for an input that converts\n  python: {py[3].strip()[-400:]}")
             for p in (tmp / f"{k}.py.vzip", tmp / f"{k}.rs.vzip"):
                 p.unlink(missing_ok=True)
             if py[0] not in (0, 3) and not problems:  # both failed alike: shown, not a difference
