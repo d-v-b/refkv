@@ -6,6 +6,8 @@
 //! wrote the array's document and chunks as an unsharded array; the run applies it
 //! (`run::output`).
 
+use crate::error::Error;
+
 use crate::out::{payload_size, to_text, Out, Part, MAX_PAYLOAD};
 use serde_json::{json, Value as J};
 use std::collections::HashMap;
@@ -100,17 +102,17 @@ fn key(path: &str, c: &[u64]) -> String {
 /// chunk references and copied chunks become the shards' references, and its document's chunk
 /// shape the shard's, its codecs the sharding codec's inner codecs. `merge`: whether ranges
 /// adjacent across inner chunks are joined (not when the ranges carry checksums).
-pub fn apply(out: &mut Out, path: &str, shard: &[u64], merge: bool) -> Result<(), String> {
+pub fn apply(out: &mut Out, path: &str, shard: &[u64], merge: bool) -> crate::error::Res<()> {
     let doc_key = format!("{path}/zarr.json");
     let mut doc: J = out
         .entries
         .iter()
         .find(|e| e.0 == doc_key)
         .and_then(|e| serde_json::from_slice(&e.1).ok())
-        .ok_or_else(|| format!("internal: no array document {doc_key} to shard"))?;
+        .ok_or_else(|| Error::internal(format!("no array document {doc_key} to shard")))?;
     let nums = |v: &J| -> Option<Vec<u64>> { v.as_array()?.iter().map(|x| x.as_u64()).collect() };
-    let shape = nums(&doc["shape"]).ok_or("internal: an array without a shape")?;
-    let inner = nums(&doc["chunk_grid"]["configuration"]["chunk_shape"]).ok_or("internal: an array without a regular grid")?;
+    let shape = nums(&doc["shape"]).ok_or_else(|| Error::internal("an array without a shape"))?;
+    let inner = nums(&doc["chunk_grid"]["configuration"]["chunk_shape"]).ok_or_else(|| Error::internal("an array without a regular grid"))?;
     let why = if doc["chunk_grid"]["name"] != "regular" {
         "its chunk grid is not regular"
     } else if doc["chunk_key_encoding"] != json!({"name": "default", "configuration": {"separator": "/"}}) {
@@ -127,7 +129,7 @@ pub fn apply(out: &mut Out, path: &str, shard: &[u64], merge: bool) -> Result<()
         ""
     };
     if !why.is_empty() {
-        return Err(format!("internal: {path} cannot be sharded: {why}"));
+        return Err(Error::internal(format!("{path} cannot be sharded: {why}")));
     }
     let grid: Vec<u64> = shape.iter().zip(&inner).map(|(s, c)| s.div_ceil(*c)).collect();
     let shards: Vec<u64> = grid.iter().zip(shard).map(|(g, s)| g.div_ceil(*s)).collect();
@@ -142,7 +144,7 @@ pub fn apply(out: &mut Out, path: &str, shard: &[u64], merge: bool) -> Result<()
     }
     for (k, v) in out.take_refs(&prefix) {
         if chunks.insert(coords(&k[prefix.len()..])?, v).is_some() {
-            return Err(format!("internal: {k} is both copied and referenced"));
+            return Err(Error::internal(format!("{k} is both copied and referenced")));
         }
     }
     let per: u64 = shard.iter().product();
@@ -160,13 +162,13 @@ pub fn apply(out: &mut Out, path: &str, shard: &[u64], merge: bool) -> Result<()
         let parts = shard_parts(&held, merge);
         let k = key(path, &sc);
         if payload_size(&parts) > MAX_PAYLOAD {
-            return Err(format!("{k}: a shard's reference payload of more than {MAX_PAYLOAD} bytes (of which {copies} \
-                                bytes of copied inner chunks)"));
+            return Err(Error::Rejected(format!("{k}: a shard's reference payload of more than {MAX_PAYLOAD} bytes (of which {copies} \
+                                bytes of copied inner chunks)")));
         }
         out.refs(&k, parts);
     }
     if let Some(c) = chunks.keys().next() {
-        return Err(format!("internal: {} is outside {path}'s grid", key(path, c)));
+        return Err(Error::internal(format!("{} is outside {path}'s grid", key(path, c))));
     }
     let outer: Vec<u64> = inner.iter().zip(shard).map(|(c, s)| c * s).collect();
     doc["codecs"] = json!([{"name": "sharding_indexed", "configuration": {
@@ -181,14 +183,14 @@ pub fn apply(out: &mut Out, path: &str, shard: &[u64], merge: bool) -> Result<()
 }
 
 /// A chunk key's coordinates (`3/0`).
-fn coords(s: &str) -> Result<Vec<u64>, String> {
-    s.split('/').map(|x| x.parse::<u64>().map_err(|_| format!("internal: {s} is not a chunk key"))).collect()
+fn coords(s: &str) -> crate::error::Res<Vec<u64>> {
+    s.split('/').map(|x| x.parse::<u64>().map_err(|_| Error::internal(format!("{s} is not a chunk key")))).collect()
 }
 
 /// Every shard request of `out` (`Out::shard`), in order; and, when there is one, the summary's
 /// `joinRanges`: whether ranges adjacent across inner chunks were joined (`merge`: not when the
 /// host records checksums).
-pub fn apply_all(out: &mut Out, merge: bool) -> Result<(), String> {
+pub fn apply_all(out: &mut Out, merge: bool) -> crate::error::Res<()> {
     let requests = std::mem::take(&mut out.shards);
     if requests.is_empty() {
         return Ok(());
@@ -209,9 +211,9 @@ pub fn apply_all(out: &mut Out, merge: bool) -> Result<(), String> {
 
 /// Fails when `out` asks for shards: no store profile's convention shards its arrays, so a
 /// request is a projection's mistake.
-pub fn refuse(out: &Out) -> Result<(), String> {
+pub fn refuse(out: &Out) -> crate::error::Res<()> {
     match out.shards.first() {
-        Some((path, _)) => Err(format!("internal: {path} asks to be sharded, which a store run does not do")),
+        Some((path, _)) => Err(Error::internal(format!("{path} asks to be sharded, which a store run does not do"))),
         None => Ok(()),
     }
 }
@@ -287,7 +289,7 @@ mod tests {
 
     /// An output with the array `a` of `doc`'s grid and the chunk references `keys`, its shards
     /// of `shard` inner chunks applied.
-    fn sharded(doc: J, keys: &[&str], shard: &[u64]) -> Result<(), String> {
+    fn sharded(doc: J, keys: &[&str], shard: &[u64]) -> crate::error::Res<()> {
         let mut out = Out::new("u");
         out.json("a/zarr.json", &doc);
         for k in keys {
@@ -330,14 +332,14 @@ mod tests {
     fn rejects_an_array_without_a_document() {
         let mut out = Out::new("u");
         out.shard("a", &[2]);
-        assert_eq!(apply_all(&mut out, true), Err("internal: no array document a/zarr.json to shard".into()));
+        assert_eq!(apply_all(&mut out, true), Err(Error::internal("no array document a/zarr.json to shard")));
     }
 
     #[test]
     fn rejects_an_irregular_grid() {
         let mut d = doc(&[4], &[2]);
         d["chunk_grid"]["name"] = json!("rectilinear");
-        assert_eq!(sharded(d, &[], &[2]), Err("internal: a cannot be sharded: its chunk grid is not regular".into()));
+        assert_eq!(sharded(d, &[], &[2]), Err(Error::internal("a cannot be sharded: its chunk grid is not regular")));
     }
 
     #[test]
@@ -345,39 +347,39 @@ mod tests {
         let mut d = doc(&[4], &[2]);
         d["chunk_key_encoding"]["configuration"]["separator"] = json!(".");
         assert_eq!(sharded(d, &[], &[2]),
-                   Err("internal: a cannot be sharded: its chunk keys are not the default encoding's, with `/`".into()));
+                   Err(Error::internal("a cannot be sharded: its chunk keys are not the default encoding's, with `/`")));
     }
 
     #[test]
     fn rejects_a_chunk_shape_of_another_rank() {
         let mut d = doc(&[4], &[2]);
         d["chunk_grid"]["configuration"]["chunk_shape"] = json!([2, 2]);
-        assert_eq!(sharded(d, &[], &[2]), Err("internal: a cannot be sharded: its chunk shape is not of its rank".into()));
+        assert_eq!(sharded(d, &[], &[2]), Err(Error::internal("a cannot be sharded: its chunk shape is not of its rank")));
     }
 
     #[test]
     fn rejects_a_shard_shape_of_another_rank() {
-        assert_eq!(sharded(doc(&[4, 4], &[2, 2]), &[], &[2]), Err("internal: a cannot be sharded: the shard shape is not of its rank".into()));
+        assert_eq!(sharded(doc(&[4, 4], &[2, 2]), &[], &[2]), Err(Error::internal("a cannot be sharded: the shard shape is not of its rank")));
     }
 
     #[test]
     fn rejects_an_empty_chunk_shape() {
-        assert_eq!(sharded(doc(&[4], &[0]), &[], &[2]), Err("internal: a cannot be sharded: its chunk shape has a 0".into()));
+        assert_eq!(sharded(doc(&[4], &[0]), &[], &[2]), Err(Error::internal("a cannot be sharded: its chunk shape has a 0")));
     }
 
     #[test]
     fn rejects_an_empty_shard_shape() {
-        assert_eq!(sharded(doc(&[4], &[2]), &[], &[0]), Err("internal: a cannot be sharded: the shard shape has a 0".into()));
+        assert_eq!(sharded(doc(&[4], &[2]), &[], &[0]), Err(Error::internal("a cannot be sharded: the shard shape has a 0")));
     }
 
     #[test]
     fn rejects_a_chunk_outside_the_grid() {
-        assert_eq!(sharded(doc(&[4], &[2]), &["a/c/0", "a/c/2"], &[2]), Err("internal: a/c/2 is outside a's grid".into()));
+        assert_eq!(sharded(doc(&[4], &[2]), &["a/c/0", "a/c/2"], &[2]), Err(Error::internal("a/c/2 is outside a's grid")));
     }
 
     #[test]
     fn rejects_a_chunk_key_that_is_not_coordinates() {
-        assert_eq!(sharded(doc(&[4], &[2]), &["a/c/x"], &[2]), Err("internal: x is not a chunk key".into()));
+        assert_eq!(sharded(doc(&[4], &[2]), &["a/c/x"], &[2]), Err(Error::internal("x is not a chunk key")));
     }
 
     #[test]
@@ -387,7 +389,7 @@ mod tests {
         out.bytes("a/c/0", vec![1]);
         out.refs("a/c/0", vec![Part::Src(0, 1)]);
         out.shard("a", &[2]);
-        assert_eq!(apply_all(&mut out, true), Err("internal: a/c/0 is both copied and referenced".into()));
+        assert_eq!(apply_all(&mut out, true), Err(Error::internal("a/c/0 is both copied and referenced")));
     }
 
     #[test]
@@ -395,7 +397,7 @@ mod tests {
         let mut out = Out::new("u");
         assert_eq!(refuse(&out), Ok(()));
         out.shard("a", &[2]);
-        assert_eq!(refuse(&out), Err("internal: a asks to be sharded, which a store run does not do".into()));
+        assert_eq!(refuse(&out), Err(Error::internal("a asks to be sharded, which a store run does not do")));
     }
 
     /// A copied chunk is counted in the message, and a reference of one literal is not.
@@ -407,7 +409,7 @@ mod tests {
         out.refs("a/c/1", vec![Part::Lit(vec![2; 30000])]);
         out.shard("a", &[3]);
         assert_eq!(apply_all(&mut out, true),
-                   Err("a/c/0: a shard's reference payload of more than 65519 bytes (of which 40000 bytes of copied inner chunks)".into()));
+                   Err(Error::rejected("a/c/0: a shard's reference payload of more than 65519 bytes (of which 40000 bytes of copied inner chunks)")));
     }
 
     #[test]
@@ -419,6 +421,6 @@ mod tests {
         }
         out.shard("a", &[4096]);
         assert_eq!(apply_all(&mut out, false),
-                   Err("a/c/0: a shard's reference payload of more than 65519 bytes (of which 0 bytes of copied inner chunks)".into()));
+                   Err(Error::rejected("a/c/0: a shard's reference payload of more than 65519 bytes (of which 0 bytes of copied inner chunks)")));
     }
 }

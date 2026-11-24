@@ -11,6 +11,8 @@
 //! track is zarrified is refkv's plan of the file (`project::mp4::plan`), made from the description
 //! the parser returns (`describe`).
 
+use crate::error::Error;
+
 use crate::coding::{Head, JpegFrame, jpeg_frame_header};
 use crate::expr::V;
 use crate::fed::{Fed, Word, uint};
@@ -122,7 +124,7 @@ pub(crate) struct Pcm {
 }
 
 impl Pcm {
-    fn new(data_type: &'static str, bytes: u64, little: bool) -> Result<Pcm, String> {
+    fn new(data_type: &'static str, bytes: u64, little: bool) -> crate::error::Res<Pcm> {
         Ok(Pcm { data_type, bytes, endian: if little { "little" } else { "big" } })
     }
 }
@@ -161,15 +163,15 @@ impl<'a> PcmEntry<'a> {
 /// How the sample entry `e`'s samples are stored, when it is a PCM one, or why the profile does not
 /// read them (spec/zarrify/mp4.md §8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>).
-fn pcm_of(e: &Entry) -> Option<Result<Pcm, String>> {
+fn pcm_of(e: &Entry) -> Option<crate::error::Res<Pcm>> {
     pcm_of_entry(&PcmEntry::of(e))
 }
 
 /// `pcm_of`, of what a sample entry says of its PCM samples.
-pub(crate) fn pcm_of_entry(e: &PcmEntry) -> Option<Result<Pcm, String>> {
+pub(crate) fn pcm_of_entry(e: &PcmEntry) -> Option<crate::error::Res<Pcm>> {
     // QuickTime's in32, fl32 and fl64 are big-endian, without an enda box that says otherwise
     let enda = || e.enda;
-    let bad = |what: String| Err(format!("{what} PCM is not supported: the bytes codec has no data type for it"));
+    let bad = |what: String| Err(Error::rejected(format!("{what} PCM is not supported: the bytes codec has no data type for it")));
     Some(match e.typ {
         b"sowt" | b"twos" => match e.bits {
             8 => Pcm::new("int8", 1, true),
@@ -187,7 +189,7 @@ pub(crate) fn pcm_of_entry(e: &PcmEntry) -> Option<Result<Pcm, String>> {
         b"ipcm" | b"fpcm" => {
             // a PCMConfig box (ISO/IEC 23003-5 §5.1): its format flags, then its sample size
             let Some((flags, size)) = e.pcmc else {
-                return Some(Err(format!("an {} sample entry without a pcmC box", latin1(e.typ))));
+                return Some(Err(Error::rejected(format!("an {} sample entry without a pcmC box", latin1(e.typ)))));
             };
             let little = flags & 1 == 1;
             match (e.typ, size) {
@@ -202,13 +204,13 @@ pub(crate) fn pcm_of_entry(e: &PcmEntry) -> Option<Result<Pcm, String>> {
         b"lpcm" => {
             let (float, signed, little) = (e.lpcm_flags & LPCM_FLOAT != 0, e.lpcm_flags & LPCM_SIGNED != 0, e.lpcm_flags & LPCM_BIG_ENDIAN == 0);
             if e.sound_version != 2 {
-                return Some(Err(format!("an lpcm sample entry in a version {} sound description", e.sound_version)));
+                return Some(Err(Error::rejected(format!("an lpcm sample entry in a version {} sound description", e.sound_version))));
             }
             if e.lpcm_flags & LPCM_NON_INTERLEAVED != 0 {
-                return Some(Err("PCM whose channels are not interleaved is not supported".into()));
+                return Some(Err(Error::rejected("PCM whose channels are not interleaved is not supported")));
             }
             if e.lpcm_packet != e.channels * e.bits.div_ceil(8) {
-                return Some(Err(format!("PCM of {} bytes a frame, for {} channels of {} bits, is not supported", e.lpcm_packet, e.channels, e.bits)));
+                return Some(Err(Error::rejected(format!("PCM of {} bytes a frame, for {} channels of {} bits, is not supported", e.lpcm_packet, e.channels, e.bits))));
             }
             match (float, signed, e.bits) {
                 (true, _, 32) => Pcm::new("float32", 4, little),
@@ -429,7 +431,7 @@ impl Mp4 {
         self.fed.feed(offset, data);
     }
 
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         match self.phase {
             Phase::Start => {
                 self.rules.check("file", rules::env([("size", num(self.size as f64))]))?;
@@ -470,7 +472,7 @@ impl Mp4 {
                 let read = if self.moof_bytes > 0 { FRAGMENT_READ } else { 16 };
                 return Ok(Some((self.p, (self.size - self.p).min(read))));
             };
-            let b = header(h, self.p, self.size).ok_or("internal: no box header")?;
+            let b = header(h, self.p, self.size).ok_or_else(|| Error::internal("no box header"))?;
             self.check_box(&b, self.size)?;
             if &b.typ == b"ftyp" {
                 self.rules.check("fields", rules::env([("type", text("ftyp")), ("at", num(b.at as f64)), ("need", num(8.0)), ("have", num((b.size - b.head) as f64))]))?;
@@ -522,7 +524,7 @@ impl Mp4 {
         let mut p = start;
         while p + 8 <= end {
             let h = &buf[(p - base) as usize..(end - base) as usize];
-            let b = header(&h[..h.len().min(16)], p, end).ok_or("internal: no box header")?;
+            let b = header(&h[..h.len().min(16)], p, end).ok_or_else(|| Error::internal("no box header"))?;
             self.check_box(&b, end)?;
             out.push(b);
             p = b.end();
@@ -541,7 +543,7 @@ impl Mp4 {
             self.ir.value(s, "header", NO_INDEX, header_type(b.head), 0, (b.at, b.head), raw.as_deref())?;
             match &b.typ {
                 b"moov" => {
-                    let m = self.moov.take().ok_or("internal: the moov box was not read")?;
+                    let m = self.moov.take().ok_or_else(|| Error::internal("the moov box was not read"))?;
                     self.container(s, &m, b.at, b.body(), b.end())?;
                     self.moov = Some(m);
                 }
@@ -558,7 +560,7 @@ impl Mp4 {
                     self.rest(s, b.body() + 8 + 4 * k, b.end(), Some(&f[..]), b.at)?;
                 }
                 b"moof" => {
-                    let m = self.fed.get(b.at, b.size).ok_or("internal: the moof box was not read")?.to_vec();
+                    let m = self.fed.get(b.at, b.size).ok_or_else(|| Error::internal("the moof box was not read"))?.to_vec();
                     self.moof = Some(b.at);
                     self.container(s, &m, b.at, b.body(), b.end())?;
                     self.moof = None;
@@ -775,7 +777,7 @@ impl Mp4 {
         self.ir.value(s, "fields", NO_INDEX, &ty, 0, (b.body(), need), Some(&body[..need as usize]))?;
         self.rest(s, b.body() + need, b.end(), Some(m), base)?;
         let read = |o: Option<u64>| o.map(|o| uint(body, o as usize, 4, false));
-        let t = self.traf.as_mut().ok_or("internal: a tfhd box outside a traf box")?;
+        let t = self.traf.as_mut().ok_or_else(|| Error::internal("a tfhd box outside a traf box"))?;
         t.tfhd = true;
         t.track = uint(body, 4, 4, false);
         t.base = base_at.map(|o| uint(body, o as usize, 8, false));
@@ -792,7 +794,7 @@ impl Mp4 {
         let ty = format!("{{version:u1,flags:u1[3],base_media_decode_time:>u{width}}}");
         self.ir.value(s, "fields", NO_INDEX, &ty, 0, (b.body(), need), Some(&body[..need as usize]))?;
         self.rest(s, b.body() + need, b.end(), Some(m), base)?;
-        let t = self.traf.as_mut().ok_or("internal: a tfdt box outside a traf box")?;
+        let t = self.traf.as_mut().ok_or_else(|| Error::internal("a tfdt box outside a traf box"))?;
         t.tfdt = Some(uint(body, 4, width, false));
         Ok(())
     }
@@ -836,7 +838,7 @@ impl Mp4 {
             data_offset: data_at.map(|o| uint(body, o as usize, 4, false) as u32 as i32 as i64),
             first_flags: first_at.map(|o| uint(body, o as usize, 4, false)),
         };
-        self.traf.as_mut().ok_or("internal: a trun box outside a traf box")?.runs.push(run);
+        self.traf.as_mut().ok_or_else(|| Error::internal("a trun box outside a traf box"))?.runs.push(run);
         Ok(())
     }
 
@@ -1039,7 +1041,7 @@ impl Mp4 {
                 ("at", num(traf.at as f64)), ("track", num(traf.track as f64)), ("tfhd", flag(traf.tfhd)),
                 ("trex", flag(trex.is_some() && track.is_some())),
             ]))?;
-            let (Some(trex), Some(t)) = (trex, track) else { return Err("internal: a traf box without a track".into()) };
+            let (Some(trex), Some(t)) = (trex, track) else { return Err(Error::internal("a traf box without a track")) };
             if implicit.0 != traf.moof {
                 implicit = (traf.moof, traf.moof);
             }
@@ -1193,7 +1195,7 @@ impl Mp4 {
     }
 
     /// The finished IR, with its tracks' samples described (`stored.rs`), and the description.
-    pub fn finish(self) -> Result<(Ir, J), String> {
+    pub fn finish(self) -> crate::error::Res<(Ir, J)> {
         let described = if self.phase == Phase::Done { Some(stored::described(&self.media)?) } else { None };
         let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
         if let Some((arrays, chains, map)) = described {
@@ -1268,24 +1270,24 @@ fn presentation(t: &Track) -> Vec<i64> {
 /// an open group's, which may reference the group before) but not before the sync sample
 /// before; a chunk that holds one decodes from that sync sample (project/mp4.rs,
 /// `video_units`), and never from one further back.
-pub fn gops(pts: &[i64], sync: &[u64]) -> Result<(), String> {
+pub fn gops(pts: &[i64], sync: &[u64]) -> crate::error::Res<()> {
     let n = pts.len();
     if sync.first() != Some(&0) {
-        return Err("the first sample is not a sync sample".into());
+        return Err(Error::rejected("the first sample is not a sync sample"));
     }
     if sync.windows(2).any(|w| w[0] >= w[1]) || sync.last().is_some_and(|&s| s as usize >= n) {
-        return Err("the sync samples do not increase, or one is past the last sample".into());
+        return Err(Error::rejected("the sync samples do not increase, or one is past the last sample"));
     }
     let mut sorted = pts.to_vec();
     sorted.sort_unstable();
     if sorted.windows(2).any(|w| w[0] == w[1]) {
-        return Err("two samples share a presentation time".into());
+        return Err(Error::rejected("two samples share a presentation time"));
     }
     let limit = rules::of("mp4").limit("max_group") as u64;
     let mut prev = 0u64;
     for &s in sync.iter().skip(1).chain(std::iter::once(&(n as u64))) {
         if s > prev + limit {
-            return Err(format!("a group of pictures of {} samples, more than {limit}", s - prev));
+            return Err(Error::rejected(format!("a group of pictures of {} samples, more than {limit}", s - prev)));
         }
         prev = s;
     }
@@ -1302,13 +1304,13 @@ pub fn gops(pts: &[i64], sync: &[u64]) -> Result<(), String> {
         let s = s as usize;
         if before[s] > pts[s] {
             let late = (0..s).find(|&d| pts[d] > pts[s]).unwrap_or(s);
-            return Err(format!("sample {late}, before the sync sample {s} in decode order, is presented after it"));
+            return Err(Error::rejected(format!("sample {late}, before the sync sample {s} in decode order, is presented after it")));
         }
         if k > 0 {
             let p = sync[k - 1] as usize;
             if after[s + 1] < pts[p] {
                 let early = (s + 1..n).find(|&d| pts[d] < pts[p]).unwrap_or(s);
-                return Err(format!("sample {early}, after the sync sample {s} in decode order, is presented before the sync sample {p}"));
+                return Err(Error::rejected(format!("sample {early}, after the sync sample {s} in decode order, is presented before the sync sample {p}")));
             }
         }
     }
@@ -1625,12 +1627,12 @@ impl crate::run::FileProfile for Profile {
     fn whole(&self) -> bool {
         false
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
         crate::project::mp4::project(ir, description, url, copied, chunking)
     }
     /// Nothing to copy; refkv's plan of the file (`project::mp4::plan`) is made here, so that a run
     /// rejects a file with no track to zarrify before it is done, as the profile's other checks do.
-    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value, chunking: &crate::out::Chunking) -> Result<Vec<(u64, u64)>, String> {
+    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value, chunking: &crate::out::Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
         crate::project::mp4::plan(description, chunking)?;
         Ok(Vec::new())
     }
@@ -1660,17 +1662,17 @@ mod tests {
     fn a_group_longer_than_the_limit_fails() {
         let limit = rules::of("mp4").limit("max_group") as i64;
         let long: Vec<i64> = (0..limit + 2).collect();
-        assert!(gops(&long, &[0]).unwrap_err().starts_with("a group of pictures of"));
+        assert!(gops(&long, &[0]).unwrap_err().to_string().starts_with("a group of pictures of"));
     }
 
     #[test]
     fn a_first_sample_that_is_not_a_sync_sample_fails() {
-        assert_eq!(gops(&[0, 1], &[1]), Err("the first sample is not a sync sample".into()));
+        assert_eq!(gops(&[0, 1], &[1]), Err(Error::rejected("the first sample is not a sync sample")));
     }
 
     #[test]
     fn sync_samples_out_of_order_or_past_the_end_fail() {
-        let msg = Err("the sync samples do not increase, or one is past the last sample".into());
+        let msg = Err(Error::rejected("the sync samples do not increase, or one is past the last sample"));
         assert_eq!(gops(&[0, 1, 2], &[0, 2, 1]), msg);
         assert_eq!(gops(&[0, 1, 2], &[0, 1, 1]), msg);
         assert_eq!(gops(&[0, 1, 2], &[0, 3]), msg);
@@ -1678,7 +1680,7 @@ mod tests {
 
     #[test]
     fn two_samples_of_one_time_fail() {
-        assert_eq!(gops(&[0, 0], &[0]), Err("two samples share a presentation time".into()));
+        assert_eq!(gops(&[0, 0], &[0]), Err(Error::rejected("two samples share a presentation time")));
     }
 
     /// I0 P4 B1 | I3 P5: P4, decoded before I3, is presented after it.
@@ -1686,7 +1688,7 @@ mod tests {
     fn a_sample_before_a_sync_sample_presented_after_it_fails() {
         assert_eq!(
             gops(&[0, 4, 1, 3, 5], &[0, 3]),
-            Err("sample 1, before the sync sample 3 in decode order, is presented after it".into())
+            Err(Error::rejected("sample 1, before the sync sample 3 in decode order, is presented after it"))
         );
     }
 
@@ -1695,7 +1697,7 @@ mod tests {
     fn a_leading_picture_presented_before_the_sync_sample_before_fails() {
         assert_eq!(
             gops(&[2, 3, 5, 1, 4], &[0, 2]),
-            Err("sample 3, after the sync sample 2 in decode order, is presented before the sync sample 0".into())
+            Err(Error::rejected("sample 3, after the sync sample 2 in decode order, is presented before the sync sample 0"))
         );
     }
 
@@ -1706,7 +1708,7 @@ mod tests {
         let pts: Vec<i64> = (0..16).rev().collect();
         assert_eq!(
             gops(&pts, &[0, 4, 8, 12]),
-            Err("sample 0, before the sync sample 4 in decode order, is presented after it".into())
+            Err(Error::rejected("sample 0, before the sync sample 4 in decode order, is presented after it"))
         );
     }
 
@@ -1744,21 +1746,21 @@ mod tests {
     #[test]
     fn twenty_four_bit_pcm_has_no_data_type() {
         let e = Entry { typ: *b"in24", bits: 24, channels: 2, ..Default::default() };
-        assert_eq!(pcm_of(&e), Some(Err("24-bit PCM is not supported: the bytes codec has no data type for it".into())));
+        assert_eq!(pcm_of(&e), Some(Err(Error::rejected("24-bit PCM is not supported: the bytes codec has no data type for it"))));
     }
 
     #[test]
     fn an_ipcm_entry_without_its_pcmc_box_fails() {
         let e = Entry { typ: *b"ipcm", bits: 16, channels: 2, ..Default::default() };
-        assert_eq!(pcm_of(&e), Some(Err("an ipcm sample entry without a pcmC box".into())));
+        assert_eq!(pcm_of(&e), Some(Err(Error::rejected("an ipcm sample entry without a pcmC box"))));
     }
 
     #[test]
     fn non_interleaved_or_padded_lpcm_fails() {
         let e = Entry { typ: *b"lpcm", bits: 16, channels: 2, sound_version: 2, lpcm_flags: LPCM_SIGNED | LPCM_NON_INTERLEAVED, lpcm_packet: 4, ..Default::default() };
-        assert_eq!(pcm_of(&e), Some(Err("PCM whose channels are not interleaved is not supported".into())));
+        assert_eq!(pcm_of(&e), Some(Err(Error::rejected("PCM whose channels are not interleaved is not supported"))));
         let e = Entry { typ: *b"lpcm", bits: 24, channels: 2, sound_version: 2, lpcm_flags: LPCM_SIGNED, lpcm_packet: 8, ..Default::default() };
-        assert_eq!(pcm_of(&e), Some(Err("PCM of 8 bytes a frame, for 2 channels of 24 bits, is not supported".into())));
+        assert_eq!(pcm_of(&e), Some(Err(Error::rejected("PCM of 8 bytes a frame, for 2 channels of 24 bits, is not supported"))));
     }
 
     /// A fragment's sample is a sync sample unless its flags say it is not, or that it depends on

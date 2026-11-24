@@ -25,12 +25,12 @@ fn fixtures() -> PathBuf {
 
 /// Runs the NRRD store format on the header file `key` of `files` (by key), probing for a data
 /// file among them: (the output, the IR, the files the run made objects), or the rejection.
-fn run_files(key: &str, files: BTreeMap<String, Vec<u8>>) -> Result<Ran, String> {
+fn run_files(key: &str, files: BTreeMap<String, Vec<u8>>) -> refkv_ir::error::Res<Ran> {
     run_with_facts(key, files).map(|r| r.0)
 }
 
 /// As `run_files`, with the facts the parser gave its projection.
-fn run_with_facts(key: &str, mut files: BTreeMap<String, Vec<u8>>) -> Result<(Ran, J), String> {
+fn run_with_facts(key: &str, mut files: BTreeMap<String, Vec<u8>>) -> refkv_ir::error::Res<(Ran, J)> {
     let mut run = StoreRun::new(StoreFormat::Nrrd, vec![(key.to_string(), files[key].len() as u64)], 4)?;
     while let Some(reqs) = run.poll()? {
         if reqs.is_empty() {
@@ -52,7 +52,7 @@ fn run_with_facts(key: &str, mut files: BTreeMap<String, Vec<u8>>) -> Result<(Ra
 }
 
 /// Runs the fixture at `path`, its directory's files beside it.
-fn run(path: &Path) -> Result<Ran, String> {
+fn run(path: &Path) -> refkv_ir::error::Res<Ran> {
     run_files(path.file_name().unwrap().to_str().unwrap(), beside(path))
 }
 
@@ -123,11 +123,11 @@ fn check_input(path: &Path, files: &BTreeMap<String, Vec<u8>>, out: &Out, ir: &I
     let back = load(&table_from_out(out).unwrap(), &mut |_, _| Err("no source".into())).unwrap_or_else(|e| panic!("{path:?}: {e}"));
     assert_eq!(back.len(), ir.len(), "{path:?}");
     let bsrc = back.sources();
-    let mut read = |v: u64, n: u64| -> Result<Vec<u8>, String> {
+    let mut read = |v: u64, n: u64| -> refkv_ir::error::Res<Vec<u8>> {
         let (o, base) = bsrc.at(&back, v).ok_or("no object at that virtual offset")?;
         let x = (v - base) as usize;
         let b = &files[&back.key(o)];
-        b.get(x..x + n as usize).map(|s| s.to_vec()).ok_or_else(|| format!("[{x}, {}) runs past {:?}", x + n as usize, back.key(o)))
+        b.get(x..x + n as usize).map(|s| s.to_vec()).ok_or_else(|| refkv_ir::error::Error::Internal(format!("[{x}, {}) runs past {:?}", x + n as usize, back.key(o))))
     };
     assert_eq!(canonical_problem(&get, &mut read), None, "{path:?}");
     let keys: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
@@ -299,7 +299,7 @@ fn about_names_no_field_type_encoding_or_space() {
         (kinds.as_str(), "the kinds field \"domain about\" is not NRRD kinds"),
     ];
     for (lines, message) in cases {
-        assert_eq!(run_files("a.nrrd", input(lines)).err().as_deref(), Some(message), "{lines}");
+        assert_eq!(run_files("a.nrrd", input(lines)).err().map(String::from).as_deref(), Some(message), "{lines}");
     }
     assert!(run_files("a.nrrd", input(fields)).is_ok());
 }
@@ -336,7 +336,7 @@ fn a_header_longer_than_16_mib_without_a_blank_line_is_rejected() {
     }
     b.extend_from_slice(b"\n");
     let files = BTreeMap::from([("big.nrrd".to_string(), b)]);
-    assert_eq!(run_files("big.nrrd", files).err().as_deref(), Some("no blank line ends the NRRD header within its first 16777216 bytes"));
+    assert_eq!(run_files("big.nrrd", files).err().map(String::from).as_deref(), Some("no blank line ends the NRRD header within its first 16777216 bytes"));
 }
 
 #[test]
@@ -364,7 +364,7 @@ macro_rules! reject {
         #[test]
         fn $name() {
             match run(&fixtures().join($file)) {
-                Err(m) => assert!(m.starts_with($msg), "{m}"),
+                Err(m) => assert!(m.to_string().starts_with($msg), "{m}"),
                 Ok(_) => panic!("{} was accepted", $file),
             }
         }

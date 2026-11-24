@@ -9,6 +9,8 @@
 //! from the data (spec/zarrify/tiff.md §4.4
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>).
 
+use crate::error::Error;
+
 const CLEAR: u32 = 256;
 const EOI: u32 = 257;
 const FIRST: u32 = 258;
@@ -50,14 +52,14 @@ impl State {
         self.prev = None;
     }
     /// The output a code adds, and the table entry it defines (as the decoder does).
-    fn take(&mut self, code: u32) -> Result<u32, String> {
+    fn take(&mut self, code: u32) -> crate::error::Res<u32> {
         let (n, first) = if code < self.next {
             (self.length[code as usize], self.first[code as usize])
         } else if code == self.next && self.prev.is_some() {
             let p = self.prev.unwrap() as usize;
             (self.length[p] + 1, self.first[p])
         } else {
-            return Err(format!("invalid LZW code {code}"));
+            return Err(Error::rejected(format!("invalid LZW code {code}")));
         };
         if let Some(p) = self.prev {
             if self.next < MAX_CODE {
@@ -92,7 +94,7 @@ fn read(data: &[u8], bit: usize, width: u32) -> Option<u32> {
 /// reach `size` exactly (a code whose string crosses it, an end-of-information code before
 /// it, or a stream that ends first rejects); what follows the cut (the end-of-information
 /// code, or the malformed final code some scanners write) is not read.
-pub fn scan(data: &[u8], size: u64) -> Result<Cut, String> {
+pub fn scan(data: &[u8], size: u64) -> crate::error::Res<Cut> {
     let mut s = State::new();
     let mut bit = 0usize;
     let mut out: u64 = 0;
@@ -100,19 +102,19 @@ pub fn scan(data: &[u8], size: u64) -> Result<Cut, String> {
         return Ok(Cut { bit, width: s.width, next: s.next, has_prev: false });
     }
     loop {
-        let code = read(data, bit, s.width).ok_or("the LZW stream ends before the strip's size")?;
+        let code = read(data, bit, s.width).ok_or_else(|| Error::rejected("the LZW stream ends before the strip's size"))?;
         bit += s.width as usize;
         if code == CLEAR {
             s.clear();
             continue;
         }
         if code == EOI {
-            return Err("the LZW stream ends before the strip's size".into());
+            return Err(Error::rejected("the LZW stream ends before the strip's size"));
         }
         out += s.take(code)? as u64;
         if out >= size {
             if out > size {
-                return Err("an LZW code crosses the strip's size".into());
+                return Err(Error::rejected("an LZW code crosses the strip's size"));
             }
             return Ok(Cut { bit, width: s.width, next: s.next, has_prev: s.prev.is_some() });
         }
@@ -122,7 +124,7 @@ pub fn scan(data: &[u8], size: u64) -> Result<Cut, String> {
 /// Decodes `data` until its output reaches `size` bytes, as `scan` reads it (what follows is
 /// not read): the output. A stream that ends before `size`, or whose code crosses it, is an
 /// error.
-pub fn decode(data: &[u8], size: u64) -> Result<Vec<u8>, String> {
+pub fn decode(data: &[u8], size: u64) -> crate::error::Res<Vec<u8>> {
     let size = usize::try_from(size).map_err(|_| "a chunk too large to decode")?;
     let mut s = State::new();
     // each entry's string is its prefix entry's string and its last byte; `head` its first
@@ -132,14 +134,14 @@ pub fn decode(data: &[u8], size: u64) -> Result<Vec<u8>, String> {
     let mut out = Vec::with_capacity(size);
     let mut bit = 0usize;
     while out.len() < size {
-        let code = read(data, bit, s.width).ok_or("the LZW stream ends before the chunk's size")?;
+        let code = read(data, bit, s.width).ok_or_else(|| Error::rejected("the LZW stream ends before the chunk's size"))?;
         bit += s.width as usize;
         if code == CLEAR {
             s.clear();
             continue;
         }
         if code == EOI {
-            return Err("the LZW stream ends before the chunk's size".into());
+            return Err(Error::rejected("the LZW stream ends before the chunk's size"));
         }
         let (next, prev) = (s.next, s.prev);
         let n = s.take(code)? as usize;
@@ -152,7 +154,7 @@ pub fn decode(data: &[u8], size: u64) -> Result<Vec<u8>, String> {
         }
         let at = out.len();
         if at + n > size {
-            return Err("an LZW code crosses the chunk's size".into());
+            return Err(Error::rejected("an LZW code crosses the chunk's size"));
         }
         out.resize(at + n, 0);
         let mut c = code;
@@ -186,7 +188,7 @@ fn put(bits: &mut Vec<u8>, nbits: &mut usize, code: u32, width: u32) {
 /// decoder's own KwKwK rule), with a final code for the remainder, then the end code; every
 /// code at the width the decoder has when it reads it. Err when the chain of one code table
 /// (about 7.4 million zeros) cannot hold `zeros`.
-pub fn tail(data: &[u8], cut: Cut, zeros: u64) -> Result<(u64, Vec<u8>), String> {
+pub fn tail(data: &[u8], cut: Cut, zeros: u64) -> crate::error::Res<(u64, Vec<u8>)> {
     let prefix = (cut.bit / 8) as u64;
     let mut bits: Vec<u8> = Vec::new();
     let mut nbits = 0usize;
@@ -226,7 +228,7 @@ pub fn tail(data: &[u8], cut: Cut, zeros: u64) -> Result<(u64, Vec<u8>), String>
         }
     }
     if left >= n as u64 {
-        return Err(format!("{zeros} zero bytes are more than the codes of one LZW table hold"));
+        return Err(Error::rejected(format!("{zeros} zero bytes are more than the codes of one LZW table hold")));
     }
     if left > 0 {
         // a remainder shorter than the next entry: an entry of that length, which exists
@@ -382,25 +384,25 @@ mod tests {
     #[test]
     fn the_decoder_rejects_a_stream_shorter_than_the_size() {
         let e = encode(&sample(300));
-        assert!(decode(&e, 400).unwrap_err().contains("ends before"));
-        assert!(decode(&e[..20], 300).unwrap_err().contains("ends before"));
+        assert!(decode(&e, 400).unwrap_err().to_string().contains("ends before"));
+        assert!(decode(&e[..20], 300).unwrap_err().to_string().contains("ends before"));
     }
 
     #[test]
     fn the_decoder_rejects_a_code_that_crosses_the_size() {
         let e = encode(&std::iter::repeat_n(7u8, 1000).collect::<Vec<u8>>());
-        assert!(decode(&e, 999).unwrap_err().contains("crosses"));
+        assert!(decode(&e, 999).unwrap_err().to_string().contains("crosses"));
     }
 
     #[test]
     fn the_scan_rejects_short_and_crossing_streams() {
         let d = sample(300);
         let e = encode(&d);
-        assert!(scan(&e, 400).unwrap_err().contains("ends before"));
-        assert!(scan(&e[..20], 300).unwrap_err().contains("ends before"));
+        assert!(scan(&e, 400).unwrap_err().to_string().contains("ends before"));
+        assert!(scan(&e[..20], 300).unwrap_err().to_string().contains("ends before"));
         // a size that falls inside a multi-byte code
         let repeated: Vec<u8> = std::iter::repeat_n(7u8, 1000).collect();
         let e = encode(&repeated);
-        assert!(scan(&e, 999).unwrap_err().contains("crosses"));
+        assert!(scan(&e, 999).unwrap_err().to_string().contains("crosses"));
     }
 }

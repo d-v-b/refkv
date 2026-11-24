@@ -19,7 +19,7 @@ fn fixtures() -> PathBuf {
 }
 
 /// The output of the N5 format over a store in memory, with the recorded ignored keys.
-fn zarrify(files: &BTreeMap<String, Vec<u8>>, ignored: &[&str]) -> Result<(Out, refkv_ir::ir::Ir), String> {
+fn zarrify(files: &BTreeMap<String, Vec<u8>>, ignored: &[&str]) -> refkv_ir::error::Res<(Out, refkv_ir::ir::Ir)> {
     let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let mut r = refkv_ir::store::StoreRun::new(StoreFormat::N5, keys, 4)?;
@@ -33,7 +33,7 @@ fn entry(out: &Out) -> impl Fn(&str) -> Option<Vec<u8>> + '_ {
     |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone())
 }
 
-fn no_source(_: u64, _: u64) -> Result<Vec<u8>, String> {
+fn no_source(_: u64, _: u64) -> refkv_ir::error::Res<Vec<u8>> {
     Err("a store's mirror reads no source".into())
 }
 
@@ -103,7 +103,7 @@ fn rejected(store: &str) -> String {
     let files = walk(&fixtures().join(store));
     match zarrify(&files, &[]) {
         Ok(_) => panic!("{store} accepted"),
-        Err(e) => e,
+        Err(e) => e.to_string(),
     }
 }
 
@@ -125,7 +125,7 @@ fn a_document_over_16_mib_is_refused_before_it_is_read() {
     let mut files = walk(&fixtures().join("n5_hierarchy"));
     files.insert("big/attributes.json".into(), vec![b' '; (1 << 24) + 1]);
     let e = zarrify(&files, &[]).err().unwrap();
-    assert!(e.contains("big/attributes.json: JSON document of 16777217 bytes exceeds 16777216"), "{e}");
+    assert!(e.to_string().contains("big/attributes.json: JSON document of 16777217 bytes exceeds 16777216"), "{e}");
 }
 
 #[test]
@@ -133,7 +133,7 @@ fn a_scale_that_is_not_finite_is_refused() {
     let mut files = walk(&fixtures().join("n5_viewer_downsampling"));
     files.insert("g/attributes.json".into(), br#"{"pixelResolution": [1e300, 1e300], "scales": [[1, 1], [1e300, 2]]}"#.to_vec());
     let e = zarrify(&files, &[]).err().unwrap();
-    assert!(e.contains("g: a scale is not finite"), "{e}");
+    assert!(e.to_string().contains("g: a scale is not finite"), "{e}");
 }
 
 #[test]
@@ -148,7 +148,7 @@ fn a_candidate_inside_a_dataset_is_never_read() {
 fn compressed(c: &str) -> String {
     let doc = format!(r#"{{"dimensions": [4], "blockSize": [2], "dataType": "uint16", "compression": {c}}}"#);
     let files = BTreeMap::from([("attributes.json".to_string(), doc.into_bytes())]);
-    zarrify(&files, &[]).err().unwrap_or_default()
+    zarrify(&files, &[]).err().map(|e| e.to_string()).unwrap_or_default()
 }
 
 #[test]
@@ -182,7 +182,7 @@ fn a_node_at_refkv_source_is_refused_even_with_nothing_else_to_keep() {
         ("refkv_source/attributes.json".to_string(), b"{}".to_vec()),
     ]);
     let e = zarrify(&files, &[]).err().unwrap();
-    assert!(e.contains("the node refkv_source is where"), "{e}");
+    assert!(e.to_string().contains("the node refkv_source is where"), "{e}");
 }
 
 #[test]

@@ -5,6 +5,7 @@
 
 mod common;
 
+use refkv_ir::error::Error;
 use refkv_ir::grib::codec::{Config, decode, grid_shape};
 use refkv_ir::grib::sections::{Section, fields, indicator, sections};
 use std::path::Path;
@@ -98,7 +99,7 @@ fn every_field_of_every_fixture_decodes_to_eccodes_values() {
         }
         // and no more fields than those
         let past = decode(&message, &Config { field: want.len() }, &want[0].0).unwrap_err();
-        assert!(past.contains("was asked for"), "{name}: {past}");
+        assert!(past.to_string().contains("was asked for"), "{name}: {past}");
     }
     assert_eq!(checked, 79);
 }
@@ -110,7 +111,7 @@ fn section(message: &[u8], number: u8) -> Section {
 }
 
 fn error(message: &[u8], field: usize, shape: &[u64]) -> String {
-    decode(message, &Config { field }, shape).unwrap_err()
+    decode(message, &Config { field }, shape).unwrap_err().to_string()
 }
 
 #[test]
@@ -366,7 +367,7 @@ fn rejects_a_ccsds_stream_that_ends_early() {
 fn rejects_an_unknown_configuration_member() {
     assert_eq!(
         Config::from_json(&serde_json::json!({"field": 0, "north_up": true})).unwrap_err(),
-        "refkv.grib: the configuration has an unknown member \"north_up\""
+        Error::rejected("refkv.grib: the configuration has an unknown member \"north_up\"")
     );
 }
 
@@ -374,7 +375,7 @@ fn rejects_an_unknown_configuration_member() {
 fn rejects_a_field_that_is_not_a_non_negative_integer() {
     assert_eq!(
         Config::from_json(&serde_json::json!({"field": -1})).unwrap_err(),
-        "refkv.grib: the configuration's field is -1, not a non-negative integer"
+        Error::rejected("refkv.grib: the configuration's field is -1, not a non-negative integer")
     );
 }
 

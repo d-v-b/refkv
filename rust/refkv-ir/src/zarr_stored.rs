@@ -93,7 +93,7 @@ impl Layout {
     /// unit `units` gives, its indexes in the document's order and where its bytes are (a row's
     /// `element` or `ranges`, the rest of which this sets). A description whose storage it does
     /// not model has no rows.
-    pub fn describe(&self, element: u32, declarations: Vec<Place>, units: &[(Vec<u64>, Row)], into: &mut Described) -> Result<(), String> {
+    pub fn describe(&self, element: u32, declarations: Vec<Place>, units: &[(Vec<u64>, Row)], into: &mut Described) -> crate::error::Res<()> {
         let permute = |v: &[u64]| -> Vec<u64> {
             match &self.order {
                 Some(o) => o.iter().map(|&a| v[a as usize]).collect(),

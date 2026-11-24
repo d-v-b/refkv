@@ -5,6 +5,7 @@
 //! with its number type, dimension record and how its data is stored, a chunked element's chunks
 //! listed. It holds none of an output's decisions.
 
+use crate::error::Error;
 use super::{bad, text_json, vars_of, Acc, ChunkedHeader, Fail, Pass, Rd, Special, Stored, Vg, Vh, ATTRIBUTE, NDG, NT, R, SD, SDD, VERSION, VS};
 use crate::hdf5::file::hex;
 use serde_json::{json, Value as J};
@@ -179,7 +180,7 @@ fn stored_json(p: &mut Pass, st: Stored, linked: bool, chunks: bool, vhs: &BTree
 /// A chunked element `i`: its header (its length, chunk table, dimensions and fill value) and every
 /// chunk its table places, each its coordinates in the grid and how it is stored.
 fn chunked(p: &mut Pass, i: usize, vhs: &BTreeMap<u16, Vh>) -> R<J> {
-    let Special::Chunked(h) = p.special(i)? else { return Err(Fail::Bad("internal: a chunked element's header is not one".into())) };
+    let Special::Chunked(h) = p.special(i)? else { return Err(Fail::Bad(Error::internal("a chunked element's header is not one"))) };
     let what = p.what(i);
     let dims: Vec<J> = h.dims.iter().map(|d| json!({"flag": d.0, "length": d.1, "chunk": d.2})).collect();
     let mut chunks = Vec::new();
@@ -220,10 +221,10 @@ pub(super) fn chunk_rows(p: &mut Pass, i: usize, h: &ChunkedHeader, vhs: &BTreeM
     }
     let rows = vh.nvert as u64;
     if rows > p.limit("max_chunks") {
-        return bad(format!("budget: the chunk table ref {} of {what} has more than {} chunks", h.table, p.limit("max_chunks")));
+        return Err(Fail::Bad(Error::budget(format!("the chunk table ref {} of {what} has more than {} chunks", h.table, p.limit("max_chunks")))));
     }
     if rows * record > p.limit("chunk_table_bytes") {
-        return bad(format!("budget: the chunk table ref {} of {what} is more than {} bytes", h.table, p.limit("chunk_table_bytes")));
+        return Err(Fail::Bad(Error::budget(format!("the chunk table ref {} of {what} is more than {} bytes", h.table, p.limit("chunk_table_bytes")))));
     }
     let table = match p.stored(VS, h.table)? {
         Stored::Plain(l) if l.len >= rows * record => p.read(&l.prefix(rows * record))?,

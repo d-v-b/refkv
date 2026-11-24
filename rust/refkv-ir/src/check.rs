@@ -32,6 +32,8 @@
 //! once [`store_shape`] has checked that no leaf (nor run member) leaves its object. Tiles never
 //! join families of two objects, and the gaps `finish` adds go to the object they are in.
 
+use crate::error::Error;
+
 use crate::ir::*;
 
 #[derive(Debug, Clone)]
@@ -234,10 +236,10 @@ fn pieces(ir: &Ir, src: &Sources, mut a: u64, mut n: u64) -> Res<Vec<(u32, u64, 
     }
     let mut v = Vec::new();
     while n > 0 {
-        let (o, b) = src.at(ir, a).ok_or(format!("virtual byte {a} is in no object"))?;
+        let (o, b) = src.at(ir, a).ok_or_else(|| Error::rejected(format!("virtual byte {a} is in no object")))?;
         let end = b + ir.len[o as usize];
         if a >= end {
-            return Err(format!("virtual byte {a} is in no object"));
+            return Err(Error::rejected(format!("virtual byte {a} is in no object")));
         }
         let m = n.min(end - a);
         v.push((o, a - b, m));
@@ -267,36 +269,36 @@ pub fn store_shape(ir: &Ir) -> Res<()> {
     let n = ir.len();
     if !ir.store {
         if let Some(i) = (0..n).find(|&i| ir.kind[i] == OBJECT) {
-            return Err(format!("{} is an object, in a file IR", who(ir, i as u32)));
+            return Err(Error::rejected(format!("{} is an object, in a file IR", who(ir, i as u32))));
         }
         return Ok(());
     }
     let src = ir.sources();
     if src.objects.len() as u64 != ir.objects {
-        return Err(format!("the store IR has {} objects, its description {}", src.objects.len(), ir.objects));
+        return Err(Error::rejected(format!("the store IR has {} objects, its description {}", src.objects.len(), ir.objects)));
     }
     if src.objects.len() as u64 > MAX_OBJECTS {
-        return Err(format!("budget: more than {MAX_OBJECTS} objects"));
+        return Err(Error::budget(format!("more than {MAX_OBJECTS} objects")));
     }
     for i in 1..n {
         let o = src.of[i];
         let (k, iu) = (ir.kind[i], i as u32);
         if ir.parent[i] == NONE || ir.parent[i] as usize >= i {
-            return Err(format!("{} has parent {}", who(ir, iu), ir.parent[i]));
+            return Err(Error::rejected(format!("{} has parent {}", who(ir, iu), ir.parent[i])));
         }
         if k == OBJECT {
             let p = ir.parent[i] as usize;
             if src.of[p] != NONE {
-                return Err(format!("{} is inside object {:?}", who(ir, iu), ir.key(src.of[p])));
+                return Err(Error::rejected(format!("{} is inside object {:?}", who(ir, iu), ir.key(src.of[p]))));
             }
             if ir.start[i] != 0 || ir.space[i] != 0 || ir.run(iu).is_some() {
-                return Err(format!("{} does not span its source (extent ({}, {}), space {})", who(ir, iu), ir.start[i], ir.len[i], ir.space[i]));
+                return Err(Error::rejected(format!("{} does not span its source (extent ({}, {}), space {})", who(ir, iu), ir.start[i], ir.len[i], ir.space[i])));
             }
             continue;
         }
         if o == NONE {
             if k != STRUCT || ir.len[i] != 0 || ir.space[i] != 0 || ir.run(iu).is_some() {
-                return Err(format!("{} is outside every object of the store, and is not a directory", who(ir, iu)));
+                return Err(Error::rejected(format!("{} is outside every object of the store, and is not a directory", who(ir, iu))));
             }
             continue;
         }
@@ -305,12 +307,12 @@ pub fn store_shape(ir: &Ir) -> Res<()> {
         }
         let size = ir.len[o as usize];
         if size == 0 {
-            return Err(format!("{} has a length in the empty object {:?}", who(ir, iu), ir.key(o)));
+            return Err(Error::rejected(format!("{} has a length in the empty object {:?}", who(ir, iu), ir.key(o))));
         }
         let (count, stride) = ir.run(iu).unwrap_or((1, 0));
         let end = (count - 1).checked_mul(stride).and_then(|x| x.checked_add(ir.start[i])).and_then(|x| x.checked_add(ir.len[i]));
         if end.is_none_or(|e| e > size) {
-            return Err(format!("{} claims bytes past the end of object {:?} ({size} bytes)", who(ir, iu), ir.key(o)));
+            return Err(Error::rejected(format!("{} claims bytes past the end of object {:?} ({size} bytes)", who(ir, iu), ir.key(o))));
         }
     }
     // a run's members below its root lie in the root's object, as the root does
@@ -344,9 +346,7 @@ fn items(ir: &Ir, lay: &Layout, blocks: &[bool], limit: u64, rank: Option<&[u32]
             let (_, stride) = ir.run(f.root).unwrap();
             expanded += f.count * f.ext.len() as u64;
             if expanded > limit {
-                return Err(format!(
-                    "budget: more than {limit} leaves of runs to check one by one"
-                ));
+                return Err(Error::budget(format!("more than {limit} leaves of runs to check one by one")));
             }
             for j in 0..f.count {
                 for &(s, n, id) in &f.ext {
@@ -427,7 +427,7 @@ pub fn runs(ir: &Ir) -> Res<()> {
             let Some(&above) = within.get(p as usize) else { continue };
             let outer = if ir.run(p).is_some() { p } else { above };
             if outer != NONE && ir.run(i as u32).is_some() {
-                return Err(format!("the run at row {i} is inside the run at row {outer}"));
+                return Err(Error::rejected(format!("the run at row {i} is inside the run at row {outer}")));
             }
             within[i] = outer;
         }
@@ -444,14 +444,14 @@ pub fn runs(ir: &Ir) -> Res<()> {
             _ if ir.space[i] != 0 => "an element in a derived space",
             _ => continue,
         };
-        return Err(format!("the run at row {r} holds {what} (row {i})"));
+        return Err(Error::rejected(format!("the run at row {r} holds {what} (row {i})")));
     }
     // a table's rows; of a parser's IR, those outside derived spaces, as `mirror::mirror` counts
     // them before canonical form leaves derived descendants out
     let limit = expansion_limit(ir);
     let rows = if ir.loaded { n as u64 } else { ir.space.iter().filter(|&&d| d == 0).count() as u64 };
     if rows.saturating_add(ir.run_rows()) > limit {
-        return Err(format!("budget: more than {limit} rows"));
+        return Err(Error::budget(format!("more than {limit} rows")));
     }
     Ok(())
 }
@@ -465,7 +465,7 @@ pub fn finish(ir: &mut Ir) -> Res<()> {
     loop {
         rounds += 1;
         if rounds > 64 {
-            return Err("finish: too many runs to unfold".into());
+            return Err(Error::rejected("finish: too many runs to unfold"));
         }
         let lay = layout(ir);
         if let Some(&r) = lay.bad.first() {
@@ -569,10 +569,9 @@ pub fn finish(ir: &mut Ir) -> Res<()> {
 fn sweep(ir: &Ir) -> Res<(Vec<(u64, u64, u32, What)>, Sources)> {
     let lay = layout(ir);
     if let Some(&r) = lay.bad.first() {
-        return Err(format!(
-            "the members of run {} overlap one another",
+        return Err(Error::rejected(format!("the members of run {} overlap one another",
             who(ir, r)
-        ));
+        )));
     }
     let blocks: Vec<bool> = lay.tiles.iter().map(|t| t.complete().is_some()).collect();
     Ok((items(ir, &lay, &blocks, expansion_limit(ir), None)?, lay.src))
@@ -595,34 +594,33 @@ fn who_member(ir: &Ir, i: u32, j: u64) -> String {
 pub fn names(ir: &Ir) -> Res<()> {
     let n = ir.len();
     if n == 0 {
-        return Err("the IR has no root (element 0)".into());
+        return Err(Error::rejected("the IR has no root (element 0)"));
     }
     let kind = ir.kind[0];
     if kind != STRUCT {
         let k = KINDS.get(kind as usize).copied().unwrap_or("element of no kind");
-        return Err(format!("the root (element 0) is a {k}, not a struct"));
+        return Err(Error::rejected(format!("the root (element 0) is a {k}, not a struct")));
     }
     let name = ir.names.get(ir.name[0]);
     if !name.is_empty() {
-        return Err(format!("the root (element 0) is named {name:?}, not \"\""));
+        return Err(Error::rejected(format!("the root (element 0) is named {name:?}, not \"\"")));
     }
     if ir.nidx[0] != NO_INDEX {
-        return Err(format!("the root (element 0) has the name index {}", ir.nidx[0]));
+        return Err(Error::rejected(format!("the root (element 0) has the name index {}", ir.nidx[0])));
     }
     if ir.space[0] != 0 {
-        return Err(format!("the root (element 0) is in space {}, not 0", ir.space[0]));
+        return Err(Error::rejected(format!("the root (element 0) is in space {}, not 0", ir.space[0])));
     }
     if ir.store && (ir.start[0], ir.len[0]) != (0, 0) {
-        return Err(format!("the root's extent is ({}, {}): a store's root has none", ir.start[0], ir.len[0]));
+        return Err(Error::rejected(format!("the root's extent is ({}, {}): a store's root has none", ir.start[0], ir.len[0])));
     }
     if !ir.store && (ir.start[0], ir.len[0]) != (0, ir.size) {
-        return Err(format!(
-            "the root's extent is ({}, {}), not (0, {}): the root spans the source",
+        return Err(Error::rejected(format!("the root's extent is ({}, {}), not (0, {}): the root spans the source",
             ir.start[0], ir.len[0], ir.size
-        ));
+        )));
     }
     if ir.run(0).is_some() {
-        return Err("the root (element 0) is a run".into());
+        return Err(Error::rejected("the root (element 0) is a run"));
     }
     // a guard for a caller that has not checked `runs` (which bounds the members, among the rows
     // they expand to), not a rejection of its own: `check` and `canonical` never reach it
@@ -635,7 +633,7 @@ pub fn names(ir: &Ir) -> Res<()> {
         let (count, _) = ir.run(i).unwrap_or((1, 0));
         extra = extra.saturating_add(count.saturating_sub(1));
         if extra > limit {
-            return Err(format!("budget: more than {limit} members of runs to name"));
+            return Err(Error::budget(format!("more than {limit} members of runs to name")));
         }
         for j in 0..count.max(1) {
             let full = if j == 0 {
@@ -647,7 +645,7 @@ pub fn names(ir: &Ir) -> Res<()> {
                 }
             };
             if full.is_empty() {
-                return Err(format!("{} has an empty full name", who_member(ir, i, j)));
+                return Err(Error::rejected(format!("{} has an empty full name", who_member(ir, i, j))));
             }
             v.push((ir.parent[iu], full, i, j));
         }
@@ -664,21 +662,19 @@ pub fn names(ir: &Ir) -> Res<()> {
         for k in 0..group.len() {
             let (_, f, i, j) = &group[k];
             if let Some((_, g, i2, j2)) = group.get(k + 1).filter(|e| &e.1 == f) {
-                return Err(format!(
-                    "{} and {} have one path, {:?}",
+                return Err(Error::rejected(format!("{} and {} have one path, {:?}",
                     who_member(ir, *i, *j),
                     who_member(ir, *i2, *j2),
                     path(p, g)
-                ));
+                )));
             }
             let key = format!("{f}/");
             let at = group.partition_point(|e| e.1.as_str() < key.as_str());
             if let Some((_, g, i2, j2)) = group.get(at).filter(|e| e.1.starts_with(&key)) {
-                return Err(format!(
-                    "the full name {g:?} of {} starts with that of its sibling {} and \"/\"",
+                return Err(Error::rejected(format!("the full name {g:?} of {} starts with that of its sibling {} and \"/\"",
                     who_member(ir, *i2, *j2),
                     who_member(ir, *i, *j)
-                ));
+                )));
             }
         }
         a = b;
@@ -696,7 +692,7 @@ pub fn check(ir: &Ir) -> Res<()> {
     for i in 0..n {
         let p = ir.parent[i];
         if (i == 0) != (p == NONE) || (p != NONE && p as usize >= i) {
-            return Err(format!("{} has parent {p}", who(ir, i as u32)));
+            return Err(Error::rejected(format!("{} has parent {p}", who(ir, i as u32))));
         }
         if ir.kind[i] == ALIAS {
             let mut seen = 0;
@@ -707,11 +703,10 @@ pub fn check(ir: &Ir) -> Res<()> {
             }
             let left_out = ir.loaded && j == NONE && seen < 64;
             if !left_out && (j == NONE || j as usize >= n || seen >= 64) {
-                return Err(format!(
-                    "{} names no element (target {})",
+                return Err(Error::rejected(format!("{} names no element (target {})",
                     who(ir, i as u32),
                     ir.target(i as u32)
-                ));
+                )));
             }
         }
     }
@@ -726,35 +721,31 @@ pub fn check(ir: &Ir) -> Res<()> {
             continue;
         }
         if e > ir.size {
-            return Err(format!(
-                "{} claims [{s}, {e}), outside [0, {})",
+            return Err(Error::rejected(format!("{} claims [{s}, {e}), outside [0, {})",
                 who(ir, id),
                 ir.size
-            ));
+            )));
         }
         if s < pos {
-            return Err(format!(
-                "{} are claimed by {} and {}",
+            return Err(Error::rejected(format!("{} are claimed by {} and {}",
                 bytes_text(ir, &src, s, pos.min(e)),
                 who(ir, last),
                 who(ir, id)
-            ));
+            )));
         }
         if s > pos {
-            return Err(format!(
-                "{} are claimed by no element (next: {})",
+            return Err(Error::rejected(format!("{} are claimed by no element (next: {})",
                 bytes_text(ir, &src, pos, s),
                 who(ir, id)
-            ));
+            )));
         }
         pos = e;
         last = id;
     }
     if pos != ir.size {
-        return Err(format!(
-            "{} are claimed by no element",
+        return Err(Error::rejected(format!("{} are claimed by no element",
             bytes_text(ir, &src, pos, ir.size)
-        ));
+        )));
     }
     check_derived(ir)
 }
@@ -791,21 +782,19 @@ fn check_derived(ir: &Ir) -> Res<()> {
         let mut pos = 0;
         for (s, n, id) in v {
             if s != pos {
-                return Err(format!(
-                    "derived bytes [{}, {}) of {}: claimed twice or by no element (at {})",
+                return Err(Error::rejected(format!("derived bytes [{}, {}) of {}: claimed twice or by no element (at {})",
                     pos.min(s),
                     pos.max(s),
                     who(ir, i),
                     who(ir, id)
-                ));
+                )));
             }
             pos = s + n;
         }
         if pos != size {
-            return Err(format!(
-                "derived bytes [{pos}, {size}) of {} are claimed by no element",
+            return Err(Error::rejected(format!("derived bytes [{pos}, {size}) of {} are claimed by no element",
                 who(ir, i)
-            ));
+            )));
         }
     }
     Ok(())

@@ -6,6 +6,7 @@
 
 mod common;
 
+use refkv_ir::error::Error;
 use common::{listing, walk};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -25,7 +26,7 @@ fn entry(out: &Out) -> impl Fn(&str) -> Option<Vec<u8>> + '_ {
 }
 
 /// The directory form's output (mirrored), its IR, or the rejection.
-fn directory(files: &BTreeMap<String, Vec<u8>>) -> Result<(Out, Ir), String> {
+fn directory(files: &BTreeMap<String, Vec<u8>>) -> refkv_ir::error::Res<(Out, Ir)> {
     let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let (ir, facts, stats, read) = run_store(StoreFormat::Safe, keys, &|k| bytes[k].clone())?;
@@ -33,7 +34,7 @@ fn directory(files: &BTreeMap<String, Vec<u8>>) -> Result<(Out, Ir), String> {
 }
 
 /// The zip form's output (mirrored), its IR, or the rejection.
-fn zip(data: &[u8]) -> Result<(Out, Ir), String> {
+fn zip(data: &[u8]) -> refkv_ir::error::Res<(Out, Ir)> {
     let (ir, facts, stats) = run_bytes(Format::Safe, data)?;
     Ok((output(Format::Safe, &ir, &facts, &serde_json::json!({}), stats, "https://example.org/p.SAFE.zip", true, &Default::default(), &refkv_ir::run::Options { written: true, ..Default::default() })?, ir))
 }
@@ -55,11 +56,11 @@ fn check_directory(path: &Path, files: &BTreeMap<String, Vec<u8>>, out: &Out, ir
     let src = back.sources();
     let jp2 = src.objects.iter().filter(|&&o| back.in_place(o)).count();
     assert!(jp2 > 0 && src.objects.iter().all(|&o| back.kind[o as usize] == OBJECT), "{path:?}");
-    let mut read = |v: u64, n: u64| -> Result<Vec<u8>, String> {
+    let mut read = |v: u64, n: u64| -> refkv_ir::error::Res<Vec<u8>> {
         let (o, base) = src.at(&back, v).ok_or("no object at that virtual offset")?;
         let x = v - base;
         if x + n > back.len[o as usize] {
-            return Err(format!("[{x}, {}) runs past {:?}", x + n, back.key(o)));
+            return Err(Error::Internal(format!("[{x}, {}) runs past {:?}", x + n, back.key(o))));
         }
         Ok(files[&back.key(o)][x as usize..(x + n) as usize].to_vec())
     };
@@ -71,7 +72,7 @@ fn check_directory(path: &Path, files: &BTreeMap<String, Vec<u8>>, out: &Out, ir
 fn check_zip(path: &Path, data: &[u8], out: &Out, ir: &Ir) {
     check::check(ir).unwrap_or_else(|m| panic!("{path:?}: {m}"));
     let get = entry(out);
-    let mut read = |o: u64, n: u64| -> Result<Vec<u8>, String> { Ok(data[o as usize..(o + n) as usize].to_vec()) };
+    let mut read = |o: u64, n: u64| -> refkv_ir::error::Res<Vec<u8>> { Ok(data[o as usize..(o + n) as usize].to_vec()) };
     let back = load(&table_from_out(out).unwrap(), &mut read).unwrap();
     let mut rebuilt = Vec::new();
     for (o, n) in check::leaves(&back).unwrap() {
@@ -164,7 +165,7 @@ macro_rules! reject {
                 zip(&std::fs::read(&path).unwrap()).map(|_| ())
             };
             match got {
-                Err(m) => assert_eq!(m, $msg),
+                Err(m) => assert_eq!(m.to_string(), $msg),
                 Ok(_) => panic!("{} was accepted", $file),
             }
         }
@@ -183,7 +184,7 @@ fn a_value_the_view_shows_unread_in_an_object_described_in_place_is_refused() {
     check::finish(&mut ir).unwrap();
     let mut out = Out::new("https://example.org/s/");
     let e = refkv_ir::mirror::mirror(&ir, &mut out, "safe").unwrap_err();
-    assert!(e.contains("described in place, was not read"), "{e}");
+    assert!(e.to_string().contains("described in place, was not read"), "{e}");
 }
 
 #[test]
@@ -214,6 +215,6 @@ fn a_band_file_whose_main_header_passes_64_kib_is_refused_near_the_bound() {
             Err(e) => break e,
         }
     };
-    assert_eq!(e, "a band file's main header is more than 65536 bytes");
+    assert_eq!(e, Error::rejected("a band file's main header is more than 65536 bytes"));
     assert!(r.bytes <= 3 << 16, "{} bytes read of {}", r.bytes, f.len());
 }

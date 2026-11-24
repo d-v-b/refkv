@@ -8,6 +8,8 @@
 //! description and the IR the parser made, before the IR is finished: it reads no byte the parser did
 //! not.
 
+use crate::error::Error;
+
 use super::{card, field_of, parse_card, parse_cards, str_of, tile_at, Card, Value, CARD};
 use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Grid, Param, Place, Row, StoredArray};
 use crate::fed::Word;
@@ -228,7 +230,7 @@ impl Built {
         self.arrays.push(described);
         // the tiles, from the table's rows, each in its chunk of the heap
         let Some(table) = table() else {
-            return if rows == 0 { Ok(()) } else { Err(format!("internal: HDU {}'s tile table is not held", h["index"])) };
+            return if rows == 0 { Ok(()) } else { Err(Error::internal(format!("HDU {}'s tile table is not held", h["index"]))) };
         };
         let mut chunks: Vec<(u64, u64, u32)> = Vec::new();
         for ch in c["chunks"].as_array().into_iter().flatten() {
@@ -246,12 +248,12 @@ impl Built {
             // the chunk whose element holds the tile
             let k = chunks.partition_point(|&(first, _, _)| first <= r);
             let Some(&(_, _, e)) = k.checked_sub(1).and_then(|k| chunks.get(k)).filter(|&&(first, count, _)| r < first + count) else {
-                return Err(format!("internal: HDU {}'s tile {r} is in no chunk of its heap", h["index"]));
+                return Err(Error::internal(format!("HDU {}'s tile {r} is in no chunk of its heap", h["index"])));
             };
             let (start, length) = (ir.start[e as usize], ir.len[e as usize]);
             let at = (heap + o).checked_sub(start).filter(|at| at + n <= length);
             let Some(at) = at else {
-                return Err(format!("internal: HDU {}'s tile {r} is outside its chunk of the heap", h["index"]));
+                return Err(Error::internal(format!("HDU {}'s tile {r} is outside its chunk of the heap", h["index"])));
             };
             // a tile that is all of its element is the element (spec/stored-array.md §4.2
             // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#42-rows>): the
@@ -287,7 +289,7 @@ pub(super) fn described(ir: &Ir, hdus: &[J]) -> Res<(Vec<StoredArray>, Vec<Chain
         let heap = size(&t["heap"]);
         if h["compression"].is_null() {
             if h["kind"] == "image" {
-                return Err(format!("internal: HDU {}'s tile table was not read", h["index"]));
+                return Err(Error::internal(format!("HDU {}'s tile table was not read", h["index"])));
             }
             // a table: its rows, then its heap. An ASCII table's row is NAXIS1 characters, which
             // its fields need not fill
@@ -297,7 +299,7 @@ pub(super) fn described(ir: &Ir, hdus: &[J]) -> Res<(Vec<StoredArray>, Vec<Chain
         }
         // a tile-compressed image: its pixels, then its table's rows and heap. The heap is in
         // elements of tiles, so it is a range of its HDU
-        let raw = ir.value_bytes(key).ok_or("internal: a header is not held")?;
+        let raw = ir.value_bytes(key).ok_or_else(|| Error::internal("a header is not held"))?;
         let records = (size(&h["cards"]) as usize).min(raw.len() / CARD);
         let fields = fields_fill_rows(t);
         b.tiled(ir, h, key, (&parse_cards(raw, records), raw, records), fields)?;

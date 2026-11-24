@@ -4,6 +4,8 @@
 //! the Zarr data type of its `descr` (§3
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#3-data-types>).
 
+use crate::error::Error;
+
 use crate::rules::Rules;
 use serde_json::{json, Map, Value as J};
 
@@ -99,7 +101,7 @@ impl P<'_> {
         }
     }
 
-    fn expect(&mut self, c: char) -> Result<(), String> {
+    fn expect(&mut self, c: char) -> crate::error::Res<()> {
         if self.eat(c) {
             Ok(())
         } else {
@@ -107,11 +109,11 @@ impl P<'_> {
         }
     }
 
-    fn wanted(&self, what: &str) -> String {
-        match self.peek() {
+    fn wanted(&self, what: &str) -> Error {
+        Error::Rejected(match self.peek() {
             Some(c) => format!("{what} expected at character {}, not {c:?}", self.i),
             None => format!("{what} expected at character {}, at the end", self.i),
-        }
+        })
     }
 
     fn word(&mut self, w: &str) -> bool {
@@ -124,14 +126,14 @@ impl P<'_> {
         }
     }
 
-    fn value(&mut self) -> Result<Lit, String> {
+    fn value(&mut self) -> crate::error::Res<Lit> {
         self.ws();
         match self.peek() {
             Some('\'') | Some('"') => self.string().map(Lit::Str),
             Some(c) if c.is_ascii_digit() => {
                 let mut v: u128 = 0;
                 while let Some(d) = self.peek().and_then(|c| c.to_digit(10)) {
-                    v = v.checked_mul(10).and_then(|v| v.checked_add(d as u128)).ok_or("an integer past 2^128")?;
+                    v = v.checked_mul(10).and_then(|v| v.checked_add(d as u128)).ok_or_else(|| Error::rejected("an integer past 2^128"))?;
                     self.i += 1;
                 }
                 // a Python 2 long, as files written by Python 2 have them (NumPy reads them)
@@ -145,7 +147,7 @@ impl P<'_> {
                 let (items, comma) = self.items(')')?;
                 // `(x)` is x in Python, not a tuple
                 if items.len() == 1 && !comma {
-                    return Err(format!("a tuple of one value without its comma, before character {}", self.i));
+                    return Err(Error::rejected(format!("a tuple of one value without its comma, before character {}", self.i)));
                 }
                 Ok(Lit::Tuple(items))
             }
@@ -160,7 +162,7 @@ impl P<'_> {
     }
 
     /// The values up to `close`, and whether the last is followed by a comma.
-    fn items(&mut self, close: char) -> Result<(Vec<Lit>, bool), String> {
+    fn items(&mut self, close: char) -> crate::error::Res<(Vec<Lit>, bool)> {
         let mut out = Vec::new();
         let mut comma = false;
         loop {
@@ -175,24 +177,24 @@ impl P<'_> {
         }
     }
 
-    fn string(&mut self) -> Result<String, String> {
+    fn string(&mut self) -> crate::error::Res<String> {
         let q = self.s[self.i];
         self.i += 1;
         let mut out = String::new();
         loop {
-            let Some(c) = self.peek() else { return Err("a string without its closing quote".into()) };
+            let Some(c) = self.peek() else { return Err(Error::rejected("a string without its closing quote")) };
             self.i += 1;
             match c {
                 _ if c == q => return Ok(out),
-                '\n' | '\r' => return Err("a line break in a string".into()),
+                '\n' | '\r' => return Err(Error::rejected("a line break in a string")),
                 '\\' => {
-                    let Some(e) = self.peek() else { return Err("a string without its closing quote".into()) };
+                    let Some(e) = self.peek() else { return Err(Error::rejected("a string without its closing quote")) };
                     self.i += 1;
-                    let hex = |p: &mut Self, n: usize| -> Result<char, String> {
-                        let digits: String = p.s.get(p.i..p.i + n).ok_or("a short escape")?.iter().collect();
+                    let hex = |p: &mut Self, n: usize| -> crate::error::Res<char> {
+                        let digits: String = p.s.get(p.i..p.i + n).ok_or_else(|| Error::rejected("a short escape"))?.iter().collect();
                         p.i += n;
                         u32::from_str_radix(&digits, 16).ok().filter(|_| digits.chars().all(|d| d.is_ascii_hexdigit()))
-                            .and_then(char::from_u32).ok_or_else(|| format!("the escape of {digits:?} is not a character"))
+                            .and_then(char::from_u32).ok_or_else(|| Error::rejected(format!("the escape of {digits:?} is not a character")))
                     };
                     out.push(match e {
                         '\\' | '\'' | '"' => e,
@@ -202,7 +204,7 @@ impl P<'_> {
                         'x' => hex(self, 2)?,
                         'u' => hex(self, 4)?,
                         'U' => hex(self, 8)?,
-                        _ => return Err(format!("the escape \\{e} in a string")),
+                        _ => return Err(Error::rejected(format!("the escape \\{e} in a string"))),
                     });
                 }
                 _ => out.push(c),
@@ -212,7 +214,7 @@ impl P<'_> {
 }
 
 /// The header text's dictionary, and its three members (the problem when it is not one).
-pub fn parse(text: &str, max_rank: usize) -> Result<Header, String> {
+pub fn parse(text: &str, max_rank: usize) -> crate::error::Res<Header> {
     let chars: Vec<char> = text.chars().collect();
     let mut p = P { s: &chars, i: 0 };
     p.expect('{')?;
@@ -233,41 +235,41 @@ pub fn parse(text: &str, max_rank: usize) -> Result<Header, String> {
         p.expect(':')?;
         let v = p.value()?;
         if members.iter().any(|(m, _)| *m == k) {
-            return Err(format!("the key {k:?} twice"));
+            return Err(Error::rejected(format!("the key {k:?} twice")));
         }
         members.push((k, v));
         comma = p.eat(',');
     }
     p.ws();
     if p.i != chars.len() {
-        return Err(format!("text after the dictionary, at character {}", p.i));
+        return Err(Error::rejected(format!("text after the dictionary, at character {}", p.i)));
     }
     let mut keys: Vec<&str> = members.iter().map(|(k, _)| k.as_str()).collect();
     keys.sort_unstable();
     if keys != ["descr", "fortran_order", "shape"] {
-        return Err(format!("its keys are {keys:?}, not descr, fortran_order and shape"));
+        return Err(Error::rejected(format!("its keys are {keys:?}, not descr, fortran_order and shape")));
     }
     let get = |k: &str| members.iter().find(|(m, _)| m == k).map(|(_, v)| v.clone()).unwrap();
     let fortran_order = match get("fortran_order") {
         Lit::Bool(b) => b,
-        v => return Err(format!("fortran_order is {}, not True or False", v.repr())),
+        v => return Err(Error::rejected(format!("fortran_order is {}, not True or False", v.repr()))),
     };
     let shape = match get("shape") {
         Lit::Tuple(v) => v
             .iter()
             .map(|d| match d {
-                Lit::Int(i) => u64::try_from(*i).map_err(|_| format!("a size of {i} in shape")),
-                other => Err(format!("{} in shape, not an integer", other.repr())),
+                Lit::Int(i) => u64::try_from(*i).map_err(|_| Error::Rejected(format!("a size of {i} in shape"))),
+                other => Err(Error::rejected(format!("{} in shape, not an integer", other.repr()))),
             })
-            .collect::<Result<Vec<u64>, String>>()?,
-        v => return Err(format!("shape is {}, not a tuple", v.repr())),
+            .collect::<crate::error::Res<Vec<u64>>>()?,
+        v => return Err(Error::rejected(format!("shape is {}, not a tuple", v.repr()))),
     };
     if shape.len() > max_rank {
-        return Err(format!("a shape of {} axes, more than {max_rank}", shape.len()));
+        return Err(Error::rejected(format!("a shape of {} axes, more than {max_rank}", shape.len())));
     }
     let descr = get("descr");
     if !matches!(descr, Lit::Str(_) | Lit::List(_)) {
-        return Err(format!("descr is {}, not a string or a list", descr.repr()));
+        return Err(Error::rejected(format!("descr is {}, not a string or a list", descr.repr())));
     }
     Ok(Header { descr, fortran_order, shape })
 }
@@ -288,59 +290,59 @@ pub struct Dtype {
 
 /// The byte order a type string's first character gives: `<` Some(true), `>` Some(false), `|`
 /// None; any other is a problem.
-fn order(c: char) -> Result<Option<bool>, String> {
+fn order(c: char) -> crate::error::Res<Option<bool>> {
     match c {
         '<' => Ok(Some(true)),
         '>' => Ok(Some(false)),
         '|' => Ok(None),
-        _ => Err(format!("its byte order {c:?} is not <, > or |")),
+        _ => Err(Error::rejected(format!("its byte order {c:?} is not <, > or |"))),
     }
 }
 
 /// A type string's data type, `scalar` restricting it to the numbers, booleans, datetimes and
 /// timedeltas a structure's fields may be.
-fn simple(rules: &Rules, s: &str, scalar: bool) -> Result<Dtype, String> {
+fn simple(rules: &Rules, s: &str, scalar: bool) -> crate::error::Res<Dtype> {
     let mut chars = s.chars();
-    let Some(first) = chars.next() else { return Err("an empty type string".into()) };
+    let Some(first) = chars.next() else { return Err(Error::rejected("an empty type string")) };
     let o = order(first)?;
     let rest = chars.as_str();
     if let Some(why) = rules.entry("unsupported", rest).and_then(J::as_str) {
-        return Err(why.to_string());
+        return Err(Error::rejected(why));
     }
     let kind: String = rest.chars().take_while(|c| c.is_ascii_alphabetic()).collect();
     let after = &rest[kind.len()..];
     let digits: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
     let unit = &after[digits.len()..];
     let size: u64 = digits.parse().map_err(|_| format!("{s:?} is not a NumPy type string"))?;
-    let need_order = |o: Option<bool>, item: u64| -> Result<Option<bool>, String> {
+    let need_order = |o: Option<bool>, item: u64| -> crate::error::Res<Option<bool>> {
         if item > 1 && o.is_none() {
-            return Err("a type of more than one byte with no byte order".into());
+            return Err(Error::rejected("a type of more than one byte with no byte order"));
         }
         Ok(if item > 1 { o } else { None })
     };
     match kind.as_str() {
         "M" | "m" if size == 8 => {
             let name = if kind == "M" { "numpy.datetime64" } else { "numpy.timedelta64" };
-            let inner = unit.strip_prefix('[').and_then(|u| u.strip_suffix(']')).ok_or("a datetime or timedelta without a unit")?;
+            let inner = unit.strip_prefix('[').and_then(|u| u.strip_suffix(']')).ok_or_else(|| Error::rejected("a datetime or timedelta without a unit"))?;
             let k: String = inner.chars().take_while(|c| c.is_ascii_digit()).collect();
             let u = &inner[k.len()..];
             let scale: u64 = if k.is_empty() { 1 } else { k.parse().map_err(|_| "a unit's multiple past 2^64")? };
             if rules.entry("units", u).is_none() || scale == 0 {
-                return Err(format!("the unit {inner:?} is not one of NumPy's"));
+                return Err(Error::rejected(format!("the unit {inner:?} is not one of NumPy's")));
             }
             Ok(Dtype { zarr: json!({"name": name, "configuration": {"unit": u, "scale_factor": scale}}), item: 8, little: need_order(o, 8)?, trailing: None, fill: json!(0) })
         }
-        _ if !unit.is_empty() => Err(format!("{s:?} is not a NumPy type string")),
-        "U" | "S" | "a" | "V" if scalar => Err(format!("a field of type {s}")),
-        "U" | "S" | "a" | "V" if size == 0 => Err("a size of 0".into()),
+        _ if !unit.is_empty() => Err(Error::rejected(format!("{s:?} is not a NumPy type string"))),
+        "U" | "S" | "a" | "V" if scalar => Err(Error::rejected(format!("a field of type {s}"))),
+        "U" | "S" | "a" | "V" if size == 0 => Err(Error::rejected("a size of 0")),
         "U" => {
-            let item = size.checked_mul(4).ok_or("a size past 2^64")?;
-            let little = o.ok_or("a type of more than one byte with no byte order")?;
+            let item = size.checked_mul(4).ok_or_else(|| Error::rejected("a size past 2^64"))?;
+            let little = o.ok_or_else(|| Error::rejected("a type of more than one byte with no byte order"))?;
             Ok(Dtype { zarr: json!({"name": "fixed_length_utf32", "configuration": {"length_bytes": item}}), item, little: Some(little), trailing: None, fill: json!("") })
         }
         "S" | "a" | "V" => Ok(Dtype { zarr: json!("uint8"), item: size, little: None, trailing: Some(size), fill: json!(0) }),
         _ => {
-            let t = rules.entry("types", &format!("{kind}{size}")).ok_or_else(|| format!("{s:?} is not a NumPy type string"))?;
+            let t = rules.entry("types", &format!("{kind}{size}")).ok_or_else(|| Error::rejected(format!("{s:?} is not a NumPy type string")))?;
             let item = t["bytes"].as_u64().unwrap_or(1);
             let name = t["dtype"].as_str().unwrap_or("");
             let fill = match name {
@@ -355,38 +357,38 @@ fn simple(rules: &Rules, s: &str, scalar: bool) -> Result<Dtype, String> {
 
 /// A structure's data type: its fields in order, each a scalar type string or a nested list,
 /// their multi-byte fields of one byte order.
-fn structure(rules: &Rules, fields: &[Lit]) -> Result<Dtype, String> {
+fn structure(rules: &Rules, fields: &[Lit]) -> crate::error::Res<Dtype> {
     if fields.is_empty() {
-        return Err("a structure with no fields".into());
+        return Err(Error::rejected("a structure with no fields"));
     }
     let (mut out, mut fill) = (Vec::new(), Map::new());
     let (mut item, mut little): (u64, Option<bool>) = (0, None);
     for f in fields {
-        let Lit::Tuple(parts) = f else { return Err(format!("the field {} is not a tuple", f.repr())) };
+        let Lit::Tuple(parts) = f else { return Err(Error::rejected(format!("the field {} is not a tuple", f.repr()))) };
         let (name, d) = match &parts[..] {
             [Lit::Str(n), d] => (n, d),
-            [_, _, _] => return Err("a field of shape".into()),
-            [Lit::Tuple(_), _] => return Err("a field with a title".into()),
-            _ => return Err(format!("the field {} is not (name, descr)", f.repr())),
+            [_, _, _] => return Err(Error::rejected("a field of shape")),
+            [Lit::Tuple(_), _] => return Err(Error::rejected("a field with a title")),
+            _ => return Err(Error::rejected(format!("the field {} is not (name, descr)", f.repr()))),
         };
         if name.is_empty() {
-            return Err("a padding field".into());
+            return Err(Error::rejected("a padding field"));
         }
         if fill.contains_key(name) {
-            return Err(format!("two fields named {name:?}"));
+            return Err(Error::rejected(format!("two fields named {name:?}")));
         }
         let t = match d {
             Lit::Str(s) => simple(rules, s, true)?,
             Lit::List(l) => structure(rules, l)?,
-            other => return Err(format!("the field {name:?}'s type {} is not a string or a list", other.repr())),
+            other => return Err(Error::rejected(format!("the field {name:?}'s type {} is not a string or a list", other.repr()))),
         };
         if let Some(l) = t.little {
             if little.is_some_and(|m| m != l) {
-                return Err("fields of two byte orders".into());
+                return Err(Error::rejected("fields of two byte orders"));
             }
             little = Some(l);
         }
-        item = item.checked_add(t.item).ok_or("a structure past 2^64 bytes")?;
+        item = item.checked_add(t.item).ok_or_else(|| Error::rejected("a structure past 2^64 bytes"))?;
         out.push(json!({"name": name, "data_type": t.zarr}));
         fill.insert(name.clone(), t.fill);
     }
@@ -636,11 +638,11 @@ pub fn layout_size(descr: &Lit) -> Option<u64> {
 }
 
 /// A header's `descr` as a data type, or why it is not presented.
-pub fn dtype(rules: &Rules, descr: &Lit) -> Result<Dtype, String> {
+pub fn dtype(rules: &Rules, descr: &Lit) -> crate::error::Res<Dtype> {
     match descr {
         Lit::Str(s) => simple(rules, s, false),
         Lit::List(l) => structure(rules, l),
-        other => Err(format!("{} is not a type string or a list", other.repr())),
+        other => Err(Error::rejected(format!("{} is not a type string or a list", other.repr()))),
     }
 }
 
@@ -679,43 +681,43 @@ mod tests {
 
     #[test]
     fn rejects_a_header_that_is_not_a_dictionary() {
-        assert!(parse("['descr']", 64).unwrap_err().starts_with("'{' expected"));
+        assert!(parse("['descr']", 64).unwrap_err().to_string().starts_with("'{' expected"));
     }
 
     #[test]
     fn rejects_a_missing_key() {
-        assert_eq!(parse("{'descr': '<f8', 'shape': (1,)}", 64).unwrap_err(), "its keys are [\"descr\", \"shape\"], not descr, fortran_order and shape");
+        assert_eq!(parse("{'descr': '<f8', 'shape': (1,)}", 64).unwrap_err(), Error::rejected("its keys are [\"descr\", \"shape\"], not descr, fortran_order and shape"));
     }
 
     #[test]
     fn rejects_a_repeated_key() {
-        assert_eq!(parse("{'descr': '<f8', 'descr': '<f8'}", 64).unwrap_err(), "the key \"descr\" twice");
+        assert_eq!(parse("{'descr': '<f8', 'descr': '<f8'}", 64).unwrap_err(), Error::rejected("the key \"descr\" twice"));
     }
 
     #[test]
     fn rejects_a_one_value_tuple_without_its_comma() {
-        assert!(parse("{'descr': '<f8', 'fortran_order': False, 'shape': (3)}", 64).unwrap_err().starts_with("a tuple of one value without its comma"));
+        assert!(parse("{'descr': '<f8', 'fortran_order': False, 'shape': (3)}", 64).unwrap_err().to_string().starts_with("a tuple of one value without its comma"));
     }
 
     #[test]
     fn rejects_a_shape_that_is_not_integers() {
-        assert_eq!(parse("{'descr': '<f8', 'fortran_order': False, 'shape': ('a',)}", 64).unwrap_err(), "'a' in shape, not an integer");
+        assert_eq!(parse("{'descr': '<f8', 'fortran_order': False, 'shape': ('a',)}", 64).unwrap_err(), Error::rejected("'a' in shape, not an integer"));
     }
 
     #[test]
     fn rejects_a_shape_past_the_rank_limit() {
         let text = format!("{{'descr': '<f8', 'fortran_order': False, 'shape': ({}), }}", "1, ".repeat(65));
-        assert_eq!(parse(&text, 64).unwrap_err(), "a shape of 65 axes, more than 64");
+        assert_eq!(parse(&text, 64).unwrap_err(), Error::rejected("a shape of 65 axes, more than 64"));
     }
 
     #[test]
     fn rejects_text_after_the_dictionary() {
-        assert_eq!(parse("{'descr': '<f8', 'fortran_order': False, 'shape': ()} x", 64).unwrap_err(), "text after the dictionary, at character 54");
+        assert_eq!(parse("{'descr': '<f8', 'fortran_order': False, 'shape': ()} x", 64).unwrap_err(), Error::rejected("text after the dictionary, at character 54"));
     }
 
     #[test]
     fn rejects_an_unknown_escape() {
-        assert_eq!(parse("{'d\\q': 1}", 64).unwrap_err(), "the escape \\q in a string");
+        assert_eq!(parse("{'d\\q': 1}", 64).unwrap_err(), Error::rejected("the escape \\q in a string"));
     }
 
     /// Each presented type string and structure: its Zarr data type, element size, byte order,
@@ -907,50 +909,50 @@ mod tests {
 
     #[test]
     fn does_not_present_an_object_array() {
-        assert_eq!(dtype(rules(), &Lit::Str("|O".into())).unwrap_err(), "an object array holds a pickle");
+        assert_eq!(dtype(rules(), &Lit::Str("|O".into())).unwrap_err(), Error::rejected("an object array holds a pickle"));
     }
 
     #[test]
     fn does_not_present_a_long_double() {
-        assert_eq!(dtype(rules(), &Lit::Str("<f16".into())).unwrap_err(), "a long double has no Zarr data type");
+        assert_eq!(dtype(rules(), &Lit::Str("<f16".into())).unwrap_err(), Error::rejected("a long double has no Zarr data type"));
     }
 
     #[test]
     fn does_not_present_a_datetime_without_a_unit() {
-        assert_eq!(dtype(rules(), &Lit::Str("<M8".into())).unwrap_err(), "a datetime or timedelta without a unit");
+        assert_eq!(dtype(rules(), &Lit::Str("<M8".into())).unwrap_err(), Error::rejected("a datetime or timedelta without a unit"));
     }
 
     #[test]
     fn does_not_present_a_native_byte_order() {
-        assert_eq!(dtype(rules(), &Lit::Str("=f8".into())).unwrap_err(), "its byte order '=' is not <, > or |");
+        assert_eq!(dtype(rules(), &Lit::Str("=f8".into())).unwrap_err(), Error::rejected("its byte order '=' is not <, > or |"));
     }
 
     #[test]
     fn does_not_present_a_multi_byte_type_without_a_byte_order() {
-        assert_eq!(dtype(rules(), &Lit::Str("|f8".into())).unwrap_err(), "a type of more than one byte with no byte order");
+        assert_eq!(dtype(rules(), &Lit::Str("|f8".into())).unwrap_err(), Error::rejected("a type of more than one byte with no byte order"));
     }
 
     #[test]
     fn does_not_present_a_size_of_zero() {
-        assert_eq!(dtype(rules(), &Lit::Str("|S0".into())).unwrap_err(), "a size of 0");
+        assert_eq!(dtype(rules(), &Lit::Str("|S0".into())).unwrap_err(), Error::rejected("a size of 0"));
     }
 
     #[test]
     fn does_not_present_a_padding_field() {
         let d = Lit::List(vec![Lit::Tuple(vec![Lit::Str("".into()), Lit::Str("|V4".into())])]);
-        assert_eq!(dtype(rules(), &d).unwrap_err(), "a padding field");
+        assert_eq!(dtype(rules(), &d).unwrap_err(), Error::rejected("a padding field"));
     }
 
     #[test]
     fn does_not_present_a_field_of_shape() {
         let d = Lit::List(vec![Lit::Tuple(vec![Lit::Str("a".into()), Lit::Str("<f4".into()), Lit::Tuple(vec![Lit::Int(2)])])]);
-        assert_eq!(dtype(rules(), &d).unwrap_err(), "a field of shape");
+        assert_eq!(dtype(rules(), &d).unwrap_err(), Error::rejected("a field of shape"));
     }
 
     #[test]
     fn does_not_present_a_string_field() {
         let d = Lit::List(vec![Lit::Tuple(vec![Lit::Str("a".into()), Lit::Str("|S3".into())])]);
-        assert_eq!(dtype(rules(), &d).unwrap_err(), "a field of type |S3");
+        assert_eq!(dtype(rules(), &d).unwrap_err(), Error::rejected("a field of type |S3"));
     }
 
     #[test]
@@ -959,7 +961,7 @@ mod tests {
             Lit::Tuple(vec![Lit::Str("a".into()), Lit::Str("<f4".into())]),
             Lit::Tuple(vec![Lit::Str("b".into()), Lit::Str(">i2".into())]),
         ]);
-        assert_eq!(dtype(rules(), &d).unwrap_err(), "fields of two byte orders");
+        assert_eq!(dtype(rules(), &d).unwrap_err(), Error::rejected("fields of two byte orders"));
     }
 
     #[test]

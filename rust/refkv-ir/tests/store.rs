@@ -5,6 +5,7 @@
 //! them; one for the limits a store parses under, one for a store at its row limit and one for a
 //! store past it.
 
+use refkv_ir::error::Error;
 use refkv_ir::check::{check, finish, held_leaves};
 use refkv_ir::ir::*;
 
@@ -127,55 +128,55 @@ fn a_store_of_as_many_records_as_its_row_limit_parses() {
 #[test]
 fn a_store_of_more_records_than_its_row_limit_is_refused() {
     let e = small_objects(SMALL_OBJECTS_ROWS + 1).err().unwrap();
-    assert_eq!(e, "budget: more than 4194323 IR records");
+    assert_eq!(e, Error::budget("more than 4194323 IR records"));
 }
 
 #[test]
 fn a_key_listed_twice_is_refused() {
     let e = Ir::new_store().listing(&[("a".into(), 1), ("a".into(), 2)]).unwrap_err();
-    assert_eq!(e, "key \"a\" is listed twice");
+    assert_eq!(e, Error::rejected("key \"a\" is listed twice"));
 }
 
 #[test]
 fn a_key_with_an_empty_segment_is_refused() {
     let e = Ir::new_store().listing(&[("a//b".into(), 1)]).unwrap_err();
-    assert_eq!(e, "key \"a//b\" has an empty, . or .. segment");
+    assert_eq!(e, Error::rejected("key \"a//b\" has an empty, . or .. segment"));
 }
 
 #[test]
 fn an_object_in_a_file_ir_is_refused() {
     let mut ir = Ir::new(10);
-    assert_eq!(ir.object(0, "a", NO_INDEX, 1).unwrap_err(), "an object in a file IR");
+    assert_eq!(ir.object(0, "a", NO_INDEX, 1).unwrap_err(), Error::rejected("an object in a file IR"));
     ir.add(OBJECT, 0, "a", NO_INDEX, "", 0, Some((0, 10))).unwrap();
-    assert!(check(&ir).unwrap_err().contains("is an object, in a file IR"));
+    assert!(check(&ir).unwrap_err().to_string().contains("is an object, in a file IR"));
 }
 
 #[test]
 fn an_extent_outside_every_object_is_refused() {
     let (mut ir, _) = store();
     ir.value(0, "stray", NO_INDEX, "u1", 0, (0, 1), None).unwrap();
-    assert!(finish(&mut ir).unwrap_err().contains("is outside every object of the store, and is not a directory"));
+    assert!(finish(&mut ir).unwrap_err().to_string().contains("is outside every object of the store, and is not a directory"));
 }
 
 #[test]
 fn an_object_inside_an_object_is_refused() {
     let (mut ir, objs) = store();
     ir.object(objs[0], "inner", NO_INDEX, 3).unwrap();
-    assert!(finish(&mut ir).unwrap_err().contains("is inside object \".zgroup\""));
+    assert!(finish(&mut ir).unwrap_err().to_string().contains("is inside object \".zgroup\""));
 }
 
 #[test]
 fn an_object_that_does_not_span_its_source_is_refused() {
     let (mut ir, objs) = store();
     ir.start[objs[2] as usize] = 5;
-    assert!(check(&ir).unwrap_err().contains("does not span its source"));
+    assert!(check(&ir).unwrap_err().to_string().contains("does not span its source"));
 }
 
 #[test]
 fn a_leaf_past_its_object_is_refused() {
     let (mut ir, objs) = store();
     ir.value(objs[1], "over", NO_INDEX, "ascii[8]", 0, (36, 8), None).unwrap();
-    assert!(finish(&mut ir).unwrap_err().contains("claims bytes past the end of object \"a/.zarray\" (40 bytes)"));
+    assert!(finish(&mut ir).unwrap_err().to_string().contains("claims bytes past the end of object \"a/.zarray\" (40 bytes)"));
 }
 
 #[test]
@@ -183,14 +184,14 @@ fn a_run_past_its_object_is_refused() {
     let (mut ir, objs) = store();
     let r = ir.value(objs[1], "w/", 0, "u1", 0, (0, 1), None).unwrap();
     ir.runs.push((r, 41, 1));
-    assert!(finish(&mut ir).unwrap_err().contains("claims bytes past the end of object \"a/.zarray\""));
+    assert!(finish(&mut ir).unwrap_err().to_string().contains("claims bytes past the end of object \"a/.zarray\""));
 }
 
 #[test]
 fn a_length_in_an_empty_object_is_refused() {
     let (mut ir, objs) = store();
     ir.value(objs[6], "x", NO_INDEX, "u1", 0, (0, 1), None).unwrap();
-    assert!(finish(&mut ir).unwrap_err().contains("has a length in the empty object \"a/empty\""));
+    assert!(finish(&mut ir).unwrap_err().to_string().contains("has a length in the empty object \"a/empty\""));
 }
 
 #[test]
@@ -201,7 +202,7 @@ fn bytes_of_an_object_claimed_twice_are_refused() {
     ir.value(objs[1], "dup", NO_INDEX, "u1", 0, (12, 1), None).unwrap();
     ir.build_children();
     let e = check(&ir).unwrap_err();
-    assert!(e.starts_with("bytes [12, 13) of object \"a/.zarray\" are claimed by"), "{e}");
+    assert!(e.to_string().starts_with("bytes [12, 13) of object \"a/.zarray\" are claimed by"), "{e}");
 }
 
 #[test]
@@ -211,21 +212,21 @@ fn bytes_of_an_object_claimed_by_no_element_are_refused() {
     ir.len[tail] = 20; // "tail" ends at 30: bytes 30..40 of a/.zarray unclaimed
     ir.build_children();
     let e = check(&ir).unwrap_err();
-    assert!(e.starts_with("bytes [30, 40) of object \"a/.zarray\" are claimed by no element"), "{e}");
+    assert!(e.to_string().starts_with("bytes [30, 40) of object \"a/.zarray\" are claimed by no element"), "{e}");
 }
 
 #[test]
 fn a_count_of_objects_other_than_the_description_s_is_refused() {
     let (mut ir, _) = store();
     ir.objects += 1;
-    assert_eq!(check(&ir).unwrap_err(), "the store IR has 8 objects, its description 9");
+    assert_eq!(check(&ir).unwrap_err(), Error::rejected("the store IR has 8 objects, its description 9"));
 }
 
 #[test]
 fn a_store_root_with_an_extent_is_refused() {
     let (mut ir, _) = store();
     ir.len[0] = 3;
-    assert_eq!(check(&ir).unwrap_err(), "the root's extent is (0, 3): a store's root has none");
+    assert_eq!(check(&ir).unwrap_err(), Error::rejected("the root's extent is (0, 3): a store's root has none"));
 }
 
 #[test]
@@ -243,22 +244,22 @@ fn held_objects_take_their_bytes_once_in_any_order() {
 #[test]
 fn held_bytes_of_another_size_are_refused() {
     let (mut ir, objs) = store();
-    assert!(ir.hold_all([(objs[0], &[0u8; 3][..])]).unwrap_err().contains("which is no object of that size"));
+    assert!(ir.hold_all([(objs[0], &[0u8; 3][..])]).unwrap_err().to_string().contains("which is no object of that size"));
 }
 
 #[test]
 fn held_bytes_of_an_element_that_is_no_object_are_refused() {
     let (mut ir, _) = store();
     let v = (ir.len() - 1) as u32;
-    assert!(ir.hold_all([(v, &[0u8; 30][..])]).unwrap_err().contains("which is no object of that size"));
-    assert!(ir.hold_all([(10_000, &[0u8; 1][..])]).unwrap_err().contains("which is no object of that size"));
+    assert!(ir.hold_all([(v, &[0u8; 30][..])]).unwrap_err().to_string().contains("which is no object of that size"));
+    assert!(ir.hold_all([(10_000, &[0u8; 1][..])]).unwrap_err().to_string().contains("which is no object of that size"));
 }
 
 #[test]
 fn an_object_held_twice_with_other_bytes_is_refused() {
     let (mut ir, objs) = store();
     let e = ir.hold_all([(objs[0], &[0u8; 24][..]), (objs[0], &[1u8; 24][..])]).unwrap_err();
-    assert_eq!(e, format!("internal: element {} held twice, with other bytes", objs[0]));
+    assert_eq!(e, Error::internal(format!("element {} held twice, with other bytes", objs[0])));
 }
 
 #[test]
@@ -266,5 +267,5 @@ fn bytes_other_than_an_object_holds_are_refused() {
     let (mut ir, objs) = store();
     ir.hold_all([(objs[0], &[0u8; 24][..])]).unwrap();
     let e = ir.hold_all([(objs[0], &[1u8; 24][..])]).unwrap_err();
-    assert_eq!(e, format!("internal: element {} held twice, with other bytes", objs[0]));
+    assert_eq!(e, Error::internal(format!("element {} held twice, with other bytes", objs[0])));
 }

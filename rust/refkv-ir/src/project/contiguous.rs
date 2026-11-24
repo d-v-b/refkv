@@ -6,6 +6,8 @@
 //! zero padding is a range of the output's zero data source (spec/zarrify.md §1.2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), not a literal.
 
+use crate::error::Error;
+
 use super::{key, Copied};
 use crate::out::{grid_chunks, payload_size, Chunk, Out, Part};
 use crate::refs::Refs;
@@ -90,15 +92,15 @@ impl Zeros {
     }
 
     /// The range of its first `n` bytes, the source added to `out` at its first use.
-    pub fn range(&mut self, out: &mut Out, n: u64) -> Result<Part, String> {
+    pub fn range(&mut self, out: &mut Out, n: u64) -> crate::error::Res<Part> {
         if n > self.size {
-            return Err("internal: a chunk's padding is past the zero data source".into());
+            return Err(Error::internal("a chunk's padding is past the zero data source"));
         }
         let i = match self.index {
             Some(i) => i,
             None => {
                 let Part::Data(i, ..) = out.shared(&vec![0; self.size as usize]) else {
-                    return Err("internal: a shared range of no data source".into());
+                    return Err(Error::internal("a shared range of no data source"));
                 };
                 *self.index.insert(i)
             }
@@ -110,7 +112,7 @@ impl Zeros {
 /// A chunk's reference `parts` with its zero padding, a literal of zero bytes after its range (as
 /// `padding_of` reads it), as a range of the output's zero data source `zeros`; any other `parts`
 /// as they are.
-pub fn padded(mut parts: Vec<Part>, zeros: &mut Zeros, out: &mut Out) -> Result<Vec<Part>, String> {
+pub fn padded(mut parts: Vec<Part>, zeros: &mut Zeros, out: &mut Out) -> crate::error::Res<Vec<Part>> {
     if let Some(n) = zero_tail(&parts) {
         parts.pop();
         parts.push(zeros.range(out, n)?);
@@ -123,11 +125,11 @@ pub fn padded(mut parts: Vec<Part>, zeros: &mut Zeros, out: &mut Out) -> Result<
 /// charged to the budget at the first key and the same ranges, not charged, at the others, its zero padding a range of the output's zero data source `zeros`; a copied chunk is
 /// its bytes of `copied` then its zero padding, and a chunk of bytes its bytes, at every key.
 pub fn emit(refs: &mut Refs, chunks: Vec<(Vec<u64>, Chunk)>, (start, length, form): (u64, u64, u32), copied: &Copied,
-            prefixes: &[&str], coords: impl Fn(Vec<u64>) -> Vec<u64>, zeros: &mut Zeros) -> Result<(), String> {
+            prefixes: &[&str], coords: impl Fn(Vec<u64>) -> Vec<u64>, zeros: &mut Zeros) -> crate::error::Res<()> {
     for (c, chunk) in chunks {
         let c = coords(c);
         let keys: Vec<String> = prefixes.iter().map(|p| key(p, c.iter().copied())).collect();
-        let Some((first, rest)) = keys.split_first() else { return Err("internal: a chunk without a key".into()) };
+        let Some((first, rest)) = keys.split_first() else { return Err(Error::internal("a chunk without a key")) };
         let bytes = match chunk {
             Chunk::Ranges(parts) => {
                 let parts = padded(parts, zeros, &mut refs.out)?;
@@ -142,7 +144,7 @@ pub fn emit(refs: &mut Refs, chunks: Vec<(Vec<u64>, Chunk)>, (start, length, for
             Chunk::Copy(o, len, pad) => {
                 let mut b = copied
                     .get(&(o, len))
-                    .ok_or("a copied chunk's bytes were not read: project a run's IR with the bytes its last batch read")?
+                    .ok_or_else(|| Error::rejected("a copied chunk's bytes were not read: project a run's IR with the bytes its last batch read"))?
                     .clone();
                 b.resize(b.len() + pad as usize, 0);
                 b
@@ -196,7 +198,7 @@ mod tests {
         let mut zeros = Zeros::of(&[(vec![0], Chunk::Ranges(vec![Part::Src(0, 2), Part::Lit(vec![0; 2])]))]);
         let wider = vec![(vec![0], Chunk::Ranges(vec![Part::Src(0, 2), Part::Lit(vec![0; 6])]))];
         let got = emit(&mut refs, wider, (0, 2, 0), &Copied::new(), &["a/c/"], |c| c, &mut zeros);
-        assert_eq!(got, Err("internal: a chunk's padding is past the zero data source".into()));
+        assert_eq!(got, Err(Error::internal("a chunk's padding is past the zero data source")));
         assert!(refs.out.data.is_empty());
     }
 }

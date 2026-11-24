@@ -133,7 +133,7 @@ pub struct Recorded {
     pub implicit: HashMap<u64, (u32, u64)>,
 }
 
-pub type Res<T> = Result<T, String>;
+pub use crate::error::Res;
 
 pub fn num_type(code: char, size: u64, big: bool) -> String {
     if size == 1 {

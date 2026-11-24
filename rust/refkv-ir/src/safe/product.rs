@@ -7,6 +7,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>)
 //! and its GeoZarr grids (§5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#5-georeferencing-geozarr>).
 
+use crate::error::Error;
 use crate::xmltree::{self, Element};
 use crate::rules::{self, Rules, flag, num, text};
 use crate::text::is_strict_decimal;
@@ -76,15 +77,15 @@ pub fn el_text(el: &Element) -> Option<String> {
     Some(el.text.concat().trim_matches(WS).to_string())
 }
 
-fn one<'a>(els: Vec<&'a Element>, what: &str) -> Result<&'a Element, String> {
+fn one<'a>(els: Vec<&'a Element>, what: &str) -> crate::error::Res<&'a Element> {
     if els.len() != 1 {
-        return Err(format!("{what}: {} elements where there must be one", els.len()));
+        return Err(Error::rejected(format!("{what}: {} elements where there must be one", els.len())));
     }
     Ok(els[0])
 }
 
-fn layout_text(el: &Element, what: &str) -> Result<String, String> {
-    el_text(el).ok_or(format!("{what} has a child element"))
+fn layout_text(el: &Element, what: &str) -> crate::error::Res<String> {
+    el_text(el).ok_or_else(|| Error::rejected(format!("{what} has a child element")))
 }
 
 /// A decimal number's binary64 value, or None if `t` is not one.
@@ -102,9 +103,9 @@ fn is_positive(t: &str) -> bool {
 
 /// A product's metadata document: UTF-8 and in the XML subset (§2.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#21-objects>).
-pub fn parse_document(data: &[u8], what: &str) -> Result<Element, String> {
+pub fn parse_document(data: &[u8], what: &str) -> crate::error::Res<Element> {
     if data.starts_with(b"\xef\xbb\xbf") {
-        return Err(format!("{what} starts with a byte order mark"));
+        return Err(Error::rejected(format!("{what} starts with a byte order mark")));
     }
     let s = std::str::from_utf8(data).map_err(|_| format!("{what} is not UTF-8"))?;
     xmltree::parse(s, what)
@@ -113,7 +114,7 @@ pub fn parse_document(data: &[u8], what: &str) -> Result<Element, String> {
 /// The key of a product's metadata and the level (§2.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#22-the-product-metadata>):
 /// index into [`LEVELS`].
-pub fn product_level(rules: &Rules, has: &dyn Fn(&str) -> bool) -> Result<usize, String> {
+pub fn product_level(rules: &Rules, has: &dyn Fn(&str) -> bool) -> crate::error::Res<usize> {
     let found: Vec<usize> = (0..2).filter(|&k| has(LEVELS[k].0)).collect();
     rules.check("product", &mut rules::env([("metadata", num(found.len() as f64)), ("manifest", flag(has("manifest.safe")))]))?;
     Ok(found[0])
@@ -131,12 +132,12 @@ pub struct Image {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#22-the-product-metadata>, §2.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#23-image-files>): the bands,
 /// and the granule directory `<g>`.
-pub fn images(rules: &Rules, root: &Element, level: usize, has: &dyn Fn(&str) -> bool) -> Result<(Vec<Image>, String), String> {
+pub fn images(rules: &Rules, root: &Element, level: usize, has: &dyn Fn(&str) -> bool) -> crate::error::Res<(Vec<Image>, String)> {
     let (key, _, root_name, _) = LEVELS[level];
     rules.check("root_element", &mut rules::env([("what", text(key)), ("found", text(local(&root.name))), ("expected", text(root_name))]))?;
     let files: Vec<&Element> = path(root, GRANULE).into_iter().flat_map(|g| kids(g, "IMAGE_FILE")).collect();
     if files.is_empty() {
-        return Err(format!("{key}: no granule has an IMAGE_FILE"));
+        return Err(Error::rejected(format!("{key}: no granule has an IMAGE_FILE")));
     }
     let mut images = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -173,7 +174,7 @@ pub struct Geocoding {
     pub cs_code: Option<String>,
 }
 
-fn u32_text(rules: &Rules, t: &str, what: &str) -> Result<u64, String> {
+fn u32_text(rules: &Rules, t: &str, what: &str) -> crate::error::Res<u64> {
     let ok = is_positive(t) && t.len() <= 10 && t.parse::<u64>().is_ok_and(|v| v <= 0xFFFF_FFFF);
     let short: String = t.chars().take(40).collect();
     rules.check("u32_text", &mut rules::env([("what", text(what)), ("t", text(&format!("{short:?}"))), ("ok", flag(ok))]))?;
@@ -181,7 +182,7 @@ fn u32_text(rules: &Rules, t: &str, what: &str) -> Result<u64, String> {
 }
 
 /// The tile geocoding (§2.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#24-the-tile-geocoding>).
-pub fn geocoding(rules: &Rules, tile: &Element) -> Result<Geocoding, String> {
+pub fn geocoding(rules: &Rules, tile: &Element) -> crate::error::Res<Geocoding> {
     let tg = one(path(tile, "Geometric_Info/Tile_Geocoding"), "MTD_TL.xml: Geometric_Info/Tile_Geocoding")?;
     let code = layout_text(one(kids(tg, "HORIZONTAL_CS_CODE"), "Tile_Geocoding/HORIZONTAL_CS_CODE")?, "HORIZONTAL_CS_CODE")?;
     let epsg = code.strip_prefix("EPSG:").is_some_and(|d| !d.is_empty() && d.bytes().all(|c| c.is_ascii_digit()));
@@ -189,15 +190,15 @@ pub fn geocoding(rules: &Rules, tile: &Element) -> Result<Geocoding, String> {
     rules.check("cs_code", &mut rules::env([("code", text(&format!("{short:?}"))), ("epsg", flag(epsg))]))?;
     let size_els = kids(tg, "Size");
     if size_els.is_empty() {
-        return Err("Tile_Geocoding has no Size".into());
+        return Err(Error::rejected("Tile_Geocoding has no Size"));
     }
     let mut sizes: Vec<(u64, u64, u64)> = Vec::new();
     let mut texts: Vec<(u64, String)> = Vec::new();
     for el in size_els {
-        let rt = el.attr("resolution").ok_or("a Size has no resolution")?;
+        let rt = el.attr("resolution").ok_or_else(|| Error::rejected("a Size has no resolution"))?;
         let r = u32_text(rules, rt, "a Size's resolution")?;
         if sizes.iter().any(|s| s.0 == r) {
-            return Err(format!("two Sizes have the resolution {r}"));
+            return Err(Error::rejected(format!("two Sizes have the resolution {r}")));
         }
         let rows = u32_text(rules, &layout_text(one(kids(el, "NROWS"), "Size/NROWS")?, "NROWS")?, "NROWS")?;
         let cols = u32_text(rules, &layout_text(one(kids(el, "NCOLS"), "Size/NCOLS")?, "NCOLS")?, "NCOLS")?;

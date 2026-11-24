@@ -15,7 +15,7 @@ macro_rules! reject {
         fn $name() {
             let data = std::fs::read(fixtures().join(concat!("czi/", $input))).unwrap();
             match parse_bytes::<Czi>(&data).and_then(|(_, d)| refkv_ir::czi::plan::plan(&d)) {
-                Err(m) => assert!(m.starts_with($msg), "{m}"),
+                Err(m) => assert!(m.to_string().starts_with($msg), "{m}"),
                 Ok(_) => panic!("{} was accepted", $input),
             }
         }
@@ -32,13 +32,13 @@ fn a_segment_id_with_bytes_after_its_nul_is_not_the_id() {
     let at = (0..data.len() - 16).find(|&k| data[k..k + 15] == *b"ZISRAWSUBBLOCK\0").unwrap();
     data[at + 15] = 0xDF;
     match parse_bytes::<Czi>(&data) {
-        Err(m) => assert!(m.contains("is not a ZISRAWSUBBLOCK segment"), "{m}"),
+        Err(m) => assert!(m.to_string().contains("is not a ZISRAWSUBBLOCK segment"), "{m}"),
         Ok(_) => panic!("accepted"),
     }
 }
 
 /// The IR, the description and refkv's plan of the input `key` of fixtures/czi (`described`).
-fn parsed(key: &str) -> Result<(refkv_ir::ir::Ir, serde_json::Value, serde_json::Value), String> {
+fn parsed(key: &str) -> refkv_ir::error::Res<(refkv_ir::ir::Ir, serde_json::Value, serde_json::Value)> {
     let (ir, description) = described(key)?;
     let plan = refkv_ir::czi::plan::plan(&description)?;
     Ok((ir, description, plan))
@@ -46,12 +46,12 @@ fn parsed(key: &str) -> Result<(refkv_ir::ir::Ir, serde_json::Value, serde_json:
 
 /// The IR and the description of the input `key` of fixtures/czi: a file's by its parser, and, of
 /// a file that names siblings, a store run's, which finds its parts in the directory.
-fn described(key: &str) -> Result<(refkv_ir::ir::Ir, serde_json::Value), String> {
+fn described(key: &str) -> refkv_ir::error::Res<(refkv_ir::ir::Ir, serde_json::Value)> {
     use refkv_ir::store::{StoreFormat, StoreRun};
     let dir = fixtures().join("czi");
     let data = std::fs::read(dir.join(key)).unwrap();
     match parse_bytes::<Czi>(&data) {
-        Err(m) if m.starts_with("the file names siblings") => {}
+        Err(m) if m.to_string().starts_with("the file names siblings") => {}
         other => return other,
     }
     let mut files = std::collections::BTreeMap::from([(key.to_string(), data)]);
@@ -95,7 +95,7 @@ fn every_accepted_fixtures_plan_names_their_descriptions() {
             Ok(read) => read,
             // a part of another fixture's image, and the fixture whose part is another image's
             Err(m) => {
-                assert!(m.contains("zarrify that one") || m.contains("is not part of this image"), "{name}: {m}");
+                assert!(m.to_string().contains("zarrify that one") || m.to_string().contains("is not part of this image"), "{name}: {m}");
                 refused += 1;
                 continue;
             }

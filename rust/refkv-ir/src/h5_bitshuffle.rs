@@ -13,7 +13,9 @@
 //! size in bytes (4 bytes, big-endian), which govern; each block is its compressed length (4 bytes,
 //! big-endian) and an LZ4 block. Without it there is no header, and the blocks are bare.
 
-type Res<T> = Result<T, String>;
+use crate::error::Error;
+
+use crate::error::Res;
 
 /// The element counts a block size must be a multiple of, and bitshuffle's default block's bytes
 /// and least elements (`BSHUF_BLOCKED_MULT`, `BSHUF_TARGET_BLOCK_SIZE_B`, `BSHUF_MIN_RECOMMEND_BLOCK`).
@@ -30,17 +32,17 @@ pub fn default_block(size: u64) -> u64 {
 /// The chunk's bytes, decoded.
 pub fn decode(chunk: &[u8], size: usize, block: usize, lz4: bool) -> Res<Vec<u8>> {
     if size == 0 {
-        return Err("refkv.h5_bitshuffle: an element of no bytes".into());
+        return Err(Error::rejected("refkv.h5_bitshuffle: an element of no bytes"));
     }
     if lz4 { decode_lz4(chunk, size) } else { decode_bare(chunk, size, block) }
 }
 
 fn decode_bare(chunk: &[u8], size: usize, block: usize) -> Res<Vec<u8>> {
     if block == 0 || block % MULT != 0 {
-        return Err(format!("refkv.h5_bitshuffle: a block of {block} elements is not a multiple of {MULT}"));
+        return Err(Error::rejected(format!("refkv.h5_bitshuffle: a block of {block} elements is not a multiple of {MULT}")));
     }
     if chunk.len() % size != 0 {
-        return Err(format!("refkv.h5_bitshuffle: {} bytes are not whole elements of {size} bytes", chunk.len()));
+        return Err(Error::rejected(format!("refkv.h5_bitshuffle: {} bytes are not whole elements of {size} bytes", chunk.len())));
     }
     let mut out = vec![0u8; chunk.len()];
     let block_bytes = block * size;
@@ -57,18 +59,18 @@ fn decode_bare(chunk: &[u8], size: usize, block: usize) -> Res<Vec<u8>> {
 }
 
 fn decode_lz4(chunk: &[u8], size: usize) -> Res<Vec<u8>> {
-    let short = || "refkv.h5_bitshuffle: a chunk ends inside its framing".to_string();
+    let short = || Error::rejected("refkv.h5_bitshuffle: a chunk ends inside its framing");
     let total = u64::from_be_bytes(chunk.get(..8).ok_or_else(short)?.try_into().unwrap());
     let block = u32::from_be_bytes(chunk.get(8..12).ok_or_else(short)?.try_into().unwrap()) as usize;
     if total == 0 {
         return Ok(Vec::new());
     }
     if block == 0 || block % (MULT * size) != 0 {
-        return Err(format!("refkv.h5_bitshuffle: a block of {block} bytes is not a multiple of {} bytes", MULT * size));
+        return Err(Error::rejected(format!("refkv.h5_bitshuffle: a block of {block} bytes is not a multiple of {} bytes", MULT * size)));
     }
     // LZ4 expands at most 255 times, so a length past that is no chunk's (and not worth allocating)
     if total % size as u64 != 0 || total > (chunk.len() as u64).saturating_mul(255).saturating_add(block as u64) {
-        return Err(format!("refkv.h5_bitshuffle: {total} decoded bytes from a chunk of {} bytes", chunk.len()));
+        return Err(Error::rejected(format!("refkv.h5_bitshuffle: {total} decoded bytes from a chunk of {} bytes", chunk.len())));
     }
     let total = total as usize;
     let tail = total % (MULT * size);
@@ -89,7 +91,7 @@ fn decode_lz4(chunk: &[u8], size: usize) -> Res<Vec<u8>> {
     }
     let rest = chunk.get(src..).unwrap_or(&[]);
     if rest.len() != tail {
-        return Err(format!("refkv.h5_bitshuffle: {} bytes after the blocks, not the {tail} left over", rest.len()));
+        return Err(Error::rejected(format!("refkv.h5_bitshuffle: {} bytes after the blocks, not the {tail} left over", rest.len())));
     }
     out[shuffled..].copy_from_slice(rest);
     Ok(out)
@@ -121,7 +123,7 @@ fn untranspose(rows: &[u8], out: &mut [u8], size: usize) {
 
 /// An LZ4 block (LZ4's block format) into `out`, which it must fill exactly.
 fn lz4_block(src: &[u8], out: &mut [u8]) -> Res<()> {
-    let bad = || "refkv.h5_bitshuffle: an LZ4 block does not decode to its block".to_string();
+    let bad = || Error::rejected("refkv.h5_bitshuffle: an LZ4 block does not decode to its block");
     let (mut s, mut d) = (0usize, 0usize);
     let run = |s: &mut usize, mut n: usize| -> Res<usize> {
         if n == 15 {
@@ -243,50 +245,50 @@ mod tests {
 
     #[test]
     fn refuses_an_element_of_no_bytes() {
-        assert!(decode(&[], 0, 8, false).unwrap_err().contains("no bytes"));
+        assert!(decode(&[], 0, 8, false).unwrap_err().to_string().contains("no bytes"));
     }
 
     #[test]
     fn refuses_a_block_not_a_multiple_of_8() {
-        assert!(decode(&[0; 8], 1, 7, false).unwrap_err().contains("multiple"));
+        assert!(decode(&[0; 8], 1, 7, false).unwrap_err().to_string().contains("multiple"));
     }
 
     #[test]
     fn refuses_partial_elements() {
-        assert!(decode(&[0; 7], 2, 8, false).unwrap_err().contains("whole elements"));
+        assert!(decode(&[0; 7], 2, 8, false).unwrap_err().to_string().contains("whole elements"));
     }
 
     #[test]
     fn refuses_a_short_header() {
-        assert!(decode(&[0; 11], 2, 0, true).unwrap_err().contains("framing"));
+        assert!(decode(&[0; 11], 2, 0, true).unwrap_err().to_string().contains("framing"));
     }
 
     #[test]
     fn refuses_a_header_block_not_a_multiple() {
         let mut c = 16u64.to_be_bytes().to_vec();
         c.extend_from_slice(&7u32.to_be_bytes());
-        assert!(decode(&c, 2, 0, true).unwrap_err().contains("multiple"));
+        assert!(decode(&c, 2, 0, true).unwrap_err().to_string().contains("multiple"));
     }
 
     #[test]
     fn refuses_an_impossible_length() {
         let mut c = (1u64 << 40).to_be_bytes().to_vec();
         c.extend_from_slice(&16u32.to_be_bytes());
-        assert!(decode(&c, 2, 0, true).unwrap_err().contains("decoded bytes"));
+        assert!(decode(&c, 2, 0, true).unwrap_err().to_string().contains("decoded bytes"));
     }
 
     #[test]
     fn refuses_a_truncated_block() {
         let plain = [1u8; 16];
         let f = frame(&plain, 1, 8);
-        assert!(decode(&f[..f.len() - 2], 1, 0, true).unwrap_err().contains("framing"));
+        assert!(decode(&f[..f.len() - 2], 1, 0, true).unwrap_err().to_string().contains("framing"));
     }
 
     #[test]
     fn refuses_trailing_bytes() {
         let mut f = frame(&[1u8; 16], 1, 8);
         f.push(0);
-        assert!(decode(&f, 1, 0, true).unwrap_err().contains("left over"));
+        assert!(decode(&f, 1, 0, true).unwrap_err().to_string().contains("left over"));
     }
 
     #[test]
@@ -296,12 +298,12 @@ mod tests {
         let z = lz4_literals(&[1, 2, 3]);
         c.extend_from_slice(&(z.len() as u32).to_be_bytes());
         c.extend_from_slice(&z);
-        assert!(decode(&c, 1, 0, true).unwrap_err().contains("LZ4"));
+        assert!(decode(&c, 1, 0, true).unwrap_err().to_string().contains("LZ4"));
     }
 
     #[test]
     fn refuses_a_match_before_the_block() {
         let mut out = [0u8; 8];
-        assert!(lz4_block(&[0x13, b'a', 2, 0], &mut out).unwrap_err().contains("LZ4"));
+        assert!(lz4_block(&[0x13, b'a', 2, 0], &mut out).unwrap_err().to_string().contains("LZ4"));
     }
 }

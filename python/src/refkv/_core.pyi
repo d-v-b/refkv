@@ -281,7 +281,8 @@ class Mirror:
     def entries(self) -> Out[FilePart] | Out[StorePart]:
         """The mirror under `refkv_source` (the url empty), with what the input's convention
         records beside it from the run's description, the keys and directories a listing ignored: what
-        the built-in output writes there, but for a store's objects; or Rejected."""
+        the built-in output writes there, but for a store's objects; or Rejected, and Failed for a
+        failure of refkv's."""
 
 class StoreRun:
     """A store run (src/store.rs): `StoreRun(format, listing, concurrency)` over the listing
@@ -344,7 +345,8 @@ def rebuild_store(get: Get) -> list[tuple[str, int, bytes | None]]:
     """The rebuild of a store's mirror (conventions §8.9
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>) from an archive's
     entries (`get(key)`: bytes or None): every object as (key, size, bytes), the bytes of a held
-    object rebuilt from its leaves, None for a referenced or empty one; or Rejected."""
+    object rebuilt from its leaves, None for a referenced or empty one; or Rejected, and Failed for a
+        failure of refkv's."""
 def plan_spans(
     ranges: Sequence[tuple[int, int]], threshold: int, cap: float, concurrency: int
 ) -> list[tuple[int, int]]:
@@ -423,7 +425,8 @@ class Zarr:
     def hierarchy(self) -> tuple[str, Out[FilePart | StorePart]]:
         """The Zarr convention's hierarchy but for refkv's declarations and its `refkv_source/`
         objects: its nodes as JSON, each its path, kind and source metadata as JSON text, and its
-        documents and chunks (`out_py`'s form, the url empty); or Rejected."""
+        documents and chunks (`out_py`'s form, the url empty); or Rejected, and Failed for a
+        failure of refkv's."""
 
 class Hdf5:
     """An HDF5 input a run parsed (`Run.view()`, `StoreRun.view()`): its IR and its description,
@@ -432,7 +435,8 @@ class Hdf5:
     def hierarchy(self) -> tuple[str, Out[FilePart | StorePart], list[tuple[str, int, int, int]]]:
         """The HDF5 convention's hierarchy: its nodes as JSON, its documents and chunks (`out_py`'s
         form, the url empty) but for the edge chunks it copies, and those, each `(key, offset,
-        length, padding)` of the file; or Rejected."""
+        length, padding)` of the file; or Rejected, and Failed for a
+        failure of refkv's."""
     def named_key(self) -> str | None:
         """The key of the file a store run was named by; None for a file run."""
 
@@ -445,11 +449,13 @@ class OmeImage:
     def profile(self) -> str:
         """`tiff`, `qptiff`, `ndpi` or `ims`."""
     def reads(self) -> list[tuple[int, int]]:
-        """The file's ranges the image's `omero` windows sample, `(offset, length)`; or Rejected."""
+        """The file's ranges the image's `omero` windows sample, `(offset, length)`; or Rejected,
+        and Failed for a failure of refkv's."""
     def image(self, copied: list[tuple[tuple[int, int], bytes]],
               checksums: bool = False) -> tuple[str, Out[FilePart | StorePart]]:
         """The OME image: its nodes as JSON, its documents and chunks (`out_py`'s form, the url
-        empty), its arrays sharded; `copied` the bytes of the ranges `reads` gave; or Rejected."""
+        empty), its arrays sharded; `copied` the bytes of the ranges `reads` gave; or Rejected, and Failed for a
+        failure of refkv's."""
     def named_key(self) -> str | None:
         """The key of the file a store run was named by; None for a file run."""
 
@@ -461,7 +467,8 @@ class Netcdf3:
     def hierarchy(self) -> tuple[str, Out[FilePart], list[tuple[str, int, int, int]]]:
         """The netCDF3 convention's hierarchy: its nodes as JSON, its documents and chunks
         (`out_py`'s form, the url empty) but for the edge chunks it copies, and those, each `(key,
-        offset, length, padding)` of the file; or Rejected."""
+        offset, length, padding)` of the file; or Rejected, and Failed for a
+        failure of refkv's."""
 
 class Envi:
     """An ENVI raster a store run parsed (`StoreRun.view()`): its description, shared with the run

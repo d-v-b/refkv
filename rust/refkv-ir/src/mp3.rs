@@ -10,6 +10,8 @@
 //! tag (one record value) and the APE tag (one opaque value) at the end, and gaps for the bytes
 //! that are none of these.
 
+use crate::error::Error;
+
 use crate::expr::V;
 use crate::fed::{Fed, Word};
 use crate::ir::*;
@@ -270,7 +272,7 @@ impl Mp3 {
         self.fed.feed(offset, data);
     }
 
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         match self.phase {
             Phase::Start => {
                 self.phase = Phase::Scan;
@@ -290,7 +292,7 @@ impl Mp3 {
     /// tags, the trailing tags, then the frames between them, and the elements of each.
     fn scan(&mut self) -> Res<()> {
         let n = self.size;
-        let d = self.fed.get(0, n).ok_or("internal: the file was not read")?.to_vec();
+        let d = self.fed.get(0, n).ok_or_else(|| Error::internal("the file was not read"))?.to_vec();
         self.fed.clear();
         self.rules.check("file", rules::env([("size", num(n as f64))]))?;
         // the ID3v2 tags at the front
@@ -396,7 +398,7 @@ impl Mp3 {
             chained = false;
         }
         self.rules.check("audio", rules::env([("frames", num(frames.len() as f64)), ("free", free.map_or(V::Absent, |o| num(o as f64)))]))?;
-        let s = stream.ok_or("internal: no stream")?;
+        let s = stream.ok_or_else(|| Error::internal("no stream"))?;
         // the elements, in the file's order
         let (info_json, info_element) = match info {
             Some((o, h)) => {
@@ -459,7 +461,7 @@ impl Mp3 {
         Ok(())
     }
 
-    pub fn finish(self) -> Result<(Ir, J), String> {
+    pub fn finish(self) -> crate::error::Res<(Ir, J)> {
         sans::finish(self.phase == Phase::Done, self.ir, self.facts)
     }
 }
@@ -481,7 +483,7 @@ impl crate::run::FileProfile for Profile {
     fn whole(&self) -> bool {
         false
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
         crate::project::mp3::project(ir, description, url, copied, chunking)
     }
 }

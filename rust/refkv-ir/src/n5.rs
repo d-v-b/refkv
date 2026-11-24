@@ -17,6 +17,8 @@
 //! by path and kind, with its document as parsed, from which the projection (`project/n5.rs`)
 //! makes the hierarchy.
 
+use crate::error::Error;
+
 use crate::ir::{Ir, Res};
 use crate::rules::{self, num, text, Vars};
 use crate::json::{self, Doc, Jv};
@@ -49,7 +51,7 @@ pub struct N5 {
     got: HashMap<usize, Vec<u8>>,
     docs: Vec<(usize, Doc)>,
     nodes: Vec<(String, bool)>,
-    error: Option<String>,
+    error: Option<Error>,
 }
 
 /// The parent directory of a path (`""` for a path of one segment).
@@ -119,7 +121,7 @@ impl N5 {
         for c in std::mem::take(&mut self.asked) {
             let (path, k) = self.cands[c].clone();
             let key = document_key(&path);
-            let b = self.got.remove(&k).ok_or("internal: a document not read")?;
+            let b = self.got.remove(&k).ok_or_else(|| Error::internal("a document not read"))?;
             let doc = json::parse(&b).map_err(|e| format!("{key}: {e}"))?;
             rules.check("document", &mut Vars(vec![("key", text(&key)), ("value", doc.value.to_v())]))?;
             let dataset = doc.value.has("dimensions");
@@ -173,7 +175,7 @@ impl StoreParser for N5 {
         if !self.started && self.next.is_empty() {
             // the host chose the profile by the root's attributes.json (spec/zarrify.md §1.4
             // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>)
-            return Err(format!("not an N5 store: the root has no {DOCUMENT}"));
+            return Err(Error::rejected(format!("not an N5 store: the root has no {DOCUMENT}")));
         }
         self.started = true;
         self.take_round()?;

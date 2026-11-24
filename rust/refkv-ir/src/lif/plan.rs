@@ -9,6 +9,8 @@
 //! presents, and the LOFs no image uses. These are decisions of refkv's convention, which the
 //! description does not hold.
 
+use crate::error::Error;
+
 use super::{given, integer};
 use crate::expr::V;
 use crate::out::MAX_PAYLOAD;
@@ -136,7 +138,7 @@ impl Image {
 /// metadata (`images`), the series, and the file's version `V` (spec/zarrify/lif.md §5.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#51-the-root>): its root's, or 2 of
 /// an older writer's LOF, whose root has none and which is read as of version 2.
-pub fn plan(description: &J) -> Result<J, String> {
+pub fn plan(description: &J) -> crate::error::Res<J> {
     let (images, series) = images(description, 0)?;
     let version = description["version"].as_u64().unwrap_or(2);
     Ok(json!({"images": images, "series": series, "version": version}))
@@ -144,7 +146,7 @@ pub fn plan(description: &J) -> Result<J, String> {
 
 /// The images of a file's description, whose planes start `offset` bytes into their memory blocks'
 /// data (a project's `Block`'s `Offset`; 0 of a file input), checked in document order; the series.
-fn images(d: &J, offset: u64) -> Result<(Vec<J>, u64), String> {
+fn images(d: &J, offset: u64) -> crate::error::Res<(Vec<J>, u64)> {
     let rules = rules::of("lif");
     let lof = d["file"] == "lof";
     let size = n(&d["size"]);
@@ -183,7 +185,7 @@ fn images(d: &J, offset: u64) -> Result<(Vec<J>, u64), String> {
                 ("held", num(held as f64)),
             ]),
         )?;
-        let b = block.ok_or("internal: no block")?;
+        let b = block.ok_or_else(|| Error::internal("no block"))?;
         named[b] = Some(k);
         f.place(n(&blocks[b]["data"]) + offset, b);
         series += f.fields.len() as u64;
@@ -196,7 +198,7 @@ fn images(d: &J, offset: u64) -> Result<(Vec<J>, u64), String> {
 /// An image's checks and layout (spec/zarrify/lif.md §3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#3-placement>), of a file of `size`
 /// bytes.
-fn image(rules: &Rules, k: usize, name: &str, im: &Image, lof: bool, size: u64) -> Result<Layout, String> {
+fn image(rules: &Rules, k: usize, name: &str, im: &Image, lof: bool, size: u64) -> crate::error::Res<Layout> {
     let base = |extra: Vec<(&'static str, V)>| {
         let mut v = rules::env([("k", num(k as f64)), ("name", text(name))]);
         for (a, b) in extra {
@@ -225,7 +227,7 @@ fn image(rules: &Rules, k: usize, name: &str, im: &Image, lof: bool, size: u64) 
                 ("bit_inc", given(&d[6])),
             ]),
         )?;
-        let int = |i: usize| integer(d[i].as_deref()).ok_or("internal: a dimension's attribute is not an integer");
+        let int = |i: usize| integer(d[i].as_deref()).ok_or_else(|| Error::internal("a dimension's attribute is not an integer"));
         dims.push((int(0)?, int(1)?, int(2)?));
     }
     let mut channels: Vec<(u64, u64, u64)> = Vec::new(); // (DataType, item size, BytesInc)
@@ -241,7 +243,7 @@ fn image(rules: &Rules, k: usize, name: &str, im: &Image, lof: bool, size: u64) 
                 ("bit_inc", given(&c[5])),
             ]),
         )?;
-        let int = |i: usize| integer(c[i].as_deref()).ok_or("internal: a channel's attribute is not an integer");
+        let int = |i: usize| integer(c[i].as_deref()).ok_or_else(|| Error::internal("a channel's attribute is not an integer"));
         let (dt, res) = (int(0)?, int(1)?);
         channels.push((dt, item(res), int(2)?));
         resolutions.push(res);
@@ -285,7 +287,7 @@ struct Layout {
 
 impl Layout {
     fn of(rules: &Rules, mut env: rules::Vars<'static>, dims: &[(u64, u64, u64)], channels: &[(u64, u64, u64)],
-          resolutions: &[u64], im: &Image) -> Result<Layout, String> {
+          resolutions: &[u64], im: &Image) -> crate::error::Res<Layout> {
         let used: Vec<usize> = (0..dims.len()).filter(|&j| dims[j].1 > 1).collect();
         let x = used.iter().copied().find(|&j| dims[j].0 == 1).or_else(|| dims.iter().position(|d| d.0 == 1));
         let mut seen: HashMap<u64, usize> = HashMap::new();
@@ -542,7 +544,7 @@ fn left_out(doc: &J) -> String {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#84-the-images>): the images it
 /// presents (`images`), those it leaves out (`not_presented`), the LOFs no image uses (`unused`),
 /// the series and the LOFs' blocks.
-pub fn plan_set(d: &J) -> Result<J, String> {
+pub fn plan_set(d: &J) -> crate::error::Res<J> {
     let rules = rules::of("lif");
     let docs = arr(&d["documents"]);
     let lofs = arr(&d["lofs"]);
@@ -552,7 +554,7 @@ pub fn plan_set(d: &J) -> Result<J, String> {
         let key = l["key"].as_str().unwrap_or("");
         let entry = &docs[n(&l["document"]) as usize]["entries"][0];
         let offset = integer(entry["offset"].as_str()).unwrap_or(0);
-        let (images, _) = images(&l["description"], offset).map_err(|m| format!("the LOF {key:?}: {m}"))?;
+        let (images, _) = images(&l["description"], offset).map_err(|e| e.context(|m| format!("the LOF {key:?}: {m}")))?;
         planned.push(images);
     }
     // each LOF against the Block that names it
@@ -588,7 +590,7 @@ pub fn plan_set(d: &J) -> Result<J, String> {
             continue;
         };
         top.1 += 1;
-        let target = r["document"].as_u64().ok_or("internal: a reference names no document")? as usize;
+        let target = r["document"].as_u64().ok_or_else(|| Error::internal("a reference names no document"))? as usize;
         if !seen.insert(target) {
             continue;
         }
@@ -624,8 +626,8 @@ struct Walk<'a> {
 
 impl Walk<'_> {
     /// The document on the top of `stack`: its image's plan, or why it is not presented.
-    fn visit(&mut self, stack: &[(usize, usize)]) -> Result<(), String> {
-        let d = stack.last().ok_or("internal: no document")?.0;
+    fn visit(&mut self, stack: &[(usize, usize)]) -> crate::error::Res<()> {
+        let d = stack.last().ok_or_else(|| Error::internal("no document"))?.0;
         let doc = &self.docs[d];
         if !doc["image"].as_bool().unwrap_or(false) {
             return Ok(());
@@ -637,7 +639,7 @@ impl Walk<'_> {
             return Ok(());
         };
         self.used[l] = true;
-        let mut image = self.planned[l].first_mut().ok_or("internal: a presented LOF has no image")?.take();
+        let mut image = self.planned[l].first_mut().ok_or_else(|| Error::internal("a presented LOF has no image"))?.take();
         let meta = &mut image["meta"];
         meta["image"] = json!(self.images.len());
         meta["path"] = J::Array(path);

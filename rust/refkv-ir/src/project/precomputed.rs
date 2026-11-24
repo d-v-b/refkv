@@ -9,6 +9,8 @@
 //! reference to the whole object after a literal header, its position on the chunk grid. Every
 //! other object is referenced whole at `refkv_source/objects/<k>`.
 
+use crate::error::Error;
+
 use crate::ir::Ir;
 use crate::json::{self, Jv};
 use crate::out::{omero_channel, omero_json, type_window, Out, Part};
@@ -174,10 +176,10 @@ fn ome(scales: &[Scale], data_type: &str, channels: u64, image: bool) -> J {
 
 /// The precomputed hierarchy of a valid store IR and its description, outside `refkv_source`, and
 /// its references.
-pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
     let src = ir.sources();
     let listing: Vec<(String, u64)> = src.objects.iter().map(|&o| (ir.key(o), ir.len[o as usize])).collect();
-    let text = description["info"].as_str().ok_or("internal: the description has no info")?;
+    let text = description["info"].as_str().ok_or_else(|| Error::internal("the description has no info"))?;
     let info = json::parse(text.as_bytes()).map_err(|e| format!("internal: info: {e}"))?.value;
     let data_type = info.get("data_type").and_then(Jv::as_str).unwrap_or("").to_string();
     let channels = info.get("num_channels").and_then(|v| v.int(1, 65535)).unwrap_or(1);
@@ -192,7 +194,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
             Ok(s) if seen.insert(s.key.clone()) => scales.push((s, v, i)),
             Ok(s) => not_presented.push(Jv::obj(vec![("index", Jv::integer(i as i64)),
                 ("reason", Jv::str(&format!("its key {:?} is an earlier scale's", s.key)))])),
-            Err(reason) => not_presented.push(Jv::obj(vec![("index", Jv::integer(i as i64)), ("reason", Jv::str(&reason))])),
+            Err(reason) => not_presented.push(Jv::obj(vec![("index", Jv::integer(i as i64)), ("reason", Jv::str(&reason.to_string()))])),
         }
     }
     // full resolution first, scales of one resolution in the document's order
@@ -277,6 +279,6 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<Out> {
     project(ir, description, url)
 }

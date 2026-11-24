@@ -15,6 +15,8 @@
 //! `finish` emits the IR: the magic number, each descriptor block, and every element a descriptor
 //! describes, held when the pass read it and referenced (a `data` element) when not.
 
+use crate::error::Error;
+
 use crate::hdf5::types::{float_json, int_of};
 use crate::hdf5::{Acc, Fail, Src, R};
 use crate::ir::{Ir, NO_INDEX};
@@ -74,7 +76,7 @@ const FIRST: u64 = 1 << 16;
 const BLOCK_HINT: u64 = 1 << 16;
 
 fn bad<T>(m: impl Into<String>) -> R<T> {
-    Err(Fail::Bad(m.into()))
+    Err(Fail::Bad(crate::error::Error::Rejected(m.into())))
 }
 
 /// A big-endian reader of a structure's bytes: each read None past their end.
@@ -316,14 +318,14 @@ impl Pass<'_> {
     fn header(&mut self, i: usize) -> R<Vec<u8>> {
         let d = self.dds[i];
         if d.len > self.limit("header_bytes") {
-            return bad(format!("budget: {} is {} bytes, more than {} of a header", self.what(i), d.len, self.limit("header_bytes")));
+            return Err(Fail::Bad(Error::budget(format!("{} is {} bytes, more than {} of a header", self.what(i), d.len, self.limit("header_bytes")))));
         }
         self.element(i)
     }
 
     fn special(&mut self, i: usize) -> R<Special> {
         let b = self.header(i)?;
-        let short = || Fail::Bad(format!("the special element {} is too short for its header", self.what(i)));
+        let short = || Fail::Bad(Error::rejected(format!("the special element {} is too short for its header", self.what(i))));
         let mut r = Rd::new(&b);
         let code = r.u16().ok_or_else(short)?;
         Ok(match code {
@@ -400,7 +402,7 @@ impl Pass<'_> {
             let b = self.header(t)?;
             let mut r = Rd::new(&b);
             let this = next;
-            let short = || Fail::Bad(format!("the link table ref {this} of {} is shorter than its {per_table} blocks", self.what(i)));
+            let short = || Fail::Bad(Error::rejected(format!("the link table ref {this} of {} is shorter than its {per_table} blocks", self.what(i))));
             next = r.u16().ok_or_else(short)?;
             for _ in 0..per_table {
                 refs.push(r.u16().ok_or_else(short)?);
@@ -417,7 +419,7 @@ impl Pass<'_> {
                 });
             }
             if needed.is_some_and(|n| n > most) {
-                return bad(format!("budget: {} needs more than {most} linked blocks", self.what(i)));
+                return Err(Fail::Bad(Error::budget(format!("{} needs more than {most} linked blocks", self.what(i)))));
             }
         }
         let first = match refs.first() {
@@ -516,7 +518,7 @@ impl Hdf4 {
         self.src.store.feed(offset, data);
     }
 
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         if self.found.is_some() {
             return Ok(Step::Done);
         }
@@ -530,11 +532,11 @@ impl Hdf4 {
             Err(Fail::Bad(m)) => Err(m),
             Err(Fail::Miss) => {
                 if self.asked.rounds >= self.rules.limit("max_rounds") as u64 {
-                    return Err(format!("more than {} rounds of dependent reads", self.rules.limit("max_rounds")));
+                    return Err(Error::rejected(format!("more than {} rounds of dependent reads", self.rules.limit("max_rounds"))));
                 }
                 let want = std::mem::take(&mut self.src.want);
                 if want.is_empty() {
-                    return Err("internal: a read missed and asked for nothing".into());
+                    return Err(Error::internal("a read missed and asked for nothing"));
                 }
                 Ok(self.asked.ask(want))
             }
@@ -557,7 +559,7 @@ impl Hdf4 {
         let mut total = 0u64;
         loop {
             if blocks.len() as u64 >= max_blocks {
-                return bad(format!("budget: more than {max_blocks} descriptor blocks"));
+                return Err(Fail::Bad(Error::budget(format!("more than {max_blocks} descriptor blocks"))));
             }
             if !seen.insert(at) {
                 return bad(format!("the descriptor blocks loop at byte {at}"));
@@ -577,7 +579,7 @@ impl Hdf4 {
             }
             total += ndd as u64;
             if total > max_dds {
-                return bad(format!("budget: more than {max_dds} descriptors"));
+                return Err(Fail::Bad(Error::budget(format!("more than {max_dds} descriptors"))));
             }
             let d = self.src.read(at + 6, n)?;
             let mut r = Rd::new(&d);
@@ -631,11 +633,11 @@ impl Hdf4 {
             match d.tag {
                 VG => {
                     let b = p.header(i)?;
-                    vgs.insert(d.rf, parse_vg(&b).ok_or_else(|| Fail::Bad(format!("the Vgroup ref {} runs past its element", d.rf)))?);
+                    vgs.insert(d.rf, parse_vg(&b).ok_or_else(|| Fail::Bad(Error::rejected(format!("the Vgroup ref {} runs past its element", d.rf))))?);
                 }
                 VH => {
                     let b = p.header(i)?;
-                    vhs.insert(d.rf, parse_vh(&b).ok_or_else(|| Fail::Bad(format!("the Vdata header ref {} runs past its element", d.rf)))?);
+                    vhs.insert(d.rf, parse_vh(&b).ok_or_else(|| Fail::Bad(Error::rejected(format!("the Vdata header ref {} runs past its element", d.rf))))?);
                 }
                 _ => {}
             }
@@ -959,11 +961,11 @@ impl Hdf4 {
         Ok(())
     }
     /// The finished IR and the description of the file.
-    pub fn finish(self) -> Result<(Ir, J), String> {
-        let Some(found) = self.found else { return Err("internal: the parse is not done".into()) };
+    pub fn finish(self) -> crate::error::Res<(Ir, J)> {
+        let Some(found) = self.found else { return Err(Error::internal("the parse is not done")) };
         let mut ir = Ir::new(self.size);
         let src = &self.src;
-        let get = |o: u64, n: u64| src.get(o, n).ok_or_else(|| format!("internal: the bytes at {o} were not read"));
+        let get = |o: u64, n: u64| src.get(o, n).ok_or_else(|| Error::internal(format!("the bytes at {o} were not read")));
         ir.value(0, "magic", NO_INDEX, "bytes[4]", 0, (0, 4), Some(&MAGIC))?;
         for (k, bl) in found.blocks.iter().enumerate() {
             let n = 6 + 12 * bl.ndd;
@@ -1018,7 +1020,7 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Hdf4>(size)
     }
-    fn project(&self, ir: &Ir, description: &J, url: &str, copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &Ir, description: &J, url: &str, copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
         crate::project::hdf4::project(ir, description, url, copied)
     }
     /// The summary holds the parser's `rounds`.

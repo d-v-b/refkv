@@ -67,6 +67,7 @@ const SCHEMA: &str = r#"{
     "thing": {
       "derive": {"allowed": "at(kinds, kind)", "twice": "n * 2"},
       "constraints": [
+        {"require": "n < 100", "message": "{n} things, more than 99", "kind": "budget"},
         {"require": "in(type, allowed)", "message": "type {type} is not {kind}"},
         {"require": "twice <= max", "message": "{n} is more than half of {max}"}
       ]
@@ -79,9 +80,12 @@ fn roles_derive_then_check_in_order() {
     let r = Rules::new(SCHEMA).unwrap();
     let cases = [
         (1.0, 5.0, Ok(())),
-        (3.0, 5.0, Err("type 3 is not a".to_string())),
-        (2.0, 6.0, Err("6 is more than half of 10".to_string())),
-        (3.0, 6.0, Err("type 3 is not a".to_string())), // the first constraint that fails
+        (3.0, 5.0, Err(refkv_ir::error::Error::rejected("type 3 is not a"))),
+        (2.0, 6.0, Err(refkv_ir::error::Error::rejected("6 is more than half of 10"))),
+        (3.0, 6.0, Err(refkv_ir::error::Error::rejected("type 3 is not a"))), // the first constraint that fails
+        // a limit's constraint (`"kind": "budget"`) rejects with a budget, its message after `budget: `
+        (1.0, -100.0, Ok(())),
+        (1.0, 100.0, Err(refkv_ir::error::Error::Budget("budget: 100 things, more than 99".into()))),
     ];
     for (t, n, want) in cases {
         let mut env = rules::env([("type", rules::num(t)), ("n", rules::num(n)), ("kind", rules::text("a"))]);
@@ -110,13 +114,13 @@ fn a_bad_expression_is_an_error() {
 fn a_given_named_as_a_limit_is_an_error() {
     // an absent given would read the limit, and pass a constraint it should fail
     let e = Rules::new(r#"{"limits": {"n": 3}, "roles": {"x": {"given": {"n": ""}, "constraints": [{"require": "n == 3", "message": "m"}]}}}"#).err().unwrap();
-    assert!(e.contains("shadows"), "{e}");
+    assert!(e.to_string().contains("shadows"), "{e}");
 }
 
 #[test]
 fn a_derived_name_of_a_limit_is_an_error() {
     let e = Rules::new(r#"{"limits": {"n": 3}, "roles": {"x": {"derive": {"n": "1"}, "constraints": [{"require": "n == 3", "message": "m"}]}}}"#).err().unwrap();
-    assert!(e.contains("derived n shadows"), "{e}");
+    assert!(e.to_string().contains("derived n shadows"), "{e}");
 }
 
 #[test]
@@ -176,5 +180,5 @@ fn a_tables_about_is_no_entry() {
     assert_eq!(r.entry("t", "about"), None);
     assert_eq!(r.entries("t").map(|e| e.0.as_str()).collect::<Vec<_>>(), ["a"]);
     assert_eq!(r.check("r", rules::env([("k", rules::text("a"))])), Ok(()));
-    assert_eq!(r.check("r", rules::env([("k", rules::text("about"))])), Err("no entry about".to_string()));
+    assert_eq!(r.check("r", rules::env([("k", rules::text("about"))])), Err(refkv_ir::error::Error::rejected("no entry about")));
 }

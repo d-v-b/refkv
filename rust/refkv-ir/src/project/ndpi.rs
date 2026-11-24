@@ -11,6 +11,8 @@
 //! type's whole range for a window. A level's planes are stacked along a `z` axis, each with
 //! chunks of its own, when the plan's axes have one.
 
+use crate::error::Error;
+
 use super::{arr, n, strs, tiled};
 use crate::ir::Ir;
 use crate::ndpi::{combine, tag_values, Grid};
@@ -25,7 +27,7 @@ fn values(ir: &Ir, f: &J) -> Option<Vec<u64>> {
     Some(tag_values(ir, v, typ, f["high"].as_u64().map(|h| h as u32)))
 }
 
-pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
     let planned = &crate::tiff::plan::plan("ndpi", description)?;
     let axes = strs(&planned["axes"]);
     let (data_type, samples) = (planned["data_type"].as_str().unwrap_or("uint8"), n(&planned["samples"]));
@@ -74,7 +76,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
                 refs.chunk(format!("{at}0/0"), strip, length, 0, Some(parts))?;
                 [3, h, w]
             } else {
-                let starts = values(ir, &p["starts"]).ok_or("internal: no McuStarts in the IR")?;
+                let starts = values(ir, &p["starts"]).ok_or_else(|| Error::internal("no McuStarts in the IR"))?;
                 let high = values(ir, &p["high"]);
                 let g = Grid::from_facts(&p["grid"], combine(starts, high.as_deref()), length);
                 let (before, after) = g.pieces();

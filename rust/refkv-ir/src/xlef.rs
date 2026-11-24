@@ -13,6 +13,8 @@
 //! found by walking the documents in the order they name one another, are refkv's plan's
 //! (`crate::lif::plan::plan_set`).
 
+use crate::error::Error;
+
 use crate::beside::{self, Written};
 use crate::expr::V;
 use crate::ir::{Ir, Res, NO_INDEX};
@@ -153,15 +155,15 @@ fn dir_of(key: &str) -> &str {
 
 /// The rejection of documents that name documents too deep (spec/zarrify/lif.md §8.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#83-limits>).
-pub(crate) fn depth() -> String {
-    format!("budget: documents name documents more than {} levels deep", beside::MAX_DEPTH)
+pub(crate) fn depth() -> Error {
+    Error::budget(format!("documents name documents more than {} levels deep", beside::MAX_DEPTH))
 }
 
 impl Xlef {
     /// The listing's IR, its objects' elements and keys: one key, the named file.
     pub fn new(ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Xlef> {
         let [(key, _)] = keys else {
-            return Err(format!("a LAS X run starts from the named file alone, not {} objects", keys.len()));
+            return Err(Error::rejected(format!("a LAS X run starts from the named file alone, not {} objects", keys.len())));
         };
         let mut x = Xlef {
             ir: Some(ir),
@@ -227,7 +229,7 @@ impl Xlef {
         if index == 0 {
             self.version = lif::integer(version.as_deref()).unwrap_or(2);
         }
-        let (tree, element) = (tree.ok_or("internal: no XML tree")?, element.ok_or("internal: no element")?);
+        let (tree, element) = (tree.ok_or_else(|| Error::internal("no XML tree"))?, element.ok_or_else(|| Error::internal("no element"))?);
         let memory = tree.child(element, "Memory");
         let entries: Vec<Entry> = memory.map_or(Vec::new(), |m| {
             tree.children(m)
@@ -250,7 +252,7 @@ impl Xlef {
                 "name",
                 rules::env([("name", text(file)), ("what", text(what)), ("key", text(&key)), ("below", flag(k.is_some()))]),
             )?;
-            k.ok_or_else(|| "internal: no key".to_string())
+            k.ok_or_else(|| Error::internal("no key"))
         };
         let lof = match entries.as_slice() {
             [e] if e.names_lof() => {
@@ -312,7 +314,7 @@ impl Xlef {
     /// `wanted`, all known or found: the documents to read next, and the LOFs' parsers.
     fn settle(&mut self) -> Res<()> {
         for w in std::mem::take(&mut self.wanted) {
-            let index = self.known(&w.key).ok_or("internal: a wanted key is no object")?;
+            let index = self.known(&w.key).ok_or_else(|| Error::internal("a wanted key is no object"))?;
             let key = self.keys[index].0.clone();
             let before = self.roles.insert(index, w.role);
             if before.is_some_and(|r| r != w.role) {
@@ -353,7 +355,7 @@ impl Xlef {
         let mut asked = Vec::new();
         for f in &mut self.lofs {
             while !f.done {
-                match f.parser.step().map_err(|m| format!("the LOF {:?}: {m}", f.key))? {
+                match f.parser.step().map_err(|e| e.context(|m| format!("the LOF {:?}: {m}", f.key)))? {
                     Step::Read(r) => {
                         asked.extend(r.into_iter().map(|(o, n)| (f.index, o, n)));
                         break;
@@ -418,7 +420,7 @@ impl Xlef {
     fn check_references(&self) -> Res<()> {
         for d in &self.docs {
             for (k, uuid) in &d.references {
-                let index = self.known(k).ok_or("internal: a reference names no object")?;
+                let index = self.known(k).ok_or_else(|| Error::internal("a reference names no object"))?;
                 let target = &self.docs[self.doc_of[&index]];
                 let unique = target.attributes.get("UniqueID").and_then(J::as_str);
                 self.rules.check(
@@ -441,7 +443,7 @@ impl Xlef {
     /// images the output presents, in the order the documents name one another, is refkv's plan's
     /// (`lif::plan::plan_set`).
     fn join(&mut self) -> Res<()> {
-        let mut ir = self.ir.take().ok_or("internal: no IR")?;
+        let mut ir = self.ir.take().ok_or_else(|| Error::internal("no IR"))?;
         // a document is held, by the bytes the run keeps; a LOF is described in place
         for d in &self.docs {
             let index = self.object[&d.key];
@@ -459,7 +461,7 @@ impl Xlef {
             // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>)
             for im in description["images"].as_array_mut().into_iter().flatten().filter(|im| !im["declared_by"].is_null()) {
                 let key = im["declared_by"][0].as_u64().and_then(|k| at.get(k as usize));
-                im["declared_by"][0] = json!(key.ok_or("internal: a LOF's image names no element of its XML")?);
+                im["declared_by"][0] = json!(key.ok_or_else(|| Error::internal("a LOF's image names no element of its XML"))?);
             }
             lof_of.insert(by, lofs.len());
             let (key, size) = &self.keys[index];
@@ -469,7 +471,7 @@ impl Xlef {
         for (d, doc) in self.docs.iter().enumerate() {
             let mut references = Vec::with_capacity(doc.references.len());
             for (k, uuid) in &doc.references {
-                let index = self.known(k).ok_or("internal: a reference names no object")?;
+                let index = self.known(k).ok_or_else(|| Error::internal("a reference names no object"))?;
                 references.push(json!({"key": self.keys[index].0, "uuid": uuid, "document": self.doc_of[&index]}));
             }
             let entries: Vec<J> =
@@ -498,7 +500,7 @@ impl StoreParser for Xlef {
             match self.phase {
                 Phase::Documents => {
                     for (index, level) in std::mem::take(&mut self.reading) {
-                        let bytes = self.got.remove(&index).ok_or("internal: a document was not read")?;
+                        let bytes = self.got.remove(&index).ok_or_else(|| Error::internal("a document was not read"))?;
                         self.read_document(index, level, &bytes)?;
                     }
                     if self.probing {
@@ -573,9 +575,9 @@ impl StoreParser for Xlef {
             return Ok(None);
         };
         if index != self.keys.len() {
-            return Err("internal: a found object out of order".into());
+            return Err(Error::internal("a found object out of order"));
         }
-        let ir = self.ir.as_mut().ok_or("internal: no IR")?;
+        let ir = self.ir.as_mut().ok_or_else(|| Error::internal("no IR"))?;
         let e = self.tree.object(ir, key, size)?;
         self.keys.push((key.to_string(), size));
         self.elems.push(e);
@@ -585,9 +587,9 @@ impl StoreParser for Xlef {
 
     fn finish(mut self: Box<Self>) -> Res<(Ir, J)> {
         if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
+            return Err(Error::internal("the parse is not done"));
         }
-        self.finished.take().ok_or_else(|| "internal: the documents were not joined".to_string())
+        self.finished.take().ok_or_else(|| Error::internal("the documents were not joined"))
     }
 }
 

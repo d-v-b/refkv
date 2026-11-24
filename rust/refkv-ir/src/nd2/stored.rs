@@ -5,6 +5,8 @@
 //! names past them, keyed by `frames`. Built from the finished IR, whose frame elements say which
 //! frames the map holds, and from what the parser read of the attributes.
 
+use crate::error::Error;
+
 use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Grid, Place, Row, StoredArray};
 use crate::fed::Word;
 use crate::ir::{Ir, Res, NO_INDEX, STRUCT};
@@ -104,7 +106,7 @@ fn weight(frame: &Frame, frames: u64, rank: usize) -> Option<u64> {
 /// loops count.
 pub(super) fn described(ir: &Ir, frame: &Frame, count: u64, key: u32, declarations: &[u32]) -> Res<(Vec<StoredArray>, Vec<Chain>, ChunkMap)> {
     let named = |i: u32, name: &str| ir.children(i).iter().copied().find(|&c| ir.nidx[c as usize] == NO_INDEX && ir.names.get(ir.name[c as usize]) == name);
-    let frames = named(0, "frames").ok_or("internal: an ND2 IR without frames")?;
+    let frames = named(0, "frames").ok_or_else(|| Error::internal("an ND2 IR without frames"))?;
     // the frame chunks the map names, as the finished IR holds them: a frame the loops count has
     // `pixels`, any other `data`, or nothing where its data is not in the file
     let mut placed: Vec<(u64, u32, Option<u64>)> = Vec::new();
@@ -166,7 +168,7 @@ pub(super) fn described(ir: &Ir, frame: &Frame, count: u64, key: u32, declaratio
         chains.push(chain.clone());
         for &(f, px, member) in &placed {
             let len = ir.len[px as usize];
-            let first = frame.first(len, 0).ok_or_else(|| format!("internal: frame {f}'s pixels do not hold its rows"))?;
+            let first = frame.first(len, 0).ok_or_else(|| Error::internal(format!("frame {f}'s pixels do not hold its rows")))?;
             frame.rows(&mut map, 0, &[f], (px, member, len), first)?;
         }
     }

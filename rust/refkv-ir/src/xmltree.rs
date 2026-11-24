@@ -7,6 +7,8 @@
 //! anything else (CDATA, processing instructions, a DOCTYPE) is not in the subset, nor is
 //! nesting deeper than 256.
 
+use crate::error::Error;
+
 pub const MAX_DEPTH: usize = 256;
 
 #[derive(Debug, Default, Clone)]
@@ -43,11 +45,11 @@ struct Xml<'a> {
     depth: usize,
 }
 
-type R<T> = Result<T, String>;
+type R<T> = crate::error::Res<T>;
 
 impl<'a> Xml<'a> {
     fn fail<T>(&self, why: &str) -> R<T> {
-        Err(format!("{} is not well formed: {why} at {}", self.what, self.pos))
+        Err(Error::rejected(format!("{} is not well formed: {why} at {}", self.what, self.pos)))
     }
 
     fn at(&self, t: &str) -> bool {
@@ -258,7 +260,7 @@ impl<'a> Xml<'a> {
 }
 
 /// The root element of a document in the subset, or the rejection (naming `what`).
-pub fn parse(s: &str, what: &str) -> Result<Element, String> {
+pub fn parse(s: &str, what: &str) -> crate::error::Res<Element> {
     Xml { s, b: s.as_bytes(), pos: 0, what, depth: 0 }.document()
 }
 
@@ -318,22 +320,22 @@ mod tests {
 
     #[test]
     fn rejects_a_doctype() {
-        assert!(parse("<!DOCTYPE a><a/>", "d").unwrap_err().contains("not well formed"));
+        assert!(parse("<!DOCTYPE a><a/>", "d").unwrap_err().to_string().contains("not well formed"));
     }
 
     #[test]
     fn rejects_deep_nesting() {
         let s = "<a>".repeat(257) + &"</a>".repeat(257);
-        assert!(parse(&s, "d").unwrap_err().contains("nest more than 256"));
+        assert!(parse(&s, "d").unwrap_err().to_string().contains("nest more than 256"));
     }
 
     #[test]
     fn rejects_an_unclosed_element() {
-        assert!(parse("<a><b></b>", "d").unwrap_err().contains("unterminated element"));
+        assert!(parse("<a><b></b>", "d").unwrap_err().to_string().contains("unterminated element"));
     }
 
     #[test]
     fn rejects_a_bad_reference() {
-        assert!(parse("<a>&#0;</a>", "d").unwrap_err().contains("is not a character"));
+        assert!(parse("<a>&#0;</a>", "d").unwrap_err().to_string().contains("is not a character"));
     }
 }

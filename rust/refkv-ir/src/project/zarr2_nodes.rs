@@ -10,6 +10,8 @@
 //! (`ome_zarr.rs`). [`hierarchy`] gives them as the projection (`zarr2.rs`) writes them. A check
 //! a node fails rejects the store where the convention says: at the root, or at any group.
 
+use crate::error::Error;
+
 use crate::ir::{Ir, Res};
 use crate::json::{self, Jv};
 use crate::npy::header::{self, Dtype, Lit};
@@ -28,9 +30,9 @@ fn doc_of(d: &J) -> Res<Option<Jv>> {
         return Ok(None);
     }
     if let Some(why) = d["unread"].as_str().or(d["error"].as_str()) {
-        return Err(why.to_string());
+        return Err(Error::rejected(why));
     }
-    let text = d["json"].as_str().ok_or("internal: a document of the description has no JSON")?;
+    let text = d["json"].as_str().ok_or_else(|| Error::internal("a document of the description has no JSON"))?;
     Ok(Some(json::parse(text.as_bytes())?.value))
 }
 
@@ -53,9 +55,9 @@ fn check_zattrs(key: &str, a: &Jv) -> Res<()> {
 fn presented(shown: &str, node: &J) -> Res<(Array, Option<Jv>)> {
     let (d, a) = (&node["document"], &node["attributes"]);
     if let Some(why) = unread_of(d).or_else(|| unread_of(a)) {
-        return Err(why);
+        return Err(Error::Rejected(why));
     }
-    let doc = doc_of(d)?.ok_or("internal: a node without its document")?;
+    let doc = doc_of(d)?.ok_or_else(|| Error::internal("a node without its document"))?;
     let attrs = doc_of(a)?;
     if let Some(v) = &attrs {
         check_zattrs(a["key"].as_str().unwrap_or(""), v)?;
@@ -98,12 +100,12 @@ pub fn hierarchy(ir: &Ir, description: &J) -> Res<J> {
                 }
                 Err(reason) if path.is_empty() => return Err(reason),
                 Err(reason) => {
-                    left_out.insert(path, reason);
+                    left_out.insert(path, reason.to_string());
                 }
             },
             Some("group") => {
                 let key = n["document"]["key"].as_str().unwrap_or("");
-                let doc = doc_of(&n["document"])?.ok_or("internal: a node without its document")?;
+                let doc = doc_of(&n["document"])?.ok_or_else(|| Error::internal("a node without its document"))?;
                 let attrs = doc_of(&n["attributes"])?;
                 let mut env = Vars::default();
                 env.insert("key", rules::text(key));
@@ -215,14 +217,14 @@ pub struct Array {
 /// §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#3-arrays>): NPY's table
 /// (spec/zarrify/npy.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#3-data-types>),
 /// and `|O` when its one filter is `vlen-utf8`.
-fn data_type(z: &Jv) -> Result<Dtype, String> {
-    let Some(d) = z.get("dtype") else { return Err("it has none".into()) };
+fn data_type(z: &Jv) -> crate::error::Res<Dtype> {
+    let Some(d) = z.get("dtype") else { return Err(Error::rejected("it has none")) };
     if d.as_str() == Some("|O") {
         let vlen = matches!(z.get("filters"), Some(Jv::Arr(f)) if f.len() == 1 && f[0].get("id").and_then(|i| i.as_str()) == Some("vlen-utf8"));
         return if vlen {
             Ok(Dtype { zarr: json!("string"), item: 1, little: None, trailing: None, fill: json!("") })
         } else {
-            Err("an object array has no data type without the one filter vlen-utf8".into())
+            Err(Error::rejected("an object array has no data type without the one filter vlen-utf8"))
         };
     }
     header::dtype(rules::of("npy"), &descr(d))
@@ -380,7 +382,7 @@ pub fn array(path: &str, z: &Jv) -> Res<Array> {
     for k in ["zarr_format", "shape", "chunks", "dtype", "order", "dimension_separator"] {
         env.insert(k, given(z, k));
     }
-    env.insert("dtype_problem", t.as_ref().err().map_or(V::Absent, |e| rules::text(e)));
+    env.insert("dtype_problem", t.as_ref().err().map_or(V::Absent, |e| rules::text(&e.to_string())));
     s.check("zarray", &mut env)?;
     let t = t?;
     let trailing = t.trailing;
@@ -488,7 +490,7 @@ pub fn array(path: &str, z: &Jv) -> Res<Array> {
 /// A fill value the `fill` role checked just before: its absence is the schema's and the code's
 /// disagreeing, a rejection rather than a panic.
 fn got_fill(v: Option<(Jv, bool)>) -> Res<(Jv, bool)> {
-    v.ok_or_else(|| "internal: a fill value the schema checked is not there".to_string())
+    v.ok_or_else(|| Error::internal("a fill value the schema checked is not there"))
 }
 
 /// The compressor's codec (spec/zarrify/zarr2.md

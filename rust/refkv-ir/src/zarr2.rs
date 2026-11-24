@@ -21,6 +21,8 @@
 //! OME-Zarr profile's: the OME layer (`ome_zarr.rs`) checks it and gives what the projection
 //! writes in place of the Zarr v2 convention's, and the facts' `profile` is `ome-zarr`.
 
+use crate::error::Error;
+
 use crate::ir::{Ir, Res};
 use crate::json::{self, Jv};
 use crate::npy::header::Lit;
@@ -97,11 +99,11 @@ impl Zarr2 {
                 _ => continue,
             };
             if candidates.insert(head, array).is_some_and(|was| was != array) {
-                return Err(format!("{} has both .zarray and .zgroup", if head.is_empty() { "/" } else { head }));
+                return Err(Error::rejected(format!("{} has both .zarray and .zgroup", if head.is_empty() { "/" } else { head })));
             }
         }
         if !candidates.contains_key("") {
-            return Err("not a Zarr v2 store: the root has no .zarray or .zgroup".into());
+            return Err(Error::rejected("not a Zarr v2 store: the root has no .zarray or .zgroup"));
         }
         // classified from the root down: a candidate inside an array is not a node
         let mut order: Vec<&str> = candidates.keys().copied().collect();
@@ -129,7 +131,7 @@ impl Zarr2 {
         // the source metadata (the IR's mirror, the other objects) is the group refkv_source
         for p in nodes.keys().chain(implicit.iter()) {
             if p == SOURCE_GROUP || p.starts_with("refkv_source/") {
-                return Err(format!("the node {p} is where the store's source metadata goes ({SOURCE_GROUP}/)"));
+                return Err(Error::rejected(format!("the node {p} is where the store's source metadata goes ({SOURCE_GROUP}/)")));
             }
         }
         // an array's document that is not read (empty or too large) is described as such; a
@@ -148,7 +150,7 @@ impl Zarr2 {
                     continue;
                 };
                 if !array || p.is_empty() {
-                    return Err(problem);
+                    return Err(Error::Rejected(problem));
                 }
             }
         }
@@ -168,11 +170,11 @@ impl Zarr2 {
             }
             let n = keys[k].1;
             let r = if n == 0 {
-                Err(format!("{key}: invalid JSON: an empty document"))
+                Err(Error::rejected(format!("{key}: invalid JSON: an empty document")))
             } else if n > json::MAX_DOCUMENT {
-                Err(format!("{key}: JSON document of {n} bytes exceeds {}", json::MAX_DOCUMENT))
+                Err(Error::rejected(format!("{key}: JSON document of {n} bytes exceeds {}", json::MAX_DOCUMENT)))
             } else {
-                json::parse(got.get(&k)?).map(|d| d.value).map_err(|e| format!("{key}: {e}"))
+                json::parse(got.get(&k)?).map(|d| d.value).map_err(|e| e.context(|m| format!("{key}: {m}")))
             };
             tested.insert(k, r.clone());
             Some(r)
@@ -280,7 +282,7 @@ impl StoreParser for Zarr2 {
     /// each node's documents as parsed, with none of the output's decisions, which the projection
     /// makes (`project/zarr2_nodes.rs`).
     fn finish(self: Box<Self>) -> Res<(Ir, J)> {
-        let ome = self.ome.ok_or("internal: the parser is not done")?;
+        let ome = self.ome.ok_or_else(|| Error::internal("the parser is not done"))?;
         let mut nodes = Vec::new();
         // each document read (a listing index) and its top-level members' extents, which the IR
         // holds, in the order of the nodes, each node's own document first

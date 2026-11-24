@@ -24,6 +24,7 @@ fn rejected<T>(m: impl Into<String>) -> Result<T, Fail> {
     Err(Fail::Rejected(m.into()))
 }
 
+
 /// A listed store: `objects` maps each relative key to its size, `ignored` holds the relative keys
 /// of the ignored objects that are recorded, and `folders` those of the empty objects whose keys
 /// end in `/` (directories, to the SAFE profile): the core's `host::store_listing` of every object

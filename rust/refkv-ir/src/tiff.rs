@@ -45,6 +45,8 @@
 //!   JPEG headers and restart intervals read by `ndpi.rs`) makes the levels the NDPI projection
 //!   (`project/ndpi.rs`) reads.
 
+use crate::error::Error;
+
 use crate::expr::V;
 use crate::fed::{Fed, Word};
 use crate::ir::*;
@@ -250,7 +252,7 @@ enum Loaded {
 
 enum Stop {
     Need(Vec<(u64, u64)>),
-    Reject(String),
+    Reject(Error),
     /// The file names siblings (`Ask`, of the file's name when the parser knows it).
     Beside(Ask),
 }
@@ -385,9 +387,9 @@ pub(crate) enum Unit {
     Outside,
 }
 
-impl From<String> for Stop {
-    fn from(s: String) -> Self {
-        Stop::Reject(s)
+impl From<Error> for Stop {
+    fn from(e: Error) -> Self {
+        Stop::Reject(e)
     }
 }
 
@@ -671,7 +673,7 @@ impl Tiff {
         o.checked_add(n).is_some_and(|e| e <= self.size)
     }
 
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         loop {
             match self.phase {
                 Phase::Start => {
@@ -680,7 +682,7 @@ impl Tiff {
                 }
                 Phase::Header => {
                     let n = 16.min(self.size);
-                    let h = self.fed.get(0, n).ok_or("internal: no header")?.to_vec();
+                    let h = self.fed.get(0, n).ok_or_else(|| Error::internal("no header"))?.to_vec();
                     self.fed.clear();
                     // the NDPI test (spec/zarrify/ndpi.md §7
                     // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>):
@@ -705,7 +707,7 @@ impl Tiff {
                 Phase::Detect => {
                     let h = std::mem::take(&mut self.head);
                     let v = u64::at(&h, 4, true);
-                    let n = u16::at(self.fed.get(v, 2).ok_or("internal: no NDPI entry count")?, 0, true) as u64;
+                    let n = u16::at(self.fed.get(v, 2).ok_or_else(|| Error::internal("no NDPI entry count"))?, 0, true) as u64;
                     let end = v + 2 + 12 * n;
                     if end <= self.size && self.fed.get(v + 2, 12 * n).is_none() {
                         self.head = h;
@@ -717,7 +719,7 @@ impl Tiff {
                 Phase::DetectEntries => {
                     let h = std::mem::take(&mut self.head);
                     let v = u64::at(&h, 4, true);
-                    let n = u16::at(self.fed.get(v, 2).ok_or("internal: no NDPI entry count")?, 0, true) as u64;
+                    let n = u16::at(self.fed.get(v, 2).ok_or_else(|| Error::internal("no NDPI entry count"))?, 0, true) as u64;
                     self.decide(&h, v, n)?;
                 }
                 Phase::Chain => {
@@ -797,7 +799,7 @@ impl Tiff {
                     if !self.layout_asked.is_empty() {
                         let asked = std::mem::take(&mut self.layout_asked);
                         for (o, n) in asked {
-                            let b = self.fed.get(o, n).ok_or("internal: a value the layout asked for was not fed")?.to_vec();
+                            let b = self.fed.get(o, n).ok_or_else(|| Error::internal("a value the layout asked for was not fed"))?.to_vec();
                             self.heads.insert((o, n), b);
                         }
                         self.fed.clear();
@@ -815,12 +817,12 @@ impl Tiff {
                                 match self.describe(l.imagej.as_ref()) {
                                     Ok(d) => self.description = Some(d),
                                     Err(Stop::Reject(m)) => return Err(m),
-                                    Err(Stop::Beside(_)) => return Err("internal: the description names siblings".into()),
+                                    Err(Stop::Beside(_)) => return Err(Error::internal("the description names siblings")),
                                     Err(Stop::Need(mut r)) => {
                                         r.sort_unstable();
                                         r.dedup();
                                         if r.is_empty() || r.iter().any(|x| self.heads.contains_key(x)) {
-                                            return Err("internal: the description asked again for bytes it has".into());
+                                            return Err(Error::internal("the description asked again for bytes it has"));
                                         }
                                         self.layout_asked = r.clone();
                                         return Ok(self.ask(r));
@@ -842,7 +844,7 @@ impl Tiff {
                             r.sort_unstable();
                             r.dedup();
                             if r.is_empty() || r.iter().any(|x| self.heads.contains_key(x)) {
-                                return Err("internal: the layout asked again for bytes it has".into());
+                                return Err(Error::internal("the layout asked again for bytes it has"));
                             }
                             self.layout_asked = r.clone();
                             return Ok(self.ask(r));
@@ -870,7 +872,7 @@ impl Tiff {
         let mut seen: HashSet<u64> = self.by_offset.keys().copied().collect();
         for k in at {
             let Some(e) = self.ifds[k].field(330).cloned() else { continue };
-            let vals = self.ints(&e, false).ok_or("internal: SubIFDs not read")?;
+            let vals = self.ints(&e, false).ok_or_else(|| Error::internal("SubIFDs not read"))?;
             self.rules.check(
                 "values",
                 rules::env([
@@ -1093,7 +1095,7 @@ impl Tiff {
         if !self.bodies {
             for p in &self.pending {
                 let Some(c) = self.fed.get(p.offset, self.cs()) else {
-                    return Err(format!("internal: no entry count at {}", p.offset));
+                    return Err(Error::internal(format!("no entry count at {}", p.offset)));
                 };
                 let count = self.word_n(c);
                 let len = self.ifd_len(count);
@@ -1128,10 +1130,10 @@ impl Tiff {
         }
         let pending = std::mem::take(&mut self.pending);
         for p in pending {
-            let c = self.fed.get(p.offset, self.cs()).ok_or("internal: no entry count")?;
+            let c = self.fed.get(p.offset, self.cs()).ok_or_else(|| Error::internal("no entry count"))?;
             let count = self.word_n(c);
             let n = self.ifd_len(count).unwrap();
-            let body = self.fed.get(p.offset, n).ok_or("internal: no IFD body")?.to_vec();
+            let body = self.fed.get(p.offset, n).ok_or_else(|| Error::internal("no IFD body"))?.to_vec();
             let k = self.ifd(&p, &body)?;
             if p.tree && p.depth == 0 {
                 self.chain.push(k);
@@ -1318,7 +1320,7 @@ impl Tiff {
             let asked = std::mem::take(&mut self.asked_values);
             for (o, n, els) in asked {
                 let Some(b) = self.fed.get(o, n).map(|b| b.to_vec()) else {
-                    return Err(format!("internal: value [{o}, {}) not fed", o + n));
+                    return Err(Error::internal(format!("value [{o}, {}) not fed", o + n)));
                 };
                 if els.is_empty() {
                     self.heads.insert((o, n), b);
@@ -1436,7 +1438,7 @@ fn read_ome(x: &str, rules: &Rules) -> Res<Option<Ome>> {
     let mut text_from: Option<(usize, usize)> = None; // (TiffData, end of its UUID start tag)
     let mut named_text = false; // that UUID has a FileName, so its text is only its identity
     let mut skips: Vec<(usize, usize)> = Vec::new();
-    let mut plane_error: Option<String> = None;
+    let mut plane_error: Option<Error> = None;
     let mut plane_done = false;
     for ev in xml::scan(x) {
         let t = match ev {
@@ -1768,7 +1770,7 @@ impl Tiff {
                     return Ok(Some(self.ask(vec![(8, 32)])));
                 }
                 Prefetch::Header => {
-                    let h = self.fed.get(8, 32).ok_or("internal: no header")?.to_vec();
+                    let h = self.fed.get(8, 32).ok_or_else(|| Error::internal("no header"))?.to_vec();
                     self.fed.clear();
                     let index = u32::at(&h, 4, true) as u64;
                     if u32::at(&h, 0, true) != 54773648 || u32::at(&h, 24, true) != 2355492 || !self.within(index, 8) {
@@ -1779,7 +1781,7 @@ impl Tiff {
                     return Ok(Some(self.ask(vec![(index, 8)])));
                 }
                 Prefetch::Map(index) => {
-                    let h = self.fed.get(index, 8).ok_or("internal: no index map's header")?.to_vec();
+                    let h = self.fed.get(index, 8).ok_or_else(|| Error::internal("no index map's header"))?.to_vec();
                     self.fed.clear();
                     let n = u32::at(&h, 4, true) as u64;
                     if u32::at(&h, 0, true) != 3453623 || n == 0 || n > 100000 || !self.within(index + 8, 20 * n) {
@@ -1790,7 +1792,7 @@ impl Tiff {
                     return Ok(Some(self.ask(vec![(index + 8, 20 * n)])));
                 }
                 Prefetch::Entries(at, n) => {
-                    let b = self.fed.get(at, 20 * n).ok_or("internal: no index map")?.to_vec();
+                    let b = self.fed.get(at, 20 * n).ok_or_else(|| Error::internal("no index map"))?.to_vec();
                     self.fed.clear();
                     self.prefetch = Prefetch::Done;
                     let ranges: Vec<(u64, u64)> = b.chunks_exact(20).map(|e| u32::at(e, 16, true) as u64)
@@ -2286,7 +2288,7 @@ impl Tiff {
                 }
                 Some(bytes) => {
                     self.ir.alias(root, "planes/", 0, self.ifds[i0].el)?;
-                    tiles_of.get(&i0).and_then(|t| t.1).ok_or("internal: an ImageJ stack whose IFD 0 has no strips")?;
+                    tiles_of.get(&i0).and_then(|t| t.1).ok_or_else(|| Error::internal("an ImageJ stack whose IFD 0 has no strips"))?;
                     let strips = std::mem::take(&mut self.strips0);
                     for p in 1..ij.images {
                         let plane = self.ir.struct_(root, "planes/", p, 0, None)?;
@@ -2420,9 +2422,9 @@ impl Tiff {
                             self.ir.alias(p.parent, &p.name, NO_INDEX, el)?;
                             continue;
                         }
-                        let c = self.fed.get(p.offset, self.cs()).ok_or("internal: no pointer IFD count")?;
+                        let c = self.fed.get(p.offset, self.cs()).ok_or_else(|| Error::internal("no pointer IFD count"))?;
                         let n = self.ifd_len(self.word_n(c)).unwrap();
-                        let body = self.fed.get(p.offset, n).ok_or("internal: no pointer IFD body")?.to_vec();
+                        let body = self.fed.get(p.offset, n).ok_or_else(|| Error::internal("no pointer IFD body"))?.to_vec();
                         made.push(self.ifd(&p, &body)?);
                     }
                     self.fed.clear();
@@ -2447,7 +2449,7 @@ impl Tiff {
     }
 
     /// The finished IR, with the images its IFDs declare described (`stored.rs`), and the facts.
-    pub fn finish(self) -> Result<(Ir, J), String> {
+    pub fn finish(self) -> crate::error::Res<(Ir, J)> {
         let described = if self.phase == Phase::Done { Some(self.described()?) } else { None };
         // what the parser returns beside the IR is its description of the file
         let mut facts = self.finished_description();
@@ -2533,7 +2535,7 @@ impl Tiff {
         let mut out = NVals::new();
         for (tag, i) in tags {
             let e = &f.entries[i];
-            let z = type_size(e.typ).ok_or("internal: a checked NDPI tag of unknown type")?;
+            let z = type_size(e.typ).ok_or_else(|| Error::internal("a checked NDPI tag of unknown type"))?;
             let n = if NDPI_SCALARS.contains(&tag) { 1.min(e.count) } else { e.count };
             let v = if matches!(e.typ, 1 | 3 | 4 | 13 | 16 | 18) {
                 let Some(mut v) = self.ints(e, n == 1 && e.count >= 1) else {
@@ -2558,7 +2560,7 @@ impl Tiff {
                     11 => Nv::Floats(c.map(|x| f32::le_at(x, 0) as f64).collect()),
                     12 => Nv::Floats(c.map(|x| f64::le_at(x, 0)).collect()),
                     5 => Nv::Rats(c.map(|x| (u32::at(x, 0, true) as u64, u32::at(x, 4, true) as u64)).collect()),
-                    _ => return Err("internal: an NDPI tag of an unexpected type".into()),
+                    _ => return Err(Error::internal("an NDPI tag of an unexpected type")),
                 }
             };
             out.insert(tag, v);
@@ -2830,13 +2832,13 @@ impl crate::Parser for Tiff {
     fn new(size: u64) -> Self {
         Tiff::new(size)
     }
-    fn step(&mut self) -> Result<crate::step::Step, String> {
+    fn step(&mut self) -> crate::error::Res<crate::step::Step> {
         Tiff::step(self)
     }
     fn feed(&mut self, offset: u64, data: Vec<u8>) {
         Tiff::feed(self, offset, data)
     }
-    fn finish(self) -> Result<(crate::ir::Ir, serde_json::Value), String> {
+    fn finish(self) -> crate::error::Res<(crate::ir::Ir, serde_json::Value)> {
         Tiff::finish(self)
     }
     fn found(&self) -> Option<&'static str> {
@@ -2862,10 +2864,10 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Tiff>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
         crate::project::tiff::project(ir, description, url, copied)
     }
-    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value, _chunking: &crate::out::Chunking) -> Result<Vec<(u64, u64)>, String> {
+    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value, _chunking: &crate::out::Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
         crate::project::tiff::reads(ir, description)
     }
 }

@@ -8,6 +8,8 @@
 //! whether it is valid. The schema's `limits` and `tables` are names every
 //! expression can use.
 
+use crate::error::Error;
+
 use crate::expr::{self, E, Env, Layered, Scope, V};
 
 /// What a parser gives for a role, and what the role derives: a few names, looked up
@@ -34,14 +36,15 @@ use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-pub type Res<T> = Result<T, String>;
+pub use crate::error::Res;
 
 // The source models, schema/<name>.json, by name (build.rs)
 include!(concat!(env!("OUT_DIR"), "/schemas.rs"));
 
 struct Role {
     derive: Vec<(String, E)>,
-    constraints: Vec<(E, String)>,
+    /// each constraint's expression, its message, and whether it is a limit's (a budget)
+    constraints: Vec<(E, String, bool)>,
 }
 
 pub struct Rules {
@@ -92,7 +95,7 @@ fn format<S: Scope>(msg: &str, scope: &S) -> String {
 
 impl Rules {
     pub fn new(text: &str) -> Res<Rules> {
-        let json: J = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        let json: J = serde_json::from_str(text).map_err(|e| Error::Internal(e.to_string()))?;
         let mut consts = Env::new();
         for section in ["limits", "tables"] {
             if let Some(J::Object(m)) = json.get(section) {
@@ -113,24 +116,27 @@ impl Rules {
                 if let Some(J::Object(d)) = r.get("derive") {
                     for (k, v) in d {
                         if consts.contains_key(k) {
-                            return Err(format!("{name}: the derived {k} shadows a limit or table"));
+                            return Err(Error::Internal(format!("{name}: the derived {k} shadows a limit or table")));
                         }
-                        let s = v.as_str().ok_or(format!("{name}: derive {k} is not text"))?;
-                        derive.push((k.clone(), expr::parse(s).map_err(|e| format!("{name}.{k}: {e}"))?));
+                        let s = v.as_str().ok_or_else(|| Error::Internal(format!("{name}: derive {k} is not text")))?;
+                        derive.push((k.clone(), expr::parse(s).map_err(|e| Error::Internal(format!("{name}.{k}: {e}")))?));
                     }
                 }
                 // a given or derived name absent from an env reads the limit or table of its name
                 // (`Layered`), so neither may share a name with one
                 if let Some(J::Object(g)) = r.get("given") {
                     if let Some(k) = g.keys().find(|k| consts.contains_key(*k)) {
-                        return Err(format!("{name}: the given {k} shadows a limit or table"));
+                        return Err(Error::Internal(format!("{name}: the given {k} shadows a limit or table")));
                     }
                 }
                 let mut constraints = Vec::new();
                 for c in r.get("constraints").and_then(|c| c.as_array()).into_iter().flatten() {
-                    let req = c["require"].as_str().ok_or(format!("{name}: a constraint lacks require"))?;
-                    let msg = c["message"].as_str().ok_or(format!("{name}: a constraint lacks message"))?;
-                    constraints.push((expr::parse(req).map_err(|e| format!("{name}: {e}"))?, msg.to_string()));
+                    let req = c["require"].as_str().ok_or_else(|| Error::Internal(format!("{name}: a constraint lacks require")))?;
+                    let msg = c["message"].as_str().ok_or_else(|| Error::Internal(format!("{name}: a constraint lacks message")))?;
+                    // a limit's constraint declares it (`"kind": "budget"`), its message without the
+                    // `budget: ` that its rejection, a `crate::error::Error::Budget`, puts before it
+                    let budget = c.get("kind").and_then(J::as_str) == Some("budget");
+                    constraints.push((expr::parse(req).map_err(|e| Error::Internal(format!("{name}: {e}")))?, msg.to_string(), budget));
                 }
                 roles.insert(name.clone(), Role { derive, constraints });
             }
@@ -167,15 +173,16 @@ impl Rules {
     /// quantities of afterwards).
     pub fn check<'a>(&'a self, role: &str, mut env: impl BorrowMut<Vars<'a>>) -> Res<()> {
         let env = env.borrow_mut();
-        let r = self.roles.get(role).ok_or(format!("internal: no role {role}"))?;
+        let r = self.roles.get(role).ok_or_else(|| Error::internal(format!("no role {role}")))?;
         for (k, e) in &r.derive {
             let v = expr::eval(e, &Layered(&*env, &self.consts));
             env.insert(k.as_str(), v);
         }
-        for (e, msg) in &r.constraints {
+        for (e, msg, budget) in &r.constraints {
             let scope = Layered(&*env, &self.consts);
             if !expr::eval(e, &scope).truthy() {
-                return Err(format(msg, &scope));
+                let m = format(msg, &scope);
+                return Err(if *budget { Error::budget(m) } else { Error::Rejected(m) });
             }
         }
         Ok(())
@@ -201,4 +208,32 @@ pub fn flag(b: bool) -> V {
 
 pub fn text(s: &str) -> V {
     V::Str(s.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    /// A limit's message is written without `budget: `, which its rejection (`Error::budget`)
+    /// puts before it: no schema's message starts with it, and every constraint that names a kind
+    /// names `budget`.
+    #[test]
+    fn a_limit_declares_its_kind_and_not_its_prefix() {
+        let mut budgets = 0;
+        for (name, text) in super::SCHEMAS {
+            let json: serde_json::Value = serde_json::from_str(text).unwrap();
+            for (role, r) in json["roles"].as_object().into_iter().flatten() {
+                for c in r["constraints"].as_array().into_iter().flatten() {
+                    let message = c["message"].as_str().unwrap_or("");
+                    assert!(!message.starts_with("budget:"), "{name} {role}: {message}");
+                    match c.get("kind") {
+                        None => {}
+                        Some(k) => {
+                            assert_eq!(k, "budget", "{name} {role}");
+                            budgets += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(budgets > 0);
+    }
 }

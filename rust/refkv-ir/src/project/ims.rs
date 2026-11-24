@@ -7,6 +7,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#710-the-description>) through
 //! refkv's plan of it (`plan`).
 
+use crate::error::Error;
+
 use super::{along, arr, key, n, obj, strs, translations};
 use crate::hdf5;
 use crate::ir::Ir;
@@ -210,7 +212,7 @@ pub fn plan(d: &J) -> J {
 }
 
 /// The output of the file `description` describes, through refkv's plan of it (`plan`).
-pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
     let planned = &plan(description);
     let axes = strs(&planned["axes"]);
     let mut ome = image_ome(&axes, &obj(&planned["units"]), arr(&planned["scales"]), Some(&planned["name"]), translations(&planned["translations"]))?;
@@ -231,14 +233,14 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
         let (r, t, c) = (n(&im["level"]), n(&im["time"]), n(&im["channel"]));
         let Some(el) = im["chunks"].as_u64() else { continue };
         let grid: Vec<u64> = arr(&im["grid"]).iter().map(n).collect();
-        let level = arrays.get(r as usize).ok_or("internal: no level")?;
+        let level = arrays.get(r as usize).ok_or_else(|| Error::internal("no level"))?;
         let sizes: Vec<u64> = arr(&level["sizes"]).iter().map(n).collect();
         let chunk: Vec<u64> = arr(&level["chunk"]).iter().map(n).collect();
         let mut members = ir.members(el as u32);
         members.sort_unstable();
         for (idx, start, length, form) in members {
             if form == u32::MAX {
-                return Err("internal: a chunk without a form".into());
+                return Err(Error::internal("a chunk without a form"));
             }
             let coords = hdf5::unravel(idx as u128, &grid);
             if (0..3).any(|i| coords[i] as u128 * chunk[i] as u128 >= sizes[i] as u128) {

@@ -20,7 +20,7 @@ fn fixtures() -> PathBuf {
 
 /// Runs the VSI store format on the `.vsi` at `path`, probing for its tile files beside it:
 /// (the output, the IR, the files read by key), or the rejection.
-fn run(path: &Path) -> Result<(Out, Ir, BTreeMap<String, Vec<u8>>), String> {
+fn run(path: &Path) -> refkv_ir::error::Res<(Out, Ir, BTreeMap<String, Vec<u8>>)> {
     let (ir, facts, (stats, read), mut files) = parsed(path)?;
     let out = refkv_ir::store::store_output(StoreFormat::Vsi, &ir, &facts, stats, &read, "https://example.org/slides/", true, false)?;
     // the files of the input: those the run made objects (a second tile file name found beside
@@ -34,7 +34,7 @@ fn run(path: &Path) -> Result<(Out, Ir, BTreeMap<String, Vec<u8>>), String> {
 /// read for the projection, the files read by key).
 type Parsed = (Ir, serde_json::Value, (serde_json::Value, refkv_ir::store::Read), BTreeMap<String, Vec<u8>>);
 
-fn parsed(path: &Path) -> Result<Parsed, String> {
+fn parsed(path: &Path) -> refkv_ir::error::Res<Parsed> {
     let dir = path.parent().unwrap();
     let key = path.file_name().unwrap().to_str().unwrap().to_string();
     let size = std::fs::metadata(path).unwrap().len();
@@ -101,11 +101,11 @@ fn check_slide(path: &Path, files: &BTreeMap<String, Vec<u8>>, out: &Out, ir: &I
     let back = load(&table_from_out(out).unwrap(), &mut |_, _| Err("no source".into())).unwrap_or_else(|e| panic!("{path:?}: {e}"));
     assert_eq!(back.len(), ir.len(), "{path:?}");
     let bsrc = back.sources();
-    let mut read = |v: u64, n: u64| -> Result<Vec<u8>, String> {
+    let mut read = |v: u64, n: u64| -> refkv_ir::error::Res<Vec<u8>> {
         let (o, base) = bsrc.at(&back, v).ok_or("no object at that virtual offset")?;
         let x = (v - base) as usize;
         let b = &files[&back.key(o)];
-        b.get(x..x + n as usize).map(|s| s.to_vec()).ok_or_else(|| format!("[{x}, {}) runs past {:?}", x + n as usize, back.key(o)))
+        b.get(x..x + n as usize).map(|s| s.to_vec()).ok_or_else(|| refkv_ir::error::Error::Internal(format!("[{x}, {}) runs past {:?}", x + n as usize, back.key(o))))
     };
     assert_eq!(canonical_problem(&get, &mut read), None, "{path:?}");
     let keys: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
@@ -490,7 +490,7 @@ macro_rules! reject {
         #[test]
         fn $name() {
             match run(&fixtures().join($file)) {
-                Err(m) => assert!(m.starts_with($msg), "{m}"),
+                Err(m) => assert!(m.to_string().starts_with($msg), "{m}"),
                 Ok(_) => panic!("{} was accepted", $file),
             }
         }

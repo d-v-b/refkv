@@ -26,7 +26,7 @@ pyo3::create_exception!(refkv._core, SealRefused, PyValueError);
 /// input, Failed for a failure of refkv's on an input it accepted, such as a payload over the limit
 /// only with its checksums (spec/zarrify.md §1.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), or a bug.
-fn refused(e: refkv_ir::error::Error) -> PyErr {
+pub(crate) fn refused(e: refkv_ir::error::Error) -> PyErr {
     if e.is_rejection() { Rejected::new_err(e.to_string()) } else { Failed::new_err(e.to_string()) }
 }
 pyo3::create_exception!(refkv._core, Violation, PyException);
@@ -242,7 +242,7 @@ impl PyIr {
                 .entry(tid)
                 .or_insert_with(|| types::parse(self.ir.types.get(tid)).ok());
             let Some(ty) = ty else { return Ok(None) };
-            types::decode(ty, raw).map_err(PyValueError::new_err)?
+            types::decode(ty, raw).map_err(|e| PyValueError::new_err(e.to_string()))?
         };
         Ok(Some(to_py(py, &v)?))
     }
@@ -263,11 +263,11 @@ impl PyIr {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>); raises
     /// Violation.
     fn check(&self) -> PyResult<()> {
-        check::check(&self.ir).map_err(Violation::new_err)
+        check::check(&self.ir).map_err(|e| Violation::new_err(e.to_string()))
     }
     /// The leaves in source order, as ranges (adjacent ones merged).
     fn leaves(&self) -> PyResult<Vec<(u64, u64)>> {
-        check::leaves(&self.ir).map_err(Violation::new_err)
+        check::leaves(&self.ir).map_err(|e| Violation::new_err(e.to_string()))
     }
     fn memory(&self) -> usize {
         self.ir.memory()
@@ -353,11 +353,11 @@ impl PyIr {
     #[staticmethod]
     fn from_archive(get: Bound<'_, PyAny>, read: Bound<'_, PyAny>) -> PyResult<PyIr> {
         let g = |k: &str| -> Option<Vec<u8>> { get.call1((k,)).ok()?.extract::<Option<Vec<u8>>>().ok()? };
-        let t = refkv_ir::mirror::table_from(&g).map_err(Violation::new_err)?;
-        let mut rd = |o: u64, n: u64| -> Result<Vec<u8>, String> {
-            read.call1((o, n)).map_err(|e| e.to_string())?.extract::<Vec<u8>>().map_err(|e| e.to_string())
+        let t = refkv_ir::mirror::table_from(&g).map_err(|e| Violation::new_err(e.to_string()))?;
+        let mut rd = |o: u64, n: u64| -> refkv_ir::error::Res<Vec<u8>> {
+            read.call1((o, n)).map_err(|e| refkv_ir::error::Error::Failed(e.to_string()))?.extract::<Vec<u8>>().map_err(|e| refkv_ir::error::Error::Failed(e.to_string()))
         };
-        let ir = refkv_ir::mirror::load(&t, &mut rd).map_err(Violation::new_err)?;
+        let ir = refkv_ir::mirror::load(&t, &mut rd).map_err(|e| Violation::new_err(e.to_string()))?;
         Ok(PyIr::new(ir))
     }
 
@@ -694,7 +694,7 @@ impl PyMirror {
     /// The mirror under `refkv_source` (`out_py`'s form, the url empty), with what the input's
     /// convention records beside it from the run's description, the keys and directories a listing
     /// ignored (`run::mirrored`, `store::mirrored`: what the built-in output writes there, but
-    /// for a store's objects); or Rejected.
+    /// for a store's objects); or Rejected, and Failed for a failure of refkv's.
     fn entries<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let o = py.detach(|| {
             let mut o = refkv_ir::out::Out::new("");
@@ -851,12 +851,12 @@ impl PyStoreRun {
 /// The rebuild of a store's mirror (conventions §8.9
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>) from an archive's
 /// entries (`get(key)`: bytes or None): every object as (key, size, bytes), the bytes of a held
-/// object rebuilt from its leaves, None for a referenced or empty one; or Rejected.
+/// object rebuilt from its leaves, None for a referenced or empty one; or Rejected, and Failed for a failure of refkv's.
 #[pyfunction]
 #[allow(clippy::type_complexity)]
 fn rebuild_store<'py>(py: Python<'py>, get: Bound<'py, PyAny>) -> PyResult<Vec<(String, u64, Option<Bound<'py, PyBytes>>)>> {
     let g = |k: &str| -> Option<Vec<u8>> { get.call1((k,)).ok()?.extract::<Option<Vec<u8>>>().ok()? };
-    let v = refkv_ir::mirror::rebuild_store(&g).map_err(Rejected::new_err)?;
+    let v = refkv_ir::mirror::rebuild_store(&g).map_err(crate::refused)?;
     Ok(v.into_iter().map(|(k, n, b)| (k, n, b.map(|b| PyBytes::new(py, &b)))).collect())
 }
 
@@ -896,7 +896,7 @@ fn mirror<'py>(py: Python<'py>, ir: &PyIr, profile: &str) -> PyResult<(Bound<'py
     let (o, folded) = py.detach(|| {
         let mut o = refkv_ir::out::Out::new("");
         refkv_ir::mirror::mirror(&ir.ir, &mut o, profile).map(|f| (o, f))
-    }).map_err(Rejected::new_err)?;
+    }).map_err(crate::refused)?;
     Ok((out_py(py, &o)?, folded.json().to_string()))
 }
 
@@ -907,8 +907,8 @@ fn mirror<'py>(py: Python<'py>, ir: &PyIr, profile: &str) -> PyResult<(Bound<'py
 #[pyfunction]
 fn canonical_problem(get: Bound<'_, PyAny>, read: Bound<'_, PyAny>) -> Option<String> {
     let g = |k: &str| -> Option<Vec<u8>> { get.call1((k,)).ok()?.extract::<Option<Vec<u8>>>().ok()? };
-    let mut rd = |o: u64, n: u64| -> Result<Vec<u8>, String> {
-        read.call1((o, n)).map_err(|e| e.to_string())?.extract::<Vec<u8>>().map_err(|e| e.to_string())
+    let mut rd = |o: u64, n: u64| -> refkv_ir::error::Res<Vec<u8>> {
+        read.call1((o, n)).map_err(|e| refkv_ir::error::Error::Failed(e.to_string()))?.extract::<Vec<u8>>().map_err(|e| refkv_ir::error::Error::Failed(e.to_string()))
     };
     refkv_ir::mirror::canonical_problem(&g, &mut rd)
 }
@@ -920,8 +920,8 @@ fn canonical_problem(get: Bound<'_, PyAny>, read: Bound<'_, PyAny>) -> Option<St
 #[pyfunction]
 fn view_problem(keys: Vec<String>, get: Bound<'_, PyAny>, read: Bound<'_, PyAny>) -> Option<String> {
     let g = |k: &str| -> Option<Vec<u8>> { get.call1((k,)).ok()?.extract::<Option<Vec<u8>>>().ok()? };
-    let mut rd = |o: u64, n: u64| -> Result<Vec<u8>, String> {
-        read.call1((o, n)).map_err(|e| e.to_string())?.extract::<Vec<u8>>().map_err(|e| e.to_string())
+    let mut rd = |o: u64, n: u64| -> refkv_ir::error::Res<Vec<u8>> {
+        read.call1((o, n)).map_err(|e| refkv_ir::error::Error::Failed(e.to_string()))?.extract::<Vec<u8>>().map_err(|e| refkv_ir::error::Error::Failed(e.to_string()))
     };
     refkv_ir::mirror::view_problem(&keys, &g, &mut rd)
 }
@@ -1021,8 +1021,8 @@ fn plan_spans(ranges: Vec<(u64, u64)>, threshold: u64, cap: f64, concurrency: us
 #[pyfunction]
 fn fits_tiles_decode<'py>(py: Python<'py>, chunk: &[u8], config: &str, chunk_shape: Vec<u64>) -> PyResult<Bound<'py, PyBytes>> {
     let cfg: serde_json::Value = serde_json::from_str(config).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let cfg = refkv_ir::fits_tiles::Config::from_json(&cfg).map_err(PyValueError::new_err)?;
-    let out = py.detach(|| refkv_ir::fits_tiles::decode(chunk, &cfg, &chunk_shape)).map_err(PyValueError::new_err)?;
+    let cfg = refkv_ir::fits_tiles::Config::from_json(&cfg).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let out = py.detach(|| refkv_ir::fits_tiles::decode(chunk, &cfg, &chunk_shape)).map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(PyBytes::new(py, &out))
 }
 
@@ -1032,7 +1032,7 @@ fn fits_tiles_decode<'py>(py: Python<'py>, chunk: &[u8], config: &str, chunk_sha
 /// elements, LZ4-compressed when `lz4`.
 #[pyfunction]
 fn h5_bitshuffle_decode<'py>(py: Python<'py>, chunk: &[u8], elementsize: usize, block_size: usize, lz4: bool) -> PyResult<Bound<'py, PyBytes>> {
-    let out = py.detach(|| refkv_ir::h5_bitshuffle::decode(chunk, elementsize, block_size, lz4)).map_err(PyValueError::new_err)?;
+    let out = py.detach(|| refkv_ir::h5_bitshuffle::decode(chunk, elementsize, block_size, lz4)).map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(PyBytes::new(py, &out))
 }
 
@@ -1043,8 +1043,8 @@ fn h5_bitshuffle_decode<'py>(py: Python<'py>, chunk: &[u8], elementsize: usize, 
 #[pyfunction]
 fn grib_decode<'py>(py: Python<'py>, chunk: &[u8], config: &str, chunk_shape: Vec<u64>) -> PyResult<Bound<'py, PyBytes>> {
     let cfg: serde_json::Value = serde_json::from_str(config).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let cfg = refkv_ir::grib::codec::Config::from_json(&cfg).map_err(PyValueError::new_err)?;
-    let out = py.detach(|| refkv_ir::grib::codec::decode(chunk, &cfg, &chunk_shape)).map_err(PyValueError::new_err)?;
+    let cfg = refkv_ir::grib::codec::Config::from_json(&cfg).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let out = py.detach(|| refkv_ir::grib::codec::decode(chunk, &cfg, &chunk_shape)).map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(PyBytes::new(py, &bytes_of(&out, f64::to_le_bytes)))
 }
 

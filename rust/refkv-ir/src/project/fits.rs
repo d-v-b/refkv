@@ -6,6 +6,8 @@
 //! `heap` for a table, and an empty group for an HDU without data, each declaring the convention
 //! with its own cards. A compressed file's arrays have one chunk each, its whole stream.
 
+use crate::error::Error;
+
 use super::{contiguous, key, Copied};
 use crate::fed::Word;
 use crate::fits::{card, parse_cards, row_struct, tile_cut, Card, Value};
@@ -126,9 +128,9 @@ fn heap_chunks(ir: &Ir) -> HashMap<(u32, u64), u32> {
 }
 
 /// The cards of HDU `h`, from its header element.
-fn cards_of(ir: &Ir, h: &J) -> Result<Vec<Card>, String> {
-    let id = h["elements"]["header"].as_u64().ok_or("internal: an HDU without a header")? as u32;
-    let raw = ir.value_bytes(id).ok_or("internal: the header is not held")?;
+fn cards_of(ir: &Ir, h: &J) -> crate::error::Res<Vec<Card>> {
+    let id = h["elements"]["header"].as_u64().ok_or_else(|| Error::internal("an HDU without a header"))? as u32;
+    let raw = ir.value_bytes(id).ok_or_else(|| Error::internal("the header is not held"))?;
     Ok(parse_cards(raw, h["cards"].as_u64().unwrap_or(0) as usize))
 }
 
@@ -183,7 +185,7 @@ fn own_json(h: &J, cards: &[Card], row: Option<&Result<J, &'static str>>) -> J {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
 /// contiguous values; in a compressed file, each one chunk, the file's `length` bytes (§2.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#21-a-compressed-file>).
-fn arrays(ir: &Ir, h: &J, row: Option<&J>, threshold: usize, stream: &J) -> Result<Vec<Node>, String> {
+fn arrays(ir: &Ir, h: &J, row: Option<&J>, threshold: usize, stream: &J) -> crate::error::Res<Vec<Node>> {
     let mut out = cut_arrays(ir, h, row, threshold)?;
     if let Some(length) = stream["length"].as_u64() {
         for a in &mut out {
@@ -200,7 +202,7 @@ fn arrays(ir: &Ir, h: &J, row: Option<&J>, threshold: usize, stream: &J) -> Resu
     Ok(out)
 }
 
-fn cut_arrays(ir: &Ir, h: &J, row: Option<&J>, threshold: usize) -> Result<Vec<Node>, String> {
+fn cut_arrays(ir: &Ir, h: &J, row: Option<&J>, threshold: usize) -> crate::error::Res<Vec<Node>> {
     let index = h["index"].as_u64().unwrap_or(0);
     let mut out = Vec::new();
     match h["kind"].as_str() {
@@ -210,7 +212,7 @@ fn cut_arrays(ir: &Ir, h: &J, row: Option<&J>, threshold: usize) -> Result<Vec<N
             let item = h["bitpix"].as_i64().unwrap_or(8).unsigned_abs() / 8;
             let element = h["elements"]["data"].as_u64().map(|v| v as u32);
             let offset = element.map_or(0, |e| ir.start[e as usize]);
-            let (grid, chunks) = grid_chunks(offset, &shape, item, CHUNK_BYTES, threshold).ok_or("internal: the data cannot be cut into chunks")?;
+            let (grid, chunks) = grid_chunks(offset, &shape, item, CHUNK_BYTES, threshold).ok_or_else(|| Error::internal("the data cannot be cut into chunks"))?;
             out.push(Node { path: index.to_string(), data_type: data_type(&h["bitpix"]), shape, dims, element, grid, chunks, within: None, row: None });
         }
         Some("table") => {
@@ -225,10 +227,10 @@ fn cut_arrays(ir: &Ir, h: &J, row: Option<&J>, threshold: usize) -> Result<Vec<N
                 Some(_) => (vec![rows], row_bytes, vec!["row".into()], "struct"),
                 None => (vec![rows, row_bytes], 1, vec!["row".into(), "byte".into()], "uint8"),
             };
-            let (grid, chunks) = grid_chunks(offset, &shape, item, CHUNK_BYTES, threshold).ok_or("internal: the rows cannot be cut into chunks")?;
+            let (grid, chunks) = grid_chunks(offset, &shape, item, CHUNK_BYTES, threshold).ok_or_else(|| Error::internal("the rows cannot be cut into chunks"))?;
             out.push(Node { path, data_type: data_type.into(), shape, dims, element, grid, chunks, within: None, row });
             if heap > 0 {
-                let e = h["elements"]["heap"].as_u64().ok_or("internal: a heap without an element")? as u32;
+                let e = h["elements"]["heap"].as_u64().ok_or_else(|| Error::internal("a heap without an element"))? as u32;
                 let (size, chunks) = blob_chunks(ir.start[e as usize], heap);
                 out.push(Node { path: format!("{index}/heap"), data_type: "uint8".into(), shape: vec![heap], dims: vec!["byte".into()], element: Some(e), grid: vec![size], chunks, within: None, row: None });
             }
@@ -239,7 +241,7 @@ fn cut_arrays(ir: &Ir, h: &J, row: Option<&J>, threshold: usize) -> Result<Vec<N
 }
 
 /// The source's ranges of the edge chunks the projection copies.
-pub fn reads(ir: &Ir, description: &J, chunking: &Chunking) -> Result<Vec<(u64, u64)>, String> {
+pub fn reads(ir: &Ir, description: &J, chunking: &Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
     let threshold = chunking.copy_threshold;
     let mut out = Vec::new();
     for h in description["hdus"].as_array().into_iter().flatten() {
@@ -255,7 +257,7 @@ pub fn reads(ir: &Ir, description: &J, chunking: &Chunking) -> Result<Vec<(u64, 
     Ok(out)
 }
 
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> crate::error::Res<Out> {
     let threshold = chunking.copy_threshold;
     let hdus = description["hdus"].as_array().cloned().unwrap_or_default();
     let stream = &description["stream"];
@@ -326,7 +328,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &
             refs.out.json(&format!("{path}/zarr.json"), &doc);
             summary_arrays.push(json!({"path": path, "shape": shape, "dataType": data_type, "chunkShape": grid}));
             let (start, length, form) = match element {
-                Some(e) => (ir.start[e as usize], ir.len[e as usize], ir.form_id(e).ok_or("internal: the data has no form")?),
+                Some(e) => (ir.start[e as usize], ir.len[e as usize], ir.form_id(e).ok_or_else(|| Error::internal("the data has no form"))?),
                 None => (0, 0, 0),
             };
             count += chunks.len();
@@ -345,7 +347,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &
         summary_arrays.push(json!({"path": path, "shape": doc["shape"], "dataType": doc["data_type"],
                                    "chunkShape": doc["chunk_grid"]["configuration"]["chunk_shape"], "compression": h["compression"]["type"]}));
         for (coords, e, prefix) in chunks {
-            let (start, length, form) = (ir.start[e as usize], ir.len[e as usize], ir.form_id(e).ok_or("internal: a heap chunk has no form")?);
+            let (start, length, form) = (ir.start[e as usize], ir.len[e as usize], ir.form_id(e).ok_or_else(|| Error::internal("a heap chunk has no form"))?);
             let mut parts = refs.parts(start, length, form)?;
             parts.insert(0, Part::Lit(prefix));
             count += 1;
@@ -392,7 +394,7 @@ struct Tiled {
     chunks: Vec<(Vec<u64>, u32, Vec<u8>)>,
 }
 
-fn tiled_array(ir: &Ir, h: &J, heaps: &HashMap<(u32, u64), u32>) -> Result<Tiled, String> {
+fn tiled_array(ir: &Ir, h: &J, heaps: &HashMap<(u32, u64), u32>) -> crate::error::Res<Tiled> {
     let c = &h["compression"];
     let path = h["index"].as_u64().unwrap_or(0).to_string();
     let ints = |v: &J| -> Vec<u64> { v.as_array().into_iter().flatten().map(|v| v.as_u64().unwrap_or(0)).collect() };
@@ -402,7 +404,7 @@ fn tiled_array(ir: &Ir, h: &J, heaps: &HashMap<(u32, u64), u32>) -> Result<Tiled
     let data_type = data_type(&c["zbitpix"]);
     let item = c["zbitpix"].as_i64().unwrap_or(8).unsigned_abs() / 8;
     let (chunk_shape, _, cut) = tile_cut(&shape, &tile, item);
-    let node = h["elements"]["header"].as_u64().map(|e| ir.parent[e as usize]).ok_or("internal: an HDU without a header")?;
+    let node = h["elements"]["header"].as_u64().map(|e| ir.parent[e as usize]).ok_or_else(|| Error::internal("an HDU without a header"))?;
     let config = json!({
         "compression": c["type"], "parameters": c["parameters"], "zbitpix": c["zbitpix"],
         "shape": c["shape"], "tile_shape": c["tile"], "quantize": c["quantize"],
@@ -416,7 +418,7 @@ fn tiled_array(ir: &Ir, h: &J, heaps: &HashMap<(u32, u64), u32>) -> Result<Tiled
     for (j, ch) in cut.into_iter().enumerate() {
         let Some(&e) = heaps.get(&(node, j as u64)) else { continue };
         let (first, n) = (ch.first as usize, ch.count as usize);
-        let tiles = records.get(first..first + n).ok_or("internal: a chunk past the tile table")?;
+        let tiles = records.get(first..first + n).ok_or_else(|| Error::internal("a chunk past the tile table"))?;
         chunks.push((ch.coords, e, prefix(first as u64, tiles)));
     }
     Ok(Tiled { path, doc, chunks })
@@ -426,15 +428,15 @@ fn tiled_array(ir: &Ir, h: &J, heaps: &HashMap<(u32, u64), u32>) -> Result<Tiled
 /// (§5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>): each
 /// `[keyword, value, comment]`, whatever their JSON's size (the source metadata leaves them out
 /// past its budget).
-pub fn hdu_cards(ir: &Ir, description: &J, index: u64) -> Result<J, String> {
+pub fn hdu_cards(ir: &Ir, description: &J, index: u64) -> crate::error::Res<J> {
     Ok(cards_json(&cards_of(ir, hdu(description, index)?)?))
 }
 
 /// HDU `index` of the description, which lists the HDUs in the file's order, each at its index.
-fn hdu(description: &J, index: u64) -> Result<&J, String> {
-    let h = usize::try_from(index).ok().and_then(|i| description["hdus"].get(i)).ok_or_else(|| format!("no HDU {index}"))?;
+fn hdu(description: &J, index: u64) -> crate::error::Res<&J> {
+    let h = usize::try_from(index).ok().and_then(|i| description["hdus"].get(i)).ok_or_else(|| Error::rejected(format!("no HDU {index}")))?;
     if h["index"] != index {
-        return Err(format!("internal: the description's HDU {index} is not at its index"));
+        return Err(Error::internal(format!("the description's HDU {index} is not at its index")));
     }
     Ok(h)
 }
@@ -473,7 +475,7 @@ pub struct HduArray {
 /// projection writes them but for their declarations (the routine of
 /// design/proposals/profile-plugins.md "The routines" for FITS): an image's, a table's rows and
 /// heap, a tile-compressed image's. None for an HDU of no data. `heaps` is the file's (`Heaps::of`).
-pub fn hdu_arrays(ir: &Ir, description: &J, index: u64, heaps: &Heaps, chunking: &Chunking) -> Result<Vec<HduArray>, String> {
+pub fn hdu_arrays(ir: &Ir, description: &J, index: u64, heaps: &Heaps, chunking: &Chunking) -> crate::error::Res<Vec<HduArray>> {
     let h = hdu(description, index)?;
     let under = |path: &str| path.strip_prefix(&index.to_string()).unwrap_or(path).trim_start_matches('/').to_string();
     if !h["compression"].is_null() {
@@ -481,13 +483,13 @@ pub fn hdu_arrays(ir: &Ir, description: &J, index: u64, heaps: &Heaps, chunking:
         let mut refs = Refs::new(ir, Out::new(""));
         let mut out = Vec::with_capacity(chunks.len());
         for (coords, e, prefix) in chunks {
-            let (start, length, form) = (ir.start[e as usize], ir.len[e as usize], ir.form_id(e).ok_or("internal: a heap chunk has no form")?);
+            let (start, length, form) = (ir.start[e as usize], ir.len[e as usize], ir.form_id(e).ok_or_else(|| Error::internal("a heap chunk has no form"))?);
             let mut pieces = vec![Piece::Lit(prefix)];
             for part in refs.parts(start, length, form)? {
                 pieces.push(match part {
                     Part::Src(o, n) => Piece::Src(o, n),
                     Part::Lit(b) => Piece::Lit(b),
-                    _ => return Err("internal: a heap chunk's recipe names no range of the file".into()),
+                    _ => return Err(Error::internal("a heap chunk's recipe names no range of the file")),
                 });
             }
             out.push((coords, pieces));
@@ -506,7 +508,7 @@ pub fn hdu_arrays(ir: &Ir, description: &J, index: u64, heaps: &Heaps, chunking:
                     let mut pieces: Vec<Piece> = parts.into_iter().take(if pad.is_some() { 1 } else { usize::MAX }).map(|p| match p {
                         Part::Src(o, n) => Ok(Piece::Src(o, n)),
                         Part::Lit(b) => Ok(Piece::Lit(b)),
-                        _ => Err("internal: a chunk of no range of the file".to_string()),
+                        _ => Err(Error::internal("a chunk of no range of the file")),
                     }).collect::<Result<_, _>>()?;
                     pieces.extend(pad.map(Piece::Zeros));
                     pieces
@@ -521,7 +523,7 @@ pub fn hdu_arrays(ir: &Ir, description: &J, index: u64, heaps: &Heaps, chunking:
                 Chunk::Bytes(b) => vec![Piece::Lit(b)],
             };
             Ok((coords, pieces))
-        }).collect::<Result<Vec<_>, String>>()?;
+        }).collect::<crate::error::Res<Vec<_>>>()?;
         out.push(HduArray { path: under(&node.path), doc, chunks });
     }
     Ok(out)
@@ -542,12 +544,12 @@ fn compression_json(c: &J) -> J {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>),
 /// from the main table's rows: its
 /// stream's length and column, its quantization.
-fn tile_records(c: &J, table: &[u8]) -> Result<Vec<TileRecord>, String> {
+fn tile_records(c: &J, table: &[u8]) -> crate::error::Res<Vec<TileRecord>> {
     let cols = &c["columns"];
     let row_bytes = c["row_bytes"].as_u64().unwrap_or(0) as usize;
     let rows = c["rows"].as_u64().unwrap_or(0) as usize;
     if table.len() < rows * row_bytes {
-        return Err("internal: the tile table is not held".into());
+        return Err(Error::internal("the tile table is not held"));
     }
     let descriptor = |col: &J, r: usize| -> (u64, u64) {
         let Some(at) = col["offset"].as_u64() else { return (0, 0) };

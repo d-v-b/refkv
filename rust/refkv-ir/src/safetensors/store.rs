@@ -13,6 +13,8 @@
 //! Rounds: every shard's first 64 KiB and every document whole, then the rest of each header
 //! longer than the first read.
 
+use crate::error::Error;
+
 use super::{check, first_read, header_length, stored, Header};
 use crate::fed::{Fed, Overlap};
 use crate::ir::{Ir, Res};
@@ -95,7 +97,7 @@ impl SafetensorsStore {
     /// shard is described in place, whether or not the hierarchy presents it, and its tensors are
     /// keyed by its `header`; a shard whose header fails a check has the check's message.
     fn emit(&mut self) -> Res<J> {
-        let mut ir = self.ir.take().ok_or("internal: no IR")?;
+        let mut ir = self.ir.take().ok_or_else(|| Error::internal("no IR"))?;
         let keys = &self.keys;
         let mut reached = Vec::new();
         // each shard as the description gives it, in the listing's order
@@ -111,7 +113,7 @@ impl SafetensorsStore {
                     entry["header"] = header;
                 }
                 (_, Some(why)) => entry["error"] = json!(why),
-                (None, None) => return Err("internal: a shard neither checked nor refused".into()),
+                (None, None) => return Err(Error::internal("a shard neither checked nor refused")),
             }
             shards.push(entry);
         }
@@ -121,14 +123,14 @@ impl SafetensorsStore {
             let (key, size) = (&keys[d.k].0, keys[d.k].1);
             let parsed = match &d.bytes {
                 Some(b) => json::parse(b),
-                None => Err(format!("a JSON document of {size} bytes is longer than {}", json::MAX_DOCUMENT)),
+                None => Err(Error::rejected(format!("a JSON document of {size} bytes is longer than {}", json::MAX_DOCUMENT))),
             };
             match parsed {
                 Ok(doc) => {
                     json::hold(&mut ir, self.elems[d.k], size, &doc.members)?;
                     documents.push(json!({"key": key, "object": self.elems[d.k], "json": doc.value.text()}));
                 }
-                Err(e) => documents.push(json!({"key": key, "object": self.elems[d.k], "error": e})),
+                Err(e) => documents.push(json!({"key": key, "object": self.elems[d.k], "error": e.to_string()})),
             }
         }
         crate::check::finish(&mut ir)?;
@@ -166,7 +168,7 @@ impl StoreParser for SafetensorsStore {
                     let fed = self.fed.get(&s.k);
                     let first = fed.and_then(|f| f.get(0, 8.min(size))).unwrap_or(&[]);
                     match header_length(self.rules, size, first) {
-                        Err(e) => s.reason = Some(e),
+                        Err(e) => s.reason = Some(e.to_string()),
                         Ok(n) => {
                             s.n = Some(n);
                             let have = fed.map_or(0, |f| f.reach(0));
@@ -181,10 +183,10 @@ impl StoreParser for SafetensorsStore {
                 for s in &mut self.shards {
                     let (Some(n), None) = (s.n, &s.reason) else { continue };
                     let size = self.keys[s.k].1;
-                    let raw = self.fed.get(&s.k).and_then(|f| f.get(8, n)).ok_or("internal: a header was not fed")?.to_vec();
+                    let raw = self.fed.get(&s.k).and_then(|f| f.get(8, n)).ok_or_else(|| Error::internal("a header was not fed"))?.to_vec();
                     match check(self.rules, size, n, raw) {
                         Ok(h) => s.header = Some(h),
-                        Err(e) => s.reason = Some(e),
+                        Err(e) => s.reason = Some(e.to_string()),
                     }
                 }
                 return Ok(StoreStep::Done);
@@ -206,10 +208,10 @@ impl StoreParser for SafetensorsStore {
 
     fn finish(mut self: Box<Self>) -> Res<(Ir, J)> {
         if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
+            return Err(Error::internal("the parse is not done"));
         }
         let description = self.emit()?;
-        Ok((self.ir.take().ok_or("internal: no IR")?, description))
+        Ok((self.ir.take().ok_or_else(|| Error::internal("no IR"))?, description))
     }
 
     fn profile(&self) -> Option<&'static str> {

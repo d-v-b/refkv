@@ -9,6 +9,8 @@
 //! the IR's elements it names, and refkv's plan made from the description (`vsi::plan`); it checks
 //! only the archive's own limits.
 
+use crate::error::Error;
+
 use super::{along, arr, image_axes, key, n, translation, Copied};
 use crate::ir::Ir;
 use crate::out::{array_json, bioformats2raw, bytes_codec, declared_group, image_ome, transpose_codec, Out, Part, BGRA, RGBA};
@@ -112,7 +114,7 @@ fn omero(im: &J, samples: u64, bgr: bool, c_size: u64, data_type: &str) -> J {
 }
 
 /// One image's group and arrays: a stack's pyramid (`ets`), or an IFD image (`ifd`).
-fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> {
+fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> crate::error::Res<J> {
     let path = k.to_string();
     let name = im["name"].as_str().unwrap_or("");
     let unit = im["unit_name"].as_str().map(str::to_string);
@@ -186,9 +188,9 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
         let mut count = 0u64;
         for t in arr(&ets["tiles"]) {
             let v: Vec<u64> = arr(t).iter().map(n).collect();
-            let [el, x, y, l, ti, ci, zi] = v[..] else { return Err("internal: a tile is not 7 numbers".into()) };
+            let [el, x, y, l, ti, ci, zi] = v[..] else { return Err(Error::internal("a tile is not 7 numbers")) };
             let (Some(&start), Some(&length)) = (ir.start.get(el as usize), ir.len.get(el as usize)) else {
-                return Err(format!("internal: no element {el}"));
+                return Err(Error::internal(format!("no element {el}")));
             };
             let coords = axes.iter().map(|a| along(a, [ti, if samples > 1 { 0 } else { ci }, zi, y, x]));
             refs.chunk(key(&format!("{path}/{l}/c/"), coords), start, length, 0, Some(vec![Part::Obj(key_ets.clone(), start, length)]))?;
@@ -255,7 +257,7 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
 
 /// The VSI hierarchy: the root (the tree), `OME/zarr.json`, and one image per stack with pixels
 /// and for the macro image, from the description `description` (with the run's counts).
-pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied) -> crate::error::Res<Out> {
     let plan = crate::vsi::plan::plan(description)?;
     let images = arr(&plan["images"]);
     let vsi_key = description["key"].as_str().unwrap_or("").to_string();
@@ -286,6 +288,6 @@ pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied) -> Result<
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<Out> {
     project(ir, description, url, &Default::default())
 }

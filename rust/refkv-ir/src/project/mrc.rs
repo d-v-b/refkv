@@ -8,6 +8,8 @@
 //! chunks are cut from its `data` element. The projection makes every decision of the output
 //! itself: the data type, the kind of file, the axes, the voxel size and position, and the chunks.
 
+use crate::error::Error;
+
 use super::{contiguous, header_json, json_text, n, Copied};
 use crate::gz;
 use crate::ir::Ir;
@@ -61,7 +63,7 @@ struct Cut {
     chunks: Vec<(Vec<u64>, Chunk)>,
 }
 
-fn cut(h: &Header, (offset, length): (u64, u64), description: &J, chunking: &Chunking) -> Result<Cut, String> {
+fn cut(h: &Header, (offset, length): (u64, u64), description: &J, chunking: &Chunking) -> crate::error::Res<Cut> {
     let (nx, ny, nz) = (h.get("nx").i() as u64, h.get("ny").i() as u64, h.get("nz").i() as u64);
     let (ispg, mz) = (h.get("ispg").i(), h.get("mz").i());
     let spec = &crate::rules::of("mrc").table("modes")[h.get("mode").i().to_string()];
@@ -91,7 +93,7 @@ fn cut(h: &Header, (offset, length): (u64, u64), description: &J, chunking: &Chu
         Some(k) => contiguous::packed_chunks(offset, &shape, k, CHUNK_BYTES, threshold).filter(|_| (nx * k).is_multiple_of(8)).or_else(|| Some(row_chunks(offset, &shape, k))),
         None => grid_chunks(offset, &shape, item, CHUNK_BYTES, threshold),
     };
-    let (grid, chunks) = cut.ok_or("internal: the data cannot be cut into chunks")?;
+    let (grid, chunks) = cut.ok_or_else(|| Error::internal("the data cannot be cut into chunks"))?;
     Ok(Cut { kind, axes, names: named, mapped, shape, item, bits, grid, chunks })
 }
 
@@ -126,18 +128,18 @@ fn complex_int16() -> J {
 }
 
 /// The header's bytes (in the description, of a gzipped file) and the data's element.
-fn parts<'a>(ir: &'a Ir, description: &J) -> Result<(Cow<'a, [u8]>, u32), String> {
+fn parts<'a>(ir: &'a Ir, description: &J) -> crate::error::Res<(Cow<'a, [u8]>, u32)> {
     let elements = &description["elements"];
     let raw = match gz::head_of(description) {
         Some(head) => Cow::Owned(head),
-        None => Cow::Borrowed(ir.value_bytes(n(&elements["header"]) as u32).ok_or("internal: the header is not held")?),
+        None => Cow::Borrowed(ir.value_bytes(n(&elements["header"]) as u32).ok_or_else(|| Error::internal("the header is not held"))?),
     };
     Ok((raw, n(&elements["data"]) as u32))
 }
 
 /// The source's ranges of the edge chunks the projection copies (§8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#82-chunks>).
-pub fn reads(ir: &Ir, description: &J, chunking: &Chunking) -> Result<Vec<(u64, u64)>, String> {
+pub fn reads(ir: &Ir, description: &J, chunking: &Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
     let (raw, data) = parts(ir, description)?;
     let h = header(&raw);
     let c = cut(&h, (ir.start[data as usize], ir.len[data as usize]), description, chunking)?;
@@ -150,10 +152,10 @@ fn valid(v: f64) -> bool {
 
 /// The output of the file `description` describes, with the layouts `layouts` names beside the
 /// image (None: every one).
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, layouts: Option<&[String]>, chunking: &Chunking) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, layouts: Option<&[String]>, chunking: &Chunking) -> crate::error::Res<Out> {
     let (raw, data) = parts(ir, description)?;
     let h = header(&raw);
-    let (offset, form) = (ir.start[data as usize], ir.form_id(data).ok_or("internal: the data has no form")?);
+    let (offset, form) = (ir.start[data as usize], ir.form_id(data).ok_or_else(|| Error::internal("the data has no form"))?);
     let length = ir.len[data as usize];
     let mode = h.get("mode").i();
     let data_type = data_type(&h);

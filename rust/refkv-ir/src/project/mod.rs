@@ -12,6 +12,8 @@
 //! projection checks nothing (the parser checked the schema)
 //! and reads nothing (the IR holds what it needs).
 
+use crate::error::Error;
+
 mod audio;
 mod contiguous;
 pub mod hdf5_nodes;
@@ -46,7 +48,7 @@ pub type CopiedChunk = (String, u64, u64, u64);
 /// the parser's description. `copied` holds the bytes of the ranges `reads` gives for the same
 /// `chunking`, and `layouts` names the layouts written beside the image (None: every one).
 pub fn project(format: Format, ir: &Ir, description: &J, url: &str, copied: &Copied, layouts: Option<&[String]>,
-               chunking: &Chunking) -> Result<Out, String> {
+               chunking: &Chunking) -> crate::error::Res<Out> {
     format.profile().project_layouts(ir, description, url, copied, layouts, chunking)
 }
 
@@ -54,7 +56,7 @@ pub fn project(format: Format, ir: &Ir, description: &J, url: &str, copied: &Cop
 /// MRC's edge chunks whose padding does not fit in a reference) or decodes (the TIFF and
 /// QPTIFF chunks their `omero` windows sample), which the run reads after the parser: a
 /// projection reads nothing itself.
-pub fn reads(format: Format, ir: &Ir, description: &J, chunking: &Chunking) -> Result<Vec<(u64, u64)>, String> {
+pub fn reads(format: Format, ir: &Ir, description: &J, chunking: &Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
     format.profile().reads(ir, description, chunking)
 }
 
@@ -62,7 +64,7 @@ pub fn reads(format: Format, ir: &Ir, description: &J, chunking: &Chunking) -> R
 /// samples for its `omero` windows, which a host reads before it asks for the image; none of an
 /// image across files, whose store run read them, and none of an NDPI's or an IMS input's. An
 /// error where refkv's plan rejects the input.
-pub fn ome_image_reads(profile: &str, ir: &Ir, description: &J) -> Result<Vec<(u64, u64)>, String> {
+pub fn ome_image_reads(profile: &str, ir: &Ir, description: &J) -> crate::error::Res<Vec<(u64, u64)>> {
     match profile {
         "qptiff" => qptiff::reads(ir, description),
         "ndpi" => crate::tiff::plan::plan("ndpi", description).map(|_| Vec::new()),
@@ -84,14 +86,14 @@ pub fn ome_image_reads(profile: &str, ir: &Ir, description: &J) -> Result<Vec<(u
 /// (`shard::apply_all`, ranges joined across inner chunks unless `checksums`). `copied` holds the
 /// bytes of the ranges `ome_image_reads` gives. The root's document is declared for the URL `""`; a
 /// caller declares it again for its own.
-pub fn ome_image(profile: &str, ir: &Ir, description: &J, copied: &Copied, checksums: bool) -> Result<(Vec<J>, Out), String> {
+pub fn ome_image(profile: &str, ir: &Ir, description: &J, copied: &Copied, checksums: bool) -> crate::error::Res<(Vec<J>, Out)> {
     let mut out = match profile {
         "ndpi" => ndpi::project(ir, description, "")?,
         "qptiff" => qptiff::project(ir, description, "", copied)?,
         "ims" => ims::project(ir, description, "")?,
         "tiff" if description.get("files").is_some() => tiff::project_set(ir, description, "", copied)?,
         "tiff" => tiff::project(ir, description, "", copied)?,
-        other => return Err(format!("internal: no OME image of a {other} input")),
+        other => return Err(Error::internal(format!("no OME image of a {other} input"))),
     };
     crate::shard::apply_all(&mut out, !checksums)?;
     let mut nodes = Vec::new();

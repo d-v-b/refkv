@@ -23,6 +23,8 @@
 //! of this kind per file, driven by the store run of `czi_set.rs`. A file run's parser finds out
 //! after round 3 that its file has siblings, and ends the run (`Step::Beside`).
 
+use crate::error::Error;
+
 #[path = "czi/stored.rs"]
 mod stored;
 #[path = "czi/describe.rs"]
@@ -206,12 +208,20 @@ impl Planes {
     }
 }
 
+/// The rejection of the file `key`, which names this image as its own but is not one of its parts
+/// (the sibling table of spec/zarrify/czi.md §7.9
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>): it names its
+/// file, so an image across files gives it as it is (`czi_set`).
+pub(crate) fn not_part(key: &str) -> Error {
+    Error::Rejected(format!("the file \"{key}\" is not part of this image"))
+}
+
 /// The message that rejects `key`, part `part` of an image, as an input.
-fn part_of_message(key: &str, part: i32) -> String {
-    match crate::czi_set::master_key(key) {
+fn part_of_message(key: &str, part: i32) -> Error {
+    Error::Rejected(match crate::czi_set::master_key(key) {
         Some(m) => format!("{key} is part {part} of the file {m}: zarrify that one"),
         None => format!("{key} is part {part} of another file: zarrify that one"),
-    }
+    })
 }
 
 pub struct Czi {
@@ -370,7 +380,7 @@ impl Czi {
 
     /// What a part of this image is checked against.
     pub(crate) fn master(&self) -> Res<Master> {
-        let (_, _, _, file, ..) = self.fields.as_ref().ok_or("internal: no file header")?;
+        let (_, _, _, file, ..) = self.fields.as_ref().ok_or_else(|| Error::internal("no file header"))?;
         Ok(Master { guid: file.clone(), document: self.values.document.clone() })
     }
 
@@ -422,7 +432,7 @@ impl Czi {
         let names_master = primary == of.guid && file_part == *part;
         let own_primary = primary == file && file_part == 0;
         if !(names_master || own_primary) {
-            return Err(format!("the file \"{key}\" is not part of this image"));
+            return Err(not_part(key));
         }
         Ok(())
     }
@@ -431,7 +441,7 @@ impl Czi {
     /// XML's document is the master's, where both have one.
     fn check_part_entries(&self, parts: &[i32]) -> Res<()> {
         let Role::Part { key, part, of } = &self.role else { return Ok(()) };
-        let (_, _, primary, _, file_part, ..) = self.fields.as_ref().ok_or("internal: no file header")?;
+        let (_, _, primary, _, file_part, ..) = self.fields.as_ref().ok_or_else(|| Error::internal("no file header"))?;
         if *primary == of.guid && file_part == part {
             return Ok(());
         }
@@ -441,7 +451,7 @@ impl Czi {
             a.is_none() || b.is_none() || a == b
         };
         if !(named && same(0) && same(1)) {
-            return Err(format!("the file \"{key}\" is not part of this image"));
+            return Err(not_part(key));
         }
         Ok(())
     }
@@ -471,7 +481,7 @@ impl Czi {
         let (id, a, u) = match &known {
             Some(s) => (s.id.clone(), s.allocated, s.used),
             None if pos >= 0 && within => {
-                let h = self.fed.get(pos as u64, 32).ok_or_else(|| format!("internal: no segment header at {pos}"))?;
+                let h = self.fed.get(pos as u64, 32).ok_or_else(|| Error::internal(format!("no segment header at {pos}")))?;
                 (seg_id(&h[..16]), i64::le_at(h, 16), i64::le_at(h, 24))
             }
             None => (String::new(), 0, 0),
@@ -501,7 +511,7 @@ impl Czi {
         Ok((s, false))
     }
 
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         loop {
             match self.phase {
                 Phase::Start => {
@@ -581,7 +591,7 @@ impl Czi {
                         let mp = meta as u64;
                         let b = match self.fed.get(mp + 32, 8) {
                             Some(b) => b.to_vec(),
-                            None => return Err("internal: the metadata segment's sizes were not read".into()),
+                            None => return Err(Error::internal("the metadata segment's sizes were not read")),
                         };
                         let (x, ab) = (i32::le_at(&b, 0) as i64, i32::le_at(&b, 4) as i64);
                         self.rules.check("metadata_sizes", rules::env([("xml", num(x as f64)), ("attachment", num(ab as f64))]))?;
@@ -606,7 +616,7 @@ impl Czi {
                         let (a, alias) = self.segment(0, "attachment_directory", NO_INDEX, "the attachment directory", Kind::AttDir, att, 32)?;
                         self.within_check("the attachment directory's EntryCount", att + 32, 4)?;
                         let ap = att as u64;
-                        let c = self.fed.get(ap + 32, 4).ok_or("internal: no attachment count")?.to_vec();
+                        let c = self.fed.get(ap + 32, 4).ok_or_else(|| Error::internal("no attachment count"))?.to_vec();
                         let k = i32::le_at(&c, 0) as i64;
                         self.rules.check(
                             "entry_count",
@@ -631,7 +641,7 @@ impl Czi {
                     // the metadata XML's values, streamed; the attachment entries
                     if let Some((mp, _, x, _)) = self.meta {
                         if x > 0 && x as f64 <= self.rules.limit("max_xml") {
-                            let data = self.fed.get(mp + 288, x as u64).ok_or("internal: no XML")?;
+                            let data = self.fed.get(mp + 288, x as u64).ok_or_else(|| Error::internal("no XML"))?;
                             self.values = cxml::values(data, self.rules.limit("max_xml") as usize);
                             // short metadata XML is shown (conventions §8.7
                             // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)
@@ -644,7 +654,7 @@ impl Czi {
                     }
                     let mut parts = Vec::new();
                     if let Some((ap, a, k)) = self.att {
-                        let raw = self.fed.get(ap + 288, 128 * k as u64).ok_or("internal: no attachment entries")?.to_vec();
+                        let raw = self.fed.get(ap + 288, 128 * k as u64).ok_or_else(|| Error::internal("no attachment entries"))?.to_vec();
                         let alias = self.ir.kind[a as usize] == ALIAS;
                         for i in 0..k as usize {
                             let e = &raw[128 * i..128 * i + 128];
@@ -900,7 +910,7 @@ impl Czi {
         let end = 80 + 20 * d as usize;
         self.within_check(&format!("subblock {i}'s header"), o as i64, end as i64)?;
         if end > h.len() {
-            return Err(format!("subblock {i}'s header is outside the segment"));
+            return Err(Error::rejected(format!("subblock {i}'s header is outside the segment")));
         }
         let raw = h[48..end].to_vec();
         let dims = self.dimensions(i, &raw[32..], d as u64)?;
@@ -952,7 +962,7 @@ impl Czi {
                 let first = self.ir.target(s);
                 self.sub_fields(first)?
             } else {
-                self.fed.get(p, 288).ok_or("internal: no subblock header")?.to_vec()
+                self.fed.get(p, 288).ok_or_else(|| Error::internal("no subblock header"))?.to_vec()
             };
             let (m, a, n) = (i32::le_at(&h, 32) as i64, i32::le_at(&h, 36) as i64, i64::le_at(&h, 40));
             let d = i32::le_at(&h, 76) as i64;
@@ -1026,8 +1036,8 @@ impl Czi {
             // an entry whose subblock another entry read first names it again: it is
             // not placed again (its checks were made), so its copy is not compared
             let Some(s) = sub.el else { continue };
-            let d = i32::le_at(self.fed.get(o, 80).ok_or("internal: no subblock header")?, 76) as u64;
-            let copy = self.fed.get(o + 48, 32 + 20 * d).ok_or("internal: no subblock copy")?.to_vec();
+            let d = i32::le_at(self.fed.get(o, 80).ok_or_else(|| Error::internal("no subblock header"))?, 76) as u64;
+            let copy = self.fed.get(o + 48, 32 + 20 * d).ok_or_else(|| Error::internal("no subblock copy"))?.to_vec();
             let agrees = self.agrees(&copy, self.entry_bytes(i));
             self.subs[i].agrees = agrees;
             let d = (copy.len() as u64 - 32) / 20;
@@ -1110,7 +1120,7 @@ impl Czi {
     /// 2^16 bytes until its codec header gives one (or not); then its data elements.
     fn sub_codec(&mut self) -> Res<Option<Step>> {
         for (v, p, m) in std::mem::take(&mut self.text_pending) {
-            let b = self.fed.get(p, m).ok_or("internal: subblock metadata was not fed")?.to_vec();
+            let b = self.fed.get(p, m).ok_or_else(|| Error::internal("subblock metadata was not fed"))?.to_vec();
             self.ir.put_value(v, &b);
         }
         self.ir.sort_values();
@@ -1131,7 +1141,7 @@ impl Czi {
             let mut head = std::mem::take(&mut self.subs[i].head);
             let asked = self.subs[i].asked;
             if asked > head.len() as u64 {
-                head = self.fed.get(start, asked).ok_or("internal: a codec head was not fed")?.to_vec();
+                head = self.fed.get(start, asked).ok_or_else(|| Error::internal("a codec head was not fed"))?.to_vec();
             }
             let h = Head { have: &head, bound };
             match coding::coded_size(e.pt, e.comp, x.2 as u64, y.2 as u64, n, &h) {
@@ -1262,7 +1272,7 @@ impl Czi {
                 }
                 h
             } else {
-                self.fed.get(p, 288).ok_or("internal: no attachment header")?.to_vec()
+                self.fed.get(p, 288).ok_or_else(|| Error::internal("no attachment header"))?.to_vec()
             };
             let n = i64::le_at(&h, 32);
             self.rules.check("attachment", rules::env([("k", num(k as f64)), ("data_size", num(n as f64))]))?;
@@ -1498,7 +1508,7 @@ impl Czi {
     /// description of the file (spec/zarrify/czi.md §7.10
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#710-the-description>), with the
     /// run's counts; none of a run that ended for its file's siblings.
-    pub fn finish(mut self) -> Result<(Ir, J), String> {
+    pub fn finish(mut self) -> crate::error::Res<(Ir, J)> {
         let mut facts = if self.walked { self.description() } else { J::Null };
         self.asked.put(&mut facts);
         let ir = std::mem::replace(&mut self.ir, Ir::new(0));
@@ -1521,12 +1531,12 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Czi>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
         crate::project::czi::project(ir, description, url)
     }
     /// Nothing to copy; refkv's plan is made here, so that an image its checks reject is rejected
     /// before the run is done (`czi::plan`).
-    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value, _chunking: &crate::out::Chunking) -> Result<Vec<(u64, u64)>, String> {
+    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value, _chunking: &crate::out::Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
         plan::plan(description)?;
         Ok(Vec::new())
     }

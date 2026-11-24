@@ -9,6 +9,8 @@
 //! chunk of literal lengths and global heap ranges (strings), or the `vlen-utf8` bytes of
 //! canonical paths (references).
 
+use crate::error::Error;
+
 use super::hdf5_nodes::{name_axes, node_name, nodes, Nodes};
 use super::vsi::object_url;
 use super::{arr, contiguous, key, Copied, CopiedChunk};
@@ -53,7 +55,7 @@ fn chunk_key(path: &str, coords: &[u64]) -> String {
 
 /// The contiguous data's chunks of an array (its chunk shape and chunks), or None for another
 /// storage.
-fn contiguous_chunks(a: &J, threshold: usize) -> Result<Option<(Vec<u64>, Vec<(Vec<u64>, Chunk)>)>, String> {
+fn contiguous_chunks(a: &J, threshold: usize) -> crate::error::Res<Option<(Vec<u64>, Vec<(Vec<u64>, Chunk)>)>> {
     let store = &a["store"];
     if store["kind"] != "contiguous" && store["kind"] != "external" {
         return Ok(None);
@@ -61,11 +63,11 @@ fn contiguous_chunks(a: &J, threshold: usize) -> Result<Option<(Vec<u64>, Vec<(V
     let shape = shape_of(&a["shape"]);
     grid_chunks(n(&store["offset"]), &shape, n(&store["item"]), CHUNK_BYTES, threshold)
         .map(Some)
-        .ok_or_else(|| "internal: the data cannot be cut into chunks".to_string())
+        .ok_or_else(|| Error::internal("the data cannot be cut into chunks"))
 }
 
 /// The source's ranges of the contiguous edge chunks the projection copies.
-pub fn reads(_ir: &Ir, description: &J, chunking: &Chunking) -> Result<Vec<(u64, u64)>, String> {
+pub fn reads(_ir: &Ir, description: &J, chunking: &Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
     let threshold = chunking.copy_threshold;
     let mut out = Vec::new();
     for node in &nodes(description)?.nodes {
@@ -200,7 +202,7 @@ fn run_of(chunk: &Chunk, item: u64) -> (u64, u64, u64) {
     }
 }
 
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> crate::error::Res<Out> {
     let Nodes { nodes, summary } = nodes(description)?;
     build(ir, &nodes, summary, url, url, copied, chunking.copy_threshold, None)
 }
@@ -210,7 +212,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &
 /// store run's (`store`): its nodes, and its documents and chunks as the projection writes them,
 /// but for the edge chunks it copies, which it gives apart, as ranges to copy: it reads nothing. The
 /// routine a layout calls for the convention's hierarchy (`refkv.build.hdf5_hierarchy`).
-pub fn hierarchy(ir: &Ir, description: &J, store: bool, chunking: &Chunking) -> Result<(Vec<J>, Out, Vec<CopiedChunk>), String> {
+pub fn hierarchy(ir: &Ir, description: &J, store: bool, chunking: &Chunking) -> crate::error::Res<(Vec<J>, Out, Vec<CopiedChunk>)> {
     let mut copies = Vec::new();
     let (nodes, out) = if store {
         let (nodes, summary, named) = store_nodes(description)?;
@@ -286,7 +288,7 @@ fn linked_nodes(nodes: &[J], target: &str, at: &str) -> (Vec<J>, Vec<(String, Op
 /// path, one level deep, from the description of each file (`description["files"]`, by key); the root's
 /// `source.url` is the named file's object URL. A linked file whose hierarchy rejects it is not
 /// followed.
-pub fn project_store(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+pub fn project_store(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
     let (nodes, summary, named_key) = store_nodes(description)?;
     let named = object_url(url, &named_key);
     // no edge chunk is copied: the run's reads have ended, and its padding is the zero data source's
@@ -294,7 +296,7 @@ pub fn project_store(ir: &Ir, description: &J, url: &str) -> Result<Out, String>
 }
 
 /// The nodes of a store run's hierarchy (`project_store`), its summary, and the named file's key.
-fn store_nodes(description: &J) -> Result<(Vec<J>, J, String), String> {
+fn store_nodes(description: &J) -> crate::error::Res<(Vec<J>, J, String)> {
     let named_key = description["named_key"].as_str().unwrap_or("");
     let Nodes { nodes: mut named_nodes, mut summary } = nodes(&description["files"][named_key])?;
     let mut files: HashMap<&str, Vec<J>> = HashMap::new();
@@ -350,7 +352,7 @@ fn store_nodes(description: &J) -> Result<(Vec<J>, J, String), String> {
 }
 
 /// A range of the external data `ranges` (key, offset, length) lay out, as ranges of their files.
-fn external_parts(ranges: &[J], mut at: u64, mut left: u64) -> Result<Vec<Part>, String> {
+fn external_parts(ranges: &[J], mut at: u64, mut left: u64) -> crate::error::Res<Vec<Part>> {
     let mut parts = Vec::new();
     for r in ranges {
         let (offset, length) = (n(&r[1]), n(&r[2]));
@@ -366,19 +368,19 @@ fn external_parts(ranges: &[J], mut at: u64, mut left: u64) -> Result<Vec<Part>,
             return Ok(parts);
         }
     }
-    Err("internal: a chunk lies past its external files".into())
+    Err(Error::internal("a chunk lies past its external files"))
 }
 
 /// The storage element of an array's store: the struct of its chunks, or its contiguous data.
-fn element(store: &J) -> Result<u32, String> {
-    store["element"].as_u64().map(|e| e as u32).ok_or_else(|| format!("internal: the storage of the dataset at {} is not described", store["at"]))
+fn element(store: &J) -> crate::error::Res<u32> {
+    store["element"].as_u64().map(|e| e as u32).ok_or_else(|| Error::internal(format!("the storage of the dataset at {} is not described", store["at"])))
 }
 
 /// The output of `nodes`: `copied` the bytes of the edge chunks it copies, or, with `defer`, those
 /// chunks left out and given there.
 #[allow(clippy::too_many_arguments)]
 fn build(ir: &Ir, nodes: &[J], mut summary: J, url: &str, source: &str, copied: &Copied, threshold: usize,
-         mut defer: Option<&mut Vec<CopiedChunk>>) -> Result<Out, String> {
+         mut defer: Option<&mut Vec<CopiedChunk>>) -> crate::error::Res<Out> {
     let mut out = Out::new(url);
     // every array's chunk shape and contiguous chunks first: one zero data source for every
     // contiguous array's padding
@@ -449,7 +451,7 @@ fn build(ir: &Ir, nodes: &[J], mut summary: J, url: &str, source: &str, copied: 
                 let total: u64 = ranges.iter().map(|r| n(&r[2])).sum();
                 count += chunks.len() as u64;
                 for (c, chunk) in chunks {
-                    let Chunk::Ranges(parts) = chunk else { return Err("internal: an external chunk is not a range".into()) };
+                    let Chunk::Ranges(parts) = chunk else { return Err(Error::internal("an external chunk is not a range")) };
                     let mut placed = Vec::new();
                     for part in contiguous::padded(parts, &mut zeros, &mut refs.out)? {
                         match part {
@@ -499,11 +501,11 @@ fn build(ir: &Ir, nodes: &[J], mut summary: J, url: &str, source: &str, copied: 
                 }
                 let el = element(store)?;
                 let (start, length) = (ir.start[el as usize], ir.len[el as usize]);
-                let form = ir.form_id(el).ok_or("internal: the data has no form")?;
+                let form = ir.form_id(el).ok_or_else(|| Error::internal("the data has no form"))?;
                 count += chunks.len() as u64;
                 if shape.is_empty() {
                     for (c, chunk) in chunks {
-                        let Chunk::Ranges(parts) = chunk else { return Err("internal: a scalar's chunk is not a range".into()) };
+                        let Chunk::Ranges(parts) = chunk else { return Err(Error::internal("a scalar's chunk is not a range")) };
                         refs.chunk(chunk_key(path, &c), start, length, form, Some(parts))?;
                     }
                 } else {
@@ -562,7 +564,7 @@ fn build(ir: &Ir, nodes: &[J], mut summary: J, url: &str, source: &str, copied: 
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<Out> {
     project_store(ir, description, url)
 }
 

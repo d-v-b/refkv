@@ -4,6 +4,8 @@
 //! level, the ensemble member), the packing and the bitmap indicator. Octets are numbered from 1
 //! at the start of their section, as WMO-No. 306 FM 92 numbers them; `o(n)` is octet `n`'s index.
 
+use crate::error::Error;
+
 use super::sections::{signed, uint};
 
 /// The index in a section's bytes of its octet `n`.
@@ -64,11 +66,11 @@ pub struct Ident {
     pub key: Vec<u8>,
 }
 
-pub fn ident(s1: &[u8]) -> Result<Ident, String> {
+pub fn ident(s1: &[u8]) -> crate::error::Res<Ident> {
     if s1.len() < 21 {
-        return Err(format!("a GRIB section 1 of {} octets, fewer than 21", s1.len()));
+        return Err(Error::rejected(format!("a GRIB section 1 of {} octets, fewer than 21", s1.len())));
     }
-    let reference = time_at(s1, o(13)).ok_or("a GRIB section 1's reference time is not a date and time")?;
+    let reference = time_at(s1, o(13)).ok_or_else(|| Error::rejected("a GRIB section 1's reference time is not a date and time"))?;
     let mut key = s1[o(6)..o(13)].to_vec();
     key.extend_from_slice(&s1[o(20)..]);
     Ok(Ident {
@@ -333,9 +335,9 @@ fn reduced(s3: &[u8], g: &Grid, sj: f64) -> Option<Projection> {
     Some(Projection::Reduced { rows, lon0, counts })
 }
 
-pub fn grid(s3: &[u8]) -> Result<Grid, String> {
+pub fn grid(s3: &[u8]) -> crate::error::Res<Grid> {
     if s3.len() < 14 {
-        return Err(format!("a GRIB section 3 of {} octets, fewer than 14", s3.len()));
+        return Err(Error::rejected(format!("a GRIB section 3 of {} octets, fewer than 14", s3.len())));
     }
     let template = uint(s3, o(13), 2);
     let points = uint(s3, o(7), 4);
@@ -362,7 +364,7 @@ pub fn grid(s3: &[u8]) -> Result<Grid, String> {
         }
     };
     if s3.len() < min_len {
-        return Err(format!("a GRIB section 3 of template 3.{template} has {} octets, fewer than {min_len}", s3.len()));
+        return Err(Error::rejected(format!("a GRIB section 3 of template 3.{template} has {} octets, fewer than {min_len}", s3.len())));
     }
     if template == 101 {
         if points == 0 {
@@ -543,9 +545,9 @@ pub struct Product {
     pub key: Vec<u8>,
 }
 
-pub fn product(s4: &[u8], reference: i64) -> Result<Product, String> {
+pub fn product(s4: &[u8], reference: i64) -> crate::error::Res<Product> {
     if s4.len() < 9 {
-        return Err(format!("a GRIB section 4 of {} octets, fewer than 9", s4.len()));
+        return Err(Error::rejected(format!("a GRIB section 4 of {} octets, fewer than 9", s4.len())));
     }
     let template = uint(s4, o(8), 2);
     let none = Surface { kind: 255, value: None };
@@ -558,7 +560,7 @@ pub fn product(s4: &[u8], reference: i64) -> Result<Product, String> {
     };
     let need = interval.map_or(34, |(_, m)| m + 15).max(member.unwrap_or(0));
     if s4.len() < need {
-        return Err(format!("a GRIB section 4 of template 4.{template} has {} octets, fewer than {need}", s4.len()));
+        return Err(Error::rejected(format!("a GRIB section 4 of template 4.{template} has {} octets, fewer than {need}", s4.len())));
     }
     p.category = s4[o(10)];
     p.number = s4[o(11)];
@@ -661,16 +663,16 @@ pub struct Packing {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#34-the-codec-refkvgrib>).
 pub const DECODED: [u64; 7] = [0, 2, 3, 4, 40, 41, 42];
 
-pub fn packing(s5: &[u8]) -> Result<Packing, String> {
+pub fn packing(s5: &[u8]) -> crate::error::Res<Packing> {
     if s5.len() < 11 {
-        return Err(format!("a GRIB section 5 of {} octets, fewer than 11", s5.len()));
+        return Err(Error::rejected(format!("a GRIB section 5 of {} octets, fewer than 11", s5.len())));
     }
     Ok(Packing { values: uint(s5, o(6), 4), template: uint(s5, o(10), 2) })
 }
 
 /// Section 6's bitmap indicator.
-pub fn bitmap(s6: &[u8]) -> Result<u8, String> {
-    s6.get(o(6)).copied().ok_or_else(|| "a GRIB section 6 of fewer than 6 octets".into())
+pub fn bitmap(s6: &[u8]) -> crate::error::Res<u8> {
+    s6.get(o(6)).copied().ok_or_else(|| Error::rejected("a GRIB section 6 of fewer than 6 octets"))
 }
 
 #[cfg(test)]

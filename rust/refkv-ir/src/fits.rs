@@ -14,6 +14,8 @@
 //! size, then again as the walk goes, keeping only the headers: its IR is one derived element,
 //! the file, and these elements in its space.
 
+use crate::error::Error;
+
 use crate::expr::V;
 use crate::fed::{Fed, Overlap, Word};
 use crate::ir::*;
@@ -38,7 +40,7 @@ pub const WINDOW: u64 = 1 << 16;
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>).
 pub const TILE_CHUNK_BYTES: u64 = 1 << 20;
 
-type Res<T> = Result<T, String>;
+use crate::error::Res;
 
 /// `SIMPLE  =` and a fixed-format `T` in column 30.
 fn simple(head: &[u8]) -> bool {
@@ -590,7 +592,7 @@ impl Fits {
         self.rules.limit(name) as u64
     }
 
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         loop {
             match self.walk()? {
                 // a compressed file's reads are of what it decodes to, in order
@@ -607,7 +609,7 @@ impl Fits {
 
     /// `n` bytes at `o` of what a compressed file decodes to, past the bytes last read.
     fn decode(&mut self, o: u64, n: u64) -> Res<Vec<u8>> {
-        let d = self.decoded.as_mut().ok_or("internal: no stream")?;
+        let d = self.decoded.as_mut().ok_or_else(|| Error::internal("no stream"))?;
         let name = method(d.transform);
         let failed = |e: std::io::Error| format!("the {name} stream does not decode: {e}");
         std::io::copy(&mut (&mut d.reader).take(o.saturating_sub(d.at)), &mut std::io::sink()).map_err(failed)?;
@@ -638,7 +640,7 @@ impl Fits {
     }
 
     /// The parse's next step, its reads of the bytes the HDUs are in.
-    fn walk(&mut self) -> Result<Step, String> {
+    fn walk(&mut self) -> crate::error::Res<Step> {
         loop {
             match self.phase {
                 Phase::Start => {
@@ -691,7 +693,7 @@ impl Fits {
                     }
                     if self.index == 0 {
                         if !simple(self.fed.from(self.offset)) {
-                            return Err("not a FITS file".into());
+                            return Err(Error::rejected("not a FITS file"));
                         }
                         self.rules.check("file", rules::env([("size", num(self.size as f64))]))?;
                     } else if &self.fed.from(self.offset)[..9] != b"XTENSION=" {
@@ -778,7 +780,7 @@ impl Fits {
         )?;
         match c.value {
             Value::Int(n) => Ok(n),
-            _ => Err("internal: not an integer".into()),
+            _ => Err(Error::internal("not an integer")),
         }
     }
 
@@ -982,7 +984,7 @@ impl Fits {
         self.rules.check("zcmptype", &mut env)?;
         let codec = match env.0.iter().find(|(k, _)| *k == "codec").map(|(_, v)| v.clone()) {
             Some(V::Str(s)) => s,
-            _ => return Err("internal: no codec".into()),
+            _ => return Err(Error::internal("no codec")),
         };
         let zbitpix = self.opt_int(cards, "ZBITPIX")?.unwrap_or(0);
         self.rules.check("zbitpix", rules::env([("hdu", num(hdu)), ("value", num(zbitpix as f64))]))?;
@@ -1123,8 +1125,8 @@ impl Fits {
     /// The tile-compressed image whose table was just read: the descriptors checked, the
     /// heap's chunks as elements, the facts.
     fn table(&mut self) -> Res<()> {
-        let p = self.pending.take().ok_or("internal: no pending table")?;
-        let raw = self.table_buf.take().ok_or("internal: no table bytes")?;
+        let p = self.pending.take().ok_or_else(|| Error::internal("no pending table"))?;
+        let raw = self.table_buf.take().ok_or_else(|| Error::internal("no table bytes"))?;
         let hdu = p.hdu as f64;
         let c = &p.comp;
         if p.table != u32::MAX {
@@ -1211,7 +1213,7 @@ impl Fits {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#96-the-description>): each
     /// HDU as its header and the IR give it, with none of the output's decisions (a data type, a
     /// row's struct, the chunks of a tile-compressed image), which the projection makes.
-    pub fn finish(mut self) -> Result<(Ir, J), String> {
+    pub fn finish(mut self) -> crate::error::Res<(Ir, J)> {
         let described = if self.phase == Phase::Done { Some(stored::described(&self.ir, &self.hdus)?) } else { None };
         let hdus: Vec<J> = self.hdus.iter().map(description).collect();
         let mut facts = json!({"hdus": hdus});
@@ -1255,10 +1257,10 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Fits>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
         crate::project::fits::project(ir, description, url, copied, chunking)
     }
-    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value, chunking: &crate::out::Chunking) -> Result<Vec<(u64, u64)>, String> {
+    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value, chunking: &crate::out::Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
         crate::project::fits::reads(ir, description, chunking)
     }
 }
@@ -1393,7 +1395,7 @@ mod tests {
         assert!(matches!(parser.step(), Ok(Step::Read(_))));
         parser.feed(0, vec![0x1f, 0x8b, 8, 0]);
         let message = parser.step().err().unwrap();
-        assert!(message.starts_with("a gzip file of 2147483649 bytes, over the 2147483648"), "{message}");
+        assert!(message.to_string().starts_with("a gzip file of 2147483649 bytes, over the 2147483648"), "{message}");
     }
 
     /// A gzip member's first bytes are tested as what they decode to; a bzip2 stream's first

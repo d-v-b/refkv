@@ -3,6 +3,8 @@
 //! experiment node; flattens the loops; evaluates the derived quantities and the
 //! constraints. A file that fails is rejected here, once, with the schema's message.
 
+use crate::error::Error;
+
 use crate::expr::{self, Env, V};
 use crate::lv::{Node, Read, Rec, scalar_flag, scalar_number};
 use serde_json::Value as J;
@@ -19,7 +21,7 @@ pub fn limit(name: &str) -> f64 {
     nd2()["limits"][name].as_f64().unwrap_or(f64::NAN)
 }
 
-pub type Res<T> = Result<T, String>;
+pub use crate::error::Res;
 
 #[derive(Clone, Copy)]
 enum Item<'a> {
@@ -54,8 +56,8 @@ fn default_of(spec: &J) -> V {
 
 fn missing(spec: &J, what: &str) -> Res<V> {
     match spec.get("required") {
-        Some(J::Bool(true)) => Err(format!("missing {what}")),
-        Some(J::String(m)) => Err(m.clone()),
+        Some(J::Bool(true)) => Err(Error::rejected(format!("missing {what}"))),
+        Some(J::String(m)) => Err(Error::Rejected(m.clone())),
         _ => Ok(default_of(spec)),
     }
 }
@@ -65,14 +67,14 @@ fn members_of<'a>(item: Item<'a>, what: &str) -> Res<Vec<Item<'a>>> {
         Read::Object(m) => m.into_iter().map(|(_, n)| Item::N(n)).collect(),
         Read::List(v) => v.into_iter().map(Item::N).collect(),
         Read::Bytes(b) => b.iter().map(|&x| Item::Byte(x)).collect(),
-        _ => return Err(format!("{what} is not an object or a list")),
+        _ => return Err(Error::rejected(format!("{what} is not an object or a list"))),
     })
 }
 
 fn object_members<'a>(item: Item<'a>, what: &str) -> Res<Vec<(String, Node<'a>)>> {
     match item.read() {
         Read::Object(m) => Ok(m),
-        _ => Err(format!("{what} is not an object")),
+        _ => Err(Error::rejected(format!("{what} is not an object"))),
     }
 }
 
@@ -93,21 +95,21 @@ fn read(
     let v = match kind {
         "number" | "integer" | "color" => {
             let Read::Scalar(t, raw) = item.read() else {
-                return Err(format!("{what} is not a number"));
+                return Err(Error::rejected(format!("{what} is not a number")));
             };
             let Some(x) = scalar_number(t, raw) else {
-                return Err(format!("{what} is not a number"));
+                return Err(Error::rejected(format!("{what} is not a number")));
             };
             if !x.is_finite() {
-                return Err(format!("{what} is not finite"));
+                return Err(Error::rejected(format!("{what} is not finite")));
             }
             match kind {
                 "integer" if x != x.trunc() || !(0.0..=MAX_SAFE).contains(&x) => {
-                    return Err(format!("{what} = {x} is not an integer from 0 to 2^53 - 1"));
+                    return Err(Error::rejected(format!("{what} = {x} is not an integer from 0 to 2^53 - 1")));
                 }
                 "color" => {
                     if x != x.trunc() || !(-2147483648.0..=4294967295.0).contains(&x) {
-                        return Err(format!("{what} = {x} is not a color"));
+                        return Err(Error::rejected(format!("{what} = {x} is not a color")));
                     }
                     V::Num((x as i64).rem_euclid(1 << 32) as f64)
                 }
@@ -116,13 +118,13 @@ fn read(
         }
         "flag" => {
             let Read::Scalar(t, raw) = item.read() else {
-                return Err(format!("{what} is not a flag"));
+                return Err(Error::rejected(format!("{what} is not a flag")));
             };
-            V::Bool(scalar_flag(t, raw).ok_or_else(|| format!("{what} is not a flag"))?)
+            V::Bool(scalar_flag(t, raw).ok_or_else(|| Error::rejected(format!("{what} is not a flag")))?)
         }
         "string" => match item.read() {
             Read::Str(s) => V::Str(s),
-            _ => return Err(format!("{what} is not a string")),
+            _ => return Err(Error::rejected(format!("{what} is not a string"))),
         },
         "object" => {
             let m = object_members(item, what)?;
@@ -168,7 +170,7 @@ fn read(
             let items: Vec<Item> = match item.read() {
                 Read::List(v) => v.into_iter().map(Item::N).collect(),
                 Read::Bytes(b) => b.iter().map(|&x| Item::Byte(x)).collect(),
-                _ => return Err(format!("{what} is not a list")),
+                _ => return Err(Error::rejected(format!("{what} is not a list"))),
             };
             match spec.get("items") {
                 Some(is) => V::List(
@@ -229,7 +231,7 @@ fn read(
                 V::List(checked)
             }
         }
-        _ => return Err(format!("schema: unknown kind {kind:?}")),
+        _ => return Err(Error::rejected(format!("schema: unknown kind {kind:?}"))),
     };
     if let Some(allowed) = spec.get("in").and_then(|a| a.as_array()) {
         let x = v.num();
@@ -238,10 +240,9 @@ fn read(
                 .get("message")
                 .and_then(|m| m.as_str())
                 .unwrap_or("a value outside its range");
-            return Err(format!(
-                "{m} {}",
+            return Err(Error::rejected(format!("{m} {}",
                 x.map(|x| x.to_string()).unwrap_or_default()
-            ));
+            )));
         }
     }
     Ok(v)
@@ -347,7 +348,7 @@ fn read_node(item: Item<'_>, what: &str) -> Res<V> {
             .flatten()
         {
             if !eval_str(c["require"].as_str().unwrap(), &env)?.truthy() {
-                return Err(c["message"].as_str().unwrap().to_string());
+                return Err(Error::rejected(c["message"].as_str().unwrap()));
             }
         }
         if count.num().unwrap_or(0.0) != 0.0 {
@@ -587,7 +588,7 @@ pub fn check_nd2(
     // attributes
     let a = &objs["attributes"];
     if attributes.is_none() {
-        return Err(a["required"].as_str().unwrap().to_string());
+        return Err(Error::rejected(a["required"].as_str().unwrap()));
     }
     let item = chunk_member(attributes, a["member"].as_str().unwrap());
     let attrs = read(
@@ -679,7 +680,7 @@ pub fn check_nd2(
     env.insert("finite_translations".into(), V::Bool(finite));
     for c in s["constraints"].as_array().unwrap() {
         if !eval_str(c["require"].as_str().unwrap(), &env)?.truthy() {
-            return Err(c["message"].as_str().unwrap().to_string());
+            return Err(Error::rejected(c["message"].as_str().unwrap()));
         }
     }
     // the description (spec/zarrify/nd2.md §7.5

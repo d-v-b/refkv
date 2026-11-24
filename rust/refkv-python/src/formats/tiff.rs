@@ -2,7 +2,7 @@
 //! too (`qptiff.rs`, `ndpi.rs`, `ims.rs`): the OME image refkv's convention writes.
 
 use crate::formats::View;
-use crate::{out_py, Rejected};
+use crate::{out_py, refused};
 use pyo3::prelude::*;
 use refkv_ir::ir::Ir;
 use std::sync::Arc;
@@ -30,14 +30,16 @@ impl PyOmeImage {
     }
     /// The ranges of the file the image samples for its `omero` windows
     /// (`project::ome_image_reads`), `(offset, length)`, which the caller reads and gives
-    /// `image`; or Rejected where refkv's plan rejects the input.
+    /// `image`; or Rejected where refkv's plan rejects the input, and Failed for a failure of
+    /// refkv's.
     fn reads(&self, py: Python<'_>) -> PyResult<Vec<(u64, u64)>> {
-        py.detach(|| refkv_ir::project::ome_image_reads(self.profile, &self.ir, &self.description)).map_err(Rejected::new_err)
+        py.detach(|| refkv_ir::project::ome_image_reads(self.profile, &self.ir, &self.description)).map_err(refused)
     }
     /// The OME image (`project::ome_image`): its nodes as JSON, and its documents and
     /// chunks in `out_py`'s form (the url empty), its arrays sharded, ranges joined across inner
     /// chunks unless `checksums`; `copied` the bytes of the ranges `reads` gave, each
-    /// `((offset, length), bytes)`. Rejected where refkv's plan rejects the input.
+    /// `((offset, length), bytes)`. Rejected where refkv's plan rejects the input, and Failed for a
+    /// failure of refkv's.
     #[pyo3(signature = (copied, checksums=false))]
     fn image<'py>(&self, py: Python<'py>, copied: Vec<((u64, u64), Vec<u8>)>, checksums: bool) -> PyResult<(String, Bound<'py, PyAny>)> {
         let mut copied: refkv_ir::project::Copied = copied.into_iter().collect();
@@ -46,7 +48,7 @@ impl PyOmeImage {
         }
         let (nodes, out) = py
             .detach(|| refkv_ir::project::ome_image(self.profile, &self.ir, &self.description, &copied, checksums))
-            .map_err(Rejected::new_err)?;
+            .map_err(refused)?;
         Ok((serde_json::Value::Array(nodes).to_string(), out_py(py, &out)?))
     }
     /// The key of the file a store run was named by, whose object URL the image's root names as

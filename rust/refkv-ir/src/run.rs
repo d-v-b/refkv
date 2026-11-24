@@ -80,17 +80,17 @@ pub trait FileProfile: Sync {
     /// parser's description of the source (the design of d-v-b/refkv#278, "The description",
     /// each profile's in its document's section "The description"). `copied` holds the bytes of
     /// the ranges `reads` gives, which `reads` gave for the same `chunking`.
-    fn project(&self, ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> Result<Out, String>;
+    fn project(&self, ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> crate::error::Res<Out>;
     /// `project`, with the layouts the output writes beside the image (None: every one), for a
     /// profile whose projection writes some.
     fn project_layouts(&self, ir: &Ir, description: &J, url: &str, copied: &Copied, layouts: Option<&[String]>,
-                       chunking: &Chunking) -> Result<Out, String> {
+                       chunking: &Chunking) -> crate::error::Res<Out> {
         let _ = layouts;
         self.project(ir, description, url, copied, chunking)
     }
     /// The source's ranges the projection with `chunking` copies into the archive or decodes,
     /// which the run reads after the parser: a projection reads nothing itself.
-    fn reads(&self, ir: &Ir, description: &J, chunking: &Chunking) -> Result<Vec<(u64, u64)>, String> {
+    fn reads(&self, ir: &Ir, description: &J, chunking: &Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
         let _ = (ir, description, chunking);
         Ok(Vec::new())
     }
@@ -100,7 +100,7 @@ pub trait FileProfile: Sync {
         &[]
     }
     /// What the output adds beside the mirror (`output`, when it mirrors).
-    fn mirrored(&self, out: &mut Out, description: &J) -> Result<(), String> {
+    fn mirrored(&self, out: &mut Out, description: &J) -> crate::error::Res<()> {
         let _ = (out, description);
         Ok(())
     }
@@ -111,20 +111,20 @@ pub struct AnyParser(Box<dyn Parse>);
 
 /// `Parser`, as a trait object (a run is sent between threads: the Python host releases the GIL).
 trait Parse: Send + Sync {
-    fn step(&mut self) -> Result<Step, String>;
+    fn step(&mut self) -> crate::error::Res<Step>;
     fn feed(&mut self, o: u64, b: Vec<u8>);
-    fn finish(self: Box<Self>) -> Result<(Ir, J), String>;
+    fn finish(self: Box<Self>) -> crate::error::Res<(Ir, J)>;
     fn found(&self) -> Option<&'static str>;
 }
 
 impl<P: Parser + Send + Sync> Parse for P {
-    fn step(&mut self) -> Result<Step, String> {
+    fn step(&mut self) -> crate::error::Res<Step> {
         Parser::step(self)
     }
     fn feed(&mut self, o: u64, b: Vec<u8>) {
         Parser::feed(self, o, b)
     }
-    fn finish(self: Box<Self>) -> Result<(Ir, J), String> {
+    fn finish(self: Box<Self>) -> crate::error::Res<(Ir, J)> {
         Parser::finish(*self)
     }
     fn found(&self) -> Option<&'static str> {
@@ -136,11 +136,11 @@ impl<P: Parser + Send + Sync> Parse for P {
 struct Refused(&'static str);
 
 impl Parse for Refused {
-    fn step(&mut self) -> Result<Step, String> {
+    fn step(&mut self) -> crate::error::Res<Step> {
         Err(self.0.into())
     }
     fn feed(&mut self, _: u64, _: Vec<u8>) {}
-    fn finish(self: Box<Self>) -> Result<(Ir, J), String> {
+    fn finish(self: Box<Self>) -> crate::error::Res<(Ir, J)> {
         Err(self.0.into())
     }
     fn found(&self) -> Option<&'static str> {
@@ -160,13 +160,13 @@ impl AnyParser {
     pub fn refused(message: &'static str) -> Self {
         AnyParser(Box::new(Refused(message)))
     }
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         self.0.step()
     }
     pub fn feed(&mut self, o: u64, b: Vec<u8>) {
         self.0.feed(o, b)
     }
-    pub fn finish(self) -> Result<(Ir, J), String> {
+    pub fn finish(self) -> crate::error::Res<(Ir, J)> {
         self.0.finish()
     }
     /// The profile the parser found the file to be, if it decides it (`Parser::found`).
@@ -595,12 +595,12 @@ mod tests {
         fn new(_size: u64) -> Self {
             NamesSiblings
         }
-        fn step(&mut self) -> Result<Step, String> {
+        fn step(&mut self) -> crate::error::Res<Step> {
             Ok(Step::Beside)
         }
         fn feed(&mut self, _offset: u64, _data: Vec<u8>) {}
-        fn finish(self) -> Result<(Ir, J), String> {
-            Err("not reached".into())
+        fn finish(self) -> crate::error::Res<(Ir, J)> {
+            Err(Error::rejected("not reached"))
         }
         fn found(&self) -> Option<&'static str> {
             None
@@ -624,11 +624,11 @@ mod tests {
         fn new(_size: u64) -> Self {
             Empty
         }
-        fn step(&mut self) -> Result<Step, String> {
+        fn step(&mut self) -> crate::error::Res<Step> {
             Ok(Step::Done)
         }
         fn feed(&mut self, _offset: u64, _data: Vec<u8>) {}
-        fn finish(self) -> Result<(Ir, J), String> {
+        fn finish(self) -> crate::error::Res<(Ir, J)> {
             Ok((Ir::default(), serde_json::json!({})))
         }
         fn found(&self) -> Option<&'static str> {

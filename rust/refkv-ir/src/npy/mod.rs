@@ -17,6 +17,8 @@
 //! header and data lie in what its stream inflates to: they are elements of its derived element's
 //! space, and its array's one unit is its `data` element there.
 
+use crate::error::Error;
+
 pub mod header;
 
 use crate::array::{AxisUnits, Chain, ChunkMap, Edge, Grid, Place, Row, StoredArray};
@@ -92,7 +94,7 @@ enum Read {
 /// its offsets those of the inflated stream, whose data must end it; or the compressed bytes it
 /// needs next. A stream that ends or breaks before its header does, or whose header ends past
 /// `max_inflated_header`, is the reason `header`.
-fn read_deflated(rules: &Rules, fed: &Fed, e: &zip::Entry) -> Result<Read, String> {
+fn read_deflated(rules: &Rules, fed: &Fed, e: &zip::Entry) -> crate::error::Res<Read> {
     let have = fed.reach(e.ds).min(e.ds + e.cs) - e.ds;
     let compressed = fed.get(e.ds, have).unwrap_or(&[]);
     let mut want = 12;
@@ -124,12 +126,12 @@ fn read_deflated(rules: &Rules, fed: &Fed, e: &zip::Entry) -> Result<Read, Strin
 
 /// Reads the NPY array at `base` of a file or member ending at `limit` from `fed`, checking
 /// each role: a failed check is the array's reason (`strict`: the input's rejection).
-fn read(rules: &Rules, fed: &Fed, base: u64, limit: u64, strict: bool) -> Result<Read, String> {
+fn read(rules: &Rules, fed: &Fed, base: u64, limit: u64, strict: bool) -> crate::error::Res<Read> {
     let mut a = Array { base, ..Array::default() };
     let size = limit - base;
     let first = size.min(12);
     let Some(pre) = fed.get(base, first) else { return Ok(Read::Need(base, first)) };
-    let fail = |a: &mut Array, why: &'static str, r: Result<(), String>| -> Result<bool, String> {
+    let fail = |a: &mut Array, why: &'static str, r: crate::error::Res<()>| -> crate::error::Res<bool> {
         match r {
             Ok(()) => Ok(false),
             Err(e) if strict => Err(e),
@@ -163,7 +165,7 @@ fn read(rules: &Rules, fed: &Fed, base: u64, limit: u64, strict: bool) -> Result
         return Ok(Read::Done(a));
     }
     let parsed = header::parse(&decoded.unwrap_or_default(), rules.limit("max_rank") as usize);
-    let problem = parsed.as_ref().err().map_or(V::Absent, |e| text(e));
+    let problem = parsed.as_ref().err().map_or(V::Absent, |e| text(&e.to_string()));
     let r = rules.check("literal", rules::env([("problem", problem)]));
     if fail(&mut a, "header", r)? {
         return Ok(Read::Done(a));
@@ -171,7 +173,7 @@ fn read(rules: &Rules, fed: &Fed, base: u64, limit: u64, strict: bool) -> Result
     let h = parsed.unwrap();
     let t = header::dtype(rules, &h.descr);
     a.header = Some(h.clone());
-    let problem = t.as_ref().err().map_or(V::Absent, |e| text(e));
+    let problem = t.as_ref().err().map_or(V::Absent, |e| text(&e.to_string()));
     let r = rules.check("data_type", rules::env([("shown", text(&h.descr.repr())), ("problem", problem)]));
     if fail(&mut a, "datatype", r)? {
         return Ok(Read::Done(a));
@@ -212,7 +214,7 @@ impl Array {
     /// element: what its stream inflates to): the preamble, the header and the data (presented,
     /// and not empty); the header's and the data's ids, and, when its header was read, what the
     /// description of its array is built from.
-    fn emit(&self, ir: &mut Ir, parent: u32, space: u32) -> Result<(Option<u32>, Option<Reached>), String> {
+    fn emit(&self, ir: &mut Ir, parent: u32, space: u32) -> crate::error::Res<(Option<u32>, Option<Reached>)> {
         let p = self.preamble.len() as u64;
         let ty = if p == 10 { "{magic:bytes[6],major:u1,minor:u1,header_length:<u2}" } else { "{magic:bytes[6],major:u1,minor:u1,header_length:<u4}" };
         ir.value(parent, "preamble", NO_INDEX, ty, space, (self.base, p), Some(&self.preamble))?;
@@ -303,7 +305,7 @@ struct Reached {
 /// a Fortran-order array's axes reversed; NumPy defines no fill value. An array whose data is not
 /// presented has no grid, nor, by the general fallback, has one whose element's bits pass 2^64
 /// (an array of no elements may be of such a type).
-fn described(reached: &[Reached]) -> Result<(Vec<StoredArray>, Vec<Chain>, ChunkMap), String> {
+fn described(reached: &[Reached]) -> crate::error::Res<(Vec<StoredArray>, Vec<Chain>, ChunkMap)> {
     let mut arrays = Vec::with_capacity(reached.len());
     let mut map = ChunkMap::default();
     for (k, a) in reached.iter().enumerate() {
@@ -407,11 +409,11 @@ impl Npy {
         self.fed.feed(offset, data);
     }
 
-    fn got(&self, o: u64, n: u64) -> Result<Vec<u8>, String> {
-        self.fed.get(o, n).map(<[u8]>::to_vec).ok_or_else(|| "internal: a read was not fed".into())
+    fn got(&self, o: u64, n: u64) -> crate::error::Res<Vec<u8>> {
+        self.fed.get(o, n).map(<[u8]>::to_vec).ok_or_else(|| Error::internal("a read was not fed"))
     }
 
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         let n = self.size;
         let reads = match self.phase {
             Phase::Start => {
@@ -425,10 +427,10 @@ impl Npy {
                     return self.step();
                 }
                 if !is_npz(&head) {
-                    return Err("not a NumPy file: neither an NPY preamble nor a ZIP archive of .npy members".into());
+                    return Err(Error::rejected("not a NumPy file: neither an NPY preamble nor a ZIP archive of .npy members"));
                 }
                 if n == 0 {
-                    return Err("not a zip file: no end of central directory record".into());
+                    return Err(Error::rejected("not a zip file: no end of central directory record"));
                 }
                 self.phase = Phase::ZipTail;
                 let t = n.min(zip::MAX_TAIL);
@@ -478,7 +480,7 @@ impl Npy {
             Phase::ZipLocal => {
                 let cd_offset = self.end.cd_offset;
                 for e in self.entries.iter_mut() {
-                    let head = self.fed.get(e.lho, 30).ok_or("internal: no local header")?.to_vec();
+                    let head = self.fed.get(e.lho, 30).ok_or_else(|| Error::internal("no local header"))?.to_vec();
                     zip::local_header(&head, e, cd_offset)?;
                 }
                 let all: Vec<usize> = (0..self.entries.len()).collect();
@@ -517,10 +519,10 @@ impl Npy {
         Ok(self.asked.ask(reads))
     }
 
-    fn ask_cd(&mut self) -> Result<Vec<(u64, u64)>, String> {
+    fn ask_cd(&mut self) -> crate::error::Res<Vec<(u64, u64)>> {
         let end = zip::cd_end(&self.end);
         if self.end.cd_offset.checked_add(self.end.cd_size) != Some(end) {
-            return Err("a zip file's central directory does not end where its end records start".into());
+            return Err(Error::rejected("a zip file's central directory does not end where its end records start"));
         }
         self.phase = Phase::ZipCd;
         Ok(if self.end.cd_size > 0 { vec![(self.end.cd_offset, self.end.cd_size)] } else { Vec::new() })
@@ -529,7 +531,7 @@ impl Npy {
     /// The members' checks and paths (spec/zarrify/npy.md §8.3
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#83-the-archive>), and the
     /// reads of their local headers, with a window for a member whose header is to be read.
-    fn members(&mut self) -> Result<Vec<(u64, u64)>, String> {
+    fn members(&mut self) -> crate::error::Res<Vec<(u64, u64)>> {
         let cd_offset = self.end.cd_offset;
         let mut names = HashSet::new();
         let mut reads = Vec::new();
@@ -545,7 +547,7 @@ impl Npy {
                 reason = Some("method");
             }
             if e.lho.checked_add(30).is_none_or(|x| x > cd_offset) {
-                return Err("a zip entry's local header is beyond the entries".into());
+                return Err(Error::rejected("a zip entry's local header is beyond the entries"));
             }
             let pending = reason.is_none();
             let window = 30 + e.nn + e.ne + if pending { WINDOW } else { 0 };
@@ -558,7 +560,7 @@ impl Npy {
 
     /// The archive's elements (spec/zarrify/npy.md §5.3
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#53-elements>) and the facts.
-    fn done(&mut self) -> Result<Step, String> {
+    fn done(&mut self) -> crate::error::Res<Step> {
         self.phase = Phase::Done;
         // the arrays the profile presents, each with the key of its description
         // (spec/stored-array.md §2.1
@@ -640,7 +642,7 @@ impl Npy {
     }
 
     /// The finished IR, with the arrays it reaches described, and the facts.
-    pub fn finish(self) -> Result<(Ir, J), String> {
+    pub fn finish(self) -> crate::error::Res<(Ir, J)> {
         let (mut ir, facts) = sans::finish(self.phase == Phase::Done, self.ir, self.facts)?;
         let (arrays, chains, map) = described(&self.reached)?;
         ir.describe(arrays, chains, map)?;
@@ -661,10 +663,10 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Npy>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
         crate::project::npy::project(ir, description, url, copied, chunking)
     }
-    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value, chunking: &crate::out::Chunking) -> Result<Vec<(u64, u64)>, String> {
+    fn reads(&self, ir: &crate::ir::Ir, description: &serde_json::Value, chunking: &crate::out::Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
         crate::project::npy::reads(ir, description, chunking)
     }
 }

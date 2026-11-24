@@ -10,6 +10,8 @@
 //! [`parse`] also gives the extents of a top-level object's members' values, which a
 //! store parser makes the values of the document's IR.
 
+use crate::error::Error;
+
 use serde_json::Value as J;
 use std::collections::HashMap;
 
@@ -313,18 +315,18 @@ pub fn has_number_token(t: &str) -> bool {
 
 /// The document `data` by spec/zarrify.md §1.6
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents>, or the reason it is rejected.
-pub fn parse(data: &[u8]) -> Result<Doc, String> {
+pub fn parse(data: &[u8]) -> crate::error::Res<Doc> {
     parse_within(data, MAX_DEPTH)
 }
 
 /// [`parse`], nesting at most `max_depth` deep (a document the parser built from documents it
 /// read, such as a node's source metadata, which nests its attributes one level deeper).
-pub fn parse_within(data: &[u8], max_depth: usize) -> Result<Doc, String> {
+pub fn parse_within(data: &[u8], max_depth: usize) -> crate::error::Res<Doc> {
     if data.len() as u64 > MAX_DOCUMENT {
-        return Err(format!("JSON document of {} bytes exceeds {MAX_DOCUMENT}", data.len()));
+        return Err(Error::rejected(format!("JSON document of {} bytes exceeds {MAX_DOCUMENT}", data.len())));
     }
     if data.starts_with(b"\xef\xbb\xbf") {
-        return Err("JSON document starts with a byte order mark".into());
+        return Err(Error::rejected("JSON document starts with a byte order mark"));
     }
     let text = std::str::from_utf8(data).map_err(|_| "JSON document is not UTF-8".to_string())?;
     let mut p = P { s: text.as_bytes(), at: 0, depth: 0, max_depth, members: Vec::new() };
@@ -346,8 +348,8 @@ struct P<'a> {
 }
 
 impl P<'_> {
-    fn fail(&self, why: &str) -> String {
-        format!("invalid JSON: {why} at byte {}", self.at)
+    fn fail(&self, why: &str) -> Error {
+        Error::Rejected(format!("invalid JSON: {why} at byte {}", self.at))
     }
 
     fn ws(&mut self) {
@@ -369,7 +371,7 @@ impl P<'_> {
         }
     }
 
-    fn value(&mut self, top: bool) -> Result<Jv, String> {
+    fn value(&mut self, top: bool) -> crate::error::Res<Jv> {
         match self.peek() {
             None => Err(self.fail("expecting a value")),
             Some(b'{') => self.object(top),
@@ -378,24 +380,24 @@ impl P<'_> {
             Some(b't') if self.lit("true") => Ok(Jv::Bool(true)),
             Some(b'f') if self.lit("false") => Ok(Jv::Bool(false)),
             Some(b'n') if self.lit("null") => Ok(Jv::Null),
-            Some(b'N') if self.lit("NaN") => Err("JSON literal NaN is not allowed".into()),
-            Some(b'I') if self.lit("Infinity") => Err("JSON literal Infinity is not allowed".into()),
-            Some(b'-') if self.s[self.at..].starts_with(b"-Infinity") => Err("JSON literal -Infinity is not allowed".into()),
+            Some(b'N') if self.lit("NaN") => Err(Error::rejected("JSON literal NaN is not allowed")),
+            Some(b'I') if self.lit("Infinity") => Err(Error::rejected("JSON literal Infinity is not allowed")),
+            Some(b'-') if self.s[self.at..].starts_with(b"-Infinity") => Err(Error::rejected("JSON literal -Infinity is not allowed")),
             Some(c) if c == b'-' || c.is_ascii_digit() => self.number(),
             Some(_) => Err(self.fail("expecting a value")),
         }
     }
 
-    fn enter(&mut self) -> Result<(), String> {
+    fn enter(&mut self) -> crate::error::Res<()> {
         self.depth += 1;
         if self.depth > self.max_depth {
-            return Err(format!("JSON nests more than {} deep", self.max_depth));
+            return Err(Error::rejected(format!("JSON nests more than {} deep", self.max_depth)));
         }
         self.at += 1;
         Ok(())
     }
 
-    fn object(&mut self, top: bool) -> Result<Jv, String> {
+    fn object(&mut self, top: bool) -> crate::error::Res<Jv> {
         self.enter()?;
         let mut m: Vec<(Js, Jv)> = Vec::new();
         let mut index: HashMap<(Vec<u32>, String), usize> = HashMap::new();
@@ -443,7 +445,7 @@ impl P<'_> {
         Ok(Jv::Obj(m))
     }
 
-    fn array(&mut self) -> Result<Jv, String> {
+    fn array(&mut self) -> crate::error::Res<Jv> {
         self.enter()?;
         let mut a = Vec::new();
         self.ws();
@@ -469,7 +471,7 @@ impl P<'_> {
         Ok(Jv::Arr(a))
     }
 
-    fn hex4(&mut self) -> Result<u32, String> {
+    fn hex4(&mut self) -> crate::error::Res<u32> {
         let h = self.s.get(self.at..self.at + 4).ok_or_else(|| self.fail("invalid \\u escape"))?;
         let t = std::str::from_utf8(h).map_err(|_| self.fail("invalid \\u escape"))?;
         if !t.bytes().all(|c| c.is_ascii_hexdigit()) {
@@ -479,7 +481,7 @@ impl P<'_> {
         Ok(u32::from_str_radix(t, 16).unwrap())
     }
 
-    fn string(&mut self) -> Result<Js, String> {
+    fn string(&mut self) -> crate::error::Res<Js> {
         let start = self.at;
         self.at += 1;
         let mut text = String::new();
@@ -541,7 +543,7 @@ impl P<'_> {
         Ok(Js { text, raw, lone })
     }
 
-    fn number(&mut self) -> Result<Jv, String> {
+    fn number(&mut self) -> crate::error::Res<Jv> {
         let start = self.at;
         let s = self.s;
         let mut i = self.at;
@@ -582,7 +584,7 @@ impl P<'_> {
         let t = std::str::from_utf8(&s[start..i]).unwrap();
         let x: f64 = t.parse().map_err(|_| self.fail("invalid number"))?;
         if !x.is_finite() {
-            return Err(format!("JSON number {} is not finite in binary64", &t[..t.len().min(40)]));
+            return Err(Error::rejected(format!("JSON number {} is not finite in binary64", &t[..t.len().min(40)])));
         }
         if int {
             let d = if t == "-0" { "0" } else { t };
@@ -606,7 +608,7 @@ pub const FIXED_NAMES: [&str; 2] = ["gaps", "json"];
 /// as [`crate::ir::source_names`] names texts, with [`FIXED_NAMES`] fixed), the rest gaps
 /// ([`crate::check::finish`] fills them); a document of no member is one gap, one of more than
 /// [`MAX_MEMBERS`] one value, `json`.
-pub fn hold(ir: &mut crate::ir::Ir, o: u32, n: u64, members: &[(String, u64, u64)]) -> Result<(), String> {
+pub fn hold(ir: &mut crate::ir::Ir, o: u32, n: u64, members: &[(String, u64, u64)]) -> crate::error::Res<()> {
     use crate::ir::{source_names, GAP, NO_INDEX};
     if members.is_empty() {
         ir.add(GAP, o, "gaps/", 0, "", 0, Some((0, n)))?;

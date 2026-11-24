@@ -20,14 +20,14 @@ fn fixtures() -> PathBuf {
 }
 
 /// The output of the store `files`, mirrored.
-fn output(files: &BTreeMap<String, Vec<u8>>) -> Result<Out, String> {
+fn output(files: &BTreeMap<String, Vec<u8>>) -> refkv_ir::error::Res<Out> {
     let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let (ir, facts, stats, read) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone())?;
-    store_output(StoreFormat::Zarr2, &ir, &facts, stats, &read, "https://data.test/s/", true, false).map_err(String::from)
+    store_output(StoreFormat::Zarr2, &ir, &facts, stats, &read, "https://data.test/s/", true, false)
 }
 
-fn run(name: &str) -> Result<Out, String> {
+fn run(name: &str) -> refkv_ir::error::Res<Out> {
     output(&walk(&fixtures().join(name)))
 }
 
@@ -109,7 +109,7 @@ fn documents_are_read_as_json_by_the_store_rules() {
         (b"{\"a\": \"\x01\"}", "control character"),
     ] {
         let e = json::parse(bad).err().unwrap();
-        assert!(e.contains(why), "{bad:?}: {e}");
+        assert!(e.to_string().contains(why), "{bad:?}: {e}");
     }
     // an unpaired surrogate escape is a key of its own, not the text its marker reads as
     let d = json::parse(br#"{"\ud800": 1, "\ufffdd800": 2, "\uD800": 3}"#).unwrap();
@@ -141,7 +141,7 @@ fn documents_are_read_as_json_by_the_store_rules() {
         assert!(rebuilt.iter().any(|(k, _, b)| k == ".zattrs" && b.as_deref() == Some(&files[".zattrs"][..])), "{n}");
     }
     let deep = format!("{}{}", "[".repeat(257), "]".repeat(257));
-    assert!(json::parse(deep.as_bytes()).err().unwrap().contains("nests more than 256"));
+    assert!(json::parse(deep.as_bytes()).err().unwrap().to_string().contains("nests more than 256"));
 }
 
 #[test]
@@ -181,7 +181,7 @@ fn the_ignored_keys_are_refkv_source_s_member_ignored_in_byte_order() {
         assert!(!out.entries.iter().any(|e| e.0 == "refkv_source/ignored.json"));
         // the member is outside the table: the mirror is still canonical
         let get = |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone());
-        let mut never = |_: u64, _: u64| -> Result<Vec<u8>, String> { Err("no source".into()) };
+        let mut never = |_: u64, _: u64| -> refkv_ir::error::Res<Vec<u8>> { Err(refkv_ir::error::Error::rejected("no source")) };
         assert_eq!(refkv_ir::mirror::canonical_problem(&get, &mut never), None);
         // any other member beside `ir` is a difference
         let mut d = doc(&out, "refkv_source/zarr.json");
@@ -203,7 +203,7 @@ fn the_ignored_keys_are_refkv_source_s_member_ignored_in_byte_order() {
 #[test]
 fn members_named_gaps_or_json_keep_the_ir_valid_and_rebuild() {
     use refkv_ir::mirror::{canonical_problem, mirror, view_problem};
-    let mut never = |_: u64, _: u64| -> Result<Vec<u8>, String> { Err("no source".into()) };
+    let mut never = |_: u64, _: u64| -> refkv_ir::error::Res<Vec<u8>> { Err(refkv_ir::error::Error::rejected("no source")) };
     for n in [3usize, 4097] {
         let mut files = walk(&fixtures().join("zarr2_hierarchy"));
         let mut members = vec!["\"gaps\": [1, 2]".to_string(), "\"json\": {\"a\": 1}".to_string(), "\"gaps/\": 3".to_string()];
@@ -240,7 +240,7 @@ macro_rules! reject {
         #[test]
         fn $name() {
             let e = run($dir).err().unwrap_or_else(|| panic!("{} accepted", $dir));
-            assert!(e.contains($why), "{}: {e}", $dir);
+            assert!(e.to_string().contains($why), "{}: {e}", $dir);
         }
     };
 }

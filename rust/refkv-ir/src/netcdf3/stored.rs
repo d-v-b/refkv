@@ -5,6 +5,8 @@
 //! unit, its `variables/<k>` element; a record variable is a unit per record, each its slice of
 //! the `records` element. The grid is dense: the file stores every unit.
 
+use crate::error::Error;
+
 use crate::array::{AxisUnits, Chain, ChunkMap, Edge, Grid, Place, Row, StoredArray};
 use crate::ir::Res;
 
@@ -45,7 +47,7 @@ pub(super) fn described(header: u32, vars: &[Var]) -> Res<(Vec<StoredArray>, Vec
                 for r in 0..v.shape.first().copied().unwrap_or(0) {
                     let mut coords = vec![0; v.shape.len()];
                     coords[0] = r;
-                    let o = r.checked_mul(stride).and_then(|o| o.checked_add(offset)).ok_or("internal: a record past 2^64 bytes")?;
+                    let o = r.checked_mul(stride).and_then(|o| o.checked_add(offset)).ok_or_else(|| Error::internal("a record past 2^64 bytes"))?;
                     map.push(Row { array: k as u32, coords, element: Some(element), range: Some((o, slice)), ..Row::default() })?;
                 }
             }

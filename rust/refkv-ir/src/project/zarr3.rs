@@ -67,7 +67,7 @@ struct Keys {
 }
 
 /// The hierarchy of a Zarr v3 store, listed (`form` "store") or zipped (`form` "zip").
-pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
     build(ir, description, url, true, &mut Vec::new())
 }
 
@@ -78,7 +78,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
 /// §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#4-source-metadata>). The
 /// decisions are [`super::zarr3_nodes::hierarchy`]'s, the function the projection calls; a
 /// layout that presents the store otherwise calls this (`refkv.build.zarr_hierarchy`).
-pub fn hierarchy(ir: &Ir, description: &J) -> Result<(Vec<J>, Out), String> {
+pub fn hierarchy(ir: &Ir, description: &J) -> crate::error::Res<(Vec<J>, Out)> {
     let mut nodes = Vec::new();
     let out = build(ir, description, "", false, &mut nodes)?;
     Ok((nodes, out))
@@ -86,7 +86,7 @@ pub fn hierarchy(ir: &Ir, description: &J) -> Result<(Vec<J>, Out), String> {
 
 /// The hierarchy, with refkv's declarations and the other objects where `declared`; each node
 /// (its path, kind and source metadata) added to `nodes`.
-fn build(ir: &Ir, description: &J, url: &str, declared: bool, nodes_out: &mut Vec<J>) -> Result<Out, String> {
+fn build(ir: &Ir, description: &J, url: &str, declared: bool, nodes_out: &mut Vec<J>) -> crate::error::Res<Out> {
     // the convention's decisions, of the parser's description (`zarr3_nodes.rs`)
     let planned = &super::zarr3_nodes::hierarchy(description)?;
     let zip = planned["form"] == "zip";
@@ -200,6 +200,6 @@ fn build(ir: &Ir, description: &J, url: &str, declared: bool, nodes_out: &mut Ve
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<Out> {
     project(ir, description, url)
 }

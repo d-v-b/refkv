@@ -6,6 +6,7 @@
 //! `Format::from_name`: the profile's in spec/zarrify/profiles/); `vz_step`, `vz_feed`
 //! and `vz_finish` drive it.
 
+use crate::error::Error;
 use crate::step::Step;
 use crate::run::AnyParser;
 use std::cell::RefCell;
@@ -82,13 +83,13 @@ pub unsafe extern "C" fn vz_fits_tiles_decode(chunk: *const u8, n: usize, config
     let shape = unsafe { std::slice::from_raw_parts(shape, rank * 8) };
     let shape: Vec<u64> = shape.chunks(8).map(|b| u64::from_le_bytes(b.try_into().unwrap())).collect();
     let decoded = std::str::from_utf8(config)
-        .map_err(|e| e.to_string())
-        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).map_err(|e| e.to_string()))
+        .map_err(|e| Error::Internal(e.to_string()))
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).map_err(|e| Error::Internal(e.to_string())))
         .and_then(|v| crate::fits_tiles::Config::from_json(&v))
         .and_then(|cfg| crate::fits_tiles::decode(chunk, &cfg, &shape));
     match decoded {
         Ok(b) => set_out(b) as i64,
-        Err(e) => -(set_out(e.into_bytes()) as i64),
+        Err(e) => err_out(e),
     }
 }
 
@@ -107,26 +108,26 @@ pub unsafe extern "C" fn vz_grib_decode(chunk: *const u8, n: usize, config: *con
     let shape = unsafe { std::slice::from_raw_parts(shape, rank * 8) };
     let shape: Vec<u64> = shape.chunks(8).map(|b| u64::from_le_bytes(b.try_into().unwrap())).collect();
     let decoded = std::str::from_utf8(config)
-        .map_err(|e| e.to_string())
-        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).map_err(|e| e.to_string()))
+        .map_err(|e| Error::Internal(e.to_string()))
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).map_err(|e| Error::Internal(e.to_string())))
         .and_then(|v| crate::grib::codec::Config::from_json(&v))
         .and_then(|cfg| crate::grib::codec::decode(chunk, &cfg, &shape));
     match decoded {
         Ok(v) => set_out(v.iter().flat_map(|x| x.to_le_bytes()).collect()) as i64,
-        Err(e) => -(set_out(e.into_bytes()) as i64),
+        Err(e) => err_out(e),
     }
 }
 
-fn step_out(r: Result<Step, String>) -> i64 {
+fn step_out(r: crate::error::Res<Step>) -> i64 {
     match r {
         Ok(Step::Read(r)) => 1 + set_out(r.iter().flat_map(|(o, n)| [o.to_le_bytes(), n.to_le_bytes()]).flatten().collect()) as i64,
         Ok(Step::Beside) => -(set_out(b"the file names siblings, which a run reads as a store".to_vec()) as i64),
         Ok(Step::Done) => 0,
-        Err(e) => -(set_out(e.into_bytes()) as i64),
+        Err(e) => err_out(e),
     }
 }
 
-fn finish_out(r: Result<(crate::ir::Ir, serde_json::Value), String>) -> i64 {
+fn finish_out(r: crate::error::Res<(crate::ir::Ir, serde_json::Value)>) -> i64 {
     match r {
         Ok((ir, description)) => {
             let out = serde_json::json!({
@@ -138,7 +139,7 @@ fn finish_out(r: Result<(crate::ir::Ir, serde_json::Value), String>) -> i64 {
             });
             set_out(out.to_string().into_bytes()) as i64
         }
-        Err(e) => -(set_out(e.into_bytes()) as i64),
+        Err(e) => err_out(e),
     }
 }
 
@@ -201,7 +202,6 @@ pub unsafe extern "C" fn vz_finish(p: *mut AnyParser) -> i64 {
 
 // ---- runs: a parser, the read planner, the projection and the mirror
 
-use crate::error::Error;
 use crate::run::{Format, Run};
 
 /// The core's error at `vz_out()` (minus its length), recording whether it is a failure of refkv's

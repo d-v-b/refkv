@@ -15,6 +15,8 @@
 //! of a name is lost to the decoding;
 //! `xml` and `xml:<runtype>` are the text of an XML attribute value, as UTF-8.
 
+use crate::error::Error;
+
 use crate::fed::Word;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -105,7 +107,7 @@ pub fn field(s: &str, name: &str) -> Option<(usize, Ty)> {
     None
 }
 
-pub fn parse(s: &str) -> Result<Ty, String> {
+pub fn parse(s: &str) -> crate::error::Res<Ty> {
     if s == "xml" || s.starts_with("xml:") {
         return Ok(Ty::Xml);
     }
@@ -113,13 +115,13 @@ pub fn parse(s: &str) -> Result<Ty, String> {
     let mut pos = 0;
     let ty = one(&t, &mut pos, s)?;
     if pos != t.len() {
-        return Err(format!("bad type {s:?}"));
+        return Err(Error::rejected(format!("bad type {s:?}")));
     }
     Ok(ty)
 }
 
-fn one(t: &[String], pos: &mut usize, s: &str) -> Result<Ty, String> {
-    let bad = || format!("bad type {s:?}");
+fn one(t: &[String], pos: &mut usize, s: &str) -> crate::error::Res<Ty> {
+    let bad = || Error::Rejected(format!("bad type {s:?}"));
     let tok = t.get(*pos).ok_or_else(bad)?.clone();
     *pos += 1;
     let mut base = if tok == "{" {
@@ -248,10 +250,10 @@ fn shape(mut flat: Vec<Val>, dims: &[usize]) -> Val {
     Val::List(flat)
 }
 
-pub fn decode(ty: &Ty, raw: &[u8]) -> Result<Val, String> {
+pub fn decode(ty: &Ty, raw: &[u8]) -> crate::error::Res<Val> {
     if let Some(n) = ty.size() {
         if n != raw.len() {
-            return Err(format!("{} bytes for a type of {n}", raw.len()));
+            return Err(Error::rejected(format!("{} bytes for a type of {n}", raw.len())));
         }
     }
     Ok(match ty {

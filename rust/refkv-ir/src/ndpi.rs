@@ -618,12 +618,12 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<crate::tiff::Tiff>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
         crate::project::ndpi::project(ir, description, url)
     }
     /// The projection reads nothing; refkv's plan is made here, so that a run rejects the file
     /// before it is done, as the plan does (`tiff::plan::plan`).
-    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value, _chunking: &crate::out::Chunking) -> Result<Vec<(u64, u64)>, String> {
+    fn reads(&self, _ir: &crate::ir::Ir, description: &serde_json::Value, _chunking: &crate::out::Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
         crate::tiff::plan::plan("ndpi", description).map(|_| Vec::new())
     }
 }
@@ -655,7 +655,7 @@ mod tests {
     }
 
     fn rejects(h: &[u8], msg: &str) {
-        assert_eq!(header(h, crate::rules::of("ndpi")), Err(msg.to_string()));
+        assert_eq!(header(h, crate::rules::of("ndpi")), Err(crate::error::Error::rejected(msg)));
     }
 
     #[test]
@@ -918,7 +918,7 @@ mod tests {
         let mut plane = [(g, before, after)];
         assert_eq!(
             Grid::one_height(&mut plane, crate::rules::of("ndpi")).unwrap_err(),
-            "an NDPI chunk's reference payload exceeds 65519 bytes"
+            crate::error::Error::rejected("an NDPI chunk's reference payload exceeds 65519 bytes")
         );
     }
 
@@ -958,13 +958,13 @@ mod tests {
 
     #[test]
     fn mcu_starts_that_do_not_match_are_rejected() {
-        assert_eq!(grid(vec![40], 60, 16).unwrap_err(), "McuStarts does not match the strip's intervals");
-        assert_eq!(grid(vec![50, 40], 60, 16).unwrap_err(), "McuStarts does not match the strip's intervals");
+        assert_eq!(grid(vec![40], 60, 16).unwrap_err(), crate::error::Error::rejected("McuStarts does not match the strip's intervals"));
+        assert_eq!(grid(vec![50, 40], 60, 16).unwrap_err(), crate::error::Error::rejected("McuStarts does not match the strip's intervals"));
     }
 
     #[test]
     fn an_empty_interval_is_rejected() {
-        assert_eq!(grid(vec![40, 42], 60, 16).unwrap_err(), "an NDPI restart interval is empty");
+        assert_eq!(grid(vec![40, 42], 60, 16).unwrap_err(), crate::error::Error::rejected("an NDPI restart interval is empty"));
     }
 
     #[test]
@@ -972,6 +972,6 @@ mod tests {
         let h = jpeg(&[0x11], 8192);
         let hd = header(&h, crate::rules::of("ndpi")).unwrap();
         let g = Grid::new(0, 60, 65536, 8, h, hd, vec![40], &Part::Data(1, 0, 2), &Part::Data(2, 0, 10), crate::rules::of("ndpi"));
-        assert_eq!(g.unwrap_err(), "an NDPI chunk would be 65536 pixels wide, more than 65535");
+        assert_eq!(g.unwrap_err(), crate::error::Error::rejected("an NDPI chunk would be 65536 pixels wide, more than 65535"));
     }
 }

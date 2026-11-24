@@ -16,6 +16,8 @@
 //! Pixel Data; then the root's source metadata (`json.rs`) and the IR are built from what
 //! was read.
 
+use crate::error::Error;
+
 pub mod elements;
 pub mod json;
 pub mod plan;
@@ -414,11 +416,11 @@ impl Dicom {
     }
 
     /// Asks for what a walk missed (and what it said it will want), or fails.
-    fn missed(&mut self, o: u64, n: u64) -> Result<Step, String> {
+    fn missed(&mut self, o: u64, n: u64) -> crate::error::Res<Step> {
         if self.phase == Phase::Translate {
             self.retries += 1;
             if self.retries > MAX_RETRIES {
-                return Err("internal: the DICOM parser asked for bytes too many times".into());
+                return Err(Error::internal("the DICOM parser asked for bytes too many times"));
             }
         }
         let mut r = std::mem::take(&mut self.want);
@@ -428,15 +430,15 @@ impl Dicom {
         }
         r.retain(|&(a, m)| !self.b.has(a, m));
         if r.is_empty() {
-            return Err(format!("internal: the DICOM parser missed bytes it was fed ({o}, {n})"));
+            return Err(Error::internal(format!("the DICOM parser missed bytes it was fed ({o}, {n})")));
         }
         Ok(self.ask(r))
     }
 
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         // every range asked for was fed: so each round reads bytes not yet fed, and ends
         if let Some(&(o, n)) = self.asked.iter().find(|&&(o, n)| !self.b.has(o, n)) {
-            return Err(format!("internal: the range ({o}, {n}) was asked for and not fed"));
+            return Err(Error::internal(format!("the range ({o}, {n}) was asked for and not fed")));
         }
         self.asked.clear();
         loop {
@@ -453,14 +455,14 @@ impl Dicom {
                 }
                 Phase::Scan | Phase::After => match self.scan() {
                     Err(Fail::Miss(o, n)) => return self.missed(o, n),
-                    Err(Fail::Reject(m)) => return Err(m.trim_start_matches('\u{0}').to_string()),
+                    Err(Fail::Reject(m) | Fail::Hard(m)) => return Err(m),
                     Ok(()) => {
                         self.phase = if self.phase == Phase::Scan { Phase::Profile } else { Phase::Translate };
                     }
                 },
                 Phase::Profile => match self.profile() {
                     Err(Fail::Miss(o, n)) => return self.missed(o, n),
-                    Err(Fail::Reject(m)) => return Err(m.trim_start_matches('\u{0}').to_string()),
+                    Err(Fail::Reject(m) | Fail::Hard(m)) => return Err(m),
                     Ok(()) => {
                         let lay = self.layout.as_ref().unwrap();
                         let enc = self.image.as_ref().unwrap().enc;
@@ -479,7 +481,7 @@ impl Dicom {
                             self.ir.rollback(mark);
                             return self.missed(o, n);
                         }
-                        Err(Fail::Reject(m)) => return Err(m.trim_start_matches('\u{0}').to_string()),
+                        Err(Fail::Reject(m) | Fail::Hard(m)) => return Err(m),
                         Ok(()) => {
                             self.phase = Phase::Done;
                             return Ok(Step::Done);
@@ -1120,14 +1122,14 @@ impl Dicom {
     /// `elements` give the stored arrays' keys: `pixel_data`, the top-level Pixel Data's element;
     /// `palette_tables`, the lookup tables' elements; and `nested`, each element that keys the
     /// Pixel Data of its items, with how many.
-    pub fn finish(self) -> Result<(Ir, J), String> {
+    pub fn finish(self) -> crate::error::Res<(Ir, J)> {
         let mut facts = self.facts.unwrap_or(J::Null);
         self.counts.put(&mut facts);
         let (mut ir, mut facts) = sans::finish(self.phase == Phase::Done, self.ir, facts)?;
         if let (Some(img), Some(lay)) = (&self.image, &self.layout) {
             let d = stored::described(&ir, img, lay)?;
             if d.pixel as u64 != facts["elements"]["pixel_data"].as_u64().unwrap_or(u64::MAX) {
-                return Err("internal: the Pixel Data's stored array is keyed by another element".into());
+                return Err(Error::internal("the Pixel Data's stored array is keyed by another element"));
             }
             facts["elements"]["palette_tables"] = json!(d.palette.unwrap_or_default());
             facts["elements"]["nested"] = d.nested.iter().map(|&(element, count)| json!({"element": element, "count": count})).collect();
@@ -1137,10 +1139,10 @@ impl Dicom {
     }
 }
 
-fn fail_text(f: Fail) -> String {
+fn fail_text(f: Fail) -> Error {
     match f {
-        Fail::Reject(m) => m,
-        Fail::Miss(o, n) => format!("internal: missed ({o}, {n})"),
+        Fail::Reject(m) | Fail::Hard(m) => m,
+        Fail::Miss(o, n) => Error::internal(format!("missed ({o}, {n})")),
     }
 }
 
@@ -1407,9 +1409,8 @@ fn value_type(vr: &str, n: u64, little: bool) -> String {
     format!("bytes[{n}]")
 }
 
-fn hard(e: String) -> Fail {
-    // a budget or IR error: never a structure that breaks a rule
-    Fail::Reject(format!("\u{0}{e}"))
+fn hard(e: Error) -> Fail {
+    Fail::Hard(e)
 }
 
 struct Emit<'a> {
@@ -1549,7 +1550,7 @@ impl Emit<'_> {
                 })();
                 match walked {
                     Ok(()) => return Ok(el.end()),
-                    Err(Fail::Reject(m)) if !m.starts_with('\u{0}') => {
+                    Err(Fail::Reject(_)) => {
                         self.ir.rollback(mark);
                         self.record(parent, name, nidx, el, enc, "SQ", little)?;
                         return Ok(el.end());
@@ -1686,7 +1687,7 @@ impl Emit<'_> {
                 if let Some(b) = self.ir.budget.as_mut() {
                     b.spent_elements += lay.stored - 1;
                     if b.spent_elements > b.elements {
-                        return Err(hard(format!("budget: more than {} IR elements", b.elements)));
+                        return Err(hard(Error::budget(format!("more than {} IR elements", b.elements))));
                     }
                 }
             }
@@ -1739,7 +1740,7 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Dicom>(size)
     }
-    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &crate::ir::Ir, description: &serde_json::Value, url: &str, _copied: &crate::project::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
         crate::project::dicom::project(ir, description, url)
     }
 }

@@ -8,6 +8,8 @@
 //! decoder needs (the lead-in, §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#82-chunks>),
 //! as refkv's plan of the file (`plan`) cuts them.
 
+use crate::error::Error;
+
 use super::{arr, audio, n, Copied};
 use crate::ir::Ir;
 use crate::mp3::{RESERVOIR, VERSIONS};
@@ -23,19 +25,19 @@ pub const ARRAY: &str = "samples";
 /// audio frames of a chunk (`chunking`'s), and `leads`, the first frame of each chunk's lead-in, which holds the
 /// version's bit reservoir of main data before the two frames before the chunk. The plan is public
 /// data that belongs to refkv's convention, not to the IR.
-pub fn plan(description: &J, chunking: &Chunking) -> Result<J, String> {
+pub fn plan(description: &J, chunking: &Chunking) -> crate::error::Res<J> {
     let count = n(&description["frames"]) as usize;
     let main: Vec<u64> = arr(&description["main_data"]).iter().map(n).collect();
-    let version = VERSIONS.iter().position(|v| description["version"] == *v).ok_or("internal: the description has no version")?;
+    let version = VERSIONS.iter().position(|v| description["version"] == *v).ok_or_else(|| Error::internal("the description has no version"))?;
     if count == 0 || main.len() != count {
-        return Err("internal: the description does not describe the frames".into());
+        return Err(Error::internal("the description does not describe the frames"));
     }
     let per = chunking.chunk_frames.max(1);
     let leads: Vec<usize> = (0..count).step_by(per).map(|a| audio::reservoir_lead(a, RESERVOIR[version], |l| main[l])).collect();
     Ok(json!({"chunk_frames": per, "leads": leads}))
 }
 
-pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied, chunking: &Chunking) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied, chunking: &Chunking) -> crate::error::Res<Out> {
     let d = description;
     let plan = plan(d, chunking)?;
     let per_chunk = n(&plan["chunk_frames"]) as usize;
@@ -73,7 +75,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied, chunking: 
     let shape = [samples, channels];
     let array = array_json(&shape, "float32", json!([per_chunk as u64 * spf, channels]), json!([{"name": "refkv.stream", "configuration": {"format": "mp3"}}]), &["time", "channel"]);
     out.json(&format!("{ARRAY}/zarr.json"), &array);
-    let form = ir.form_id(first as u32).ok_or("internal: a frame has no form")?;
+    let form = ir.form_id(first as u32).ok_or_else(|| Error::internal("a frame has no form"))?;
     let mut refs = Refs::new(ir, out);
     let chunks = audio::chunks(&mut refs, ir, ARRAY, first, count, per_chunk, spf, form, |a| leads[a / per_chunk])?;
     let mut out = refs.out;
@@ -110,6 +112,6 @@ mod tests {
     #[test]
     fn a_description_without_its_frames_main_data_has_no_plan() {
         let d = json!({"version": "MPEG-1", "frames": 3, "main_data": [100, 100]});
-        assert!(plan(&d, &Chunking::default()).unwrap_err().contains("does not describe the frames"));
+        assert!(plan(&d, &Chunking::default()).unwrap_err().to_string().contains("does not describe the frames"));
     }
 }

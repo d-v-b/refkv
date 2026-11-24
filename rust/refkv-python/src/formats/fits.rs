@@ -29,7 +29,7 @@ impl PyFits {
         let arrays = py.detach(|| {
             let heaps = self.heaps.get_or_init(|| refkv_ir::project::fits::Heaps::of(&self.ir));
             refkv_ir::project::fits::hdu_arrays(&self.ir, &self.description, index, heaps, &self.chunking)
-        }).map_err(PyValueError::new_err)?;
+        }).map_err(|e| PyValueError::new_err(e.to_string()))?;
         arrays.into_iter().map(|a| {
             let chunks = a.chunks.iter().map(|(coords, pieces)| {
                 Ok((coords.clone(), pieces.iter().map(|p| piece_py(py, p)).collect::<PyResult<Vec<_>>>()?))
@@ -40,7 +40,7 @@ impl PyFits {
     /// The cards of HDU `index` as the FITS convention writes them (`project::fits::hdu_cards`):
     /// JSON, each `[keyword, value, comment]`. ValueError for no HDU `index`.
     fn cards(&self, py: Python<'_>, index: u64) -> PyResult<String> {
-        let cards = py.detach(|| refkv_ir::project::fits::hdu_cards(&self.ir, &self.description, index)).map_err(PyValueError::new_err)?;
+        let cards = py.detach(|| refkv_ir::project::fits::hdu_cards(&self.ir, &self.description, index)).map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(refkv_ir::out::to_text(&cards))
     }
 }

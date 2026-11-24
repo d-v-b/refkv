@@ -5,6 +5,8 @@
 //! bits an element) in a `lsb_first` chain. The store form describes every checked shard in place,
 //! so a shard's tensors are keyed by its own `header`, as a file's are.
 
+use crate::error::Error;
+
 use crate::array::{AxisUnits, Chain, ChunkMap, Codec, Edge, Grid, Param, Place, Row, StoredArray};
 use crate::ir::Res;
 use serde_json::json;
@@ -174,7 +176,7 @@ pub(super) fn described(files: &[Tensors]) -> Res<(Vec<StoredArray>, Vec<Chain>,
             match (t.at.1, t.element) {
                 (0, _) => {}
                 (_, Some(e)) => map.push(Row { element: Some(e), ..row })?,
-                (_, None) => return Err("internal: a tensor of bytes without its data's element".into()),
+                (_, None) => return Err(Error::internal("a tensor of bytes without its data's element")),
             }
             arrays.push(StoredArray {
                 element: f.key,

@@ -9,6 +9,8 @@
 //! Zarr data type, the transpose order, the codecs, the chunk cut, the axis names and the fill
 //! value) are made here, by [`image`], from the header's fields as the parser read them.
 
+use crate::error::Error;
+
 use super::vsi::object_url;
 use super::{key, n};
 use crate::envi::stored_axes;
@@ -42,14 +44,14 @@ pub struct Image {
 /// type of the `data type` code (§3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/envi.md#3-data-types>),
 /// the axes `c`, `y`, `x` stored in the interleave's order, the codecs, the chunk cut and the fill
 /// value. An error for a description no valid parse returns.
-pub fn image(d: &J) -> Result<Image, String> {
+pub fn image(d: &J) -> crate::error::Res<Image> {
     let rules = crate::rules::of("envi");
     let code = n(&d["data_type"]);
-    let spec = rules.entry("types", &code.to_string()).ok_or_else(|| format!("internal: no ENVI data type {code}"))?;
-    let data_type = spec["dtype"].as_str().ok_or("internal: a data type of no Zarr data type")?;
+    let spec = rules.entry("types", &code.to_string()).ok_or_else(|| Error::internal(format!("no ENVI data type {code}")))?;
+    let data_type = spec["dtype"].as_str().ok_or_else(|| Error::internal("a data type of no Zarr data type"))?;
     let item = n(&spec["bytes"]);
     let endian = if n(&d["byte_order"]) == 1 { "big" } else { "little" };
-    let interleave = d["interleave"].as_str().ok_or("internal: no interleave")?;
+    let interleave = d["interleave"].as_str().ok_or_else(|| Error::internal("no interleave"))?;
     let gzip = n(&d["file_compression"]) == 1;
     let offset = n(&d["header_offset"]);
     let (start, length) = (n(&d["data_range"][0]), n(&d["data_range"][1]));
@@ -94,7 +96,7 @@ pub fn image(d: &J) -> Result<Image, String> {
         })
         .collect();
 
-    let data_key = d["data_file"]["key"].as_str().ok_or("internal: no data file")?.to_string();
+    let data_key = d["data_file"]["key"].as_str().ok_or_else(|| Error::internal("no data file"))?.to_string();
     let mut own = Map::new();
     own.insert("fields".into(), d["fields"].clone());
     own.insert("comments".into(), d["comments"].clone());
@@ -105,11 +107,11 @@ pub fn image(d: &J) -> Result<Image, String> {
     }
     own.insert("compression".into(), json!(if gzip { "gzip" } else { "none" }));
     own.insert("data_file".into(), json!(data_key));
-    let header_key = d["header_file"]["key"].as_str().ok_or("internal: no header file")?.to_string();
+    let header_key = d["header_file"]["key"].as_str().ok_or_else(|| Error::internal("no header file"))?.to_string();
     Ok(Image { own: J::Object(own), array, chunks, header_key, data_key })
 }
 
-pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
     let img = image(description)?;
     let scales = json!([1, 1, 1]);
     let axes: Vec<&str> = AXES.iter().map(|x| x.0).collect();
@@ -138,6 +140,6 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<Out> {
     project(ir, description, url)
 }

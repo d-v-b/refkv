@@ -10,6 +10,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#84-the-description>) and refkv's
 //! plan of it (`plan`).
 
+use crate::error::Error;
+
 use super::{arr, base64, n, Copied};
 use crate::flac::data_type;
 use crate::ir::Ir;
@@ -36,16 +38,16 @@ pub fn setup(streaminfo: &[u8]) -> Vec<u8> {
 /// the frames of a shard (`chunking`'s, 512, or every frame when there are fewer), and `data_type`, the
 /// samples' Zarr data type, the smallest signed integer that holds STREAMINFO's bits. The plan is
 /// public data that belongs to refkv's convention, not to the IR.
-pub fn plan(description: &J, chunking: &Chunking) -> Result<J, String> {
+pub fn plan(description: &J, chunking: &Chunking) -> crate::error::Res<J> {
     let count = n(&description["frames"]) as usize;
     if count == 0 {
-        return Err("internal: the description has no frames".into());
+        return Err(Error::internal("the description has no frames"));
     }
     let bits = n(&description["streaminfo"]["bits_per_sample"]);
     Ok(json!({"shard_frames": chunking.shard_frames.max(1).min(count), "data_type": data_type(bits)}))
 }
 
-pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied, chunking: &Chunking) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied, chunking: &Chunking) -> crate::error::Res<Out> {
     let d = description;
     let plan = plan(d, chunking)?;
     let per = n(&plan["shard_frames"]) as usize;
@@ -55,7 +57,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied, chunking: 
     let si = &d["streaminfo"];
     let (rate, channels, bits) = (n(&si["sample_rate"]), n(&si["channels"]), n(&si["bits_per_sample"]));
     if first + count > ir.start.len() {
-        return Err("internal: the description does not describe the frames".into());
+        return Err(Error::internal("the description does not describe the frames"));
     }
     let pictures = arr(&d["pictures"]);
     let elements = arr(&d["elements"]["pictures"]);
@@ -88,12 +90,12 @@ pub fn project(ir: &Ir, description: &J, url: &str, _copied: &Copied, chunking: 
     out.json("zarr.json", &declared_group(Map::new(), "flac", Some(url), Some(J::Object(own))));
 
     // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#41-the-array>)
-    let streaminfo = ir.value_bytes(n(&d["elements"]["streaminfo"]) as u32).ok_or("internal: STREAMINFO is not held")?;
+    let streaminfo = ir.value_bytes(n(&d["elements"]["streaminfo"]) as u32).ok_or_else(|| Error::internal("STREAMINFO is not held"))?;
     let dtype = plan["data_type"].as_str().unwrap_or("int32");
     let codecs = json!([{"name": "refkv.stream", "configuration": {"format": "flac", "setup": base64(&setup(streaminfo))}}]);
     let array = array_json(&[samples, channels], dtype, json!([block, channels]), codecs, &["time", "channel"]);
     out.json(&format!("{ARRAY}/zarr.json"), &array);
-    let form = ir.form_id(first as u32).ok_or("internal: a frame has no form")?;
+    let form = ir.form_id(first as u32).ok_or_else(|| Error::internal("a frame has no form"))?;
     let mut refs = Refs::new(ir, out);
     // each frame an inner chunk, a refkv.stream chunk of one frame; `per` frames a shard
     // (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>)
@@ -162,6 +164,6 @@ mod tests {
     #[test]
     fn a_description_of_no_frames_has_no_plan() {
         let d = json!({"frames": 0, "streaminfo": {"bits_per_sample": 16}});
-        assert!(plan(&d, &Chunking::default()).unwrap_err().contains("no frames"));
+        assert!(plan(&d, &Chunking::default()).unwrap_err().to_string().contains("no frames"));
     }
 }

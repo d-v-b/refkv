@@ -5,6 +5,8 @@
 //! parameters as JSON, and gives its result as JSON; it also gives the host rules (`crate::host`)
 //! by their names, so that each host reaches every rule through this one entry point.
 
+use crate::error::Error;
+
 use crate::out::tiff_codecs;
 use crate::expr::V;
 use crate::rules::{self, num};
@@ -80,7 +82,7 @@ pub fn call(name: &str, p: &J) -> R<J> {
             let rules = rules::of("npy");
             let header = crate::npy::header::parse(text(p, "header")?, rules.limit("max_rank") as usize)
                 .map_or_else(|e| bad(format!("not an NPY header: {e}")), Ok)?;
-            let t = crate::npy::header::dtype(rules, &header.descr).map_err(Refused::NoCodec)?;
+            let t = crate::npy::header::dtype(rules, &header.descr).map_err(|e| Refused::NoCodec(e.to_string()))?;
             Ok(json!({
                 "data_type": t.zarr, "fill_value": t.fill, "item_size": t.item, "trailing": t.trailing,
                 "endian": t.little.map(|l| if l { "little" } else { "big" }),
@@ -183,12 +185,12 @@ fn int(tags: &Map<String, J>, tag: u16, default: u64) -> R<u64> {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>):
 /// packed samples, of 1 or 12 bits, held in the smallest type that takes them. The profile's
 /// checks have accepted them.
-pub fn tiff_data_type_of(sample_format: u64, bits: u64) -> Result<String, String> {
+pub fn tiff_data_type_of(sample_format: u64, bits: u64) -> crate::error::Res<String> {
     let kind = match sample_format {
         1 => "uint",
         2 => "int",
         3 => "float",
-        f => return Err(format!("internal: sample format {f}")),
+        f => return Err(Error::internal(format!("sample format {f}"))),
     };
     let bits = match bits {
         1 => 8,
@@ -221,7 +223,7 @@ fn format(tags: &Map<String, J>) -> R<Format> {
         ("formats", V::List(all(339, 1)?)),
         ("spp", num(spp0 as f64)),
         ("planar", num(if spp0 == 1 { 1 } else { ints(tags, 284)?.and_then(|v| v.first().copied()).unwrap_or(1) } as f64)),
-    ])).map_err(Refused::NoCodec)?;
+    ])).map_err(|e| Refused::NoCodec(e.to_string()))?;
     let f = Format {
         bits: int(tags, 258, 1)?,
         spp: int(tags, 277, 1)?,
@@ -238,14 +240,14 @@ fn format(tags: &Map<String, J>) -> R<Format> {
         ("compression", num(f.compression as f64)),
         ("photometric", f.photometric.map(|p| num(p as f64)).unwrap_or(V::Absent)),
     ]));
-    checked.map_err(Refused::NoCodec)?;
+    checked.map_err(|e| Refused::NoCodec(e.to_string()))?;
     Ok(f)
 }
 
 /// `tiff_data_type(tags)`: the data type of an IFD's samples, from its tags by number.
 fn tiff_data_type(tags: &Map<String, J>) -> R<String> {
     let f = format(tags)?;
-    tiff_data_type_of(f.sample_format, f.bits).map_err(Refused::Bad)
+    tiff_data_type_of(f.sample_format, f.bits).map_err(|e| Refused::Bad(e.to_string()))
 }
 
 /// `tiff_codecs(tags, little_endian, x_axis, row_length)`: the codecs after any `transpose` of an
@@ -262,14 +264,14 @@ fn tiff_codecs_of(tags: &Map<String, J>, little: bool, x: usize, row: u64, chunk
         ("fill_order", num(int(tags, 266, 1)? as f64)),
         ("photometric", num(f.photometric.unwrap_or(0) as f64)),
         ("subsampling", V::List(sub.iter().map(|&s| num(s as f64)).collect())),
-    ])).map_err(Refused::NoCodec)?;
+    ])).map_err(|e| Refused::NoCodec(e.to_string()))?;
     let predictor = int(tags, 317, 1)?;
     tiff.check("predictor", rules::env([
         ("compression", num(f.compression as f64)),
         ("predictor", num(predictor as f64)),
         ("sample_format", num(f.sample_format as f64)),
         ("bits", num(f.bits as f64)),
-    ])).map_err(Refused::NoCodec)?;
+    ])).map_err(|e| Refused::NoCodec(e.to_string()))?;
     if matches!(f.compression, 65000..=65002) {
         // EER's codec decodes one shape of chunk, `chunk`, with the bits of the compression's (or,
         // for 65002, tags 65007 to 65009's, each 7, 2 and 2 without its tag)

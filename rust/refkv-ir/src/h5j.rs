@@ -6,6 +6,8 @@
 //! its reads moved by the dataset's address, and the HDF5 IR takes each MP4 IR in place of its
 //! channel's data ([`crate::ir::Ir::graft_file`]). The projection is `project/h5j.rs`.
 
+use crate::error::Error;
+
 use crate::fed::Fed;
 use crate::hdf5::walk::lenient;
 use crate::hdf5::{R, H5};
@@ -66,25 +68,25 @@ pub struct Channels {
     list: Vec<Channel>,
     rules: &'static Rules,
     /// the padding `/Channels` gives (right, bottom), when its attributes give it
-    pad: Result<(u64, u64), String>,
+    pad: crate::error::Res<(u64, u64)>,
 }
 
 /// The padding (right, bottom) the attributes of `/Channels`, as the HDF5 hierarchy presents them,
 /// give: 0 for one it lacks; Err when one is not one integer of at least 0 (spec/zarrify/h5j.md §8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#82-channels>).
-pub fn pad(group: &J) -> Result<(u64, u64), String> {
+pub fn pad(group: &J) -> crate::error::Res<(u64, u64)> {
     let right = one_integer(group, "pad_right").transpose()?.unwrap_or(0);
     let bottom = one_integer(group, "pad_bottom").transpose()?.unwrap_or(0);
     Ok((right, bottom))
 }
 
 /// An integer attribute of one element, as the HDF5 hierarchy presents it (a JSON array of one integer).
-fn one_integer(attributes: &J, name: &str) -> Option<Result<u64, String>> {
+fn one_integer(attributes: &J, name: &str) -> Option<crate::error::Res<u64>> {
     let v = attributes.get(name)?;
     let x = v.as_array().filter(|a| a.len() == 1).and_then(|a| a[0].as_i64()).or_else(|| v.as_i64());
     Some(match x {
         Some(x) if x >= 0 => Ok(x as u64),
-        _ => Err(format!("/{GROUP}'s {name} is {v}, not one integer of at least 0")),
+        _ => Err(Error::rejected(format!("/{GROUP}'s {name} is {v}, not one integer of at least 0"))),
     })
 }
 
@@ -94,7 +96,7 @@ impl Channels {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#82-channels>): a contiguous
     /// dataset of one dimension of `uint8` is read as an MP4 file; any other is recorded with the
     /// reason.
-    pub fn new(nodes: &[J]) -> Result<Channels, String> {
+    pub fn new(nodes: &[J]) -> crate::error::Res<Channels> {
         let rules = rules::of("h5j");
         let group = nodes.iter().find(|n| n["path"] == GROUP).map(|n| &n["attributes"]).unwrap_or(&J::Null);
         let pad = pad(group);
@@ -189,7 +191,7 @@ impl Channels {
 
     /// The channels as the description gives them, with each MP4 description's element ids
     /// those `remap` gives.
-    fn described(&self, remap: impl Fn(&Channel, u64) -> Result<u64, String>) -> Result<Vec<J>, String> {
+    fn described(&self, remap: impl Fn(&Channel, u64) -> crate::error::Res<u64>) -> crate::error::Res<Vec<J>> {
         let mut out = Vec::new();
         for c in &self.list {
             let mp4 = match &c.parsed {
@@ -220,7 +222,7 @@ impl Channels {
     /// the profile (spec/zarrify/h5j.md §8.1
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/h5j.md#81-choosing-the-profile>); else
     /// None.
-    pub fn none_presented(&self) -> Option<String> {
+    pub fn none_presented(&self) -> Option<Error> {
         let described = self.described(|_, e| Ok(e)).ok()?;
         // which channels are presented does not depend on the chunking
         let planned = crate::project::h5j::channels(&described, &self.pad, &crate::out::Chunking::default());
@@ -234,10 +236,10 @@ impl Channels {
     /// channel's name, dataset path, offset, length and attributes, and its MP4 file's description,
     /// its element ids the H5J IR's (`grafted` maps each MP4 IR's), or `unread`, why its bytes don't
     /// read as an MP4 file.
-    pub fn description(&self, grafted: &HashMap<u64, Vec<u32>>) -> Result<J, String> {
+    pub fn description(&self, grafted: &HashMap<u64, Vec<u32>>) -> crate::error::Res<J> {
         let channels = self.described(|c, e| {
-            let map = grafted.get(&c.header).ok_or("internal: a channel's MP4 IR was not grafted")?;
-            map.get(e as usize).map(|&x| x as u64).ok_or_else(|| "internal: a channel's element was not grafted".into())
+            let map = grafted.get(&c.header).ok_or_else(|| Error::internal("a channel's MP4 IR was not grafted"))?;
+            map.get(e as usize).map(|&x| x as u64).ok_or_else(|| Error::internal("a channel's element was not grafted"))
         })?;
         Ok(json!({"channels": channels}))
     }
@@ -251,7 +253,7 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<crate::hdf5::file::H5jParser>(size)
     }
-    fn project(&self, ir: &Ir, description: &J, url: &str, _copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &Ir, description: &J, url: &str, _copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
         crate::project::h5j::project(ir, description, url, chunking)
     }
 }

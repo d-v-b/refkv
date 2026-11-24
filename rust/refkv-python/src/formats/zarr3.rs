@@ -1,7 +1,7 @@
 //! The Zarr v3 profile's class (`Zarr`), which a Zarr v2 store's run gives too (`zarr2.rs`).
 
 use crate::formats::View;
-use crate::{out_py, Rejected};
+use crate::{out_py, refused};
 use pyo3::prelude::*;
 use refkv_ir::ir::Ir;
 use std::sync::Arc;
@@ -22,7 +22,7 @@ impl PyZarr {
     /// The Zarr convention's hierarchy but for refkv's declarations and its `refkv_source/`
     /// objects (`project::zarr2::hierarchy`, `project::zarr3::hierarchy`): its nodes as JSON, each
     /// its path, kind and source metadata `S` as JSON text, and its documents and chunks in
-    /// `out_py`'s form (the url empty); or Rejected.
+    /// `out_py`'s form (the url empty); or Rejected, and Failed for a failure of refkv's.
     fn hierarchy<'py>(&self, py: Python<'py>) -> PyResult<(String, Bound<'py, PyAny>)> {
         let (nodes, out) = py
             .detach(|| if self.version == 3 {
@@ -30,7 +30,7 @@ impl PyZarr {
             } else {
                 refkv_ir::project::zarr2::hierarchy(&self.ir, &self.description)
             })
-            .map_err(Rejected::new_err)?;
+            .map_err(refused)?;
         Ok((serde_json::Value::Array(nodes).to_string(), out_py(py, &out)?))
     }
 }

@@ -1,7 +1,7 @@
 //! The HDF5 profile's class (`Hdf5`).
 
 use crate::formats::View;
-use crate::{out_py, Rejected};
+use crate::{out_py, refused};
 use pyo3::prelude::*;
 use refkv_ir::ir::Ir;
 use std::sync::Arc;
@@ -22,12 +22,12 @@ pub struct PyHdf5 {
 impl PyHdf5 {
     /// The HDF5 convention's hierarchy (`project::hdf5::hierarchy`): its nodes as JSON, its
     /// documents and chunks in `out_py`'s form (the url empty) but for the edge chunks it copies,
-    /// and those, each `(key, offset, length, padding)` of the file; or Rejected.
+    /// and those, each `(key, offset, length, padding)` of the file; or Rejected, and Failed for a failure of refkv's.
     #[allow(clippy::type_complexity)]
     fn hierarchy<'py>(&self, py: Python<'py>) -> PyResult<(String, Bound<'py, PyAny>, Vec<(String, u64, u64, u64)>)> {
         let (nodes, out, copies) = py
             .detach(|| refkv_ir::project::hdf5::hierarchy(&self.ir, &self.description, self.store, &self.chunking))
-            .map_err(Rejected::new_err)?;
+            .map_err(refused)?;
         Ok((serde_json::Value::Array(nodes).to_string(), out_py(py, &out)?, copies))
     }
     /// The key of the file a store run was named by, whose object URL the hierarchy's root names

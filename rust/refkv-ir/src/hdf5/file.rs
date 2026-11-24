@@ -21,6 +21,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata>), every
 //! dataset's storage described whatever the room.
 
+use crate::error::Error;
+
 use super::types::{self, describe, present, values_json, Dt, Field, FieldKind, Kind, Lookup, Present};
 use super::walk::{lenient, visit, Emit, Visit};
 use super::{le, Acc, Collection, Dataset, Fail, Index, Layout, Target, CHECKSUM, DEFLATE, FLETCHER32, H5, R, SHUFFLE, UNDEFINED};
@@ -200,7 +202,7 @@ impl Hdf5 {
         self.rules.limit(name) as u64
     }
 
-    pub fn step(&mut self) -> Result<Step, String> {
+    pub fn step(&mut self) -> crate::error::Res<Step> {
         loop {
             if let Some(ims) = self.ims.as_mut() {
                 return ims.step();
@@ -242,11 +244,11 @@ impl Hdf5 {
                 Err(Fail::Miss) => {
                     let mut want = std::mem::take(&mut self.h.src.want);
                     if want.is_empty() {
-                        return Err("internal: a round wants nothing".into());
+                        return Err(Error::internal("a round wants nothing"));
                     }
                     self.rounds += 1;
                     if self.rounds as f64 > self.rules.limit("max_rounds") {
-                        return Err(format!("more than {} rounds of dependent reads", self.rules.limit("max_rounds")));
+                        return Err(Error::rejected(format!("more than {} rounds of dependent reads", self.rules.limit("max_rounds"))));
                     }
                     want.sort_unstable();
                     want.dedup();
@@ -303,7 +305,7 @@ impl Hdf5 {
     /// (`crate::h5j::Channels`).
     fn read_channels(&mut self) -> R<()> {
         if self.channels.is_none() {
-            let description = self.facts.as_ref().ok_or(Fail::Bad("internal: no description".into()))?;
+            let description = self.facts.as_ref().ok_or(Fail::Bad(Error::internal("no description")))?;
             let nodes = crate::project::hdf5_nodes::nodes(description).map_err(Fail::Bad)?;
             match crate::h5j::Channels::new(&nodes.nodes) {
                 Ok(c) => self.channels = Some(c),
@@ -443,7 +445,7 @@ impl Hdf5 {
                 Ok(())
             })();
             let r = r.map_err(|f| match f {
-                Fail::Bad(m) => Fail::Bad(format!("{}: {m}", self.path(at))),
+                Fail::Bad(m) => Fail::Bad(m.context(|m| format!("{}: {m}", self.path(at)))),
                 f => f,
             });
             acc.take(r);
@@ -530,7 +532,7 @@ impl Hdf5 {
                             continue;
                         }
                         b = match *f {
-                            DEFLATE => miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&b, cb).map_err(|e| Fail::Bad(format!("a chunk does not inflate: {e:?}")))?,
+                            DEFLATE => miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&b, cb).map_err(|e| Fail::Bad(Error::rejected(format!("a chunk does not inflate: {e:?}"))))?,
                             FLETCHER32 => b[..b.len().saturating_sub(CHECKSUM as usize)].to_vec(),
                             _ => unshuffle(&b, size as usize),
                         };
@@ -609,8 +611,9 @@ impl Hdf5 {
             // a dataset whose elements do not read is described so; the hierarchy rejects the
             // input if it presents the dataset
             match r {
-                Err(Fail::Bad(m)) => {
-                    self.unread.insert(at, m);
+                // a rejection is recorded; a bug fails the parse
+                Err(Fail::Bad(m)) if m.is_rejection() => {
+                    self.unread.insert(at, m.to_string());
                 }
                 r => {
                     acc.take(r);
@@ -665,7 +668,7 @@ impl Hdf5 {
 
     /// The attributes of an object, in ascending byte order of their names: each one's name, and
     /// its datatype, dimensions and value, or that it is shared, or why it does not read.
-    fn attributes_description(&self, attrs: &super::Attrs) -> J {
+    fn attributes_description(&self, attrs: &super::Attrs) -> R<J> {
         let mut list: Vec<&super::Attr> = attrs.list.iter().collect();
         list.sort_by(|a, b| a.name.cmp(&b.name));
         let mut out = Vec::with_capacity(list.len());
@@ -706,16 +709,19 @@ impl Hdf5 {
             })();
             if let Err(f) = r {
                 let m = match f {
-                    Fail::Bad(m) => m,
-                    Fail::Miss => "internal: an attribute's message is not read".into(),
+                    Fail::Bad(m) if m.is_rejection() => m,
+                    // a bug fails the parse, not recorded as a reason
+                    Fail::Bad(m) => return Err(Fail::Bad(m)),
+                    // its bytes were read with the header's: a bug
+                    Fail::Miss => return Err(Fail::Bad(Error::internal("an attribute's message is not read"))),
                 };
                 e = Map::new();
                 e.insert("name".into(), json!(name));
-                e.insert("error".into(), json!(m));
+                e.insert("error".into(), json!(m.to_string()));
             }
             out.push(J::Object(e));
         }
-        J::Array(out)
+        Ok(J::Array(out))
     }
 
     /// An object of the file as the description gives it: its address, the segments of its
@@ -738,7 +744,7 @@ impl Hdf5 {
         o.insert("segments".into(), J::Array(segs.iter().map(|s| text_json(s)).collect()));
         o.insert("kind".into(), json!(kind));
         let attrs = self.h.attributes(at)?;
-        o.insert("attributes".into(), self.attributes_description(&attrs));
+        o.insert("attributes".into(), self.attributes_description(&attrs)?);
         if group {
             let links = self.h.links(at)?;
             let mut list: Vec<&(Vec<u8>, Target)> = links.list.iter().collect();
@@ -769,9 +775,11 @@ impl Hdf5 {
             }
             match self.dataset_json(at, &h, &attrs) {
                 Ok(d) => o.extend(d),
-                Err(Fail::Bad(m)) => {
-                    o.insert("error".into(), json!(m));
+                // a rejection is recorded; a bug fails the parse
+                Err(Fail::Bad(m)) if m.is_rejection() => {
+                    o.insert("error".into(), json!(m.to_string()));
                 }
+                Err(Fail::Bad(m)) => return Err(Fail::Bad(m)),
                 Err(Fail::Miss) => return Err(Fail::Miss),
             }
             if let Some(m) = self.unread.get(&at) {
@@ -872,10 +880,10 @@ impl Hdf5 {
         }
         if let Some(b) = self.storage.get(&at) {
             let values = match present(&dt) {
-                Ok(Present::Strings) => self.string_spans(at, b),
+                Ok(Present::Strings) => self.string_spans(at, b)?,
                 Ok(Present::Records(fields)) => match self.record_texts(at, &fields, b, dt.size) {
                     Ok(texts) => json!({"elements": hex(b), "texts": texts}),
-                    Err(Fail::Bad(m)) => json!({"invalid": m}),
+                    Err(Fail::Bad(m)) => json!({"invalid": m.to_string()}),
                     Err(Fail::Miss) => return Err(Fail::Miss),
                 },
                 _ => {
@@ -918,7 +926,7 @@ impl Hdf5 {
     /// The strings of a dataset of variable-length strings (its elements' bytes `b`): each one's
     /// (offset, length) in the file, (0, 0) for an empty one, and their count; or why one does not
     /// read.
-    fn string_spans(&self, at: u64, b: &[u8]) -> J {
+    fn string_spans(&self, at: u64, b: &[u8]) -> R<J> {
         let base = self.h.src.base;
         let r = (|| -> R<Vec<J>> {
             let mut spans = Vec::with_capacity(b.len() / 8);
@@ -927,8 +935,8 @@ impl Hdf5 {
                 let (o, len) = if n == 0 || c == 0 || c == UNDEFINED {
                     (0, 0)
                 } else {
-                    let col = self.heaps.get(&c).ok_or(Fail::Bad(format!("{}: element {k} names no global heap collection", self.path(at))))?;
-                    let &(o, m) = col.objects.get(&i).ok_or(Fail::Bad(format!("{}: element {k} names no object of its collection", self.path(at))))?;
+                    let col = self.heaps.get(&c).ok_or(Fail::Bad(Error::rejected(format!("{}: element {k} names no global heap collection", self.path(at)))))?;
+                    let &(o, m) = col.objects.get(&i).ok_or(Fail::Bad(Error::rejected(format!("{}: element {k} names no object of its collection", self.path(at)))))?;
                     if m != n {
                         return super::bad(format!("{}: element {k} is {n} bytes long, its heap object {m}", self.path(at)));
                     }
@@ -940,9 +948,10 @@ impl Hdf5 {
             Ok(spans)
         })();
         match r {
-            Ok(spans) => json!({"spans": spans, "count": b.len() / 16}),
-            Err(Fail::Bad(m)) => json!({"invalid": m}),
-            Err(Fail::Miss) => json!({"invalid": "internal: a string's heap is not read"}),
+            Ok(spans) => Ok(json!({"spans": spans, "count": b.len() / 16})),
+            Err(Fail::Bad(m)) => Ok(json!({"invalid": m.to_string()})),
+            // the heaps were read before: a bug, not a reason to record
+            Err(Fail::Miss) => Err(Fail::Bad(Error::internal("a string's heap is not read"))),
         }
     }
 
@@ -972,7 +981,7 @@ impl Hdf5 {
                             if n == 0 || c == 0 || c == UNDEFINED {
                                 String::new()
                             } else {
-                                let d = self.heap(c, i).ok_or(Fail::Bad(format!("{}: record {k} names no global heap object", self.path(at))))?;
+                                let d = self.heap(c, i).ok_or(Fail::Bad(Error::rejected(format!("{}: record {k} names no global heap object", self.path(at)))))?;
                                 utf8_or_latin1(&d)
                             }
                         }
@@ -998,12 +1007,12 @@ impl Hdf5 {
 
     // ---- the IR
 
-    pub fn finish(mut self) -> Result<(Ir, J), String> {
+    pub fn finish(mut self) -> crate::error::Res<(Ir, J)> {
         if let Some(ims) = self.ims.take() {
             return ims.finish();
         }
         if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
+            return Err(Error::internal("the parse is not done"));
         }
         let size = self.h.size();
         let mut facts = self.facts.take().unwrap_or(J::Null);
@@ -1018,7 +1027,7 @@ impl Hdf5 {
         let room = self.room.unwrap_or(self.limit("walk_elements") + size / self.limit("walk_bytes_per_element"));
         let inner = self.channels.as_ref().map(|c| c.inner()).unwrap_or_default();
         let mut e = Emit { ir: Ir::new(self.h.file_size()), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must, rec: Default::default(), inner, grafted: HashMap::new() };
-        let sb = self.h.sb.clone().ok_or("internal: no superblock")?;
+        let sb = self.h.sb.clone().ok_or_else(|| Error::internal("no superblock"))?;
         e.superblock(&sb)?;
         if let Some(ext) = self.extension.take() {
             if let Some(h) = &ext.header {
@@ -1242,13 +1251,13 @@ impl crate::Parser for Hdf5 {
     fn new(size: u64) -> Self {
         Hdf5::new(size)
     }
-    fn step(&mut self) -> Result<Step, String> {
+    fn step(&mut self) -> crate::error::Res<Step> {
         Hdf5::step(self)
     }
     fn feed(&mut self, offset: u64, data: Vec<u8>) {
         Hdf5::feed(self, offset, data)
     }
-    fn finish(self) -> Result<(Ir, J), String> {
+    fn finish(self) -> crate::error::Res<(Ir, J)> {
         Hdf5::finish(self)
     }
     fn found(&self) -> Option<&'static str> {
@@ -1272,13 +1281,13 @@ impl crate::Parser for H5jParser {
         h.h5j_required = true;
         H5jParser(h)
     }
-    fn step(&mut self) -> Result<Step, String> {
+    fn step(&mut self) -> crate::error::Res<Step> {
         self.0.step()
     }
     fn feed(&mut self, offset: u64, data: Vec<u8>) {
         self.0.feed(offset, data)
     }
-    fn finish(self) -> Result<(Ir, J), String> {
+    fn finish(self) -> crate::error::Res<(Ir, J)> {
         self.0.finish()
     }
     fn found(&self) -> Option<&'static str> {
@@ -1301,14 +1310,14 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Hdf5>(size)
     }
-    fn project(&self, ir: &Ir, description: &J, url: &str, copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> Result<crate::out::Out, String> {
+    fn project(&self, ir: &Ir, description: &J, url: &str, copied: &crate::project::Copied, chunking: &crate::out::Chunking) -> crate::error::Res<crate::out::Out> {
         crate::project::hdf5::project(ir, description, url, copied, chunking)
     }
     /// The summary holds the parser's `rounds`.
     fn summary_counts(&self) -> &'static [&'static str] {
         &["rounds"]
     }
-    fn reads(&self, ir: &Ir, description: &J, chunking: &crate::out::Chunking) -> Result<Vec<(u64, u64)>, String> {
+    fn reads(&self, ir: &Ir, description: &J, chunking: &crate::out::Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
         crate::project::hdf5::reads(ir, description, chunking)
     }
 }

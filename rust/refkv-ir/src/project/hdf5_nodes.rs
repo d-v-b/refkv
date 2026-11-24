@@ -7,6 +7,8 @@
 //! metadata. The projection (`super::hdf5`) writes the nodes; the H5J parser reads its channels from
 //! them.
 
+use crate::error::Error;
+
 use super::arr;
 use crate::hdf5::types::{self, describe, present, Dt, Field, FieldKind, Kind, Present};
 use crate::hdf5::{unhex, BITSHUFFLE, BLOSC, CHECKSUM, DEFLATE, FLETCHER32, LZ4, LZF, SHUFFLE, ZSTD};
@@ -75,7 +77,7 @@ struct Ds<'a> {
 }
 
 impl<'a> Ds<'a> {
-    fn of(o: &'a J) -> Result<Ds<'a>, String> {
+    fn of(o: &'a J) -> crate::error::Res<Ds<'a>> {
         let dt = types::parse(&unhex(o["type"].as_str().unwrap_or(""))).map_err(|_| "internal: a dataset's datatype does not read again".to_string())?;
         let filters = arr(&o["filters"]);
         Ok(Ds {
@@ -133,7 +135,7 @@ fn dimension_name(link: &J) -> J {
 
 /// What the hierarchy holds of the object `o`, whose name is `name` (None for the root); an error
 /// where the dataset's description records one.
-fn decide<'a>(o: &'a J, name: Option<&J>) -> Result<Decision<'a>, String> {
+fn decide<'a>(o: &'a J, name: Option<&J>) -> crate::error::Res<Decision<'a>> {
     if let Some(name) = name {
         let (t, utf8) = segment(name);
         if !utf8 || !node_name(&t) {
@@ -147,7 +149,7 @@ fn decide<'a>(o: &'a J, name: Option<&J>) -> Result<Decision<'a>, String> {
         _ => return Ok(Decision::Not("object")),
     }
     if let Some(m) = o["error"].as_str() {
-        return Err(m.to_string());
+        return Err(Error::rejected(m));
     }
     let ds = Ds::of(o)?;
     if let Some(external) = o.get("external") {
@@ -440,7 +442,7 @@ fn records_of(fields: &[Field], b: &[u8], texts: &J, size: u64) -> (J, J, Vec<u8
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>): those presented,
 /// their datatypes, and those not presented, each with why; an error where an attribute the
 /// hierarchy reads does not read.
-fn attributes_of(o: &J) -> Result<(Map<String, J>, Map<String, J>, Map<String, J>), String> {
+fn attributes_of(o: &J) -> crate::error::Res<(Map<String, J>, Map<String, J>, Map<String, J>)> {
     let mut values: Vec<(String, J)> = Vec::new();
     let (mut types_of, mut not) = (Map::new(), Map::new());
     for a in arr(&o["attributes"]) {
@@ -450,7 +452,7 @@ fn attributes_of(o: &J) -> Result<(Map<String, J>, Map<String, J>, Map<String, J
             continue;
         }
         if let Some(m) = a["error"].as_str() {
-            return Err(m.to_string());
+            return Err(Error::rejected(m));
         }
         if a["shared"] == true {
             not.insert(name, json!("shared"));
@@ -576,7 +578,7 @@ pub struct Nodes {
 /// The nodes of the HDF5 file `description` describes (spec/zarrify/hdf5.md §2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#2-the-hierarchy>); an error, the
 /// input rejected, where a dataset the hierarchy reads, or a structure of a node, does not read.
-pub fn nodes(description: &J) -> Result<Nodes, String> {
+pub fn nodes(description: &J) -> crate::error::Res<Nodes> {
     let objects = arr(&description["objects"]);
     let path = |o: &J| format!("/{}", key_of(arr(&o["segments"])));
     let segs_of: HashMap<u64, &[J]> = objects.iter().map(|o| (n(&o["address"]), arr(&o["segments"]))).collect();
@@ -586,17 +588,17 @@ pub fn nodes(description: &J) -> Result<Nodes, String> {
     let rules = rules::of("hdf5");
     let mut strings = 0u64;
     for o in objects {
-        let at = |m: &str| format!("{}: {m}", path(o));
-        let Decision::Dataset(_, p) = decide(o, arr(&o["segments"]).last()).map_err(|m| at(&m))? else { continue };
+        let at = |e: Error| e.context(|m| format!("{}: {m}", path(o)));
+        let Decision::Dataset(_, p) = decide(o, arr(&o["segments"]).last()).map_err(at)? else { continue };
         if let Some(m) = o["unread"].as_str() {
-            return Err(at(m));
+            return Err(at(Error::rejected(m)));
         }
         if matches!(p, Present::Strings | Present::References | Present::Records(_)) && o.get("values").is_none() {
-            return Err(at("internal: the elements of a dataset the hierarchy reads were not read"));
+            return Err(at(Error::internal("the elements of a dataset the hierarchy reads were not read")));
         }
         if p == Present::Strings {
             strings += n(&o["values"]["count"]);
-            rules.check("strings", rules::env([("strings", num(strings as f64))])).map_err(|m| at(&m))?;
+            rules.check("strings", rules::env([("strings", num(strings as f64))])).map_err(at)?;
         }
     }
     let mut nodes = Vec::new();
@@ -690,7 +692,7 @@ pub fn nodes(description: &J) -> Result<Nodes, String> {
                 let mut record_type: Option<(J, J)> = None;
                 let storage = &o["storage"];
                 let values = &o["values"];
-                let invalid = || values["invalid"].as_str().map(str::to_string);
+                let invalid = || values["invalid"].as_str().map(Error::rejected);
                 let item = if trailing.is_some() { 1 } else { ds.dt.size };
                 let mut store = match (&p, ds.layout) {
                     (Present::Strings, _) => {
@@ -728,7 +730,7 @@ pub fn nodes(description: &J) -> Result<Nodes, String> {
                     (_, "contiguous") => match storage["address"].as_u64() {
                         Some(_) if n(&storage["length"]) > 0 => {
                             if storage["outside"] == true {
-                                return Err(format!("{}: its data lies outside the file", path(o)));
+                                return Err(Error::rejected(format!("{}: its data lies outside the file", path(o))));
                             }
                             json!({"kind": "contiguous", "at": at, "offset": storage["offset"], "length": storage["length"], "item": item, "element": storage["element"]})
                         }
@@ -744,10 +746,10 @@ pub fn nodes(description: &J) -> Result<Nodes, String> {
                         if count == 0 {
                             json!({"kind": "none", "chunk": chunk})
                         } else {
-                            let parts = chunk_parts_of(&ds, storage).ok_or("internal: a chunk's filter mask")?;
+                            let parts = chunk_parts_of(&ds, storage).ok_or_else(|| Error::internal("a chunk's filter mask"))?;
                             let mut masked = Vec::new();
                             for (m, part) in parts {
-                                let part = part.ok_or("internal: a chunk's filter mask")?;
+                                let part = part.ok_or_else(|| Error::internal("a chunk's filter mask"))?;
                                 masked.push(json!({"index": m["index"], "stored": part.stored, "wrap": part.wrap, "adler": m.get("adler").cloned().unwrap_or(J::Null), "item": ds.dt.size}));
                             }
                             let trim = if ds.filters.contains(&FLETCHER32) { CHECKSUM } else { 0 };

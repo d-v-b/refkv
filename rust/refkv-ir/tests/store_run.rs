@@ -180,6 +180,6 @@ fn a_member_of_the_facts_the_profile_does_not_keep_is_refused() {
         let mut out = refkv_ir::out::Out::default();
         let facts = json!({ member: ["a/"] });
         let e = refkv_ir::project::store::record_ignored(&mut out, &facts, profile).unwrap_err();
-        assert!(e.contains(member), "{e}");
+        assert!(e.to_string().contains(member), "{e}");
     }
 }

@@ -7,6 +7,8 @@
 //! IR under the file's object once it is done (`Ir::graft`). The named file's parser decides
 //! which files there are and which plane each holds.
 
+use crate::error::Error;
+
 use crate::beside::Tree;
 use crate::ir::{Ir, Res};
 use crate::step::Step;
@@ -63,7 +65,7 @@ impl TiffSet {
     /// The listing's IR, its objects' elements and keys: one key, the named file.
     pub fn new(ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<TiffSet> {
         let [(key, size)] = keys else {
-            return Err(format!("a TIFF store run starts from the named file alone, not {} objects", keys.len()));
+            return Err(Error::rejected(format!("a TIFF store run starts from the named file alone, not {} objects", keys.len())));
         };
         Ok(TiffSet {
             ir: Some(ir),
@@ -104,7 +106,7 @@ impl TiffSet {
     /// The parsers' IRs and facts, then the reads of what the view shows that they did not keep.
     fn finish_parsers(&mut self) -> Res<Option<StoreStep>> {
         let mut files = Vec::with_capacity(1 + self.siblings.len());
-        files.push(self.named.take().ok_or("internal: no named file")?);
+        files.push(self.named.take().ok_or_else(|| Error::internal("no named file"))?);
         files.append(&mut self.siblings);
         for f in files {
             let (ir, description) = f.parser.finish()?;
@@ -125,7 +127,7 @@ impl TiffSet {
     /// file's, with the named file's key and each other file's key and description, their elements
     /// those of the store IR. Then asks for the bytes the windows of refkv's plan sample.
     fn join(&mut self) -> Res<Option<StoreStep>> {
-        let mut ir = self.ir.take().ok_or("internal: no IR")?;
+        let mut ir = self.ir.take().ok_or_else(|| Error::internal("no IR"))?;
         let mut facts = J::Null;
         let mut files = Vec::new();
         for (k, (mut file, mut d)) in std::mem::take(&mut self.parsed).into_iter().enumerate() {
@@ -154,8 +156,8 @@ impl TiffSet {
         ranges.sort_unstable();
         ranges.dedup();
         for (at, n) in ranges {
-            let (o, base) = sources.at(&ir, at).ok_or("internal: a sampled range in no object")?;
-            let index = self.elems.iter().position(|&e| e == o).ok_or("internal: a sampled range in an unknown object")?;
+            let (o, base) = sources.at(&ir, at).ok_or_else(|| Error::internal("a sampled range in no object"))?;
+            let index = self.elems.iter().position(|&e| e == o).ok_or_else(|| Error::internal("a sampled range in an unknown object"))?;
             asked.push((index, at - base, n));
             self.sampling.push((index, at - base, at));
         }
@@ -169,7 +171,7 @@ impl StoreParser for TiffSet {
         loop {
             match self.phase {
                 Phase::Named | Phase::Layout => {
-                    let f = self.named.as_mut().ok_or("internal: no named file")?;
+                    let f = self.named.as_mut().ok_or_else(|| Error::internal("no named file"))?;
                     match f.parser.step()? {
                         Step::Read(r) => return Ok(StoreStep::Read(r.into_iter().map(|(o, n)| (0, o, n)).collect())),
                         Step::Beside => {
@@ -192,7 +194,7 @@ impl StoreParser for TiffSet {
                     if let Some(s) = self.sibling_reads()? {
                         return Ok(s);
                     }
-                    let named = self.named.as_mut().ok_or("internal: no named file")?;
+                    let named = self.named.as_mut().ok_or_else(|| Error::internal("no named file"))?;
                     for (k, s) in self.siblings.iter().enumerate() {
                         named.parser.check_sibling(&self.keys[k + 1], &s.parser)?;
                     }
@@ -253,15 +255,15 @@ impl StoreParser for TiffSet {
     }
 
     fn found(&mut self, key: &str, index: usize, size: Option<u64>) -> Res<Option<u32>> {
-        let named = self.named.as_mut().ok_or("internal: no named file")?;
+        let named = self.named.as_mut().ok_or_else(|| Error::internal("no named file"))?;
         let Some(size) = size else {
             named.parser.sibling_absent(key)?;
             return Ok(None);
         };
         if index != self.keys.len() {
-            return Err("internal: a found object out of order".into());
+            return Err(Error::internal("a found object out of order"));
         }
-        let ir = self.ir.as_mut().ok_or("internal: no IR")?;
+        let ir = self.ir.as_mut().ok_or_else(|| Error::internal("no IR"))?;
         let e = self.tree.object(ir, key, size)?;
         self.keys.push(key.to_string());
         self.elems.push(e);
@@ -271,9 +273,9 @@ impl StoreParser for TiffSet {
 
     fn finish(mut self: Box<Self>) -> Res<(Ir, J)> {
         if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
+            return Err(Error::internal("the parse is not done"));
         }
-        let (ir, description) = self.finished.take().ok_or("internal: the files were not joined")?;
+        let (ir, description) = self.finished.take().ok_or_else(|| Error::internal("the files were not joined"))?;
         Ok((ir, description))
     }
 

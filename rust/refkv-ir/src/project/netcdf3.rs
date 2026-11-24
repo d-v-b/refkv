@@ -9,6 +9,8 @@
 //! contiguous values; a record variable is one chunk per record (§3.2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#32-chunks>).
 
+use crate::error::Error;
+
 use super::{contiguous, key, Copied, CopiedChunk};
 use crate::ir::Ir;
 use crate::netcdf3::{named, Ty};
@@ -183,7 +185,7 @@ fn fill_of(t: &Ty, attrs: &[J]) -> J {
 /// each node's `path`, `attributes` as presented and `own`, its source metadata, and an array's
 /// `array`, its `shape`, `data_type`, `fill_value`, `codecs`, `dimension_names` and `store`, where
 /// its chunks are; and the summary, but for the chunks and the rounds.
-fn nodes(description: &J) -> Result<(Vec<J>, J), String> {
+fn nodes(description: &J) -> crate::error::Res<(Vec<J>, J)> {
     let dims = list(&description["dimensions"]);
     let (records, recsize) = (n(&description["records"]), n(&description["recsize"]));
     let mut arrays = Vec::new();
@@ -191,7 +193,7 @@ fn nodes(description: &J) -> Result<(Vec<J>, J), String> {
     let mut reasons: BTreeMap<&str, u64> = BTreeMap::new();
     let mut names = HashSet::new();
     for (k, v) in list(&description["variables"]).iter().enumerate() {
-        let t = type_of(&v["type"]).ok_or_else(|| format!("internal: variable {k} has no type"))?;
+        let t = type_of(&v["type"]).ok_or_else(|| Error::internal(format!("variable {k} has no type")))?;
         let name = node_name(&v["name"]).and_then(|n| if names.insert(n.clone()) { Ok(n) } else { Err("duplicate") });
         let name = match name {
             Ok(n) => n,
@@ -221,7 +223,7 @@ fn nodes(description: &J) -> Result<(Vec<J>, J), String> {
         let store = if record {
             // a record's values of it, its slice (spec/zarrify/netcdf3.md §7.2
             // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/netcdf3.md#72-reading>)
-            let slice = shape.iter().skip(1).try_fold(t.bytes, |a, &d| a.checked_mul(d)).ok_or("internal: a slice past 2^64 bytes")?;
+            let slice = shape.iter().skip(1).try_fold(t.bytes, |a, &d| a.checked_mul(d)).ok_or_else(|| Error::internal("a slice past 2^64 bytes"))?;
             json!({"kind": "records", "offset": begin, "stride": recsize, "length": slice, "records": records})
         } else {
             json!({"kind": "fixed", "offset": begin, "item": t.bytes})
@@ -278,7 +280,7 @@ fn nodes(description: &J) -> Result<(Vec<J>, J), String> {
 type Cut = (Vec<u64>, Vec<(Vec<u64>, Chunk)>);
 
 /// The contiguous cut of a fixed-size variable's array; None for a record variable's, or the root.
-fn cut(node: &J, threshold: usize) -> Result<Option<Cut>, String> {
+fn cut(node: &J, threshold: usize) -> crate::error::Res<Option<Cut>> {
     let a = &node["array"];
     let store = &a["store"];
     if store["kind"] != "fixed" {
@@ -286,7 +288,7 @@ fn cut(node: &J, threshold: usize) -> Result<Option<Cut>, String> {
     }
     grid_chunks(n(&store["offset"]), &shape_of(&a["shape"]), n(&store["item"]), CHUNK_BYTES, threshold)
         .map(Some)
-        .ok_or_else(|| "internal: the data cannot be cut into chunks".to_string())
+        .ok_or_else(|| Error::internal("the data cannot be cut into chunks"))
 }
 
 /// The prefix of the chunk keys of the array at `path` of rank `rank`: `<path>/c` alone for a
@@ -296,7 +298,7 @@ fn prefix(path: &str, rank: usize) -> String {
 }
 
 /// The source's ranges of the edge chunks the projection copies.
-pub fn reads(_ir: &Ir, description: &J, chunking: &Chunking) -> Result<Vec<(u64, u64)>, String> {
+pub fn reads(_ir: &Ir, description: &J, chunking: &Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
     let threshold = chunking.copy_threshold;
     let mut out = Vec::new();
     for node in nodes(description)?.0 {
@@ -307,7 +309,7 @@ pub fn reads(_ir: &Ir, description: &J, chunking: &Chunking) -> Result<Vec<(u64,
     Ok(out)
 }
 
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> crate::error::Res<Out> {
     let (nodes, summary) = nodes(description)?;
     build(ir, &nodes, summary, url, copied, chunking.copy_threshold, None)
 }
@@ -317,7 +319,7 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &
 /// nodes (`nodes`), and its documents and chunks as the projection writes them, but for the edge
 /// chunks it copies, which it gives apart, as ranges to copy: it reads nothing. The routine a
 /// layout calls for the convention's hierarchy (`refkv.build.netcdf3_hierarchy`).
-pub fn hierarchy(ir: &Ir, description: &J, chunking: &Chunking) -> Result<(Vec<J>, Out, Vec<CopiedChunk>), String> {
+pub fn hierarchy(ir: &Ir, description: &J, chunking: &Chunking) -> crate::error::Res<(Vec<J>, Out, Vec<CopiedChunk>)> {
     let (nodes, summary) = nodes(description)?;
     let mut copies = Vec::new();
     let out = build(ir, &nodes, summary, "", &Copied::new(), chunking.copy_threshold, Some(&mut copies))?;
@@ -326,7 +328,7 @@ pub fn hierarchy(ir: &Ir, description: &J, chunking: &Chunking) -> Result<(Vec<J
 
 /// The output of `nodes`; `defer`: the edge chunks to copy are given there, not written.
 fn build(ir: &Ir, nodes: &[J], mut summary: J, url: &str, copied: &Copied, threshold: usize,
-         mut defer: Option<&mut Vec<CopiedChunk>>) -> Result<Out, String> {
+         mut defer: Option<&mut Vec<CopiedChunk>>) -> crate::error::Res<Out> {
     let mut out = Out::new(url);
     let mut cuts = Vec::with_capacity(nodes.len());
     for node in nodes {
@@ -389,7 +391,7 @@ fn build(ir: &Ir, nodes: &[J], mut summary: J, url: &str, copied: &Copied, thres
                 let store = &a["store"];
                 let (offset, stride, length) = (n(&store["offset"]), n(&store["stride"]), n(&store["length"]));
                 for r in 0..n(&store["records"]) {
-                    let at = r.checked_mul(stride).and_then(|o| o.checked_add(offset)).ok_or("internal: a record past 2^64 bytes")?;
+                    let at = r.checked_mul(stride).and_then(|o| o.checked_add(offset)).ok_or_else(|| Error::internal("a record past 2^64 bytes"))?;
                     let coords = std::iter::once(r).chain(shape.iter().skip(1).map(|_| 0));
                     refs.chunk(key(&p, coords), 0, 0, 0, Some(vec![Part::Src(at, length)]))?;
                     count += 1;

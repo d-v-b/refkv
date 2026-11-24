@@ -9,6 +9,8 @@
 //! tests what a projection computes on, in every `check::finish` (spec/stored-array.md §5
 //! <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#5-checks>).
 
+use crate::error::Error;
+
 use crate::ir::*;
 use serde_json::{Map, Value as J, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -290,7 +292,7 @@ impl Column {
             (Column::UInt64(v), None) => v.push(None),
             (Column::Int64(v), None) => v.push(None),
             (Column::Float64(v), None) => v.push(None),
-            _ => return Err("internal: a parameter column given a value of another type".into()),
+            _ => return Err(Error::internal("a parameter column given a value of another type")),
         }
         Ok(())
     }
@@ -1081,7 +1083,7 @@ impl Stored {
             for (old, &new) in local.iter().enumerate() {
                 if let Some(first) = local.iter().position(|&n| n == new).filter(|&f| f < old) {
                     if given(first) != given(old) {
-                        return Err(format!("internal: a graft makes chains {first} and {old} of the stored array of element {} one, and they give other unit parameters", a.element));
+                        return Err(Error::internal(format!("a graft makes chains {first} and {old} of the stored array of element {} one, and they give other unit parameters", a.element)));
                     }
                 }
             }
@@ -1104,7 +1106,7 @@ impl Stored {
         for (name, col) in from.map.params.iter().filter(|(name, _)| !skip.contains(*name)) {
             if let Some(mine) = self.map.params.get(name) {
                 if mine.kind() != col.kind() {
-                    return Err(format!("internal: a graft joins the parameter column {name:?} of type {:?} to one of {:?}", col.kind(), mine.kind()));
+                    return Err(Error::internal(format!("a graft joins the parameter column {name:?} of type {:?} to one of {:?}", col.kind(), mine.kind())));
                 }
             }
         }
@@ -1353,17 +1355,17 @@ impl Ctx<'_> {
     /// Element `e`, of member `member` where it is in a run's subtree.
     fn element(&self, e: u32, member: Option<u64>) -> Res<()> {
         if e as usize >= self.ir.len() {
-            return Err(format!("names element {e}, which the IR has not"));
+            return Err(Error::rejected(format!("names element {e}, which the IR has not")));
         }
         let r = self.roots[e as usize];
         match member {
             None if r == NONE => Ok(()),
-            Some(j) if r == NONE => Err(format!("gives member {j} of {}, which is in no run", named(self.ir, e))),
-            None => Err(format!("names {}, in the run {}, without its member", named(self.ir, e), named(self.ir, r))),
+            Some(j) if r == NONE => Err(Error::rejected(format!("gives member {j} of {}, which is in no run", named(self.ir, e)))),
+            None => Err(Error::rejected(format!("names {}, in the run {}, without its member", named(self.ir, e), named(self.ir, r)))),
             Some(j) => {
                 let (count, _) = self.ir.run(r).unwrap_or((1, 0));
                 if j >= count {
-                    return Err(format!("gives member {j} of {}, whose run has {count}", named(self.ir, e)));
+                    return Err(Error::rejected(format!("gives member {j} of {}, whose run has {count}", named(self.ir, e))));
                 }
                 Ok(())
             }
@@ -1374,18 +1376,18 @@ impl Ctx<'_> {
     /// objects; within the object where its size is known (the parsed source's in a file IR, any
     /// object's in a store IR).
     fn object(&self, key: Option<&str>, offset: u64, length: u64) -> Res<()> {
-        let end = offset.checked_add(length).ok_or_else(|| format!("names a range at {offset} of {length} bytes, past 2^64"))?;
+        let end = offset.checked_add(length).ok_or_else(|| Error::rejected(format!("names a range at {offset} of {length} bytes, past 2^64")))?;
         let size = match (&self.keys, key) {
             (None, None) => Some(self.ir.size),
             (None, Some(_)) => None,
-            (Some(_), None) => return Err("names the parsed source (a null key) in a store IR".into()),
+            (Some(_), None) => return Err(Error::rejected("names the parsed source (a null key) in a store IR")),
             (Some(keys), Some(k)) => match keys.get(k) {
-                None => return Err(format!("names the object {k:?}, which the store has not")),
+                None => return Err(Error::rejected(format!("names the object {k:?}, which the store has not"))),
                 Some(&o) => Some(self.ir.len[o as usize]),
             },
         };
         match size {
-            Some(n) if end > n => Err(format!("names [{offset}, {end}) of {}, past its {n} bytes", key.map_or("the parsed source".to_string(), |k| format!("{k:?}")))),
+            Some(n) if end > n => Err(Error::rejected(format!("names [{offset}, {end}) of {}, past its {n} bytes", key.map_or("the parsed source".to_string(), |k| format!("{k:?}"))))),
             _ => Ok(()),
         }
     }
@@ -1399,7 +1401,7 @@ impl Ctx<'_> {
                 if let Some((o, n)) = range {
                     let len = self.ir.len[*element as usize];
                     if o.checked_add(*n).is_none_or(|end| end > len) {
-                        return Err(format!("names a range at {o} of {n} bytes of {}, past its {len} bytes", named(self.ir, *element)));
+                        return Err(Error::rejected(format!("names a range at {o} of {n} bytes of {}, past its {len} bytes", named(self.ir, *element))));
                     }
                 }
                 Ok(())
@@ -1551,10 +1553,10 @@ impl StoredArray {
         let shape: &[u64] = self.shape.as_deref().unwrap_or(&[]);
         let rank = shape.len();
         if self.element as usize >= ctx.ir.len() {
-            return Err(format!("names element {}, which the IR has not", self.element));
+            return Err(Error::rejected(format!("names element {}, which the IR has not", self.element)));
         }
         if ctx.roots[self.element as usize] != NONE {
-            return Err(format!("is keyed by an element in the run {}, which an unfold would leave behind", named(ctx.ir, ctx.roots[self.element as usize])));
+            return Err(Error::rejected(format!("is keyed by an element in the run {}, which an unfold would leave behind", named(ctx.ir, ctx.roots[self.element as usize]))));
         }
         for p in &self.declarations {
             ctx.place(p).map_err(|e| format!("a declaration {e}"))?;
@@ -1562,38 +1564,38 @@ impl StoredArray {
         if self.shape.is_none() {
             let what = [(self.grid.is_some(), "a grid"), (self.axes.is_some(), "axes"), (self.pad_from.is_some(), "pad_from")];
             if let Some((_, w)) = what.iter().find(|w| w.0) {
-                return Err(format!("its source declares no extent, and it has {w}"));
+                return Err(Error::rejected(format!("its source declares no extent, and it has {w}")));
             }
         }
         if let Some(g) = &self.grid {
             if g.axes.len() != rank {
-                return Err(format!("its grid has {} axes, its shape {rank}", g.axes.len()));
+                return Err(Error::rejected(format!("its grid has {} axes, its shape {rank}", g.axes.len())));
             }
             for (k, (a, &len)) in g.axes.iter().zip(shape).enumerate() {
                 if let Some(p) = axis_problem(k, a, len, g.edge) {
-                    return Err(format!("its grid is not in canonical form: {p}"));
+                    return Err(Error::rejected(format!("its grid is not in canonical form: {p}")));
                 }
             }
         }
         match (&self.grid, self.chains.is_empty()) {
-            (Some(_), true) => return Err("it has a grid and no chain".into()),
-            (None, false) => return Err("it has chains and no grid".into()),
+            (Some(_), true) => return Err(Error::rejected("it has a grid and no chain")),
+            (None, false) => return Err(Error::rejected("it has chains and no grid")),
             _ => {}
         }
         if let Some(&c) = self.chains.iter().find(|&&c| c as usize >= chains.len()) {
-            return Err(format!("its chain {c} is past the chain table's {}", chains.len()));
+            return Err(Error::rejected(format!("its chain {c} is past the chain table's {}", chains.len())));
         }
         if let Some((k, &c)) = self.chains.iter().enumerate().find(|(k, c)| self.chains[..*k].contains(c)) {
-            return Err(format!("its chains name chain {c} twice (at {k})"));
+            return Err(Error::rejected(format!("its chains name chain {c} twice (at {k})")));
         }
         if let Some(axes) = &self.axes {
             let mut seen = vec![false; rank];
             let perm = axes.len() == rank && axes.iter().all(|&a| (a as usize) < rank && !std::mem::replace(&mut seen[a as usize], true));
             if !perm {
-                return Err(format!("its axes {axes:?} are not a permutation of its {rank}"));
+                return Err(Error::rejected(format!("its axes {axes:?} are not a permutation of its {rank}")));
             }
             if axes.iter().enumerate().all(|(k, &a)| a as usize == k) {
-                return Err(format!("its axes {axes:?} are storage order, which no axes say"));
+                return Err(Error::rejected(format!("its axes {axes:?} are storage order, which no axes say")));
             }
         }
         let given = matches!(self.fill(), Some(Fill::Given(_)));
@@ -1601,24 +1603,24 @@ impl StoredArray {
         // the IR need not know: every chain of the array then begins with it
         let sourced = self.chains.iter().all(|&c| chains[c as usize].first().is_some_and(|k| k.name == "source"));
         match self.item_bits {
-            None if self.grid.is_some() && !sourced => return Err("it has a grid and no item_bits, and a chain that does not begin with `source`".into()),
-            None if given => return Err("its fill is given and it has no item_bits".into()),
-            Some(0) => return Err("its item_bits is 0".into()),
+            None if self.grid.is_some() && !sourced => return Err(Error::rejected("it has a grid and no item_bits, and a chain that does not begin with `source`")),
+            None if given => return Err(Error::rejected("its fill is given and it has no item_bits")),
+            Some(0) => return Err(Error::rejected("its item_bits is 0")),
             _ => {}
         }
         if let Some(p) = self.pad_from {
             match self.item_bits {
-                None => return Err("it has pad_from and no item_bits".into()),
-                Some(b) if b % 8 == 0 => return Err(format!("it has pad_from with item_bits {b}, whole bytes")),
-                _ if p as usize >= rank => return Err(format!("its pad_from {p} is not below its rank {rank}")),
+                None => return Err(Error::rejected("it has pad_from and no item_bits")),
+                Some(b) if b % 8 == 0 => return Err(Error::rejected(format!("it has pad_from with item_bits {b}, whole bytes"))),
+                _ if p as usize >= rank => return Err(Error::rejected(format!("its pad_from {p} is not below its rank {rank}"))),
                 _ => {}
             }
         }
         if let (Some(Fill::Given(f)), Some(bits)) = (self.fill(), self.item_bits) {
             let want = bits.div_ceil(8);
             let got = match f {
-                Param::Value(J::String(s)) => crate::zarr2::base64(s).map(|b| b.len() as u64).ok_or("its fill value is not base64")?,
-                Param::Value(_) => return Err("its fill value is not a base64 string".into()),
+                Param::Value(J::String(s)) => crate::zarr2::base64(s).map(|b| b.len() as u64).ok_or_else(|| Error::rejected("its fill value is not base64"))?,
+                Param::Value(_) => return Err(Error::rejected("its fill value is not a base64 string")),
                 Param::Source(p) => {
                     ctx.place(p).map_err(|e| format!("its fill {e}"))?;
                     match p {
@@ -1628,29 +1630,29 @@ impl StoredArray {
                 }
             };
             if got != want {
-                return Err(format!("its fill value is {got} bytes, not {want}"));
+                return Err(Error::rejected(format!("its fill value is {got} bytes, not {want}")));
             }
         }
         for (k, u) in self.unit_parameters.iter().enumerate() {
             if self.unit_parameters[..k].contains(u) {
-                return Err(format!("its unit parameter {:?} of chain {} and codec {} is listed twice", u.name, u.chain, u.codec));
+                return Err(Error::rejected(format!("its unit parameter {:?} of chain {} and codec {} is listed twice", u.name, u.chain, u.codec)));
             }
             let chain = self.chains.get(u.chain as usize).and_then(|&c| chains.get(c as usize));
             let Some(chain) = chain else {
-                return Err(format!("its unit parameter {:?} names its chain {}, which it has not", u.name, u.chain));
+                return Err(Error::rejected(format!("its unit parameter {:?} names its chain {}, which it has not", u.name, u.chain)));
             };
             let Some(codec) = chain.get(u.codec as usize) else {
-                return Err(format!("its unit parameter {:?} names codec {} of a chain of {}", u.name, u.codec, chain.len()));
+                return Err(Error::rejected(format!("its unit parameter {:?} names codec {} of a chain of {}", u.name, u.codec, chain.len())));
             };
             if chain.iter().filter(|c| c.name == codec.name).count() > 1 {
-                return Err(format!("its unit parameter {:?} is of the codec {}, which its chain has twice", u.name, codec.name));
+                return Err(Error::rejected(format!("its unit parameter {:?} is of the codec {}, which its chain has twice", u.name, codec.name)));
             }
             let column = ctx.entry(&codec.name).and_then(|e| e.parameters.iter().find(|p| p.name == u.name)).and_then(|p| p.column);
             if column.is_none() {
-                return Err(format!("its unit parameter {:?} is not one the codec {} allows as a column", u.name, codec.name));
+                return Err(Error::rejected(format!("its unit parameter {:?} is not one the codec {} allows as a column", u.name, codec.name)));
             }
             if codec.parameters.contains_key(&u.name) {
-                return Err(format!("its unit parameter {:?} is one the codec {} gives itself", u.name, codec.name));
+                return Err(Error::rejected(format!("its unit parameter {:?} is one the codec {} gives itself", u.name, codec.name)));
             }
         }
         Ok(())
@@ -1663,15 +1665,15 @@ fn check_chains(ctx: &Ctx, chains: &[Chain]) -> Res<()> {
     let mut seen: HashMap<String, usize> = HashMap::with_capacity(chains.len());
     for (k, c) in chains.iter().enumerate() {
         if let Some(j) = seen.insert(chain_json(c).to_string(), k) {
-            return Err(format!("internal: chains {j} and {k} of the chain table are one"));
+            return Err(Error::internal(format!("chains {j} and {k} of the chain table are one")));
         }
         for codec in c {
             let Some(entry) = ctx.entry(&codec.name) else {
-                return Err(format!("internal: chain {k} has the codec {:?}, which the IR's list has not", codec.name));
+                return Err(Error::internal(format!("chain {k} has the codec {:?}, which the IR's list has not", codec.name)));
             };
             for (name, p) in &codec.parameters {
                 if !entry.parameters.iter().any(|e| e.name == name) {
-                    return Err(format!("internal: chain {k}'s codec {} has the parameter {name:?}, which its entry has not", codec.name));
+                    return Err(Error::internal(format!("chain {k}'s codec {} has the parameter {name:?}, which its entry has not", codec.name)));
                 }
                 if let Param::Source(p) = p {
                     ctx.place(p).map_err(|e| format!("internal: chain {k}'s codec {}'s parameter {name:?} {e}", codec.name))?;
@@ -1692,24 +1694,24 @@ impl ChunkMap {
         // codecs' entries'
         let lengths = [self.coords_end.len(), self.element.len(), self.member.len(), self.range.len(), self.has_ranges.len(), self.ranges_end.len(), self.chain.len(), self.skips.len()];
         if lengths.iter().any(|&l| l != n) || self.params.values().any(|c| c.len() != n) {
-            return Err("internal: the chunk map's columns are not all of one length".into());
+            return Err(Error::internal("the chunk map's columns are not all of one length"));
         }
         let r = self.range_offset.len();
         let ends_ok = |ends: &[u64], total: usize| ends.windows(2).all(|w| w[0] <= w[1]) && ends.last().map_or(0, |&e| e as usize) == total;
         if !ends_ok(&self.coords_end, self.coords.len()) || !ends_ok(&self.ranges_end, r) || self.range_object.len() != r || self.range_length.len() != r {
-            return Err("internal: the chunk map's list offsets do not match its values".into());
+            return Err(Error::internal("the chunk map's list offsets do not match its values"));
         }
         if (0..n).any(|k| !self.has_ranges[k] && Self::start(&self.ranges_end, k) != self.ranges_end[k] as usize) {
-            return Err("internal: the chunk map has ranges in a null row".into());
+            return Err(Error::internal("the chunk map has ranges in a null row"));
         }
         if self.range_object.iter().any(|o| o.is_some_and(|o| o as usize >= self.objects.len())) {
-            return Err("internal: the chunk map names an object past its dictionary".into());
+            return Err(Error::internal("the chunk map names an object past its dictionary"));
         }
         let columns = ctx.columns();
         for (name, col) in &self.params {
             match columns.get(name).copied() {
-                None => return Err(format!("internal: the chunk map's column {name:?} is no codec's parameter column")),
-                Some(t) if t != col.kind() => return Err(format!("internal: the chunk map's column {name:?} is a {:?}, not {t:?}", col.kind())),
+                None => return Err(Error::internal(format!("the chunk map's column {name:?} is no codec's parameter column"))),
+                Some(t) if t != col.kind() => return Err(Error::internal(format!("the chunk map's column {name:?} is a {:?}, not {t:?}", col.kind()))),
                 _ => {}
             }
         }
@@ -1719,7 +1721,7 @@ impl ChunkMap {
                 let codec = &chains[d.chains[u.chain as usize] as usize][u.codec as usize];
                 let name = format!("p.{}.{}", codec.name, u.name);
                 if !self.params.contains_key(&name) {
-                    return Err(format!("internal: the chunk map has no column {name:?}, which the stored array of {} gives", named(ctx.ir, d.element)));
+                    return Err(Error::internal(format!("the chunk map has no column {name:?}, which the stored array of {} gives", named(ctx.ir, d.element))));
                 }
             }
         }
@@ -1737,9 +1739,9 @@ impl ChunkMap {
         for k in 0..n {
             let a = self.array[k];
             let Some(d) = arrays.get(a as usize) else {
-                return Err(format!("internal: chunk map row {k} is of array {a}, past the {} described", arrays.len()));
+                return Err(Error::internal(format!("chunk map row {k} is of array {a}, past the {} described", arrays.len())));
             };
-            let row = |e: String| format!("internal: chunk map row {k}, of the array of {}: {e}", named(ctx.ir, d.element));
+            let row = |e: String| Error::internal(format!("chunk map row {k}, of the array of {}: {e}", named(ctx.ir, d.element)));
             let Some(g) = &d.grid else {
                 return Err(row("the array has no grid".into()));
             };
@@ -1835,7 +1837,7 @@ impl ChunkMap {
                 let units = grid_units[a].iter().try_fold(1u64, |p, &u| p.checked_mul(u));
                 if units != Some(held[a]) {
                     let units = units.map_or_else(|| "more than 2^64".to_string(), |u| u.to_string());
-                    return Err(format!("internal: the array of {} has a dense grid of {units} units and {} rows", named(ctx.ir, d.element), held[a]));
+                    return Err(Error::internal(format!("the array of {} has a dense grid of {units} units and {} rows", named(ctx.ir, d.element), held[a])));
                 }
             }
         }
@@ -1859,23 +1861,23 @@ fn check_undescribed(ir: &Ir, keys: Option<&HashMap<String, u32>>) -> Res<()> {
     let s = &ir.stored;
     let Some(keys) = keys else {
         if !s.undescribed_keys.is_empty() {
-            return Err("internal: a file IR lists objects as undescribed".into());
+            return Err(Error::internal("a file IR lists objects as undescribed"));
         }
         if s.undescribed && !(s.arrays.is_empty() && s.chains.is_empty() && s.map.is_empty()) {
-            return Err("internal: a source marked undescribed keeps descriptions".into());
+            return Err(Error::internal("a source marked undescribed keeps descriptions"));
         }
         return Ok(());
     };
     if s.undescribed {
-        return Err("internal: a store IR marked undescribed itself rather than by its objects' keys".into());
+        return Err(Error::internal("a store IR marked undescribed itself rather than by its objects' keys"));
     }
     let mut listed: HashSet<u32> = HashSet::new();
     for k in &s.undescribed_keys {
         let Some(&o) = keys.get(k) else {
-            return Err(format!("internal: the undescribed key {k:?} is no object of the store"));
+            return Err(Error::internal(format!("the undescribed key {k:?} is no object of the store")));
         };
         if !listed.insert(o) {
-            return Err(format!("internal: the undescribed key {k:?} is listed twice"));
+            return Err(Error::internal(format!("the undescribed key {k:?} is listed twice")));
         }
     }
     if listed.is_empty() {
@@ -1884,10 +1886,10 @@ fn check_undescribed(ir: &Ir, keys: Option<&HashMap<String, u32>>) -> Res<()> {
     let of = ir.sources().of;
     let inside = |e: u32| of.get(e as usize).is_some_and(|o| listed.contains(o));
     if let Some(a) = s.arrays.iter().find(|a| inside(a.element)) {
-        return Err(format!("internal: the stored array of {} is in an object marked undescribed", named(ir, a.element)));
+        return Err(Error::internal(format!("the stored array of {} is in an object marked undescribed", named(ir, a.element))));
     }
     if let Some(e) = s.map.element.iter().flatten().find(|&&e| inside(e)) {
-        return Err(format!("internal: a chunk map row names {}, in an object marked undescribed", named(ir, *e)));
+        return Err(Error::internal(format!("a chunk map row names {}, in an object marked undescribed", named(ir, *e))));
     }
     Ok(())
 }
@@ -1913,13 +1915,13 @@ pub fn check_with(ir: &Ir, codecs: &[CodecEntry]) -> Res<()> {
         let who = named(ir, e);
         v.sort();
         if v.windows(2).any(|w| w[0] == w[1]) {
-            return Err(format!("internal: the stored arrays of {who}: two have one index"));
+            return Err(Error::internal(format!("the stored arrays of {who}: two have one index")));
         }
         if v.len() > 1 && v[0].is_none() {
-            return Err(format!("internal: the stored arrays of {who}: some have an index and some have none"));
+            return Err(Error::internal(format!("the stored arrays of {who}: some have an index and some have none")));
         }
         if v.iter().enumerate().any(|(k, x)| x.is_some_and(|x| x != k as u64)) {
-            return Err(format!("internal: the stored arrays of {who}: their indexes are not 0 to {}", v.len() - 1));
+            return Err(Error::internal(format!("the stored arrays of {who}: their indexes are not 0 to {}", v.len() - 1)));
         }
     }
     check_chains(&ctx, &s.chains)?;
@@ -2158,7 +2160,7 @@ mod tests {
     fn refusal(f: impl FnOnce(&mut Stored)) -> String {
         let mut s = valid();
         f(&mut s);
-        check_with(&with(s), TEST_CODECS).unwrap_err()
+        check_with(&with(s), TEST_CODECS).unwrap_err().to_string()
     }
 
     /// The list names each codec once, and a codec each of its parameters once: two formats' PRs
@@ -2283,7 +2285,7 @@ mod tests {
     #[test]
     fn refuses_to_describe_an_unfinished_ir() {
         let mut ir = Ir::new(10);
-        assert_eq!(ir.describe(vec![], vec![], ChunkMap::default()).unwrap_err(), "internal: arrays described before the IR is finished");
+        assert_eq!(ir.describe(vec![], vec![], ChunkMap::default()).unwrap_err(), Error::internal("arrays described before the IR is finished"));
     }
 
     #[test]
@@ -2291,7 +2293,7 @@ mod tests {
         let mut ir = file_ir();
         let a = StoredArray { index: None, ..valid().arrays[2].clone() };
         ir.describe(vec![a.clone()], vec![], ChunkMap::default()).unwrap();
-        assert_eq!(ir.describe(vec![a], vec![], ChunkMap::default()).unwrap_err(), "internal: the IR's arrays described twice");
+        assert_eq!(ir.describe(vec![a], vec![], ChunkMap::default()).unwrap_err(), Error::internal("the IR's arrays described twice"));
     }
 
     /// An array of 2000 listed runs keyed by `element`, of chains `chains`, with a declaration, its
@@ -2807,7 +2809,7 @@ mod tests {
         let a = StoredArray { element: 99, index: None, ..valid().arrays[2].clone() };
         let mut ir = file_ir();
         let e = ir.describe(vec![a.clone()], vec![], ChunkMap::default()).unwrap_err();
-        assert_eq!(e, "internal: the stored array of element 99: names element 99, which the IR has not");
+        assert_eq!(e, Error::internal("the stored array of element 99: names element 99, which the IR has not"));
         let b = ir.budget.as_ref().unwrap();
         assert_eq!((b.spent_descriptions, b.spent_rows), (0, 0));
         let mut store = Ir::new_store();
@@ -2816,7 +2818,7 @@ mod tests {
         let a = StoredArray { element: 9999, ..a };
         store.stored = std::sync::Arc::new(Stored { arrays: vec![a], ..Stored::default() });
         let e = crate::check::finish(&mut store).unwrap_err();
-        assert_eq!(e, "internal: the stored array of element 9999: names element 9999, which the IR has not");
+        assert_eq!(e, Error::internal("the stored array of element 9999: names element 9999, which the IR has not"));
         assert!(!store.finished);
     }
 
@@ -2839,12 +2841,12 @@ mod tests {
         store.graft(&with(valid()), o[1]).unwrap();
         let state = |s: &Ir| (s.len(), s.digest(), s.stored.as_ref().clone(), s.budget.as_ref().map(|b| (b.spent_records, b.spent_elements, b.spent_descriptions, b.spent_rows)));
         let before = state(&store);
-        assert!(store.graft(&refused, o[0]).unwrap_err().contains("they give other unit parameters"));
+        assert!(store.graft(&refused, o[0]).unwrap_err().to_string().contains("they give other unit parameters"));
         assert!(state(&store) == before);
         let b = store.budget.as_mut().unwrap();
         b.records = b.spent_records;
         let before = state(&store);
-        assert_eq!(store.graft(&with(valid()), o[0]).unwrap_err(), format!("budget: more than {} IR records", before.3.unwrap().0));
+        assert_eq!(store.graft(&with(valid()), o[0]).unwrap_err(), Error::budget(format!("more than {} IR records", before.3.unwrap().0)));
         assert!(state(&store) == before);
     }
 
@@ -2940,7 +2942,7 @@ mod tests {
         check_with(&file, TEST_CODECS).unwrap();
         let mut store = Ir::new_store();
         let o = store.listing(&[("f.bin".into(), 100)]).unwrap();
-        assert!(store.graft(&file, o[0]).unwrap_err().contains("they give other unit parameters"));
+        assert!(store.graft(&file, o[0]).unwrap_err().to_string().contains("they give other unit parameters"));
     }
 
     /// Under Full, units of one length but a shorter last one stay a List: Each would say the
@@ -2951,7 +2953,7 @@ mod tests {
         s.arrays[0].grid.as_mut().unwrap().axes[0] = AxisUnits::List(vec![Run::Repeat(10, 2), Run::One(5)]);
         check_with(&with(s.clone()), TEST_CODECS).unwrap();
         s.arrays[0].grid.as_mut().unwrap().edge = Edge::Short;
-        assert!(check_with(&with(s), TEST_CODECS).unwrap_err().contains("lists units that are Each(10)"));
+        assert!(check_with(&with(s), TEST_CODECS).unwrap_err().to_string().contains("lists units that are Each(10)"));
     }
 
     #[test]
@@ -2996,7 +2998,7 @@ mod tests {
         store.graft(&file_ir(), o[0]).unwrap();
         let a = StoredArray { element: 1, index: None, declarations: vec![Place::Extent { object: Some("f.bin".into()), offset: 99, length: 2 }], ..valid().arrays[2].clone() };
         store.stored = std::sync::Arc::new(Stored { arrays: vec![a], ..Stored::default() });
-        assert!(check_with(&store, TEST_CODECS).unwrap_err().contains("names [99, 101) of \"f.bin\", past its 100 bytes"));
+        assert!(check_with(&store, TEST_CODECS).unwrap_err().to_string().contains("names [99, 101) of \"f.bin\", past its 100 bytes"));
     }
 
     #[test]
@@ -3044,7 +3046,7 @@ mod tests {
         let mut map = ChunkMap::default();
         map.push(Row { params: vec![("p.quantize.scale".into(), Scalar::Float64(1.0))], ..Row::default() }).unwrap();
         let row = Row { coords: vec![1], params: vec![("p.quantize.scale".into(), Scalar::UInt64(1))], ..Row::default() };
-        assert_eq!(map.push(row).unwrap_err(), "internal: a parameter column given a value of another type");
+        assert_eq!(map.push(row).unwrap_err(), Error::internal("a parameter column given a value of another type"));
     }
 
     #[test]
@@ -3309,7 +3311,7 @@ mod tests {
         s.arrays[0].index = None;
         s.arrays[0].declarations = vec![Place::Extent { object: None, offset: 0, length: 1 }];
         store.stored = std::sync::Arc::new(s);
-        assert!(check_with(&store, TEST_CODECS).unwrap_err().contains("names the parsed source (a null key) in a store IR"));
+        assert!(check_with(&store, TEST_CODECS).unwrap_err().to_string().contains("names the parsed source (a null key) in a store IR"));
     }
 
     #[test]
@@ -3318,7 +3320,7 @@ mod tests {
         let o = store.listing(&[("f.bin".into(), 100)]).unwrap();
         store.graft(&with(valid()), o[0]).unwrap();
         // the row of grafted ranges names "beside.bin", which this store has not
-        assert!(check_with(&store, TEST_CODECS).unwrap_err().contains("a range names the object \"beside.bin\", which the store has not"));
+        assert!(check_with(&store, TEST_CODECS).unwrap_err().to_string().contains("a range names the object \"beside.bin\", which the store has not"));
     }
 
     #[test]
@@ -3448,7 +3450,7 @@ mod tests {
             let k = ir.form_of.binary_search_by_key(&4, |e| e.0).unwrap();
             ir.form_of[k].1 = f;
             std::sync::Arc::make_mut(&mut ir.stored).map.range[4] = Some((0, 60));
-            assert!(check_with(&ir, TEST_CODECS).unwrap_err().contains("its range is its element's whole extent"), "{recipe}");
+            assert!(check_with(&ir, TEST_CODECS).unwrap_err().to_string().contains("its range is its element's whole extent"), "{recipe}");
         }
     }
 
@@ -3504,7 +3506,7 @@ mod tests {
         let o = store.listing(&[("a/f.bin".into(), 100), ("beside.bin".into(), 4), ("c.bin".into(), 10)]).unwrap();
         store.graft(&with(valid()), o[0]).unwrap();
         f(std::sync::Arc::make_mut(&mut store.stored));
-        check_with(&store, TEST_CODECS).unwrap_err()
+        check_with(&store, TEST_CODECS).unwrap_err().to_string()
     }
 
     /// Another object's rows may read the bytes of an object marked `undescribed`: `valid()`'s
@@ -3524,7 +3526,7 @@ mod tests {
         own.listing(&[("x.raw".into(), 100)]).unwrap();
         crate::check::finish(&mut own).unwrap();
         let a = StoredArray { element: 0, index: None, ..valid().arrays[2].clone() };
-        assert_eq!(own.describe(vec![a], vec![], ChunkMap::default()).unwrap_err(), "internal: a store's own stored array of element 0 (\"\") lies in no object");
+        assert_eq!(own.describe(vec![a], vec![], ChunkMap::default()).unwrap_err(), Error::internal("a store's own stored array of element 0 (\"\") lies in no object"));
     }
 
     #[test]

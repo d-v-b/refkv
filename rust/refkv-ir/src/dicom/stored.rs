@@ -7,6 +7,8 @@
 //! where each unit's bytes are, and from what the parser read of the image; of a Pixel Data in an
 //! item, from the values the IR holds of its item's attributes.
 
+use crate::error::Error;
+
 use super::elements::{tag_key, El};
 use super::json::is_integer;
 use super::{first_string, frame_ranges, Image, Layout};
@@ -470,8 +472,8 @@ fn nested(b: &mut Build, img: &Image, pixel: u32) -> Res<Vec<(u32, u64)>> {
 /// The descriptions of the file's arrays: the top-level Pixel Data's, the lookup tables' and
 /// those of the Pixel Data in items.
 pub(super) fn described(ir: &Ir, img: &Image, lay: &Layout) -> Res<Described> {
-    let dataset = child(ir, 0, "dataset").ok_or("internal: a DICOM IR without its dataset")?;
-    let pixel = child(ir, dataset, &tag_key(super::elements::PIXEL_DATA)).ok_or("internal: a DICOM IR without its Pixel Data")?;
+    let dataset = child(ir, 0, "dataset").ok_or_else(|| Error::internal("a DICOM IR without its dataset"))?;
+    let pixel = child(ir, dataset, &tag_key(super::elements::PIXEL_DATA)).ok_or_else(|| Error::internal("a DICOM IR without its Pixel Data"))?;
     let syntax = child(ir, 0, "meta").and_then(|m| child(ir, m, &tag_key(TRANSFER_SYNTAX)));
     let room = ir.budget.as_ref().map_or(u64::MAX, |b| b.rows.saturating_sub(b.spent_rows));
     let mut b = Build { ir, roots: ir.run_roots(), arrays: Vec::new(), chains: Vec::new(), chain_index: BTreeMap::new(), map: ChunkMap::default(), room, syntax };

@@ -5,6 +5,8 @@
 //! at its object; the projection presents the named file's hierarchy with what each link names at
 //! the link's path, one level deep.
 
+use crate::error::Error;
+
 use super::file::Hdf5;
 use crate::beside::Tree;
 use crate::ir::{Ir, Res};
@@ -40,7 +42,7 @@ pub struct Hdf5Store {
 
 impl Hdf5Store {
     pub fn new(ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Hdf5Store> {
-        let [(_, size)] = keys else { return Err("internal: an HDF5 input lists its named file alone".into()) };
+        let [(_, size)] = keys else { return Err(Error::internal("an HDF5 input lists its named file alone")) };
         Ok(Hdf5Store {
             ir,
             tree: Tree::default(),
@@ -143,7 +145,7 @@ impl StoreParser for Hdf5Store {
     fn found(&mut self, key: &str, index: usize, size: Option<u64>) -> Res<Option<u32>> {
         let Some(size) = size else { return Ok(None) };
         if index != self.keys.len() {
-            return Err("internal: a found object out of order".into());
+            return Err(Error::internal("a found object out of order"));
         }
         let e = self.tree.object(&mut self.ir, key, size)?;
         self.keys.push((key.to_string(), size));
@@ -153,7 +155,7 @@ impl StoreParser for Hdf5Store {
 
     fn finish(self: Box<Self>) -> Res<(Ir, J)> {
         if self.stage != Stage::Done {
-            return Err("internal: the parse is not done".into());
+            return Err(Error::internal("the parse is not done"));
         }
         let Hdf5Store { mut ir, keys, elems, named, followers, .. } = *self;
         let (named_ir, mut facts) = named.finish()?;

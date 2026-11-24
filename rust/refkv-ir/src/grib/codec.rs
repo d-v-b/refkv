@@ -8,6 +8,8 @@
 //! groups), as eccodes, NCEP's g2c and gribberish read a constant field, whose `R` their
 //! encoders write as the value itself. One implementation serves Python and the browser.
 
+use crate::error::Error;
+
 mod aec;
 mod jpeg2000;
 mod png;
@@ -15,10 +17,10 @@ mod png;
 use super::sections::{Field, Section, fields, indicator, sections, signed, uint};
 use serde_json::Value as J;
 
-type Res<T> = Result<T, String>;
+use crate::error::Res;
 
 fn err<T>(m: impl std::fmt::Display) -> Res<T> {
-    Err(format!("refkv.grib: {m}"))
+    Err(Error::rejected(format!("refkv.grib: {m}")))
 }
 
 /// The most points a grid may have (spec/zarrify/grib.md's budget).

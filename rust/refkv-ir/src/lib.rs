@@ -4,6 +4,8 @@
 //! source model schema. The core has no I/O and builds for wasm32; the Python
 //! bindings are a crate of their own (rust/refkv-python/src/lib.rs, the module `refkv._core`).
 
+use crate::error::Error;
+
 pub mod array;
 pub mod beside;
 pub mod canon;
@@ -61,9 +63,9 @@ include!(concat!(env!("OUT_DIR"), "/modules.rs"));
 /// (`requests`, `requested`, `rounds`), which the run takes apart (`run::parse_counts`).
 pub trait Parser {
     fn new(size: u64) -> Self;
-    fn step(&mut self) -> Result<step::Step, String>;
+    fn step(&mut self) -> crate::error::Res<step::Step>;
     fn feed(&mut self, offset: u64, data: Vec<u8>);
-    fn finish(self) -> Result<(ir::Ir, serde_json::Value), String>;
+    fn finish(self) -> crate::error::Res<(ir::Ir, serde_json::Value)>;
     /// The profile the parser found the file to be, when the parser decides it (the TIFF
     /// parser's: TIFF, NDPI or QPTIFF); else None, and the run keeps its format.
     fn found(&self) -> Option<&'static str> {
@@ -79,13 +81,13 @@ macro_rules! parser {
             fn new(size: u64) -> Self {
                 <$t>::new(size)
             }
-            fn step(&mut self) -> Result<$crate::step::Step, String> {
+            fn step(&mut self) -> crate::error::Res<$crate::step::Step> {
                 <$t>::step(self)
             }
             fn feed(&mut self, offset: u64, data: Vec<u8>) {
                 <$t>::feed(self, offset, data)
             }
-            fn finish(self) -> Result<($crate::ir::Ir, serde_json::Value), String> {
+            fn finish(self) -> crate::error::Res<($crate::ir::Ir, serde_json::Value)> {
                 <$t>::finish(self)
             }
         }
@@ -94,7 +96,7 @@ macro_rules! parser {
 pub(crate) use parser;
 
 /// Runs a parser over bytes in memory (tests, tools).
-pub fn parse_bytes<P: Parser>(data: &[u8]) -> Result<(ir::Ir, serde_json::Value), String> {
+pub fn parse_bytes<P: Parser>(data: &[u8]) -> crate::error::Res<(ir::Ir, serde_json::Value)> {
     let mut p = P::new(data.len() as u64);
     loop {
         match p.step()? {
@@ -103,7 +105,7 @@ pub fn parse_bytes<P: Parser>(data: &[u8]) -> Result<(ir::Ir, serde_json::Value)
                     p.feed(o, data[o as usize..(o + n) as usize].to_vec());
                 }
             }
-            step::Step::Beside => return Err("the file names siblings, which its bytes alone cannot give".into()),
+            step::Step::Beside => return Err(Error::rejected("the file names siblings, which its bytes alone cannot give")),
             step::Step::Done => break,
         }
     }

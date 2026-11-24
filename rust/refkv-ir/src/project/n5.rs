@@ -6,6 +6,8 @@
 //! hierarchy outside `refkv_source` (whose group is the mirror's), and the references: each
 //! chunk object at its own key, each other object at `refkv_source/objects/<k>`, whole.
 
+use crate::error::Error;
+
 use crate::ir::Ir;
 use crate::n5::{compression, document_key};
 use crate::out::{convention, root_property, Out, Part, CONVENTION_KEY, SOURCE_NODE};
@@ -330,7 +332,7 @@ fn cosem(g: &str, attrs: &Jv, ndim: &BTreeMap<String, usize>, docs: &HashMap<Str
     })
 }
 
-fn n5_viewer(g: &str, attrs: &Jv, ndim: &BTreeMap<String, usize>, docs: &HashMap<String, Jv>) -> Result<Option<Found>, String> {
+fn n5_viewer(g: &str, attrs: &Jv, ndim: &BTreeMap<String, usize>, docs: &HashMap<String, Jv>) -> crate::error::Res<Option<Found>> {
     let s0 = join(g, "s0");
     let Some(&n) = ndim.get(&s0) else { return Ok(None) };
     let mut levels = Vec::new();
@@ -410,7 +412,7 @@ fn n5_viewer(g: &str, attrs: &Jv, ndim: &BTreeMap<String, usize>, docs: &HashMap
     let units: Vec<Option<String>> = axes.iter().map(|a| if axis_type(a) == Some("space") { u.clone() } else { None }).collect();
     let scales: Vec<Vec<f64>> = factors.iter().map(|f| (0..n).map(|j| r[j] * f[j]).collect()).collect();
     if scales.iter().flatten().any(|v| v.is_infinite()) {
-        return Err(format!("{}: a scale is not finite", if g.is_empty() { "/" } else { g }));
+        return Err(Error::rejected(format!("{}: a scale is not finite", if g.is_empty() { "/" } else { g })));
     }
     // a downsampled voxel's center is (f − 1) / 2 source voxels from the origin
     let translations: Vec<Vec<f64>> = factors.iter().map(|f| (0..n).map(|j| (f[j] - 1.0) / 2.0 * r[j]).collect()).collect();
@@ -439,14 +441,14 @@ fn implicit_groups(nodes: &BTreeSet<String>) -> BTreeSet<String> {
 
 /// The N5 hierarchy of a valid store IR and its description (`nodes`, from the parser; `ignored`,
 /// the recorded ignored keys, from the host), outside `refkv_source`, and its references.
-pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str) -> crate::error::Res<Out> {
     let src = ir.sources();
     let listing: Vec<(String, u64, u32)> = src.objects.iter().map(|&o| (ir.key(o), ir.len[o as usize], o)).collect();
     let mut kinds: BTreeMap<String, bool> = BTreeMap::new();
     let mut docs: HashMap<String, Jv> = HashMap::new();
     for n in description["nodes"].as_array().map(Vec::as_slice).unwrap_or(&[]) {
         let path = n["path"].as_str().unwrap_or("").to_string();
-        let text = n["json"].as_str().ok_or_else(|| format!("internal: {} has no document", document_key(&path)))?;
+        let text = n["json"].as_str().ok_or_else(|| Error::internal(format!("{} has no document", document_key(&path))))?;
         docs.insert(path.clone(), json::parse(text.as_bytes()).map_err(|e| format!("internal: {}: {e}", document_key(&path)))?.value);
         kinds.insert(path, n["kind"] == "dataset");
     }
@@ -576,7 +578,7 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
     if !root_array {
         // the group refkv_source is the mirror's: no node may be there
         if let Some(p) = nodes.iter().chain(&implicit).find(|p| *p == SOURCE_NODE || p.starts_with(&format!("{SOURCE_NODE}/"))) {
-            return Err(format!("the node {p} is where the store's other objects go ({OBJECTS}...)"));
+            return Err(Error::rejected(format!("the node {p} is where the store's other objects go ({OBJECTS}...)")));
         }
     }
     let mut others = 0u64;
@@ -600,6 +602,6 @@ pub fn project(ir: &Ir, description: &J, url: &str) -> Result<Out, String> {
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<Out> {
     project(ir, description, url)
 }

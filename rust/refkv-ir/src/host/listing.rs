@@ -28,7 +28,7 @@ fn text(el: &Element) -> Result<String, Fail> {
 #[allow(clippy::type_complexity)]
 pub fn parse_listing(body: &[u8], prefix: &str) -> Result<(Vec<(String, u64)>, Option<String>), Fail> {
     let s = std::str::from_utf8(body).or_else(|_| rejected("listing is not UTF-8"))?;
-    let root = xmltree::parse(s, "listing").map_err(Fail::Rejected)?;
+    let root = xmltree::parse(s, "listing").map_err(Fail::from)?;
     if root.name != "ListBucketResult" {
         return rejected(format!("listing root element is <{}>, not <ListBucketResult>", root.name));
     }
@@ -83,7 +83,7 @@ pub fn parse_listing(body: &[u8], prefix: &str) -> Result<(Vec<(String, u64)>, O
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), or a rejection:
 /// a gated repository's too.
 pub fn parse_hub_revision(body: &[u8]) -> Result<String, Fail> {
-    let doc = json::parse(body).map_err(Fail::Rejected)?.value;
+    let doc = json::parse(body).map_err(Fail::from)?.value;
     if !doc.is_obj() {
         return rejected("the Hub revision is not a JSON object");
     }
@@ -101,7 +101,7 @@ pub fn parse_hub_revision(body: &[u8]) -> Result<String, Fail> {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), its files under
 /// the directory `prefix` (its directories list nothing), and its number of entries.
 pub fn parse_hub_tree(body: &[u8], prefix: &str) -> Result<(Vec<(String, u64)>, usize), Fail> {
-    let doc = json::parse(body).map_err(Fail::Rejected)?.value;
+    let doc = json::parse(body).map_err(Fail::from)?.value;
     let Some(entries) = doc.items() else {
         return rejected("the Hub tree listing is not a JSON array");
     };

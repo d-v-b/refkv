@@ -11,6 +11,8 @@
 //! and each band's source metadata, the objects kept whole, and the counts. The projection checks
 //! only the archive's own limits (reference payloads, output keys).
 
+use crate::error::Error;
+
 use super::{arr, n, with_counts};
 use crate::ir::Ir;
 use crate::out::{array_json, convention, declare_array, group_doc, payload_size, root_property, transpose_codec, Out, Part, CONVENTION_KEY, MAX_PAYLOAD};
@@ -114,7 +116,7 @@ pub fn plan(d: &J) -> J {
 }
 
 /// The projection of the product the description `d` describes, through refkv's plan ([`plan`]).
-pub fn project(_ir: &Ir, d: &J, url: &str) -> Result<Out, String> {
+pub fn project(_ir: &Ir, d: &J, url: &str) -> crate::error::Res<Out> {
     let planned = plan(d);
     let mut out = Out::new(url);
     let store = d["form"] == "store";
@@ -205,17 +207,17 @@ pub fn project(_ir: &Ir, d: &J, url: &str) -> Result<Out, String> {
         }).collect();
         if payload_size(&parts) > MAX_PAYLOAD {
             let short: String = key.chars().take(200).collect();
-            return Err(format!("the reference payload of {short} is over {MAX_PAYLOAD} bytes"));
+            return Err(Error::rejected(format!("the reference payload of {short} is over {MAX_PAYLOAD} bytes")));
         }
         out.refs(&key, parts);
     }
     for k in out.entries.iter().map(|e| &e.0).chain(out.refs.iter().map(|r| &r.0)) {
         if k.len() > 65535 {
-            return Err("an output key is longer than 65535 bytes".into());
+            return Err(Error::rejected("an output key is longer than 65535 bytes"));
         }
         if k.starts_with("__vz__/") {
             let short: String = k.chars().take(200).collect();
-            return Err(format!("output key {short:?} is in the reserved __vz__/ space"));
+            return Err(Error::rejected(format!("output key {short:?} is in the reserved __vz__/ space")));
         }
     }
     let summary = json!({"level": d["level"], "form": d["form"], "groups": resolutions.len(), "bands": bands.len(),
@@ -225,6 +227,6 @@ pub fn project(_ir: &Ir, d: &J, url: &str) -> Result<Out, String> {
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<Out> {
     project(ir, description, url)
 }

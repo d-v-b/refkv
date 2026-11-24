@@ -38,6 +38,14 @@ pub enum Fail {
     Bad(String),
 }
 
+/// The core's error, by its variant: a rejection of the input is `Rejected`, and a failure of
+/// refkv's (`Failed`, `Internal`) is `Bad`.
+impl From<crate::error::Error> for Fail {
+    fn from(e: crate::error::Error) -> Fail {
+        if e.is_rejection() { Fail::Rejected(e.to_string()) } else { Fail::Bad(e.to_string()) }
+    }
+}
+
 impl std::fmt::Display for Fail {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

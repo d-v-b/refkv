@@ -25,20 +25,20 @@ fn fixtures() -> PathBuf {
 }
 
 /// The store `files`' output, mirrored.
-fn directory(files: &BTreeMap<String, Vec<u8>>) -> Result<Out, String> {
+fn directory(files: &BTreeMap<String, Vec<u8>>) -> refkv_ir::error::Res<Out> {
     let keys = listing(files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let (ir, facts, stats, read) = run_store(StoreFormat::Zarr3, keys, &|k| bytes[k].clone())?;
-    store_output(StoreFormat::Zarr3, &ir, &facts, stats, &read, "https://data.test/s/", true, false).map_err(String::from)
+    store_output(StoreFormat::Zarr3, &ir, &facts, stats, &read, "https://data.test/s/", true, false)
 }
 
 /// The zip file's output, mirrored, and its IR.
-fn zip(data: &[u8]) -> Result<(Out, refkv_ir::ir::Ir), String> {
+fn zip(data: &[u8]) -> refkv_ir::error::Res<(Out, refkv_ir::ir::Ir)> {
     let (ir, facts, stats) = run_bytes(Format::Zarr3, data)?;
     Ok((output(Format::Zarr3, &ir, &facts, &serde_json::json!({}), stats, "https://data.test/s.zip", true, &Default::default(), &refkv_ir::run::Options { written: true, ..Default::default() })?, ir))
 }
 
-fn run(name: &str) -> Result<Out, String> {
+fn run(name: &str) -> refkv_ir::error::Res<Out> {
     let path = fixtures().join(name);
     if path.is_dir() {
         directory(&walk(&path))
@@ -60,7 +60,7 @@ fn refs(out: &Out) -> BTreeMap<&str, &[Part]> {
 fn check_zip(path: &Path, data: &[u8], out: &Out, ir: &refkv_ir::ir::Ir) {
     check::check(ir).unwrap_or_else(|m| panic!("{path:?}: {m}"));
     let get = |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone());
-    let mut read = |o: u64, n: u64| -> Result<Vec<u8>, String> { Ok(data[o as usize..(o + n) as usize].to_vec()) };
+    let mut read = |o: u64, n: u64| -> refkv_ir::error::Res<Vec<u8>> { Ok(data[o as usize..(o + n) as usize].to_vec()) };
     let back = load(&table_from_out(out).unwrap(), &mut read).unwrap();
     let mut rebuilt = Vec::new();
     for (o, n) in check::leaves(&back).unwrap() {
@@ -263,7 +263,7 @@ macro_rules! reject {
         #[test]
         fn $name() {
             let e = run($input).err().unwrap_or_else(|| panic!("{} accepted", $input));
-            assert!(e.contains($why), "{}: {e}", $input);
+            assert!(e.to_string().contains($why), "{}: {e}", $input);
         }
     };
 }

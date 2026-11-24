@@ -31,7 +31,7 @@ pub fn reservoir_lead(a: usize, reservoir: u64, main: impl Fn(usize) -> u64) -> 
 /// (j − a) · `spf`, charged as its first frame a. Returns the count of chunks.
 #[allow(clippy::too_many_arguments)]
 pub fn chunks(refs: &mut Refs, ir: &Ir, path: &str, first: usize, count: usize, per: usize, spf: u64, form: u32,
-              lead: impl Fn(usize) -> usize) -> Result<usize, String> {
+              lead: impl Fn(usize) -> usize) -> crate::error::Res<usize> {
     let frame = |j: usize| (ir.start[first + j], ir.len[first + j]);
     let chunks = count.div_ceil(per);
     for q in 0..chunks {

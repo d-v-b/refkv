@@ -7,6 +7,8 @@
 //! per grid, holding its coordinates and an array per variable, whose chunks are the file's
 //! messages, one field each. refkv's plan ([`plan`]) decides which fields are presented.
 
+use crate::error::Error;
+
 use super::vsi::object_url;
 use super::{arr, n, with_counts};
 use crate::grib::meta::gaussian_latitude;
@@ -367,7 +369,7 @@ fn chunk_parts(field: &J, messages: &[J], key: &str) -> Vec<Part> {
 /// interpret, else the convention's: a packing the codec does not decode, a predefined or missing
 /// bitmap, or values that are not its grid's points); the root's source metadata, `own`; and the
 /// summary's `counts`. A file with no field presented is rejected.
-pub fn plan(d: &J) -> Result<J, String> {
+pub fn plan(d: &J) -> crate::error::Res<J> {
     let rules = crate::rules::of(PROFILE);
     let mut fields: Vec<J> = Vec::with_capacity(arr(&d["fields"]).len());
     // whether a field before it in its message gave a bitmap, which indicator 254 reuses
@@ -411,7 +413,7 @@ pub fn plan(d: &J) -> Result<J, String> {
 }
 
 /// The projection of the file the description `d` describes, through refkv's plan ([`plan`]).
-pub fn project(ir: &Ir, d: &J, url: &str) -> Result<Out, String> {
+pub fn project(ir: &Ir, d: &J, url: &str) -> crate::error::Res<Out> {
     let planned = plan(d)?;
     let file_key = d["file_key"].as_str().unwrap_or("").to_string();
     let file_url = object_url(url, &file_key);
@@ -686,7 +688,7 @@ pub fn project(ir: &Ir, d: &J, url: &str) -> Result<Out, String> {
     let _ = ir;
     for (k, p) in refs {
         if crate::out::payload_size(&p) > crate::out::MAX_PAYLOAD {
-            return Err(format!("{k}: a reference payload of more than {} bytes", crate::out::MAX_PAYLOAD));
+            return Err(Error::rejected(format!("{k}: a reference payload of more than {} bytes", crate::out::MAX_PAYLOAD)));
         }
         out.refs(&k, p);
     }
@@ -707,6 +709,6 @@ pub fn project(ir: &Ir, d: &J, url: &str) -> Result<Out, String> {
 }
 
 /// The projection of the profile's store run (`StoreFormat`; crate::store).
-pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, _copied: &super::Copied, _chunking: &crate::out::Chunking) -> crate::error::Res<Out> {
     project(ir, description, url)
 }

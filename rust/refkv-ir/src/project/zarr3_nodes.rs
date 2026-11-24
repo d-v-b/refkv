@@ -14,6 +14,8 @@
 //! The parser runs [`classify`] too, for one thing: the documents the IR holds are those of the
 //! candidates the classification reaches, so the mirror follows it.
 
+use crate::error::Error;
+
 use crate::ir::Res;
 use crate::json::{self, Jv};
 use crate::project::zarr3::is_chunk;
@@ -35,13 +37,13 @@ fn schema() -> &'static Rules {
 pub fn hierarchy(description: &J) -> Res<J> {
     let form = description["form"].as_str().unwrap_or("store");
     let mut cands = Vec::new();
-    let mut docs: HashMap<String, Result<Vec<u8>, String>> = HashMap::new();
+    let mut docs: HashMap<String, crate::error::Res<Vec<u8>>> = HashMap::new();
     for c in description["candidates"].as_array().into_iter().flatten() {
         let path = c["path"].as_str().unwrap_or("").to_string();
         let doc = match (c["json"].as_str(), c["unread"].as_str().or(c["error"].as_str())) {
             (Some(text), _) => Ok(text.as_bytes().to_vec()),
-            (None, Some(why)) => Err(why.to_string()),
-            (None, None) => Err(format!("internal: the candidate {path:?} has no document in the description")),
+            (None, Some(why)) => Err(Error::rejected(why)),
+            (None, None) => Err(Error::internal(format!("the candidate {path:?} has no document in the description"))),
         };
         docs.insert(path.clone(), doc);
         cands.push(path);
@@ -61,7 +63,7 @@ pub fn hierarchy(description: &J) -> Res<J> {
         }
         for (path, reason) in compressed {
             if path.is_empty() {
-                return Err(reason);
+                return Err(Error::Rejected(reason));
             }
             c.presented.remove(&path);
             c.left_out.insert(path, reason);
@@ -211,7 +213,7 @@ fn check(shown: &str, key: &str, d: &Jv) -> Res<Option<ArrayInfo>> {
     s.check("array", &mut env)?;
     let v2 = encoding == "v2";
     let sep = separator.and_then(Jv::as_str).unwrap_or(if v2 { "." } else { "/" }).to_string();
-    let counts = counts.ok_or("internal: a chunk grid the schema checked has no chunks")?;
+    let counts = counts.ok_or_else(|| Error::internal("a chunk grid the schema checked has no chunks"))?;
     let sharded = codecs.iter().any(|c| named(Some(c)).0.as_deref() == Some("sharding_indexed"));
     Ok(Some(ArrayInfo { grid: Grid { v2, sep, counts }, sharded }))
 }
@@ -262,7 +264,7 @@ pub struct Classified {
 /// they were not read (spec/zarrify/zarr3.md
 /// §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#2-nodes>,
 /// §3.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#33-nodes-that-are-not-presented>).
-pub fn classify(cands: &[String], docs: &HashMap<String, Result<Vec<u8>, String>>) -> Res<Classified> {
+pub fn classify(cands: &[String], docs: &HashMap<String, crate::error::Res<Vec<u8>>>) -> Res<Classified> {
     let mut c = Classified { presented: BTreeMap::new(), left_out: BTreeMap::new(), implicit: BTreeSet::new(), held: BTreeMap::new() };
     // the arrays and the nodes left out: a candidate below one is not a node
     let mut closed: HashSet<&str> = HashSet::new();
@@ -272,7 +274,7 @@ pub fn classify(cands: &[String], docs: &HashMap<String, Result<Vec<u8>, String>
         }
         let shown = if p.is_empty() { "/" } else { p.as_str() };
         let key = doc_key(p);
-        let got = docs.get(p).cloned().unwrap_or_else(|| Err(format!("internal: {key} was not read")));
+        let got = docs.get(p).cloned().unwrap_or_else(|| Err(Error::internal(format!("{key} was not read"))));
         let checked = got.and_then(|b| {
             let d = json::parse(&b).map_err(|e| format!("{key}: {e}"));
             c.held.insert(p.clone(), d.as_ref().map(|d| d.members.clone()).unwrap_or_default());
@@ -290,7 +292,7 @@ pub fn classify(cands: &[String], docs: &HashMap<String, Result<Vec<u8>, String>
             Err(reason) if p.is_empty() => return Err(reason),
             Err(reason) => {
                 closed.insert(p);
-                c.left_out.insert(p.clone(), reason);
+                c.left_out.insert(p.clone(), reason.to_string());
             }
         }
     }
@@ -305,7 +307,7 @@ pub fn classify(cands: &[String], docs: &HashMap<String, Result<Vec<u8>, String>
     let all: BTreeSet<&String> = c.presented.keys().chain(c.left_out.keys()).chain(c.implicit.iter()).collect();
     for p in all {
         if p == SOURCE_GROUP || p.starts_with("refkv_source/") {
-            return Err(format!("the node {p} is where the store's source metadata goes ({SOURCE_GROUP}/)"));
+            return Err(Error::rejected(format!("the node {p} is where the store's source metadata goes ({SOURCE_GROUP}/)")));
         }
     }
     Ok(c)

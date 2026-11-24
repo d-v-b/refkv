@@ -4,39 +4,41 @@
 //! integer) and 8-bit RGBA (32 bits), as GRIB's encoders write them; the image data inflated with
 //! miniz_oxide, the filters of each row undone. Chunk CRCs are not checked.
 
-type Res<T> = Result<T, String>;
+use crate::error::Error;
+
+use crate::error::Res;
 
 const SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 
 /// The samples of the PNG image `b`, `width × height` of them.
 pub fn decode(b: &[u8]) -> Res<Vec<u64>> {
     if b.len() < 8 || &b[..8] != SIGNATURE {
-        return Err("section 7 is not a PNG image".into());
+        return Err(Error::rejected("section 7 is not a PNG image"));
     }
     let mut pos = 8;
     let mut header: Option<&[u8]> = None;
     let mut idat = Vec::new();
     loop {
         if pos + 12 > b.len() {
-            return Err("the PNG image ends before its IEND chunk".into());
+            return Err(Error::rejected("the PNG image ends before its IEND chunk"));
         }
         let n = u32::from_be_bytes(b[pos..pos + 4].try_into().unwrap()) as usize;
         let kind = &b[pos + 4..pos + 8];
         if n > b.len() - pos - 12 {
-            return Err(format!("the PNG image's {} chunk runs past its end", String::from_utf8_lossy(kind)));
+            return Err(Error::rejected(format!("the PNG image's {} chunk runs past its end", String::from_utf8_lossy(kind))));
         }
         let data = &b[pos + 8..pos + 8 + n];
         match kind {
             b"IHDR" => header = Some(data),
             b"IDAT" => idat.extend_from_slice(data),
-            b"PLTE" => return Err("a PNG image with a palette is not decoded".into()),
+            b"PLTE" => return Err(Error::rejected("a PNG image with a palette is not decoded")),
             b"IEND" => break,
             _ => {}
         }
         pos += 12 + n;
     }
     let Some(h) = header.filter(|h| h.len() == 13) else {
-        return Err("the PNG image has no IHDR chunk".into());
+        return Err(Error::rejected("the PNG image has no IHDR chunk"));
     };
     let width = u32::from_be_bytes(h[0..4].try_into().unwrap()) as usize;
     let height = u32::from_be_bytes(h[4..8].try_into().unwrap()) as usize;
@@ -45,20 +47,20 @@ pub fn decode(b: &[u8]) -> Res<Vec<u64>> {
         (0, 1 | 2 | 4 | 8 | 16) => depth,
         (2, 8) => 24,
         (6, 8) => 32,
-        _ => return Err(format!("a PNG image of color type {color} and bit depth {depth} is not decoded")),
+        _ => return Err(Error::rejected(format!("a PNG image of color type {color} and bit depth {depth} is not decoded"))),
     };
     if interlace != 0 {
-        return Err("an interlaced PNG image is not decoded".into());
+        return Err(Error::rejected("an interlaced PNG image is not decoded"));
     }
     if h[10] != 0 || h[11] != 0 {
-        return Err("the PNG image's compression or filter method is not 0".into());
+        return Err(Error::rejected("the PNG image's compression or filter method is not 0"));
     }
     let row = (width * pixel).div_ceil(8);
-    let size = height.checked_mul(row + 1).ok_or("the PNG image is too large")?;
+    let size = height.checked_mul(row + 1).ok_or_else(|| Error::rejected("the PNG image is too large"))?;
     let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&idat, size)
         .map_err(|e| format!("the PNG image's data does not inflate: {:?}", e.status))?;
     if raw.len() != size {
-        return Err(format!("the PNG image's data inflates to {} bytes, not {size}", raw.len()));
+        return Err(Error::rejected(format!("the PNG image's data inflates to {} bytes, not {size}", raw.len())));
     }
     let bpp = (pixel / 8).max(1);
     let mut rows = vec![0u8; height * row];
@@ -98,7 +100,7 @@ fn unfilter(f: u8, line: &[u8], prior: &[u8], bpp: usize, out: &mut [u8]) -> Res
                 let (pa, pb, pc) = ((b - c).abs(), (a - c).abs(), (a + b - 2 * c).abs());
                 if pa <= pb && pa <= pc { a } else if pb <= pc { b } else { c }
             }
-            _ => return Err(format!("a PNG row's filter type {f} is not one of 0–4")),
+            _ => return Err(Error::rejected(format!("a PNG row's filter type {f} is not one of 0–4"))),
         };
         out[k] = line[k].wrapping_add(p as u8);
     }

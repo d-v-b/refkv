@@ -9,6 +9,8 @@
 //! itself: the data type, the axes, the scaling, the scales, units, affine and position, and the
 //! chunks.
 
+use crate::error::Error;
+
 use super::vsi::object_url;
 use super::{along, contiguous, header_json, image_axes, n, Copied};
 use crate::gz;
@@ -49,7 +51,7 @@ struct Cut {
     chunks: Vec<(Vec<u64>, Chunk)>,
 }
 
-fn cut(h: &Header, (vox, length): (u64, u64), gzipped: bool, chunking: &Chunking) -> Result<Cut, String> {
+fn cut(h: &Header, (vox, length): (u64, u64), gzipped: bool, chunking: &Chunking) -> crate::error::Res<Cut> {
     let dim: Vec<i64> = h.values("dim").iter().map(|x| x.i()).collect();
     let nd = dim[0];
     let size = |i: usize| if (i as i64) <= nd { dim[i] as u64 } else { 1 };
@@ -70,17 +72,17 @@ fn cut(h: &Header, (vox, length): (u64, u64), gzipped: bool, chunking: &Chunking
     let (grid, chunks) = if gzipped {
         contiguous::whole_stream(&shape, (vox, length))
     } else {
-        grid_chunks(vox, &shape, item, CHUNK_BYTES, chunking.copy_threshold).ok_or("internal: the voxel data cannot be cut into chunks")?
+        grid_chunks(vox, &shape, item, CHUNK_BYTES, chunking.copy_threshold).ok_or_else(|| Error::internal("the voxel data cannot be cut into chunks"))?
     };
     Ok(Cut { axes, stored, shape, item, grid, chunks })
 }
 
 /// The header's bytes (in the description, of a gzipped file) and the voxel data's element.
-fn parts<'a>(ir: &'a Ir, description: &J) -> Result<(Cow<'a, [u8]>, u32), String> {
+fn parts<'a>(ir: &'a Ir, description: &J) -> crate::error::Res<(Cow<'a, [u8]>, u32)> {
     let elements = &description["elements"];
     let raw = match gz::head_of(description) {
         Some(head) => Cow::Owned(head),
-        None => Cow::Borrowed(ir.value_bytes(n(&elements["header"]) as u32).ok_or("internal: the header is not held")?),
+        None => Cow::Borrowed(ir.value_bytes(n(&elements["header"]) as u32).ok_or_else(|| Error::internal("the header is not held"))?),
     };
     Ok((raw, n(&elements["voxels"]) as u32))
 }
@@ -88,14 +90,14 @@ fn parts<'a>(ir: &'a Ir, description: &J) -> Result<(Cow<'a, [u8]>, u32), String
 /// The image file's ranges of the edge chunks a pair's projection copies (§7.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>), of voxels at `vox`,
 /// cut as `chunking` says.
-pub fn copy_ranges(h: &Header, vox: u64, chunking: &Chunking) -> Result<Vec<(u64, u64)>, String> {
+pub fn copy_ranges(h: &Header, vox: u64, chunking: &Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
     // a pair is not gzipped: only a gzip stream's chunk takes the length
     Ok(contiguous::copy_reads(&cut(h, (vox, 0), false, chunking)?.chunks).collect())
 }
 
 /// The source's ranges of the edge chunks the projection copies (§7.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>).
-pub fn reads(ir: &Ir, description: &J, chunking: &Chunking) -> Result<Vec<(u64, u64)>, String> {
+pub fn reads(ir: &Ir, description: &J, chunking: &Chunking) -> crate::error::Res<Vec<(u64, u64)>> {
     let (raw, voxels) = parts(ir, description)?;
     let h = header(&raw, n(&description["version"]) as u8);
     let c = cut(&h, (ir.start[voxels as usize], ir.len[voxels as usize]), description["gzip"].is_object(), chunking)?;
@@ -103,11 +105,11 @@ pub fn reads(ir: &Ir, description: &J, chunking: &Chunking) -> Result<Vec<(u64, 
 }
 
 /// The output of the input `description` describes; `description` also holds the run's options.
-pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> Result<Out, String> {
+pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &Chunking) -> crate::error::Res<Out> {
     let (raw, voxels) = parts(ir, description)?;
     let version = n(&description["version"]) as u8;
     let h = header(&raw, version);
-    let form = ir.form_id(voxels).ok_or("internal: the voxels have no form")?;
+    let form = ir.form_id(voxels).ok_or_else(|| Error::internal("the voxels have no form"))?;
     // a store IR's offsets are virtual: a pair's voxels are given in the image file's
     let data_key = description["data_key"].as_str();
     let (vox, length) = match data_key {
@@ -279,6 +281,6 @@ pub fn project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &
 /// store URL `url`: the single file's, of the image file's voxels, with the header file's URL as its
 /// source's. `copied` holds the edge chunks the store run read, by their (offset, length) in the
 /// image file.
-pub fn store_project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &crate::out::Chunking) -> Result<Out, String> {
+pub fn store_project(ir: &Ir, description: &J, url: &str, copied: &Copied, chunking: &crate::out::Chunking) -> crate::error::Res<Out> {
     project(ir, description, url, copied, chunking)
 }
