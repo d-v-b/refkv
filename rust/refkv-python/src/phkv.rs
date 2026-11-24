@@ -216,7 +216,7 @@ impl PyPhkvStore {
 }
 
 /// A binary file object, which the writer gives its output to.
-struct PyWrite(Py<PyAny>);
+pub(crate) struct PyWrite(pub(crate) Py<PyAny>);
 
 impl io::Write for PyWrite {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {

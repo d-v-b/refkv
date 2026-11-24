@@ -21,10 +21,10 @@ from pathlib import Path
 import pbref
 from http_server import etag_for
 from model import standard_queries
+from python_writer import VZipWriter
 
 from refkv._narrow import sequence
 from refkv.pb import Concat, Range, Source
-from refkv.vzip.archive import VZipWriter
 
 H = lambda b: b.hex() if isinstance(b, bytes) else b.encode().hex()  # noqa: E731
 ERROR = {"ok": False}
@@ -351,7 +351,7 @@ def invalid_descriptions(_root: Path) -> dict[str, dict]:
 
 
 class _Writer(VZipWriter):
-    """The reference writer with its test hooks declared (archive.py reads them with getattr)."""
+    """The reference writer with its test hooks declared (python_writer.py reads them with getattr)."""
 
     _skip_checks: bool = False
     _source_table_override: bytes | None = None

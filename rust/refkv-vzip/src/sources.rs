@@ -104,7 +104,7 @@ impl SourceTable {
                 return invalid(format!("a range of {key:?}: offset + length exceeds 2^64 - 1"));
             }
         }
-        // spec/refkv.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing> (which python/src/refkv/vzip/archive.py does not check)
+        // spec/refkv.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing> (which conformance/vzip/python_writer.py does not check)
         if ranges.iter().try_fold(0u64, |n, r| n.checked_add(r.size())).is_none() {
             return invalid(format!("the reference {key:?} exceeds 2^64 - 1 bytes"));
         }

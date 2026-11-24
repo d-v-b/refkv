@@ -1,5 +1,6 @@
-"""Writes the golden archives of tests/golden.rs with the Python writer (python/src/refkv/vzip/archive.py's
-VZipWriter): the Rust writer must write each one byte for byte.
+"""Writes the golden archives of tests/writer.rs with the pure-Python writer
+(conformance/vzip/python_writer.py's VZipWriter, which refkv's own writer was before it bound this
+crate): the Rust writer must write each one byte for byte, so the goldens stay an oracle of their own.
 
     uv run python rust/refkv-vzip/tests/golden/make.py
 """
@@ -11,9 +12,10 @@ import tempfile
 from pathlib import Path
 
 from refkv.pb import Range, Source
-from refkv.vzip.archive import VZipWriter
 
 HERE = Path(__file__).parent
+sys.path.insert(0, str(HERE.parents[3] / "conformance" / "vzip"))
+from python_writer import VZipWriter  # noqa: E402 (the pure-Python writer)
 
 
 def crc(url: str, offset: int, length: int) -> int:

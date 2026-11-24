@@ -31,6 +31,9 @@ from refkv.uri import file_uri
 from refkv.vzip.archive import SPEC_REVISION, VZipWriter
 from refkv.vzip.store import VZipStore
 
+sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "vzip"))
+from python_writer import VZipWriter as PyVZipWriter
+
 BLOB = bytes(range(256)) * 64  # 16 KiB
 # The test server is on 127.0.0.1, which spec §6.7
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3 refuses by
@@ -42,7 +45,7 @@ def _get(store, key, request=None):
     return store.get(key, request)
 
 
-class _Writer(VZipWriter):
+class _Writer(PyVZipWriter):
     """The writer with the test hooks it reads by getattr declared."""
 
     _skip_checks: bool = False
@@ -691,7 +694,7 @@ def test_refuses_an_inflation_bomb(tmp_path):
 
 def test_refuses_a_bytes_entry_that_inflates_past_its_size(tmp_path):
     path = tmp_path / "a.vzip"
-    with open(path, "wb") as f, VZipWriter(f) as w:
+    with open(path, "wb") as f, PyVZipWriter(f) as w:
         c = zlib.compressobj(9, zlib.DEFLATED, -15)
         w._entry_raw("bomb", b"x" * 10, c.compress(b"x" * (1 << 20)) + c.flush())
     with pytest.raises(BodyError, match="inflates to more than 10 bytes"):

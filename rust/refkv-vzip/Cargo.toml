@@ -1,6 +1,7 @@
 # The vzip archive (spec/bindings/vzip.md): the protobuf messages of spec/proto/refkv.proto and
 # spec/proto/vzip.proto, hand-written as python/src/refkv/pb.py is, and the archive writer, ported
-# byte for byte from python/src/refkv/vzip/archive.py's VZipWriter. A member of the workspace
+# byte for byte from the pure-Python VZipWriter (now conformance/vzip/python_writer.py), and
+# bound as refkv._core.VzipWriter, which refkv.vzip.archive.VZipWriter wraps. A member of the workspace
 # (rust/Cargo.toml): the CLI (rust/refkv-cli) depends on it by path, and so does the conformance
 # harness (conformance/impls/rust), from outside the workspace.
 [package]

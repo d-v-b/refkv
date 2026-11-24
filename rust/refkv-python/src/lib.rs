@@ -4,6 +4,7 @@
 
 mod formats;
 mod phkv;
+mod vzip;
 
 use refkv_ir::check;
 use refkv_ir::ir::*;
@@ -1154,5 +1155,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("Violation", m.py().get_type::<Violation>())?;
     m.add("NoCodec", m.py().get_type::<NoCodec>())?;
     phkv::register(m)?;
+    vzip::register(m)?;
     Ok(())
 }

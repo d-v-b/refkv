@@ -1,6 +1,8 @@
 import io
 import struct
+import sys
 import zipfile
+from pathlib import Path
 from typing import override
 
 import pytest
@@ -13,6 +15,9 @@ from refkv.reader import OffsetRequest, RangeRequest, SuffixRequest
 from refkv.uri import file_uri
 from refkv.vzip.archive import VZipWriter, parse_central_directory, parse_tail
 from refkv.vzip.store import VZipStore, _check_index
+
+sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "vzip"))
+from python_writer import VZipWriter as PyVZipWriter
 
 U32 = 0xFFFFFFFF
 
@@ -144,7 +149,7 @@ def test_close_refuses_a_missing_entry():
     w = VZipWriter(f)
     w.add_bytes("a/zarr.json", b"{}", late=True)
     w.add_ranges("k", [Range(source=w.internal("nope"), length=1)])
-    _close_refused(w, f, "missing entries: \\['nope'\\]")
+    _close_refused(w, f, "missing entries: \\[[\"']nope[\"']\\]")
 
 
 def test_close_refuses_an_invalid_url_source():
@@ -284,7 +289,7 @@ def test_large_entry_headers():
     # the sizes, then an offset that does not fit, and the body is 20 bytes further on
     big, far = 0x100000000 + 7, 0x200000000
     out = io.BytesIO()
-    VZipWriter(out)._local_header(b"k", 0, 0x1234, big, big)
+    PyVZipWriter(out)._local_header(b"k", 0, 0x1234, big, big)
     lfh = out.getvalue()
     assert struct.unpack_from("<H", lfh, 4)[0] == 45  # version needed
     assert struct.unpack_from("<II", lfh, 18) == (U32, U32)
@@ -297,7 +302,7 @@ def test_large_entry_headers():
         (5, far, struct.pack("<Q", far)),
         (5, 0, b""),
     ]:
-        rec = VZipWriter._cd_record("k", offset, size, size, 0, 0x1234, b"")
+        rec = PyVZipWriter._cd_record("k", offset, size, size, 0, 0x1234, b"")
         assert rec[47:] == (struct.pack("<HH", 1, len(block)) + block if block else b"")
         e = parse_central_directory(rec, trust_offsets=True)["k"]
         assert e.error is None
@@ -324,7 +329,7 @@ def test_reads_large_entries(tmp_path):
     # offset needs ZIP64 too, in a sparse file of 8 GiB that takes no disk space
     for page_size in (None, 64):
         path = tmp_path / "large.vzip"
-        with open(path, "wb") as f, VZipWriter(f, page_size=page_size) as w:
+        with open(path, "wb") as f, PyVZipWriter(f, page_size=page_size) as w:
             _sparse(w, "edge", U32, b"EDGE")
             _sparse(w, "big", (1 << 32) + 3, b"tail!")
             w.add_bytes("after", b"past 8 GiB")
@@ -457,4 +462,4 @@ def test_large_deflate_entry_rejected():
         def __len__(self):
             return 1 << 32
     with pytest.raises(ValueError, match="must be STORED"):
-        VZipWriter(io.BytesIO())._entry("k", Large(), compress=True)
+        PyVZipWriter(io.BytesIO())._entry("k", Large(), compress=True)
